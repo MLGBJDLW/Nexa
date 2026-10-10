@@ -1,6 +1,6 @@
 {
   "name": "read_file",
-  "description": "READ ONLY: inspect a file by path without modifying it. Use this tool to read/view existing content before an edit. Accepts path and optional start_line/max_lines, with no action or command field. For changes use edit_file with old_str and explicit new_str; for creation use create_file. Never send replacement text to read_file. In restricted mode paths must resolve inside the current registered source scope; allow-all/non-restricted permission modes can use all registered sources, and open mode can also use absolute local paths outside registered sources. Supports plain-text files directly, and also extracts readable text from PDF, DOCX, XLSX, PPTX, and image files when possible. Paths may be absolute or relative to a source root. Returns file metadata plus a suggested citation when available.\n\nFor large files, the output shows 'showing lines X-Y of Z total'. Use start_line to read subsequent sections (e.g., start_line=101 for the next page). Adjust max_lines for longer or shorter pages. For PDF/DOCX/PPTX with no explicit line limit or start_line, the whole original document is also available to verified native document routes; extraction remains the fallback. Office native input is text only; PDF native input can include page images. Explicit line parameters always select extraction only and never send the whole file. XLSX remains structured/extracted input for complete spreadsheet accuracy.",
+  "description": "Read an authorized local file. Use path with optional start_line/max_lines; no action or command field. For edits use edit_file with old_str and explicit new_str; for new files use create_file. Restricted access stays within the current source roots; open mode also permits absolute local paths. Returns metadata, readable text and a citation. Page large text with start_line.\n\nFor PNG/JPEG/WebP/GIF visual inspection, set image_mode=\"native\" and omit line parameters: actual pixels enter the existing visual route after raw-image disclosure approval. Vision-capable models see pixels directly; text models use the configured interpreter. GIF uses its first frame. image_mode=\"text\" forces extraction; OCR is for text extraction. Without image_mode, privacy settings govern native evidence.\n\nPDF/DOCX/PPTX without explicit line parameters also provide original bytes to supported native document routes when privacy permits. Office native input is text-only; PDF can include page images. Explicit line parameters always select extraction only. XLSX uses structured extraction.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -17,6 +17,14 @@
         "type": "integer",
         "description": "Maximum number of lines to return (default 100)",
         "default": 100
+      },
+      "image_mode": {
+        "type": "string",
+        "enum": [
+          "native",
+          "text"
+        ],
+        "description": "native: inspect image pixels after disclosure approval; omit line parameters. text: extraction without pixels. Omitted: follow privacy settings. Applies to PNG/JPEG/WebP/GIF (first frame)."
       }
     },
     "required": [

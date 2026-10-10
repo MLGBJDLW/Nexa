@@ -28,10 +28,10 @@ const JPEG_QUALITY: u8 = 80;
 /// Maximum local image input before it is normalized to the shared 1568px,
 /// JPEG-80 provider/UI envelope. Tool screenshots can be larger than ordinary
 /// uploads, but never reach a model or tool card in their original form.
-const MAX_IMAGE_SIZE: usize = 12 * 1024 * 1024;
+pub const MAX_IMAGE_SIZE: usize = 12 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FinalizedBrowserCapture {
+pub struct FinalizedImageEvidence {
     pub image_bytes: Vec<u8>,
     pub mime_type: String,
     pub width: u32,
@@ -66,7 +66,7 @@ pub fn validate_browser_capture_dimensions(width: u32, height: u32) -> Result<()
 /// visual channel. This is the sole encoding finalizer used by every desktop
 /// WebView adapter: small model-sized PNGs stay byte-identical, while larger
 /// captures become JPEG-80 inside the shared model dimension envelope.
-pub fn finalize_browser_capture(png_bytes: Vec<u8>) -> Result<FinalizedBrowserCapture, CoreError> {
+pub fn finalize_browser_capture(png_bytes: Vec<u8>) -> Result<FinalizedImageEvidence, CoreError> {
     if png_bytes.len() > MAX_BROWSER_NATIVE_CAPTURE_BYTES {
         return Err(CoreError::InvalidInput(format!(
             "Browser capture exceeds the {MAX_BROWSER_NATIVE_CAPTURE_BYTES}-byte native limit"
@@ -77,7 +77,37 @@ pub fn finalize_browser_capture(png_bytes: Vec<u8>) -> Result<FinalizedBrowserCa
             "Browser capture was not a PNG image".to_string(),
         ));
     }
+    finalize_image_evidence(png_bytes, image::ImageFormat::Png)
+}
 
+/// Local reads share the screenshot decoder and output envelope. Decode GIFs
+/// to their first frame: providers do not share an animated-image contract.
+pub fn finalize_local_image(bytes: Vec<u8>) -> Result<FinalizedImageEvidence, CoreError> {
+    if bytes.len() > MAX_IMAGE_SIZE {
+        return Err(CoreError::InvalidInput(format!(
+            "Local image exceeds the {MAX_IMAGE_SIZE}-byte input limit"
+        )));
+    }
+    let format = image::guess_format(&bytes)
+        .map_err(|_| CoreError::InvalidInput("Local image format could not be decoded".into()))?;
+    if !matches!(
+        format,
+        image::ImageFormat::Png
+            | image::ImageFormat::Jpeg
+            | image::ImageFormat::WebP
+            | image::ImageFormat::Gif
+    ) {
+        return Err(CoreError::InvalidInput(
+            "Supported local images are PNG, JPEG, WebP and GIF".into(),
+        ));
+    }
+    finalize_image_evidence(bytes, format)
+}
+
+fn finalize_image_evidence(
+    bytes: Vec<u8>,
+    format: image::ImageFormat,
+) -> Result<FinalizedImageEvidence, CoreError> {
     let decoding_limits = || {
         let mut limits = image::Limits::default();
         limits.max_image_width = Some(MAX_BROWSER_NATIVE_CAPTURE_EDGE);
@@ -85,43 +115,36 @@ pub fn finalize_browser_capture(png_bytes: Vec<u8>) -> Result<FinalizedBrowserCa
         limits.max_alloc = Some(MAX_BROWSER_NATIVE_CAPTURE_PIXELS.saturating_mul(8));
         limits
     };
-    let mut dimensions_reader = image::ImageReader::with_format(
-        std::io::Cursor::new(png_bytes.as_slice()),
-        image::ImageFormat::Png,
-    );
+    let mut dimensions_reader =
+        image::ImageReader::with_format(std::io::Cursor::new(bytes.as_slice()), format);
     dimensions_reader.limits(decoding_limits());
     let (declared_width, declared_height) =
         dimensions_reader.into_dimensions().map_err(|error| {
-            CoreError::InvalidInput(format!(
-                "Browser capture PNG dimensions could not be decoded: {error}"
-            ))
+            CoreError::InvalidInput(format!("Image dimensions could not be decoded: {error}"))
         })?;
     validate_browser_capture_dimensions(declared_width, declared_height)?;
 
-    let mut reader = image::ImageReader::with_format(
-        std::io::Cursor::new(png_bytes.as_slice()),
-        image::ImageFormat::Png,
-    );
+    let mut reader =
+        image::ImageReader::with_format(std::io::Cursor::new(bytes.as_slice()), format);
     reader.limits(decoding_limits());
     let decoded = reader.decode().map_err(|error| {
-        CoreError::InvalidInput(format!(
-            "Browser capture PNG could not be fully decoded: {error}"
-        ))
+        CoreError::InvalidInput(format!("Image could not be fully decoded: {error}"))
     })?;
     let (decoded_width, decoded_height) = (decoded.width(), decoded.height());
     validate_browser_capture_dimensions(decoded_width, decoded_height)?;
     if (decoded_width, decoded_height) != (declared_width, declared_height) {
         return Err(CoreError::InvalidInput(
-            "Browser capture PNG dimensions changed during decode".to_string(),
+            "Image dimensions changed during decode".to_string(),
         ));
     }
 
     if decoded_width <= MAX_LLM_IMAGE_DIMENSION
         && decoded_height <= MAX_LLM_IMAGE_DIMENSION
-        && png_bytes.len() <= MAX_BROWSER_FINAL_CAPTURE_BYTES
+        && bytes.len() <= MAX_BROWSER_FINAL_CAPTURE_BYTES
+        && format == image::ImageFormat::Png
     {
-        return Ok(FinalizedBrowserCapture {
-            image_bytes: png_bytes,
+        return Ok(FinalizedImageEvidence {
+            image_bytes: bytes,
             mime_type: "image/png".to_string(),
             width: decoded_width,
             height: decoded_height,
@@ -135,24 +158,27 @@ pub fn finalize_browser_capture(png_bytes: Vec<u8>) -> Result<FinalizedBrowserCa
     );
     let (width, height) = (normalized.width(), normalized.height());
     let mut encoded = std::io::Cursor::new(Vec::new());
-    normalized
-        .write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut encoded,
-            JPEG_QUALITY,
-        ))
-        .map_err(|error| {
-            CoreError::Internal(format!(
-                "Could not encode normalized browser capture: {error}"
-            ))
-        })?;
+    let rgba = normalized.to_rgba8();
+    let rgb = image::RgbImage::from_fn(width, height, |x, y| {
+        let pixel = rgba.get_pixel(x, y);
+        let alpha = u32::from(pixel[3]);
+        image::Rgb(std::array::from_fn(|index| {
+            ((u32::from(pixel[index]) * alpha + 255 * (255 - alpha) + 127) / 255) as u8
+        }))
+    });
+    rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+        &mut encoded,
+        JPEG_QUALITY,
+    ))
+    .map_err(|error| CoreError::Internal(format!("Could not encode normalized image: {error}")))?;
     let image_bytes = encoded.into_inner();
     if image_bytes.is_empty() || image_bytes.len() > MAX_BROWSER_FINAL_CAPTURE_BYTES {
         return Err(CoreError::InvalidInput(format!(
-            "Normalized browser capture exceeds the {}-byte output limit",
+            "Normalized image exceeds the {}-byte output limit",
             MAX_BROWSER_FINAL_CAPTURE_BYTES
         )));
     }
-    Ok(FinalizedBrowserCapture {
+    Ok(FinalizedImageEvidence {
         image_bytes,
         mime_type: "image/jpeg".to_string(),
         width,
@@ -334,6 +360,35 @@ mod tests {
             }
         }
         !crc
+    }
+
+    #[test]
+    fn local_image_finalizer_decodes_gif_and_rejects_spoofed_or_oversized_input() {
+        let gif = image::RgbaImage::from_pixel(20, 12, image::Rgba([80, 120, 200, 255]));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        gif.write_to(&mut bytes, image::ImageFormat::Gif).unwrap();
+        let output = finalize_local_image(bytes.into_inner()).unwrap();
+        assert_eq!(output.mime_type, "image/jpeg");
+        assert_eq!((output.width, output.height), (20, 12));
+        assert!(image::load_from_memory(&output.image_bytes).is_ok());
+        assert!(finalize_local_image(b"GIF89a fake gif data".to_vec()).is_err());
+        assert!(finalize_local_image(vec![0; MAX_IMAGE_SIZE + 1]).is_err());
+    }
+
+    #[test]
+    fn local_transparent_images_are_composited_on_white_when_normalized() {
+        let png = image::RgbaImage::from_pixel(2000, 20, image::Rgba([0, 0, 0, 0]));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        png.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        let output = finalize_local_image(bytes.into_inner()).unwrap();
+        let decoded = image::load_from_memory(&output.image_bytes)
+            .unwrap()
+            .to_rgb8();
+        assert!(decoded
+            .get_pixel(10, 5)
+            .0
+            .iter()
+            .all(|channel| *channel > 250));
     }
 
     #[test]

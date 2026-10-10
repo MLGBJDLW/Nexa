@@ -1167,23 +1167,25 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             };
             DesktopAgentBackend::Nexa(provider)
             };
-            let vision_resolution = if attachments.as_ref().is_some_and(|attachments| {
+            let has_input_images = attachments.as_ref().is_some_and(|attachments| {
                 attachments
                     .iter()
                     .any(|attachment| attachment.media_type.starts_with("image/"))
-            }) {
-                db.resolve_or_pin_task_runtime_capability(
+            });
+            // Pin policy even when images first arrive from a later tool read.
+            // An invalid optional vision binding must not block a text-only
+            // task, but it must disable the native tool-image fast path.
+            let (vision_resolution, vision_policy_resolved) = match db.resolve_or_pin_task_runtime_capability(
                     &registry_scope,
                     "vision",
                     &task_run_id,
-                )
-                .map_err(|error| {
-                    format!(
-                        "Vision capability resolution failed for run {task_run_id}: {error}"
-                    )
-                })?
-            } else {
-                None
+                ) {
+                Ok(resolution) => (resolution, true),
+                Err(error) if has_input_images => return Err(format!("Vision capability resolution failed for run {task_run_id}: {error}")),
+                Err(error) => {
+                    warn!("Optional tool vision policy unavailable for run {task_run_id}: {error}");
+                    (None, false)
+                }
             };
             let history_started = Instant::now();
             let history_conversation_id = conv_id.clone();
@@ -1264,7 +1266,17 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             let pinned_skill_ids = desktop_turn_config.pinned_skill_ids;
             let context_pack = desktop_turn_config.context_pack;
             let mut executor_config = desktop_turn_config.executor_config;
-            executor_config.native_vision = Some(primary_native_vision_allowed);
+            let tool_vision_policy = vision_resolution.as_ref()
+                .map(|resolution| nexa_core::vision_router::VisionRouterPolicy::from_binding_options(&resolution.snapshot.options))
+                .transpose();
+            let native_image_policy = if vision_policy_resolved {
+                tool_vision_policy.map(|policy| nexa_core::vision_router::NativeImagePolicy::resolve(
+                    &policy.unwrap_or_default(), vision_turn_override, vision_resolution.is_some(),
+                    vision_resolution.as_ref().is_some_and(|resolution| provider_config_is_local(&resolution.provider_config)),
+                )).unwrap_or_default()
+            } else { nexa_core::vision_router::NativeImagePolicy::default() };
+            executor_config.native_vision = Some(native_image_policy.allows(primary_native_vision_allowed, primary_routes_local));
+            executor_config.native_image_policy = Some(native_image_policy);
             if force_workspace_isolation {
                 executor_config.request_kind =
                     nexa_core::agent::AgentRequestKind::ScheduledIsolatedPatch;

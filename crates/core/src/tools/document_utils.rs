@@ -2,17 +2,114 @@ use std::path::Path;
 
 use crate::error::CoreError;
 
+/// Explicit raw-image egress has its own approval even when text redaction is
+/// enabled. Ordinary file reads never silently bypass that privacy setting.
+pub(crate) fn requests_native_image(args: &serde_json::Value) -> bool {
+    args.get("image_mode").and_then(serde_json::Value::as_str) == Some("native")
+        && !["start_line", "max_lines", "max_lines_per_file"]
+            .iter()
+            .any(|field| args.get(field).is_some())
+        && args
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .into_iter()
+            .chain(
+                args.get("paths")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str),
+            )
+            .any(|path| {
+                crate::media::is_supported_image(&crate::parse::detect_mime_type(Path::new(path)))
+            })
+}
+
+pub(crate) fn native_image_consent_message(args: &serde_json::Value) -> Option<String> {
+    requests_native_image(args).then(|| "Inspect the selected local image(s) visually by sending their pixels to the configured model or vision interpreter. Text redaction cannot remove content from these pixels. File access remains limited to the current authorized scope.".to_string())
+}
+
+pub(crate) fn file_read_capabilities(
+    tool: &dyn super::Tool,
+    args: &serde_json::Value,
+) -> super::ToolRunCapabilities {
+    super::ToolRunCapabilities {
+        input_streaming: tool.input_streaming(),
+        render_kind: tool.render_kind(),
+        read_only: true,
+        destructive: false,
+        concurrency_safe: true,
+        interrupt_behavior: super::ToolInterruptBehavior::Cancel,
+        resource_keys: tool.resource_keys(args),
+    }
+}
+
+pub(crate) enum NativeFileEvidence {
+    Document(crate::llm::document::DocumentInput),
+    Image(super::ToolOutputAttachment, usize),
+}
+
+impl NativeFileEvidence {
+    pub(crate) fn byte_length(&self) -> usize {
+        match self {
+            Self::Document(document) => document.byte_length,
+            Self::Image(_, bytes) => *bytes,
+        }
+    }
+
+    pub(crate) fn into_attachment(self, fallback: String) -> super::ToolOutputAttachment {
+        match self {
+            Self::Document(document) => document_attachment(document, fallback),
+            Self::Image(attachment, _) => attachment,
+        }
+    }
+}
+
 /// Read already-authorized bytes once. Extraction and native evidence use the
 /// same snapshot even when the source file is subsequently changed.
 pub(crate) fn read_file_evidence(
     path: &Path,
     native_candidate: bool,
-) -> Result<(String, Option<crate::llm::document::DocumentInput>), CoreError> {
+) -> Result<(String, Option<NativeFileEvidence>), CoreError> {
     use crate::llm::document::{DocumentInput, MAX_DOCUMENT_BYTES};
     use std::io::{Read, Write};
     let mime = crate::parse::detect_mime_type(path);
+    if native_candidate && crate::media::is_supported_image(&mime) {
+        use base64::Engine;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take((crate::media::MAX_IMAGE_SIZE + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        let evidence = crate::media::finalize_local_image(bytes)?;
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("image");
+        let text = format!(
+            "[Image: {name}] Native visual evidence, {}x{} pixels.{} Inspect the attached pixels; OCR is only needed for explicit text extraction.",
+            evidence.width, evidence.height,
+            if mime == "image/gif" { " First animation frame." } else { "" }
+        );
+        let length = evidence.image_bytes.len();
+        let attachment = super::ToolOutputAttachment {
+            name: name.to_string(),
+            mime_type: evidence.mime_type,
+            data: serde_json::json!({
+                "base64": base64::engine::general_purpose::STANDARD.encode(&evidence.image_bytes),
+                "width": evidence.width, "height": evidence.height,
+                "source": "local_file", "firstFrameOnly": mime == "image/gif",
+                "sourcePath": path.to_string_lossy(),
+            }),
+        };
+        return Ok((text, Some(NativeFileEvidence::Image(attachment, length))));
+    }
     if !native_candidate || !crate::llm::document::supported_mime(&mime) {
-        return read_supported_file_content(path).map(|text| (text, None));
+        return read_supported_file_content(path).map(|mut text| {
+            if crate::media::is_supported_image(&mime) {
+                text.push_str("\n[Pixels were not included in this text-only read. For visual inspection, use read_file with image_mode=\"native\" and no line parameters; raw-image consent is required. Use extract_image_text only for text extraction.]");
+            }
+            (text, None)
+        });
     }
     let mut bytes = Vec::new();
     std::fs::File::open(path)?
@@ -35,10 +132,10 @@ pub(crate) fn read_file_evidence(
         format!("[Local extraction failed: {error}. The original file may still be read by a supported native document route.]")
     });
     let candidate = DocumentInput::from_bytes(name, &mime, &bytes, &text);
-    Ok((text, candidate))
+    Ok((text, candidate.map(NativeFileEvidence::Document)))
 }
 
-pub(crate) fn document_attachment(
+fn document_attachment(
     mut document: crate::llm::document::DocumentInput,
     fallback: String,
 ) -> super::ToolOutputAttachment {

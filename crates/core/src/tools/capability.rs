@@ -686,6 +686,10 @@ pub fn infer_tool_access_profile(
             ApprovalRisk::Low,
             "Reads local Office/PDF/document content for inspection and comparison.",
         ),
+        "read_file" | "read_files" if super::document_utils::requests_native_image(args) => (
+            "filesystem", true, false, false, true, true, ApprovalRisk::Medium,
+            "Discloses explicitly requested local image pixels to the configured model; text redaction does not modify pixels.",
+        ),
         "read_file" | "read_files" | "list_dir" | "glob_files" | "search_files"
         | "grep_files" | "code_intelligence" | "workspace_rules" => (
             "filesystem",

@@ -112,6 +112,12 @@ pub(super) async fn prepare_subagent_worker(
                 })
         }));
     }
+    if let Some(policy) = &config.native_image_policy {
+        config.native_vision = Some(policy.allows(
+            config.native_vision.unwrap_or(false),
+            crate::desktop_agent_session::provider_config_is_local(&provider_config),
+        ));
+    }
     apply_explicit_worker_reasoning(&mut config, &provider_config, &args.route)?;
     // Workers execute a handoff; the parent's fan-out and final-synthesis
     // policies must not become recursive worker completion requirements.

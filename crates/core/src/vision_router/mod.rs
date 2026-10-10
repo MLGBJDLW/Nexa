@@ -10,7 +10,9 @@ mod observation;
 mod types;
 
 pub use cache::VisionObservationCacheEntry;
-pub use classifier::{classify_vision_route, VisionClassificationInput};
+pub use classifier::{
+    classify_vision_route, native_tool_images_allowed, NativeImagePolicy, VisionClassificationInput,
+};
 pub use observation::{
     build_ocr_observation, execute_vision_observation, merge_vision_observations,
     observation_prompt_text, parse_vision_model_observation, VisionExecutionInput,
