@@ -42,7 +42,13 @@ pub(crate) async fn probe(
     let launch = launch.resolve(db, None, None)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
     let mut wire = Wire::start(preset, &launch)?;
-    tokio::time::timeout(std::time::Duration::from_secs(45), async {
+    let timeout = if matches!(preset.command.as_str(), "npx" | "uvx") && launch.executable.is_none()
+    {
+        240
+    } else {
+        45
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(timeout), async {
         let mut session =
             Session::connect_with_mcp(&mut wire, &launch.working_directory, &servers).await?;
         session

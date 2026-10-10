@@ -899,5 +899,8 @@
   "documentPdfHint": "Supported routes read PDF text and page images. Other routes and privacy mode use local extraction. This label describes the reading policy, not a completed result.",
   "documentOfficeHint": "Supported routes receive the original Office file as text input. Embedded images and charts are not included. Other routes and privacy mode use local extraction.",
   "documentExtractionHint": "This format uses local text or structured extraction. Spreadsheet formulas and recalculation require the spreadsheet tools.",
-  "computerUseWaiting": "Continuing the computer task"
+  "computerUseWaiting": "Continuing the computer task",
+  "reasoningControlStyle": "Reasoning control style",
+  "reasoningList": "List",
+  "reasoningSlider": "Intensity slider"
 }

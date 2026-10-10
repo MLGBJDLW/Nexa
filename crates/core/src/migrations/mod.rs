@@ -2896,6 +2896,8 @@ Every answer that uses knowledge base search results.
     ("v150_privacy_trace_identity", include_str!("v150_privacy_trace_identity.sql")),
     ("v151_workflow_authoring", include_str!("v151_workflow_authoring.sql")),
     ("v152_subagent_history_ownership", include_str!("v152_subagent_history_ownership.sql")),
+    ("v153_endpoint_model_definitions", include_str!("v153_endpoint_model_definitions.sql")),
+    ("v154_embedding_performance", include_str!("v154_embedding_performance.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3197,6 +3199,34 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
             .and_then(|rest| rest.split('_').next())
             .and_then(|number| number.parse::<u32>().ok());
         if migration_number.is_some_and(|number| number >= 141) {
+            if *name == "v153_endpoint_model_definitions" {
+                // SQLite table rebuilds require FK checks off outside the
+                // transaction. Restore the original setting on every result;
+                // validate preserved references before committing the marker.
+                let foreign_keys: bool =
+                    conn.pragma_query_value(None, "foreign_keys", |row| row.get(0))?;
+                conn.pragma_update(None, "foreign_keys", false)?;
+                let result = (|| -> Result<(), CoreError> {
+                    let transaction = conn.unchecked_transaction()?;
+                    transaction.execute_batch(sql)?;
+                    let violations: i64 = transaction.query_row(
+                        "SELECT COUNT(*) FROM pragma_foreign_key_check('model_targets')",
+                        [],
+                        |row| row.get(0),
+                    )?;
+                    if violations != 0 {
+                        return Err(CoreError::Conflict(
+                            "Model-definition migration would break target references".into(),
+                        ));
+                    }
+                    transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
+                    transaction.commit()?;
+                    Ok(())
+                })();
+                conn.pragma_update(None, "foreign_keys", foreign_keys)?;
+                result?;
+                continue;
+            }
             // New schema changes and their markers commit together. An interrupted
             // FTS rebuild must leave the previous index usable on the next start.
             let transaction = conn.unchecked_transaction()?;
@@ -3234,6 +3264,42 @@ fn total_migration_count() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endpoint_definition_upgrade_preserves_references_and_foreign_keys() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys=ON").unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute_batch("INSERT INTO model_definitions(id,schema_version,provider_id,canonical_model_id,descriptor_json,descriptor_hash,source,revision) VALUES ('legacy',2,'qwen','same-name','{}','hash','builtin',1);
+            INSERT INTO provider_connections(id,schema_version,revision,provider_id,adapter_provider_id,endpoint_id,base_url,endpoint_fingerprint,source_kind,source_id,source_revision,source_fingerprint)
+            VALUES ('connection',1,1,'qwen','openai','metered','https://example.test','endpoint','application','',1,'source');
+            INSERT INTO model_targets(id,connection_id,model_definition_id,upstream_model_id,revision,source_kind,source_id)
+            VALUES ('target','connection','legacy','same-name',1,'application','');
+            DELETE FROM _migrations WHERE name='v153_endpoint_model_definitions';").unwrap();
+        run_migrations(&conn).unwrap();
+        run_migrations(&conn).unwrap();
+        assert!(conn
+            .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+            .unwrap());
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM model_definitions WHERE id='legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        let reference: String = conn
+            .query_row(
+                "SELECT model_definition_id FROM model_targets WHERE id='target'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reference, "legacy");
+        conn.execute_batch("INSERT INTO model_definitions(id,schema_version,provider_id,canonical_model_id,descriptor_json,descriptor_hash,source,revision) VALUES ('subscription',2,'qwen','same-name','{}','another-hash','builtin',1)").unwrap();
+        assert!(conn.execute_batch("INSERT INTO model_targets(id,connection_id,model_definition_id,upstream_model_id,revision,source_kind,source_id) VALUES ('invalid','missing','missing','x',1,'global','')").is_err());
+    }
 
     #[test]
     fn workflow_authoring_upgrade_preserves_legacy_history_and_origin_lineage() {

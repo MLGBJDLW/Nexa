@@ -8,7 +8,6 @@ import {
   Save,
   X,
   CheckCircle,
-  BrainCircuit,
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,7 +27,6 @@ import {
   isRemovedProviderModel,
   removedProviderModel,
   getReasoningCapability,
-  type ReasoningEffortLevel,
   type ProviderPreset,
 } from "../../lib/providerPresets";
 import {
@@ -55,12 +53,8 @@ import {
 } from "../../lib/modelCatalog";
 import { ModelDescriptorBadges } from "./ModelDescriptorBadges";
 import {
-  defaultReasoningEffort,
-  defaultThinkingBudget,
   normalizeReasoningEffort,
   normalizeThinkingBudget,
-  reasoningOnLabelKey,
-  reasoningOffLabelKey,
 } from "../../lib/reasoningControls";
 import { CatalogModelPicker } from "./CatalogModelPicker";
 import { subagentDefaults } from "../../lib/subagentDefaults";
@@ -115,20 +109,6 @@ const BASE_URL_PLACEHOLDERS: Record<ProviderType, string> = {
 };
 
 const LOCAL_PROVIDERS: ProviderType[] = ["ollama", "lm_studio"];
-
-const REASONING_EFFORT_LABEL_KEYS: Record<
-  ReasoningEffortLevel,
-  TranslationKey
-> = {
-  none: "settings.reasoningNone",
-  minimal: "settings.reasoningMinimal",
-  low: "settings.reasoningLow",
-  medium: "settings.reasoningMedium",
-  high: "settings.reasoningHigh",
-  max: "settings.reasoningMax",
-  xhigh: "settings.reasoningXHigh",
-  ultra: "settings.reasoningUltra",
-};
 
 function normalizeBaseUrl(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\/+$/, "");
@@ -1208,119 +1188,6 @@ export function AgentConfigForm({
           </div>
         </div>
       )}
-
-      {/* Reasoning / Thinking */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
-          <BrainCircuit size={16} className="text-accent" />
-          {t("settings.reasoningSection")}
-        </div>
-
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={reasoningEnabled === true}
-            disabled={!supportsReasoning || reasoningAlwaysOn}
-            onChange={(e) => {
-              if (!supportsReasoning) {
-                return;
-              }
-              const enabled = e.target.checked;
-              setReasoningEnabled(enabled);
-              if (enabled) {
-                setThinkingBudget(defaultThinkingBudget(reasoningCapability));
-                setReasoningEffort(defaultReasoningEffort(reasoningCapability, true));
-              } else {
-                setThinkingBudget(null);
-                setReasoningEffort(null);
-              }
-            }}
-            className="h-4 w-4 rounded border-border text-accent focus:ring-accent/30"
-          />
-          <span className="text-sm text-text-primary">
-            {t(reasoningAlwaysOn ? "settings.reasoningAlwaysOn" : reasoningOnLabelKey(reasoningCapability))}
-          </span>
-        </label>
-        {reasoningCapability?.disabledMode === 'between_tools' && reasoningEnabled === false && (
-          <p className="text-xs text-text-tertiary">{t(reasoningOffLabelKey(reasoningCapability))}</p>
-        )}
-        {!supportsReasoning && (
-          <p className="text-xs text-text-tertiary">
-            {t("settings.reasoningUnsupported")}
-          </p>
-        )}
-
-        {reasoningEnabled === true && supportsReasoning && (
-          <div className="space-y-4 rounded-lg border border-border bg-surface-2 p-4 ml-1">
-            {/* Thinking Budget */}
-            {supportsThinkingBudget && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">
-                  {t("settings.thinkingBudget")}
-                </label>
-                <Input
-                  type="number"
-                  value={thinkingBudget ?? ""}
-                  onChange={(e) => {
-                    const val = e.target.value.trim();
-                    if (!val) {
-                      setThinkingBudget(null);
-                      return;
-                    }
-                    const parsed = Number.parseInt(val, 10);
-                    setThinkingBudget(Number.isNaN(parsed) ? null : parsed);
-                    if (!Number.isNaN(parsed) && reasoningControlsExclusive) {
-                      setReasoningEffort(null);
-                    }
-                  }}
-                  placeholder={String(defaultThinkingBudget(reasoningCapability) ?? "")}
-                  min={thinkingBudgetCapability?.allowZero ? 0 : thinkingBudgetCapability?.minTokens ?? 1}
-                  max={thinkingBudgetCapability?.maxTokens}
-                  step={thinkingBudgetCapability?.step ?? 1}
-                />
-                <p className="text-xs text-text-tertiary">
-                  {t("settings.thinkingBudgetHelp")}
-                </p>
-              </div>
-            )}
-
-            {/* Reasoning Effort */}
-            {supportsReasoningEffort && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">
-                  {t("settings.reasoningEffort")}
-                </label>
-                <NexaSelect
-                  value={
-                    normalizeReasoningEffort(
-                      reasoningEffort,
-                      reasoningCapability,
-                    ) ??
-                    reasoningEffortOptions[0] ??
-                    ""
-                  }
-                  onChange={(e) => {
-                    setReasoningEffort(e.target.value);
-                    if (reasoningControlsExclusive) {
-                      setThinkingBudget(null);
-                    }
-                  }}
-                  className="w-full h-10 bg-surface-1 border border-border rounded-md text-sm text-text-primary px-3.5 transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none cursor-pointer"
-                >
-                  {reasoningEffortOptions.map((level) => (
-                    <option key={level} value={level}>
-                      {t(REASONING_EFFORT_LABEL_KEYS[level])}
-                    </option>
-                  ))}
-                </NexaSelect>
-                <p className="text-xs text-text-tertiary">
-                  {t("settings.reasoningEffortHelp")}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* Optional verified tool-round budget */}
       {showAdvanced && (

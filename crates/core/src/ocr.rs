@@ -919,7 +919,11 @@ pub fn ocr_pdf_page_with_llm_provider_type(
     llm_provider: Option<&dyn crate::llm::LlmProvider>,
     llm_provider_type: Option<crate::llm::ProviderType>,
 ) -> Result<PdfPageOcr, CoreError> {
-    let images = extract_images_from_pdf_page(document, page_id);
+    let images = crate::pdf_images::extract_images_from_pdf_page(document, page_id);
+    if images.is_empty() {
+        return Err(CoreError::Ocr("This page has no supported embedded images. Configure a structured PDF parser with page rendering, then rescan.".into()));
+    }
+    let mut first_error = None;
     let mut result = PdfPageOcr {
         text: String::new(),
         images_seen: images.len(),
@@ -947,7 +951,18 @@ pub fn ocr_pdf_page_with_llm_provider_type(
                 }
                 result.text.push_str(&ocr.full_text);
             }
-            _ => result.images_failed += 1,
+            Err(error) => {
+                result.images_failed += 1;
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+            Ok(_) => result.images_failed += 1,
+        }
+    }
+    if result.text.is_empty() {
+        if let Some(error) = first_error {
+            return Err(error);
         }
     }
     Ok(result)
@@ -979,7 +994,7 @@ pub fn ocr_pdf_with_llm_provider_type(
     let mut all_text = String::new();
 
     for (page_idx, &page_id) in pages.iter().enumerate() {
-        let images = extract_images_from_pdf_page(&doc, page_id);
+        let images = crate::pdf_images::extract_images_from_pdf_page(&doc, page_id);
         if images.is_empty() {
             tracing::debug!("No embedded images found on PDF page {page_idx}");
             continue;
@@ -1015,149 +1030,6 @@ pub fn ocr_pdf_with_llm_provider_type(
     }
 
     Ok(all_text)
-}
-
-/// Extract embedded images from a single PDF page using `lopdf`.
-///
-/// Scanned PDFs typically store each page as a large embedded image
-/// (JPEG, JPEG2000, or raw pixel data).  This function finds image
-/// XObjects on the given page and returns them as decoded `DynamicImage`s.
-pub(crate) fn extract_images_from_pdf_page(
-    doc: &lopdf::Document,
-    page_id: lopdf::ObjectId,
-) -> Vec<image::DynamicImage> {
-    let mut images = Vec::new();
-
-    // Get the page's Resources → XObject dictionary.
-    let xobjects = (|| -> Option<&lopdf::Dictionary> {
-        let page = doc.get_object(page_id).ok()?.as_dict().ok()?;
-        let resources = page
-            .get(b"Resources")
-            .ok()
-            .and_then(|r| doc.dereference(r).ok())
-            .and_then(|(_, o)| o.as_dict().ok())?;
-        let xobj = resources
-            .get(b"XObject")
-            .ok()
-            .and_then(|x| doc.dereference(x).ok())
-            .and_then(|(_, o)| o.as_dict().ok())?;
-        Some(xobj)
-    })();
-
-    let xobjects = match xobjects {
-        Some(x) => x,
-        None => return images,
-    };
-
-    for (_name, obj_ref) in xobjects.iter() {
-        let stream = match doc
-            .dereference(obj_ref)
-            .ok()
-            .and_then(|(_, o)| o.as_stream().ok())
-        {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let subtype: &[u8] = stream
-            .dict
-            .get(b"Subtype")
-            .ok()
-            .and_then(|s| s.as_name().ok())
-            .unwrap_or(b"");
-        if subtype != b"Image" {
-            continue;
-        }
-
-        let width = stream
-            .dict
-            .get(b"Width")
-            .ok()
-            .and_then(|w| w.as_i64().ok())
-            .unwrap_or(0) as u32;
-        let height = stream
-            .dict
-            .get(b"Height")
-            .ok()
-            .and_then(|h| h.as_i64().ok())
-            .unwrap_or(0) as u32;
-        if width == 0 || height == 0 {
-            continue;
-        }
-
-        let filter: Vec<u8> = stream
-            .dict
-            .get(b"Filter")
-            .ok()
-            .and_then(|f| {
-                f.as_name().ok().map(|n| n.to_vec()).or_else(|| {
-                    f.as_array().ok().and_then(|arr| {
-                        arr.last()
-                            .and_then(|n| n.as_name().ok())
-                            .map(|n| n.to_vec())
-                    })
-                })
-            })
-            .unwrap_or_default();
-
-        // Try to get the decoded stream content.
-        let raw = match stream.decompressed_content() {
-            Ok(data) => data,
-            Err(_) => stream.content.clone(),
-        };
-
-        // DCTDecode = JPEG, JPXDecode = JPEG2000 — both loadable by `image`.
-        if filter == b"DCTDecode" || filter == b"JPXDecode" {
-            if let Ok(img) = image::load_from_memory(&raw) {
-                images.push(img);
-            }
-        } else {
-            // Raw pixel data — try to construct an image from BPC + colorspace info.
-            let bpc = stream
-                .dict
-                .get(b"BitsPerComponent")
-                .ok()
-                .and_then(|b| b.as_i64().ok())
-                .unwrap_or(8) as u32;
-            if bpc != 8 {
-                continue;
-            }
-
-            let cs_name: Vec<u8> = stream
-                .dict
-                .get(b"ColorSpace")
-                .ok()
-                .and_then(|c| {
-                    c.as_name().ok().map(|n| n.to_vec()).or_else(|| {
-                        c.as_array()
-                            .ok()
-                            .and_then(|a| a.first())
-                            .and_then(|n| n.as_name().ok())
-                            .map(|n| n.to_vec())
-                    })
-                })
-                .unwrap_or_default();
-
-            let expected_len = (width * height) as usize;
-            if cs_name == b"DeviceGray" && raw.len() >= expected_len {
-                if let Some(gray) =
-                    image::GrayImage::from_raw(width, height, raw[..expected_len].to_vec())
-                {
-                    images.push(image::DynamicImage::ImageLuma8(gray));
-                }
-            } else if (cs_name == b"DeviceRGB" || cs_name.is_empty())
-                && raw.len() >= expected_len * 3
-            {
-                if let Some(rgb) =
-                    image::RgbImage::from_raw(width, height, raw[..expected_len * 3].to_vec())
-                {
-                    images.push(image::DynamicImage::ImageRgb8(rgb));
-                }
-            }
-        }
-    }
-
-    images
 }
 
 // ── Model download ──────────────────────────────────────────────────

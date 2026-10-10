@@ -286,6 +286,7 @@ pub async fn scan_all_sources(
                         current: progress.current,
                         total: progress.total,
                         current_file: progress.current_file.clone(),
+                        embedding: progress.embedding.clone(),
                     };
                     report(serde_json::json!(batch));
                     emit_app_event(&ah, "batch:scan-progress", &batch);

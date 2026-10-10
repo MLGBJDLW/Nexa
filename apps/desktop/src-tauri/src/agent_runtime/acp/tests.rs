@@ -17,6 +17,41 @@ fn wire(mode: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn custom_launch_overrides_arguments_and_environment_without_shell_interpretation() {
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("launch.json");
+    let preset = nexa_core::external_agent::ExternalAgentPreset {
+        command: "python".into(),
+        args: vec!["--invalid-preset-argument".into()],
+        env: std::collections::BTreeMap::from([("NEXA_ACP_TEST".into(), "preset".into())]),
+        ..Default::default()
+    };
+    let launch = ExternalAgentLaunch {
+        working_directory: directory.path().to_string_lossy().into(),
+        args: Some(vec![
+            "-u".into(),
+            "-c".into(),
+            include_str!("fixture.py").into(),
+            "launch".into(),
+            marker.to_string_lossy().into(),
+            "literal & unicode 参数".into(),
+        ]),
+        env: std::collections::BTreeMap::from([(
+            "NEXA_ACP_TEST".into(),
+            "override=literal".into(),
+        )]),
+        ..Default::default()
+    };
+    let mut wire = Wire::start(&preset, &launch).unwrap();
+    Session::connect(&mut wire, &launch.working_directory)
+        .await
+        .unwrap();
+    let value: Value = serde_json::from_str(&std::fs::read_to_string(marker).unwrap()).unwrap();
+    assert_eq!(value["argument"], "literal & unicode 参数");
+    assert_eq!(value["environment"], "override=literal");
+}
+
+#[tokio::test]
 async fn automatic_acp_directory_is_shared_by_process_and_protocol() {
     let root = tempfile::tempdir().unwrap();
     let db = nexa_core::db::Database::new(root.path().join("nexa.db")).unwrap();
@@ -37,6 +72,7 @@ async fn automatic_acp_directory_is_shared_by_process_and_protocol() {
         ],
         env: Default::default(),
         docs_url: String::new(),
+        ..Default::default()
     };
     let mut wire = Wire::start(&preset, &launch).unwrap();
     let session = Session::connect(&mut wire, &launch.working_directory)
@@ -757,6 +793,7 @@ async fn external_protocol_launches_installed_cmd_shims_in_unicode_directories()
         args: vec![],
         env: Default::default(),
         docs_url: String::new(),
+        ..Default::default()
     };
     let launch = ExternalAgentLaunch {
         executable: Some(launcher.to_string_lossy().into_owned()),

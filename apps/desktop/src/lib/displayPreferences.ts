@@ -6,9 +6,10 @@ export interface DisplayPreferences {
   uiFontId: string;
   codeFontId: string;
   streamingMode: StreamingMode;
+  reasoningControl: 'list' | 'slider';
 }
 const KEY = 'nexa-display-preferences';
-const defaults: DisplayPreferences = { uiFontId: 'theme', codeFontId: 'theme', streamingMode: 'balanced' };
+const defaults: DisplayPreferences = { uiFontId: 'theme', codeFontId: 'theme', streamingMode: 'balanced', reasoningControl: 'list' };
 function read(): DisplayPreferences {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<DisplayPreferences>;
@@ -16,6 +17,7 @@ function read(): DisplayPreferences {
       uiFontId: typeof value.uiFontId === 'string' ? value.uiFontId : 'theme',
       codeFontId: typeof value.codeFontId === 'string' ? value.codeFontId : 'theme',
       streamingMode: ['chunked', 'balanced', 'smooth'].includes(value.streamingMode ?? '') ? value.streamingMode! : 'balanced',
+      reasoningControl: value.reasoningControl === 'slider' ? 'slider' : 'list',
     };
   } catch { return defaults; }
 }

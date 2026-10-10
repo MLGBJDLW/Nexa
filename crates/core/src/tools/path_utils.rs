@@ -44,6 +44,50 @@ pub(crate) fn has_path_traversal(path: &str) -> bool {
             .any(|component| matches!(component, Component::ParentDir))
 }
 
+/// Resource identity for scheduling only; authorization still resolves the
+/// original tool argument through the access policy at execution time.
+pub(super) fn scheduling_path(
+    path: &str,
+    workspace: Option<&crate::workspace::Workspace>,
+) -> String {
+    let requested = Path::new(path);
+    let candidate = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else if let Some(cwd) = workspace.and_then(|workspace| workspace.cwd()) {
+        Path::new(cwd).join(requested)
+    } else {
+        requested.to_path_buf()
+    };
+    // Never resolve a projectless relative path against the app process cwd.
+    let resolved = if candidate.is_absolute() {
+        canonicalize_with_optional_missing(&candidate, true).unwrap_or(candidate)
+    } else {
+        candidate
+    };
+    let mut normalized = PathBuf::new();
+    for component in resolved.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir if normalized.file_name().is_some_and(|name| name != "..") => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    let value = normalized.to_string_lossy().replace('\\', "/");
+    #[cfg(windows)]
+    let value = value
+        .strip_prefix("//?/UNC/")
+        .map(|unc| format!("//{unc}"))
+        .unwrap_or_else(|| value.strip_prefix("//?/").unwrap_or(&value).to_string())
+        .to_lowercase();
+    if value.is_empty() {
+        ".".into()
+    } else {
+        value
+    }
+}
+
 fn canonicalize_with_optional_missing(path: &Path, allow_missing: bool) -> Result<PathBuf, String> {
     if let Ok(canonical) = std::fs::canonicalize(path) {
         return Ok(canonical);

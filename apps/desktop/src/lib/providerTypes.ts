@@ -23,6 +23,8 @@ export interface ReasoningCapability {
   mode?: 'always' | 'optional';
   disabledMode?: 'between_tools';
   effortLevels?: ReasoningEffortLevel[];
+  /** ACP choices are opaque runtime IDs, not API-provider effort enums. */
+  nativeEffortLevels?: string[];
   defaultEffort?: ReasoningEffortLevel;
   defaultEnabled?: boolean;
   effortBudgetExclusive?: boolean;

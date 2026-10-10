@@ -40,6 +40,9 @@ for line in sys.stdin:
         assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": True, "writeTextFile": True}
         reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}})
     elif method == "session/new":
+        if mode == "launch":
+            with open(sys.argv[2], "w", encoding="utf-8") as log:
+                json.dump({"argument":sys.argv[3],"environment":os.environ["NEXA_ACP_TEST"]}, log)
         if mode == "cwd":
             assert os.path.samefile(os.getcwd(), message["params"]["cwd"])
             with open(sys.argv[2], "w", encoding="utf-8") as log:

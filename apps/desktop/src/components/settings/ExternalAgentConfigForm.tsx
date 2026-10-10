@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, FolderOpen, Terminal } from 'lucide-react';
 import { useTranslation } from '../../i18n';
-import { getExternalAgentLaunch, inspectExternalAgent, type ExternalAgentLaunch, type ExternalAgentConfigOption } from '../../lib/externalAgents';
+import { getExternalAgentLaunch, inspectExternalAgent, parseExternalLaunchFields, type ExternalAgentLaunch, type ExternalAgentConfigOption } from '../../lib/externalAgents';
 import { runtimeAgentConfig } from '../../lib/runtimeAgentConfig';
 import { listMcpServers, type CopilotModelSummary } from '../../lib/api';
 import type { McpServer } from '../../types/extensions';
@@ -10,6 +10,8 @@ import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation
 import { Button } from '../ui/Button';
 
 const isNativeModel = (option: ExternalAgentConfigOption) => option.category === 'model' || (!option.category && option.id === 'model');
+const isNativeReasoning = (option: ExternalAgentConfigOption) => option.category === 'thought_level'
+  || (!option.category && ['reasoning_effort','effort','thought_level'].includes(option.id));
 const isModelDependent = (option: ExternalAgentConfigOption) => option.category === 'model_config' || option.category === 'thought_level'
   || (!option.category && ['reasoning_effort', 'effort', 'thought_level'].includes(option.id));
 
@@ -21,6 +23,11 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   const [name, setName] = useState(config?.name ?? preset.name);
   const [launch, setLaunch] = useState<ExternalAgentLaunch>({ executable: null, workingDirectory: '' });
   const [initialLaunch, setInitialLaunch] = useState<ExternalAgentLaunch | null>(null);
+  const [argsText, setArgsText] = useState('');
+  const [envText, setEnvText] = useState('');
+  let launchFieldsValid = true;
+  try { parseExternalLaunchFields(argsText, envText); } catch { launchFieldsValid = false; }
+  const packageRunner = ['npx', 'uvx'].includes(preset.command ?? '') && !launch.executable;
   const [model, setModel] = useState(config?.model ?? '');
   const [models, setModels] = useState<CopilotModelSummary[]>([]);
   const [nativeOptions, setNativeOptions] = useState<ExternalAgentConfigOption[]>([]);
@@ -41,6 +48,8 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     void getExternalAgentLaunch(config?.id).then(value => {
       if (generation.current !== current) return;
       setLaunch(value); setInitialLaunch(value);
+      setArgsText(value.args == null ? '' : JSON.stringify(value.args, null, 2));
+      setEnvText(Object.keys(value.env ?? {}).length ? JSON.stringify(value.env, null, 2) : '');
     }).catch(cause => { if (generation.current === current) setError(String(cause)); })
       .finally(() => { if (generation.current === current) setLoading(false); });
     return () => { generation.current += 1; };
@@ -50,6 +59,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     setLaunch(next); setVerified(false); setModels([]); setNativeOptions([]); setNativeCommands([]); setLoading(false); setError(null); onDirtyChange(true);
   };
   const probe = async (selected = model, requestedLaunch = launch) => {
+    if (!launchFieldsValid) return;
     const current = ++generation.current;
     setLoading(true); setError(null); setVerified(false);
     try {
@@ -65,6 +75,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   };
   const unchanged = config?.model === model && JSON.stringify(initialLaunch) === JSON.stringify(launch);
   const canSave = !!name.trim() && !!model && !loading && !saving && !isSaving
+    && launchFieldsValid
     && (unchanged || (verified && models.some(item => item.id === model)));
   const save = async () => {
     if (!canSave) return;
@@ -83,7 +94,9 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     <div className="rounded-xl border border-border bg-surface-2/60 p-3">
       <div className="flex items-center gap-2 text-sm font-medium"><Terminal size={16} />{preset.name}</div>
       <code className="mt-2 block break-all text-xs text-text-secondary">{preset.command} {preset.args?.join(' ')}</code>
+      {preset.registryVersion && <span className="mt-1 block text-[10px] text-text-tertiary">ACP Registry · {preset.registryVersion}</span>}
       <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentOwnership')}</p>
+      {packageRunner && <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentPackageHint')}</p>}
       {preset.docsUrl && <a className="mt-2 inline-flex items-center gap-1 text-xs text-accent" href={preset.docsUrl} target="_blank" rel="noreferrer">
         {t('settings.externalAgentSetup')}<ExternalLink size={12} />
       </a>}
@@ -102,6 +115,23 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
       <input className={inputClass} value={launch.workingDirectory} disabled={!initialLaunch}
         onChange={event => changeLaunch({ ...launch, workingDirectory: event.target.value })} />
     </label>
+    <label className="mt-3 block text-xs font-medium text-text-secondary">{t('settings.externalAgentArguments')}
+      <textarea className={`${inputClass} font-mono text-xs`} rows={3} value={argsText} placeholder={JSON.stringify(preset.args ?? [])} disabled={!initialLaunch}
+        onChange={event => {
+          setArgsText(event.target.value);
+          try { changeLaunch({ ...launch, ...parseExternalLaunchFields(event.target.value, envText) }); }
+          catch { changeLaunch(launch); }
+        }} />
+    </label>
+    <label className="mt-3 block text-xs font-medium text-text-secondary">{t('settings.externalAgentEnvironment')}
+      <textarea className={`${inputClass} font-mono text-xs`} rows={3} value={envText} placeholder='{}' disabled={!initialLaunch} spellCheck={false}
+        onChange={event => {
+          setEnvText(event.target.value);
+          try { changeLaunch({ ...launch, ...parseExternalLaunchFields(argsText, event.target.value) }); }
+          catch { changeLaunch(launch); }
+        }} />
+    </label>
+    {!launchFieldsValid && <p role="alert" className="mt-2 text-xs text-danger">{t('settings.externalAgentJsonHint')}</p>}
     </details>
     {models.length > 0 && <label className="block text-xs font-medium text-text-secondary">{t('settings.defaultModel')}
       <select className={inputClass} value={model} disabled={loading} onChange={event => {
@@ -114,7 +144,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
         {models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
     </label>}
-    {nativeOptions.filter(option => !isNativeModel(option)).map(option => <label key={option.id} className="block text-xs font-medium text-text-secondary">
+    {nativeOptions.filter(option => !isNativeModel(option) && !isNativeReasoning(option)).map(option => <label key={option.id} className="block text-xs font-medium text-text-secondary">
       {option.name}
       <select className={inputClass} disabled={loading} value={launch.configOptions?.[option.id] ?? option.currentValue}
         onChange={event => {
@@ -142,7 +172,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     {verified && <p role="status" className="text-xs text-success">{t('settings.externalAgentConnected')}</p>}
     {error && <p role="alert" className="break-words text-xs text-danger [overflow-wrap:anywhere]">{error}</p>}
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="secondary" loading={loading} disabled={!initialLaunch || saving} onClick={() => void probe()}>{t('settings.externalAgentProbe')}</Button>
+      <Button size="sm" variant="secondary" loading={loading} disabled={!initialLaunch || saving || !launchFieldsValid} onClick={() => void probe()}>{t(packageRunner ? 'settings.externalAgentPackageProbe' : 'settings.externalAgentProbe')}</Button>
       <Button size="sm" loading={saving || isSaving} disabled={!canSave} onClick={() => void save()}>{t('common.save')}</Button>
       <Button size="sm" variant="secondary" onClick={onCancel}>{t('common.cancel')}</Button>
     </div>

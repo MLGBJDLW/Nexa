@@ -1115,5 +1115,10 @@
   ,"storageSection": "存储位置"
   ,"storageSectionDesc": "集中管理全局声明、项目规则和本地模型下载。"
   ,"storageProjectContracts": "项目契约保留在各工作区：.nexa/AGENTS.md、.nexa/tools 和 .nexa/tmp。已有 AGENTS.md 优先。"
-  ,"storageInternalState": "数据库、凭据和应用缓存"
+  ,"storageInternalState": "数据库、凭据和应用缓存",
+  "externalAgentArguments": "启动参数（JSON 数组；留空使用预设）",
+  "externalAgentEnvironment": "环境变量（JSON 对象；加密保存）",
+  "externalAgentJsonHint": "参数须为字符串 JSON 数组；环境变量须为值均为字符串的 JSON 对象。",
+  "externalAgentPackageHint": "首次连接可能通过包管理器下载指定版本。请使用该 agent 自己的账户登录。",
+  "externalAgentPackageProbe": "下载 / 检查连接"
 }

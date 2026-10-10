@@ -16,6 +16,17 @@ use std::{
 
 const MAX_XML_BYTES: u64 = 64 * 1024 * 1024;
 
+pub(crate) fn office_package_error(bytes: &[u8], error: impl std::fmt::Display) -> CoreError {
+    let recovery = if bytes.starts_with(&[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]) {
+        "This is an encrypted Office package or an older binary document. Open it in Office, remove password protection if appropriate, and save a new unencrypted copy in the matching format."
+    } else {
+        "The file is incomplete, damaged, or does not match its extension. Finish copying/downloading it, or open it in Office and save a new copy before rescanning."
+    };
+    CoreError::Parse(format!(
+        "Invalid Office document package. {recovery} Detail: {error}"
+    ))
+}
+
 fn xml_part(archive: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<String, CoreError> {
     let mut file = archive
         .by_name(name)
@@ -69,7 +80,7 @@ struct WordTable {
 
 pub(crate) fn docx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedChunk>, CoreError> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|error| CoreError::Parse(error.to_string()))?;
+        .map_err(|error| office_package_error(bytes, error))?;
     let mut parts = archive
         .file_names()
         .filter(|name| {
@@ -296,7 +307,7 @@ fn slide_text(xml: &str) -> Result<String, CoreError> {
 
 pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedChunk>, CoreError> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|error| CoreError::Parse(error.to_string()))?;
+        .map_err(|error| office_package_error(bytes, error))?;
     let mut slides = Vec::new();
     if let (Ok(presentation), Ok(rels)) = (
         xml_part(&mut archive, "ppt/presentation.xml"),

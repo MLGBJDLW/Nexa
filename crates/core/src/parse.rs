@@ -58,7 +58,10 @@ pub fn hash_file_content(path: &Path) -> Result<String, CoreError> {
 /// 5. Falls back to lossy UTF-8.
 pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
     let raw = std::fs::read(path)?;
+    decode_text_bytes(&raw, path)
+}
 
+fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
     // Binary check — look for null bytes in first 8 KB.
     if bytes_appear_binary(&raw) {
         return Err(CoreError::Parse(format!(
@@ -94,8 +97,8 @@ pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
     }
 
     // Try strict UTF-8 (most common case)
-    if let Ok(s) = String::from_utf8(raw.clone()) {
-        return Ok(s);
+    if let Ok(s) = std::str::from_utf8(raw) {
+        return Ok(s.to_owned());
     }
 
     // Try common legacy encodings
@@ -424,18 +427,18 @@ fn parse_file_inner(
         });
     }
 
-    let content = read_text_file(path)?;
-    let fs_meta = std::fs::metadata(path)?;
+    let raw = std::fs::read(path)?;
+    let content = decode_text_bytes(&raw, path)?;
 
     let file_path = path.to_string_lossy().to_string();
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let file_size = fs_meta.len() as i64;
+    let file_size = raw.len() as i64;
     // Content hash is computed on the raw file content, not the chunked content,
     // so chunk overlap does not affect change detection.
-    let content_hash = hash_file_content(path)?;
+    let content_hash = blake3::hash(&raw).to_hex().to_string();
 
     // Extract filesystem timestamps as baseline metadata.
     let mut doc_metadata = extract_fs_metadata(path);
@@ -567,10 +570,16 @@ pub fn parse_pdf_with_llm_provider_type(
             .map(Some)
         });
     if chunks.is_empty() {
-        return Err(CoreError::Parse(
-            "PDF contains no searchable text. Enable OCR or a structured parser, then rescan."
-                .into(),
-        ));
+        let reason = if !ocr_config.enabled {
+            "OCR is disabled. Enable OCR in Settings, download its models, then rescan.".to_string()
+        } else {
+            warnings.iter().find(|warning| !warning.ends_with("no searchable text"))
+                .cloned().unwrap_or_else(|| "OCR found no readable text. Configure a structured PDF parser with page rendering, then rescan.".into())
+        };
+        return Err(CoreError::Parse(format!(
+            "PDF requires OCR: no searchable text in {} pages. {reason}",
+            document.get_pages().len()
+        )));
     }
     let visual_artifacts =
         crate::visual_document::extract_pdf_visual_artifacts_with_llm_provider_type(
@@ -784,7 +793,8 @@ pub fn parse_xlsx(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument,
     let bytes = std::fs::read(path)?;
     let file_size = bytes.len() as i64;
     let content_hash = blake3::hash(&bytes).to_hex().to_string();
-    let chunks = crate::document_structure::workbook_chunks(path, max_chunk_chars)?;
+    let chunks = crate::document_structure::workbook_chunks(path, max_chunk_chars)
+        .map_err(|error| crate::document_structure::office_package_error(&bytes, error))?;
     let visual_artifacts =
         crate::visual_document::extract_ooxml_visual_artifacts(&bytes, OoxmlPackageKind::Xlsx);
 
@@ -1461,16 +1471,16 @@ fn parse_ppt(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, Core
 
 /// Parse an HTML file by stripping tags and extracting clean text.
 fn parse_html(path: &Path, max_chunk_chars: usize) -> Result<ParsedDocument, CoreError> {
-    let content = read_text_file(path)?;
-    let fs_meta = std::fs::metadata(path)?;
+    let raw = std::fs::read(path)?;
+    let content = decode_text_bytes(&raw, path)?;
 
     let file_path = path.to_string_lossy().to_string();
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let file_size = fs_meta.len() as i64;
-    let content_hash = hash_file_content(path)?;
+    let file_size = raw.len() as i64;
+    let content_hash = blake3::hash(&raw).to_hex().to_string();
 
     let clean_text = strip_html_tags(&content);
 
@@ -2289,6 +2299,25 @@ mod tests {
     }
 
     // -- MIME detection -----------------------------------------------------
+
+    #[test]
+    fn invalid_office_packages_report_recovery_instead_of_an_unexplained_zip_failure() {
+        for (bytes, hint) in [
+            (b"PK\x03\x04truncated".as_slice(), "incomplete"),
+            (
+                &[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1][..],
+                "encrypted",
+            ),
+        ] {
+            let file = NamedTempFile::with_suffix(".docx").unwrap();
+            std::fs::write(file.path(), bytes).unwrap();
+            let error = parse_docx(file.path(), 2000).unwrap_err().to_string();
+            assert!(
+                error.contains(hint) && error.contains("save a new"),
+                "{error}"
+            );
+        }
+    }
 
     #[test]
     fn test_detect_mime_markdown() {

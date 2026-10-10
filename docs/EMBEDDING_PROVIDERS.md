@@ -74,11 +74,28 @@ Nexa separates the display model name from the vector-space identity.
 
 ## Runtime checks
 
-The API boundary rejects missing/duplicate indices, unexpected vector counts,
-wrong dimensions and non-finite values before storage. Batches respect provider
-limits. Retries apply to transport failures, 429 and server errors, not malformed
-successful results. Response bodies have a 16 MiB bound. Empty keys are accepted
+The API boundary rejects missing/duplicate indices and unexpected vector counts
+before storage. An ambiguous batch is discarded and requested again one input
+at a time; the job remembers this fallback. It never assigns vectors by response
+position. A single result without an index is accepted only for a single input.
+Wrong dimensions and non-finite values still fail validation. Batches respect
+provider limits. Transport retries apply to 429 and server errors. Response
+bodies have a 16 MiB bound. Empty keys are accepted
 only for loopback hosts; remote endpoints require credentials.
+
+Source scans and full rebuilds share a keyset iterator over missing embeddings,
+with a final catch-up pass for edits behind the cursor. Progress shows the model,
+elapsed time and approximate remaining time. Estimates use recent measurements
+for the exact vector space on this machine, then adapt to actual batch speed;
+the first run shows calibration until a batch completes.
+
+Unchanged source files reuse extraction only when the content hash and ingestion
+configuration match, including parser revision, OCR readiness and chunking.
+Office lock files and unsupported binary text are excluded. A changed failed
+file or configuration bypasses failure backoff immediately. Invalid Office
+packages report a format/repair action; image-only PDFs require enabled OCR with
+installed models or a structured parser. PDF extraction supports CMYK and nested
+image resources, without treating a missing OCR model as successful extraction.
 
 Implementation: [shared catalog](../shared/embedding-provider-presets.json),
 [API adapters and HTTP tests](../crates/core/src/embed/api.rs),

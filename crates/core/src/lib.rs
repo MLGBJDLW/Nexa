@@ -92,6 +92,8 @@ pub mod office_runtime;
 pub mod openrouter_images;
 pub mod package_host;
 pub mod parse;
+#[cfg(feature = "document-processing")]
+mod pdf_images;
 pub mod persona;
 pub mod personalization;
 pub mod playbook;

@@ -131,14 +131,6 @@ pub fn ocr_pdf_page_with_llm_provider_type(
     Err(disabled_error())
 }
 
-#[cfg(feature = "document-processing")]
-pub(crate) fn extract_images_from_pdf_page(
-    _doc: &lopdf::Document,
-    _page_id: lopdf::ObjectId,
-) -> Vec<image::DynamicImage> {
-    Vec::new()
-}
-
 pub fn check_ocr_models_exist(_config: &OcrConfig) -> bool {
     false
 }

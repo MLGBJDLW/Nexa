@@ -1115,5 +1115,10 @@
   ,"storageSection": "저장 위치"
   ,"storageSectionDesc": "전역 설정, 프로젝트 규칙 및 로컬 모델을 한곳에서 관리합니다."
   ,"storageProjectContracts": "프로젝트 규칙은 각 작업 공간의 .nexa/AGENTS.md, .nexa/tools, .nexa/tmp에 둡니다. 기존 AGENTS.md가 우선합니다."
-  ,"storageInternalState": "데이터베이스, 자격 증명 및 앱 캐시"
+  ,"storageInternalState": "데이터베이스, 자격 증명 및 앱 캐시",
+  "externalAgentArguments": "인수 (JSON 배열, 빈칸은 기본값)",
+  "externalAgentEnvironment": "환경 변수 (JSON 객체, 암호화 저장)",
+  "externalAgentJsonHint": "인수는 문자열 JSON 배열, 환경 변수는 문자열 값을 가진 JSON 객체여야 합니다.",
+  "externalAgentPackageHint": "첫 연결 시 패키지 관리자로 지정 버전을 다운로드할 수 있습니다. 에이전트 자체 계정으로 로그인하세요.",
+  "externalAgentPackageProbe": "다운로드 / 연결 확인"
 }

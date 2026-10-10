@@ -38,6 +38,7 @@ import { useOverlayRoot } from '../ui/overlay';
 import { getSubscriptionCatalogs, invalidateSubscriptionModels, loadSubscriptionModels, runtimeCatalogKey, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
 import { catalogModelsForSnapshot, loadProviderModelCatalog } from '../../lib/providerModelCatalog';
 import { useAppCommand } from '../../lib/appCommands';
+import { ReasoningIntensity } from './ReasoningIntensity';
 
 export interface AgentModelSelection {
   config: AgentConfig;
@@ -235,7 +236,7 @@ export function AgentModelPicker({
           const nativeModel = {
             id: model.id, name: model.name, source: 'discovered' as const, status: 'active' as const, productReadiness: 'known' as const,
             contextTokens: model.contextWindow,
-            capabilities: { reasoning: effortLevels.length ? { mode: effortLevels.includes('none') ? 'optional' as const : 'always' as const, effortLevels } : null },
+            capabilities: { reasoning: model.reasoningEfforts.length ? { mode: model.reasoningEfforts.includes('none') ? 'optional' as const : 'always' as const, effortLevels, nativeEffortLevels: model.reasoningEfforts } : null },
           };
           return { ...nativeModel, descriptor: projectModelDescriptor(nativeModel, {
             surface: 'text', providerId: provider, endpointId: modelEndpointId('text', provider), region: 'global',
@@ -336,7 +337,7 @@ export function AgentModelPicker({
     && (selectedConfig?.reasoningEnabled === false || selectedConfig?.reasoningEffort === 'none')
     ? t(reasoningOffLabelKey(selectedModelRow.reasoning))
     : selectedConfig?.reasoningEffort
-    ? t(REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel] ?? 'settings.reasoningEffort')
+    ? (REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel] ? t(REASONING_EFFORT_LABEL_KEYS[selectedConfig.reasoningEffort as ReasoningEffortLevel]) : selectedConfig.reasoningEffort)
     : selectedConfig?.thinkingBudget
       ? formatBudget(selectedConfig.thinkingBudget)
       : selectedConfig && findPresetForConfig(selectedConfig)?.runtime
@@ -495,6 +496,26 @@ export function AgentModelPicker({
   }, [activeModelRow?.reasoning, applyReasoningSelection, budgetDraft]);
 
   const selected = selectedConfig;
+  const intensityCapability = activeModelRow?.reasoning;
+  const intensityOptions: Array<{ key: string; label: string; selection: Pick<AgentModelSelection, 'reasoningEnabled' | 'reasoningEffort' | 'thinkingBudget'> }> = [];
+  if (intensityCapability) {
+    const levels = intensityCapability.nativeEffortLevels ?? intensityCapability.effortLevels ?? [];
+    if (intensityCapability.mode !== 'always' && !levels.includes('none')) {
+      intensityOptions.push({ key: 'off', label: t(reasoningOffLabelKey(intensityCapability)), selection: { reasoningEnabled: false, thinkingBudget: null, reasoningEffort: null } });
+    }
+    if (levels.length) {
+      intensityOptions.push(...levels.map(level => ({ key: `effort:${level}`, label: REASONING_EFFORT_LABEL_KEYS[level as ReasoningEffortLevel] ? t(REASONING_EFFORT_LABEL_KEYS[level as ReasoningEffortLevel]) : level, selection: { reasoningEnabled: true, thinkingBudget: null, reasoningEffort: level } })));
+    } else if (intensityCapability.thinkingBudget?.enabled) {
+      const budgets = thinkingBudgetOptions(intensityCapability);
+      const custom = normalizeThinkingBudget(selected?.thinkingBudget ?? null, intensityCapability);
+      if (custom != null && !budgets.includes(custom)) budgets.push(custom);
+      intensityOptions.push(...budgets.sort((a, b) => a - b).map(budget => ({ key: `budget:${budget}`, label: formatBudget(budget), selection: { reasoningEnabled: true, thinkingBudget: budget, reasoningEffort: null } })));
+    }
+  }
+  const intensityEnabled = selected?.reasoningEnabled ?? intensityCapability?.defaultEnabled ?? intensityCapability?.mode === 'always';
+  const intensityKey = !intensityEnabled && intensityOptions.some(option => option.key === 'off') ? 'off'
+    : (intensityCapability?.nativeEffortLevels ?? intensityCapability?.effortLevels)?.length ? `effort:${selected?.reasoningEffort ?? defaultReasoningEffort(intensityCapability ?? null, true) ?? intensityCapability?.nativeEffortLevels?.[0]}`
+      : `budget:${selected?.thinkingBudget ?? defaultThinkingBudget(intensityCapability ?? null)}`;
   const isSearching = normalizedQuery.length > 0;
   const visibleCount = isSearching
     ? searchModelRows.length
@@ -839,65 +860,21 @@ export function AgentModelPicker({
                         </div>
 
                         <div className="min-h-0 flex-1 overflow-y-auto py-2">
+                          <ReasoningIntensity options={intensityOptions} selectedKey={intensityKey}
+                            onSelect={key => { const option = intensityOptions.find(option => option.key === key); if (option) applyReasoningSelection(option.selection); }}>
                           {!activeModelRow.reasoning ? (
                             <p className="text-[11px] leading-4 text-text-tertiary">
                               {t('settings.reasoningUnsupported')}
                             </p>
-                          ) : activeModelRow.reasoning.effortLevels?.length ? (
+                          ) : (activeModelRow.reasoning.nativeEffortLevels ?? activeModelRow.reasoning.effortLevels)?.length ? (
                             <div className="grid gap-1">
-                              {activeModelRow.reasoning.mode !== 'always' &&
-                                !activeModelRow.reasoning.effortLevels.includes('none') && (
-                                <button
-                                  type="button"
-                                  data-testid="agent-model-reasoning-none"
-                                  onClick={() =>
-                                    applyReasoningSelection({
-                                      reasoningEnabled: false,
-                                      thinkingBudget: null,
-                                      reasoningEffort: null,
-                                    })
-                                  }
-                                  className={`flex h-7 items-center justify-between rounded-md px-2 text-xs transition-colors ${
-                                    selectedConfig?.id === activeModelRow.providerRow.config.id &&
-                                    selectedConfig.model === activeModelRow.model.id &&
-                                    (activeModelRow.reasoning.disabledMode === 'between_tools'
-                                      ? selectedConfig.reasoningEnabled === false || selectedConfig.reasoningEffort === 'none'
-                                      : !selectedConfig.reasoningEffort)
-                                      ? 'bg-accent-subtle text-text-primary ring-1 ring-accent/25'
-                                      : 'text-text-secondary hover:bg-surface-1 hover:text-text-primary'
-                                  }`}
-                                >
-                                  <span className="truncate">{t(reasoningOffLabelKey(activeModelRow.reasoning))}</span>
-                                </button>
-                              )}
-                              {activeModelRow.reasoning.effortLevels.map((level) => {
-                                const current =
-                                  selectedConfig?.id === activeModelRow.providerRow.config.id &&
-                                  selectedConfig.model === activeModelRow.model.id &&
-                                  selectedConfig.reasoningEffort === level;
-                                return (
-                                  <button
-                                    key={level}
-                                    type="button"
-                                    data-testid={`agent-model-reasoning-${level}`}
-                                    onClick={() =>
-                                      applyReasoningSelection({
-                                        reasoningEnabled: true,
-                                        thinkingBudget: null,
-                                        reasoningEffort: level,
-                                      })
-                                    }
-                                    className={`flex h-7 items-center justify-between rounded-md px-2 text-xs transition-colors ${
-                                      current
-                                        ? 'bg-accent-subtle text-text-primary ring-1 ring-accent/25'
-                                        : 'text-text-secondary hover:bg-surface-1 hover:text-text-primary'
-                                    }`}
-                                  >
-                                    <span className="truncate">{t(REASONING_EFFORT_LABEL_KEYS[level])}</span>
-                                    {current && <Check className="h-3.5 w-3.5 text-accent" />}
-                                  </button>
-                                );
-                              })}
+                              {intensityOptions.map(option => <button type="button" key={option.key}
+                                data-testid={`agent-model-reasoning-${option.key === 'off' ? 'none' : option.selection.reasoningEffort}`}
+                                onClick={() => applyReasoningSelection(option.selection)}
+                                className={`flex h-7 items-center justify-between rounded-md px-2 text-xs transition-colors ${intensityKey === option.key ? 'bg-accent-subtle text-text-primary ring-1 ring-accent/25' : 'text-text-secondary hover:bg-surface-1 hover:text-text-primary'}`}>
+                                <span className="truncate">{option.label}</span>
+                                {intensityKey === option.key && <Check className="h-3.5 w-3.5 text-accent" />}
+                              </button>)}
                             </div>
                           ) : activeModelRow.reasoning.thinkingBudget?.enabled ? (
                             <div className="space-y-2">
@@ -959,6 +936,7 @@ export function AgentModelPicker({
                               {t('settings.reasoningUnsupported')}
                             </p>
                           )}
+                          </ReasoningIntensity>
                         </div>
 
                         {activeModelRow.reasoning?.thinkingBudget?.enabled && (

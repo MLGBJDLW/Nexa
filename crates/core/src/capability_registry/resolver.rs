@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::OnceLock;
 
 use serde_json::to_vec;
 
 use crate::error::CoreError;
 use crate::model_catalog::{
-    load_builtin_catalog, normalize_endpoint_url, ModelDescriptor, ModelLifecycle, ModelModality,
+    builtin_catalog, normalize_endpoint_url, ModelDescriptor, ModelLifecycle, ModelModality,
     ProductReadiness,
 };
 use crate::provider_registry::provider_type_for_parts;
@@ -47,23 +48,57 @@ pub fn capability_requirement(capability_id: &str) -> CapabilityRequirement {
     requirement
 }
 
+struct CatalogIndex {
+    definitions: Vec<ModelDefinitionRecord>,
+    definitions_by_id: HashMap<String, ModelDefinitionRecord>,
+    models_by_provider: HashMap<String, Vec<usize>>,
+}
+
+fn catalog_index() -> Result<&'static CatalogIndex, CoreError> {
+    static INDEX: OnceLock<Result<CatalogIndex, String>> = OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let catalog = builtin_catalog().map_err(Clone::clone)?;
+            let definitions = catalog
+                .models
+                .iter()
+                .map(model_definition)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?;
+            let definitions_by_id = definitions
+                .iter()
+                .map(|definition| (definition.id.clone(), definition.clone()))
+                .collect();
+            let mut models_by_provider = HashMap::<String, Vec<usize>>::new();
+            for (index, descriptor) in catalog.models.iter().enumerate() {
+                models_by_provider
+                    .entry(canonical_provider_id(&descriptor.provider_id, catalog))
+                    .or_default()
+                    .push(index);
+            }
+            Ok(CatalogIndex {
+                definitions,
+                definitions_by_id,
+                models_by_provider,
+            })
+        })
+        .as_ref()
+        .map_err(|error| CoreError::InvalidInput(error.clone()))
+}
+
+pub(super) fn builtin_model_definitions() -> Result<Vec<ModelDefinitionRecord>, CoreError> {
+    Ok(catalog_index()?.definitions.clone())
+}
+
 pub fn build_registry_projection(
     all_profiles: &[SettingsProfileV2],
     selected_profiles: &[SettingsProfileV2],
     credential_health: &HashMap<String, ConnectionHealth>,
     activations: Vec<RegistryActivationRecord>,
 ) -> Result<CapabilityRegistryProjection, CoreError> {
-    let catalog = load_builtin_catalog().map_err(CoreError::InvalidInput)?;
+    let catalog = builtin_catalog().map_err(|error| CoreError::InvalidInput(error.clone()))?;
+    let index = catalog_index()?;
     let resolved = resolve_settings_v2(selected_profiles)?;
-    let definitions = catalog
-        .models
-        .iter()
-        .map(model_definition)
-        .collect::<Result<Vec<_>, _>>()?;
-    let definitions_by_id = definitions
-        .iter()
-        .map(|definition| (definition.id.clone(), definition.clone()))
-        .collect::<HashMap<_, _>>();
 
     let mut aliases = HashMap::<String, String>::new();
     let mut connections = BTreeMap::<String, ConnectionRecord>::new();
@@ -82,7 +117,7 @@ pub fn build_registry_projection(
                 &profile.scope,
                 profile.revision,
                 credential_health,
-                &catalog,
+                catalog,
             )?;
             if selected_profile_ids.contains(profile.id.as_str()) {
                 let alias = value.id.trim().to_string();
@@ -111,27 +146,31 @@ pub fn build_registry_projection(
     }
 
     let mut target_by_key = BTreeMap::<(String, String), ModelTargetRecord>::new();
-    let mut definition_by_target = HashMap::<String, Option<ModelDefinitionRecord>>::new();
     for connection in connections.values() {
-        for descriptor in catalog.models.iter().filter(|descriptor| {
-            canonical_provider_id(&descriptor.provider_id, &catalog)
-                == canonical_provider_id(&connection.provider_id, &catalog)
-                && (descriptor
-                    .endpoint_ids
-                    .iter()
-                    .any(|id| id == &connection.endpoint_id)
-                    || connection.endpoint_id.contains(":custom-"))
-        }) {
-            let definition = model_definition(descriptor)?;
+        for &model_index in index
+            .models_by_provider
+            .get(&connection.provider_id)
+            .into_iter()
+            .flatten()
+        {
+            let descriptor = &catalog.models[model_index];
+            if !descriptor
+                .endpoint_ids
+                .iter()
+                .any(|id| id == &connection.endpoint_id)
+                && !connection.endpoint_id.contains(":custom-")
+            {
+                continue;
+            }
+            let definition = &index.definitions[model_index];
             let target = model_target(
                 connection,
                 &descriptor.id,
-                Some(&definition),
+                Some(definition),
                 &connection.source,
                 connection.source_revision,
                 false,
             );
-            definition_by_target.insert(target.id.clone(), Some(definition));
             target_by_key.insert(
                 (connection.id.clone(), normalize_model_id(&descriptor.id)),
                 target,
@@ -193,9 +232,8 @@ pub fn build_registry_projection(
             connections: &connections,
             aliases: &aliases,
             descriptors: &catalog.models,
-            definitions_by_id: &definitions_by_id,
+            definitions_by_id: &index.definitions_by_id,
             target_by_key: &mut target_by_key,
-            definition_by_target: &mut definition_by_target,
         };
         for (capability_id, binding) in effective_bindings {
             let Some(binding_value) = binding.value.as_ref() else {
@@ -215,7 +253,7 @@ pub fn build_registry_projection(
         schema_version: CAPABILITY_REGISTRY_SCHEMA_VERSION,
         settings_revisions: resolved.revisions,
         connections: connections.into_values().collect(),
-        model_definitions: definitions,
+        model_definitions: index.definitions.clone(),
         model_targets: target_by_key.into_values().collect(),
         capabilities,
         activations,
@@ -369,7 +407,6 @@ struct BindingResolutionContext<'a> {
     descriptors: &'a [ModelDescriptor],
     definitions_by_id: &'a HashMap<String, ModelDefinitionRecord>,
     target_by_key: &'a mut BTreeMap<(String, String), ModelTargetRecord>,
-    definition_by_target: &'a mut HashMap<String, Option<ModelDefinitionRecord>>,
 }
 
 fn resolve_binding(
@@ -444,9 +481,6 @@ fn resolve_binding(
                 .as_ref()
                 .and_then(|id| context.definitions_by_id.get(id).cloned())
         });
-        context
-            .definition_by_target
-            .insert(target.id.clone(), definition.clone());
         let eligibility =
             target_eligibility(capability_id, &connection, &target, definition.as_ref());
         Ok(ResolvedCapabilityRouteTarget {
@@ -778,14 +812,24 @@ fn descriptor_supports(descriptor: &ModelDescriptor, requirement: CapabilityRequ
 
 fn model_definition(descriptor: &ModelDescriptor) -> Result<ModelDefinitionRecord, CoreError> {
     let descriptor_json = to_vec(descriptor)?;
+    // The same upstream model can have different capabilities/limits on a
+    // subscription, regional or metered endpoint. A provider+model key made
+    // these definitions overwrite one another while bindings retained the
+    // other descriptor hash, rendering valid routes permanently stale.
+    let endpoints = descriptor
+        .endpoint_ids
+        .iter()
+        .map(|id| id.trim().to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
     Ok(ModelDefinitionRecord {
         id: stable_id(
             "model",
-            &format!(
-                "{}|{}",
+            &serde_json::to_string(&(
+                "endpoint-scoped-v2",
                 normalize_provider_id(&descriptor.provider_id),
-                normalize_model_id(&descriptor.id)
-            ),
+                normalize_model_id(&descriptor.id),
+                endpoints,
+            ))?,
         ),
         revision: 1,
         descriptor_hash: blake3::hash(&descriptor_json).to_hex().to_string(),

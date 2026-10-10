@@ -1115,5 +1115,10 @@
   ,"storageSection": "儲存位置"
   ,"storageSectionDesc": "集中管理全域宣告、專案規則和本機模型下載。"
   ,"storageProjectContracts": "專案契約保留在各工作區：.nexa/AGENTS.md、.nexa/tools 和 .nexa/tmp。現有 AGENTS.md 優先。"
-  ,"storageInternalState": "資料庫、憑證和應用程式快取"
+  ,"storageInternalState": "資料庫、憑證和應用程式快取",
+  "externalAgentArguments": "啟動參數（JSON 陣列；留空使用預設）",
+  "externalAgentEnvironment": "環境變數（JSON 物件；加密儲存）",
+  "externalAgentJsonHint": "參數須為字串 JSON 陣列；環境變數須為值皆為字串的 JSON 物件。",
+  "externalAgentPackageHint": "首次連線可能透過套件管理器下載指定版本。請使用該 agent 自己的帳戶登入。",
+  "externalAgentPackageProbe": "下載 / 檢查連線"
 }

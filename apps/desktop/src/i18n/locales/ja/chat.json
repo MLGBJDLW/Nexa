@@ -899,5 +899,8 @@
   "documentPdfHint": "対応する経路では PDF のテキストとページ画像を読み取ります。その他の経路とプライバシーモードではローカル抽出を使用します。この表示は読み取り方針であり、完了結果ではありません。",
   "documentOfficeHint": "対応する経路には Office の元ファイルをテキスト入力として渡します。埋め込み画像とグラフは含まれません。その他の経路とプライバシーモードではローカル抽出を使用します。",
   "documentExtractionHint": "この形式はローカルのテキストまたは構造化抽出を使用します。表計算の数式と再計算には表計算ツールが必要です。",
-  "computerUseWaiting": "コンピューターのタスクを継続中"
+  "computerUseWaiting": "コンピューターのタスクを継続中",
+  "reasoningControlStyle": "推論コントロールの表示",
+  "reasoningList": "リスト",
+  "reasoningSlider": "強度スライダー"
 }

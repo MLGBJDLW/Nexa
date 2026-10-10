@@ -1115,5 +1115,10 @@
   ,"storageSection": "Ubicaciones de almacenamiento"
   ,"storageSectionDesc": "Gestione declaraciones globales, reglas de proyecto y modelos locales en un solo lugar."
   ,"storageProjectContracts": "Las reglas permanecen en cada proyecto: .nexa/AGENTS.md, .nexa/tools y .nexa/tmp. Los AGENTS.md existentes tienen prioridad."
-  ,"storageInternalState": "Base de datos, credenciales y cachés"
+  ,"storageInternalState": "Base de datos, credenciales y cachés",
+  "externalAgentArguments": "Argumentos (matriz JSON; vacío usa el ajuste)",
+  "externalAgentEnvironment": "Entorno (objeto JSON; guardado cifrado)",
+  "externalAgentJsonHint": "Use una matriz JSON de cadenas para argumentos y un objeto JSON con valores de texto para el entorno.",
+  "externalAgentPackageHint": "La primera conexión puede descargar la versión fijada. Inicie sesión con la cuenta del agente.",
+  "externalAgentPackageProbe": "Descargar / comprobar conexión"
 }

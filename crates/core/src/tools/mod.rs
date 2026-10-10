@@ -1151,7 +1151,15 @@ impl ToolRegistry {
     ) -> ToolInvocation {
         let tool_name = name.into();
         let descriptor = self.capability_descriptor(&tool_name, &arguments);
-        let capabilities = descriptor.capabilities;
+        let mut capabilities = descriptor.capabilities;
+        for key in &mut capabilities.resource_keys {
+            if let Some(path) = key.strip_prefix("file:") {
+                *key = format!(
+                    "file:{}",
+                    path_utils::scheduling_path(path, self.workspace.as_ref())
+                );
+            }
+        }
         let access_profile = descriptor.access_profile;
         let owner = descriptor.owner;
         let tool_identity = self

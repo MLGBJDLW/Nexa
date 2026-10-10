@@ -488,6 +488,31 @@ test('Claude Sonnet 5.5 model selector distinguishes default and between-tool th
   });
 });
 
+test('reasoning slider shares provider semantics with the list and persists its display preference', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+  const trigger=page.getByTestId('agent-reasoning-picker-trigger');
+  await trigger.click();
+  await page.getByRole('button',{name:'Intensity slider',exact:true}).click();
+  const slider=page.getByRole('slider',{name:'Reasoning Effort'});
+  await expect(slider).toBeVisible();
+  await slider.focus();
+  await slider.press('End');
+  await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:'max',thinkingBudget:null});
+  await trigger.click();
+  await expect(slider).toHaveAttribute('aria-valuetext','Max');
+  await page.getByTestId('agent-model-picker-menu').screenshot({path:testInfo.outputPath('reasoning-intensity-slider.png')});
+  await slider.focus();
+  await slider.press('Home');
+  await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:false,reasoningEffort:null,thinkingBudget:null});
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('nexa-display-preferences')!).reasoningControl)).toBe('slider');
+  await trigger.click();
+  await page.getByRole('button',{name:'List',exact:true}).click();
+  await expect(page.getByTestId('agent-model-reasoning-max')).toBeVisible();
+});
+
 test('model selector saves model and reasoning changes to the agent config', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
 

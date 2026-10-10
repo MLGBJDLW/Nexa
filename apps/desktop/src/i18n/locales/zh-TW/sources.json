@@ -117,5 +117,10 @@
   "fileTreeNoMatches": "没有匹配当前包含/排除规则的文件。",
   "rootTruncated": "根目录结果已截断，请展开子文件夹继续缩小范围。",
   "showInFolder": "在檔案管理器中顯示",
-  "addIndexNow": "新增後立即掃描並嵌入"
+  "addIndexNow": "新增後立即掃描並嵌入",
+  "embeddingCalibrating": "正在測算速度…",
+  "embeddingRemaining": "預計還需 {time}",
+  "embeddingMeasured": "根據本次實測",
+  "embeddingHistory": "根據近期記錄",
+  "embeddingElapsed": "已用時 {time}"
 }
