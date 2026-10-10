@@ -429,6 +429,7 @@ jobs:
           e2e/tool-entities.spec.ts
           e2e/history-markdown-rendering.spec.ts
           e2e/desktop-control-status.spec.ts
+          e2e/computer-use-trace.spec.ts
           e2e/subagent-ui.spec.ts
           e2e/subagent-batch-judge-ui.spec.ts
           e2e/subagent-parent-lifecycle.spec.ts
