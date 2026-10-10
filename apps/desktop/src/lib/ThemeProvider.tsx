@@ -129,7 +129,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (!disposed && !document.hidden) timer = window.setTimeout(() => void refresh(), 30_000);
     };
     const refresh = async () => {
-      if (disposed || document.hidden || !started) return;
+      // Explicit registry invalidations must reach native feedback even while
+      // the main window is hidden. schedule() still pauses periodic polling.
+      if (disposed || !started) return;
       if (pending) { refreshAgain = true; return; }
       pending = true;
       window.clearTimeout(timer);

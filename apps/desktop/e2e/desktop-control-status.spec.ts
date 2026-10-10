@@ -11,12 +11,12 @@ test('desktop computer-use status identifies active control and stops its owning
     const stopped: string[] = [];
     const appearances: Record<string, unknown>[] = [];
     let registry: Record<string, unknown> = { version: 2, revision: 1, initialized: true, activeThemeId: 'dark', plugins: [] };
-    Object.assign(window, { __desktopStops: stopped, __desktopAppearances: appearances, __desktopTheme(accent: string) {
+    Object.assign(window, { __desktopStops: stopped, __desktopAppearances: appearances, __desktopTheme(accent: string, revisionOnly = false) {
       registry = { version: 2, revision: Number(registry.revision) + 1, initialized: true, activeThemeId: 'control-theme', plugins: [{
         manifestVersion: 2, kind: 'theme-resource', id: 'control-theme', name: 'Control theme',
         theme: { baseTheme: 'dark', mode: 'dark', colors: { accent }, effects: {}, typography: {}, motion: {}, brand: {}, content: {}, components: {}, background: { kind: 'none' } },
       }] };
-      for (const [id, listener] of listeners) if (listener.event === 'appearance://changed') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: registry });
+      for (const [id, listener] of listeners) if (listener.event === 'appearance://changed') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: revisionOnly ? { revision: registry.revision } : registry });
     }, __desktopWait() {
       for (const [id, listener] of listeners) if (listener.event === 'desktop-control:status') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: active.map(activity => ({ ...activity, phase: 'waiting' })) });
     }, __TAURI_INTERNALS__: {
@@ -47,6 +47,13 @@ test('desktop computer-use status identifies active control and stops its owning
   await expect.poll(() => page.evaluate(() => (window as unknown as { __desktopAppearances: { accent: number[] }[] }).__desktopAppearances.at(-1)?.accent)).toEqual([224, 108, 50]);
   await expect(page.locator('.nexa-control-bond')).toHaveCSS('color', 'rgb(224, 108, 50)');
   await page.screenshot({ path: testInfo.outputPath('desktop-status.png') });
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    (window as unknown as { __desktopTheme(color: string, revisionOnly: boolean): void }).__desktopTheme('#3178c6', true);
+  });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __desktopAppearances: { accent: number[] }[] }).__desktopAppearances.at(-1)?.accent)).toEqual([49, 120, 198]);
+  await expect(page.locator('.nexa-control-bond')).toHaveCSS('color', 'rgb(49, 120, 198)');
+  await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); });
   await page.evaluate(() => (window as unknown as { __desktopWait(): void }).__desktopWait());
   await expect(page.getByRole('status')).toContainText('Continuing the computer task');
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
