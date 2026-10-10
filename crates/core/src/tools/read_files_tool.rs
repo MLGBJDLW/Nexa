@@ -121,7 +121,13 @@ impl Tool for ReadFilesTool {
 
         let native_candidate =
             args.max_lines_per_file.is_none() && args.image_mode.as_deref() != Some("text");
-        let native_image_consent = args.image_mode.as_deref() == Some("native");
+        // Use the exact predicate that admitted raw-image disclosure. The
+        // canonical path may reveal an image behind a symlink or Win32 alias;
+        // resolving it must not manufacture consent absent from the request.
+        let native_image_consent =
+            requests_native_image(&serde_json::from_str(arguments).map_err(|error| {
+                CoreError::InvalidInput(format!("Invalid read_files arguments: {error}"))
+            })?);
         let max_lines = args
             .max_lines_per_file
             .unwrap_or(DEFAULT_MAX_LINES_PER_FILE)
@@ -285,6 +291,46 @@ mod tests {
     use crate::app_settings::{AppConfig, ShellAccessMode};
     use crate::sources::CreateSourceInput;
     use std::path::Path;
+
+    #[cfg(any(windows, unix))]
+    #[tokio::test]
+    async fn canonical_image_alias_cannot_bypass_batch_image_consent() {
+        let dir = tempfile::tempdir().unwrap();
+        let image_path = dir.path().join("private.png");
+        image::RgbImage::from_pixel(16, 16, image::Rgb([180, 60, 90]))
+            .save(&image_path)
+            .unwrap();
+        #[cfg(windows)]
+        let alias = dir.path().join("private.png."); // Win32 canonicalizes the trailing dot.
+        #[cfg(unix)]
+        let alias = {
+            let alias = dir.path().join("alias.txt");
+            std::os::unix::fs::symlink(&image_path, &alias).unwrap();
+            alias
+        };
+        assert_eq!(
+            std::fs::canonicalize(&alias).unwrap(),
+            std::fs::canonicalize(&image_path).unwrap()
+        );
+        let db = setup_db_with_source(dir.path());
+        assert!(db.load_privacy_config().unwrap().enabled);
+        let args = json!({"paths":[alias], "image_mode":"native"});
+        assert!(!ReadFilesTool.requires_confirmation(&args));
+        let result = ReadFilesTool
+            .execute(super::super::ToolExecutionContext::new(
+                "alias",
+                &args.to_string(),
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert!(
+            result.artifacts.unwrap().get("toolOutput").is_none(),
+            "unadmitted raw image pixels must remain private after path resolution"
+        );
+    }
 
     fn setup_db_with_source(root: &Path) -> Database {
         let db = Database::open_memory().expect("open in-memory db");
