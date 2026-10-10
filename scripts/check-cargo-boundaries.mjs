@@ -4,7 +4,7 @@ const cargo = process.env.NEXA_CARGO || 'cargo';
 const toolchain = process.env.NEXA_RUST_TOOLCHAIN;
 const run = args => execFileSync(cargo, [...(toolchain ? [`+${toolchain}`] : []), ...args], { encoding: 'utf8' });
 const minimal = run(['tree', '-p', 'nexa-core', '--no-default-features', '--edges', 'normal', '--prefix', 'none']);
-for (const dependency of ['headless_chrome', 'windows-capture', 'lopdf', 'calamine', 'imageproc']) {
+for (const dependency of ['headless_chrome', 'windows-capture', 'lopdf', 'calamine', 'imageproc', 'hayro']) {
   if (minimal.split(/\r?\n/).some(line => line.startsWith(`${dependency} v`))) throw new Error(`Minimal runtime still includes host dependency ${dependency}`);
 }
 const catalog = run(['tree', '-p', 'nexa-model-catalog', '--edges', 'normal', '--prefix', 'none']);

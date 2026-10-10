@@ -61,8 +61,14 @@ pub(crate) fn shutdown() {
 
 #[cfg(test)]
 pub(super) fn discard_test_connections(cwd: &str) {
+    let resolved = std::fs::canonicalize(cwd).expect("fixture directory must exist during cleanup");
     cache()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .retain(|_, idle| idle.connection.session.cwd != cwd);
+        .retain(|_, idle| {
+            std::fs::canonicalize(&idle.connection.session.cwd)
+                .ok()
+                .as_ref()
+                != Some(&resolved)
+        });
 }

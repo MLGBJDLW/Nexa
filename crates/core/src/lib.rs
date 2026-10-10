@@ -94,6 +94,8 @@ pub mod package_host;
 pub mod parse;
 #[cfg(feature = "document-processing")]
 mod pdf_images;
+#[cfg(feature = "ocr")]
+mod pdf_render;
 pub mod persona;
 pub mod personalization;
 pub mod playbook;

@@ -908,67 +908,52 @@ pub async fn extract_text_via_llm_vision_with_llm_provider_type(
 
 pub struct PdfPageOcr {
     pub text: String,
-    pub images_seen: usize,
-    pub images_failed: usize,
+    pub warnings: Vec<String>,
 }
 
-pub fn ocr_pdf_page_with_llm_provider_type(
-    document: &lopdf::Document,
-    page_id: lopdf::ObjectId,
-    config: &OcrConfig,
-    llm_provider: Option<&dyn crate::llm::LlmProvider>,
-    llm_provider_type: Option<crate::llm::ProviderType>,
-) -> Result<PdfPageOcr, CoreError> {
-    let images = crate::pdf_images::extract_images_from_pdf_page(document, page_id);
-    let mut first_error = None;
-    let mut result = PdfPageOcr {
-        text: String::new(),
-        images_seen: images.len(),
-        images_failed: 0,
-    };
-    for image in images {
-        let mut buffer = std::io::Cursor::new(Vec::new());
-        if image
-            .write_to(&mut buffer, image::ImageFormat::Png)
-            .is_err()
-        {
-            result.images_failed += 1;
-            continue;
+/// One PDF parser per OCR job; raster buffers are released after each page.
+pub struct PdfOcrDocument(crate::pdf_render::PdfRenderer);
+
+impl PdfOcrDocument {
+    pub fn new(bytes: &[u8]) -> Result<Self, CoreError> {
+        crate::pdf_render::PdfRenderer::new(bytes).map(Self)
+    }
+
+    pub fn page_count(&self) -> usize {
+        self.0.page_count()
+    }
+
+    pub fn page(
+        &self,
+        index: usize,
+        config: &OcrConfig,
+        llm_provider: Option<&dyn crate::llm::LlmProvider>,
+        llm_provider_type: Option<crate::llm::ProviderType>,
+    ) -> Result<PdfPageOcr, CoreError> {
+        if !config.enabled {
+            return Ok(PdfPageOcr {
+                text: String::new(),
+                warnings: Vec::new(),
+            });
         }
-        match extract_text_from_image_with_llm_provider_type(
-            &buffer.into_inner(),
+        // Check models before spending time rasterizing. Successful engines
+        // are cached by the existing OCR owner, including across pages.
+        ocr_engine(config)?;
+        let rendered = self.0.page(index)?;
+        let result = extract_text_from_image_with_llm_provider_type(
+            &rendered.png,
             "image/png",
             config,
             llm_provider,
             llm_provider_type,
-        ) {
-            Ok(ocr) if !ocr.full_text.trim().is_empty() => {
-                if !result.text.is_empty() {
-                    result.text.push_str("\n\n");
-                }
-                result.text.push_str(&ocr.full_text);
-            }
-            Err(error) => {
-                result.images_failed += 1;
-                if first_error.is_none() {
-                    first_error = Some(error);
-                }
-            }
-            Ok(_) => result.images_failed += 1,
-        }
+        )?;
+        Ok(PdfPageOcr {
+            text: result.full_text,
+            warnings: rendered.warnings,
+        })
     }
-    if result.text.is_empty() {
-        if let Some(error) = first_error {
-            return Err(error);
-        }
-    }
-    Ok(result)
 }
 
-/// Extract text from a scanned PDF by extracting embedded images and running OCR.
-///
-/// Scanned PDFs store each page as an embedded image.  This function uses
-/// `lopdf` to extract those images and passes them through the OCR pipeline.
 pub fn ocr_pdf(
     pdf_bytes: &[u8],
     config: &OcrConfig,
@@ -983,50 +968,22 @@ pub fn ocr_pdf_with_llm_provider_type(
     llm_provider: Option<&dyn crate::llm::LlmProvider>,
     llm_provider_type: Option<crate::llm::ProviderType>,
 ) -> Result<String, CoreError> {
-    let doc = lopdf::Document::load_mem(pdf_bytes)
-        .map_err(|e| CoreError::Parse(format!("PDF load: {e}")))?;
-
-    let pages: Vec<lopdf::ObjectId> = doc.get_pages().into_values().collect();
-
-    let mut all_text = String::new();
-
-    for (page_idx, &page_id) in pages.iter().enumerate() {
-        let images = crate::pdf_images::extract_images_from_pdf_page(&doc, page_id);
-        if images.is_empty() {
-            tracing::debug!("No embedded images found on PDF page {page_idx}");
-            continue;
+    let document = PdfOcrDocument::new(pdf_bytes)?;
+    let mut pages = Vec::new();
+    for index in 0..document.page_count() {
+        let result = document.page(index, config, llm_provider, llm_provider_type)?;
+        if !result.warnings.is_empty() {
+            return Err(CoreError::Ocr(format!(
+                "PDF page {}: {}",
+                index + 1,
+                result.warnings.join("; ")
+            )));
         }
-
-        for img in images {
-            // Encode extracted image as PNG bytes for OCR.
-            let mut buf = std::io::Cursor::new(Vec::new());
-            if let Err(e) = img.write_to(&mut buf, image::ImageFormat::Png) {
-                tracing::warn!("Failed to encode PDF page {page_idx} image as PNG: {e}");
-                continue;
-            }
-
-            match extract_text_from_image_with_llm_provider_type(
-                &buf.into_inner(),
-                "image/png",
-                config,
-                llm_provider,
-                llm_provider_type,
-            ) {
-                Ok(result) if !result.full_text.is_empty() => {
-                    if !all_text.is_empty() {
-                        all_text.push_str("\n\n--- Page Break ---\n\n");
-                    }
-                    all_text.push_str(&result.full_text);
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!("OCR failed for PDF page {page_idx}: {e}");
-                }
-            }
+        if !result.text.trim().is_empty() {
+            pages.push(result.text);
         }
     }
-
-    Ok(all_text)
+    Ok(pages.join("\n\n--- Page Break ---\n\n"))
 }
 
 // ── Model download ──────────────────────────────────────────────────
@@ -1454,17 +1411,6 @@ impl Database {
 mod tests {
     use super::*;
 
-    #[test]
-    fn page_without_image_candidates_does_not_require_ocr_models_or_warn() {
-        let mut document = lopdf::Document::new();
-        let page = document.add_object(lopdf::Dictionary::new());
-        let result =
-            ocr_pdf_page_with_llm_provider_type(&document, page, &OcrConfig::default(), None, None)
-                .unwrap();
-        assert!(result.text.is_empty());
-        assert_eq!(result.images_seen, 0);
-        assert_eq!(result.images_failed, 0);
-    }
     use crate::db::Database;
     use std::io::Write;
 

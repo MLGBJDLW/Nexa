@@ -116,19 +116,29 @@ pub fn ocr_pdf_with_llm_provider_type(
 #[cfg(feature = "document-processing")]
 pub struct PdfPageOcr {
     pub text: String,
-    pub images_seen: usize,
-    pub images_failed: usize,
+    pub warnings: Vec<String>,
 }
 
 #[cfg(feature = "document-processing")]
-pub fn ocr_pdf_page_with_llm_provider_type(
-    _document: &lopdf::Document,
-    _page_id: lopdf::ObjectId,
-    _config: &OcrConfig,
-    _llm_provider: Option<&dyn crate::llm::LlmProvider>,
-    _llm_provider_type: Option<crate::llm::ProviderType>,
-) -> Result<PdfPageOcr, CoreError> {
-    Err(disabled_error())
+pub struct PdfOcrDocument;
+
+#[cfg(feature = "document-processing")]
+impl PdfOcrDocument {
+    pub fn new(_bytes: &[u8]) -> Result<Self, CoreError> {
+        Err(disabled_error())
+    }
+    pub fn page_count(&self) -> usize {
+        0
+    }
+    pub fn page(
+        &self,
+        _index: usize,
+        _config: &OcrConfig,
+        _llm_provider: Option<&dyn crate::llm::LlmProvider>,
+        _llm_provider_type: Option<crate::llm::ProviderType>,
+    ) -> Result<PdfPageOcr, CoreError> {
+        Err(disabled_error())
+    }
 }
 
 pub fn check_ocr_models_exist(_config: &OcrConfig) -> bool {

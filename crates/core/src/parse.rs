@@ -555,19 +555,35 @@ pub fn parse_pdf_with_llm_provider_type(
     let document = panic::catch_unwind(AssertUnwindSafe(|| lopdf::Document::load_mem(&bytes)))
         .map_err(|payload| CoreError::Parse(panic_payload_to_string(payload)))?
         .map_err(|error| CoreError::Parse(format!("PDF load failed: {error}")))?;
+    let page_indices: HashMap<_, _> = document
+        .get_pages()
+        .into_values()
+        .enumerate()
+        .map(|(index, id)| (id, index))
+        .collect();
+    let ocr_document = std::cell::OnceCell::new();
     let (chunks, missing_pages, warnings) =
         pdf_page_chunks(&document, max_chunk_chars, |page_id| {
             if !ocr_config.enabled {
                 return Ok(None);
             }
-            crate::ocr::ocr_pdf_page_with_llm_provider_type(
-                &document,
-                page_id,
-                ocr_config,
-                llm_provider,
-                llm_provider_type,
-            )
-            .map(Some)
+            let rendered = ocr_document
+                .get_or_init(|| crate::ocr::PdfOcrDocument::new(&bytes))
+                .as_ref()
+                .map_err(|error| CoreError::Ocr(error.to_string()))?;
+            if rendered.page_count() != page_indices.len() {
+                return Err(CoreError::Parse(
+                    "PDF rendering page count differs; cannot assign reliable page evidence".into(),
+                ));
+            }
+            rendered
+                .page(
+                    page_indices[&page_id],
+                    ocr_config,
+                    llm_provider,
+                    llm_provider_type,
+                )
+                .map(Some)
         });
     if chunks.is_empty() {
         let reason = if !ocr_config.enabled {
@@ -649,12 +665,24 @@ fn pdf_page_chunks(
         .unwrap_or_else(|_| (String::new(), true));
         let (mut text, native_failed) = native;
         let mut method = "native";
-        if text.trim().chars().count() < 40 || native_failed {
+        let native_chars = text.trim().chars().count();
+        let sparse_visual = (1..40).contains(&native_chars)
+            && lopdf::content::Content::decode(&document.get_page_content(page_id)).is_ok_and(
+                |content| {
+                    content.operations.iter().any(|operation| {
+                        matches!(
+                            operation.operator.as_str(),
+                            "Do" | "f" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*"
+                        )
+                    })
+                },
+            );
+        if text.trim().is_empty() || sparse_visual || native_failed {
             match ocr(page_id) {
                 Ok(Some(result)) => {
                     if !result.text.trim().is_empty() {
                         method = if text.trim().is_empty() {
-                            "embedded_image_ocr"
+                            "page_ocr"
                         } else {
                             "native_and_ocr"
                         };
@@ -663,12 +691,12 @@ fn pdf_page_chunks(
                             text.push_str(&result.text);
                         }
                     }
-                    if result.images_failed > 0 {
-                        warnings.push(format!(
-                            "Page {page}: {}/{} images could not be read",
-                            result.images_failed, result.images_seen
-                        ));
-                    }
+                    warnings.extend(
+                        result
+                            .warnings
+                            .into_iter()
+                            .map(|warning| format!("Page {page}: {warning}")),
+                    );
                 }
                 Ok(None) => (),
                 Err(error) => warnings.push(format!("Page {page}: {error}")),
@@ -2249,7 +2277,7 @@ mod tests {
 
     #[cfg(feature = "document-processing")]
     #[test]
-    fn mixed_pdf_invokes_ocr_only_for_uncovered_pages_and_keeps_page_anchors() {
+    fn mixed_pdf_skips_ocr_for_native_titles_and_keeps_page_anchors() {
         use lopdf::{
             content::{Content, Operation},
             dictionary, Document, Object, Stream,
@@ -2261,10 +2289,7 @@ mod tests {
         );
         let resources = doc.add_object(dictionary! { "Font" => dictionary! { "F1" => font } });
         let mut kids: Vec<Object> = Vec::new();
-        for text in [
-            "A native page with more than forty readable characters and direct evidence.",
-            "",
-        ] {
+        for text in ["Readable native title.", ""] {
             let content = Content {
                 operations: vec![
                     Operation::new("BT", vec![]),
@@ -2288,8 +2313,7 @@ mod tests {
             calls += 1;
             Ok(Some(crate::ocr::PdfPageOcr {
                 text: "扫描页报销额度：500元。".into(),
-                images_seen: 1,
-                images_failed: 0,
+                warnings: Vec::new(),
             }))
         });
         assert_eq!(calls, 1);

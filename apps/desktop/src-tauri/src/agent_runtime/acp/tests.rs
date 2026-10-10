@@ -524,7 +524,14 @@ fn wire_with_marker(mode: &str, marker: &str) -> Wire {
 
 #[tokio::test]
 async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            pool::discard_test_connections(&self.0.to_string_lossy());
+        }
+    }
     let directory = tempfile::tempdir().unwrap();
+    let _cleanup = Cleanup(directory.path().to_path_buf());
     let log = directory.path().join("effective-effort.txt");
     let python = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" })
         .args(["-c", "import sys; print(sys.executable)"])

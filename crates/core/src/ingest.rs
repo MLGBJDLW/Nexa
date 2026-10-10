@@ -24,7 +24,7 @@ use crate::parse::{
 };
 use crate::privacy::{self, PrivacyConfig};
 
-pub const NATIVE_PARSER_PROFILE: &str = "native-v4";
+pub const NATIVE_PARSER_PROFILE: &str = "native-v5";
 
 #[derive(Debug, Clone)]
 pub struct IndexedDocument {

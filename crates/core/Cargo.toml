@@ -49,6 +49,7 @@ futures = "0.3"
 notify = { version = "8", features = ["macos_kqueue"] }
 dirs = "6"
 lopdf = { version = "0.44", optional = true }
+hayro = { version = "=0.8.0", optional = true }
 calamine = { version = "0.36", optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 base64 = "0.22"
@@ -92,7 +93,7 @@ desktop-control = ["dep:windows-capture"]
 document-processing = ["dep:lopdf", "dep:calamine"]
 onnx-runtime = ["dep:ort", "dep:ndarray"]
 local-embeddings = ["onnx-runtime", "dep:tokenizers"]
-ocr = ["onnx-runtime", "document-processing", "dep:imageproc"]
+ocr = ["onnx-runtime", "document-processing", "dep:imageproc", "dep:hayro"]
 video = ["candle-core", "candle-nn", "candle-transformers", "hound", "xz2", "tar", "dep:tokenizers"]
 
 [dev-dependencies]

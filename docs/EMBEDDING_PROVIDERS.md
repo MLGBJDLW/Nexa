@@ -94,8 +94,12 @@ configuration match, including parser revision, OCR readiness and chunking.
 Office lock files and unsupported binary text are excluded. A changed failed
 file or configuration bypasses failure backoff immediately. Invalid Office
 packages report a format/repair action; image-only PDFs require enabled OCR with
-installed models or a structured parser. PDF extraction supports CMYK and nested
-image resources, without treating a missing OCR model as successful extraction.
+installed models or a structured parser. Pages without readable text are rendered
+locally before OCR, including text converted to vector outlines. The portable
+CPU renderer uses a white background and limits its output to a 2048-pixel edge;
+buffers are released after each page. Rendering warnings retain incomplete
+extraction status. Embedded visual evidence also supports CMYK and nested image
+resources, without treating a missing OCR model as successful extraction.
 
 Implementation: [shared catalog](../shared/embedding-provider-presets.json),
 [API adapters and HTTP tests](../crates/core/src/embed/api.rs),
