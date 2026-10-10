@@ -560,9 +560,11 @@ mod tests {
         assert!(blue[body] > blue[body + 2]);
         for scale in [1.0, 1.5, 2.0] {
             let (_, _, pixels) = ripple_pixels(scale, 0.3, [224, 108, 50]);
-            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+            assert!(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
             assert!(pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
             assert!(ripple_pixels(scale, 1.0, [224, 108, 50])
                 .2
@@ -575,15 +577,21 @@ mod tests {
         for scale in [1.0, 1.5, 2.0] {
             let (width, height, pixels) = pointer_pixels(scale, [20, 184, 166]);
             assert_eq!(pixels.len(), width as usize * height as usize * 4);
-            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 0));
-            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 255));
+            assert!(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] == 0));
             assert!(pixels
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] == 255));
+            assert!(pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
         }
         if let Some(path) = std::env::var_os("NEXA_POINTER_PREVIEW") {
             let (width, height, mut pixels) = pointer_pixels(2.0, [20, 184, 166]);
-            for pixel in pixels.chunks_exact_mut(4) {
+            for pixel in pixels.as_chunks_mut::<4>().0 {
                 pixel.swap(0, 2);
                 if pixel[3] > 0 {
                     for index in 0..3 {
