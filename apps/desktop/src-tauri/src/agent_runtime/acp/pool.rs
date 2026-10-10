@@ -58,3 +58,11 @@ pub(super) fn put(key: String, connection: Connected) {
 pub(crate) fn shutdown() {
     cache().lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
+
+#[cfg(test)]
+pub(super) fn discard_test_connections(cwd: &str) {
+    cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|_, idle| idle.connection.session.cwd != cwd);
+}

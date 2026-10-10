@@ -585,6 +585,9 @@ async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
         ..binding
     });
     run("opencode", next).await.unwrap();
+    // Windows pipe readers keep the Tokio test runtime alive until the cached
+    // children exit. Remove only this fixture's sessions before runtime teardown.
+    pool::discard_test_connections(&directory.path().to_string_lossy());
     assert_eq!(
         std::fs::read_to_string(log)
             .unwrap()
