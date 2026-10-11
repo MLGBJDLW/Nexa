@@ -949,7 +949,7 @@ export const togglePersona = (id: string, enabled: boolean) =>
 // ── Agent Config ────────────────────────────────────────────────────────
 
 export interface CodexRateLimitWindow {
-  usedPercent: number;
+  usedPercent: number | null;
   windowDurationMins: number | null;
   resetsAt: number | null;
 }
@@ -1027,7 +1027,7 @@ export interface CopilotModelSummary {
 
 export interface CopilotQuotaSnapshot {
   id: string;
-  remainingPercent: number;
+  remainingPercent: number | null;
   resetDate: string | null;
   unlimited: boolean;
 }

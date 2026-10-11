@@ -1049,6 +1049,8 @@ export function ChatPage() {
     <div className="flex min-w-0 flex-wrap items-center gap-1">
       {chat.agentConfig && agentConfigs.length > 0 && selectedAgentConfig && (
         <AgentModelPicker
+          conversationId={chat.activeId}
+          projectId={chat.activeConversation?.projectId ?? initialProjectId}
           agentConfigs={agentConfigs}
           selectedConfig={selectedAgentConfig}
           onSelect={handleAgentModelSelection}

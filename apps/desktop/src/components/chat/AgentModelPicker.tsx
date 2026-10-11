@@ -39,6 +39,7 @@ import { getSubscriptionCatalogs, invalidateSubscriptionModels, loadSubscription
 import { catalogModelsForSnapshot, loadProviderModelCatalog } from '../../lib/providerModelCatalog';
 import { useAppCommand } from '../../lib/appCommands';
 import { ReasoningIntensity } from './ReasoningIntensity';
+import { SubscriptionUsagePopover } from './SubscriptionUsagePopover';
 
 export interface AgentModelSelection {
   config: AgentConfig;
@@ -49,6 +50,8 @@ export interface AgentModelSelection {
 }
 
 interface AgentModelPickerProps {
+  conversationId?: string | null;
+  projectId?: string | null;
   agentConfigs: AgentConfig[];
   selectedConfig: AgentConfig | null;
   onSelect: (selection: AgentModelSelection) => void | Promise<void>;
@@ -201,6 +204,8 @@ function formatBudget(value: number): string {
 }
 
 export function AgentModelPicker({
+  conversationId,
+  projectId,
   agentConfigs,
   selectedConfig,
   onSelect,
@@ -619,6 +624,9 @@ export function AgentModelPicker({
         </span>
         <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep === 'reasoning' ? 'rotate-180' : ''}`} />
       </button>}
+
+      {findPresetForConfig(selected)?.runtime && <SubscriptionUsagePopover key={`${conversationId}:${projectId}:${selected.id}:${selected.provider}:${selected.model}`}
+        config={selected} conversationId={conversationId} projectId={projectId} />}
 
       {createPortal(
         <AnimatePresence>

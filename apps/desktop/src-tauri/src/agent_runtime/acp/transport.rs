@@ -79,6 +79,38 @@ fn executable(preset: &ExternalAgentPreset, launch: &ExternalAgentLaunch) -> Res
     Err(error(format!("{} is not installed on PATH. Install and sign in with its official CLI, or choose its executable in Settings.", preset.name)))
 }
 
+// The ACP session and read-only account probe share executable, environment,
+// cwd and Windows shim validation, so they cannot silently use different homes.
+pub(super) fn command(
+    preset: &ExternalAgentPreset,
+    launch: &ExternalAgentLaunch,
+    args: &[String],
+) -> Result<tokio::process::Command> {
+    launch.validate_resolved()?;
+    let executable = executable(preset, launch)?;
+    if cfg!(windows)
+        && executable.extension().is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+        })
+        && args
+            .iter()
+            .any(|argument| argument.contains(['%', '!', '^', '&', '|', '<', '>', '\r', '\n']))
+    {
+        return Err(error("These arguments require a native executable, not a Windows command shim. Select the agent's executable (or Node/Python executable) directly."));
+    }
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args(args)
+        .envs(preset.launch_env(launch))
+        .current_dir(&launch.working_directory)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8");
+    Ok(command)
+}
+
 impl Wire {
     pub(super) fn take_pending(&mut self) -> Result<VecDeque<Value>> {
         let mut pending = std::mem::take(&mut self.queued);
@@ -102,33 +134,8 @@ impl Wire {
         preset: &ExternalAgentPreset,
         launch: &ExternalAgentLaunch,
     ) -> Result<Self> {
-        launch.validate_resolved()?;
-        let executable = executable(preset, launch)?;
         let args = preset.launch_args(launch);
-        // On Windows .cmd/.bat go through cmd.exe. Reject expansion/control
-        // characters instead of accidentally treating a custom argv as shell
-        // code. Native executables accept the full literal argument set.
-        if cfg!(windows)
-            && executable.extension().is_some_and(|extension| {
-                extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
-            })
-            && args
-                .iter()
-                .any(|argument| argument.contains(['%', '!', '^', '&', '|', '<', '>', '\r', '\n']))
-        {
-            return Err(error("These arguments require a native executable, not a Windows command shim. Select the agent's executable (or Node/Python executable) directly."));
-        }
-        let mut command = tokio::process::Command::new(executable);
-        command
-            .args(args)
-            .envs(preset.launch_env(launch))
-            .current_dir(&launch.working_directory)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .env("PYTHONUTF8", "1")
-            .env("PYTHONIOENCODING", "utf-8");
-        Self::spawn(command)
+        Self::spawn(command(preset, launch, args)?)
     }
 
     pub(super) fn spawn(mut command: tokio::process::Command) -> Result<Self> {

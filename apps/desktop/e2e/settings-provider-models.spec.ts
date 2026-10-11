@@ -2849,3 +2849,30 @@ test('model consolidation fences settings and download controls until verified r
   await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'AI Providers', exact: true })).toBeEnabled();
 });
+
+test('registry agents render their SVG identity in light and dark catalogs', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  const presets = JSON.parse(readFileSync(new URL('../../../shared/external-agent-presets.json', import.meta.url), 'utf8'));
+  for (const preset of presets) {
+    const icon = page.locator(`[data-provider-preset-id="${preset.id}"] [title]`).first();
+    await expect(icon).toHaveAttribute('title', preset.name);
+    const mask = icon.locator('span[style]');
+    await expect(mask).toHaveCSS('mask-image', new RegExp(preset.icon.replaceAll('.', '\\.')));
+    const response = await page.request.get(preset.icon);
+    expect(response.ok()).toBeTruthy();
+    expect(await response.text()).toContain('<svg');
+  }
+  await page.getByPlaceholder('Search providers or models').fill('pi ACP');
+  await page.screenshot({ path: testInfo.outputPath('external-agent-pi-light.png') });
+  await page.evaluate(() => localStorage.setItem('nexa-active-theme-v1', 'midnight'));
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.colorScheme)).toBe('dark');
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.getByPlaceholder('Search providers or models').fill('pi ACP');
+  await page.screenshot({ path: testInfo.outputPath('external-agent-pi-dark.png') });
+});

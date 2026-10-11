@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "Окружение (объект JSON; хранится зашифрованным)",
   "externalAgentJsonHint": "Аргументы должны быть массивом строк JSON, окружение — объектом JSON со строковыми значениями.",
   "externalAgentPackageHint": "При первом подключении может загрузиться указанная версия пакета. Войдите в учётную запись самого агента.",
-  "externalAgentPackageProbe": "Загрузить / проверить подключение"
+  "externalAgentPackageProbe": "Загрузить / проверить подключение",
+  "subscriptionUsage": "Использование аккаунта",
+  "subscriptionUsed": "Использовано {percent}%",
+  "subscriptionQuotaUnknown": "Использование неизвестно",
+  "subscriptionQuotaUnsupported": "Это подключение не предоставляет квоты аккаунта. Откройте страницу использования агента.",
+  "subscriptionQuotaUnavailable": "Не удалось получить данные. Обновите их или проверьте версию агента и вход в аккаунт.",
+  "subscriptionQuotaSignIn": "Чтобы увидеть использование, войдите в аккаунт агента в настройках.",
+  "subscriptionQuotaScope": "Квота аккаунта от провайдера общая для всех клиентов. Она не связана со счётчиком токенов этого чата.",
+  "subscriptionQuotaUpdated": "Получено в {time}"
 }

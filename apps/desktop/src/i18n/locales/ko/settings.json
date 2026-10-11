@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "환경 변수 (JSON 객체, 암호화 저장)",
   "externalAgentJsonHint": "인수는 문자열 JSON 배열, 환경 변수는 문자열 값을 가진 JSON 객체여야 합니다.",
   "externalAgentPackageHint": "첫 연결 시 패키지 관리자로 지정 버전을 다운로드할 수 있습니다. 에이전트 자체 계정으로 로그인하세요.",
-  "externalAgentPackageProbe": "다운로드 / 연결 확인"
+  "externalAgentPackageProbe": "다운로드 / 연결 확인",
+  "subscriptionUsage": "계정 사용량",
+  "subscriptionUsed": "{percent}% 사용",
+  "subscriptionQuotaUnknown": "사용량 알 수 없음",
+  "subscriptionQuotaUnsupported": "이 연결은 계정 할당량을 제공하지 않습니다. 에이전트의 사용량 페이지를 확인하세요.",
+  "subscriptionQuotaUnavailable": "계정 사용량을 읽을 수 없습니다. 새로 고치거나 에이전트 버전과 로그인 상태를 확인하세요.",
+  "subscriptionQuotaSignIn": "계정 사용량을 보려면 설정에서 이 에이전트에 로그인하세요.",
+  "subscriptionQuotaScope": "공급자가 보고한 계정 할당량은 클라이언트 간에 공유됩니다. 이 채팅의 토큰 사용량과는 별도입니다.",
+  "subscriptionQuotaUpdated": "조회 시간 {time}"
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-shell';
 import {
   Check,
@@ -20,11 +20,12 @@ import * as api from '../../lib/api';
 import type {
   CodexAccountSnapshot,
   CodexLoginDescriptor,
-  CodexRateLimitWindow,
   CopilotAccountSnapshot,
 } from '../../lib/api';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { SubscriptionUsageDetails } from './SubscriptionUsageDetails';
+import { codexAccountQuota, copilotAccountQuota } from '../../lib/subscriptionUsage';
 
 const CODEX_DOCS_URL = 'https://developers.openai.com/codex/app-server';
 const COPILOT_DOCS_URL = 'https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate';
@@ -57,49 +58,6 @@ function planLabel(plan: string | null | undefined): string | null {
     .split('_')
     .map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : part)
     .join(' ');
-}
-
-function formatReset(timestamp: number | null, locale: string): string | null {
-  if (!timestamp) return null;
-  return new Intl.DateTimeFormat(locale, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp * 1_000));
-}
-
-function UsageWindow({
-  label,
-  window,
-  locale,
-}: {
-  label: string;
-  window: CodexRateLimitWindow;
-  locale: string;
-}) {
-  const { t } = useTranslation();
-  const used = Math.max(0, Math.min(100, window.usedPercent));
-  const reset = formatReset(window.resetsAt, locale);
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
-        <span>{label}</span>
-        <span>{t('settings.subscriptionRemaining', { percent: 100 - used })}</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-surface-4" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={100 - used}>
-        <div
-          className="h-full rounded-full bg-accent transition-[width] duration-normal"
-          style={{ width: `${100 - used}%` }}
-        />
-      </div>
-      {reset && (
-        <p className="text-[10px] text-text-tertiary">
-          {t('settings.subscriptionResets', { date: reset })}
-        </p>
-      )}
-    </div>
-  );
 }
 
 function runtimeErrorCopy(errorCode: string | null, t: ReturnType<typeof useTranslation>['t']): string {
@@ -316,7 +274,6 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
 
   const account = snapshot?.account ?? null;
   const pending = snapshot?.pendingLogin ?? null;
-  const rateLimits = useMemo(() => snapshot?.rateLimits.slice(0, 4) ?? [], [snapshot?.rateLimits]);
 
   return (
     <div className="space-y-3" data-provider-category="subscription-accounts">
@@ -469,30 +426,9 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
           </div>
         )}
 
-        {account && rateLimits.length > 0 && (
-          <div className="mt-4 grid gap-3 border-t border-border/70 pt-4 md:grid-cols-2">
-            {rateLimits.map((bucket) => (
-              <div key={bucket.id} className="rounded-md border border-border/70 bg-surface-1/35 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="min-w-0 truncate text-xs font-medium text-text-secondary">
-                    {bucket.name ?? bucket.id}
-                  </p>
-                  {planLabel(bucket.planType) && (
-                    <Badge variant="muted" className="shrink-0">{planLabel(bucket.planType)}</Badge>
-                  )}
-                </div>
-                <div className="space-y-2.5">
-                  {bucket.primary && (
-                    <UsageWindow label={t('settings.subscriptionPrimaryWindow')} window={bucket.primary} locale={locale} />
-                  )}
-                  {bucket.secondary && (
-                    <UsageWindow label={t('settings.subscriptionSecondaryWindow')} window={bucket.secondary} locale={locale} />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {account && snapshot && <div className="mt-4 border-t border-border/70 pt-4">
+          <SubscriptionUsageDetails quota={codexAccountQuota(snapshot)} />
+        </div>}
 
         {account && snapshot?.usage?.lifetimeTokens != null && (
           <p className="mt-3 text-[10px] text-text-tertiary">
@@ -619,33 +555,7 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
                 ))}
               </div>
             </div>
-            {copilotSnapshot.quotas.length > 0 && (
-              <div className="grid gap-3 md:grid-cols-2">
-                {copilotSnapshot.quotas.map((quota) => (
-                  <div key={quota.id} className="rounded-md border border-border/70 bg-surface-1/35 p-3">
-                    <div className="flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
-                      <span className="truncate">{quota.id}</span>
-                      <span>
-                        {quota.unlimited
-                          ? t('settings.copilotUnlimited')
-                          : t('settings.subscriptionRemaining', { percent: Math.round(quota.remainingPercent) })}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-4" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={quota.unlimited ? 100 : quota.remainingPercent}>
-                      <div
-                        className="h-full rounded-full bg-accent transition-[width] duration-normal"
-                        style={{ width: `${quota.unlimited ? 100 : quota.remainingPercent}%` }}
-                      />
-                    </div>
-                    {quota.resetDate && (
-                      <p className="mt-1 text-[10px] text-text-tertiary">
-                        {t('settings.subscriptionResets', { date: quota.resetDate })}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <SubscriptionUsageDetails quota={copilotAccountQuota(copilotSnapshot)} />
           </div>
         )}
 

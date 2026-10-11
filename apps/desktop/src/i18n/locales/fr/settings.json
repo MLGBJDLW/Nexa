@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "Environnement (objet JSON ; stockage chiffré)",
   "externalAgentJsonHint": "Les arguments doivent être un tableau JSON de chaînes, et les variables un objet JSON à valeurs textuelles.",
   "externalAgentPackageHint": "La première connexion peut télécharger la version fixée. Connectez-vous avec le compte propre à cet agent.",
-  "externalAgentPackageProbe": "Télécharger / tester la connexion"
+  "externalAgentPackageProbe": "Télécharger / tester la connexion",
+  "subscriptionUsage": "Utilisation du compte",
+  "subscriptionUsed": "{percent} % utilisés",
+  "subscriptionQuotaUnknown": "Utilisation inconnue",
+  "subscriptionQuotaUnsupported": "Cette connexion ne fournit pas les quotas du compte. Consultez la page d’utilisation de l’agent.",
+  "subscriptionQuotaUnavailable": "Impossible de lire l’utilisation. Actualisez ou vérifiez la version de l’agent et la connexion.",
+  "subscriptionQuotaSignIn": "Connectez-vous à cet agent dans les paramètres pour voir l’utilisation.",
+  "subscriptionQuotaScope": "Quota du compte fourni par le service, partagé entre les clients. Distinct des jetons de cette conversation.",
+  "subscriptionQuotaUpdated": "Récupéré à {time}"
 }

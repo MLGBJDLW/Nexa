@@ -1206,6 +1206,7 @@ fn main() {
             commands::live_connections_cmd,
             commands::model_choices::model_choices_cmd,
             commands::external_agents::get_external_agent_launch_cmd,
+            commands::external_agents::get_external_agent_usage_cmd,
             commands::external_agents::save_external_agent_profile_cmd,
             commands::external_agents::probe_external_agent_cmd,
             commands::external_agents::inspect_external_agent_cmd,

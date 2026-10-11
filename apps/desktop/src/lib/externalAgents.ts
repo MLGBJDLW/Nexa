@@ -2,6 +2,10 @@ import { invoke } from '@tauri-apps/api/core';
 import type { CopilotModelSummary } from './api';
 import { invalidateSubscriptionModels, runtimeCatalogKey } from './subscriptionModelCatalog';
 import type { AgentConfig, SaveAgentConfigInput } from '../types/conversation';
+import type { ExternalAccountUsage } from './subscriptionUsage';
+
+export const getExternalAgentUsage = (agentConfigId: string, model: string, conversationId?: string | null, projectId?: string | null) =>
+  invoke<ExternalAccountUsage>('get_external_agent_usage_cmd', { agentConfigId, model, conversationId, projectId });
 
 export interface ExternalAgentLaunch {
   executable: string | null;

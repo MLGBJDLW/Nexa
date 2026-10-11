@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "环境变量（JSON 对象；加密保存）",
   "externalAgentJsonHint": "参数须为字符串 JSON 数组；环境变量须为值均为字符串的 JSON 对象。",
   "externalAgentPackageHint": "首次连接可能通过包管理器下载指定版本。请使用该 agent 自己的账户登录。",
-  "externalAgentPackageProbe": "下载 / 检查连接"
+  "externalAgentPackageProbe": "下载 / 检查连接",
+  "subscriptionUsage": "订阅额度",
+  "subscriptionUsed": "已用 {percent}%",
+  "subscriptionQuotaUnknown": "用量未知",
+  "subscriptionQuotaUnsupported": "此连接未提供账户额度接口，请查看该 Agent 自身的用量页面。",
+  "subscriptionQuotaUnavailable": "暂时无法读取账户用量。请刷新，或检查 Agent 版本和登录状态。",
+  "subscriptionQuotaSignIn": "请先在设置中登录该 Agent，再查看账户用量。",
+  "subscriptionQuotaScope": "服务方返回的账户额度由各客户端共享，与本次聊天的 token 消耗分开统计。",
+  "subscriptionQuotaUpdated": "读取于 {time}"
 }

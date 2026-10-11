@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "Entorno (objeto JSON; guardado cifrado)",
   "externalAgentJsonHint": "Use una matriz JSON de cadenas para argumentos y un objeto JSON con valores de texto para el entorno.",
   "externalAgentPackageHint": "La primera conexión puede descargar la versión fijada. Inicie sesión con la cuenta del agente.",
-  "externalAgentPackageProbe": "Descargar / comprobar conexión"
+  "externalAgentPackageProbe": "Descargar / comprobar conexión",
+  "subscriptionUsage": "Uso de la cuenta",
+  "subscriptionUsed": "{percent}% usado",
+  "subscriptionQuotaUnknown": "Uso desconocido",
+  "subscriptionQuotaUnsupported": "Esta conexión no ofrece cuotas de cuenta. Consulta la página de uso del agente.",
+  "subscriptionQuotaUnavailable": "No se pudo leer el uso. Actualiza o comprueba la versión del agente y el inicio de sesión.",
+  "subscriptionQuotaSignIn": "Inicia sesión en este agente desde Ajustes para ver el uso de la cuenta.",
+  "subscriptionQuotaScope": "Cuota de cuenta informada por el proveedor y compartida entre clientes. Es independiente de los tokens de este chat.",
+  "subscriptionQuotaUpdated": "Consultado a las {time}"
 }

@@ -1,5 +1,9 @@
 import type { CSSProperties } from 'react';
 import { GoCopilot } from 'react-icons/go';
+import externalAgentPresets from '../../../../shared/external-agent-presets.json' with { type: 'json' };
+import subscriptionPresets from '../../../../shared/subscription-runtime-presets.json' with { type: 'json' };
+
+const runtimePresets = [...externalAgentPresets, ...subscriptionPresets];
 
 interface ProviderIconMeta {
   asset?: string;
@@ -362,6 +366,17 @@ export function resolveProviderIconMeta({
   baseUrl,
   label,
 }: ResolveProviderIconInput): ProviderIconMeta {
+  // A runtime is the selected agent, regardless of which vendor supplies its model.
+  // Keep identity in the shared registry rather than duplicating ACP aliases here.
+  const agent = runtimePresets.find(preset => preset.provider === provider);
+  if (agent) {
+    return {
+      asset: agent.icon,
+      fallback: agent.name.slice(0, 2),
+      label: agent.name,
+      tone: 'bg-text-primary/10 text-text-primary',
+    };
+  }
   if (model) {
     const brand = LABEL_ICON_MATCHERS.find(([pattern]) => pattern.test(model));
     if (brand) return PROVIDER_ICON_META[brand[1]];

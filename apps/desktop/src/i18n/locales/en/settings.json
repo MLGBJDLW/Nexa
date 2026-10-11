@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "Environment (JSON object; stored encrypted)",
   "externalAgentJsonHint": "Use a JSON array of strings for arguments and a JSON object of string values for environment.",
   "externalAgentPackageHint": "The first connection may download the pinned package through its package manager. Sign in with the agent’s own account.",
-  "externalAgentPackageProbe": "Download / check connection"
+  "externalAgentPackageProbe": "Download / check connection",
+  "subscriptionUsage": "Account usage",
+  "subscriptionUsed": "{percent}% used",
+  "subscriptionQuotaUnknown": "Usage unknown",
+  "subscriptionQuotaUnsupported": "This connection does not expose account quotas. Check the agent’s own usage page.",
+  "subscriptionQuotaUnavailable": "Could not read account usage. Refresh, or check the agent’s version and sign-in.",
+  "subscriptionQuotaSignIn": "Sign in to this agent in Settings to view account usage.",
+  "subscriptionQuotaScope": "Provider-reported account quota, shared across clients. Separate from this chat’s token usage.",
+  "subscriptionQuotaUpdated": "Fetched {time}"
 }

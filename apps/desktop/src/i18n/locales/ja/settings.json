@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "環境変数（JSON オブジェクト、暗号化保存）",
   "externalAgentJsonHint": "引数は文字列の JSON 配列、環境変数は値が文字列の JSON オブジェクトで入力してください。",
   "externalAgentPackageHint": "初回接続時に指定バージョンをダウンロードする場合があります。エージェント自身のアカウントでログインしてください。",
-  "externalAgentPackageProbe": "ダウンロード / 接続確認"
+  "externalAgentPackageProbe": "ダウンロード / 接続確認",
+  "subscriptionUsage": "アカウント使用量",
+  "subscriptionUsed": "{percent}% 使用済み",
+  "subscriptionQuotaUnknown": "使用量不明",
+  "subscriptionQuotaUnsupported": "この接続はアカウントの利用枠を公開していません。エージェントの使用量ページをご確認ください。",
+  "subscriptionQuotaUnavailable": "使用量を取得できません。更新するか、エージェントのバージョンとログイン状態をご確認ください。",
+  "subscriptionQuotaSignIn": "使用量を見るには、設定でこのエージェントにログインしてください。",
+  "subscriptionQuotaScope": "提供元が返すアカウントの利用枠はクライアント間で共有されます。このチャットのトークン使用量とは別です。",
+  "subscriptionQuotaUpdated": "取得時刻 {time}"
 }

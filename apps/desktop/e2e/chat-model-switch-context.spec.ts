@@ -79,6 +79,7 @@ test.beforeEach(async ({ page }) => {
     configs.push({ ...configs[0], id: 'cfg-codex', name: 'My Codex plan', provider: 'openai_codex', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-acp', name: 'My Gemini CLI', provider: 'gemini_cli', model: 'unavailable-old-model', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-opencode', name: 'My OpenCode', provider: 'opencode', model: 'unavailable-old-model', isDefault: false });
+    configs.push({ ...configs[0], id: 'cfg-hermes', name: 'My Hermes', provider: 'hermes', model: 'openai-codex:gpt-native', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-glm', name: 'GLM gateway', model: 'glm-4.7', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-sonnet', name: 'Anthropic', provider: 'anthropic', model: 'claude-sonnet-5-5', contextWindow: 1000000, isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-toggle', name: 'Kimi toggle', provider: 'moonshot', model: 'kimi-k2.6', isDefault: false });
@@ -94,6 +95,24 @@ test.beforeEach(async ({ page }) => {
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       if (cmd === 'agent_chat_cmd') args = (args.request as Record<string, unknown>) ?? {};
       switch (cmd) {
+        case 'get_codex_account_snapshot_cmd':
+        case 'get_copilot_account_snapshot_cmd':
+        case 'get_external_agent_usage_cmd': {
+          const fixture = window as unknown as { __quotaCalls?: string[]; __quotaDelay?: number; __quotaError?: boolean; __quotaArgs?: Record<string, unknown> };
+          (fixture.__quotaCalls ??= []).push(cmd);
+          fixture.__quotaArgs = clone(args);
+          if (fixture.__quotaDelay) await new Promise(resolve => setTimeout(resolve, fixture.__quotaDelay));
+          if (fixture.__quotaError) throw new Error('quota offline');
+          if (cmd === 'get_external_agent_usage_cmd') return { status: 'ready', provider: 'openai-codex', plan: 'Plus',
+            fetchedAt: nowIso, windows: [{ label: 'Session', usedPercent: 37.5, resetsAt: '2026-10-11T18:00:00Z' }], details: [] };
+          if (cmd === 'get_copilot_account_snapshot_cmd') return { available: true, authenticated: true, login: 'reader', models: [],
+            quotas: [{ id: 'premium', remainingPercent: 64, resetDate: null, unlimited: false }, { id: 'chat', remainingPercent: 0, unlimited: true }] };
+          return { available: true, account: { accountType: 'chatgpt', email: 'reader@example.com', planType: 'Pro' }, rateLimits: [
+            { id: 'codex', name: 'Codex', primary: { usedPercent: 18, windowDurationMins: 300, resetsAt: 1791741600 },
+              secondary: { usedPercent: 0.5, windowDurationMins: 10080, resetsAt: 1792346400 } },
+            { id: 'review', name: 'Code review', primary: { usedPercent: null, windowDurationMins: 10080, resetsAt: null }, secondary: null },
+          ] };
+        }
         case 'get_conversation_file_changes_cmd': {
           if (!localStorage.getItem('e2e-change-fixture')) return [];
           const revision = Number(localStorage.getItem('e2e-change-revision') ?? 1);
@@ -142,7 +161,7 @@ test.beforeEach(async ({ page }) => {
           (fixture.__catalogCalls ??= []).push(String(args.provider));
           if (fixture.__catalogDelay) await new Promise(resolve => setTimeout(resolve, fixture.__catalogDelay));
           if (fixture.__catalogError) throw new Error(fixture.__catalogError);
-          return [{ id: 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
+          return [{ id: args.provider === 'hermes' ? 'openai-codex:gpt-native' : 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
         }
         case 'list_agent_configs_cmd':
           return configs.map(clone);
@@ -691,4 +710,118 @@ test('subscription catalog errors offer retry and retain cached models during re
   await page.getByTestId('agent-model-catalog-refresh').click();
   await expect(page.getByTestId('agent-model-catalog-status')).toContainText('Using the previous model list');
   await expect(model).toBeEnabled();
+});
+
+for (const [id, model, remaining, used] of [
+  ['cfg-codex', 'gpt-native', '82% remaining', '18% used'],
+  ['cfg-subscription', 'gpt-native', '64% remaining', '36% used'],
+  ['cfg-hermes', 'openai-codex:gpt-native', '62.5% remaining', '37.5% used'],
+]) {
+  test(`composer account quota ${id} shows provider windows and clears failed reads`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 680, height: 850 });
+    await page.goto('/chat/conv-model-switch');
+    await page.getByTestId('agent-model-picker-trigger').click();
+    await page.getByTestId(`agent-model-provider-${id}`).click();
+    await page.getByTestId(`agent-model-option-${id}-${model}`).click();
+    await page.getByTestId('subscription-usage-trigger').click();
+    const panel = page.getByTestId('subscription-usage-popover');
+    await expect(panel).toContainText(remaining);
+    await expect(panel).toContainText(used);
+    if (id === 'cfg-codex') {
+      await expect(panel).toContainText('99.5% remaining');
+      await expect(panel).toContainText('Usage unknown');
+      await expect(panel.getByRole('meter')).toHaveCount(2);
+    }
+    if (id === 'cfg-subscription') await expect(panel).toContainText('Unlimited');
+    if (id === 'cfg-hermes') expect(await page.evaluate(() => (window as any).__quotaArgs)).toMatchObject({
+      agentConfigId: 'cfg-hermes', model: 'openai-codex:gpt-native', conversationId: 'conv-model-switch',
+    });
+    await expect.poll(() => panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    await panel.screenshot({ path: testInfo.outputPath(`${id}-quota.png`) });
+    await page.evaluate(() => { (window as any).__quotaError = true; });
+    await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(panel).toContainText('Could not read account usage');
+    await expect(panel).not.toContainText(remaining);
+    await expect(panel.getByRole('meter')).toHaveCount(0);
+  });
+}
+
+test('unsupported ACP account quota never borrows the native account or invents 100 percent', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-acp').click();
+  await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
+  await page.getByTestId('subscription-usage-trigger').click();
+  const panel = page.getByTestId('subscription-usage-popover');
+  await expect(panel).toContainText('does not expose account quotas');
+  await expect(panel.getByRole('meter')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__quotaCalls ?? [])).toEqual([]);
+});
+
+test('late account quota responses cannot appear after switching agent profiles', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  const select = async (id: string) => {
+    await page.getByTestId('agent-model-picker-trigger').click();
+    await page.getByTestId(`agent-model-provider-${id}`).click();
+    await page.getByTestId(`agent-model-option-${id}-gpt-native`).click();
+  };
+  await select('cfg-codex');
+  await page.evaluate(() => { (window as any).__quotaDelay = 800; });
+  await page.getByTestId('subscription-usage-trigger').click();
+  await expect(page.getByTestId('subscription-usage-popover')).toContainText('Loading');
+  await page.keyboard.press('Escape');
+  await select('cfg-subscription');
+  await page.evaluate(() => { (window as any).__quotaDelay = 0; });
+  await page.getByTestId('subscription-usage-trigger').click();
+  const panel = page.getByTestId('subscription-usage-popover');
+  await expect(panel).toContainText('64% remaining');
+  await expect(panel).not.toContainText('82% remaining');
+  await page.waitForTimeout(900);
+  await expect(panel).toContainText('64% remaining');
+  await expect(panel).not.toContainText('82% remaining');
+});
+
+test('account quota retries transient failures while open and stops polling when closed', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
+  await page.clock.install();
+  await page.evaluate(() => { (window as any).__quotaError = true; });
+  await page.getByTestId('subscription-usage-trigger').click();
+  const panel = page.getByTestId('subscription-usage-popover');
+  await expect(panel).toContainText('Could not read account usage');
+  await page.evaluate(() => { (window as any).__quotaError = false; });
+  await page.clock.fastForward(60_100);
+  await expect(panel).toContainText('82% remaining');
+  await page.keyboard.press('Escape');
+  const calls = await page.evaluate(() => (window as any).__quotaCalls.length);
+  await page.clock.fastForward(120_100);
+  expect(await page.evaluate(() => (window as any).__quotaCalls.length)).toBe(calls);
+});
+
+test('reasoning slider supports pointer drag and reduced motion in the dark theme', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-active-theme-v1', 'midnight'));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 480, height: 850 });
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+  const slider = page.getByRole('slider', { name: 'Reasoning Effort' });
+  const box = (await slider.boundingBox())!;
+  await page.mouse.move(box.x + 10, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 5, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.move(box.x + box.width + 12, box.y + box.height + 15);
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({ reasoningEffort: 'max' });
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  const panel = page.getByTestId('agent-model-picker-menu');
+  await expect(panel.locator('.nexa-intensity-bond path').first()).toHaveCSS('animation-name', 'none');
+  await expect(panel.locator('.nexa-intensity-meter')).toHaveCount(0);
+  await expect.poll(() => panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+  await panel.screenshot({ path: testInfo.outputPath('reasoning-bond-dark.png') });
 });
