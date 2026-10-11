@@ -22,6 +22,10 @@ const presets = registry.agents.map(agent => {
   }
   const provider = legacy[agent.id] ?? `acp_${agent.id.replaceAll('-', '_')}`;
   const existing = previous.find(preset => preset.provider === provider);
+  const icon = `/provider-icons/agents/${agent.id}.svg`;
+  if (!fs.existsSync(path.join(root, 'apps/desktop/public', icon))) {
+    throw new Error(`Bundle and review the registry SVG before importing ${agent.id}: ${agent.icon}`);
+  }
   const distribution = agent.distribution;
   if (!distribution || !['npx','uvx','binary'].some(kind => distribution[kind])) throw new Error(`No launch contract for ${agent.id}`);
   let command, args, env;
@@ -38,12 +42,12 @@ const presets = registry.agents.map(agent => {
     command = existing.command; args = existing.args;
   }
   return { id:existing?.id ?? `acp-${agent.id}`,name:existing?.name ?? agent.name,provider,runtime:'acp',baseUrl:'',requiresApiKey:false,models:[],
-    icon:existing?.icon ?? '◇',description:agent.description,command,args,env,docsUrl:agent.website ?? agent.repository,
+    icon,description:agent.description,command,args,env,docsUrl:agent.website ?? agent.repository,
     registryId:agent.id,registryVersion:agent.version,registrySource:'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json',
     distribution };
 });
 presets.push(...previous.filter(preset => !preset.registryId && preset.provider === 'hermes'));
-presets.push({id:'custom-acp',name:'Custom ACP agent',provider:'custom_acp',runtime:'acp',baseUrl:'',requiresApiKey:false,models:[],icon:'⌘',
+presets.push({id:'custom-acp',name:'Custom ACP agent',provider:'custom_acp',runtime:'acp',baseUrl:'',requiresApiKey:false,models:[],icon:'/provider-icons/agents/custom.svg',
   description:'Connect any installed ACP v1 agent using its executable, arguments and environment.',command:'',args:[],docsUrl:'https://agentclientprotocol.com/overview/agents'});
 fs.writeFileSync(output, JSON.stringify(presets,null,2)+'\n');
 console.log(`Imported ${registry.agents.length} published agents; payload SHA-256 ${crypto.createHash('sha256').update(raw).digest('hex')}`);

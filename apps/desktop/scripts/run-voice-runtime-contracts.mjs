@@ -258,6 +258,9 @@ function loadProviderIcons() {
     module,
     require: () => ({ jsx: () => null, jsxs: () => null }),
   };
+  context.require = (specifier) => specifier.endsWith('.json')
+    ? { __esModule: true, default: JSON.parse(fs.readFileSync(path.resolve(path.dirname(iconsPath), specifier), 'utf8')) }
+    : ({ jsx: () => null, jsxs: () => null });
   vm.runInNewContext(transpiled.outputText, context, { filename: iconsPath });
   return module.exports;
 }

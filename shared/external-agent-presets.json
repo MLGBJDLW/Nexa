@@ -7,7 +7,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/agoragentic-acp.svg",
     "description": "Agent marketplace with 174+ AI capabilities. Browse, invoke, and pay for agent services settled in USDC on Base L2.",
     "command": "npx",
     "args": [
@@ -37,7 +37,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/amp-acp.svg",
     "description": "ACP wrapper for Amp - the frontier coding agent",
     "command": "amp-acp",
     "args": [],
@@ -84,7 +84,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/antigravity-acp.svg",
     "description": "Google’s AI coding agent",
     "command": "agy_acp_server.par",
     "args": [
@@ -138,7 +138,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "△",
+    "icon": "/provider-icons/agents/auggie.svg",
     "description": "Augment Code's powerful software agent, backed by industry-leading context engine",
     "command": "auggie",
     "args": [
@@ -171,7 +171,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/autohand.svg",
     "description": "Autohand Code - AI coding agent powered by Autohand AI",
     "command": "npx",
     "args": [
@@ -197,7 +197,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "✳",
+    "icon": "/provider-icons/agents/claude-acp.svg",
     "description": "ACP wrapper for Anthropic's Claude",
     "command": "claude-agent-acp",
     "args": [],
@@ -220,7 +220,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/cline.svg",
     "description": "Autonomous coding agent CLI - capable of creating/editing files, running commands, using the browser, and more",
     "command": "npx",
     "args": [
@@ -250,7 +250,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/codebuddy-code.svg",
     "description": "Tencent Cloud's official intelligent coding tool",
     "command": "npx",
     "args": [
@@ -280,7 +280,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◎",
+    "icon": "/provider-icons/agents/codex-acp.svg",
     "description": "ACP adapter for OpenAI's coding assistant",
     "command": "codex-acp",
     "args": [],
@@ -303,7 +303,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/cortex-code.svg",
     "description": "Snowflake's Cortex Code coding agent",
     "command": "cortex",
     "args": [
@@ -376,7 +376,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/corust-agent.svg",
     "description": "Co-building with a seasoned Rust partner.",
     "command": "corust-agent-acp",
     "args": [],
@@ -414,7 +414,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/crow-cli.svg",
     "description": "Minimal ACP Native Coding Agent",
     "command": "crow-cli",
     "args": [
@@ -473,7 +473,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/cursor.svg",
     "description": "Cursor's coding agent",
     "command": "cursor-agent",
     "args": [
@@ -539,7 +539,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/deepagents.svg",
     "description": "Batteries-included AI coding and general purpose agent powered by LangChain.",
     "command": "npx",
     "args": [
@@ -566,7 +566,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/devin.svg",
     "description": "Devin CLI coding agent by Cognition",
     "command": "devin",
     "args": [
@@ -632,7 +632,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/dimcode.svg",
     "description": "A coding agent that puts leading models at your command.",
     "command": "npx",
     "args": [
@@ -662,7 +662,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/dirac.svg",
     "description": "Reduces API costs by more than 50%, produces better and faster work. Uses Hash anchored parallel edits, AST manipulation and a whole lot of neat optimizations. Fully Open Source.",
     "command": "npx",
     "args": [
@@ -692,7 +692,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/factory-droid.svg",
     "description": "Factory Droid - AI coding agent powered by Factory AI",
     "command": "npx",
     "args": [
@@ -733,7 +733,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/fast-agent.svg",
     "description": "Code and build agents with comprehensive multi-provider support",
     "command": "uvx",
     "args": [
@@ -767,7 +767,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "✦",
+    "icon": "/provider-icons/agents/gemini.svg",
     "description": "Google's official CLI for Gemini",
     "command": "gemini",
     "args": [
@@ -795,7 +795,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◉",
+    "icon": "/provider-icons/agents/github-copilot-cli.svg",
     "description": "GitHub's AI pair programmer",
     "command": "copilot",
     "args": [
@@ -823,7 +823,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/glm-acp-agent.svg",
     "description": "ACP agent powered by Zhipu AI's GLM Coding Plan models (glm-5.1, glm-5-turbo, glm-4.7, glm-4.5-air). Supports streaming, tool calls, mid-session model switching, image input via Z.AI Coding Plan Vision MCP, and session load/fork/resume with on-disk persistence.",
     "command": "npx",
     "args": [
@@ -849,7 +849,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◈",
+    "icon": "/provider-icons/agents/goose.svg",
     "description": "A local, extensible, open source AI agent that automates engineering tasks",
     "command": "goose",
     "args": [
@@ -913,7 +913,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/grok-build.svg",
     "description": "xAI's coding agent and CLI",
     "command": "npx",
     "args": [
@@ -945,7 +945,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/harn.svg",
     "description": "Harn runs .harn agent pipelines as a native ACP coding agent over stdio.",
     "command": "harn",
     "args": [
@@ -1015,7 +1015,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/junie.svg",
     "description": "AI Coding Agent by JetBrains",
     "command": "junie",
     "args": [
@@ -1081,7 +1081,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/kilo.svg",
     "description": "The open source coding agent",
     "command": "npx",
     "args": [
@@ -1153,7 +1153,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/kimchi.svg",
     "description": "Coding agent powered by multi-model orchestration",
     "command": "kimchi",
     "args": [
@@ -1223,7 +1223,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/kimi.svg",
     "description": "Moonshot AI's coding assistant",
     "command": "kimi",
     "args": [
@@ -1287,7 +1287,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/minimax-code.svg",
     "description": "MiniMax Code is an AI coding agent with Agent Client Protocol support.",
     "command": "npx",
     "args": [
@@ -1317,7 +1317,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/minion-code.svg",
     "description": "An enhanced AI code assistant built on the Minion framework with rich development tools",
     "command": "uvx",
     "args": [
@@ -1346,7 +1346,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/mistral-vibe.svg",
     "description": "Mistral's open-source coding assistant",
     "command": "vibe-acp",
     "args": [],
@@ -1393,7 +1393,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/nova.svg",
     "description": "Nova by Compass AI - a fully-fledged software engineer at your command",
     "command": "npx",
     "args": [
@@ -1423,7 +1423,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/opencode.svg",
     "description": "The open source coding agent",
     "command": "opencode",
     "args": [
@@ -1495,7 +1495,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/pi-acp.svg",
     "description": "ACP adapter for pi coding agent",
     "command": "npx",
     "args": [
@@ -1521,7 +1521,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/poolside.svg",
     "description": "Poolside's coding agent",
     "command": "pool-linux-amd64",
     "args": [
@@ -1593,7 +1593,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/qoder.svg",
     "description": "AI coding assistant with agentic capabilities",
     "command": "npx",
     "args": [
@@ -1623,7 +1623,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "✧",
+    "icon": "/provider-icons/agents/qwen-code.svg",
     "description": "Alibaba's Qwen coding assistant",
     "command": "qwen",
     "args": [
@@ -1653,7 +1653,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/sigit.svg",
     "description": "Local-first coding agent. Runs entirely on your machine with optional on-device LLM inference via Onde.",
     "command": "npx",
     "args": [
@@ -1711,7 +1711,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/stakpak.svg",
     "description": "Open-source DevOps agent in Rust with enterprise-grade security",
     "command": "stakpak",
     "args": [
@@ -1770,7 +1770,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "◇",
+    "icon": "/provider-icons/agents/vtcode.svg",
     "description": "An open-source coding agent with LLM-native code understanding and robust shell safety. Supports multiple LLM providers with automatic failover and efficient context management.",
     "command": "vtcode",
     "args": [
@@ -1841,7 +1841,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "⚕",
+    "icon": "/provider-icons/agents/hermes.svg",
     "description": "Use an installed Hermes Agent with its ACP extra enabled.",
     "command": "hermes",
     "args": [
@@ -1857,7 +1857,7 @@
     "baseUrl": "",
     "requiresApiKey": false,
     "models": [],
-    "icon": "⌘",
+    "icon": "/provider-icons/agents/custom.svg",
     "description": "Connect any installed ACP v1 agent using its executable, arguments and environment.",
     "command": "",
     "args": [],
