@@ -1120,5 +1120,13 @@
   "externalAgentEnvironment": "Umgebung (JSON-Objekt; verschlüsselt gespeichert)",
   "externalAgentJsonHint": "Argumente benötigen ein JSON-Array aus Zeichenfolgen, Umgebungsvariablen ein JSON-Objekt mit Zeichenfolgenwerten.",
   "externalAgentPackageHint": "Die erste Verbindung kann das festgelegte Paket herunterladen. Melden Sie sich mit dem Konto des Agenten an.",
-  "externalAgentPackageProbe": "Herunterladen / Verbindung prüfen"
+  "externalAgentPackageProbe": "Herunterladen / Verbindung prüfen",
+  "subscriptionUsage": "Kontonutzung",
+  "subscriptionUsed": "{percent} % verbraucht",
+  "subscriptionQuotaUnknown": "Nutzung unbekannt",
+  "subscriptionQuotaUnsupported": "Diese Verbindung stellt keine Kontokontingente bereit. Prüfen Sie die Nutzungsseite des Agenten.",
+  "subscriptionQuotaUnavailable": "Kontonutzung konnte nicht gelesen werden. Aktualisieren Sie oder prüfen Sie Version und Anmeldung des Agenten.",
+  "subscriptionQuotaSignIn": "Melden Sie sich in den Einstellungen bei diesem Agenten an, um die Nutzung zu sehen.",
+  "subscriptionQuotaScope": "Vom Anbieter gemeldetes, clientübergreifendes Kontokontingent. Getrennt vom Tokenverbrauch dieses Chats.",
+  "subscriptionQuotaUpdated": "Abgerufen um {time}"
 }

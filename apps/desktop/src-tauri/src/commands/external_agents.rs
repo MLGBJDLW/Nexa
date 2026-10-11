@@ -3,6 +3,32 @@ use super::AppState;
 use nexa_core::external_agent::ExternalAgentLaunch;
 
 #[tauri::command]
+pub async fn get_external_agent_usage_cmd(
+    state: tauri::State<'_, AppState>,
+    agent_config_id: String,
+    model: String,
+) -> Result<crate::agent_runtime::acp::AccountUsageSnapshot, String> {
+    let (provider, launch) = state
+        .db_executor
+        .read(move |db| {
+            let config = db.get_agent_config(&agent_config_id)?;
+            let launch = db.external_agent_launch(&agent_config_id)?;
+            let launch = if config.provider == "hermes" {
+                launch.resolve(db, None, None)?
+            } else {
+                launch
+            };
+            Ok((config.provider, launch))
+        })
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())?;
+    crate::agent_runtime::acp::read_account_usage(&provider, &launch, &model)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_external_agent_launch_cmd(
     state: tauri::State<'_, AppState>,
     agent_config_id: String,

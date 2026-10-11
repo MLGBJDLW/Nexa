@@ -7,6 +7,36 @@ Choose the model and reasoning level in Chat. The saved provider and its current
 then appear in the Chat model picker. Reasoning levels come from that account's
 model catalog. Signing in does not automatically create a provider.
 
+The gauge beside the Chat model and reasoning controls opens **Account usage**.
+It shows provider-reported used and remaining percentages, individual quota
+windows and reset times. Settings uses the same quota presentation. Opening or
+refreshing the panel reads the account; while it remains visible it refreshes
+once per minute without overlapping requests. Closing it stops polling. A failed
+refresh clears old percentages, and changing profiles discards late responses.
+
+| Connection | Account quota source |
+| --- | --- |
+| ChatGPT / Codex | Official app-server `account/rateLimits/read`, including all returned buckets |
+| GitHub Copilot | Official SDK `account.getQuota` |
+| Hermes | Installed `hermes usage --json --provider <provider>` with the saved executable/environment and the provider encoded in the selected ACP model |
+| Other ACP connections | Explicitly unavailable until the runtime exposes a supported account-usage contract |
+
+Hermes needs a version that implements `usage --json`. Only its standard `acp`
+argv and unmodified native config options are supported for this query; custom
+wrappers and ambiguous model/provider identities show unsupported instead of
+reading a different account. CLI credentials remain owned by the CLI. A Hermes
+credential pool may select a different entry for an active turn; this panel
+reports the configured profile account returned by the standalone usage command.
+Missing percentages remain unknown; unlimited entitlement is a label rather than
+a fabricated 100% gauge. Context occupancy and the chat's token/cost totals do not
+measure subscription quota, and neither implies that an ACP agent has a paid plan.
+
+External-agent icons are bundled SVGs keyed by runtime identity, so selecting a
+GPT or Claude model inside pi, Hermes, Copilot or another agent keeps that agent's
+icon. The reasoning slider uses discrete provider-advertised options, a circular
+handle and Nexa's paired flowing strands. List mode remains available; both modes
+save the same model and reasoning settings, and reduced motion disables the flow.
+
 For API/local connections and endpoint capability resolution, see
 [Models and providers](PROVIDERS_AND_MODELS.md). Subscription support follows
 the bundled driver contract; it is not a promise of parity with every upstream

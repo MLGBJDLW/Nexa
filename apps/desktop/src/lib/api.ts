@@ -1027,7 +1027,7 @@ export interface CopilotModelSummary {
 
 export interface CopilotQuotaSnapshot {
   id: string;
-  remainingPercent: number;
+  remainingPercent: number | null;
   resetDate: string | null;
   unlimited: boolean;
 }

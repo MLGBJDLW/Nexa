@@ -26,7 +26,7 @@ const COPILOT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexRateLimitWindow {
-    used_percent: u8,
+    used_percent: f64,
     window_duration_mins: Option<u64>,
     resets_at: Option<i64>,
 }
@@ -101,7 +101,7 @@ pub struct CopilotModelSummary {
 #[serde(rename_all = "camelCase")]
 pub struct CopilotQuotaSnapshot {
     id: String,
-    remaining_percent: f64,
+    remaining_percent: Option<f64>,
     reset_date: Option<String>,
     unlimited: bool,
 }
@@ -690,12 +690,13 @@ fn parse_account(response: &Value) -> Option<CodexAccountIdentity> {
 
 fn parse_rate_window(value: Option<&Value>) -> Option<CodexRateLimitWindow> {
     let value = value?.as_object()?;
+    // Missing/malformed usage is unknown, never a fabricated 100% remaining.
+    let used_percent = value.get("usedPercent")?.as_f64()?;
+    if !used_percent.is_finite() {
+        return None;
+    }
     Some(CodexRateLimitWindow {
-        used_percent: value
-            .get("usedPercent")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            .min(100) as u8,
+        used_percent: used_percent.clamp(0.0, 100.0),
         window_duration_mins: value.get("windowDurationMins").and_then(Value::as_u64),
         resets_at: value.get("resetsAt").and_then(Value::as_i64),
     })
@@ -934,11 +935,10 @@ async fn read_copilot_account_snapshot(runtime: CopilotAccountRuntime) -> Copilo
                     .into_iter()
                     .map(|(id, quota)| CopilotQuotaSnapshot {
                         id: bounded_field(&id, 80),
-                        remaining_percent: if quota.remaining_percentage.is_finite() {
-                            quota.remaining_percentage.clamp(0.0, 100.0)
-                        } else {
-                            0.0
-                        },
+                        remaining_percent: quota
+                            .remaining_percentage
+                            .is_finite()
+                            .then(|| quota.remaining_percentage.clamp(0.0, 100.0)),
                         reset_date: quota.reset_date.map(|date| bounded_field(&date, 80)),
                         unlimited: quota.is_unlimited_entitlement,
                     })
@@ -1213,11 +1213,28 @@ mod tests {
         let buckets = parse_rate_limits(&response);
         assert_eq!(buckets.len(), 2);
         assert_eq!(buckets[0].id, "codex");
-        assert_eq!(buckets[0].primary.as_ref().unwrap().used_percent, 100);
+        assert_eq!(buckets[0].primary.as_ref().unwrap().used_percent, 100.0);
         assert_eq!(buckets[1].name.as_deref(), Some("Fast"));
         assert_eq!(
             buckets[1].secondary.as_ref().unwrap().window_duration_mins,
             Some(10080)
+        );
+    }
+
+    #[test]
+    fn rate_windows_preserve_fractional_usage_and_reject_missing_percentages() {
+        for value in [
+            json!({}),
+            json!({"usedPercent": null}),
+            json!({"usedPercent": "12"}),
+        ] {
+            assert!(parse_rate_window(Some(&value)).is_none());
+        }
+        assert_eq!(
+            parse_rate_window(Some(&json!({"usedPercent": 0.5})))
+                .unwrap()
+                .used_percent,
+            0.5
         );
     }
 
