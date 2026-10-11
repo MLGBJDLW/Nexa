@@ -1,13 +1,25 @@
-.nexa-intensity { padding: 4px 6px 8px; }
-.nexa-intensity-meter { display: flex; align-items: end; justify-content: space-between; gap: 3px; height: 66px; padding: 0 5px 9px; }
-.nexa-intensity-meter > span { flex: 1; max-width: 7px; height: var(--bar-height); border-radius: 3px; background: var(--color-surface-3); transition: background 180ms ease, box-shadow 220ms ease, transform 220ms ease; }
-.nexa-intensity-meter > span[data-active='true'] { background: linear-gradient(to top, color-mix(in srgb, var(--color-accent) 65%, var(--color-surface-2)), var(--color-accent)); box-shadow: 0 0 calc(3px + var(--intensity) * 7px) color-mix(in srgb, var(--color-accent) 25%, transparent); transform: translateY(-2px); }
-.nexa-intensity-range { display: block; width: 100%; height: 18px; margin: 0; appearance: none; background: transparent; cursor: ew-resize; accent-color: var(--color-accent); }
-.nexa-intensity-range::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--color-accent) calc(var(--intensity) * 100%), var(--color-surface-3) 0); }
-.nexa-intensity-range::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; border: 3px solid var(--color-surface-1); background: var(--color-accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 70%, transparent), 0 2px 6px #0003; transition: box-shadow 180ms ease; }
-.nexa-intensity-range:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; border-radius: 8px; }
-.nexa-intensity-range:active::-webkit-slider-thumb { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 18%, transparent); }
-.nexa-intensity-range::-moz-range-track { height: 4px; background: var(--color-surface-3); border-radius: 4px; }
-.nexa-intensity-range::-moz-range-progress { height: 4px; background: var(--color-accent); }
-.nexa-intensity-range::-moz-range-thumb { width: 12px; height: 12px; background: var(--color-accent); border: 2px solid var(--color-surface-1); border-radius: 50%; }
-@media (prefers-reduced-motion: reduce) { .nexa-intensity-meter > span, .nexa-intensity-range::-webkit-slider-thumb { transition: none; transform: none; } }
+.nexa-intensity { padding: 4px 4px 8px; }
+.nexa-intensity-rail { position: relative; padding: 17px 12px 14px; border-radius: 16px; background: var(--color-surface-1); border: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent); }
+.nexa-intensity-bond { position: absolute; inset: 0 12px; width: calc(100% - 24px); height: 48px; overflow: visible; pointer-events: none; }
+.nexa-intensity-bond path { fill: none; stroke: var(--color-accent); stroke-width: 1.3; stroke-linecap: round; opacity: calc(.16 + var(--intensity) * .22); }
+.nexa-intensity-bond path + path { opacity: calc(.1 + var(--intensity) * .14); }
+.nexa-intensity-rail:focus-within .nexa-intensity-bond path, .nexa-intensity-rail:hover .nexa-intensity-bond path { stroke-dasharray: 80 12; animation: nexa-bond-flow 9s linear infinite; }
+.nexa-intensity-rail:focus-within .nexa-intensity-bond path + path, .nexa-intensity-rail:hover .nexa-intensity-bond path + path { animation-direction: reverse; }
+.nexa-intensity-range { position: relative; display: block; width: 100%; height: 18px; margin: 0; appearance: none; background: transparent; cursor: ew-resize; accent-color: var(--color-accent); }
+.nexa-intensity-range::-webkit-slider-runnable-track { height: 4px; border-radius: 8px; background: linear-gradient(to right, var(--color-accent) calc(var(--intensity) * 100%), var(--color-surface-3) 0); }
+.nexa-intensity-range::-webkit-slider-thumb { appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; border: 2px solid var(--color-accent); background: var(--color-surface-0); box-shadow: 0 1px 4px #0002, 0 0 0 3px color-mix(in srgb, var(--color-surface-0) 75%, transparent); transition: box-shadow 180ms ease; }
+.nexa-intensity-range:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 5px; border-radius: 10px; }
+.nexa-intensity-range:active::-webkit-slider-thumb { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 15%, transparent); }
+.nexa-intensity-range::-moz-range-track { height: 4px; background: var(--color-surface-3); border-radius: 8px; }
+.nexa-intensity-range::-moz-range-progress { height: 4px; background: var(--color-accent); border-radius: 8px; }
+.nexa-intensity-range::-moz-range-thumb { width: 16px; height: 16px; background: var(--color-surface-0); border: 2px solid var(--color-accent); border-radius: 50%; }
+.nexa-intensity-range:disabled { cursor: default; }
+.nexa-intensity-stops { display: flex; justify-content: space-between; margin: 6px 9px 0; pointer-events: none; }
+.nexa-intensity-stops > span { width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-tertiary); opacity: .35; }
+.nexa-intensity-stops > span[data-active='true'] { background: var(--color-accent); opacity: .7; }
+.nexa-intensity-options button { flex: 1 0 auto; border-radius: 999px; }
+@keyframes nexa-bond-flow { to { stroke-dashoffset: -184; } }
+@media (prefers-reduced-motion: reduce) {
+  .nexa-intensity-range::-webkit-slider-thumb { transition: none; }
+  .nexa-intensity-rail .nexa-intensity-bond path { animation: none !important; stroke-dasharray: none !important; }
+}
