@@ -15,6 +15,16 @@
 * **agents:** bind quota reads to chat workspaces and retry failures ([c15f16c](https://github.com/MLGBJDLW/Nexa/commit/c15f16c53d0bc477f55a776915b56ef199c567f2))
 * **agents:** preserve runtime identity with bundled SVG icons ([217c99e](https://github.com/MLGBJDLW/Nexa/commit/217c99e31557057f4538fb7316f5341fc1420141))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 7e69867aa083e1f30ec791c56b9a92972aa4de82 -->
+
+### What's Changed
+* feat(agents): add account quotas and refresh external-agent controls by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/464
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.0...nexa-monorepo-v0.15.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.15.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.29...nexa-monorepo-v0.15.0) (2026-10-10)
 
 
