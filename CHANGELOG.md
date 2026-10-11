@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.15.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.0...nexa-monorepo-v0.15.1) (2026-10-11)
+
+
+### Features
+
+* **agents:** add account quotas and refresh external-agent controls ([7e69867](https://github.com/MLGBJDLW/Nexa/commit/7e69867aa083e1f30ec791c56b9a92972aa4de82))
+* **agents:** expose account quotas beside model controls ([11da18b](https://github.com/MLGBJDLW/Nexa/commit/11da18bb63dee2c0f0f79542708d883c1a80d320))
+* **chat:** replace reasoning bars with a braided slider ([8da85cb](https://github.com/MLGBJDLW/Nexa/commit/8da85cbf10ff8c201da5e8fe9841797b0b97a95f))
+
+
+### Bug Fixes
+
+* **agents:** bind quota reads to chat workspaces and retry failures ([c15f16c](https://github.com/MLGBJDLW/Nexa/commit/c15f16c53d0bc477f55a776915b56ef199c567f2))
+* **agents:** preserve runtime identity with bundled SVG icons ([217c99e](https://github.com/MLGBJDLW/Nexa/commit/217c99e31557057f4538fb7316f5341fc1420141))
+
 ## [0.15.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.14.29...nexa-monorepo-v0.15.0) (2026-10-10)
 
 
