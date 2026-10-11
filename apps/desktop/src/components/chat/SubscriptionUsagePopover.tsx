@@ -11,12 +11,13 @@ import type { AgentConfig } from '../../types/conversation';
 const REFRESH_MS = 60_000;
 
 // Mounted with a config/model key: late results cannot migrate to another profile.
-export function SubscriptionUsagePopover({ config }: { config: AgentConfig }) {
+export function SubscriptionUsagePopover({ config, conversationId, projectId }: { config: AgentConfig; conversationId?: string | null; projectId?: string | null }) {
   const { t, locale } = useTranslation();
   const [open, setOpen] = useState(false);
   const [quota, setQuota] = useState<AccountQuota | null>(null);
   const [loading, setLoading] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [settledAt, setSettledAt] = useState<number | null>(null);
   const pending = useRef(false);
   const mounted = useRef(false);
   const refresh = useCallback(async () => {
@@ -26,19 +27,20 @@ export function SubscriptionUsagePopover({ config }: { config: AgentConfig }) {
     // Hide the previous read while checking a potentially switched CLI account.
     setQuota(null);
     setUpdatedAt(null);
+    setSettledAt(null);
     try {
       const next = config.provider === 'openai_codex' ? codexAccountQuota(await getCodexAccountSnapshot())
         : config.provider === 'github_copilot' ? copilotAccountQuota(await getCopilotAccountSnapshot())
-          : config.provider === 'hermes' ? externalAccountQuota(await getExternalAgentUsage(config.id, config.model))
+          : config.provider === 'hermes' ? externalAccountQuota(await getExternalAgentUsage(config.id, config.model, conversationId, projectId))
             : { status: 'unsupported' as const, windows: [] };
       if (mounted.current) { setQuota(next); setUpdatedAt(Date.now()); }
     } catch {
       if (mounted.current) setQuota({ status: 'unavailable', windows: [] });
     } finally {
       pending.current = false;
-      if (mounted.current) setLoading(false);
+      if (mounted.current) { setLoading(false); setSettledAt(Date.now()); }
     }
-  }, [config.id, config.model, config.provider]);
+  }, [config.id, config.model, config.provider, conversationId, projectId]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     if (!open) return;
@@ -53,10 +55,10 @@ export function SubscriptionUsagePopover({ config }: { config: AgentConfig }) {
     return () => document.removeEventListener('visibilitychange', resume);
   }, [open, refresh, updatedAt]);
   useEffect(() => {
-    if (!open || loading || !updatedAt || !['openai_codex', 'github_copilot', 'hermes'].includes(config.provider)) return;
+    if (!open || loading || !settledAt || !['openai_codex', 'github_copilot', 'hermes'].includes(config.provider)) return;
     const timer = window.setTimeout(() => { if (document.visibilityState === 'visible') void refresh(); }, REFRESH_MS);
     return () => window.clearTimeout(timer);
-  }, [open, loading, updatedAt, config.provider, refresh]);
+  }, [open, loading, settledAt, config.provider, refresh]);
   return <NexaPopover open={open} onOpenChange={setOpen}>
     <NexaPopoverTrigger asChild>
       <button type="button" data-testid="subscription-usage-trigger" aria-label={t('settings.subscriptionUsage')} title={t('settings.subscriptionUsage')}

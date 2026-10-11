@@ -98,8 +98,9 @@ test.beforeEach(async ({ page }) => {
         case 'get_codex_account_snapshot_cmd':
         case 'get_copilot_account_snapshot_cmd':
         case 'get_external_agent_usage_cmd': {
-          const fixture = window as unknown as { __quotaCalls?: string[]; __quotaDelay?: number; __quotaError?: boolean };
+          const fixture = window as unknown as { __quotaCalls?: string[]; __quotaDelay?: number; __quotaError?: boolean; __quotaArgs?: Record<string, unknown> };
           (fixture.__quotaCalls ??= []).push(cmd);
+          fixture.__quotaArgs = clone(args);
           if (fixture.__quotaDelay) await new Promise(resolve => setTimeout(resolve, fixture.__quotaDelay));
           if (fixture.__quotaError) throw new Error('quota offline');
           if (cmd === 'get_external_agent_usage_cmd') return { status: 'ready', provider: 'openai-codex', plan: 'Plus',
@@ -732,6 +733,9 @@ for (const [id, model, remaining, used] of [
       await expect(panel.getByRole('meter')).toHaveCount(2);
     }
     if (id === 'cfg-subscription') await expect(panel).toContainText('Unlimited');
+    if (id === 'cfg-hermes') expect(await page.evaluate(() => (window as any).__quotaArgs)).toMatchObject({
+      agentConfigId: 'cfg-hermes', model: 'openai-codex:gpt-native', conversationId: 'conv-model-switch',
+    });
     await expect.poll(() => panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
     await panel.screenshot({ path: testInfo.outputPath(`${id}-quota.png`) });
     await page.evaluate(() => { (window as any).__quotaError = true; });
@@ -775,6 +779,25 @@ test('late account quota responses cannot appear after switching agent profiles'
   await page.waitForTimeout(900);
   await expect(panel).toContainText('64% remaining');
   await expect(panel).not.toContainText('82% remaining');
+});
+
+test('account quota retries transient failures while open and stops polling when closed', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
+  await page.clock.install();
+  await page.evaluate(() => { (window as any).__quotaError = true; });
+  await page.getByTestId('subscription-usage-trigger').click();
+  const panel = page.getByTestId('subscription-usage-popover');
+  await expect(panel).toContainText('Could not read account usage');
+  await page.evaluate(() => { (window as any).__quotaError = false; });
+  await page.clock.fastForward(60_100);
+  await expect(panel).toContainText('82% remaining');
+  await page.keyboard.press('Escape');
+  const calls = await page.evaluate(() => (window as any).__quotaCalls.length);
+  await page.clock.fastForward(120_100);
+  expect(await page.evaluate(() => (window as any).__quotaCalls.length)).toBe(calls);
 });
 
 test('reasoning slider supports pointer drag and reduced motion in the dark theme', async ({ page }, testInfo) => {

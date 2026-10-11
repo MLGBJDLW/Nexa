@@ -13,6 +13,7 @@ windows and reset times. Settings uses the same quota presentation. Opening or
 refreshing the panel reads the account; while it remains visible it refreshes
 once per minute without overlapping requests. Closing it stops polling. A failed
 refresh clears old percentages, and changing profiles discards late responses.
+Transient read failures retry on the same visible-panel schedule.
 
 | Connection | Account quota source |
 | --- | --- |
@@ -24,7 +25,12 @@ refresh clears old percentages, and changing profiles discards late responses.
 Hermes needs a version that implements `usage --json`. Only its standard `acp`
 argv and unmodified native config options are supported for this query; custom
 wrappers and ambiguous model/provider identities show unsupported instead of
-reading a different account. CLI credentials remain owned by the CLI. A Hermes
+reading a different account. Quota probes resolve the current conversation's
+workspace/worktree (or the selected project's workspace for a draft), exactly as
+ACP execution does. A new projectless chat without a configured directory waits
+until its conversation directory exists; it never substitutes a discovery folder.
+This also keeps relative saved or inherited `HERMES_HOME` values on the same
+account. CLI credentials remain owned by the CLI. A Hermes
 credential pool may select a different entry for an active turn; this panel
 reports the configured profile account returned by the standalone usage command.
 Missing percentages remain unknown; unlimited entitlement is a label rather than

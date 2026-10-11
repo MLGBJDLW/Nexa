@@ -26,7 +26,7 @@ const COPILOT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexRateLimitWindow {
-    used_percent: f64,
+    used_percent: Option<f64>,
     window_duration_mins: Option<u64>,
     resets_at: Option<i64>,
 }
@@ -691,12 +691,13 @@ fn parse_account(response: &Value) -> Option<CodexAccountIdentity> {
 fn parse_rate_window(value: Option<&Value>) -> Option<CodexRateLimitWindow> {
     let value = value?.as_object()?;
     // Missing/malformed usage is unknown, never a fabricated 100% remaining.
-    let used_percent = value.get("usedPercent")?.as_f64()?;
-    if !used_percent.is_finite() {
-        return None;
-    }
+    let used_percent = value
+        .get("usedPercent")
+        .and_then(Value::as_f64)
+        .filter(|used| used.is_finite())
+        .map(|used| used.clamp(0.0, 100.0));
     Some(CodexRateLimitWindow {
-        used_percent: used_percent.clamp(0.0, 100.0),
+        used_percent,
         window_duration_mins: value.get("windowDurationMins").and_then(Value::as_u64),
         resets_at: value.get("resetsAt").and_then(Value::as_i64),
     })
@@ -1213,7 +1214,10 @@ mod tests {
         let buckets = parse_rate_limits(&response);
         assert_eq!(buckets.len(), 2);
         assert_eq!(buckets[0].id, "codex");
-        assert_eq!(buckets[0].primary.as_ref().unwrap().used_percent, 100.0);
+        assert_eq!(
+            buckets[0].primary.as_ref().unwrap().used_percent,
+            Some(100.0)
+        );
         assert_eq!(buckets[1].name.as_deref(), Some("Fast"));
         assert_eq!(
             buckets[1].secondary.as_ref().unwrap().window_duration_mins,
@@ -1222,20 +1226,29 @@ mod tests {
     }
 
     #[test]
-    fn rate_windows_preserve_fractional_usage_and_reject_missing_percentages() {
+    fn rate_windows_preserve_fractional_usage_and_unknown_percentages() {
         for value in [
             json!({}),
             json!({"usedPercent": null}),
             json!({"usedPercent": "12"}),
         ] {
-            assert!(parse_rate_window(Some(&value)).is_none());
+            assert!(parse_rate_window(Some(&value))
+                .unwrap()
+                .used_percent
+                .is_none());
         }
         assert_eq!(
             parse_rate_window(Some(&json!({"usedPercent": 0.5})))
                 .unwrap()
                 .used_percent,
-            0.5
+            Some(0.5)
         );
+        let unknown = parse_rate_window(Some(
+            &json!({"usedPercent":null,"windowDurationMins":300,"resetsAt":1791741600}),
+        ))
+        .unwrap();
+        assert_eq!(unknown.window_duration_mins, Some(300));
+        assert_eq!(unknown.resets_at, Some(1791741600));
     }
 
     #[test]
