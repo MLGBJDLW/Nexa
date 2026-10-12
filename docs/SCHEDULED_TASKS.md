@@ -169,6 +169,8 @@ sources. Project schedules require a nonempty source snapshot: explicitly cleari
 it is rejected because project conversations otherwise inherit project sources.
 Create source-free schedules from a conversation outside a project; only
 source-independent web research tools can be granted without sources.
+The tool records explicit scope provenance. Legacy tasks with ambiguous empty
+scopes are not exposed through chat; review and manage them in Workbench.
 Schedules cannot call `automation` to recursively create more tasks.
 Mutations use normal tool approval; `requireApproval` controls the separate
 pre-run approval policy. The default empty `allowedTools` grants no tools.

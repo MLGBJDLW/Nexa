@@ -53,7 +53,9 @@ fn visible(task: &WorkflowAutomation, project: Option<&str>, sources: &[String])
         && task.source_scope.iter().all(|id| sources.contains(id))
         // Legacy unscoped schedules may read all sources, so a narrowed chat
         // cannot acquire them just because the saved list happens to be empty.
-        && (!task.source_scope.is_empty() || task.approval_policy.allowed_tools.iter().all(|tool| source_independent(tool)))
+        && (!task.source_scope.is_empty()
+            || (task.schedule_config.execution_policy.source_scope_is_explicit
+                && task.approval_policy.allowed_tools.iter().all(|tool| source_independent(tool))))
 }
 
 fn source_independent(tool: &str) -> bool {
@@ -344,6 +346,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         input.enabled = true;
     }
     config.execution_policy.project_id = project;
+    config.execution_policy.source_scope_is_explicit = true;
     if input.source_scope.is_empty() && config.execution_policy.project_id.is_some() {
         // Both legacy schedule preparation and project conversation launch
         // inherit project sources from an empty list. Reject that ambiguous
@@ -809,6 +812,76 @@ mod tests {
             .to_string()
             .contains("120 characters"));
         assert_eq!(db.list_workflow_automations().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn chat_automation_hides_legacy_empty_scopes_even_without_tool_grants() {
+        let db = Database::open_memory().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let source = db
+            .add_source(crate::sources::CreateSourceInput {
+                root_path: root.path().to_string_lossy().into(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        let conversation = conversation(&db, None);
+        let mut request = create();
+        request["sourceIds"] = json!([]);
+        let explicit = call(&db, &conversation, request).await.unwrap();
+        let task = db
+            .get_workflow_automation(explicit["task"]["id"].as_str().unwrap())
+            .unwrap();
+        assert!(
+            task.schedule_config
+                .execution_policy
+                .source_scope_is_explicit
+        );
+        let mut legacy_input = as_input(&task);
+        legacy_input.id = Some("legacy-ambiguous-scope".into());
+        let mut raw_config = serde_json::to_value(&task.schedule_config).unwrap();
+        raw_config["executionPolicy"]
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceScopeIsExplicit");
+        let legacy_config = serde_json::from_value(raw_config).unwrap();
+        let legacy = db
+            .save_authored_workflow_automation(&legacy_input, &legacy_config, None, None)
+            .unwrap();
+        assert!(
+            !legacy
+                .schedule_config
+                .execution_policy
+                .source_scope_is_explicit
+        );
+        let registry = super::super::default_tool_registry();
+        let scope = vec![source.id];
+        let invoke = |request: Value| {
+            let arguments = request.to_string();
+            let mut ctx = ToolExecutionContext::new("legacy-scope", &arguments, &db, &scope)
+                .with_conversation_id(Some(&conversation));
+            ctx.tool_registry = Some(&registry);
+            execute(&ctx, serde_json::from_str(&arguments).unwrap())
+        };
+        let listed = invoke(json!({"action":"list"})).unwrap();
+        assert_eq!(listed["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["tasks"][0]["id"], explicit["task"]["id"]);
+        for action in ["get", "history", "update", "pause", "resume", "delete"] {
+            assert!(
+                invoke(json!({"action":action,"id":legacy.id,"expectedRevision":1}))
+                    .unwrap_err()
+                    .to_string()
+                    .contains("outside"),
+                "exposed legacy task via {action}"
+            );
+        }
+        assert_eq!(
+            db.get_workflow_automation(&legacy.id)
+                .unwrap()
+                .definition_revision,
+            1
+        );
     }
 
     #[tokio::test]
