@@ -114,3 +114,16 @@ test('generative HTML source edits revoke active execution and ordinary html rem
   await expect.poll(()=>previews.size).toBe(0);
   await expect(page.getByTestId('html-preview').locator('iframe')).toHaveAttribute('sandbox','');
 });
+
+test('generative HTML preserves citation-like literals and paths while streaming and replaying',async({page})=>{
+  const html='<output>pending</output><script>const label = `[source: dataset.csv]`;document.querySelector("output").textContent=label+" [cite:literal] ./data/report.json";</script>';
+  await show(page,html,'nexa-html',true);
+  await page.getByText('View source',{exact:true}).click();
+  await expect(page.getByTestId('html-preview').locator('pre code')).toHaveText(html);
+  await show(page,html);await page.getByRole('button',{name:'Run scripts'}).click();
+  const inner=page.getByTestId('html-preview').locator('iframe').contentFrame().locator('iframe').contentFrame();
+  await expect(inner.locator('output')).toHaveText('[source: dataset.csv] [cite:literal] ./data/report.json');
+  await page.reload();await expect(page.getByTestId('html-preview').locator('iframe')).toHaveAttribute('sandbox','');
+  await page.getByRole('button',{name:'Run scripts'}).click();
+  await expect(inner.locator('output')).toHaveText('[source: dataset.csv] [cite:literal] ./data/report.json');
+});

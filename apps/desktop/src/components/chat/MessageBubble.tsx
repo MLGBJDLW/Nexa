@@ -11,11 +11,10 @@ import {
   MarkdownRenderStateProvider,
   markdownComponents,
   markdownRemarkPlugins,
-  preprocessCitations,
-  preprocessFilePaths,
+  preprocessChatContent,
   rehypePlugins,
 } from './markdownComponents';
-import { preprocessChunkCitations, preprocessInlineCitations } from '../../lib/citationParser';
+import { markdownProse } from '../../lib/markdownCodeProtection';
 import type { CitationCardData } from '../../lib/citationParser';
 import { goalObjectiveFromMessage, isGoalMessage, isSteeringMessage } from '../../lib/chatMessageGuards';
 import { buildEvidenceItemsFromContent } from '../../lib/evidenceItems';
@@ -116,7 +115,7 @@ function ProposedPlanCard({
             components={markdownComponents}
             urlTransform={(url) => url}
           >
-            {preprocessFilePaths(preprocessCitations(preprocessInlineCitations(preprocessChunkCitations(plan.markdown))))}
+            {preprocessChatContent(plan.markdown)}
           </ReactMarkdown>
         </div>
       </div>
@@ -322,7 +321,7 @@ function MessageBubbleInner({ msg, chunkIds, queryText, citationLookup, isLastAs
   const evidenceItems = useMemo(() => {
     if (isUser) return [];
     return buildEvidenceItemsFromContent(
-      visibleContent,
+      markdownProse(visibleContent),
       citationLookup,
       (index) => t('chat.evidenceSourceLabel', { index: String(index) }),
       { dedupeChunks: true, sortByFrequency: true },
@@ -495,7 +494,7 @@ function MessageBubbleInner({ msg, chunkIds, queryText, citationLookup, isLastAs
                       components={markdownComponents}
                       urlTransform={(url) => url}
                     >
-                      {preprocessFilePaths(preprocessCitations(preprocessInlineCitations(preprocessChunkCitations(visibleContent))))}
+                      {preprocessChatContent(visibleContent)}
                     </ReactMarkdown>
                   </CitationContext.Provider>
                 </div>

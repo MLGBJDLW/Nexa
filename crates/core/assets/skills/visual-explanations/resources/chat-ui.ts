@@ -73,7 +73,7 @@ export function validateChatUi(value: unknown): ChatUiDocument {
       if (kind === 'steps') list(b.items, `${p}.items`, 60).forEach((item, i) => {
         const ip = `${p}.items[${i}]`; const v = object(item, ip, ['title','detail','status']);
         text(v.title, `${ip}.title`); optionalText(v.detail, `${ip}.detail`);
-        if (v.status !== undefined && !['pending','current','complete'].includes(String(v.status))) throw new Error(`${ip}.status: expected pending, current, or complete`);
+        if (v.status !== undefined && (typeof v.status !== 'string' || !['pending','current','complete'].includes(v.status))) throw new Error(`${ip}.status: expected pending, current, or complete`);
       });
       if (kind === 'tabs') {
         const tabs = list(b.tabs, `${p}.tabs`, 12);

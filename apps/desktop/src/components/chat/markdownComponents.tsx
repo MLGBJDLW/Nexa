@@ -19,6 +19,8 @@ import { sourceHost } from '../../lib/sourceDisplay';
 import { FileBadge } from '../ui/FileBadge';
 import { CitationChip } from './EvidenceCard';
 import type { CitationCardData } from '../../lib/citationParser';
+import { preprocessChunkCitations, preprocessInlineCitations } from '../../lib/citationParser';
+import { transformMarkdownProse } from '../../lib/markdownCodeProtection';
 import { GenerativeUi } from './GenerativeUi';
 import { HtmlPreviewFrame } from './HtmlPreviewFrame';
 
@@ -77,6 +79,12 @@ const FILE_PATH_REGEX = new RegExp(
 /* ------------------------------------------------------------------ */
 /*  Markdown preprocessing                                             */
 /* ------------------------------------------------------------------ */
+
+export function preprocessChatContent(content: string): string {
+  return transformMarkdownProse(content, prose => preprocessFilePaths(
+    preprocessCitations(preprocessInlineCitations(preprocessChunkCitations(prose))),
+  ));
+}
 
 /**
  * Pre-process AI citations like [source: D:\path\to\file.docx]

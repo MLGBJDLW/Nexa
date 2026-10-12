@@ -1,12 +1,9 @@
 import { memo, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useStreamingPresentation } from '../../lib/useStreamingPresentation';
+import { markdownProse } from '../../lib/markdownCodeProtection';
 
 import { useTranslation } from '../../i18n';
-import {
-  preprocessChunkCitations,
-  preprocessInlineCitations,
-} from '../../lib/citationParser';
 import type { CitationCardData } from '../../lib/citationParser';
 import { buildEvidenceItemsFromContent } from '../../lib/evidenceItems';
 import { MAX_HIGHLIGHT_DOCUMENT_CHARS } from '../../lib/streaming/markdownPresentation';
@@ -16,8 +13,7 @@ import {
   MarkdownRenderStateProvider,
   markdownComponents,
   markdownRemarkPlugins,
-  preprocessCitations,
-  preprocessFilePaths,
+  preprocessChatContent,
   rehypePlugins,
 } from './markdownComponents';
 
@@ -42,14 +38,12 @@ const MarkdownDocument = memo(function MarkdownDocument({
 }: MarkdownDocumentProps) {
   const { t } = useTranslation();
   const processed = useMemo(
-    () => preprocessFilePaths(
-      preprocessCitations(preprocessInlineCitations(preprocessChunkCitations(content))),
-    ),
+    () => preprocessChatContent(content),
     [content],
   );
   const evidenceItems = useMemo(
     () => buildEvidenceItemsFromContent(
-      content,
+      markdownProse(content),
       citationLookup,
       (index) => t('chat.evidenceSourceLabel', { index: String(index) }),
     ),
