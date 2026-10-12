@@ -700,6 +700,8 @@ mod tests {
         for query in [
             "interactive visualization comparison",
             "请做一个交互图表",
+            "用可视化解释这个流程",
+            "做一个动态演示和说明文档",
             "$visual-explanations",
         ] {
             let skills = get_available_skills_for_query(&db, query).unwrap();
