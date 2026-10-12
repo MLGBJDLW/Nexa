@@ -903,5 +903,18 @@
   "reasoningControlStyle": "Darstellung der Denkstärke",
   "reasoningList": "Liste",
   "reasoningSlider": "Stärkeregler",
-  "reasoningOn": "Ein"
+  "reasoningOn": "Ein",
+  "visualLabel": "INTERAKTIVE ANSICHT",
+  "visualBuilding": "Ansicht wird erstellt…",
+  "visualInvalid": "Diese Ansicht kann nicht angezeigt werden: {error}",
+  "visualSource": "Quelltext anzeigen",
+  "visualFilter": "Zeilen filtern",
+  "visualNoRows": "Keine passenden Zeilen",
+  "visualExpand": "Vorschau vergrößern",
+  "visualCollapse": "Vorschau verkleinern",
+  "htmlPreview": "HTML-Vorschau",
+  "htmlStatic": "Statische Vorschau",
+  "htmlRunning": "Skripte laufen",
+  "htmlRun": "Skripte ausführen",
+  "htmlStop": "Stopp"
 }

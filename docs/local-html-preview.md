@@ -1,5 +1,9 @@
 # Local HTML preview
 
+For live HTML or structured views inside a conversation, see
+[Generative chat UI](GENERATIVE_CHAT_UI.md). This guide covers file artifacts
+and their explicitly approved supporting resources.
+
 Local HTML opens in Nexa's Browser Workspace with JavaScript and relative
 resources. Opening the main file does not grant access to its entire directory.
 The titlebar's File Preview button also opens a file picker for previewing local

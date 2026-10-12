@@ -819,9 +819,15 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     };
   }, [open]);
 
+  const createHtmlPreview = useCallback(async (html: string) => {
+    const path = await invoke<string>('create_chat_ui_preview_cmd', { html });
+    const id = path.split('/').pop()!;
+    return { url: convertFileSrc('', 'nexa-ui') + path.replace(/^\//, ''),
+      release: () => { void invoke('release_chat_ui_preview_cmd', { id }).catch(() => {}); } };
+  }, []);
   const contextValue = useMemo(
-    () => ({ openFilePreview, openWebLink, openEvidence: setEvidenceRef, togglePreviewPanel, previewPanelOpen: open }),
-    [openFilePreview, openWebLink, togglePreviewPanel, open],
+    () => ({ openFilePreview, openWebLink, createHtmlPreview, openEvidence: setEvidenceRef, togglePreviewPanel, previewPanelOpen: open }),
+    [openFilePreview, openWebLink, createHtmlPreview, togglePreviewPanel, open],
   );
   const content = preview?.content ?? '';
   const hasStructured = hasStructuredPreview(preview);

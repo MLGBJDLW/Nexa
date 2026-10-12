@@ -903,5 +903,18 @@
   "reasoningControlStyle": "Вид управления рассуждением",
   "reasoningList": "Список",
   "reasoningSlider": "Шкала интенсивности",
-  "reasoningOn": "Включено"
+  "reasoningOn": "Включено",
+  "visualLabel": "ИНТЕРАКТИВНЫЙ ВИД",
+  "visualBuilding": "Создание представления…",
+  "visualInvalid": "Не удалось отобразить представление: {error}",
+  "visualSource": "Показать исходный код",
+  "visualFilter": "Фильтр строк",
+  "visualNoRows": "Нет подходящих строк",
+  "visualExpand": "Развернуть предпросмотр",
+  "visualCollapse": "Свернуть предпросмотр",
+  "htmlPreview": "Предпросмотр HTML",
+  "htmlStatic": "Статический предпросмотр",
+  "htmlRunning": "Скрипты выполняются",
+  "htmlRun": "Запустить скрипты",
+  "htmlStop": "Остановить"
 }

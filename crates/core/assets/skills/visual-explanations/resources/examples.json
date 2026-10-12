@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "title": "A clearer weekly review",
+  "summary": "Illustrative data · Local filters and tabs",
+  "blocks": [
+    {"type":"metrics","items":[{"label":"Completed","value":18,"detail":"of 24 planned tasks"},{"label":"Cycle time","value":"2.4 days","detail":"Median, this week"},{"label":"Open questions","value":3}]},
+    {"type":"tabs","tabs":[
+      {"label":"By team","blocks":[{"type":"bars","title":"Change in completed tasks","unit":"tasks","items":[{"label":"Design","value":4},{"label":"Engineering","value":8},{"label":"Research","value":-2}]}]},
+      {"label":"Details","blocks":[{"type":"table","columns":["Team","Completed","Next step"],"rows":[["Design",5,"Review prototypes"],["Engineering",10,"Validate release"],["Research",3,"Resolve open questions"]]}]}
+    ]},
+    {"type":"steps","items":[{"title":"Evidence gathered","status":"complete"},{"title":"Review assumptions","detail":"Confirm the three open questions.","status":"current"},{"title":"Share the report","status":"pending"}]}
+  ]
+}

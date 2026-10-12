@@ -48,10 +48,42 @@ async fn html_preview_is_opaque_bounded_and_revoked_with_its_owner() {
     assert!(!csp.contains("allow-same-origin"));
     assert!(csp.contains("connect-src 'none'"));
     assert_eq!(response.headers()["cache-control"], "no-store");
+    assert!(csp.contains("frame-src 'self'"));
+    assert!(response
+        .text()
+        .await
+        .unwrap()
+        .contains(&format!("src=\"{path}/document\"")));
+    let document = client
+        .get(format!("{origin}{path}/document"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(document.status(), 200);
+    let csp = document.headers()["content-security-policy"]
+        .to_str()
+        .unwrap();
+    assert!(csp.contains("frame-src 'none'"));
+    assert!(csp.contains("script-src 'unsafe-inline'"));
+    assert!(!csp.contains("https:"));
+    assert_eq!(
+        document.headers()["permissions-policy"],
+        html_preview::PERMISSIONS_POLICY
+    );
+    assert!(document.text().await.unwrap().contains("Interactive"));
     assert!(server
         .create_html_preview(owner, "x".repeat(512 * 1024 + 1))
         .is_err());
     server.revoke(owner).await.unwrap();
+    assert_eq!(
+        client
+            .get(format!("{origin}{path}/document"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
     assert_eq!(
         client
             .get(format!("{origin}{path}"))

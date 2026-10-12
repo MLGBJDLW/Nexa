@@ -19,6 +19,8 @@ import { sourceHost } from '../../lib/sourceDisplay';
 import { FileBadge } from '../ui/FileBadge';
 import { CitationChip } from './EvidenceCard';
 import type { CitationCardData } from '../../lib/citationParser';
+import { GenerativeUi } from './GenerativeUi';
+import { HtmlPreviewFrame } from './HtmlPreviewFrame';
 
 type MermaidModule = typeof import('mermaid');
 
@@ -293,12 +295,12 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
 
 /** Fenced code block with syntax highlighting and copy button */
 const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; language: string }) {
-  const { openCodePreview } = useFilePreview();
   const { isStreaming, plainCode } = useContext(MarkdownRenderStateContext);
   const large = code.length > MAX_HIGHLIGHT_CODE_CHARS;
   const highlight = !isStreaming && !plainCode && !large;
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [preview, setPreview] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -310,9 +312,11 @@ const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; la
     }
   }, [code]);
 
+  if (language.toLowerCase() === 'nexa-ui') return <GenerativeUi source={code} streaming={isStreaming} />;
+  if (language.toLowerCase() === 'nexa-html') return <HtmlPreviewFrame source={code} streaming={isStreaming} />;
   return (
     <div className="group/code relative my-2">
-      {openCodePreview && /^(html|htm)$/i.test(language) && !isStreaming && <button type="button" onClick={() => openCodePreview(code, language)} className="absolute right-20 top-2 z-10 rounded border border-border bg-surface-0 px-2 py-0.5 text-xs text-accent">{t('preview.preview')}</button>}
+      {/^(html|htm)$/i.test(language) && <button type="button" onClick={() => setPreview(value => !value)} aria-pressed={preview} className="absolute right-20 top-2 z-10 rounded border border-border bg-surface-0 px-2 py-0.5 text-xs text-accent">{t('preview.preview')}</button>}
       <button
         type="button"
         onClick={handleCopy}
@@ -354,6 +358,7 @@ const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; la
           </pre>
         )}
       </Highlight>}
+      {preview && <HtmlPreviewFrame source={code} streaming={isStreaming} showSource={false} />}
     </div>
   );
 });

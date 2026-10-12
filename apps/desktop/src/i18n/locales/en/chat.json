@@ -903,5 +903,18 @@
   "reasoningControlStyle": "Reasoning control style",
   "reasoningList": "List",
   "reasoningSlider": "Intensity slider",
-  "reasoningOn": "On"
+  "reasoningOn": "On",
+  "visualLabel": "INTERACTIVE VIEW",
+  "visualBuilding": "Building view…",
+  "visualInvalid": "Unable to render this visual: {error}",
+  "visualSource": "View source",
+  "visualFilter": "Filter rows",
+  "visualNoRows": "No matching rows",
+  "visualExpand": "Expand preview",
+  "visualCollapse": "Collapse preview",
+  "htmlPreview": "HTML preview",
+  "htmlStatic": "Static preview",
+  "htmlRunning": "Scripts running",
+  "htmlRun": "Run scripts",
+  "htmlStop": "Stop"
 }

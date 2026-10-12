@@ -695,6 +695,43 @@ mod tests {
     }
 
     #[test]
+    fn test_visual_skill_routes_interactive_ui_and_bundles_its_real_validator() {
+        let db = Database::open_memory().unwrap();
+        for query in [
+            "interactive visualization comparison",
+            "请做一个交互图表",
+            "$visual-explanations",
+        ] {
+            let skills = get_available_skills_for_query(&db, query).unwrap();
+            assert!(
+                skills
+                    .iter()
+                    .any(|skill| skill.id == "builtin-visual-explanations"),
+                "missing visual skill for {query}"
+            );
+        }
+        let skill = load_builtin_skills()
+            .into_iter()
+            .find(|skill| skill.id == "builtin-visual-explanations")
+            .unwrap();
+        for path in [
+            "scripts/validate.mjs",
+            "resources/chat-ui.ts",
+            "resources/examples.json",
+            "references/html.md",
+        ] {
+            assert!(
+                skill
+                    .resource_bundle
+                    .iter()
+                    .any(|resource| resource.path == path),
+                "missing {path}"
+            );
+        }
+        assert!(!skill.content.contains("ALWAYS include a Mermaid"));
+    }
+
+    #[test]
     fn test_available_skills_respects_implicit_policy() {
         let db = Database::open_memory().unwrap();
         db.conn().execute("DELETE FROM skills", []).unwrap();

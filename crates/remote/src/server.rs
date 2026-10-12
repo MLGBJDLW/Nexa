@@ -43,7 +43,7 @@ pub struct RemoteServer {
     sockets: Arc<Semaphore>,
     requests: Arc<Semaphore>,
     uploads: Arc<Semaphore>,
-    previews: Mutex<HashMap<String, (String, String, std::time::Instant)>>,
+    previews: Mutex<crate::html_preview::HtmlPreviewStore>,
 }
 pub struct RunningListener {
     pub address: SocketAddr,
@@ -77,7 +77,7 @@ impl RemoteServer {
             sockets: Arc::new(Semaphore::new(24)),
             requests: Arc::new(Semaphore::new(32)),
             uploads: Arc::new(Semaphore::new(8)),
-            previews: Mutex::new(HashMap::new()),
+            previews: Mutex::new(crate::html_preview::HtmlPreviewStore::default()),
         })
     }
     pub fn server_id(&self) -> String {
@@ -185,17 +185,18 @@ impl RemoteServer {
     }
     /// A short-lived read capability for an isolated, opaque-origin iframe.
     pub fn create_html_preview(&self, owner: &str, html: String) -> Result<String, String> {
-        if html.len() > 512 * 1024 {
-            return Err("HTML preview exceeds 512 KiB".into());
-        }
-        let mut previews = self.previews.lock().unwrap_or_else(|e| e.into_inner());
-        previews.retain(|_, (_, _, time)| time.elapsed() < Duration::from_secs(1800));
-        if previews.len() >= 24 {
-            return Err("Too many active previews; retry after older previews expire".into());
-        }
-        let id = uuid::Uuid::new_v4().to_string();
-        previews.insert(id.clone(), (owner.into(), html, std::time::Instant::now()));
+        let id = self
+            .previews
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .create(owner, html)?;
         Ok(format!("/preview/{id}"))
+    }
+    pub fn release_html_preview(&self, owner: &str, id: &str) {
+        self.previews
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .release(owner, id);
     }
     pub async fn revoke(self: &Arc<Self>, id: &str) -> Result<(), String> {
         let server = self.clone();
@@ -213,7 +214,7 @@ impl RemoteServer {
         self.previews
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|_, (owner, _, _)| owner != id);
+            .revoke_owner(id);
         self.connections
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -235,6 +236,7 @@ impl RemoteServer {
             .route("/api/rpc", post(rpc))
             .route("/api/events", get(events))
             .route("/preview/{id}", get(html_preview))
+            .route("/preview/{id}/document", get(html_preview_document))
             .fallback(get(asset))
             .layer(DefaultBodyLimit::max(MAX_BODY))
             .layer(tower_http::compression::CompressionLayer::new())
@@ -461,17 +463,19 @@ async fn boundary(
         .collect::<Vec<_>>()
         .join(" ");
     let rotating = "https://*.lhr.life wss://*.lhr.life https://*.localhost.run wss://*.localhost.run https://*.free.pinggy.net wss://*.free.pinggy.net https://*.pinggy.link wss://*.pinggy.link https://*.pinggy.online wss://*.pinggy.online https://*.run.pinggy-free.link wss://*.run.pinggy-free.link https://*.trycloudflare.com wss://*.trycloudflare.com";
-    let csp = if isolated_preview {
-        format!("sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https:; img-src https: data: blob:; font-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self' {origins} {rotating}")
-    } else {
-        format!("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' data: blob:; frame-src 'self' data: blob: {origins} {rotating}; font-src 'self'; connect-src 'self' {origins} {rotating}; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-    };
-    if let Ok(csp) = HeaderValue::from_str(&csp) {
-        headers.insert(header::CONTENT_SECURITY_POLICY, csp);
+    if !isolated_preview {
+        let csp = format!("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' data: blob:; frame-src 'self' data: blob: {origins} {rotating}; font-src 'self'; connect-src 'self' {origins} {rotating}; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+        if let Ok(csp) = HeaderValue::from_str(&csp) {
+            headers.insert(header::CONTENT_SECURITY_POLICY, csp);
+        }
     }
     headers.insert(
         "permissions-policy",
-        HeaderValue::from_static("camera=(self), microphone=(self), geolocation=()"),
+        HeaderValue::from_static(if isolated_preview {
+            crate::html_preview::PERMISSIONS_POLICY
+        } else {
+            "camera=(self), microphone=(self), geolocation=()"
+        }),
     );
     response
 }
@@ -537,22 +541,48 @@ async fn admitted_request(server: &Arc<RemoteServer>, request: Request, next: Ne
 }
 
 async fn html_preview(State(server): State<Arc<RemoteServer>>, Path(id): Path<String>) -> Response {
+    serve_html_preview(&server, &id, false)
+}
+async fn html_preview_document(
+    State(server): State<Arc<RemoteServer>>,
+    Path(id): Path<String>,
+) -> Response {
+    serve_html_preview(&server, &id, true)
+}
+fn serve_html_preview(server: &RemoteServer, id: &str, document: bool) -> Response {
     let previews = server.previews.lock().unwrap_or_else(|e| e.into_inner());
-    let Some((owner, html, created)) = previews.get(&id) else {
+    let Some((owner, html)) = previews.read(id) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    if created.elapsed() >= Duration::from_secs(1800)
-        || !server
-            .auth
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .has_device(owner)
+    if !server
+        .auth
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .has_device(owner)
     {
         return StatusCode::NOT_FOUND.into_response();
     }
+    let body = if document {
+        html.to_string()
+    } else {
+        let Some(host) = crate::html_preview::host_document(id) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        host
+    };
     (
-        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        html.clone(),
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                if document {
+                    crate::html_preview::DOCUMENT_CSP
+                } else {
+                    crate::html_preview::HOST_CSP
+                },
+            ),
+        ],
+        body,
     )
         .into_response()
 }

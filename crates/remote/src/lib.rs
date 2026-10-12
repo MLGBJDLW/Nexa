@@ -1,5 +1,6 @@
 //! Authenticated browser access to an explicitly exposed host surface.
 mod auth;
+pub mod html_preview;
 mod protocol;
 pub mod public_access;
 mod server;

@@ -903,5 +903,18 @@
   "reasoningControlStyle": "Estilo de control del razonamiento",
   "reasoningList": "Lista",
   "reasoningSlider": "Control de intensidad",
-  "reasoningOn": "Activado"
+  "reasoningOn": "Activado",
+  "visualLabel": "VISTA INTERACTIVA",
+  "visualBuilding": "Creando vista…",
+  "visualInvalid": "No se puede mostrar esta vista: {error}",
+  "visualSource": "Ver código",
+  "visualFilter": "Filtrar filas",
+  "visualNoRows": "No hay filas coincidentes",
+  "visualExpand": "Ampliar vista previa",
+  "visualCollapse": "Reducir vista previa",
+  "htmlPreview": "Vista previa HTML",
+  "htmlStatic": "Vista previa estática",
+  "htmlRunning": "Scripts en ejecución",
+  "htmlRun": "Ejecutar scripts",
+  "htmlStop": "Detener"
 }

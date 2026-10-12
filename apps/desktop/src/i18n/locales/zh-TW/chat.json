@@ -903,5 +903,18 @@
   "reasoningControlStyle": "思考強度控制樣式",
   "reasoningList": "清單選擇",
   "reasoningSlider": "強度滑桿",
-  "reasoningOn": "開啟"
+  "reasoningOn": "開啟",
+  "visualLabel": "互動檢視",
+  "visualBuilding": "正在產生檢視…",
+  "visualInvalid": "暫時無法顯示此檢視：{error}",
+  "visualSource": "檢視原始碼",
+  "visualFilter": "篩選列",
+  "visualNoRows": "沒有符合的列",
+  "visualExpand": "展開預覽",
+  "visualCollapse": "收合預覽",
+  "htmlPreview": "HTML 預覽",
+  "htmlStatic": "靜態預覽",
+  "htmlRunning": "腳本執行中",
+  "htmlRun": "執行腳本",
+  "htmlStop": "停止"
 }

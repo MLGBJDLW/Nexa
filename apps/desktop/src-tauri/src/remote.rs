@@ -436,6 +436,7 @@ impl RemoteHost for DesktopHost {
         use RemoteCommand::*;
         match command {
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
+            ReleasePreview { id } => { app.state::<RemoteState>().server()?.release_html_preview(owner, &id); value(()) },
             FilePreview { path, verify_content_hash } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None, verify_content_hash).await?),
             FileData { path } => {
                 // Resolve through the same source/path rules as the desktop preview.
