@@ -84,6 +84,21 @@ test('generative HTML streaming is inert and runs only on request under producti
   await page.evaluate(()=>(window as any).hideUiFixture());await expect.poll(()=>previews.size).toBe(0);
 });
 
+test('static HTML with head attributes blocks CSS network requests before script activation',async({page})=>{
+  let escaped=0;
+  await page.route('**/static-exfil**',async route=>{escaped++;await route.abort();});
+  const html='<html><head id="generated-head" lang="en"><style>@import url("https://example.invalid/static-exfil?import");body{background-image:url("https://example.invalid/static-exfil?background")}</style></head><body><h1>Static isolation</h1><div style="background-image:url(https://example.invalid/static-exfil?inline)">Content</div></body></html>';
+  for(const streaming of [true,false]){
+    await show(page,html,'nexa-html',streaming);
+    const frame=page.getByTestId('html-preview').locator('iframe').contentFrame();
+    await expect(frame.getByRole('heading',{name:'Static isolation'})).toBeVisible();
+    await expect(frame.locator('head > meta').first()).toHaveAttribute('http-equiv','Content-Security-Policy');
+    await page.waitForTimeout(300);
+    expect(escaped).toBe(0);
+    expect(previews.size).toBe(0);
+  }
+});
+
 test('generative HTML sandbox blocks parent access, storage, network, and external self-navigation',async({page})=>{
   let escaped=0;await page.route('**/exfil**',async route=>{escaped++;await route.abort();});
   const target='https://example.invalid/exfil';
