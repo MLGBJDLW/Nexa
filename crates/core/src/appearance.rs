@@ -10,7 +10,7 @@ use crate::error::CoreError;
 use crate::theme_resource_plugin::ThemeResourcePlugin;
 
 const APPEARANCE_REGISTRY_KEY: &str = "appearance_registry_v2";
-const BUILTIN_THEME_IDS: &[&str] = &["dark", "light", "midnight", "aurora", "bloom", "dream"];
+pub const BUILTIN_THEME_IDS: &[&str] = &["dark", "light", "midnight", "aurora", "bloom", "dream"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

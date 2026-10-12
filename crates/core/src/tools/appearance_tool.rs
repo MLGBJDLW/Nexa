@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use crate::appearance::{AppearanceRegistry, BUILTIN_THEME_IDS};
 use crate::error::CoreError;
 use crate::theme_resource_plugin::ThemeResourcePlugin;
 
@@ -27,7 +28,7 @@ impl Tool for AppearanceTool {
     }
 
     fn description(&self) -> &str {
-        "Draft, validate, list, apply, activate, roll back, or remove Nexa appearance themes. Themes are declarative and reversible: use semantic colors, managed assets, typography, motion, logo treatment, tagline/statusText/quote, and allowlisted component recipes. Never emit CSS selectors, url(), scripts, remote resources, or security/approval claims. Use draft before apply when authoring a new theme."
+        "Manage Nexa themes: list, draft, apply, activate, rollback, or remove. Activate/remove accepts an id or unique theme name. For authoring guidance load the built-in themes skill. Themes are declarative and reversible: use semantic colors, managed assets, typography, motion, logo treatment, tagline/statusText/quote, and allowlisted component recipes. Never emit CSS selectors, url(), scripts, remote resources, or security/approval claims. Use draft before apply when authoring a new theme."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -35,7 +36,7 @@ impl Tool for AppearanceTool {
             "type": "object",
             "properties": {
                 "action": { "type": "string", "enum": ["list", "draft", "apply", "activate", "rollback", "remove"] },
-                "themeId": { "type": "string", "description": "Built-in or installed theme id for activate/remove." },
+                "themeId": { "type": "string", "description": "Built-in id, installed theme id, or unique custom theme name for activate/remove. Exact ids take precedence; ambiguous names are rejected. Use list to inspect names and ids." },
                 "plugin": {
                     "type": "object",
                     "description": "Theme resource for draft/apply. manifestVersion may be 1 or 2 and is normalized to 2.",
@@ -127,8 +128,9 @@ impl Tool for AppearanceTool {
                 return Ok(result(
                     context.call_id,
                     format!(
-                        "Appearance draft validated: {} ({})",
-                        plugin.name, plugin.id
+                        "Appearance draft validated: {}.\n{}",
+                        plugin.name,
+                        serde_json::to_string(&plugin)?
                     ),
                     "appearanceDraft",
                     serde_json::json!({ "plugin": plugin }),
@@ -139,17 +141,19 @@ impl Tool for AppearanceTool {
                 crate::user_extensions::write_theme_plugin_to_configured_directory(plugin.clone())?;
                 (context.db.apply_appearance_plugin(plugin)?, true)
             }
-            "activate" => (
-                context
-                    .db
-                    .activate_appearance(required_theme_id(&args, action)?)?,
-                true,
-            ),
+            "activate" => {
+                let registry = context.db.load_appearance_registry()?;
+                let theme_id = resolve_theme_id(&registry, &args, action)?;
+                (context.db.activate_appearance(&theme_id)?, true)
+            }
             "rollback" => (context.db.rollback_appearance()?, true),
             "remove" => {
-                let theme_id = required_theme_id(&args, action)?;
-                crate::user_extensions::remove_theme_plugin_from_configured_directory(theme_id)?;
-                (context.db.remove_appearance(theme_id)?, true)
+                let registry = context.db.load_appearance_registry()?;
+                let theme_id = resolve_theme_id(&registry, &args, action)?;
+                // Validate removal before touching the file projection (built-ins cannot be removed).
+                registry.remove(&theme_id)?;
+                crate::user_extensions::remove_theme_plugin_from_configured_directory(&theme_id)?;
+                (context.db.remove_appearance(&theme_id)?, true)
             }
             other => {
                 return Err(CoreError::InvalidInput(format!(
@@ -166,8 +170,14 @@ impl Tool for AppearanceTool {
                 )
             } else {
                 format!(
-                    "Appearance registry. Active theme: {}. Revision: {}.",
-                    registry.active_theme_id, registry.revision
+                    "Available Nexa themes:\n{}",
+                    serde_json::to_string(&serde_json::json!({
+                        "activeThemeId": registry.active_theme_id,
+                        "previousThemeId": registry.previous_theme_id,
+                        "builtinThemes": BUILTIN_THEME_IDS,
+                        "themes": registry.plugins,
+                        "revision": registry.revision,
+                    }))?
                 )
             },
             "appearanceRegistry",
@@ -190,15 +200,45 @@ fn normalize_plugin(
         .normalize()
 }
 
-fn required_theme_id<'a>(args: &'a AppearanceArgs, action: &str) -> Result<&'a str, CoreError> {
-    args.theme_id
+fn resolve_theme_id(
+    registry: &AppearanceRegistry,
+    args: &AppearanceArgs,
+    action: &str,
+) -> Result<String, CoreError> {
+    let selector = args
+        .theme_id
         .as_deref()
-        .filter(|id| !id.trim().is_empty())
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
         .ok_or_else(|| {
             CoreError::InvalidInput(format!(
                 "themeId is required for appearance action '{action}'"
             ))
-        })
+        })?;
+    if BUILTIN_THEME_IDS.contains(&selector)
+        || registry.plugins.iter().any(|plugin| plugin.id == selector)
+    {
+        return Ok(selector.to_string());
+    }
+    let matches: Vec<_> = registry
+        .plugins
+        .iter()
+        .filter(|plugin| plugin.name.eq_ignore_ascii_case(selector))
+        .collect();
+    match matches.as_slice() {
+        [plugin] => Ok(plugin.id.clone()),
+        [] => Err(CoreError::NotFound(format!(
+            "Theme '{selector}'. Use appearance list to find an installed theme."
+        ))),
+        _ => Err(CoreError::InvalidInput(format!(
+            "Theme name '{selector}' is ambiguous; use an exact id: {}",
+            matches
+                .iter()
+                .map(|plugin| plugin.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
 }
 
 fn result(call_id: &str, content: String, kind: &str, payload: serde_json::Value) -> ToolResult {
@@ -237,6 +277,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lists_themes_in_model_visible_content_and_activates_by_name() {
+        let db = Database::open_memory().unwrap();
+        let theme: ThemeResourcePlugin = serde_json::from_value(plugin()).unwrap();
+        db.hydrate_appearance_registry(vec![theme], "dark".into())
+            .unwrap();
+        let tool = AppearanceTool;
+        let listing = tool
+            .execute(ToolExecutionContext::new(
+                "list",
+                r#"{"action":"list"}"#,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(listing.content.contains("Agent Autumn"));
+        assert!(listing.content.contains("agent-autumn"));
+        assert!(listing.content.contains("dream"));
+        tool.execute(ToolExecutionContext::new(
+            "activate",
+            r#"{"action":"activate","themeId":"Agent Autumn"}"#,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            db.load_appearance_registry().unwrap().active_theme_id,
+            "agent-autumn"
+        );
+        tool.execute(ToolExecutionContext::new(
+            "rollback",
+            r#"{"action":"rollback"}"#,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            db.load_appearance_registry().unwrap().active_theme_id,
+            "dark"
+        );
+    }
+
+    #[test]
+    fn exact_ids_win_and_duplicate_names_are_rejected() {
+        let first: ThemeResourcePlugin = serde_json::from_value(plugin()).unwrap();
+        let mut second = first.clone();
+        second.id = "autumn-two".into();
+        let registry = AppearanceRegistry::default()
+            .hydrate(vec![first, second], "dark".into())
+            .unwrap();
+        let mut args = AppearanceArgs {
+            action: "activate".into(),
+            plugin: None,
+            theme_id: Some("Agent Autumn".into()),
+        };
+        assert!(resolve_theme_id(&registry, &args, "activate")
+            .unwrap_err()
+            .to_string()
+            .contains("ambiguous"));
+        args.theme_id = Some("agent-autumn".into());
+        assert_eq!(
+            resolve_theme_id(&registry, &args, "activate").unwrap(),
+            "agent-autumn"
+        );
+        args.theme_id = Some("missing".into());
+        assert!(resolve_theme_id(&registry, &args, "activate").is_err());
+    }
+
+    #[tokio::test]
     async fn drafts_then_applies_a_validated_theme() {
         let db = Database::open_memory().unwrap();
         db.hydrate_appearance_registry(Vec::new(), "dark".into())
@@ -252,7 +363,11 @@ mod tests {
             ))
             .await
             .unwrap();
-        assert_eq!(draft.artifacts.unwrap()["kind"], "appearanceDraft");
+        let normalized = draft.artifacts.unwrap();
+        assert_eq!(normalized["kind"], "appearanceDraft");
+        let visible_plugin: serde_json::Value =
+            serde_json::from_str(draft.content.split_once('\n').unwrap().1).unwrap();
+        assert_eq!(visible_plugin, normalized["payload"]["plugin"]);
 
         let apply_args = serde_json::json!({ "action": "apply", "plugin": plugin() });
         assert!(tool.requires_confirmation(&apply_args));

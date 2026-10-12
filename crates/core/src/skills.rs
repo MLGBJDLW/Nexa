@@ -275,8 +275,8 @@ mod tests {
         let skills = load_builtin_skills();
         assert_eq!(
             skills.len(),
-            13,
-            "thirteen bundled SKILL.md files must parse"
+            registry::builtin_skill_bundles().len(),
+            "all bundled SKILL.md files must parse"
         );
         for s in &skills {
             assert!(s.builtin);
@@ -318,6 +318,7 @@ mod tests {
         assert!(skills.iter().any(|s| s.id == "builtin-evidence-first"));
         assert!(skills.iter().any(|s| s.id == "builtin-doc-script-editor"));
         assert!(skills.iter().any(|s| s.id == "builtin-skill-creator"));
+        assert!(skills.iter().any(|s| s.id == "builtin-themes"));
     }
 
     #[test]
@@ -675,6 +676,22 @@ mod tests {
             active.first().map(|s| s.id.as_str()),
             Some("builtin-fiction-writing")
         );
+    }
+
+    #[test]
+    fn test_themes_skill_is_discoverable_for_appearance_requests() {
+        let db = Database::open_memory().unwrap();
+        for query in [
+            "Customize Nexa theme colors",
+            "请修改 Nexa 的主题和界面颜色",
+            "$themes",
+        ] {
+            let skills = get_available_skills_for_query(&db, query).unwrap();
+            assert!(
+                skills.iter().any(|skill| skill.id == "builtin-themes"),
+                "themes skill missing for {query}"
+            );
+        }
     }
 
     #[test]
