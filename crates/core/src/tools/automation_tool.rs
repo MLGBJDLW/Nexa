@@ -422,22 +422,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
     };
     let preview =
         preview_workflow_cron_schedule(cron, &prepared.schedule_config.timezone, Utc::now(), 5)?;
-    if creating {
-        if let Ok(previous) = ctx
-            .db
-            .get_workflow_automation(prepared.input.id.as_deref().unwrap())
-        {
-            if serde_json::to_value(as_input(&previous))? != serde_json::to_value(&prepared.input)?
-                || previous.schedule_config != prepared.schedule_config
-            {
-                return Err(CoreError::Conflict("requestId already belongs to a different task definition; get it or choose a new requestId".into()));
-            }
-            return Ok(
-                json!({"task":previous,"preview":preview,"created":false,"runtime":"Nexa must remain running"}),
-            );
-        }
-    }
-    let task = ctx.db.save_authored_workflow_automation(
+    let (task, created) = match ctx.db.save_authored_workflow_automation(
         &prepared.input,
         &prepared.schedule_config,
         None,
@@ -446,9 +431,25 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         } else {
             args.expected_revision.unwrap()
         }),
-    )?;
+    ) {
+        Ok(task) => (task, creating),
+        Err(CoreError::Conflict(_)) if creating => {
+            // Compare after the atomic create-if-absent operation so both
+            // sequential retries and concurrent identical creates converge.
+            let previous = ctx
+                .db
+                .get_workflow_automation(prepared.input.id.as_deref().unwrap())?;
+            if serde_json::to_value(as_input(&previous))? != serde_json::to_value(&prepared.input)?
+                || previous.schedule_config != prepared.schedule_config
+            {
+                return Err(CoreError::Conflict("requestId already belongs to a different task definition; get it or choose a new requestId".into()));
+            }
+            (previous, false)
+        }
+        Err(error) => return Err(error),
+    };
     Ok(
-        json!({"task":task,"preview":preview,"created":creating,"runtime":"Nexa must remain running"}),
+        json!({"task":task,"preview":preview,"created":created,"runtime":"Nexa must remain running"}),
     )
 }
 
@@ -510,6 +511,43 @@ mod tests {
         let mut changed = create();
         changed["prompt"] = json!("A different task");
         assert!(call(&db, &conversation, changed).await.is_err());
+    }
+
+    #[test]
+    fn chat_automation_concurrent_create_retries_return_one_definition() {
+        let db = Database::open_memory().unwrap();
+        let conversation = conversation(&db, None);
+        let barrier = std::sync::Barrier::new(2);
+        let results = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let registry = super::super::default_tool_registry();
+                        let arguments = create().to_string();
+                        let mut ctx = ToolExecutionContext::new("concurrent", &arguments, &db, &[])
+                            .with_conversation_id(Some(&conversation));
+                        ctx.tool_registry = Some(&registry);
+                        barrier.wait();
+                        execute(&ctx, serde_json::from_str(&arguments).unwrap()).unwrap()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(results[0]["task"]["id"], results[1]["task"]["id"]);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result["created"] == true)
+                .count(),
+            1
+        );
+        let saved = db.list_workflow_automations().unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].definition_revision, 1);
     }
     #[tokio::test]
     async fn chat_automation_updates_preserve_policy_and_reject_stale_writes() {
