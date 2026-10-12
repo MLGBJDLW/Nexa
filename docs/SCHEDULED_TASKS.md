@@ -165,8 +165,11 @@ pass it as `expectedRevision`; concurrent edits are rejected atomically.
 The current conversation supplies project authority. Source IDs must be within
 its visible sources, and future tool grants must exist in its active registry
 and satisfy the existing unattended policy. Creates snapshot the current
-sources. Without any sources, only source-independent web research tools can
-be granted. Schedules cannot call `automation` to recursively create more tasks.
+sources. Project schedules require a nonempty source snapshot: explicitly clearing
+it is rejected because project conversations otherwise inherit project sources.
+Create source-free schedules from a conversation outside a project; only
+source-independent web research tools can be granted without sources.
+Schedules cannot call `automation` to recursively create more tasks.
 Mutations use normal tool approval; `requireApproval` controls the separate
 pre-run approval policy. The default empty `allowedTools` grants no tools.
 

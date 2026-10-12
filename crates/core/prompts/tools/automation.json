@@ -14,7 +14,7 @@
       "cron": {"type":"string","description":"Five fields: minute hour day-of-month month day-of-week."},
       "timezone": {"type":"string","description":"Explicit IANA timezone, for example Asia/Shanghai. Required for create/preview."},
       "workflowTemplateId": {"type":"string","description":"Existing enabled workflow template. Default report_brief."},
-      "sourceIds": {"type":"array","items":{"type":"string"},"description":"Subset of current conversation sources; default snapshots the current sources."},
+      "sourceIds": {"type":"array","items":{"type":"string"},"description":"Subset of current conversation sources; omitted on create snapshots current sources, omitted on update preserves saved sources. Project schedules require a nonempty scope: [] is rejected because project conversations inherit sources. Create source-free schedules outside a project."},
       "allowedTools": {"type":"array","items":{"type":"string"},"description":"Exact tools explicitly needed by the scheduled task. Default [] grants no tools."},
       "requireApproval": {"type":"boolean","description":"If true, each occurrence needs pre-run approval. Default false; creation still follows normal tool permissions."},
       "enabled": {"type":"boolean","description":"Create/update enabled state; default true for create."},

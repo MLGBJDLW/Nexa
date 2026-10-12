@@ -272,9 +272,9 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         as_input(task)
     } else {
         let request = required(args.request_id.as_deref(), "requestId")?;
-        if request.len() > 120 {
+        if request.chars().count() > 120 {
             return Err(CoreError::InvalidInput(
-                "requestId exceeds 120 bytes".into(),
+                "requestId exceeds 120 characters".into(),
             ));
         }
         let key = format!(
@@ -344,6 +344,13 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         input.enabled = true;
     }
     config.execution_policy.project_id = project;
+    if input.source_scope.is_empty() && config.execution_policy.project_id.is_some() {
+        // Both legacy schedule preparation and project conversation launch
+        // inherit project sources from an empty list. Reject that ambiguous
+        // representation before saving, including a request to clear sources.
+        // Non-project web-only schedules can still use an empty scope.
+        return Err(CoreError::InvalidInput("Project schedules require at least one explicit source; an empty sourceIds list cannot disable project inheritance. Create a source-free schedule from a conversation outside a project".into()));
+    }
     if let Some(value) = args.workspace_policy {
         config.execution_policy.workspace_policy = value;
         if value == WorkflowScheduleWorkspacePolicy::IsolatedPatch {
@@ -706,7 +713,7 @@ mod tests {
             .await
             .unwrap_err()
             .to_string()
-            .contains("exceed"));
+            .contains("cannot disable project inheritance"));
         assert!(db.list_workflow_automations().unwrap().is_empty());
         args.as_object_mut().unwrap().remove("sourceIds");
         let arguments = args.to_string();
@@ -716,8 +723,54 @@ mod tests {
         AutomationTool.execute(context).await.unwrap();
         assert_eq!(
             db.list_workflow_automations().unwrap()[0].source_scope,
+            vec![source_a.clone()]
+        );
+        let saved = db.list_workflow_automations().unwrap().remove(0);
+        // Even when every project source is visible, clearing the scope must
+        // not turn into an implicit grant over the whole project.
+        assert!(call(
+            &db,
+            &conversation,
+            json!({
+                "action":"update", "id":saved.id, "expectedRevision":1, "sourceIds":[]
+            })
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("cannot disable project inheritance"));
+        assert_eq!(
+            db.get_workflow_automation(&saved.id).unwrap().source_scope,
             vec![source_a]
         );
+        let mut unrestricted = create();
+        unrestricted["requestId"] = json!("empty-with-full-project-visibility");
+        unrestricted["sourceIds"] = json!([]);
+        assert!(call(&db, &conversation, unrestricted).await.is_err());
+        assert_eq!(db.list_workflow_automations().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn chat_automation_accepts_unicode_request_ids_and_global_empty_scope() {
+        let db = Database::open_memory().unwrap();
+        let conversation = conversation(&db, None);
+        let mut args = create();
+        args["requestId"] = json!("日".repeat(120));
+        args["sourceIds"] = json!([]);
+        args["allowedTools"] = json!(["fetch_url"]);
+        let saved = call(&db, &conversation, args.clone()).await.unwrap();
+        assert_eq!(saved["task"]["sourceScope"], json!([]));
+        assert_eq!(
+            call(&db, &conversation, args.clone()).await.unwrap()["created"],
+            false
+        );
+        args["requestId"] = json!("日".repeat(121));
+        assert!(call(&db, &conversation, args)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("120 characters"));
+        assert_eq!(db.list_workflow_automations().unwrap().len(), 1);
     }
 
     #[tokio::test]
