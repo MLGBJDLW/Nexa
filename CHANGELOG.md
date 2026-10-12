@@ -16,6 +16,16 @@
 * **chat:** serialize reasoning saves without losing focus or committed state ([ffaed71](https://github.com/MLGBJDLW/Nexa/commit/ffaed71fcf71e6e9559edfb666768f14c62cfa8b))
 * **navigation:** keep scheduled tasks and footer reachable in short windows ([53d377f](https://github.com/MLGBJDLW/Nexa/commit/53d377fcccd16ba7cb6e90b50c1022cb0449c4b8))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 6216a81f71b49163c7238be5dabec7539bb9e8de -->
+
+### What's Changed
+* feat(desktop): polish reasoning motion, scheduled tasks, and theme controls by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/466
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.1...nexa-monorepo-v0.15.2
+<!-- nexa:merged-prs:end -->
+
 ## [0.15.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.0...nexa-monorepo-v0.15.1) (2026-10-11)
 
 
