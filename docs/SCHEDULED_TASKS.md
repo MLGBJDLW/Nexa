@@ -14,6 +14,10 @@ running; this entry does not create an operating-system or cloud scheduler.
 
 ## Design sources
 
+The agent-facing interface also follows the single-tool dispatch pattern in
+[Hermes cronjob tools](https://github.com/NousResearch/hermes-agent/blob/aefffa077f0f964596d54385ab91e011606e1596/tools/cronjob_tools.py).
+The storage, approval and execution policy remain Nexa-owned.
+
 - [ChatGPT and Codex Scheduled Tasks](https://learn.chatgpt.com/docs/automations)
   informs default model inheritance, project/worktree execution, unattended
   permissions, run review, and the long-term RFC 5545 direction.
@@ -142,6 +146,52 @@ an empty allowlist keeps the ordinary eligible registry. Scheduled execution is
 the only path where an empty saved allowlist intentionally means zero tools.
 
 ## User workflow
+
+### Agent tool
+
+The `automation` tool exposes `list`, `get`, `preview`, `create`, `update`,
+`pause`, `resume`, `delete` and `history` directly to the Agent. It is registered
+in the normal tool registry and discoverable through `tool_search` for cron or
+scheduled tasks. It saves the same Workbench records; it introduces no timer,
+operating-system cron job or second scheduler.
+
+Create requires a self-contained prompt, a five-field cron, an explicit IANA
+timezone and a stable `requestId`. Repeating the same request returns the same
+task; using that identity for a different definition fails. Inspect existing
+tasks first to avoid creating semantic duplicates with different identities.
+Get the current `definitionRevision` before modifying or deleting a task and
+pass it as `expectedRevision`; concurrent edits are rejected atomically.
+
+The current conversation supplies project authority. Source IDs must be within
+its visible sources, and future tool grants must exist in its active registry
+and satisfy the existing unattended policy. Creates snapshot the current
+sources. Without any sources, only source-independent web research tools can
+be granted. Schedules cannot call `automation` to recursively create more tasks.
+Mutations use normal tool approval; `requireApproval` controls the separate
+pre-run approval policy. The default empty `allowedTools` grants no tools.
+
+Update preserves omitted fields. Model/provider configuration remains automatic
+unless the existing task already pins it. A structured workflow recipe keeps
+its typed inputs; edit its prompt in Workflows rather than replacing it with a
+plain string through the tool. The receipt contains the saved definition and
+upcoming occurrences, not a claim of execution. Run now, pending approvals and
+run cancellation remain on the existing Workbench launch surface.
+
+Example creation after previewing the same recurrence:
+
+```json
+{
+  "action": "create",
+  "requestId": "weekly-priorities-2026-10",
+  "name": "Weekly priorities",
+  "prompt": "Prepare a short planning checklist for the coming week.",
+  "cron": "0 9 * * 1",
+  "timezone": "Asia/Shanghai",
+  "allowedTools": []
+}
+```
+
+### Configure in Workbench
 
 Before enabling a recurring task:
 

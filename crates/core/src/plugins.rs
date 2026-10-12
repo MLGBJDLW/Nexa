@@ -211,6 +211,7 @@ const CORE_AGENT_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclar
         "request_user_input",
         "record_verification",
         "appearance",
+        "automation",
     ],
     settings_surfaces: &["agent-quality", "tool-approvals", "appearance"],
     workflows: &["task-planning", "verification", "customize-appearance"],

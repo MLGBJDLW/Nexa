@@ -627,7 +627,14 @@ fn automation_prompt(automation: &WorkflowAutomation) -> String {
         "Use the saved approval policy for this automation."
     };
     let allowed_tools = if automation.approval_policy.allowed_tools.is_empty() {
-        "No tool whitelist is pinned.".to_string()
+        if matches!(
+            automation.trigger,
+            WorkflowAutomationTrigger::Schedule { .. }
+        ) {
+            "No tools are authorized for this scheduled run.".to_string()
+        } else {
+            "No tool whitelist is pinned.".to_string()
+        }
     } else {
         automation.approval_policy.allowed_tools.join(", ")
     };
