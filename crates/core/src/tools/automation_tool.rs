@@ -181,7 +181,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
             required(args.cron.as_deref(), "cron")?,
             required(args.timezone.as_deref(), "timezone")?,
             Utc::now(),
-            args.limit.unwrap_or(5),
+            args.limit.unwrap_or(5).clamp(1, 20),
         )?)?);
     }
     let conversation_id = required(ctx.conversation_id, "an active conversation")?;
@@ -267,6 +267,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         return Err(CoreError::InvalidInput("Unknown automation action".into()));
     }
     let creating = args.action == "create";
+    let replace_workspace = args.source_ids.is_some() || args.workspace_policy.is_some();
     let mut input = if let Some(task) = &existing {
         as_input(task)
     } else {
@@ -383,7 +384,32 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
     input.workflow_template_id = input.workflow_template_id.trim().to_string();
     input.source_scope.sort();
     input.source_scope.dedup();
-    let prepared = prepare_workflow_automation_save(ctx.db, input, Some(config))?;
+    let mut prepared = prepare_workflow_automation_save(ctx.db, input, Some(config))?;
+    // Core preparation may expand an empty project scope. Its final snapshot,
+    // not only the model's input, must remain within the caller's authority.
+    if prepared
+        .input
+        .source_scope
+        .iter()
+        .any(|id| !sources.contains(id))
+    {
+        return Err(CoreError::InvalidInput("Prepared schedule would exceed this conversation's sources; provide explicit sourceIds from the current scope".into()));
+    }
+    prepared.input.source_scope.sort();
+    prepared.input.source_scope.dedup();
+    if let Some(previous) = &existing {
+        // Name/cron edits and resume cannot silently approve an Agent route or
+        // Source-root change that happened after this task was created.
+        let saved = &previous.schedule_config.execution_policy;
+        let execution = &mut prepared.schedule_config.execution_policy;
+        execution.agent_config_id = saved.agent_config_id.clone();
+        execution.provider = saved.provider.clone();
+        execution.provider_endpoint_id = saved.provider_endpoint_id.clone();
+        execution.model = saved.model.clone();
+        if !replace_workspace {
+            execution.source_root_fingerprint = saved.source_root_fingerprint.clone();
+        }
+    }
     let WorkflowAutomationTrigger::Schedule { ref cron } = prepared.input.trigger else {
         unreachable!()
     };
@@ -604,6 +630,14 @@ mod tests {
     #[tokio::test]
     async fn chat_automation_is_discoverable_and_mutations_are_permission_gated() {
         let db = Database::open_memory().unwrap();
+        let preview = call(
+            &db,
+            "",
+            json!({"action":"preview","cron":"0 9 * * *","timezone":"UTC","limit":25}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(preview["occurrences"].as_array().unwrap().len(), 20);
         let registry = super::super::default_tool_registry();
         let args = r#"{"query":"cron 定时任务"}"#;
         let mut ctx = ToolExecutionContext::new("search", args, &db, &[]);
@@ -626,6 +660,119 @@ mod tests {
         assert!(
             validate_action_fields(r#"{"action":"pause","id":"x","prompt":"hidden edit"}"#)
                 .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_automation_rechecks_prepared_project_scope() {
+        let db = Database::open_memory().unwrap();
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let add = |path: &std::path::Path| {
+            db.add_source(crate::sources::CreateSourceInput {
+                root_path: path.to_string_lossy().into(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap()
+            .id
+        };
+        let source_a = add(a.path());
+        let source_b = add(b.path());
+        let project = db
+            .create_project(&crate::project::CreateProjectInput {
+                name: "Scoped".into(),
+                description: None,
+                workspace_roots: None,
+                icon: None,
+                color: None,
+                system_prompt: None,
+                source_scope: Some(vec![source_a.clone(), source_b]),
+            })
+            .unwrap();
+        let conversation = conversation(&db, Some(project.id));
+        let registry = super::super::default_tool_registry();
+        let mut args = create();
+        args["sourceIds"] = json!([]);
+        args["allowedTools"] = json!(["fetch_url"]);
+        let scope = vec![source_a.clone()];
+        let arguments = args.to_string();
+        let mut context = ToolExecutionContext::new("scoped", &arguments, &db, &scope)
+            .with_conversation_id(Some(&conversation));
+        context.tool_registry = Some(&registry);
+        assert!(AutomationTool
+            .execute(context)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("exceed"));
+        assert!(db.list_workflow_automations().unwrap().is_empty());
+        args.as_object_mut().unwrap().remove("sourceIds");
+        let arguments = args.to_string();
+        let mut context = ToolExecutionContext::new("scoped", &arguments, &db, &scope)
+            .with_conversation_id(Some(&conversation));
+        context.tool_registry = Some(&registry);
+        AutomationTool.execute(context).await.unwrap();
+        assert_eq!(
+            db.list_workflow_automations().unwrap()[0].source_scope,
+            vec![source_a]
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_automation_preserves_pinned_route_on_rename_and_resume() {
+        let db = Database::open_memory().unwrap();
+        let conversation = conversation(&db, None);
+        let input: crate::conversation::SaveAgentConfigInput = serde_json::from_value(json!({
+            "id":"pinned", "name":"Pinned", "provider":"open_ai", "apiKey":"fixture-only", "model":"gpt-6.1-sol", "isDefault":true,
+            "baseUrl":"https://api.openai.com/v1", "providerEndpointId":"text:openai"
+        })).unwrap();
+        let agent = db.save_agent_config(&input).unwrap();
+        let saved = call(&db, &conversation, create()).await.unwrap();
+        let id = saved["task"]["id"].as_str().unwrap();
+        let task = db.get_workflow_automation(id).unwrap();
+        let mut config = task.schedule_config.clone();
+        config.execution_policy.agent_config_id = Some(agent.id);
+        config.execution_policy.provider = Some("open_ai".into());
+        config.execution_policy.provider_endpoint_id = Some("text:openai".into());
+        config.execution_policy.model = Some(input.model.clone());
+        db.save_authored_workflow_automation(&as_input(&task), &config, None, Some(1))
+            .unwrap();
+        let mut changed = input.clone();
+        changed.provider = "anthropic".into();
+        changed.provider_endpoint_id = Some("text:anthropic".into());
+        changed.base_url = Some("https://api.anthropic.com/v1".into());
+        changed.model = "claude-sonnet-5-5".into();
+        db.save_agent_config(&changed).unwrap();
+        let renamed = call(
+            &db,
+            &conversation,
+            json!({"action":"update","id":id,"expectedRevision":2,"name":"Only rename"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            renamed["task"]["scheduleConfig"],
+            serde_json::to_value(&config).unwrap()
+        );
+        call(
+            &db,
+            &conversation,
+            json!({"action":"pause","id":id,"expectedRevision":3}),
+        )
+        .await
+        .unwrap();
+        let resumed = call(
+            &db,
+            &conversation,
+            json!({"action":"resume","id":id,"expectedRevision":4}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            resumed["task"]["scheduleConfig"],
+            serde_json::to_value(&config).unwrap()
         );
     }
 }

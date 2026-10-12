@@ -20,7 +20,7 @@
       "enabled": {"type":"boolean","description":"Create/update enabled state; default true for create."},
       "workspacePolicy": {"type":"string","enum":["deny_writes","isolated_patch"],"description":"Default deny_writes. isolated_patch uses the existing Code Ultra single-source worktree policy."},
       "before": {"type":"string","description":"History pagination cursor returned by the existing workflow history."},
-      "limit": {"type":"integer","minimum":1,"maximum":100}
+      "limit": {"type":"integer","minimum":1,"maximum":100,"description":"History page size up to 100. Schedule preview returns at most min(limit, 20) occurrences (default 5), matching the scheduler preview capacity."}
     }
   }
 }
