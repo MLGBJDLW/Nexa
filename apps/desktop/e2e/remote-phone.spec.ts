@@ -1,4 +1,7 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
+import { readFileSync } from 'node:fs';
+const previewPolicies = readFileSync(new URL('../../../crates/remote/src/html_preview.rs', import.meta.url), 'utf8');
+const previewPolicy = (name: string) => previewPolicies.match(new RegExp(`pub const ${name}: &str = "([^"]+)"`))![1];
 test.use({
   viewport: { width: 390, height: 844 },
   launchOptions: {
@@ -23,7 +26,13 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
   const actions: any[] = [];
   let preferences: any = null;
   const htmlPreviews = new Map<string, string>();
-  await page.route(url => url.pathname.startsWith('/preview/'), route => route.fulfill({ contentType:'text/html', headers:{ 'content-security-policy':"sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'" }, body:htmlPreviews.get(new URL(route.request().url()).pathname) || '' }));
+  await page.route(url => url.pathname.startsWith('/preview/'), route => {
+    const [, , id, document] = new URL(route.request().url()).pathname.split('/');
+    const html = htmlPreviews.get(`/preview/${id}`);
+    return route.fulfill({ status: html == null ? 404 : 200, contentType:'text/html',
+      headers:{ 'content-security-policy':previewPolicy(document ? 'DOCUMENT_CSP' : 'HOST_CSP'), 'permissions-policy':previewPolicy('PERMISSIONS_POLICY') },
+      body:html == null ? '' : document ? html : `<!doctype html><style>html,body,iframe{margin:0;width:100%;height:100%;border:0}</style><iframe title="Generated content" sandbox="allow-scripts" src="/preview/${id}/document"></iframe>` });
+  });
   let voiceId = '';
   let voiceText = '';
   let voiceSequence = 0;
@@ -130,6 +139,8 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
           break;
         case 'preview.html':
           actions.push({method, params}); value = '/preview/example'; htmlPreviews.set('/preview/example', params.html); break;
+        case 'preview.release':
+          actions.push({method, params}); htmlPreviews.delete(`/preview/${params.id}`); break;
         case 'voice.start':
           voiceId = params.requestId;
           actions.push({method, params});
@@ -677,16 +688,25 @@ test('phone previews local images and interactive HTML without exposing the pair
   app.emit('outputSnapshot', {blockId:'answer',channel:'answer',text:'![Local result](C:/reports/result.png)\n\n[Open report](C:/reports/result.html)'});
   await expect.poll(() => app.counts().actions.some(item => item.method === 'files.data')).toBe(true);
   await page.getByRole('button', {name:'Open report',exact:true}).click();
-  const frame = page.frameLocator('iframe[title="result.html"]');
+  const card = page.getByRole('dialog').getByTestId('html-preview');
+  const staticFrame = card.locator('iframe').contentFrame();
+  await expect(staticFrame.getByRole('button', {name:'Count 0',exact:true})).toBeVisible();
+  await staticFrame.getByRole('button', {name:'Count 0',exact:true}).click();
+  await expect(staticFrame.getByRole('button', {name:'Count 0',exact:true})).toBeVisible();
+  expect(app.counts().actions.filter(item => item.method === 'preview.html')).toHaveLength(0);
+  await expect(card.locator('iframe')).toHaveAttribute('sandbox', '');
+  await card.getByRole('button', {name:'Run scripts',exact:true}).click();
+  const frame = card.locator('iframe').contentFrame().locator('iframe').contentFrame();
   await expect(frame.getByRole('button', {name:'Count 0',exact:true})).toBeVisible();
   await frame.getByRole('button', {name:'Count 0',exact:true}).click();
   await expect(frame.getByRole('button', {name:'Count 1',exact:true})).toBeVisible();
   await expect(frame.locator('body')).toHaveAttribute('data-isolated','true');
-  expect(await page.locator('iframe').getAttribute('sandbox')).toBe('allow-scripts');
+  await expect(card.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
   await expect(page.getByRole('dialog')).toHaveCSS('position','fixed');
   await page.screenshot({ path:testInfo.outputPath('phone-html-preview.png') });
   await page.getByRole('button', {name:'Close',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect.poll(() => app.counts().actions.some(item => item.method === 'preview.release' && item.params.id === 'example')).toBe(true);
 });
 
 test('phone follows desktop theme and language with persistent independent overrides', async ({ page }) => {
