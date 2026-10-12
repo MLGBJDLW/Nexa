@@ -1,6 +1,7 @@
 import { expect, test } from './timeline-test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Page } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -906,3 +907,85 @@ test('reasoning slider restores the saved selection when persistence fails', asy
   await expect(slider).toHaveAttribute('aria-valuetext', 'High');
   await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('High');
 });
+
+async function openSonnetReasoningSlider(page: Page) {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+}
+
+async function holdNextReasoningSave(page: Page) {
+  await page.evaluate(() => {
+    const state = window as any;
+    const original = state.__TAURI_INTERNALS__.invoke;
+    state.__reasoningSaveStarts = [];
+    let hold = true;
+    state.__TAURI_INTERNALS__.invoke = async (command: string, args: any) => {
+      if (command === 'save_agent_config_cmd') {
+        state.__reasoningSaveStarts.push(args.config.reasoningEffort);
+        if (hold) {
+          hold = false;
+          await new Promise(resolve => state.__releaseReasoningSave = resolve);
+        }
+      }
+      return original(command, args);
+    };
+  });
+}
+
+test('reasoning slider retains keyboard focus and serializes rapid reverse selections', async ({ page }) => {
+  await openSonnetReasoningSlider(page);
+  await holdNextReasoningSave(page);
+  const slider = page.getByRole('slider', { name: 'Reasoning Effort' });
+  await slider.focus();
+  await slider.press('ArrowRight');
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['xhigh']);
+  await expect(slider).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'High');
+  await expect(slider).toBeFocused();
+  expect(await page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['xhigh']);
+  await page.evaluate(() => (window as any).__releaseReasoningSave());
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['xhigh', 'high']);
+  await expect(page.locator('.nexa-intensity')).toHaveAttribute('aria-busy', 'false');
+  await expect(slider).toBeFocused();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'High');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1)?.reasoningEffort)).toBe('high');
+});
+
+test('reasoning slider and list share one save queue across a view switch', async ({ page }) => {
+  await openSonnetReasoningSlider(page);
+  await holdNextReasoningSave(page);
+  await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Low', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low']);
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await page.getByTestId('agent-model-reasoning-medium').click();
+  expect(await page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low']);
+  await page.evaluate(() => (window as any).__releaseReasoningSave());
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low', 'medium']);
+  await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Medium');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1)?.reasoningEffort)).toBe('medium');
+});
+
+for (const failedCommand of ['set_default_agent_config_cmd', 'update_conversation_model_cmd']) {
+  test(`reasoning slider preserves the persisted effort when ${failedCommand} fails later`, async ({ page }) => {
+    await openSonnetReasoningSlider(page);
+    await page.evaluate(command => {
+      const host = (window as any).__TAURI_INTERNALS__;
+      const original = host.invoke;
+      host.invoke = (name: string, args: unknown) => name === command
+        ? Promise.reject(new Error('Session projection failed after persistence')) : original(name, args);
+    }, failedCommand);
+    await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Max', exact: true }).click();
+    await expect(page.locator('.nexa-intensity')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.getByRole('slider', { name: 'Reasoning Effort' })).toHaveAttribute('aria-valuetext', 'Max');
+    await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Max');
+    expect(await page.evaluate(async () => {
+      const configs = await (window as any).__TAURI_INTERNALS__.invoke('list_agent_configs_cmd');
+      return configs.find((config: any) => config.id === 'cfg-sonnet').reasoningEffort;
+    })).toBe('max');
+  });
+}

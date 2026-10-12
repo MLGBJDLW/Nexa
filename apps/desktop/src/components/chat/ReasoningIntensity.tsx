@@ -70,7 +70,8 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
   const optionsKey = options.map(option => option.key).join('\0');
   const [draft, setDraft] = useState(selected);
   const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
+  const pendingSaves = useRef(0);
+  const latestRequest = useRef(0);
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const drag = useRef<{ pointerId: number; startX: number; moved: boolean } | null>(null);
@@ -78,6 +79,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
   const progress = useSpring(selected / lastIndex, SPRING);
   const thumbPosition = useTransform(progress, value => `calc(19px + (100% - 38px) * ${value})`);
   useEffect(() => {
+    if (pendingSaves.current > 0) return;
     drag.current = null;
     setDraft(selected);
     if (reducedMotion) progress.jump(selected / lastIndex);
@@ -94,18 +96,19 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
     else progress.set(value / lastIndex);
   };
   const commit = async (value: number) => {
-    if (savingRef.current) return;
+    const request = ++latestRequest.current;
     const index = Math.min(Math.max(0, Math.round(value)), options.length - 1);
     moveTo(index);
-    savingRef.current = true;
+    pendingSaves.current++;
     setSaving(true);
     try {
-      if (await onSelect(options[index].key) === false) moveTo(selectedRef.current);
+      const persisted = await onSelect(options[index].key);
+      if (request === latestRequest.current && persisted === false) moveTo(selectedRef.current);
     } catch {
-      moveTo(selectedRef.current);
+      if (request === latestRequest.current) moveTo(selectedRef.current);
     } finally {
-      savingRef.current = false;
-      setSaving(false);
+      pendingSaves.current--;
+      if (request === latestRequest.current) setSaving(false);
     }
   };
   const pointerRatio = (event: PointerEvent<HTMLInputElement>) => {
@@ -146,7 +149,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
               {options.map((option, index) => <span key={option.key} data-active={index < current} data-selected={index === current} />)}
             </div>
             <motion.div className="nexa-intensity-thumb" style={{ left: thumbPosition, x: '-50%' }} aria-hidden="true"><span /></motion.div>
-            <input type="range" min={0} max={options.length - 1} step={1} value={current} disabled={options.length < 2 || saving}
+            <input type="range" min={0} max={options.length - 1} step={1} value={current} disabled={options.length < 2}
               aria-label={t('settings.reasoningEffort')} aria-valuetext={options[current].label}
               onChange={event => {
                 const value = Number(event.target.value);
@@ -183,7 +186,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
             <span>{options[0].label}</span><span>{options[options.length - 1].label}</span>
           </div>
           <div className="nexa-intensity-options mt-3 flex flex-wrap gap-1">
-            {options.map((option, index) => <motion.button type="button" key={option.key} disabled={saving} onClick={() => commit(index)}
+            {options.map((option, index) => <motion.button type="button" key={option.key} onClick={() => commit(index)}
               whileHover={reducedMotion ? undefined : { y: -1 }} whileTap={reducedMotion ? undefined : { scale: 0.97 }}
               aria-pressed={current === index} className="relative isolate rounded-full px-2 py-1 text-[10px] text-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-accent">
               {current === index && <motion.span className="nexa-intensity-option-highlight" layoutId={reducedMotion ? undefined : `${animationId}-option`} transition={reducedMotion ? transition : SPRING} />}

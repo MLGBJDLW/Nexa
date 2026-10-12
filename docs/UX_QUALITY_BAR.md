@@ -54,7 +54,9 @@ other levels. The selected color fills the capsule up to its round thumb; Nexa's
 bond motif rotates as a subtle DNA helix with lightweight highlights. The thumb
 tracks pointer movement continuously and springs to the committed stop; labels,
 option highlights, and list/slider switches also transition. Slider selection
-keeps the panel open, serializes saves, and restores the saved value on failure.
+keeps the panel open and preserves keyboard focus. List and slider saves share
+one queue; rejected saves restore the last saved value, while a later session
+update error never rolls back a configuration that already persisted.
 All decorative motion respects reduced motion. Range controls use a pointer
 cursor across appearance cursor styles, and labels preserve each provider's
 default, disabled, effort, and token-budget semantics.
