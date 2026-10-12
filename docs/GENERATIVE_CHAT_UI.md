@@ -72,6 +72,15 @@ navigating its own frame to an external URL. Parent frame policy also constrains
 that navigation. The native adapter uses the platform's actual custom protocol
 URL; on Windows it is `http://nexa-ui.localhost`.
 
+Wry 0.55.1 on Windows injects initialization scripts into subframes regardless
+of its `for_main_frame_only` setting. Nexa therefore replaces Tauri's default
+invoke transport through its supported `invoke_system` interface with the
+pinned transport plus an early main-frame/preview-origin guard. The guard runs
+before constructing the key-bearing closure. Tauri helper objects may still
+exist in a subframe, but no authenticated IPC transport is installed there.
+Native acceptance verifies both denial from generated content and a successful
+main-frame call; JavaScript presence checks alone are insufficient.
+
 Stop, source changes and unmount release the stored preview and remove the
 executing frame. Late creation responses are immediately released after a
 stop/unmount. URLs expire after 30 minutes; remote device revocation also removes

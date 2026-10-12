@@ -11,6 +11,13 @@ use std::time::{Duration, Instant};
 use tauri::ipc::Invoke;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+/// Wry/WebView2 injects initialization scripts into subframes even when Tauri
+/// marks them main-frame-only. Keep the IPC key inside a guarded closure using
+/// Tauri's supported invoke_system seam; the rest of its transport is unchanged.
+pub fn main_frame_invoke_script() -> String {
+    include_str!("main_frame_ipc.js").replace("__NEXA_OS__", &format!("{:?}", std::env::consts::OS))
+}
+
 type DispatchJob = Box<dyn FnOnce() + Send + 'static>;
 type DispatchQueues = HashMap<String, VecDeque<DispatchJob>>;
 

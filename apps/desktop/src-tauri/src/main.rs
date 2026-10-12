@@ -441,6 +441,7 @@ fn update_tray_menu_cmd(
 
 fn main() {
     let app = tauri::Builder::default()
+        .invoke_system(command_dispatch::main_frame_invoke_script())
         .manage(chat_ui_preview::ChatUiPreviewState::default())
         .register_uri_scheme_protocol("nexa-ui", |context, request| chat_ui_preview::respond(context.app_handle(), request))
         .plugin(tauri_plugin_shell::init())

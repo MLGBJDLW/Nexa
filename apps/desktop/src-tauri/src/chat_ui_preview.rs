@@ -85,6 +85,13 @@ pub fn respond(app: &tauri::AppHandle, request: Request<Vec<u8>>) -> Response<Ve
 #[cfg(all(test, target_os = "windows"))]
 mod native_tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static PROBE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    #[tauri::command]
+    fn chat_ui_acceptance_probe() -> &'static str {
+        PROBE_CALLS.fetch_add(1, Ordering::SeqCst);
+        "native-authorized"
+    }
 
     #[test]
     #[ignore = "requires an interactive Windows desktop and WebView2"]
@@ -95,7 +102,10 @@ mod native_tests {
         let mut context = tauri::generate_context!();
         context.config_mut().app.windows.clear();
         context.config_mut().identifier = "com.nexa.chat-ui-acceptance".into();
+        PROBE_CALLS.store(0, Ordering::SeqCst);
         let app = tauri::Builder::default().any_thread()
+            .invoke_system(crate::command_dispatch::main_frame_invoke_script())
+            .invoke_handler(tauri::generate_handler![chat_ui_acceptance_probe])
             .manage(ChatUiPreviewState::default())
             .register_uri_scheme_protocol("nexa-ui", |context, request| respond(context.app_handle(), request))
             .register_uri_scheme_protocol("nexa-fixture", |_, _| Response::builder()
@@ -107,9 +117,11 @@ mod native_tests {
                     const result={scripts:true};
                     try{result.parent=!!parent.document}catch{result.parent=false}
                     try{localStorage.setItem('probe','x');result.storage=true}catch{result.storage=false}
-                    result.ipc=typeof window.__TAURI_INTERNALS__!=='undefined';
+                    result.transport=typeof window.__TAURI_INTERNALS__?.postMessage!=='undefined';
                     result.value=Number(document.querySelector('output').textContent)+1;
-                    top.postMessage({nexaAcceptance:result},'*');
+                    Promise.resolve().then(()=>window.__TAURI_INTERNALS__.invoke('chat_ui_acceptance_probe'))
+                    .then(()=>result.ipc=true,()=>result.ipc=false)
+                    .finally(()=>top.postMessage({nexaAcceptance:result},'*'));
                     </script>"#;
                 let id = app.state::<ChatUiPreviewState>().0.lock().unwrap().create("main", html.into()).unwrap();
                 let url = format!("http://nexa-ui.localhost/preview/{id}");
@@ -125,12 +137,15 @@ mod native_tests {
                             if evaluate(&window, "document.readyState").await? == serde_json::json!("complete") { break; }
                             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
                         }
-                        window.eval(format!("window.addEventListener('message',e=>{{if(e.data?.nexaAcceptance)window.__acceptance=e.data.nexaAcceptance}}); const f=document.createElement('iframe');f.sandbox='allow-scripts';f.src={};f.style='width:100%;height:360px;border:0';document.body.appendChild(f);", serde_json::to_string(&url).unwrap())).map_err(|error| error.to_string())?;
+                        window.eval(format!("window.addEventListener('message',e=>{{if(e.data?.nexaAcceptance)window.__acceptance=e.data.nexaAcceptance}}); window.__TAURI_INTERNALS__.invoke('chat_ui_acceptance_probe').then(value=>window.__mainProbe=value);const f=document.createElement('iframe');f.sandbox='allow-scripts';f.src={};f.style='width:100%;height:360px;border:0';document.body.appendChild(f);", serde_json::to_string(&url).unwrap())).map_err(|error| error.to_string())?;
                         for _ in 0..150 {
                             let value = evaluate(&window, "window.__acceptance || null").await?;
                             if !value.is_null() {
-                                if value != serde_json::json!({"scripts":true,"parent":false,"storage":false,"ipc":false,"value":42}) {
+                                if value != serde_json::json!({"scripts":true,"parent":false,"storage":false,"transport":false,"ipc":false,"value":42}) {
                                     return Err(format!("Unexpected sandbox access: {value}"));
+                                }
+                                if evaluate(&window, "window.__mainProbe").await? != serde_json::json!("native-authorized") || PROBE_CALLS.load(Ordering::SeqCst) != 1 {
+                                    return Err("Native IPC must remain available only to the main frame".into());
                                 }
                                 return Ok::<_,String>(());
                             }

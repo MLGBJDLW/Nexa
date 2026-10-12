@@ -39,6 +39,18 @@ Nexa Desktop.
 - Project: https://github.com/lucide-icons/lucide
 - License: ISC
 
+## Tauri IPC transport
+
+`src-tauri/src/main_frame_ipc.js` adapts the transport and message serializer
+from Tauri 2.11.5 with a guard that keeps the authenticated transport out of
+subframes and the generated-preview origin. Original copyright and dual-license
+notices are retained in the source.
+
+- Project: https://github.com/tauri-apps/tauri
+- Copyright: 2019–2024 Tauri Programme within The Commons Conservancy
+- License: MIT or Apache-2.0
+- Source: https://docs.rs/crate/tauri/2.11.5/source/scripts/ipc-protocol.js
+
 ## PDF page rendering
 
 OCR uses [Hayro](https://github.com/LaurenzV/hayro) under its MIT license,
