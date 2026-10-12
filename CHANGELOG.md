@@ -28,6 +28,16 @@
 * **chat:** preserve generated source across streaming and replay ([f17558f](https://github.com/MLGBJDLW/Nexa/commit/f17558f735aa9812a175e2a686f3844c98c3e66d))
 * **skills:** discover interactive visuals in Chinese requests ([29e37ea](https://github.com/MLGBJDLW/Nexa/commit/29e37ea8282a63104e64b2d10a8e105f912d9321))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 93a1122d9cb53bf9e958db1d3352a5988b0a1580 -->
+
+### What's Changed
+* feat(chat)!: add generative views and agent-managed schedules by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/468
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.2...nexa-monorepo-v0.16.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.15.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.1...nexa-monorepo-v0.15.2) (2026-10-12)
 
 
