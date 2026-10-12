@@ -18,7 +18,7 @@
       "allowedTools": {"type":"array","items":{"type":"string"},"description":"Exact tools explicitly needed by the scheduled task. Default [] grants no tools."},
       "requireApproval": {"type":"boolean","description":"If true, each occurrence needs pre-run approval. Default false; creation still follows normal tool permissions."},
       "enabled": {"type":"boolean","description":"Create/update enabled state; default true for create."},
-      "workspacePolicy": {"type":"string","enum":["deny_writes","isolated_patch"],"description":"Default deny_writes. isolated_patch uses the existing Code Ultra single-source worktree policy."},
+      "workspacePolicy": {"type":"string","enum":["deny_writes","isolated_patch"],"description":"Default deny_writes. isolated_patch uses the existing Code Ultra single-source worktree policy. Switching from isolated_patch to deny_writes restores balanced orchestration and requires removing write-tool grants."},
       "before": {"type":"string","description":"History pagination cursor returned by the existing workflow history."},
       "limit": {"type":"integer","minimum":1,"maximum":100,"description":"History page size up to 100. Schedule preview returns at most min(limit, 20) occurrences (default 5), matching the scheduler preview capacity."}
     }

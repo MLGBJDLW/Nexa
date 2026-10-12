@@ -13,7 +13,10 @@ use crate::workflow_automation::{
     WorkflowAutomationTrigger,
 };
 use crate::workflow_execution::prepare_workflow_automation_save;
-use crate::workflow_scheduler::{preview_workflow_cron_schedule, WorkflowScheduleWorkspacePolicy};
+use crate::workflow_scheduler::{
+    preview_workflow_cron_schedule, WorkflowAutomationScheduleConfig,
+    WorkflowScheduleWorkspacePolicy,
+};
 
 use super::{scoped_sources, Tool, ToolCategory, ToolDef, ToolExecutionContext, ToolResult};
 
@@ -355,9 +358,17 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         return Err(CoreError::InvalidInput("Project schedules require at least one explicit source; an empty sourceIds list cannot disable project inheritance. Create a source-free schedule from a conversation outside a project".into()));
     }
     if let Some(value) = args.workspace_policy {
+        let previous = config.execution_policy.workspace_policy;
         config.execution_policy.workspace_policy = value;
         if value == WorkflowScheduleWorkspacePolicy::IsolatedPatch {
             config.execution_policy.orchestration_profile = "codeUltra".into();
+        } else if previous == WorkflowScheduleWorkspacePolicy::IsolatedPatch {
+            // Isolation forces Code Ultra; removing it must also remove that
+            // override. Other read-only profile choices remain unchanged.
+            config.execution_policy.orchestration_profile =
+                WorkflowAutomationScheduleConfig::default()
+                    .execution_policy
+                    .orchestration_profile;
         }
     }
     let registry = ctx.tool_registry.ok_or_else(|| {
@@ -605,6 +616,61 @@ mod tests {
         .await
         .unwrap();
         assert!(db.list_workflow_automations().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn chat_automation_leaving_isolation_restores_default_orchestration() {
+        let db = Database::open_memory().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let source = db
+            .add_source(crate::sources::CreateSourceInput {
+                root_path: root.path().to_string_lossy().into(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap();
+        let conversation = conversation(&db, None);
+        let mut request = create();
+        request["sourceIds"] = json!([source.id]);
+        request["allowedTools"] = json!(["run_shell"]);
+        request["workspacePolicy"] = json!("isolated_patch");
+        let saved = call(&db, &conversation, request).await.unwrap();
+        let id = saved["task"]["id"].as_str().unwrap();
+        assert_eq!(
+            saved["task"]["scheduleConfig"]["executionPolicy"]["orchestrationProfile"],
+            "codeUltra"
+        );
+        let renamed = call(
+            &db,
+            &conversation,
+            json!({"action":"update", "id":id, "expectedRevision":1, "name":"Renamed patch"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            renamed["task"]["scheduleConfig"]["executionPolicy"]["orchestrationProfile"],
+            "codeUltra"
+        );
+        let readonly = call(&db, &conversation, json!({"action":"update", "id":id, "expectedRevision":2, "workspacePolicy":"deny_writes", "allowedTools":[]})).await.unwrap();
+        assert_eq!(
+            readonly["task"]["scheduleConfig"]["executionPolicy"]["orchestrationProfile"],
+            "balanced"
+        );
+        assert!(
+            readonly["task"]["scheduleConfig"]["executionPolicy"]["sourceRootFingerprint"]
+                .is_null()
+        );
+
+        let task = db.get_workflow_automation(id).unwrap();
+        let mut config = task.schedule_config.clone();
+        config.execution_policy.orchestration_profile = "researchUltra".into();
+        db.save_authored_workflow_automation(&as_input(&task), &config, None, Some(3))
+            .unwrap();
+        let unchanged = call(&db, &conversation, json!({"action":"update", "id":id, "expectedRevision":4, "workspacePolicy":"deny_writes"})).await.unwrap();
+        assert_eq!(
+            unchanged["task"]["scheduleConfig"]["executionPolicy"]["orchestrationProfile"],
+            "researchUltra"
+        );
     }
     #[tokio::test]
     async fn chat_automation_rejects_invalid_cron_timezone_sources_and_recursive_tools() {

@@ -216,6 +216,10 @@ Before enabling a recurring task:
 Local scheduled tasks require the computer and Nexa desktop runtime to remain
 available. Definitions using `deny_writes` cannot mutate a checkout; definitions
 using `isolated_patch` use the controller-owned worktree contract above.
+Switching a chat-managed task from `isolated_patch` to `deny_writes` removes
+the forced Code Ultra profile and restores balanced orchestration; write-tool
+grants must be removed in the same update. Unrelated read-only profile choices
+are preserved.
 
 ## Compatibility
 
