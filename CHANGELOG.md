@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.15.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.1...nexa-monorepo-v0.15.2) (2026-10-12)
+
+
+### Features
+
+* **chat:** animate reasoning selection with a smooth DNA intensity bar ([15ad3cd](https://github.com/MLGBJDLW/Nexa/commit/15ad3cd17edbb6b916b73f6c9dbb3895ee87e738))
+* **desktop:** polish reasoning motion, scheduled tasks, and theme controls ([6216a81](https://github.com/MLGBJDLW/Nexa/commit/6216a81f71b49163c7238be5dabec7539bb9e8de))
+* **themes:** add a simple built-in skill over the shared appearance registry ([a53b342](https://github.com/MLGBJDLW/Nexa/commit/a53b34286d2c834916aebcc8f7bee7cbcc2ddfb3))
+* **workflows:** expose scheduled tasks through a dedicated navigation entry ([ecbe52a](https://github.com/MLGBJDLW/Nexa/commit/ecbe52a38c7215504db11172704955aaf3e6f00b))
+
+
+### Bug Fixes
+
+* **chat:** serialize reasoning saves without losing focus or committed state ([ffaed71](https://github.com/MLGBJDLW/Nexa/commit/ffaed71fcf71e6e9559edfb666768f14c62cfa8b))
+* **navigation:** keep scheduled tasks and footer reachable in short windows ([53d377f](https://github.com/MLGBJDLW/Nexa/commit/53d377fcccd16ba7cb6e90b50c1022cb0449c4b8))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 6216a81f71b49163c7238be5dabec7539bb9e8de -->
+
+### What's Changed
+* feat(desktop): polish reasoning motion, scheduled tasks, and theme controls by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/466
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.1...nexa-monorepo-v0.15.2
+<!-- nexa:merged-prs:end -->
+
 ## [0.15.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.0...nexa-monorepo-v0.15.1) (2026-10-11)
 
 
