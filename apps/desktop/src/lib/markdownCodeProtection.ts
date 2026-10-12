@@ -1,37 +1,35 @@
-/** Preserve exact fenced/span source across prose-only transformations. An
- * unclosed streaming fence protects the remaining source until it closes. */
+import { fromMarkdown } from 'mdast-util-from-markdown';
+
+type MarkdownNode = {
+  type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  children?: readonly MarkdownNode[];
+};
+
+/** Use the renderer's CommonMark parser to protect exact source ranges, including
+ * unfinished streaming fences and container-relative indentation. Unmatched
+ * inline backticks remain prose, as they do in the rendered message. */
 function segments(content: string): { text: string; code: boolean }[] {
-  const result: { text: string; code: boolean }[] = [];
-  let fence: { marker: string; length: number } | null = null;
-  let pending = ''; let code = false;
-  const flush = () => { if (pending) result.push({ text: pending, code }); pending = ''; };
-  for (const line of content.match(/[^\n]*\n|[^\n]+$/g) ?? []) {
-    const match = line.match(/^(?:(?:\s*>[ \t]?)|(?:\s*(?:[-+*]|\d{1,9}[.)])[ \t]+))*[ \t]*(`{3,}|~{3,})([^\r\n]*)/);
-    if (!fence && match && !(match[1][0] === '`' && match[2].includes('`'))) {
-      flush(); code = true; fence = { marker: match[1][0], length: match[1].length }; pending = line;
-    } else if (fence && match && match[1][0] === fence.marker && match[1].length >= fence.length && !match[2].trim()) {
-      pending += line; flush(); fence = null; code = false;
-    } else pending += line;
-  }
-  flush();
-  return result.flatMap(part => {
-    if (part.code) return [part];
-    const spans: typeof result = []; let cursor = 0;
-    const ticks = /`+/g; let match: RegExpExecArray | null;
-    while ((match = ticks.exec(part.text))) {
-      if (match.index > 0 && part.text[match.index - 1] === '\\') continue;
-      const start = match.index; const width = match[0].length;
-      let closing: RegExpExecArray | null; let end = part.text.length;
-      while ((closing = ticks.exec(part.text))) {
-        if (closing[0].length === width) { end = ticks.lastIndex; break; }
-      }
-      if (start > cursor) spans.push({ text: part.text.slice(cursor, start), code: false });
-      spans.push({ text: part.text.slice(start, end), code: true }); cursor = end;
-      if (!closing) break;
+  const ranges: { start: number; end: number }[] = [];
+  const visit = (node: MarkdownNode) => {
+    if (node.type === 'code' || node.type === 'inlineCode') {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) ranges.push({ start, end });
+      return;
     }
-    if (cursor < part.text.length) spans.push({ text: part.text.slice(cursor), code: false });
-    return spans;
-  });
+    node.children?.forEach(visit);
+  };
+  visit(fromMarkdown(content));
+  const result: { text: string; code: boolean }[] = [];
+  let cursor = 0;
+  for (const { start, end } of ranges) {
+    if (start > cursor) result.push({ text: content.slice(cursor, start), code: false });
+    result.push({ text: content.slice(start, end), code: true });
+    cursor = end;
+  }
+  if (cursor < content.length) result.push({ text: content.slice(cursor), code: false });
+  return result;
 }
 
 export function transformMarkdownProse(content: string, transform: (prose: string) => string): string {

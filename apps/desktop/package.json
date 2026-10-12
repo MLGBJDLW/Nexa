@@ -67,6 +67,7 @@
     "framer-motion": "^12.34.0",
     "katex": "^0.17.0",
     "lucide-react": "^0.563.0",
+    "mdast-util-from-markdown": "^2.0.2",
     "mermaid": "^11.16.1",
     "prism-react-renderer": "^2.4.1",
     "react": "19.2.8",

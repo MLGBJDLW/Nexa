@@ -52,3 +52,21 @@ test('prose transforms preserve closed and streaming fences, spans and citation 
   const spoof='\0nexa-code-0\0\n```html\n[source:literal]\n```';
   assert.equal(transformMarkdownProse(spoof,value=>value),spoof);
 });
+
+test('code protection follows CommonMark containers, indentation and matched spans', () => {
+  const rewrite = (value: string) => value.replaceAll('[cite:', '[ref:');
+  for (const falseEnd of ['> ```', '- ```', '    ```', '\t```']) {
+    const original = '```nexa-html\n<pre>\n' + falseEnd + '\n</pre>\n<p>[cite:literal]</p>\n```\n[cite:outside]';
+    assert.equal(transformMarkdownProse(original, rewrite), original.replace('[cite:outside]', '[ref:outside]'));
+    assert.equal(markdownProse(original).includes('[cite:literal]'), false);
+  }
+  for (const original of [
+    '> ```html\n> [cite:literal]\n> ```\n\n[cite:outside]',
+    '- ```html\n  [cite:literal]\n  ```\n\n[cite:outside]',
+    '    [cite:literal]\n\n[cite:outside]',
+    '``[cite:literal] ` inside`` [cite:outside]',
+  ]) assert.equal(transformMarkdownProse(original, rewrite), original.replace('[cite:outside]', '[ref:outside]'));
+  const unmatched = 'A literal ` character is supported. [cite:outside]';
+  assert.equal(transformMarkdownProse(unmatched, rewrite), unmatched.replace('[cite:outside]', '[ref:outside]'));
+  assert.equal(markdownProse(unmatched), unmatched);
+});
