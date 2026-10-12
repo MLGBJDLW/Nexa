@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.16.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.2...nexa-monorepo-v0.16.0) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **chat:** remote inline HTML now requires explicit script activation and uses self-contained resources. CDN-backed previews must be bundled or opened through the existing local-file Browser Workspace route.
+
+### Features
+
+* **automation:** expose durable scheduled tasks to chat agents ([5f5b1ee](https://github.com/MLGBJDLW/Nexa/commit/5f5b1ee16737f2b8e67e2e76a150349a49d755f1))
+* **chat:** add validated generative views and isolated live HTML ([37d59a1](https://github.com/MLGBJDLW/Nexa/commit/37d59a1ba1272c401605073eba25b91ed01e4fd4))
+
+
+### Bug Fixes
+
+* **agent:** keep capability guidance within the prompt budget ([c7d472d](https://github.com/MLGBJDLW/Nexa/commit/c7d472d9136e27f0e3f81f2cb7ea211a49f7bc02))
+* **automation:** converge concurrent create retries ([e16e7c7](https://github.com/MLGBJDLW/Nexa/commit/e16e7c78d85615324a5d872e3ce7032a1021d3eb))
+* **automation:** persist explicit source scope provenance ([08976be](https://github.com/MLGBJDLW/Nexa/commit/08976bec3ae6cf51fb1fb3f13ba0b5b8cef1d513))
+* **automation:** preserve scoped schedule and execution snapshots ([162b302](https://github.com/MLGBJDLW/Nexa/commit/162b302eca3ccadb42535b1a5ff2c7a673e597ab))
+* **automation:** reject ambiguous empty project scope ([e5031cf](https://github.com/MLGBJDLW/Nexa/commit/e5031cfd55d688ed2c6d826ca2a0820a6ce0d737))
+* **automation:** reset orchestration when leaving isolated patches ([3684c28](https://github.com/MLGBJDLW/Nexa/commit/3684c28caada12b408330977b6c136ef3733eaa1))
+* **chat:** always enforce static HTML preview policy ([5fe1e83](https://github.com/MLGBJDLW/Nexa/commit/5fe1e834a6ece0be3ec394793d05ae224ff9fb99))
+* **chat:** compact the reasoning intensity control ([12971ae](https://github.com/MLGBJDLW/Nexa/commit/12971ae44193aa4eb672e728ae35808ca3e3c34f))
+* **chat:** keep native IPC credentials out of generated frames ([9982cc8](https://github.com/MLGBJDLW/Nexa/commit/9982cc843fbc2168f3cc37b9d1de84f8c4cc99b9))
+* **chat:** preserve code with CommonMark source positions ([9f1b0ed](https://github.com/MLGBJDLW/Nexa/commit/9f1b0edefdebbb8b3d04051428905760d5d6af36))
+* **chat:** preserve generated source across streaming and replay ([f17558f](https://github.com/MLGBJDLW/Nexa/commit/f17558f735aa9812a175e2a686f3844c98c3e66d))
+* **skills:** discover interactive visuals in Chinese requests ([29e37ea](https://github.com/MLGBJDLW/Nexa/commit/29e37ea8282a63104e64b2d10a8e105f912d9321))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 93a1122d9cb53bf9e958db1d3352a5988b0a1580 -->
+
+### What's Changed
+* feat(chat)!: add generative views and agent-managed schedules by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/468
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.2...nexa-monorepo-v0.16.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.15.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.1...nexa-monorepo-v0.15.2) (2026-10-12)
 
 
