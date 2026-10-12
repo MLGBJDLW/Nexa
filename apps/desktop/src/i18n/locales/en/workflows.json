@@ -176,5 +176,8 @@
   "authoringOpenChat": "Open chat",
   "authoringNoRuns": "No runs yet.",
   "authoringMoreRuns": "Load more",
-  "authoringSettings": "Trigger and permissions"
+  "authoringSettings": "Trigger and permissions",
+  "schedulesSubtitle": "Create recurring tasks, review upcoming runs, and pause or resume them. Nexa must be running for local schedules to execute.",
+  "savedAutomations": "Saved tasks ({count})",
+  "noAutomations": "No tasks yet. Create a schedule to get started."
 }

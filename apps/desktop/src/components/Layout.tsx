@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio, Command } from 'lucide-react';
+import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, CalendarClock, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio, Command } from 'lucide-react';
 import {
   DndContext,
   PointerSensor,
@@ -55,6 +55,7 @@ const CANONICAL_NAV_ITEMS: NavItem[] = [
   { to: '/chat', labelKey: 'nav.chat', icon: MessageCircle },
   { to: '/tasks', labelKey: 'nav.tasks', icon: ClipboardList },
   { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
+  { to: '/workflows?tab=automations', labelKey: 'nav.schedules', icon: CalendarClock },
 ];
 
 function loadOrderedNavItems(): NavItem[] {
@@ -125,32 +126,27 @@ function SortableNavItem({ item, label, isCurrentPage, shouldReduceMotion }: Sor
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="mx-auto w-10">
       <Tooltip content={label} side="right" delay={180}>
-        <NavLink
+        <Link
           to={item.to}
-          end={item.to === '/'}
           aria-label={label}
           aria-current={isCurrentPage ? 'page' : undefined}
-          className={({ isActive }: { isActive: boolean }) =>
+          className={
             `relative flex h-10 w-10 items-center justify-center rounded-md text-sm transition-colors duration-fast ease-out
-            ${isActive
+            ${isCurrentPage
               ? 'bg-accent-subtle text-accent-hover'
               : 'text-text-secondary hover:bg-surface-2 hover:text-text-primary'
             }`
           }
         >
-          {({ isActive }: { isActive: boolean }) => (
-            <>
-              {/* Active indicator bar */}
-              <motion.span
-                className="absolute -left-2 top-1/2 w-0.75 -translate-y-1/2 rounded-r-full bg-accent"
-                initial={false}
-                animate={{ height: isActive ? 20 : 0, opacity: isActive ? 1 : 0 }}
-                transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              />
-              <Icon className="h-4.5 w-4.5 shrink-0" />
-            </>
-          )}
-        </NavLink>
+          {/* Active indicator bar */}
+          <motion.span
+            className="absolute -left-2 top-1/2 w-0.75 -translate-y-1/2 rounded-r-full bg-accent"
+            initial={false}
+            animate={{ height: isCurrentPage ? 20 : 0, opacity: isCurrentPage ? 1 : 0 }}
+            transition={shouldReduceMotion ? INSTANT_TRANSITION : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          />
+          <Icon className="h-4.5 w-4.5 shrink-0" />
+        </Link>
       </Tooltip>
     </div>
   );
@@ -163,6 +159,8 @@ export function Layout() {
   const updater = useUpdater(true);
   const shouldReduceMotion = useReducedMotion();
   const location = useLocation();
+  const isSchedulesView = location.pathname === '/workflows'
+    && new URLSearchParams(location.search).get('tab') === 'automations';
   const navigate = useNavigate();
   const [navItems, setNavItems] = useState<NavItem[]>(() => loadOrderedNavItems());
 
@@ -191,9 +189,9 @@ export function Layout() {
   // Persist the last visited route on every location change.
   useEffect(() => {
     try {
-      localStorage.setItem(LAST_ROUTE_KEY, location.pathname);
+      localStorage.setItem(LAST_ROUTE_KEY, location.pathname + location.search);
     } catch { /* noop */ }
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   // On initial mount, if we landed on the default '/' route but the user
   // was somewhere else last session, restore that route.
@@ -274,9 +272,13 @@ export function Layout() {
             <SortableContext items={navIds} strategy={verticalListSortingStrategy}>
               {navItems.map((item) => {
                 const label = t(item.labelKey);
-                const isCurrentPage = item.to === '/'
-                  ? location.pathname === item.to
-                  : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+                const isCurrentPage = item.to === '/workflows?tab=automations'
+                  ? isSchedulesView
+                  : item.to === '/workflows'
+                    ? location.pathname === '/workflows' && !isSchedulesView
+                    : item.to === '/'
+                      ? location.pathname === item.to
+                      : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
                 return (
                   <SortableNavItem
                     key={item.to}

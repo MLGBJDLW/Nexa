@@ -10,5 +10,6 @@
   "chat": "Chat",
   "knowledge": "Knowledge",
   "tasks": "Tarefas",
-  "workflows": "Fluxos"
+  "workflows": "Fluxos",
+  "schedules": "Tarefas agendadas"
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Command } from 'cmdk';
 import { useLocation, useNavigate } from 'react-router';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { Search, FolderOpen, MessageCircle, Settings, ScanSearch, Database, Clock, Keyboard, Archive } from 'lucide-react';
+import { Search, FolderOpen, MessageCircle, Settings, ScanSearch, Database, Clock, CalendarClock, Keyboard, Archive } from 'lucide-react';
 import * as api from '../lib/api';
 import type { QueryLog } from '../types';
 import { useTranslation } from '../i18n';
@@ -279,6 +279,7 @@ export function CommandPalette() {
                     {t('nav.settings')}
                   </Command.Item>
                   {(['tasks', 'workflows', 'knowledge'] as const).map(route => <Command.Item key={route} value={`navigate ${route} ${t(`nav.${route}`)}`} onSelect={() => select(() => navigate(`/${route}`))}><FolderOpen className="h-4 w-4 shrink-0 text-text-tertiary" />{t(`nav.${route}`)}</Command.Item>)}
+                  <Command.Item value={`navigate cron schedules automations ${t('nav.schedules')}`} onSelect={() => select(() => navigate('/workflows?tab=automations'))}><CalendarClock className="h-4 w-4 shrink-0 text-text-tertiary" />{t('nav.schedules')}</Command.Item>
                 </Command.Group>
 
                 {commands.length > 0 && <Command.Group heading={t('cmd.currentChat')}>

@@ -176,5 +176,8 @@
   "authoringOpenChat": "Chat öffnen",
   "authoringNoRuns": "Noch keine Ausführungen.",
   "authoringMoreRuns": "Mehr laden",
-  "authoringSettings": "Auslöser und Berechtigungen"
+  "authoringSettings": "Auslöser und Berechtigungen",
+  "schedulesSubtitle": "Wiederkehrende Aufgaben erstellen, nächste Ausführungen prüfen und pausieren oder fortsetzen. Nexa muss für lokale Zeitpläne laufen.",
+  "savedAutomations": "Gespeicherte Aufgaben ({count})",
+  "noAutomations": "Noch keine Aufgaben. Erstellen Sie einen Zeitplan."
 }

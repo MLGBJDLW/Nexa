@@ -176,5 +176,8 @@
   "authoringOpenChat": "Abrir chat",
   "authoringNoRuns": "Todavía no hay ejecuciones.",
   "authoringMoreRuns": "Cargar más",
-  "authoringSettings": "Activadores y permisos"
+  "authoringSettings": "Activadores y permisos",
+  "schedulesSubtitle": "Crea tareas recurrentes, consulta próximas ejecuciones y páusalas o reanúdalas. Nexa debe estar abierto para ejecutar tareas locales.",
+  "savedAutomations": "Tareas guardadas ({count})",
+  "noAutomations": "Aún no hay tareas. Crea una programación para empezar."
 }

@@ -4,6 +4,14 @@ Scheduled Tasks are durable workflow definitions hosted by the Nexa desktop
 runtime. They reuse the normal Agent Run, provider, tool, approval, event, and
 task-projection paths; scheduling is not a second agent runtime.
 
+Open **Scheduled tasks** from the calendar-clock sidebar icon or the command
+palette (search for `cron`, `schedules`, or `automations`). This opens the
+existing workflow automation view at `/workflows?tab=automations`, with saved
+tasks, next/last run times, timezone, pause/resume, approvals, and run history.
+The selected tab survives refresh and browser back/forward navigation. The
+Workflows entry still opens templates. Local schedules require Nexa to remain
+running; this entry does not create an operating-system or cloud scheduler.
+
 ## Design sources
 
 - [ChatGPT and Codex Scheduled Tasks](https://learn.chatgpt.com/docs/automations)

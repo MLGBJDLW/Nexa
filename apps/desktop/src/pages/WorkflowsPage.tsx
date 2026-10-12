@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { NexaSelect } from '../components/ui/overlay';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   Activity,
   CalendarClock,
@@ -210,7 +210,17 @@ export function WorkflowsPage() {
   const { t } = useTranslation();
   const tr = useCallback((key: string, params?: Record<string, string | number>) => t(workflowKey(key), params), [t]);
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>('templates');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const tab: Tab = TAB_ITEMS.find(item => item.id === requestedTab)?.id ?? 'templates';
+  const setTab = useCallback((nextTab: Tab) => {
+    setSearchParams(current => {
+      const next = new URLSearchParams(current);
+      if (nextTab === 'templates') next.delete('tab');
+      else next.set('tab', nextTab);
+      return next;
+    });
+  }, [setSearchParams]);
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<WorkflowCatalogTemplate[]>([]);
   const [automations, setAutomations] = useState<WorkflowAutomation[]>([]);
@@ -333,7 +343,7 @@ export function WorkflowsPage() {
     } finally {
       setBusy(null);
     }
-  }, [load, navigate, tr]);
+  }, [load, navigate, setTab, tr]);
 
   const runDueAutomation = useCallback(async (item: WorkflowAutomationDueRun) => {
     setBusy(item.automation.id);
@@ -403,7 +413,7 @@ export function WorkflowsPage() {
       expectedRevision: automation.definitionRevision,
     });
     setTab('automations');
-  }, []);
+  }, [setTab]);
 
   const editAutomation = useCallback((automation: WorkflowAutomation) => {
     if (automation.recipe?.kind === 'recorded' && automation.recipe.version === 1) {
@@ -414,7 +424,7 @@ export function WorkflowsPage() {
       return;
     }
     editAutomationSettings(automation);
-  }, [editAutomationSettings]);
+  }, [editAutomationSettings, setTab]);
 
   const openRunInputs = (automation: WorkflowAutomation) => {
     const template = automation.recipe?.templateSnapshot;
@@ -503,8 +513,8 @@ export function WorkflowsPage() {
       <header className="border-b border-border bg-surface-1 px-6 py-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-normal text-text-primary">{tr('title')}</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-text-secondary">{tr('subtitle')}</p>
+            <h1 className="flex items-center gap-2 text-xl font-semibold tracking-normal text-text-primary">{tab === 'automations' && <CalendarClock className="h-5 w-5 text-accent" />}{tab === 'automations' ? t('nav.schedules') : tr('title')}</h1>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-text-secondary">{tr(tab === 'automations' ? 'schedulesSubtitle' : 'subtitle')}</p>
           </div>
           <Button onClick={() => void load()} icon={loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}>
             {tr('refresh')}
@@ -516,6 +526,7 @@ export function WorkflowsPage() {
               key={id}
               type="button"
               onClick={() => setTab(id)}
+              aria-pressed={tab === id}
               className={`inline-flex h-9 items-center gap-2 rounded-md px-3 text-sm transition-colors ${
                 tab === id ? 'bg-accent-subtle text-accent' : 'text-text-secondary hover:bg-surface-2 hover:text-text-primary'
               }`}
@@ -864,6 +875,8 @@ export function WorkflowsPage() {
               </section>
 
               <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-text-primary">{tr('savedAutomations', { count: automations.length })}</h2>
+                {automations.length === 0 && <p className="rounded-lg border border-dashed border-border p-6 text-sm text-text-secondary">{tr('noAutomations')}</p>}
                 {automations.map((automation) => {
                   const pendingApprovals = approvalRunsByAutomation.get(automation.id) ?? [];
                   return (
@@ -871,6 +884,7 @@ export function WorkflowsPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
+                          {automation.trigger.kind === 'schedule' ? <CalendarClock className="h-4 w-4 text-accent" aria-hidden="true" /> : <Workflow className="h-4 w-4 text-text-tertiary" aria-hidden="true" />}
                           <h2 className="text-sm font-semibold text-text-primary">{automation.name}</h2>
                           <span className={`rounded-md border px-2 py-0.5 text-[11px] ${automation.enabled ? 'border-success/30 bg-success/10 text-success' : 'border-border/70 bg-surface-0 text-text-tertiary'}`}>
                             {automation.enabled ? tr('enabled') : tr('disabled')}

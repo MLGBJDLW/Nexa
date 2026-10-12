@@ -10,5 +10,6 @@
   "chat": "Chat",
   "knowledge": "Knowledge",
   "tasks": "タスク",
-  "workflows": "ワークフロー"
+  "workflows": "ワークフロー",
+  "schedules": "スケジュールタスク"
 }
