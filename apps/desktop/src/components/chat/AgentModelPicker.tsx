@@ -54,7 +54,7 @@ interface AgentModelPickerProps {
   projectId?: string | null;
   agentConfigs: AgentConfig[];
   selectedConfig: AgentConfig | null;
-  onSelect: (selection: AgentModelSelection) => void | Promise<void>;
+  onSelect: (selection: AgentModelSelection) => void | boolean | Promise<void | boolean>;
 }
 
 interface ProviderRow {
@@ -476,15 +476,16 @@ export function AgentModelPicker({
       reasoningEnabled: boolean | null;
       thinkingBudget: number | null;
       reasoningEffort: string | null;
-    }) => {
+    }, keepOpen = false) => {
       if (!activeModelRow) return;
-      setOpen(false);
-      void onSelect({
+      if (!keepOpen) setOpen(false);
+      const result = onSelect({
         config: activeModelRow.providerRow.config,
         model: activeModelRow.model.id,
         ...reasoning,
       });
-      requestAnimationFrame(() => reasoningTriggerRef.current?.focus());
+      if (!keepOpen) requestAnimationFrame(() => reasoningTriggerRef.current?.focus());
+      return result;
     },
     [activeModelRow, onSelect],
   );
@@ -877,7 +878,7 @@ export function AgentModelPicker({
 
                         <div className="min-h-0 flex-1 overflow-y-auto py-2">
                           <ReasoningIntensity options={intensityOptions} selectedKey={intensityKey}
-                            onSelect={key => { const option = intensityOptions.find(option => option.key === key); if (option) applyReasoningSelection(option.selection); }}>
+                            onSelect={key => { const option = intensityOptions.find(option => option.key === key); return option ? applyReasoningSelection(option.selection, true) : false; }}>
                           {!activeModelRow.reasoning ? (
                             <p className="text-[11px] leading-4 text-text-tertiary">
                               {t('settings.reasoningUnsupported')}

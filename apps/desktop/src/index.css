@@ -31,7 +31,7 @@ html[data-cursor-style='minimal'] :where(a[href], button, summary, [role='button
   cursor: default;
 }
 
-html[data-cursor-style] :where(input, textarea, [contenteditable='true']) {
+html[data-cursor-style] :where(input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']):not([type='button']):not([type='submit']), textarea, [contenteditable='true']) {
   cursor: text;
 }
 

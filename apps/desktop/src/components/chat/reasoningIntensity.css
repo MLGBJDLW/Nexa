@@ -1,25 +1,37 @@
 .nexa-intensity { padding: 4px 4px 8px; }
-.nexa-intensity-rail { position: relative; padding: 17px 12px 14px; border-radius: 16px; background: var(--color-surface-1); border: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent); }
-.nexa-intensity-bond { position: absolute; inset: 0 12px; width: calc(100% - 24px); height: 48px; overflow: visible; pointer-events: none; }
-.nexa-intensity-bond path { fill: none; stroke: var(--color-accent); stroke-width: 1.3; stroke-linecap: round; opacity: calc(.16 + var(--intensity) * .22); }
-.nexa-intensity-bond path + path { opacity: calc(.1 + var(--intensity) * .14); }
-.nexa-intensity-rail:focus-within .nexa-intensity-bond path, .nexa-intensity-rail:hover .nexa-intensity-bond path { stroke-dasharray: 80 12; animation: nexa-bond-flow 9s linear infinite; }
-.nexa-intensity-rail:focus-within .nexa-intensity-bond path + path, .nexa-intensity-rail:hover .nexa-intensity-bond path + path { animation-direction: reverse; }
-.nexa-intensity-range { position: relative; display: block; width: 100%; height: 18px; margin: 0; appearance: none; background: transparent; cursor: ew-resize; accent-color: var(--color-accent); }
-.nexa-intensity-range::-webkit-slider-runnable-track { height: 4px; border-radius: 8px; background: linear-gradient(to right, var(--color-accent) calc(var(--intensity) * 100%), var(--color-surface-3) 0); }
-.nexa-intensity-range::-webkit-slider-thumb { appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; border: 2px solid var(--color-accent); background: var(--color-surface-0); box-shadow: 0 1px 4px #0002, 0 0 0 3px color-mix(in srgb, var(--color-surface-0) 75%, transparent); transition: box-shadow 180ms ease; }
-.nexa-intensity-range:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 5px; border-radius: 10px; }
-.nexa-intensity-range:active::-webkit-slider-thumb { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 15%, transparent); }
-.nexa-intensity-range::-moz-range-track { height: 4px; background: var(--color-surface-3); border-radius: 8px; }
-.nexa-intensity-range::-moz-range-progress { height: 4px; background: var(--color-accent); border-radius: 8px; }
-.nexa-intensity-range::-moz-range-thumb { width: 16px; height: 16px; background: var(--color-surface-0); border: 2px solid var(--color-accent); border-radius: 50%; }
-.nexa-intensity-range:disabled { cursor: default; }
-.nexa-intensity-stops { display: flex; justify-content: space-between; margin: 6px 9px 0; pointer-events: none; }
-.nexa-intensity-stops > span { width: 3px; height: 3px; border-radius: 50%; background: var(--color-text-tertiary); opacity: .35; }
-.nexa-intensity-stops > span[data-active='true'] { background: var(--color-accent); opacity: .7; }
-.nexa-intensity-options button { flex: 1 0 auto; border-radius: 999px; }
-@keyframes nexa-bond-flow { to { stroke-dashoffset: -184; } }
+.nexa-intensity-label { display: inline-flex; align-items: center; gap: 7px; }
+.nexa-intensity-label::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--intensity-color); box-shadow: 0 0 9px color-mix(in srgb, var(--intensity-color) 25%, transparent); transition: background-color 220ms ease, box-shadow 220ms ease; }
+.nexa-intensity-switch button[aria-pressed='true'] { color: var(--color-text-primary); }
+.nexa-intensity-rail { position: relative; height: 38px; border-radius: 999px; user-select: none; isolation: isolate; }
+.nexa-intensity-track { position: absolute; inset: 3px 0; overflow: hidden; border-radius: inherit; background: var(--color-surface-3); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 30%, transparent); }
+.nexa-intensity-fill { position: absolute; inset: 0 auto 0 0; background: var(--intensity-color); transition: background-color 260ms ease; }
+.nexa-intensity-bond { position: absolute; inset: 0 19px; width: calc(100% - 38px); height: 32px; pointer-events: none; }
+.nexa-intensity-bond path { fill: none; stroke: color-mix(in srgb, var(--color-text-primary) 40%, var(--intensity-color)); stroke-width: 1.2; stroke-linecap: round; opacity: .45; transition: stroke 260ms ease; }
+.nexa-intensity-bond path + path { stroke: #fff; opacity: .42; }
+.nexa-intensity-bond line { stroke: var(--color-text-primary); stroke-width: .8; opacity: .12; }
+.nexa-intensity-bond circle { fill: #fff; opacity: .6; }
+.nexa-intensity-sheen { position: absolute; inset: 0; background: linear-gradient(110deg, transparent 38%, #ffffff12 50%, transparent 62%); transform: translateX(-100%); animation: nexa-intensity-sheen 9s ease-in-out infinite; pointer-events: none; }
+.nexa-intensity-thumb { position: absolute; top: 0; z-index: 2; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; border: 1px solid #0000000d; background: linear-gradient(145deg, #fff 50%, #f5f6f9); box-shadow: 0 2px 5px #0002, 0 0 0 0 transparent; pointer-events: none; transition: box-shadow 220ms ease; }
+.nexa-intensity-thumb > span { width: 5px; height: 5px; border-radius: 50%; background: var(--intensity-color); opacity: .5; transition: background-color 220ms ease; }
+.nexa-intensity-rail:hover .nexa-intensity-thumb, .nexa-intensity-rail:focus-within .nexa-intensity-thumb { box-shadow: 0 2px 6px #0002, 0 0 0 4px color-mix(in srgb, var(--intensity-color) 12%, transparent), 0 0 16px color-mix(in srgb, var(--intensity-color) 15%, transparent); }
+.nexa-intensity-range { position: relative; z-index: 3; display: block; width: 100%; height: 38px; margin: 0; appearance: none; background: transparent; cursor: pointer; touch-action: pan-y; }
+.nexa-intensity-range::-webkit-slider-runnable-track { height: 32px; border-radius: 999px; background: transparent; }
+.nexa-intensity-range::-webkit-slider-thumb { appearance: none; width: 38px; height: 38px; margin-top: -3px; border: 0; background: transparent; cursor: pointer; }
+.nexa-intensity-range:focus-visible { outline: 2px solid var(--intensity-color); outline-offset: 4px; border-radius: 999px; }
+.nexa-intensity-range::-moz-range-track { height: 32px; background: transparent; border-radius: 999px; }
+.nexa-intensity-range::-moz-range-progress { background: transparent; }
+.nexa-intensity-range::-moz-range-thumb { box-sizing: border-box; width: 38px; height: 38px; background: transparent; border: 0; cursor: pointer; }
+.nexa-intensity-range:disabled, .nexa-intensity-range:disabled::-webkit-slider-thumb { cursor: default; }
+.nexa-intensity-range:disabled::-moz-range-thumb { cursor: default; }
+.nexa-intensity-stops { position: absolute; inset: 0 16px; display: flex; align-items: center; justify-content: space-between; pointer-events: none; }
+.nexa-intensity-stops > span { width: 5px; height: 5px; border-radius: 50%; background: var(--color-text-tertiary); opacity: .65; transition: background-color 200ms ease, opacity 200ms ease; }
+.nexa-intensity-stops > span[data-active='true'] { background: #fff; opacity: .5; }
+.nexa-intensity-stops > span[data-selected='true'] { opacity: 0; }
+.nexa-intensity-options button { flex: 1 0 auto; }
+.nexa-intensity-options button[aria-pressed='true'] { color: var(--color-text-primary); }
+.nexa-intensity-option-highlight { position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--intensity-color) 17%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--intensity-color) 22%, transparent); transition: background-color 220ms ease, box-shadow 220ms ease; }
+@keyframes nexa-intensity-sheen { 0%, 25% { transform: translateX(-100%); } 75%, 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .nexa-intensity-range::-webkit-slider-thumb { transition: none; }
-  .nexa-intensity-rail .nexa-intensity-bond path { animation: none !important; stroke-dasharray: none !important; }
+  .nexa-intensity *, .nexa-intensity *::before { transition: none !important; animation: none !important; }
+  .nexa-intensity-sheen { display: none; }
 }

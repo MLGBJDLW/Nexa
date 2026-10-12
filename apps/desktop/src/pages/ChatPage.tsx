@@ -1039,8 +1039,10 @@ export function ChatPage() {
               : { ...candidate, isDefault: false },
           ),
         );
+        return true;
       } catch (error) {
         toast.error(formatUserError(t('settings.defaultModel'), error));
+        return false;
       }
     },
     [chat, t],
