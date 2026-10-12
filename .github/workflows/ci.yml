@@ -351,7 +351,9 @@ jobs:
     needs: classify
     if: needs.classify.outputs.release_metadata_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The serial acceptance suites now exceed 20 minutes on hosted runners;
+    # keep each Playwright test bounded while allowing the full suite to finish.
+    timeout-minutes: 30
     container:
       # Match the locked Playwright version; avoid per-run Ubuntu mirror installs.
       image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
