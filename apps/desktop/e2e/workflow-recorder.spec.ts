@@ -305,6 +305,23 @@ test('scheduled tasks show an actionable empty state', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Create automation', exact: true })).toBeVisible();
 });
 
+test('scheduled tasks remain reachable without clipping the rail footer at minimum height', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 600 });
+  await page.goto('/workflows');
+  const rail = page.getByTestId('app-navigation-rail');
+  const footer = page.getByTestId('app-version');
+  await expect(footer).toBeVisible();
+  const railBox = (await rail.boundingBox())!;
+  const footerBox = (await footer.boundingBox())!;
+  expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(railBox.y + railBox.height);
+  const schedules = rail.getByRole('link', { name: 'Scheduled tasks', exact: true });
+  await schedules.scrollIntoViewIfNeeded();
+  await schedules.click();
+  await expect(page).toHaveURL(/\/workflows\?tab=automations$/);
+  const updateBox = (await page.getByTestId('sidebar-update-toggle').boundingBox())!;
+  expect(updateBox.y + updateBox.height).toBeLessThanOrEqual(railBox.y + railBox.height);
+});
+
 test('recorded workflow can be previewed and saved as an automation', async ({ page }) => {
   await page.goto('/workflows');
 

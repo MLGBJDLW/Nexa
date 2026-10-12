@@ -257,12 +257,12 @@ export function Layout() {
         </div>
 
         {/* Navigation */}
-        <div className="px-2 pb-2">
+        <div className="shrink-0 px-2 pb-2">
           <Tooltip content={t('nav.commandPalette')} side="right" delay={180}>
             <button type="button" data-testid="open-command-palette" aria-label={t('nav.commandPalette')} onClick={openCommandPalette} className="grid h-10 w-10 place-items-center rounded-lg text-text-secondary hover:bg-surface-2 hover:text-text-primary"><Command size={18} /></button>
           </Tooltip>
         </div>
-        <nav className="flex-1 space-y-0.5 px-2" role="navigation">
+        <nav className="min-h-0 flex-1 space-y-0.5 overflow-x-hidden overflow-y-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="navigation">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -294,7 +294,7 @@ export function Layout() {
         </nav>
 
         {/* Stable metadata and update controls */}
-        <div className="space-y-1 border-t border-border px-2 py-2" data-theme-density-part="rail-footer">
+        <div className="shrink-0 space-y-1 border-t border-border px-2 py-2" data-theme-density-part="rail-footer">
           <AttentionInboxButton />
           <RemoteSidebarLink />
           <Tooltip content={t('nav.settings')} side="right" delay={180}>
