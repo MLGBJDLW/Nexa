@@ -3,6 +3,7 @@ import type { getEvidenceCard } from '../../lib/api';
 import type { EvidenceRef, EvidenceLocator, EvidenceContext, DocumentOutline } from '../../types/evidence';
 
 export interface PreviewLocation { locator?: EvidenceLocator; expectedHash?: string; focusText?: string }
+export interface HtmlPreviewLease { url: string; release: () => void }
 
 interface FilePreviewContextValue {
   openFilePreview: (path: string, location?: PreviewLocation) => void;
@@ -12,7 +13,7 @@ interface FilePreviewContextValue {
   openWebLink: (url: string, title?: string) => void;
   resolveFileUrl?: (path: string) => Promise<string>;
   loadEvidence?: typeof getEvidenceCard;
-  openCodePreview?: (code: string, language: string) => void;
+  createHtmlPreview?: (html: string) => Promise<HtmlPreviewLease>;
   togglePreviewPanel?: () => void;
   previewPanelOpen?: boolean;
   remote?: boolean;

@@ -93,6 +93,7 @@ export interface WorkflowAutomationExecutionPolicy {
   projectId?: string | null;
   workspacePolicy: WorkflowScheduleWorkspacePolicy;
   sourceRootFingerprint?: string | null;
+  sourceScopeIsExplicit?: boolean;
   agentConfigId?: string | null;
   provider?: string | null;
   providerEndpointId?: string | null;

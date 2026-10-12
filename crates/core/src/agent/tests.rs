@@ -4725,6 +4725,9 @@ async fn reserved_final_sample_budgets_and_accounts_only_its_projected_prompt() 
         }),
         ToolRegistry::new(),
         AgentConfig {
+            // Keep this projection regression independent of the evolving
+            // default skill catalog and core guidance.
+            system_prompt: "stable system".to_string(),
             model: Some("mock-model".to_string()),
             max_iterations: 0,
             max_tokens: Some(512),
@@ -4732,13 +4735,16 @@ async fn reserved_final_sample_budgets_and_accounts_only_its_projected_prompt() 
             max_actual_tokens_per_run: Some(6_000),
             ..AgentConfig::default()
         },
-    );
+    )
+    .with_skills_override(Vec::new());
     let db = Database::open_memory().expect("in-memory db");
     let (tx, _rx) = mpsc::channel(128);
     let history = vec![
         prompt_ir::controller_state_message(format!(
             "superseded step controller: {}",
-            "x".repeat(12_000)
+            // The superseded controller alone exceeds the unchanged 6k
+            // budget; success still requires removing it from the request.
+            "x".repeat(60_000)
         ))
         .expect("superseded controller"),
         prompt_ir::controller_state_message("current final-answer controller")

@@ -25,6 +25,8 @@ pub enum RemoteCommand {
     FileData { path: String },
     #[serde(rename = "preview.html")]
     PreviewHtml { html: String },
+    #[serde(rename = "preview.release")]
+    ReleasePreview { id: String },
     #[serde(rename = "evidence.get")]
     Evidence {
         chunk_id: String,

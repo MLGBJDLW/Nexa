@@ -1,0 +1,43 @@
+.nexa-ui { margin: 12px 0; padding: 18px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-1); color: var(--color-text-primary); min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.nexa-ui header { margin-bottom: 18px; }
+.nexa-ui h3 { margin: 4px 0 6px; font-size: 17px; line-height: 1.4; font-weight: 650; }
+.nexa-ui h4, .nexa-ui figcaption { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+.nexa-ui header p, .nexa-ui-muted { margin: 0; color: var(--color-text-secondary); line-height: 1.65; }
+.nexa-ui-eyebrow { color: var(--color-accent); font-size: 10px; font-weight: 600; letter-spacing: .06em; }
+.nexa-ui-blocks { display: grid; gap: 18px; min-width: 0; }
+.nexa-ui-text { white-space: pre-wrap; margin: 0; line-height: 1.7; }
+.nexa-ui-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 10px; }
+.nexa-ui-metric { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent); background: var(--color-surface-0); }
+.nexa-ui-metric > span, .nexa-ui-metric small { color: var(--color-text-secondary); font-size: 11px; }
+.nexa-ui-metric strong { font-size: 24px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.nexa-ui button, .nexa-ui input { font: inherit; }
+.nexa-ui button { cursor: pointer; }
+.nexa-ui button:focus-visible, .nexa-ui input:focus-visible, .nexa-ui [role=tabpanel]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.nexa-ui-search { display: flex; gap: 7px; align-items: center; padding: 7px 9px; margin-bottom: 8px; border: 1px solid var(--color-border); border-radius: 7px; color: var(--color-text-tertiary); }
+.nexa-ui-search input { width: 100%; min-width: 0; background: transparent; border: 0; color: var(--color-text-primary); }
+.nexa-ui-table-scroll { overflow: auto; max-height: 400px; }
+.nexa-ui table { width: 100%; margin: 0; font-size: 12px; border-collapse: collapse; }
+.nexa-ui th, .nexa-ui td { padding: 9px 10px; border-bottom: 1px solid var(--color-border); text-align: start; white-space: normal; max-width: 320px; }
+.nexa-ui th { position: sticky; top: 0; background: var(--color-surface-2); }
+.nexa-ui th button { display: flex; align-items: center; gap: 6px; width: 100%; text-align: start; background: transparent; border: 0; color: inherit; }
+.nexa-ui tbody tr:hover { background: var(--color-surface-2); }
+.nexa-ui-tabs [role=tablist] { display: flex; gap: 4px; overflow-x: auto; padding: 3px; border-radius: 9px; background: var(--color-surface-0); margin-bottom: 14px; }
+.nexa-ui-tabs [role=tab] { flex: 1; white-space: nowrap; padding: 7px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--color-text-secondary); }
+.nexa-ui-tabs [role=tab][aria-selected=true] { background: var(--color-surface-3); color: var(--color-text-primary); box-shadow: 0 1px 3px #0001; }
+.nexa-ui-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.nexa-ui-steps li { display: flex; align-items: start; gap: 10px; margin: 0; }
+.nexa-ui-step-icon { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 50%; background: var(--color-surface-3); color: var(--color-text-secondary); font-size: 11px; }
+.nexa-ui-steps [data-status=current] .nexa-ui-step-icon, .nexa-ui-steps [data-status=complete] .nexa-ui-step-icon { background: color-mix(in srgb, var(--color-accent) 15%, transparent); color: var(--color-accent); }
+.nexa-ui-steps strong { font-weight: 550; }
+.nexa-ui-steps p { margin: 3px 0 0; color: var(--color-text-secondary); font-size: 12px; }
+.nexa-ui-bars { margin: 0; }
+.nexa-ui-bar-row { display: grid; grid-template-columns: minmax(84px, 1fr) minmax(60px, 3fr) minmax(50px, auto); align-items: center; gap: 10px; margin: 10px 0; font-size: 12px; }
+.nexa-ui-bar-track { height: 12px; position: relative; border-radius: 3px; background: var(--color-surface-3); }
+.nexa-ui-bar { position: absolute; top: 0; height: 100%; border-radius: 3px; background: var(--color-accent); opacity: .8; }
+.nexa-ui-bar[data-negative=true] { opacity: .5; }
+.nexa-ui-bar-zero { position: absolute; top: -2px; height: 16px; width: 1px; background: var(--color-text-tertiary); }
+.nexa-ui-bar-row output { text-align: end; font-variant-numeric: tabular-nums; }
+.nexa-ui-source { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--color-border); font-size: 11px; color: var(--color-text-tertiary); }
+.nexa-ui-source summary { cursor: pointer; }
+.nexa-ui-source pre { max-height: 260px; white-space: pre; overflow: auto; }
+@media (max-width: 540px) { .nexa-ui { padding: 12px; } .nexa-ui-blocks { gap: 14px; } .nexa-ui-metric strong { font-size: 21px; } }

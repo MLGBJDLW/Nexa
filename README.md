@@ -25,13 +25,13 @@ and optional public phone access use the network.
 | Area | Current capabilities |
 | --- | --- |
 | Knowledge and search | Bilingual keyword/vector retrieval, structured PDF and Office locations, historical evidence, resumable compilation, saved research comparisons, and a knowledge graph for navigating back to supporting documents |
-| Conversations | Cited answers, collection and project context, durable task history, streaming tool activity, checkpoints, archive/restore, and Markdown with math and Mermaid diagrams |
+| Conversations | Cited answers, project context, durable history, streaming tools, checkpoints, math/Mermaid, and [interactive views with isolated HTML previews](docs/GENERATIVE_CHAT_UI.md) |
 | Models and agents | API and local model connections, endpoint-aware capability discovery, model/reasoning selection, supported subscription agents, reusable skills, and configured API subagents |
 | Files and Office | Scoped file edits, document analysis and generation, Office artifact validation and review, local previews, and a separately paired Office.js add-in |
 | Desktop and browser | A conversation-linked terminal, Browser Workspace, authorized HTML previews, structured browser tools, and Windows computer interaction with observation and approval boundaries |
 | Voice and Live | Dictation into the editable composer, live microphone/camera/screen input where the selected connection supports it, and saved text observations and summaries |
 | Phone access | QR pairing, existing conversations, model choices, dictation, file previews, individual approvals, and Live through encrypted LAN or configured public routes |
-| Repeatable work | Collections, project memory, workflow templates, scheduled tasks, MCP connectors, and user-owned skill and theme files |
+| Repeatable work | Collections, project memory, workflow templates, [agent-managed scheduled tasks](docs/SCHEDULED_TASKS.md#agent-tool), MCP connectors, and user-owned skill and theme files |
 
 The graph is a navigation index, not evidence by itself. Open the underlying
 documents before relying on a relationship. Tool availability depends on the

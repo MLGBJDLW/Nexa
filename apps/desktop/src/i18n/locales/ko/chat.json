@@ -903,5 +903,18 @@
   "reasoningControlStyle": "추론 조절 방식",
   "reasoningList": "목록",
   "reasoningSlider": "강도 슬라이더",
-  "reasoningOn": "켜짐"
+  "reasoningOn": "켜짐",
+  "visualLabel": "인터랙티브 보기",
+  "visualBuilding": "보기 생성 중…",
+  "visualInvalid": "이 보기를 표시할 수 없습니다: {error}",
+  "visualSource": "소스 보기",
+  "visualFilter": "행 필터",
+  "visualNoRows": "일치하는 행 없음",
+  "visualExpand": "미리보기 확대",
+  "visualCollapse": "미리보기 축소",
+  "htmlPreview": "HTML 미리보기",
+  "htmlStatic": "정적 미리보기",
+  "htmlRunning": "스크립트 실행 중",
+  "htmlRun": "스크립트 실행",
+  "htmlStop": "중지"
 }

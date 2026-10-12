@@ -86,6 +86,10 @@ pub struct WorkflowAutomationExecutionPolicy {
     /// is saved. Launch fails closed if that Source is later repointed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_root_fingerprint: Option<String>,
+    /// The author explicitly snapshotted source_scope, including a deliberate
+    /// empty list. Missing in legacy records; never infer it from tool grants.
+    #[serde(default)]
+    pub source_scope_is_explicit: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_config_id: Option<String>,
     /// Provider snapshot used to fail closed if a saved agent config changes route.
@@ -114,6 +118,7 @@ impl Default for WorkflowAutomationExecutionPolicy {
             project_id: None,
             workspace_policy: WorkflowScheduleWorkspacePolicy::DenyWrites,
             source_root_fingerprint: None,
+            source_scope_is_explicit: false,
             agent_config_id: None,
             provider: None,
             provider_endpoint_id: None,

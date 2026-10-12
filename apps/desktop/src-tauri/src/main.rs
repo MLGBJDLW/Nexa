@@ -8,6 +8,7 @@ mod agent_task_events;
 mod app_events;
 mod background_work_governor;
 mod browser;
+mod chat_ui_preview;
 mod command_dispatch;
 mod commands;
 mod companion_window;
@@ -440,6 +441,9 @@ fn update_tray_menu_cmd(
 
 fn main() {
     let app = tauri::Builder::default()
+        .invoke_system(command_dispatch::main_frame_invoke_script())
+        .manage(chat_ui_preview::ChatUiPreviewState::default())
+        .register_uri_scheme_protocol("nexa-ui", |context, request| chat_ui_preview::respond(context.app_handle(), request))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -798,6 +802,8 @@ fn main() {
             Ok(())
         })
         .invoke_handler(command_dispatch::off_main_thread(tauri::generate_handler![
+            chat_ui_preview::create_chat_ui_preview_cmd,
+            chat_ui_preview::release_chat_ui_preview_cmd,
             // Sources
             commands::add_source,
             commands::list_sources,

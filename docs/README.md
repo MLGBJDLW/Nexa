@@ -22,6 +22,7 @@ English is the canonical language for maintained technical documentation.
 | [Voice and Live](LIVE.md) | Use dictation, live audio/video input, records, and summaries |
 | [Computer Use and local images](COMPUTER_USE.md) | Native input, physical coordinates, control feedback, recovery, and direct image inspection |
 | [Local HTML preview](local-html-preview.md) | Open interactive local HTML with an explicit asset list |
+| [Generative chat UI](GENERATIVE_CHAT_UI.md) | Create structured views, live HTML previews, and isolated local interactions in chat |
 | [Scheduled tasks](SCHEDULED_TASKS.md) | Configure recurrence, approvals, unattended tools, or isolated repository work |
 | [Workspace file rules](WORKSPACE_RULES.md) | Load project and directory instructions, inspect their scope, and understand changes between turns |
 | [Local storage](LOCAL_STORAGE.md) | Inspect declaration/model locations and consolidate existing model downloads |

@@ -565,8 +565,15 @@ impl Database {
                 |row| row.get::<_, i64>(0),
             )
             .optional()?;
-        if expected_revision.is_some_and(|expected| Some(expected) != previous_definition_revision)
-        {
+        // Revision zero is an atomic create-if-absent operation for retry-safe
+        // chat authoring. Positive revisions still guard an existing definition.
+        if expected_revision.is_some_and(|expected| {
+            if expected == 0 {
+                exists
+            } else {
+                Some(expected) != previous_definition_revision
+            }
+        }) {
             return Err(CoreError::Conflict(
                 "Workflow changed in another window; reload it before saving".into(),
             ));
@@ -812,6 +819,27 @@ impl Database {
         )?;
         if affected == 0 {
             return Err(CoreError::NotFound(format!("Workflow automation {id}")));
+        }
+        Ok(())
+    }
+
+    /// Delete only the revision the caller inspected, under the same SQLite
+    /// statement that removes the task. A concurrent edit must survive.
+    pub fn delete_workflow_automation_at_revision(
+        &self,
+        id: &str,
+        revision: i64,
+    ) -> Result<(), CoreError> {
+        let affected = self.conn().execute(
+            "DELETE FROM workflow_automations WHERE id = ?1 AND EXISTS (
+             SELECT 1 FROM workflow_automation_schedule_configs c
+             WHERE c.automation_id = workflow_automations.id AND c.revision = ?2)",
+            rusqlite::params![id, revision],
+        )?;
+        if affected == 0 {
+            return Err(CoreError::Conflict(
+                "Scheduled task changed or was deleted; get it before retrying".into(),
+            ));
         }
         Ok(())
     }

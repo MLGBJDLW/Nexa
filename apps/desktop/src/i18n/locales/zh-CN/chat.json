@@ -903,5 +903,18 @@
   "reasoningControlStyle": "思考强度控件样式",
   "reasoningList": "列表选择",
   "reasoningSlider": "强度滑杆",
-  "reasoningOn": "开启"
+  "reasoningOn": "开启",
+  "visualLabel": "交互视图",
+  "visualBuilding": "正在生成视图…",
+  "visualInvalid": "暂时无法显示此视图：{error}",
+  "visualSource": "查看源代码",
+  "visualFilter": "筛选行",
+  "visualNoRows": "没有匹配的行",
+  "visualExpand": "展开预览",
+  "visualCollapse": "收起预览",
+  "htmlPreview": "HTML 预览",
+  "htmlStatic": "静态预览",
+  "htmlRunning": "脚本运行中",
+  "htmlRun": "运行脚本",
+  "htmlStop": "停止"
 }

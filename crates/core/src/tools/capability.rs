@@ -440,6 +440,12 @@ pub fn infer_tool_access_profile(
         risk_level,
         reason,
     ) = match name {
+        "automation" => {
+            let read_only = matches!(args.get("action").and_then(serde_json::Value::as_str), Some("list" | "get" | "preview" | "history"));
+            ("automation", true, !read_only, false, false, !read_only,
+                if read_only { ApprovalRisk::Low } else { ApprovalRisk::High },
+                "Manages durable scheduled tasks and their future per-run tool grants through the shared workflow scheduler.")
+        }
         "run_shell" => (
             "system",
             true,

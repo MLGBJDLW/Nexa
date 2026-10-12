@@ -77,7 +77,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
   const drag = useRef<{ pointerId: number; startX: number; moved: boolean } | null>(null);
   const keyboard = useRef(false);
   const progress = useSpring(selected / lastIndex, SPRING);
-  const thumbPosition = useTransform(progress, value => `calc(19px + (100% - 38px) * ${value})`);
+  const thumbPosition = useTransform(progress, value => `calc(13px + (100% - 26px) * ${value})`);
   useEffect(() => {
     if (pendingSaves.current > 0) return;
     drag.current = null;
@@ -113,11 +113,11 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
   };
   const pointerRatio = (event: PointerEvent<HTMLInputElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    return Math.min(1, Math.max(0, (event.clientX - box.left - 19) / Math.max(1, box.width - 38)));
+    return Math.min(1, Math.max(0, (event.clientX - box.left - 13) / Math.max(1, box.width - 26)));
   };
   const transition = reducedMotion ? { duration: 0 } : { duration: 0.18 };
   return <div>
-    <div role="group" aria-label={t('chat.reasoningControlStyle')} className="nexa-intensity-switch mb-3 flex rounded-lg border border-border/60 bg-surface-1 p-0.5">
+    <div role="group" aria-label={t('chat.reasoningControlStyle')} className="nexa-intensity-switch mb-2 flex rounded-lg border border-border/60 bg-surface-1 p-0.5">
       {(['list', 'slider'] as const).map(style => {
         const Icon = style === 'list' ? List : SlidersHorizontal;
         return <button key={style} type="button" aria-pressed={reasoningControl === style}
@@ -131,7 +131,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
     <AnimatePresence initial={false} mode="wait">
       <motion.div key={reasoningControl} initial={reducedMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reducedMotion ? 0 : -3 }} transition={transition}>
         {reasoningControl === 'list' ? children : <div className="nexa-intensity" aria-busy={saving} style={{ '--intensity-color': color } as CSSProperties}>
-          <div className="mb-3 flex items-baseline justify-between gap-2">
+          <div className="mb-1.5 flex items-baseline justify-between gap-2">
             <span className="text-[11px] text-text-tertiary">{t('settings.reasoningEffort')}</span>
             <output className="nexa-intensity-label text-sm font-semibold text-text-primary" data-testid="reasoning-slider-label">
               <AnimatePresence initial={false} mode="wait">
@@ -182,10 +182,7 @@ export function ReasoningIntensity({ options, selectedKey, onSelect, children }:
               onBlur={() => { keyboard.current = false; }}
               className="nexa-intensity-range" />
           </div>
-          <div className="mt-2 flex justify-between gap-2 text-[10px] text-text-tertiary">
-            <span>{options[0].label}</span><span>{options[options.length - 1].label}</span>
-          </div>
-          <div className="nexa-intensity-options mt-3 flex flex-wrap gap-1">
+          <div className="nexa-intensity-options mt-1.5 flex flex-wrap gap-1">
             {options.map((option, index) => <motion.button type="button" key={option.key} onClick={() => commit(index)}
               whileHover={reducedMotion ? undefined : { y: -1 }} whileTap={reducedMotion ? undefined : { scale: 0.97 }}
               aria-pressed={current === index} className="relative isolate rounded-full px-2 py-1 text-[10px] text-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-accent">

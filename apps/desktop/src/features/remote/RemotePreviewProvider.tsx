@@ -6,6 +6,7 @@ import type { EvidenceRef, EvidenceContext, DocumentOutline } from '../../types/
 import { EvidenceReader } from '../preview/EvidenceReader';
 import { StructuredPreviewRenderer, createPreviewLabels } from '../preview/StructuredPreview';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
+import { HtmlPreviewFrame } from '../../components/chat/HtmlPreviewFrame';
 import type { FilePreview, getEvidenceCard } from '../../lib/api';
 import { useTranslation } from '../../i18n';
 import type { RemoteClient } from './remoteClient';
@@ -16,7 +17,6 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteClie
   const [path, setPath] = useState('');
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [media, setMedia] = useState('');
-  const [htmlUrl, setHtmlUrl] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [evidenceRef, setEvidenceRef] = useState<EvidenceRef | null>(null);
@@ -24,44 +24,35 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteClie
   const generation = useRef(0);
   const labels = useMemo(() => createPreviewLabels(t), [t]);
   const resolveFileUrl = useCallback((path: string) => client.rpc<string>('files.data', { path }), [client]);
-  const publishHtml = useCallback(async (html: string) => {
+  const createHtmlPreview = useCallback(async (html: string) => {
     const path = await client.rpc<string>('preview.html', { html });
-    return new URL(path, client.state.endpoint!.url).href;
+    return { url: new URL(path, client.state.endpoint!.url).href,
+      release: () => { void client.rpc('preview.release', { id: path.split('/').pop() }).catch(() => {}); } };
   }, [client]);
-  const openCodePreview = useCallback((code: string, language: string) => {
-    const mine = ++generation.current;
-    setPath(language); setPreview(null); setMedia(''); setHtmlUrl(''); setError(''); setLoading(true);
-    void publishHtml(code).then(url => { if (mine === generation.current) setHtmlUrl(url); })
-      .catch(error => { if (mine === generation.current) setError(String(error)); }).finally(() => { if (mine === generation.current) setLoading(false); });
-  }, [publishHtml]);
   const openWebLink = useCallback((url: string) => {
     try { if (/^https?:$/.test(new URL(url).protocol)) window.open(url, '_blank', 'noopener,noreferrer'); } catch { /* Unsupported protocols never execute. */ }
   }, []);
   const openFilePreview = useCallback((path: string, position?: PreviewLocation) => {
     const mine = ++generation.current;
-    setPath(path); setPreview(null); setMedia(''); setHtmlUrl(''); setError(''); setLoading(true);
+    setPath(path); setPreview(null); setMedia(''); setError(''); setLoading(true);
     void client.rpc<FilePreview>('files.preview', { path, ...(position?.expectedHash ? { verifyContentHash: true } : {}) }).then(async next => {
       if (mine !== generation.current) return;
       const changed = Boolean(position?.expectedHash && position.expectedHash !== next.hash);
       if (changed) next.warning = t('citation.fileChanged');
       setPreviewLocation(changed ? null : position ?? null);
       setPreview(next);
-      if (['.html', '.htm'].includes(next.extension) && next.content != null) {
-        const url = await publishHtml(next.content);
-        if (mine === generation.current) setHtmlUrl(url);
-      }
       if (['image', 'audio', 'video'].includes(next.kind) || next.extension === '.pdf') {
         const data = await resolveFileUrl(next.path);
         if (mine === generation.current) setMedia(data);
       }
     }).catch(error => { if (mine === generation.current) setError(error instanceof Error ? error.message : String(error)); })
       .finally(() => { if (mine === generation.current) setLoading(false); });
-  }, [client, resolveFileUrl, publishHtml, t]);
-  const context = useMemo(() => ({ openFilePreview, openWebLink, openCodePreview, resolveFileUrl, remote:true, openEvidence: setEvidenceRef,
+  }, [client, resolveFileUrl, t]);
+  const context = useMemo(() => ({ openFilePreview, openWebLink, createHtmlPreview, resolveFileUrl, remote:true, openEvidence: setEvidenceRef,
     loadEvidence:(chunkId: string, reference?: EvidenceRef) => client.rpc<Awaited<ReturnType<typeof getEvidenceCard>>>('evidence.get', { chunkId, reference }),
     loadEvidenceContext:(reference: EvidenceRef) => client.rpc<EvidenceContext>('evidence.context', { reference }),
     loadDocumentOutline:(reference: EvidenceRef, afterIndex?: number | null) => client.rpc<DocumentOutline>('evidence.outline', { reference, afterIndex }),
-  }), [client, openFilePreview, openWebLink, openCodePreview, resolveFileUrl]);
+  }), [client, openFilePreview, openWebLink, createHtmlPreview, resolveFileUrl]);
   async function download() {
     if (!preview) return;
     try {
@@ -80,7 +71,8 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteClie
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {loading && <Loader2 className="animate-spin" />}{error && <p role="alert" className="mb-4 text-sm text-danger">{error}</p>}
         {preview?.warning && <p className="mb-3 text-xs text-text-secondary">{preview.warning}</p>}
-        {htmlUrl ? <iframe src={htmlUrl} sandbox="allow-scripts" referrerPolicy="no-referrer" title={preview?.displayName || path} className="h-full min-h-[70vh] w-full border-0 bg-white" /> : preview && (preview.kind === 'image' && media ? <img src={media} alt={preview.displayName} className="mx-auto max-h-full max-w-full object-contain" />
+        {preview && (['.html', '.htm'].includes(preview.extension) && preview.content != null ? <HtmlPreviewFrame source={preview.content} />
+          : preview.kind === 'image' && media ? <img src={media} alt={preview.displayName} className="mx-auto max-h-full max-w-full object-contain" />
           : preview.kind === 'audio' && media ? <audio src={media} controls onLoadedMetadata={(event) => { if (previewLocation?.locator?.kind === 'media') event.currentTarget.currentTime = previewLocation.locator.startMs / 1000; }} className="w-full" />
           : preview.kind === 'video' && media ? <video src={media} controls playsInline onLoadedMetadata={(event) => { if (previewLocation?.locator?.kind === 'media') event.currentTarget.currentTime = previewLocation.locator.startMs / 1000; }} className="max-w-full" />
           : preview.extension === '.pdf' && media ? <iframe src={`${media}${previewLocation?.locator?.kind === 'pdf' ? `#page=${previewLocation.locator.page}` : ''}`} sandbox="" title={preview.displayName} className="h-full min-h-[70vh] w-full border-0" />

@@ -524,7 +524,9 @@ test('reasoning slider shares provider semantics with the list and persists its 
     await page.evaluate(value => document.documentElement.dataset.cursorStyle = value, style);
     await expect(slider).toHaveCSS('cursor', 'pointer');
   }
-  expect(await slider.evaluate(element => parseFloat(getComputedStyle(element, '::-webkit-slider-runnable-track').height))).toBeGreaterThanOrEqual(28);
+  await expect(page.locator('.nexa-intensity-track')).toHaveCSS('height', '18px');
+  await expect(slider).toHaveCSS('height', '32px');
+  await expect(page.locator('.nexa-intensity-thumb')).toHaveCSS('width', '26px');
   const initialColor = await page.locator('.nexa-intensity').evaluate(element => getComputedStyle(element).getPropertyValue('--intensity-color'));
   await slider.focus();
   await slider.press('End');

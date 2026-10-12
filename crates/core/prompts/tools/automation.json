@@ -1,0 +1,26 @@
+{
+  "name": "automation",
+  "description": "Create and manage durable Nexa scheduled tasks / cron jobs (定时任务、自动化、提醒) directly from chat. Reuses Scheduled tasks in Workbench and its existing scheduler; Nexa must be running. Use only for user-requested future or recurring work. List first to avoid duplicates. Preview a five-field cron and explicit IANA timezone before creating; create requires a stable requestId reused verbatim on retries. Get before update/pause/resume/delete and pass its definitionRevision as expectedRevision. Updates preserve omitted fields. An empty allowedTools means no tools. Tools must be in the current registry and approved for unattended execution. Source/project authority comes from this conversation. Creating a task does not mean it has executed. Run history and pending approvals remain in Scheduled tasks; use that surface for Run now. Do not use OS cron, shell sleep, or another scheduling service for this task.",
+  "parameters": {
+    "type": "object",
+    "required": ["action"],
+    "properties": {
+      "action": {"type":"string","enum":["list","get","preview","create","update","pause","resume","delete","history"]},
+      "id": {"type":"string","description":"Exact saved task id for get/update/pause/resume/delete/history."},
+      "requestId": {"type":"string","minLength":1,"maxLength":120,"description":"Stable unique identifier for a create request. Reuse on retries, choose a new value for a distinct task."},
+      "expectedRevision": {"type":"integer","minimum":1},
+      "name": {"type":"string"},
+      "prompt": {"type":"string","description":"Complete instructions replayed at each run."},
+      "cron": {"type":"string","description":"Five fields: minute hour day-of-month month day-of-week."},
+      "timezone": {"type":"string","description":"Explicit IANA timezone, for example Asia/Shanghai. Required for create/preview."},
+      "workflowTemplateId": {"type":"string","description":"Existing enabled workflow template. Default report_brief."},
+      "sourceIds": {"type":"array","items":{"type":"string"},"description":"Subset of current conversation sources; omitted on create snapshots current sources, omitted on update preserves saved sources. Project schedules require a nonempty scope: [] is rejected because project conversations inherit sources. Create source-free schedules outside a project."},
+      "allowedTools": {"type":"array","items":{"type":"string"},"description":"Exact tools explicitly needed by the scheduled task. Default [] grants no tools."},
+      "requireApproval": {"type":"boolean","description":"If true, each occurrence needs pre-run approval. Default false; creation still follows normal tool permissions."},
+      "enabled": {"type":"boolean","description":"Create/update enabled state; default true for create."},
+      "workspacePolicy": {"type":"string","enum":["deny_writes","isolated_patch"],"description":"Default deny_writes. isolated_patch uses the existing Code Ultra single-source worktree policy. Switching from isolated_patch to deny_writes restores balanced orchestration and requires removing write-tool grants."},
+      "before": {"type":"string","description":"History pagination cursor returned by the existing workflow history."},
+      "limit": {"type":"integer","minimum":1,"maximum":100,"description":"History page size up to 100. Schedule preview returns at most min(limit, 20) occurrences (default 5), matching the scheduler preview capacity."}
+    }
+  }
+}

@@ -229,6 +229,24 @@ pub(crate) fn enrich_tokens(tokens: &[String]) -> Vec<String> {
         for alias in token_aliases(token) {
             expanded.insert((*alias).to_string());
         }
+        // CJK requests are often one contiguous token. Recognize visual intent
+        // independently so a mixed request can still select its other skills.
+        if [
+            "可视化",
+            "交互图",
+            "图表",
+            "流程图",
+            "动态图",
+            "动态演示",
+            "模拟器",
+        ]
+        .iter()
+        .any(|keyword| token.contains(keyword))
+        {
+            for alias in ["visualize", "visual", "interactive", "charts", "diagrams"] {
+                expanded.insert(alias.to_string());
+            }
+        }
         // A contiguous CJK token can describe more than one Office artifact,
         // for example `docx和模型xlsx整理成简报pptx`. `token_aliases` returns
         // one intent family for ordinary queries, so accumulate every Office

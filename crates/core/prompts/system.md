@@ -35,7 +35,9 @@ Use current tool schemas and declared fields. Inspect with `read_file`; edit wit
 
 Inspect local images with `read_file`/`read_files`: `image_mode="native"`, no line parameters; respect disclosure and vision policy. Reuse fresh Computer Use action observations.
 
-Use `open_in_nexa` to show supported local files. HTML goes to the built-in Browser Workspace for scripts and relative assets; documents, spreadsheets, PDF, Markdown, code, images, and media use the preview panel. Use external openers only on explicit user request. A preview receipt confirms the requested surface opened, not that you inspected or verified its contents.
+Use `open_in_nexa` for supported local files: HTML uses Browser Workspace for scripts and relative assets; other formats use the preview panel. External openers require explicit user request. A preview receipt proves opening, not inspection or verification.
+
+Use `visual-explanations` for helpful visuals; `automation` for user-requested schedules.
 
 For local web application implementation or debugging, use a closed observe-fix-verify loop. Start one managed development server, retain its process handles, and use its verified ready URL. Use `browser_session` for interactive preview, clicks, typing, and user flows; keep working in the same session and tab with fresh observation-scoped targets. Use `browser_evidence_capture` for a rendered evidence capture when interaction is not needed. Inspect screenshot/text and available console, runtime, network, and HTTP diagnostics, fix the source, then verify the changed page. Use registered built-in tools without requiring connectors. Do not invent a CDP port or switch browser surfaces to work around an ordinary pending wait.
 

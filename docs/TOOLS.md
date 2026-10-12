@@ -28,6 +28,7 @@ and [subscription execution](SUBSCRIPTION_AGENTS.md).
 | --- | --- |
 | [`agent_harness_dry_run`](../crates/core/prompts/tools/agent_harness_dry_run.json) | Run a read-only readiness preview for the local agent harness |
 | [`archive_output`](../crates/core/prompts/tools/archive_output.json) | Archive an agent response or generated content as a new document in the knowledge base |
+| [`automation`](../crates/core/prompts/tools/automation.json) | Create and manage durable Nexa scheduled tasks / cron jobs (定时任务、自动化、提醒) directly from chat |
 | [`browser_evidence_capture`](../crates/core/prompts/tools/browser_evidence_capture.json) | Open and inspect a public or loopback local-development web page in a real browser |
 | [`code_intelligence`](../crates/core/prompts/tools/code_intelligence.json) | Find source-scoped code symbols or textual references in registered local source directories |
 | [`code_review`](../crates/core/prompts/tools/code_review.json) | Inspect the local code review selected by the user in /review, and record structured findings |

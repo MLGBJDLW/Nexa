@@ -903,5 +903,18 @@
   "reasoningControlStyle": "推論コントロールの表示",
   "reasoningList": "リスト",
   "reasoningSlider": "強度スライダー",
-  "reasoningOn": "オン"
+  "reasoningOn": "オン",
+  "visualLabel": "インタラクティブ表示",
+  "visualBuilding": "表示を生成中…",
+  "visualInvalid": "この表示を描画できません：{error}",
+  "visualSource": "ソースを表示",
+  "visualFilter": "行を絞り込む",
+  "visualNoRows": "一致する行がありません",
+  "visualExpand": "プレビューを拡大",
+  "visualCollapse": "プレビューを縮小",
+  "htmlPreview": "HTML プレビュー",
+  "htmlStatic": "静的プレビュー",
+  "htmlRunning": "スクリプト実行中",
+  "htmlRun": "スクリプトを実行",
+  "htmlStop": "停止"
 }
