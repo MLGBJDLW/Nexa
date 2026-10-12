@@ -10,5 +10,6 @@
   "chat": "对话",
   "knowledge": "知识",
   "tasks": "任务",
-  "workflows": "工作流"
+  "workflows": "工作流",
+  "schedules": "定时任务"
 }

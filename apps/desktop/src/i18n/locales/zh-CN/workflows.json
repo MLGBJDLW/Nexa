@@ -176,5 +176,8 @@
   "authoringOpenChat": "打开对话",
   "authoringNoRuns": "暂无运行记录。",
   "authoringMoreRuns": "加载更多",
-  "authoringSettings": "触发与权限"
+  "authoringSettings": "触发与权限",
+  "schedulesSubtitle": "创建周期任务，查看下次运行时间，随时暂停或恢复。本地定时任务需要 Nexa 保持运行。",
+  "savedAutomations": "已保存任务（{count}）",
+  "noAutomations": "还没有任务。创建一个定时任务即可开始。"
 }

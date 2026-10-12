@@ -10,5 +10,6 @@
   "chat": "Chat",
   "knowledge": "Knowledge",
   "tasks": "任務",
-  "workflows": "工作流程"
+  "workflows": "工作流程",
+  "schedules": "排程任務"
 }

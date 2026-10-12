@@ -141,7 +141,7 @@ test.beforeEach(async ({ page }) => {
         case 'list_workflow_templates_cmd':
           return clone(workflowCatalog);
         case 'list_workflow_automations_cmd':
-          return [clone(approvalAutomation), ...clone(savedAutomations)];
+          return new URLSearchParams(window.location.search).has('emptySchedules') ? [] : [clone(approvalAutomation), ...clone(savedAutomations)];
         case 'list_due_workflow_automations_cmd':
           return [];
         case 'list_workflow_automation_approvals_cmd':
@@ -274,6 +274,52 @@ test.beforeEach(async ({ page }) => {
       },
     };
   });
+});
+
+test('scheduled tasks have a dedicated sidebar entry with persistent navigation', async ({ page }, testInfo) => {
+  await page.goto('/workflows');
+  const schedules = page.getByRole('link', { name: 'Scheduled tasks', exact: true });
+  const workflows = page.getByRole('link', { name: 'Workflows', exact: true });
+  await expect(workflows).toHaveAttribute('aria-current', 'page');
+  await schedules.click();
+  await expect(page).toHaveURL(/\/workflows\?tab=automations$/);
+  await expect(schedules).toHaveAttribute('aria-current', 'page');
+  await expect(workflows).not.toHaveAttribute('aria-current');
+  await expect(page.getByRole('heading', { name: 'Scheduled tasks', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Saved tasks (1)', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Approved daily review', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Automations', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.screenshot({ path: testInfo.outputPath('scheduled-tasks.png') });
+  await workflows.click();
+  await expect(workflows).toHaveAttribute('aria-current', 'page');
+  await expect(schedules).not.toHaveAttribute('aria-current');
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'Scheduled tasks', exact: true })).toBeVisible();
+});
+
+test('scheduled tasks show an actionable empty state', async ({ page }) => {
+  await page.goto('/workflows?tab=automations&emptySchedules=1');
+  await expect(page.getByRole('heading', { name: 'Scheduled tasks', exact: true })).toBeVisible();
+  await expect(page.getByText('No tasks yet. Create a schedule to get started.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create automation', exact: true })).toBeVisible();
+});
+
+test('scheduled tasks remain reachable without clipping the rail footer at minimum height', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 600 });
+  await page.goto('/workflows');
+  const rail = page.getByTestId('app-navigation-rail');
+  const footer = page.getByTestId('app-version');
+  await expect(footer).toBeVisible();
+  const railBox = (await rail.boundingBox())!;
+  const footerBox = (await footer.boundingBox())!;
+  expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(railBox.y + railBox.height);
+  const schedules = rail.getByRole('link', { name: 'Scheduled tasks', exact: true });
+  await schedules.scrollIntoViewIfNeeded();
+  await schedules.click();
+  await expect(page).toHaveURL(/\/workflows\?tab=automations$/);
+  const updateBox = (await page.getByTestId('sidebar-update-toggle').boundingBox())!;
+  expect(updateBox.y + updateBox.height).toBeLessThanOrEqual(railBox.y + railBox.height);
 });
 
 test('recorded workflow can be previewed and saved as an automation', async ({ page }) => {
@@ -468,7 +514,7 @@ test('durable scheduled approval can be denied without launching Chat', async ({
 
   await page.getByRole('button', { name: 'Deny' }).click();
   await expect(page.getByText('Waiting for pre-run approval')).toHaveCount(0);
-  await expect(page).toHaveURL(/\/workflows$/);
+  await expect(page).toHaveURL(/\/workflows\?tab=automations$/);
   const decisions = await page.evaluate(() => (
     window as unknown as { __approvalDecisions?: Array<Record<string, unknown>> }
   ).__approvalDecisions);

@@ -91,6 +91,14 @@ shape:
 | `connectors/mcp.json` | Versioned MCP declarations are validated as a whole and projected into the runtime store. Invalid updates retain the last valid projection. |
 | `capabilities/`, `workflows/` | Reserved package locations. Merely placing a file here does not grant permissions or activate native code; each package still needs a supported, trust-gated host path. |
 
+The bundled **Themes** skill (`themes`) makes appearance changes discoverable
+from chat and calls the existing `appearance` tool. It shares Settings' registry,
+validation, permission handling, and rollback. `list` exposes installed definitions
+and built-in ids in model-visible text; `draft` returns the normalized definition.
+Activate/remove accept a stable id or unique custom display name, with exact ids
+taking precedence and ambiguous names rejected. Display names stay short and
+user-facing while persisted ids and the `theme-resource` format remain stable.
+
 On first startup after this layout is introduced, Nexa non-destructively copies
 legacy user skill projections and `mcp-connectors.json` from app data when the
 matching `.nexa` target does not already exist. Existing user-owned files always

@@ -176,5 +176,8 @@
   "authoringOpenChat": "Abrir conversa",
   "authoringNoRuns": "Nenhuma execução ainda.",
   "authoringMoreRuns": "Carregar mais",
-  "authoringSettings": "Gatilhos e permissões"
+  "authoringSettings": "Gatilhos e permissões",
+  "schedulesSubtitle": "Crie tarefas recorrentes, confira as próximas execuções e pause ou retome. O Nexa precisa estar aberto para executar tarefas locais.",
+  "savedAutomations": "Tarefas salvas ({count})",
+  "noAutomations": "Nenhuma tarefa ainda. Crie um agendamento para começar."
 }

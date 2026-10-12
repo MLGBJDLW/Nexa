@@ -1016,32 +1016,31 @@ export function ChatPage() {
   const selectedPersona = personas.find((persona) => persona.id === activePersonaId);
   const selectedPersonaLabel = selectedPersona?.name || activePersonaId;
   const selectedPersonaDetail = selectedPersona?.description || activePersonaId;
+  const modelSelectionQueue = useRef<Promise<void>>(Promise.resolve());
   const handleAgentModelSelection = useCallback(
-    async (selection: AgentModelSelection) => {
-      const config = selection.config;
-      const unchanged =
-        config.model === selection.model &&
-        config.reasoningEnabled === selection.reasoningEnabled &&
-        config.thinkingBudget === selection.thinkingBudget &&
-        config.reasoningEffort === selection.reasoningEffort;
-
-      try {
-        let nextConfig = config;
-        if (!unchanged) {
-          nextConfig = await api.saveAgentConfig(agentConfigToSaveInput(config, selection));
+    (selection: AgentModelSelection) => {
+      // List, slider, and reopened menus all share the same persistence order.
+      // Always write the requested values: queued selections can carry an older
+      // config snapshot, even when that snapshot appears unchanged.
+      const apply = async () => {
+        let persisted = false;
+        try {
+          const nextConfig = await api.saveAgentConfig(agentConfigToSaveInput(selection.config, selection));
+          persisted = true;
+          setAgentConfigs(current => current.map(candidate => candidate.id === nextConfig.id ? nextConfig : candidate));
+          await chat.switchAgentConfig(nextConfig);
+          setAgentConfigs(current => current.map(candidate => ({ ...candidate, isDefault: candidate.id === nextConfig.id })));
+          return true;
+        } catch (error) {
+          toast.error(formatUserError(t('settings.defaultModel'), error));
+          // A later default/conversation update cannot undo an already saved
+          // config. Keep that authoritative value visible instead of a false rollback.
+          return persisted;
         }
-
-        await chat.switchAgentConfig(nextConfig);
-        setAgentConfigs((current) =>
-          current.map((candidate) =>
-            candidate.id === nextConfig.id
-              ? { ...nextConfig, isDefault: true }
-              : { ...candidate, isDefault: false },
-          ),
-        );
-      } catch (error) {
-        toast.error(formatUserError(t('settings.defaultModel'), error));
-      }
+      };
+      const result = modelSelectionQueue.current.then(apply);
+      modelSelectionQueue.current = result.then(() => undefined, () => undefined);
+      return result;
     },
     [chat, t],
   );

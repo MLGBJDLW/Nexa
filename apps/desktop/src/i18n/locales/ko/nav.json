@@ -10,5 +10,6 @@
   "chat": "Chat",
   "knowledge": "Knowledge",
   "tasks": "작업",
-  "workflows": "워크플로"
+  "workflows": "워크플로",
+  "schedules": "예약 작업"
 }

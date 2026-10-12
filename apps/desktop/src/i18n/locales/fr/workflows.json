@@ -176,5 +176,8 @@
   "authoringOpenChat": "Ouvrir la conversation",
   "authoringNoRuns": "Aucune exécution.",
   "authoringMoreRuns": "Charger plus",
-  "authoringSettings": "Déclenchement et autorisations"
+  "authoringSettings": "Déclenchement et autorisations",
+  "schedulesSubtitle": "Créez des tâches récurrentes, consultez les prochaines exécutions et suspendez-les ou reprenez-les. Nexa doit rester ouvert pour les exécutions locales.",
+  "savedAutomations": "Tâches enregistrées ({count})",
+  "noAutomations": "Aucune tâche. Créez une planification pour commencer."
 }

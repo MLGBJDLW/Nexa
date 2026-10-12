@@ -1,0 +1,6 @@
+interface:
+  display_name: "Themes"
+  short_description: "Customize, switch, and restore Nexa themes"
+  default_prompt: "Use $themes to customize Nexa's appearance."
+policy:
+  allow_implicit_invocation: true

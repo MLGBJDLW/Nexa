@@ -1,6 +1,7 @@
 import { expect, test } from './timeline-test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Page } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -518,17 +519,31 @@ test('reasoning slider shares provider semantics with the list and persists its 
   await page.getByRole('button',{name:'Intensity slider',exact:true}).click();
   const slider=page.getByRole('slider',{name:'Reasoning Effort'});
   await expect(slider).toBeVisible();
+  await expect(slider).toHaveCSS('cursor', 'pointer');
+  for (const style of ['fluid', 'precise', 'minimal']) {
+    await page.evaluate(value => document.documentElement.dataset.cursorStyle = value, style);
+    await expect(slider).toHaveCSS('cursor', 'pointer');
+  }
+  expect(await slider.evaluate(element => parseFloat(getComputedStyle(element, '::-webkit-slider-runnable-track').height))).toBeGreaterThanOrEqual(28);
+  const initialColor = await page.locator('.nexa-intensity').evaluate(element => getComputedStyle(element).getPropertyValue('--intensity-color'));
   await slider.focus();
   await slider.press('End');
   await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:'max',thinkingBudget:null});
-  await trigger.click();
+  await expect(slider).toBeVisible();
   await expect(slider).toHaveAttribute('aria-valuetext','Max');
+  await expect(slider).toBeEnabled();
+  expect(await page.locator('.nexa-intensity').evaluate(element => getComputedStyle(element).getPropertyValue('--intensity-color'))).not.toBe(initialColor);
+  await expect(page.getByTestId('reasoning-slider-label')).toHaveText('Max');
+  await expect.poll(async () => {
+    const thumb = (await page.locator('.nexa-intensity-thumb').boundingBox())!;
+    const track = (await slider.boundingBox())!;
+    return Math.abs(thumb.x + thumb.width - track.x - track.width);
+  }).toBeLessThan(1);
   await page.getByTestId('agent-model-picker-menu').screenshot({path:testInfo.outputPath('reasoning-intensity-slider.png')});
   await slider.focus();
   await slider.press('Home');
   await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:false,reasoningEffort:null,thinkingBudget:null});
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('nexa-display-preferences')!).reasoningControl)).toBe('slider');
-  await trigger.click();
   await page.getByRole('button',{name:'List',exact:true}).click();
   await expect(page.getByTestId('agent-model-reasoning-max')).toBeVisible();
 });
@@ -818,10 +833,159 @@ test('reasoning slider supports pointer drag and reduced motion in the dark them
   await page.mouse.move(box.x + box.width + 12, box.y + box.height + 15);
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({ reasoningEffort: 'max' });
-  await page.getByTestId('agent-reasoning-picker-trigger').click();
   const panel = page.getByTestId('agent-model-picker-menu');
+  await expect(panel).toBeVisible();
   await expect(panel.locator('.nexa-intensity-bond path').first()).toHaveCSS('animation-name', 'none');
+  await expect(panel.locator('.nexa-intensity-bond animate')).toHaveCount(0);
   await expect(panel.locator('.nexa-intensity-meter')).toHaveCount(0);
   await expect.poll(() => panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
   await panel.screenshot({ path: testInfo.outputPath('reasoning-bond-dark.png') });
 });
+
+test.describe('reasoning slider motion', () => {
+  test('DNA rotates continuously and the thumb follows dragging before springing to a stop', async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto('/chat/conv-model-switch');
+    await page.getByTestId('agent-model-picker-trigger').click();
+    await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+    await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+    await page.getByTestId('agent-reasoning-picker-trigger').click();
+    await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+    const slider = page.getByRole('slider', { name: 'Reasoning Effort' });
+    await expect(slider).toBeVisible();
+    const firstRung = page.locator('.nexa-intensity-bond line').first();
+    const initialY = await firstRung.evaluate(element => (element as SVGLineElement).y1.animVal.value);
+    await expect.poll(() => firstRung.evaluate(element => (element as SVGLineElement).y1.animVal.value)).not.toBe(initialY);
+
+    const box = (await slider.boundingBox())!;
+    await page.mouse.move(box.x + 19, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 19 + (box.width - 38) * 0.35, box.y + box.height / 2, { steps: 12 });
+    const dragged = (await page.locator('.nexa-intensity-thumb').boundingBox())!;
+    expect((dragged.x + dragged.width / 2 - box.x - 19) / (box.width - 38)).toBeCloseTo(0.35, 2);
+    await page.mouse.up();
+    await expect(slider).toBeEnabled();
+    await expect(slider).toHaveValue('2');
+
+    const positions = await page.evaluate(async () => {
+      const thumb = document.querySelector('.nexa-intensity-thumb')!;
+      const button = [...document.querySelectorAll<HTMLButtonElement>('.nexa-intensity-options button')].find(element => element.textContent === 'Max')!;
+      const result = [thumb.getBoundingClientRect().x];
+      button.click();
+      for (let index = 0; index < 24; index++) {
+        await new Promise(requestAnimationFrame);
+        result.push(thumb.getBoundingClientRect().x);
+      }
+      return result;
+    });
+    const start = positions[0];
+    const end = positions.at(-1)!;
+    expect(end - start).toBeGreaterThan(80);
+    expect(positions.filter(value => value > start + 2 && value < end - 2).length).toBeGreaterThan(2);
+    await expect(slider).toHaveAttribute('aria-valuetext', 'Max');
+    await page.getByTestId('agent-model-picker-menu').screenshot({ path: testInfo.outputPath('reasoning-dna-motion.png') });
+  });
+});
+
+test('reasoning slider restores the saved selection when persistence fails', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+  const slider = page.getByRole('slider', { name: 'Reasoning Effort' });
+  await expect(slider).toHaveAttribute('aria-valuetext', 'High');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: unknown) => command === 'save_agent_config_cmd'
+      ? Promise.reject(new Error('Theme test save failed')) : original(command, args);
+  });
+  await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Max', exact: true }).click();
+  await expect(slider).toBeEnabled();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'High');
+  await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('High');
+});
+
+async function openSonnetReasoningSlider(page: Page) {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
+}
+
+async function holdNextReasoningSave(page: Page) {
+  await page.evaluate(() => {
+    const state = window as any;
+    const original = state.__TAURI_INTERNALS__.invoke;
+    state.__reasoningSaveStarts = [];
+    let hold = true;
+    state.__TAURI_INTERNALS__.invoke = async (command: string, args: any) => {
+      if (command === 'save_agent_config_cmd') {
+        state.__reasoningSaveStarts.push(args.config.reasoningEffort);
+        if (hold) {
+          hold = false;
+          await new Promise(resolve => state.__releaseReasoningSave = resolve);
+        }
+      }
+      return original(command, args);
+    };
+  });
+}
+
+test('reasoning slider retains keyboard focus and serializes rapid reverse selections', async ({ page }) => {
+  await openSonnetReasoningSlider(page);
+  await holdNextReasoningSave(page);
+  const slider = page.getByRole('slider', { name: 'Reasoning Effort' });
+  await slider.focus();
+  await slider.press('ArrowRight');
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['xhigh']);
+  await expect(slider).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'High');
+  await expect(slider).toBeFocused();
+  expect(await page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['xhigh']);
+  await page.evaluate(() => (window as any).__releaseReasoningSave());
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['xhigh', 'high']);
+  await expect(page.locator('.nexa-intensity')).toHaveAttribute('aria-busy', 'false');
+  await expect(slider).toBeFocused();
+  await expect(slider).toHaveAttribute('aria-valuetext', 'High');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1)?.reasoningEffort)).toBe('high');
+});
+
+test('reasoning slider and list share one save queue across a view switch', async ({ page }) => {
+  await openSonnetReasoningSlider(page);
+  await holdNextReasoningSave(page);
+  await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Low', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low']);
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await page.getByTestId('agent-model-reasoning-medium').click();
+  expect(await page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low']);
+  await page.evaluate(() => (window as any).__releaseReasoningSave());
+  await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low', 'medium']);
+  await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Medium');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1)?.reasoningEffort)).toBe('medium');
+});
+
+for (const failedCommand of ['set_default_agent_config_cmd', 'update_conversation_model_cmd']) {
+  test(`reasoning slider preserves the persisted effort when ${failedCommand} fails later`, async ({ page }) => {
+    await openSonnetReasoningSlider(page);
+    await page.evaluate(command => {
+      const host = (window as any).__TAURI_INTERNALS__;
+      const original = host.invoke;
+      host.invoke = (name: string, args: unknown) => name === command
+        ? Promise.reject(new Error('Session projection failed after persistence')) : original(name, args);
+    }, failedCommand);
+    await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Max', exact: true }).click();
+    await expect(page.locator('.nexa-intensity')).toHaveAttribute('aria-busy', 'false');
+    await expect(page.getByRole('slider', { name: 'Reasoning Effort' })).toHaveAttribute('aria-valuetext', 'Max');
+    await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Max');
+    expect(await page.evaluate(async () => {
+      const configs = await (window as any).__TAURI_INTERNALS__.invoke('list_agent_configs_cmd');
+      return configs.find((config: any) => config.id === 'cfg-sonnet').reasoningEffort;
+    })).toBe('max');
+  });
+}

@@ -176,5 +176,8 @@
   "authoringOpenChat": "チャットを開く",
   "authoringNoRuns": "実行履歴はありません。",
   "authoringMoreRuns": "さらに読み込む",
-  "authoringSettings": "トリガーと権限"
+  "authoringSettings": "トリガーと権限",
+  "schedulesSubtitle": "定期タスクを作成し、次回の実行を確認して、一時停止や再開ができます。ローカル実行には Nexa の起動が必要です。",
+  "savedAutomations": "保存済みタスク（{count}）",
+  "noAutomations": "タスクはありません。スケジュールを作成してください。"
 }

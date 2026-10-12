@@ -176,5 +176,8 @@
   "authoringOpenChat": "開啟對話",
   "authoringNoRuns": "尚無執行記錄。",
   "authoringMoreRuns": "載入更多",
-  "authoringSettings": "觸發與權限"
+  "authoringSettings": "觸發與權限",
+  "schedulesSubtitle": "建立週期任務、查看下次執行時間，並隨時暫停或恢復。本機排程需要 Nexa 保持執行。",
+  "savedAutomations": "已儲存任務（{count}）",
+  "noAutomations": "尚無任務。建立排程即可開始。"
 }

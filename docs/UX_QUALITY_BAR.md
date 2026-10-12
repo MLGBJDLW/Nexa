@@ -48,6 +48,19 @@ returns focus. Customize the palette shortcut from the palette or Appearance
 settings. `/model`, `/preview`, `/options`, `/attach`, and `/commands` are local
 composer actions and are never sent to the LLM.
 
+Reasoning offers a list or a wide discrete slider over the same provider-supported
+options. Each known effort level keeps its own color even when a provider omits
+other levels. The selected color fills the capsule up to its round thumb; Nexa's
+bond motif rotates as a subtle DNA helix with lightweight highlights. The thumb
+tracks pointer movement continuously and springs to the committed stop; labels,
+option highlights, and list/slider switches also transition. Slider selection
+keeps the panel open and preserves keyboard focus. List and slider saves share
+one queue; rejected saves restore the last saved value, while a later session
+update error never rolls back a configuration that already persisted.
+All decorative motion respects reduced motion. Range controls use a pointer
+cursor across appearance cursor styles, and labels preserve each provider's
+default, disabled, effort, and token-budget semantics.
+
 ### 1. Show the user what matters, not what the model felt
 
 Default UI should prioritize:
