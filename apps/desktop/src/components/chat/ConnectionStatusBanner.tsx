@@ -27,10 +27,10 @@ export function ConnectionStatusBanner({ connection }: ConnectionStatusBannerPro
   const attemptLabel = t('chat.connectionAttempt', { attempt: String(connection.attempt), total: String(connection.maxAttempts) });
 
   return <div className="shrink-0 px-4 pb-2" data-testid="provider-connection-status">
-    <div className={`mx-auto flex max-w-4xl items-start gap-2 py-2 text-xs ${failed ? 'text-danger' : 'text-text-secondary'}`}>
+    <div role={failed ? 'alert' : undefined} aria-atomic={failed ? true : undefined} className={`mx-auto flex max-w-4xl items-start gap-2 py-2 text-xs ${failed ? 'text-danger' : 'text-text-secondary'}`}>
       {failed ? <WifiOff className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" />}
       <div className="min-w-0 flex-1">
-        <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div role={retrying ? 'status' : undefined} aria-live={retrying ? 'polite' : undefined} className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-medium">{label}</span>
           {retrying && connection.maxAttempts > 0 && <span className="text-text-tertiary"><FlipStatusText text={attemptLabel} /></span>}
         </div>

@@ -445,3 +445,29 @@ test('connection retries show one live flip counter and clear when recovered', a
   await emit('recovered', 2);
   await expect(banner).toHaveCount(0);
 });
+
+for (const failure of [
+  { state: 'failed', turnPreserved: true },
+  { state: 'offline', turnPreserved: false },
+]) {
+  test(`connection ${failure.state} announces preservation and recovery guidance together`, async ({ page }) => {
+    await page.goto('/chat/conv-stream-a');
+    await expect(page.getByTestId('chat-input-textarea')).toBeVisible();
+    const emit = (state: string) => page.evaluate(({ state, turnPreserved }) => {
+      (window as unknown as { __emitTestEvent: (name: string, payload: Record<string, unknown>) => void }).__emitTestEvent('agent://run-event', {
+        conversationId: 'conv-stream-a', type: 'connectionState', state: { state, providerId: 'open_ai', modelId: 'gpt-4.1', attempt: 2, maxAttempts: 5, nextRetryAt: new Date(Date.now() + 8000).toISOString(), recoverable: true, queuedUserInputs: 0, turnPreserved, errorCategory: 'timeout' },
+      });
+    }, { state, turnPreserved: failure.turnPreserved });
+    await emit('reconnecting');
+    const banner = page.getByTestId('provider-connection-status');
+    await expect(banner.getByRole('status')).toBeVisible();
+    await emit(failure.state);
+    const alert = banner.getByRole('alert');
+    await expect(alert).toBeVisible();
+    await expect(alert).toHaveAttribute('aria-atomic', 'true');
+    await expect(alert).toContainText(failure.turnPreserved ? 'Your current turn is preserved.' : 'This turn could not be preserved.');
+    await expect(alert).toContainText('Check provider settings, then resend when the connection is available.');
+    await expect(banner.getByRole('status')).toHaveCount(0);
+    await expect(page.getByTestId('connection-retry-countdown')).toHaveCount(0);
+  });
+}
