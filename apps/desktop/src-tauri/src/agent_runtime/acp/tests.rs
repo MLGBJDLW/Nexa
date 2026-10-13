@@ -17,6 +17,85 @@ fn wire(mode: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn setup_exposes_native_authentication_without_reporting_a_connected_session() {
+    let mut wire = wire("auth_methods");
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let launch = ExternalAgentLaunch {
+        working_directory: "fixture".into(),
+        ..Default::default()
+    };
+    let catalog = super::auth::catalog(&mut wire, &launch, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(catalog.requires_authentication);
+    assert!(catalog.models.is_empty());
+    assert_eq!(catalog.auth_methods.len(), 2);
+    assert_eq!(catalog.auth_methods[0].kind, "agent");
+    assert_eq!(catalog.auth_methods[1].kind, "terminal");
+    let public = serde_json::to_value(&catalog).unwrap();
+    assert!(!public.to_string().contains("ACP_LOGIN"));
+    wire.request("authenticate", json!({"methodId":"oauth"}))
+        .await
+        .unwrap();
+    // Reinitializing does not log out an authenticated adapter.
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let catalog = super::auth::catalog(&mut wire, &launch, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(!catalog.requires_authentication);
+    assert!(!catalog.models.is_empty());
+}
+
+#[tokio::test]
+async fn process_startup_failures_expose_a_redacted_stderr_cause() {
+    let mut command = tokio::process::Command::new("python");
+    command.args(["-u", "-c", "import sys;sys.stderr.write('Cannot find ACP module\\nAPI_KEY=credential-secret-must-not-escape\\n');sys.stderr.flush();sys.exit(2)"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut wire = Wire::spawn(command).unwrap();
+    let error = wire
+        .request("initialize", json!({}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Cannot find ACP module"), "{error}");
+    assert!(
+        !error.contains("credential-secret-must-not-escape"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn terminal_login_reuses_the_advertised_invocation_without_protocol_authentication() {
+    let root = tempfile::tempdir().unwrap();
+    let db = nexa_core::db::Database::new(root.path().join("nexa.db")).unwrap();
+    let env = nexa_core::external_agent::launch::process_environment(&Default::default());
+    let python = nexa_core::external_agent::launch::find_executable("python", &env).unwrap();
+    let args = vec![
+        "-u".into(),
+        "-c".into(),
+        include_str!("fixture.py").into(),
+        "auth_methods".into(),
+    ];
+    let launch = ExternalAgentLaunch {
+        executable: Some(python.to_string_lossy().into()),
+        args: Some(args.clone()),
+        working_directory: root.path().to_string_lossy().into(),
+        ..Default::default()
+    };
+    let result = super::authenticate("custom_acp", &launch, &db, None, "terminal")
+        .await
+        .unwrap();
+    let super::Authentication::Terminal { plan, cwd, .. } = result else {
+        panic!("expected interactive login")
+    };
+    assert_eq!(plan.executable, python);
+    assert_eq!(&plan.args[..args.len()], &args);
+    assert_eq!(plan.args.last().unwrap(), "--terminal-login");
+    assert_eq!(plan.env.get("ACP_LOGIN").unwrap(), "1");
+    assert_eq!(cwd, launch.working_directory);
+}
+
+#[tokio::test]
 async fn opaque_chat_reasoning_reaches_native_prompt_and_unadvertised_values_fail_closed() {
     for effort in ["deep", "invented"] {
         let (mut request, mut rx, _, _) = super::super::tests::fixture(
@@ -916,4 +995,54 @@ async fn external_protocol_launches_installed_cmd_shims_in_unicode_directories()
         .select_model(&mut wire, "vendor/模型")
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires NEXA_TEST_ANTIGRAVITY_ACP pointing to the official downloaded adapter; initialize only"]
+async fn official_antigravity_initializes_through_nexa_without_user_credentials() {
+    let executable = std::env::var("NEXA_TEST_ANTIGRAVITY_ACP").expect("official adapter path");
+    let root = tempfile::tempdir().unwrap();
+    let mut env = std::collections::BTreeMap::new();
+    for name in ["PATH", "SystemRoot", "WINDIR", "COMSPEC"] {
+        if let Ok(value) = std::env::var(name) {
+            env.insert(name.to_string(), value);
+        }
+    }
+    for name in [
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+        "GEMINI_HOME",
+    ] {
+        let directory = root.path().join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        env.insert(name.to_string(), directory.to_string_lossy().into_owned());
+    }
+    let launch = ExternalAgentLaunch {
+        executable: Some(executable),
+        args: Some(vec![]),
+        working_directory: root.path().to_string_lossy().into_owned(),
+        env: env.clone(),
+        ..Default::default()
+    };
+    let preset = nexa_core::external_agent::preset("acp_antigravity_acp").unwrap();
+    let plan = nexa_core::external_agent::launch::prepare(preset, &launch, None)
+        .await
+        .unwrap();
+    let mut command = super::transport::command_from_plan(&plan, &launch).unwrap();
+    command.env_clear().envs(env);
+    let mut wire = Wire::spawn(command).unwrap();
+    let started = std::time::Instant::now();
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let methods = initialized
+        .auth_methods
+        .iter()
+        .map(|method| method.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(methods.contains(&"oauth-personal"));
+    assert!(methods.contains(&"gemini-api-key"));
+    println!("Official Antigravity initialized through Nexa in {}ms; advertised methods: {:?}; no authentication or inference requested", started.elapsed().as_millis(), methods);
 }

@@ -1,6 +1,90 @@
 //! Explicit local launch preferences are separate from HTTP model credentials.
 use super::AppState;
+use nexa_core::agent::CancellationToken;
 use nexa_core::external_agent::ExternalAgentLaunch;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::Instant,
+};
+
+struct SetupEntry {
+    token: CancellationToken,
+    active: bool,
+    created: Instant,
+}
+fn setup_operations() -> &'static Mutex<HashMap<String, SetupEntry>> {
+    static OPERATIONS: OnceLock<Mutex<HashMap<String, SetupEntry>>> = OnceLock::new();
+    OPERATIONS.get_or_init(Default::default)
+}
+struct SetupOperation {
+    id: String,
+    token: CancellationToken,
+}
+impl SetupOperation {
+    fn new(id: Option<String>) -> Result<Self, String> {
+        let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        uuid::Uuid::parse_str(&id)
+            .map_err(|_| "Invalid external-agent setup request id".to_string())?;
+        let mut operations = setup_operations()
+            .lock()
+            .map_err(|_| "External-agent setup state is unavailable")?;
+        operations.retain(|_, entry| entry.active || entry.created.elapsed().as_secs() < 600);
+        if let Some(entry) = operations.get(&id) {
+            if entry.token.is_cancelled() {
+                return Err("External-agent setup cancelled".into());
+            }
+            return Err("This external-agent setup request is already active".into());
+        }
+        let token = CancellationToken::new();
+        operations.insert(
+            id.clone(),
+            SetupEntry {
+                token: token.clone(),
+                active: true,
+                created: Instant::now(),
+            },
+        );
+        Ok(Self { id, token })
+    }
+    async fn run<T>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, nexa_core::error::CoreError>>,
+    ) -> Result<T, String> {
+        tokio::select! {
+            biased;
+            _ = self.token.cancelled() => Err("External-agent setup cancelled".into()),
+            result = future => result.map_err(|error| error.to_string()),
+        }
+    }
+}
+impl Drop for SetupOperation {
+    fn drop(&mut self) {
+        if let Ok(mut operations) = setup_operations().lock() {
+            operations.remove(&self.id);
+        }
+    }
+}
+
+#[tauri::command]
+pub fn cancel_external_agent_setup_cmd(request_id: String) -> Result<(), String> {
+    uuid::Uuid::parse_str(&request_id)
+        .map_err(|_| "Invalid external-agent setup request id".to_string())?;
+    let mut operations = setup_operations()
+        .lock()
+        .map_err(|_| "External-agent setup state is unavailable")?;
+    operations.retain(|_, entry| entry.active || entry.created.elapsed().as_secs() < 600);
+    operations
+        .entry(request_id)
+        .or_insert_with(|| SetupEntry {
+            token: CancellationToken::new(),
+            active: false,
+            created: Instant::now(),
+        })
+        .token
+        .cancel();
+    Ok(())
+}
 
 fn usage_launch(
     db: &nexa_core::db::Database,
@@ -102,8 +186,19 @@ pub async fn probe_external_agent_cmd(
 ) -> Result<Vec<super::subscription_accounts::CopilotModelSummary>, String> {
     crate::agent_runtime::acp::probe(&provider, &launch, &state.db, model.as_deref())
         .await
-        .map(|catalog| summaries(catalog.models))
         .map_err(|error| error.to_string())
+        .and_then(connected_models)
+}
+
+pub(super) fn connected_models(
+    catalog: crate::agent_runtime::acp::Catalog,
+) -> Result<Vec<super::subscription_accounts::CopilotModelSummary>, String> {
+    if catalog.requires_authentication {
+        return Err(
+            "Sign in to this external agent from its Settings profile, then refresh models.".into(),
+        );
+    }
+    Ok(summaries(catalog.models))
 }
 
 pub(super) fn summaries(
@@ -126,10 +221,71 @@ pub async fn inspect_external_agent_cmd(
     provider: String,
     launch: ExternalAgentLaunch,
     model: Option<String>,
+    request_id: Option<String>,
 ) -> Result<crate::agent_runtime::acp::Catalog, String> {
-    crate::agent_runtime::acp::probe(&provider, &launch, &state.db, model.as_deref())
+    let operation = SetupOperation::new(request_id)?;
+    operation
+        .run(crate::agent_runtime::acp::probe(
+            &provider,
+            &launch,
+            &state.db,
+            model.as_deref(),
+        ))
         .await
-        .map_err(|error| error.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExternalAgentAuthentication {
+    catalog: Option<crate::agent_runtime::acp::Catalog>,
+    terminal: Option<super::TerminalSessionInfo>,
+}
+
+#[tauri::command]
+pub async fn authenticate_external_agent_cmd(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    terminals: tauri::State<'_, super::TerminalState>,
+    provider: String,
+    launch: ExternalAgentLaunch,
+    model: Option<String>,
+    method_id: String,
+    request_id: Option<String>,
+) -> Result<ExternalAgentAuthentication, String> {
+    let operation = SetupOperation::new(request_id)?;
+    match operation
+        .run(crate::agent_runtime::acp::authenticate(
+            &provider,
+            &launch,
+            &state.db,
+            model.as_deref(),
+            &method_id,
+        ))
+        .await?
+    {
+        crate::agent_runtime::acp::Authentication::Connected(catalog) => {
+            Ok(ExternalAgentAuthentication {
+                catalog: Some(catalog),
+                terminal: None,
+            })
+        }
+        crate::agent_runtime::acp::Authentication::Terminal { plan, cwd, label } => {
+            let state = terminals.inner().clone();
+            let terminal = tokio::task::spawn_blocking(move || {
+                super::terminal::start_external_login(app_handle, &state, plan, cwd, label)
+            })
+            .await
+            .map_err(|error| error.to_string())??;
+            if operation.token.is_cancelled() {
+                let _ = terminals.close_session(&terminal.id);
+                return Err("External-agent setup cancelled".into());
+            }
+            Ok(ExternalAgentAuthentication {
+                catalog: None,
+                terminal: Some(terminal),
+            })
+        }
+    }
 }
 
 #[cfg(test)]

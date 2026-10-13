@@ -64,8 +64,10 @@ candle-transformers = { version = "0.9", optional = true }
 hound = { version = "3.5", optional = true }
 tempfile = "3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
+bzip2 = "0.6.1"
 xz2 = { version = "0.1", optional = true }
-tar = { version = "0.4", optional = true }
+tar = "0.4"
 walkdir = "2.5"
 similar = { version = "3.2.0", default-features = false, features = ["text", "std"] }
 
@@ -94,7 +96,7 @@ document-processing = ["dep:lopdf", "dep:calamine"]
 onnx-runtime = ["dep:ort", "dep:ndarray"]
 local-embeddings = ["onnx-runtime", "dep:tokenizers"]
 ocr = ["onnx-runtime", "document-processing", "dep:imageproc", "dep:hayro"]
-video = ["candle-core", "candle-nn", "candle-transformers", "hound", "xz2", "tar", "dep:tokenizers"]
+video = ["candle-core", "candle-nn", "candle-transformers", "hound", "xz2", "dep:tokenizers"]
 
 [dev-dependencies]
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }

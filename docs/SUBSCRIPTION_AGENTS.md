@@ -78,7 +78,7 @@ an uncertain action.
 
 ## Installed ACP agents
 
-The External agents catalog includes all 41 agents in the reviewed October 10,
+The External agents catalog includes all 41 agents in the reviewed October 13,
 2026 [ACP registry](https://github.com/agentclientprotocol/registry), plus Hermes
 and a custom ACP entry. The shared catalog preserves registry provenance,
 platform distributions and pinned package versions. Existing profiles retain
@@ -96,10 +96,13 @@ their installed CLI commands. Common installed CLI presets include:
 | Goose | `goose acp` | Install and configure a native provider |
 | Auggie | `auggie --acp` | Install and authenticate the Augment CLI |
 
-New package presets such as Pi use their registry `npx` or `uvx` command.
-**Download / check connection** explicitly starts the package runner and may
-download the pinned package on its first run. Binary-only presets require an
-installed executable for a supported platform. **Advanced** accepts a JSON argv
+**Download / check connection** resolves an installed ACP adapter first, then
+prepares the registry's pinned `npx`/`uvx` package or official platform archive.
+Archive installation preserves companion executables and publishes only a
+complete extracted directory. Antigravity requires `agy_acp_server.exe` and its
+helper; the separately installed `agy.exe` CLI is not the ACP server. A missing
+package runner or unsupported platform produces an actionable setup error.
+**Advanced** accepts a JSON argv
 array and environment object, including custom ACP servers. These preferences
 are encrypted at rest; legacy preferences remain readable. Windows batch shims
 reject shell metacharacters in custom arguments; use a native executable when
@@ -118,8 +121,16 @@ Launch preferences are stored separately from API credentials under the exact
 saved profile ID. Editing one profile cannot redirect another profile. A project's
 primary workspace folder overrides the profile's fallback directory. The process
 cwd and ACP session cwd always agree; Nexa never infers an ACP cwd from its own
-process directory. On Windows the launcher can
-resolve installed npm `.cmd` shims. Nexa neither installs nor signs in silently.
+process directory. On Windows the launcher respects an explicitly configured
+PATH, otherwise includes current registered and common per-user CLI paths. Known
+npm shims use their Node entry point to preserve literal argv. Adapter preparation
+is part of connecting the selected profile; sign-in requires a separate action.
+
+When a server requires authentication, Settings presents its advertised methods.
+Agent methods use the ACP authentication request. Terminal methods open the same
+adapter in Nexa's existing terminal, and a successful exit triggers a new connection
+check. Editing or closing setup cancels outstanding work. Startup errors include a
+bounded, redacted stderr tail, while credential values remain encrypted at rest.
 
 **Check connection** runs `initialize` and `session/new` without a prompt. It
 loads the real catalog, not a hard-coded cloud model list. Success means the

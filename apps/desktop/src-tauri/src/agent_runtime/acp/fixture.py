@@ -33,6 +33,7 @@ def update(value):
     emit({"method": "session/update", "params": {"sessionId": session, "update": value}})
 
 pending = None
+authenticated = False
 for line in sys.stdin:
     message = json.loads(line)
     method = message.get("method")
@@ -42,7 +43,10 @@ for line in sys.stdin:
     if method == "initialize":
         assert message["params"]["clientCapabilities"]["terminal"] is True
         assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": True, "writeTextFile": True}
-        reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}})
+        reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}, "authMethods": [
+            {"id":"oauth","name":"Browser sign-in"},
+            {"id":"terminal","name":"Terminal sign-in","type":"terminal","args":["--terminal-login"],"env":{"ACP_LOGIN":"1"}}
+        ] if mode == "auth_methods" else []})
     elif method == "session/new":
         if mode == "launch":
             with open(sys.argv[2], "w", encoding="utf-8") as log:
@@ -51,12 +55,16 @@ for line in sys.stdin:
             assert os.path.samefile(os.getcwd(), message["params"]["cwd"])
             with open(sys.argv[2], "w", encoding="utf-8") as log:
                 json.dump({"processCwd": os.getcwd(), "sessionCwd": message["params"]["cwd"]}, log)
-        if mode == "auth":
+        if mode == "auth" or (mode == "auth_methods" and not authenticated):
             emit({"id": message["id"], "error": {"code": -32000, "message": "credential-secret-must-not-escape"}})
         elif mode == "legacy":
             reply(message, {"sessionId": session, "models": {"currentModelId": "first", "availableModels": [{"modelId": "first", "name": "First"}, {"modelId": "vendor/模型", "name": "Model"}]}})
         else:
             reply(message, {"sessionId": session, "configOptions": config})
+    elif method == "authenticate":
+        assert mode == "auth_methods" and message["params"]["methodId"] == "oauth", "terminal methods must never reach authenticate"
+        authenticated = True
+        reply(message, {})
     elif method == "session/set_model":
         assert mode == "legacy" and message["params"]["modelId"] == "vendor/模型"
         reply(message, {})

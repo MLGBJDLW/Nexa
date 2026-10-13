@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, FolderOpen, Terminal } from 'lucide-react';
+import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from '../../i18n';
-import { getExternalAgentLaunch, inspectExternalAgent, parseExternalLaunchFields, type ExternalAgentLaunch, type ExternalAgentConfigOption } from '../../lib/externalAgents';
+import { authenticateExternalAgent, cancelExternalAgentSetup, getExternalAgentLaunch, inspectExternalAgent, parseExternalLaunchFields, type ExternalAgentLaunch, type ExternalAgentConfigOption, type ExternalAgentCatalog } from '../../lib/externalAgents';
 import { runtimeAgentConfig } from '../../lib/runtimeAgentConfig';
-import { listMcpServers, type CopilotModelSummary } from '../../lib/api';
+import { closeTerminalSession, listMcpServers, type CopilotModelSummary, type TerminalEvent, type TerminalSessionInfo } from '../../lib/api';
 import type { McpServer } from '../../types/extensions';
 import type { ProviderPreset } from '../../lib/providerPresets';
 import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation';
 import { Button } from '../ui/Button';
+import { TerminalDock } from '../chat/TerminalDock';
 
 const isNativeModel = (option: ExternalAgentConfigOption) => option.category === 'model' || (!option.category && option.id === 'model');
 const isNativeReasoning = (option: ExternalAgentConfigOption) => option.category === 'thought_level'
@@ -27,7 +29,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   const [envText, setEnvText] = useState('');
   let launchFieldsValid = true;
   try { parseExternalLaunchFields(argsText, envText); } catch { launchFieldsValid = false; }
-  const packageRunner = ['npx', 'uvx'].includes(preset.command ?? '') && !launch.executable;
+  const packageRunner = Boolean(preset.distribution) && !launch.executable;
   const [model, setModel] = useState(config?.model ?? '');
   const [models, setModels] = useState<CopilotModelSummary[]>([]);
   const [nativeOptions, setNativeOptions] = useState<ExternalAgentConfigOption[]>([]);
@@ -37,7 +39,21 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authMethods, setAuthMethods] = useState<NonNullable<ExternalAgentCatalog['authMethods']>>([]);
+  const [requiresAuthentication, setRequiresAuthentication] = useState(false);
+  const [authTerminal, setAuthTerminal] = useState<TerminalSessionInfo | null>(null);
+  const pendingSetup = useRef<string | null>(null);
+  const terminalLogin = useRef<{ id?: string; dispose: () => void } | null>(null);
   const generation = useRef(0);
+  const cancelSetup = () => {
+    if (pendingSetup.current) void cancelExternalAgentSetup(pendingSetup.current).catch(() => {});
+    pendingSetup.current = null;
+    const terminal = terminalLogin.current;
+    terminalLogin.current = null;
+    terminal?.dispose();
+    if (terminal?.id) void closeTerminalSession(terminal.id).catch(() => {});
+  };
+  useEffect(() => () => cancelSetup(), []);
   useEffect(() => {
     let cancelled = false;
     void listMcpServers().then(servers => { if (!cancelled) setConnectors(servers.filter(server => server.enabled && !server.builtinId)); }).catch(() => {});
@@ -55,26 +71,70 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     return () => { generation.current += 1; };
   }, [config?.id]);
   const changeLaunch = (next: ExternalAgentLaunch) => {
+    cancelSetup(); setAuthTerminal(null); setAuthMethods([]); setRequiresAuthentication(false);
     generation.current += 1;
     setLaunch(next); setVerified(false); setModels([]); setNativeOptions([]); setNativeCommands([]); setLoading(false); setError(null); onDirtyChange(true);
   };
+  const applyCatalog = (found: ExternalAgentCatalog, selected: string, requestedLaunch: ExternalAgentLaunch) => {
+    setModels(found.models); setNativeOptions(found.configOptions); setNativeCommands(found.commands);
+    setRequiresAuthentication(found.requiresAuthentication === true); setAuthMethods(found.authMethods ?? []);
+    setVerified(!found.requiresAuthentication && found.models.length > 0);
+    if (found.requiresAuthentication) return;
+    setLaunch({ ...requestedLaunch, configOptions: Object.fromEntries(found.configOptions
+      .filter(option => !isNativeReasoning(option) && Object.prototype.hasOwnProperty.call(requestedLaunch.configOptions ?? {}, option.id))
+      .map(option => [option.id, option.currentValue])) });
+    setModel(selected || found.models[0]?.id || '');
+  };
   const probe = async (selected = model, requestedLaunch = launch) => {
     if (!launchFieldsValid) return;
+    cancelSetup(); setAuthTerminal(null);
     const current = ++generation.current;
+    const requestId = crypto.randomUUID(); pendingSetup.current = requestId;
     setLoading(true); setError(null); setVerified(false);
     try {
-      const found = await inspectExternalAgent(preset.provider, requestedLaunch, selected || undefined);
+      const found = await inspectExternalAgent(preset.provider, requestedLaunch, selected || undefined, requestId);
       if (generation.current !== current) return;
-      setModels(found.models); setNativeOptions(found.configOptions); setNativeCommands(found.commands); setVerified(true);
-      setLaunch({ ...requestedLaunch, configOptions: Object.fromEntries(found.configOptions
-        .filter(option => !isNativeReasoning(option) && Object.prototype.hasOwnProperty.call(requestedLaunch.configOptions ?? {}, option.id))
-        .map(option => [option.id, option.currentValue])) });
-      setModel(selected || found.models[0]?.id || '');
+      applyCatalog(found, selected, requestedLaunch);
     } catch (cause) { if (generation.current === current) setError(String(cause)); }
-    finally { if (generation.current === current) setLoading(false); }
+    finally { if (pendingSetup.current === requestId) pendingSetup.current = null; if (generation.current === current) setLoading(false); }
+  };
+  const signIn = async (methodId: string) => {
+    cancelSetup(); setAuthTerminal(null);
+    const current = ++generation.current;
+    const requestId = crypto.randomUUID(); pendingSetup.current = requestId;
+    setLoading(true); setError(null); setVerified(false);
+    let finished = false;
+    const earlyExits = new Map<string, TerminalEvent>();
+    const login = { id: undefined as string | undefined, dispose: () => {} };
+    const handleExit = (event: TerminalEvent) => {
+      if (event.kind === 'data' || finished || generation.current !== current) return;
+      if (!login.id) { earlyExits.set(event.sessionId, event); return; }
+      if (login.id !== event.sessionId) return;
+      finished = true; login.dispose(); terminalLogin.current = null; setAuthTerminal(null);
+      if (event.kind === 'exit' && event.exitCode === 0) void probe(model, launch);
+      else { setLoading(false); setError(t('settings.mcpOAuthLoginFailed')); }
+    };
+    try {
+      if (authMethods.find(method => method.id === methodId)?.kind === 'terminal') {
+        login.dispose = await listen<TerminalEvent>('terminal:event', event => handleExit(event.payload));
+        if (generation.current !== current) { login.dispose(); return; }
+        terminalLogin.current = login;
+      }
+      const result = await authenticateExternalAgent(preset.provider, launch, methodId, model || undefined, requestId);
+      if (generation.current !== current) {
+        login.dispose(); if (result.terminal) void closeTerminalSession(result.terminal.id).catch(() => {});
+        return;
+      }
+      if (result.catalog) applyCatalog(result.catalog, model, launch);
+      if (result.terminal) {
+        login.id = result.terminal.id; setAuthTerminal(result.terminal);
+        const early = earlyExits.get(login.id); if (early) handleExit(early);
+      } else { login.dispose(); terminalLogin.current = null; }
+    } catch (cause) { login.dispose(); terminalLogin.current = null; if (generation.current === current) setError(String(cause)); }
+    finally { if (pendingSetup.current === requestId) pendingSetup.current = null; if (generation.current === current) setLoading(false); }
   };
   const unchanged = config?.model === model && JSON.stringify(initialLaunch) === JSON.stringify(launch);
-  const canSave = !!name.trim() && !!model && !loading && !saving && !isSaving
+  const canSave = !!name.trim() && !!model && !loading && !authTerminal && !requiresAuthentication && !saving && !isSaving
     && launchFieldsValid
     && (unchanged || (verified && models.some(item => item.id === model)));
   const save = async () => {
@@ -93,7 +153,6 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   return <div className="min-w-0 space-y-4" data-testid="external-agent-form">
     <div className="rounded-xl border border-border bg-surface-2/60 p-3">
       <div className="flex items-center gap-2 text-sm font-medium"><Terminal size={16} />{preset.name}</div>
-      <code className="mt-2 block break-all text-xs text-text-secondary">{preset.command} {preset.args?.join(' ')}</code>
       {preset.registryVersion && <span className="mt-1 block text-[10px] text-text-tertiary">ACP Registry · {preset.registryVersion}</span>}
       <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentOwnership')}</p>
       {packageRunner && <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentPackageHint')}</p>}
@@ -104,13 +163,13 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     <label className="block text-xs font-medium text-text-secondary">{t('settings.providerName')}
       <input className={inputClass} value={name} onChange={event => { setName(event.target.value); onDirtyChange(true); }} />
     </label>
-    <label className="block text-xs font-medium text-text-secondary">{t('settings.externalAgentExecutable')}
+    <p className="text-xs leading-5 text-text-tertiary">{t('settings.externalAgentDirectoryHint')}</p>
+    <details className="rounded-lg border border-border p-3" open={Boolean(initialLaunch?.workingDirectory || initialLaunch?.executable) || undefined}>
+      <summary className="cursor-pointer text-xs font-medium text-text-secondary">{t('settings.advanced')}</summary>
+    <label className="mt-3 block text-xs font-medium text-text-secondary">{t('settings.externalAgentExecutable')}
       <input className={inputClass} value={launch.executable ?? ''} placeholder={preset.command} disabled={!initialLaunch}
         onChange={event => changeLaunch({ ...launch, executable: event.target.value || null })} />
     </label>
-    <p className="text-xs leading-5 text-text-tertiary">{t('settings.externalAgentDirectoryHint')}</p>
-    <details className="rounded-lg border border-border p-3" open={Boolean(initialLaunch?.workingDirectory) || undefined}>
-      <summary className="cursor-pointer text-xs font-medium text-text-secondary">{t('settings.advanced')}</summary>
     <label className="mt-3 block text-xs font-medium text-text-secondary"><span className="inline-flex items-center gap-1"><FolderOpen size={13} />{t('settings.externalAgentDirectory')}</span>
       <input className={inputClass} value={launch.workingDirectory} disabled={!initialLaunch}
         onChange={event => changeLaunch({ ...launch, workingDirectory: event.target.value })} />
@@ -170,11 +229,17 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     </fieldset>}
     {nativeCommands.length > 0 && <p className="break-words text-xs text-text-tertiary">{nativeCommands.map(name => `/${name}`).join(' · ')}</p>}
     {verified && <p role="status" className="text-xs text-success">{t('settings.externalAgentConnected')}</p>}
+    {requiresAuthentication && <div className="space-y-2 rounded-lg border border-border p-3" data-testid="external-agent-auth">
+      <p className="text-xs text-text-secondary">{t('settings.externalAgentAuthRequired')}</p>
+      <div className="flex flex-wrap gap-2">{authMethods.map(method => <Button key={method.id} size="sm" variant="secondary" disabled={loading || !!authTerminal} title={method.description} onClick={() => void signIn(method.id)}>{method.name}</Button>)}</div>
+    </div>}
+    {authTerminal && <TerminalDock attachedSession={authTerminal} />}
+    {loading && initialLaunch && <p role="status" className="text-xs text-text-tertiary">{t('settings.externalAgentPreparing')}</p>}
     {error && <p role="alert" className="break-words text-xs text-danger [overflow-wrap:anywhere]">{error}</p>}
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="secondary" loading={loading} disabled={!initialLaunch || saving || !launchFieldsValid} onClick={() => void probe()}>{t(packageRunner ? 'settings.externalAgentPackageProbe' : 'settings.externalAgentProbe')}</Button>
+      <Button size="sm" variant="secondary" loading={loading} disabled={!initialLaunch || saving || !!authTerminal || !launchFieldsValid} onClick={() => void probe()}>{t(packageRunner ? 'settings.externalAgentPackageProbe' : 'settings.externalAgentProbe')}</Button>
       <Button size="sm" loading={saving || isSaving} disabled={!canSave} onClick={() => void save()}>{t('common.save')}</Button>
-      <Button size="sm" variant="secondary" onClick={onCancel}>{t('common.cancel')}</Button>
+      <Button size="sm" variant="secondary" onClick={() => { generation.current++; cancelSetup(); onCancel(); }}>{t('common.cancel')}</Button>
     </div>
   </div>;
 }

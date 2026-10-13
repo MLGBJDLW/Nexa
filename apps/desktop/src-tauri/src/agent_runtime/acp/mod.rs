@@ -1,6 +1,8 @@
 //! Native ACP agents own their tools and authentication. No API key is borrowed,
 //! no reported tool is executed twice, and uncertain prompts are never replayed.
+mod auth;
 mod catalog;
+pub(crate) use auth::{authenticate, Authentication};
 pub(super) mod client;
 mod config;
 mod mcp;
@@ -43,34 +45,20 @@ pub(crate) async fn probe(
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let launch = launch.resolve(db, None, None)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
-    let mut wire = Wire::start(preset, &launch)?;
-    let timeout = if matches!(preset.command.as_str(), "npx" | "uvx") && launch.executable.is_none()
-    {
-        240
-    } else {
-        45
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(timeout), async {
-        let mut session =
-            Session::connect_with_mcp(&mut wire, &launch.working_directory, &servers).await?;
-        session
-            .configure(
-                &mut wire,
-                model,
-                &launch.config_options,
-                None,
-                launch.config_options_model.as_deref(),
-                catalog::ConfigurationUse::Discovery,
-            )
-            .await?;
-        Ok(Catalog {
-            models: session.models,
-            config_options: session.config_options,
-            commands: session.commands,
-        })
+    let mut wire = Wire::prepare(preset, &launch, adapter_cache_root(db).as_deref()).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(360), async {
+        let initialized = Session::initialize(&mut wire).await?;
+        auth::catalog(&mut wire, &launch, model, &servers, initialized).await
     })
     .await
     .map_err(|_| error("External agent connection check timed out"))?
+}
+
+fn adapter_cache_root(db: &nexa_core::db::Database) -> Option<std::path::PathBuf> {
+    db.db_path()
+        .and_then(std::path::Path::parent)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join("runtime").join("external-agents"))
 }
 
 #[derive(serde::Serialize)]
@@ -79,6 +67,8 @@ pub(crate) struct Catalog {
     pub models: Vec<catalog::Model>,
     pub config_options: Vec<config::ConfigOption>,
     pub commands: Vec<String>,
+    pub auth_methods: Vec<auth::AuthMethod>,
+    pub requires_authentication: bool,
 }
 
 pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) -> Result<Message> {
@@ -141,10 +131,11 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
         }
         None => {
             stage(&request.events, "starting").await?;
-            let mut wire = Wire::start(
-                preset(provider).ok_or_else(|| error("Unknown external agent"))?,
-                &binding.launch,
-            )?;
+            let cache_root = adapter_cache_root(&request.db);
+            let mut wire = tokio::select! {
+                _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while preparing the external agent".into())),
+                result = Wire::prepare(preset(provider).ok_or_else(|| error("Unknown external agent"))?, &binding.launch, cache_root.as_deref()) => result?,
+            };
             stage(&request.events, "connecting").await?;
             let session = tokio::select! {
                 _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while connecting".into())),

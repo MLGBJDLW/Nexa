@@ -5,9 +5,15 @@ use nexa_core::{
     managed_process::ProcessTree,
 };
 use serde_json::{json, Value};
-use std::{collections::VecDeque, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    collections::VecDeque,
+    path::Path,
+    process::Stdio,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin},
     sync::mpsc,
 };
@@ -21,6 +27,9 @@ pub(super) struct Wire {
     stdin: ChildStdin,
     messages: mpsc::Receiver<Result<Value>>,
     reader: tokio::task::JoinHandle<()>,
+    stderr_reader: Option<tokio::task::JoinHandle<()>>,
+    diagnostics: Arc<Mutex<Vec<u8>>>,
+    secrets: Vec<String>,
     queued: VecDeque<Value>,
     next_id: u64,
 }
@@ -28,55 +37,11 @@ pub(super) struct Wire {
 impl Drop for Wire {
     fn drop(&mut self) {
         self.reader.abort();
+        if let Some(reader) = &self.stderr_reader {
+            reader.abort();
+        }
         let _ = self.child.start_kill();
     }
-}
-
-fn executable(preset: &ExternalAgentPreset, launch: &ExternalAgentLaunch) -> Result<PathBuf> {
-    if let Some(path) = launch.executable.as_deref().filter(|path| !path.is_empty()) {
-        return Ok(PathBuf::from(path));
-    }
-    // Windows npm shims have .cmd; Command quotes its fixed argv, not a shell
-    // command assembled from user input. Neither cwd nor prompts become argv.
-    let command = preset.launch_command();
-    if command.is_empty() {
-        return Err(error(
-            "Choose the custom ACP agent executable in Settings before connecting.",
-        ));
-    }
-    if !matches!(preset.command.as_str(), "npx" | "uvx")
-        && preset
-            .distribution
-            .as_ref()
-            .is_some_and(|distribution| !distribution.binary.is_empty())
-        && preset.platform_launch().is_none()
-    {
-        return Err(error("This agent's published registry does not include this platform. Choose a compatible installed executable explicitly."));
-    }
-    let names = if cfg!(windows) && std::path::Path::new(&command).extension().is_none() {
-        vec![
-            format!("{command}.exe"),
-            format!("{command}.cmd"),
-            format!("{command}.bat"),
-        ]
-    } else {
-        vec![command]
-    };
-    for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
-        if !directory.is_absolute() {
-            continue;
-        }
-        for name in &names {
-            let path = directory.join(name);
-            if path.is_file() {
-                return Ok(path);
-            }
-        }
-    }
-    if preset.provider == "github_copilot_acp" {
-        return crate::commands::subscription_accounts::resolve_copilot_binary().map_err(error);
-    }
-    Err(error(format!("{} is not installed on PATH. Install and sign in with its official CLI, or choose its executable in Settings.", preset.name)))
 }
 
 // The ACP session and read-only account probe share executable, environment,
@@ -87,7 +52,24 @@ pub(super) fn command(
     args: &[String],
 ) -> Result<tokio::process::Command> {
     launch.validate_resolved()?;
-    let executable = executable(preset, launch)?;
+    let mut probe_launch = launch.clone();
+    probe_launch.args = Some(args.to_vec());
+    let plan =
+        nexa_core::external_agent::launch::installed(preset, &probe_launch)?.ok_or_else(|| {
+            error(format!(
+                "{} ACP executable was not found; check its connection in Settings.",
+                preset.name
+            ))
+        })?;
+    command_from_plan(&plan, launch)
+}
+
+pub(super) fn command_from_plan(
+    plan: &nexa_core::external_agent::launch::LaunchPlan,
+    launch: &ExternalAgentLaunch,
+) -> Result<tokio::process::Command> {
+    let executable = &plan.executable;
+    let args = &plan.args;
     if cfg!(windows)
         && executable.extension().is_some_and(|extension| {
             extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
@@ -101,17 +83,25 @@ pub(super) fn command(
     let mut command = tokio::process::Command::new(executable);
     command
         .args(args)
-        .envs(preset.launch_env(launch))
+        .envs(&plan.env)
         .current_dir(&launch.working_directory)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8");
     Ok(command)
 }
 
 impl Wire {
+    pub(super) async fn prepare(
+        preset: &ExternalAgentPreset,
+        launch: &ExternalAgentLaunch,
+        cache_root: Option<&Path>,
+    ) -> Result<Self> {
+        let plan = nexa_core::external_agent::launch::prepare(preset, launch, cache_root).await?;
+        Self::spawn(command_from_plan(&plan, launch)?)
+    }
     pub(super) fn take_pending(&mut self) -> Result<VecDeque<Value>> {
         let mut pending = std::mem::take(&mut self.queued);
         while let Ok(value) = self.messages.try_recv() {
@@ -134,12 +124,46 @@ impl Wire {
         preset: &ExternalAgentPreset,
         launch: &ExternalAgentLaunch,
     ) -> Result<Self> {
-        let args = preset.launch_args(launch);
-        Self::spawn(command(preset, launch, args)?)
+        let plan = nexa_core::external_agent::launch::installed(preset, launch)?
+            .ok_or_else(|| error("ACP executable was not found"))?;
+        Self::spawn(command_from_plan(&plan, launch)?)
     }
 
     pub(super) fn spawn(mut command: tokio::process::Command) -> Result<Self> {
+        let secrets = std::env::vars()
+            .filter(|(key, _)| {
+                let key = key.to_ascii_lowercase();
+                ["key", "token", "secret", "password", "credential"]
+                    .iter()
+                    .any(|part| key.contains(part))
+            })
+            .map(|(_, value)| value)
+            .chain(
+                command
+                    .as_std()
+                    .get_envs()
+                    .filter(|(key, _)| !key.eq_ignore_ascii_case("PATH"))
+                    .filter_map(|(_, value)| value.map(|v| v.to_string_lossy().into_owned())),
+            )
+            .filter(|value| value.len() >= 4)
+            .collect();
         let (mut child, tree) = nexa_core::managed_process::spawn(&mut command).map_err(error)?;
+        let diagnostics = Arc::new(Mutex::new(Vec::new()));
+        let stderr_reader = child.stderr.take().map(|mut stderr| {
+            let diagnostics = diagnostics.clone();
+            tokio::spawn(async move {
+                let mut buffer = [0u8; 2048];
+                while let Ok(length) = stderr.read(&mut buffer).await {
+                    if length == 0 {
+                        break;
+                    }
+                    let mut tail = diagnostics.lock().unwrap_or_else(|e| e.into_inner());
+                    tail.extend_from_slice(&buffer[..length]);
+                    let excess = tail.len().saturating_sub(8192);
+                    tail.drain(..excess);
+                }
+            })
+        });
         let stdin = child
             .stdin
             .take()
@@ -178,6 +202,12 @@ impl Wire {
                 frame.extend_from_slice(&chunk[..length]);
                 reader.consume(length);
                 if complete {
+                    // Empty lines are harmless transport whitespace, commonly
+                    // emitted by Windows package runners before initialization.
+                    if frame.iter().all(u8::is_ascii_whitespace) {
+                        frame.clear();
+                        continue;
+                    }
                     let parsed = serde_json::from_slice::<Value>(&frame)
                         .map_err(|_| error("Invalid ACP UTF-8 JSON"))
                         .and_then(|value| {
@@ -201,6 +231,9 @@ impl Wire {
             stdin,
             messages,
             reader,
+            stderr_reader,
+            diagnostics,
+            secrets,
             queued: VecDeque::new(),
             next_id: 1,
         })
@@ -235,10 +268,46 @@ impl Wire {
         if let Some(message) = self.queued.pop_front() {
             return Ok(message);
         }
-        self.messages
-            .recv()
-            .await
-            .ok_or_else(|| error("External agent exited before completing the request"))?
+        match self.messages.recv().await {
+            Some(result) => result,
+            None => Err(self
+                .closed_error("External agent exited before completing the request")
+                .await),
+        }
+    }
+
+    async fn closed_error(&mut self, context: &str) -> nexa_core::error::CoreError {
+        if let Some(reader) = self.stderr_reader.as_mut() {
+            let _ = tokio::time::timeout(Duration::from_millis(100), reader).await;
+        }
+        if self
+            .stderr_reader
+            .as_ref()
+            .is_some_and(|reader| reader.is_finished())
+        {
+            self.stderr_reader.take();
+        }
+        self.diagnostic_error(context)
+    }
+
+    fn diagnostic_error(&mut self, context: &str) -> nexa_core::error::CoreError {
+        let status = self
+            .child
+            .try_wait()
+            .ok()
+            .flatten()
+            .map(|status| format!(" ({status})"))
+            .unwrap_or_default();
+        let bytes = self.diagnostics.lock().unwrap_or_else(|e| e.into_inner());
+        let detail = nexa_core::external_agent::launch::redact_diagnostic(
+            &String::from_utf8_lossy(&bytes),
+            &self.secrets,
+        );
+        error(if detail.is_empty() {
+            format!("{context}{status}")
+        } else {
+            format!("{context}{status}\n{detail}")
+        })
     }
 
     pub(super) async fn unsupported(&mut self, message: &Value) -> Result<()> {
@@ -246,19 +315,27 @@ impl Wire {
     }
 
     pub(super) async fn request(&mut self, method: &str, params: Value) -> Result<Value> {
+        rpc_result(self.request_response(method, params).await?, method)
+    }
+
+    pub(super) async fn request_response(&mut self, method: &str, params: Value) -> Result<Value> {
         let id = self.send(method, params).await?;
         // A reviewed package runner may perform its first installation before
         // initialization. Ordinary RPCs keep the short liveness timeout.
-        let timeout = if method == "initialize" {
-            Duration::from_secs(180)
-        } else {
-            RPC_TIMEOUT
+        let timeout = match method {
+            "initialize" => Duration::from_secs(180),
+            "session/new" => Duration::from_secs(120),
+            "authenticate" => Duration::from_secs(300),
+            _ => RPC_TIMEOUT,
         };
         tokio::time::timeout(timeout, async {
             loop {
-                let message = self.messages.recv().await.ok_or_else(|| error("External agent exited during connection"))??;
+                let message = match self.messages.recv().await {
+                    Some(result) => result?,
+                    None => return Err(self.closed_error("External agent exited during connection").await),
+                };
                 if message.get("method").is_none() && message["id"].as_u64() == Some(id) {
-                    return rpc_result(message, method);
+                    return Ok(message);
                 }
                 if message.get("method").is_some() && message.get("id").is_some() {
                     // A connection/model probe cannot authorize side effects.
@@ -270,7 +347,7 @@ impl Wire {
                     self.queued.push_back(message);
                 }
             }
-        }).await.map_err(|_| error(format!("ACP {method} timed out")))?
+        }).await.map_err(|_| self.diagnostic_error(&format!("ACP {method} timed out")))?
     }
 }
 

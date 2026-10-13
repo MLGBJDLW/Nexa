@@ -18,6 +18,12 @@ pub(crate) struct Model {
     pub reasoning_efforts: Vec<String>,
 }
 
+pub(super) struct Initialization {
+    pub auth_methods: Vec<super::auth::AuthMethod>,
+    images: bool,
+    mcp_capabilities: Value,
+}
+
 pub(super) struct Session {
     pub id: String,
     pub cwd: String,
@@ -111,31 +117,51 @@ impl Session {
         cwd: &str,
         servers: &[nexa_core::mcp::McpServer],
     ) -> Result<Self> {
+        let initialized = Self::initialize(wire).await?;
+        Self::create(wire, cwd, servers, initialized).await?
+            .ok_or_else(|| error("The external agent requires authentication. Open its Settings profile and choose a sign-in method."))
+    }
+
+    pub(super) async fn initialize(wire: &mut Wire) -> Result<Initialization> {
         let initialized = wire.request("initialize", json!({
             "protocolVersion":1,
             "clientInfo":{"name":"nexa","version":env!("CARGO_PKG_VERSION")},
-            "clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true}
+            "clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true,"auth":{"terminal":true}}
         })).await?;
         if initialized["protocolVersion"] != 1 {
             return Err(error(
-                "The external agent does not support ACP protocol version 1",
+                "This agent did not negotiate ACP version 1. Disable experimental ACP v2 in its launch environment or use a compatible ACP adapter.",
             ));
         }
         let images = initialized
             .pointer("/agentCapabilities/promptCapabilities/image")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let servers = super::mcp::project(
-            servers,
-            &initialized["agentCapabilities"]["mcpCapabilities"],
-        )?;
-        let value = wire
-            .request("session/new", json!({"cwd":cwd,"mcpServers":servers}))
+        Ok(Initialization {
+            auth_methods: super::auth::methods(&initialized)?,
+            images,
+            mcp_capabilities: initialized["agentCapabilities"]["mcpCapabilities"].clone(),
+        })
+    }
+
+    pub(super) async fn create(
+        wire: &mut Wire,
+        cwd: &str,
+        servers: &[nexa_core::mcp::McpServer],
+        initialized: Initialization,
+    ) -> Result<Option<Self>> {
+        let servers = super::mcp::project(servers, &initialized.mcp_capabilities)?;
+        let response = wire
+            .request_response("session/new", json!({"cwd":cwd,"mcpServers":servers}))
             .await?;
-        let mut session = Self::parse(&value, images)?;
+        if response["error"]["code"] == -32000 {
+            return Ok(None);
+        }
+        let value = super::transport::rpc_result(response, "session/new")?;
+        let mut session = Self::parse(&value, initialized.images)?;
         session.cwd = cwd.to_string();
         session.sync(wire)?;
-        Ok(session)
+        Ok(Some(session))
     }
 
     pub(super) async fn select_model(&mut self, wire: &mut Wire, model: &str) -> Result<()> {

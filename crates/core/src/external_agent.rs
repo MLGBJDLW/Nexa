@@ -5,6 +5,8 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, sync::OnceLock};
 
+pub mod launch;
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalAgentPreset {
@@ -27,11 +29,28 @@ pub struct ExternalAgentPreset {
 pub struct AgentDistribution {
     #[serde(default)]
     pub binary: BTreeMap<String, BinaryDistribution>,
+    #[serde(default)]
+    pub npx: Option<PackageDistribution>,
+    #[serde(default)]
+    pub uvx: Option<PackageDistribution>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct BinaryDistribution {
+    #[serde(default)]
+    pub archive: String,
     pub cmd: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PackageDistribution {
+    pub package: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
@@ -81,11 +100,18 @@ impl ExternalAgentPreset {
     }
 
     pub fn launch_env(&self, launch: &ExternalAgentLaunch) -> BTreeMap<String, String> {
-        let mut env = self.env.clone();
-        if let Some(platform) = self.platform_launch() {
-            env.extend(platform.env.clone());
+        let mut env = BTreeMap::new();
+        for (key, value) in &self.env {
+            launch::set_env(&mut env, key, value.clone());
         }
-        env.extend(launch.env.clone());
+        if let Some(platform) = self.platform_launch() {
+            for (key, value) in &platform.env {
+                launch::set_env(&mut env, key, value.clone());
+            }
+        }
+        for (key, value) in &launch.env {
+            launch::set_env(&mut env, key, value.clone());
+        }
         env
     }
 }
