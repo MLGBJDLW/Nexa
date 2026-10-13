@@ -280,6 +280,7 @@ pub async fn build_desktop_agent_session_dependencies(
         if agent_runtime {
             runtime = runtime.require_explicit_route();
         }
+        runtime.restore_accounting(db);
         tools.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
         tools.register(Box::new(SubagentModelsTool));
         tools.register(Box::new(SubagentBatchTool::from_runtime(runtime.clone())));

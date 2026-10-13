@@ -1,3 +1,20 @@
+import { useSyncExternalStore } from 'react';
+
+let reducedMotionMedia: MediaQueryList | undefined;
+function reducedMotionQuery() {
+  if (typeof window === 'undefined') return undefined;
+  return reducedMotionMedia ??= window.matchMedia('(prefers-reduced-motion: reduce)');
+}
+function subscribeReducedMotion(listener: () => void) {
+  const query = reducedMotionQuery();
+  query?.addEventListener('change', listener);
+  return () => query?.removeEventListener('change', listener);
+}
+/** React to preference changes while a page is open, including active counters. */
+export function useReducedMotionPreference() {
+  return useSyncExternalStore(subscribeReducedMotion, () => reducedMotionQuery()?.matches ?? false, () => false);
+}
+
 export const SOFT_EASE = [0.16, 1, 0.3, 1] as const;
 export const INSTANT_TRANSITION = { duration: 0 } as const;
 

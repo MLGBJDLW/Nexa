@@ -9,8 +9,8 @@
     "description": "The latest steerable GPT-4o mini speech model, plus low-latency and HD options.",
     "models": [
       {"id": "gpt-4o-mini-tts", "name": "GPT-4o Mini TTS (Latest)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 4096},
-      {"id": "gpt-4o-mini-tts-2025-12-15", "name": "GPT-4o Mini TTS (2025-12-15)", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
-      {"id": "tts-1", "name": "TTS-1 (Lowest Latency)", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
+      {"id": "gpt-4o-mini-tts-2025-12-15", "name": "GPT-4o Mini TTS (2025-12-15)", "lastVerifiedAt": "2026-10-13", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations", "deprecationDate": "2027-01-06"},
+      {"id": "tts-1", "name": "TTS-1 (Lowest Latency)", "lastVerifiedAt": "2026-10-13", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations", "deprecationDate": "2027-01-06"},
       {"id": "tts-1-hd", "name": "TTS-1 HD", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"}
     ],
     "voices": [

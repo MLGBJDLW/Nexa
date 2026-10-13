@@ -13,6 +13,7 @@ use crate::conversation::{conversation_message_llm_context_content, CreateConver
 use crate::llm::{CompletionResponse, FinishReason, PromptLifetime, PromptStability, StreamChunk};
 use crate::tools::{Tool, ToolResult};
 
+mod direct_dispatch;
 mod privacy_revocation;
 mod tool_result_readback;
 mod unlimited_turn;

@@ -43,6 +43,12 @@ metadata and runtime assembly. A specialized MCP package, such as Computer Use,
 must be enabled and healthy alongside the MCP host package before its tools enter
 the executable registry. The settings projection applies that same decision.
 
+Built-in packages expose `CapabilityPackageDeclaration` for their metadata,
+manifest and view projection. Optional enrichment belongs to the package through
+its declared callback; the central catalog no longer branches on individual
+package IDs. This is an in-process authoring interface for compiled packages,
+not a third-party native-code loader.
+
 ## Product Constraint
 
 Nexa is a local-first desktop assistant for everyday knowledge and office work.
@@ -87,7 +93,7 @@ shape:
 | Directory | Current behavior |
 | --- | --- |
 | `skills/<canonical-name>/` | Registered user skills use the Agent Skills canonical name for the folder and `SKILL.md` name while retaining an independent immutable database id and display name. Startup or explicit Reload imports valid edits while preserving database identity and enabled state. Rejected edits and unmodeled files remain untouched so the user can correct or keep them. Unknown folders are not activated until they pass the explicit import and security-review flow. Disabling a skill never deletes its files. |
-| `themes/<theme-id>.json` | Declarative theme resources are schema-validated. Valid files override the same theme id in the persisted projection during hydration, including after registry initialization. After the first migration projection, deleting or renaming a tracked file removes its old theme identity. Rejected files remain untouched for correction. |
+| `themes/<name>.json` | Declarative theme resources are schema-validated. Friendly UTF-8 filenames are independent of theme identity; filenames that cannot be recorded losslessly are rejected with a rename diagnostic. A plain name derives a stable internal id when omitted; existing explicit ids remain valid. Renaming a file preserves its identity; deleting it removes its projection. Invalid content or duplicate identities retain the affected last valid projection and remain untouched for correction. |
 | `connectors/mcp.json` | Versioned MCP declarations are validated as a whole and projected into the runtime store. Invalid updates retain the last valid projection. |
 | `capabilities/`, `workflows/` | Reserved package locations. Merely placing a file here does not grant permissions or activate native code; each package still needs a supported, trust-gated host path. |
 
@@ -98,6 +104,10 @@ and built-in ids in model-visible text; `draft` returns the normalized definitio
 Activate/remove accept a stable id or unique custom display name, with exact ids
 taking precedence and ambiguous names rejected. Display names stay short and
 user-facing while persisted ids and the `theme-resource` format remain stable.
+Authoring can start with only `name` and `theme`; format version, internal id,
+base and mode are normalized when omitted. The `appearance` tool accepts `name`
+for selection and can apply a validated definition directly. `draft` remains an
+optional preview step. Saving a unique existing display name retains its old id.
 
 On first startup after this layout is introduced, Nexa non-destructively copies
 legacy user skill projections and `mcp-connectors.json` from app data when the

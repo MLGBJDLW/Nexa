@@ -1187,33 +1187,19 @@ pub fn cancel_model_download_cmd(
 }
 
 #[tauri::command]
-pub fn delete_local_model_cmd(
+pub async fn delete_local_model_cmd(
     local_model: Option<String>,
     model_path: Option<String>,
 ) -> Result<(), String> {
-    let model = local_model
-        .map(|s| LocalEmbeddingModel::from_config_str(&s))
-        .unwrap_or_default();
-    let dir = match model_path.filter(|path| !path.trim().is_empty()) {
-        Some(path) => std::path::PathBuf::from(path),
-        None => nexa_core::embed::default_model_dir_for(&model).map_err(|e| e.to_string())?,
-    };
-    if dir.exists() {
-        for filename in ["model.onnx", "tokenizer.json"] {
-            let path = dir.join(filename);
-            if path.exists() {
-                std::fs::remove_file(path).map_err(|e| e.to_string())?;
-            }
-        }
-        if std::fs::read_dir(&dir)
-            .map_err(|e| e.to_string())?
-            .next()
-            .is_none()
-        {
-            std::fs::remove_dir(&dir).map_err(|e| e.to_string())?;
-        }
-    }
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        let model = local_model
+            .map(|s| LocalEmbeddingModel::from_config_str(&s))
+            .unwrap_or_default();
+        nexa_core::embed::delete_local_model_for(model_path.as_deref(), &model)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

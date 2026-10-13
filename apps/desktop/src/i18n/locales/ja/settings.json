@@ -1066,7 +1066,7 @@
   ,"externalAgents": "外部エージェント"
   ,"apiConnectionsHint": "API またはローカルモデルに接続。Nexa がツールと委任を管理します。"
   ,"externalAgentsHint": "公式アカウントやインストール済みエージェントを使用。各ランタイムがモデルとログインを管理します。"
-  ,"externalAgentOwnership": "先に公式 CLI をインストールしてログインしてください。エージェントは独自のツールを実行し、Nexa に権限を要求します。"
+  ,"externalAgentOwnership": "このエージェントは独自のアカウントとツールを使用します。権限要求は Nexa が処理します。"
   ,"externalAgentSetup": "インストールとログインのガイド"
   ,"externalAgentExecutable": "実行ファイルのパス（任意）"
   ,"externalAgentDirectory": "作業ディレクトリ"
@@ -1119,7 +1119,7 @@
   "externalAgentArguments": "引数（JSON 配列、空欄で既定値）",
   "externalAgentEnvironment": "環境変数（JSON オブジェクト、暗号化保存）",
   "externalAgentJsonHint": "引数は文字列の JSON 配列、環境変数は値が文字列の JSON オブジェクトで入力してください。",
-  "externalAgentPackageHint": "初回接続時に指定バージョンをダウンロードする場合があります。エージェント自身のアカウントでログインしてください。",
+  "externalAgentPackageHint": "インストール済みアダプターを確認し、必要に応じて指定バージョンのパッケージまたは公式プログラムを準備します。接続後にログイン方法を選べます。",
   "externalAgentPackageProbe": "ダウンロード / 接続確認",
   "subscriptionUsage": "アカウント使用量",
   "subscriptionUsed": "{percent}% 使用済み",
@@ -1128,5 +1128,7 @@
   "subscriptionQuotaUnavailable": "使用量を取得できません。更新するか、エージェントのバージョンとログイン状態をご確認ください。",
   "subscriptionQuotaSignIn": "使用量を見るには、設定でこのエージェントにログインしてください。",
   "subscriptionQuotaScope": "提供元が返すアカウントの利用枠はクライアント間で共有されます。このチャットのトークン使用量とは別です。",
-  "subscriptionQuotaUpdated": "取得時刻 {time}"
+  "subscriptionQuotaUpdated": "取得時刻 {time}",
+  "externalAgentAuthRequired": "このエージェントのログイン方法を選択してください。アカウントはエージェントが管理します。",
+  "externalAgentPreparing": "エージェントを準備し、セッションを作成しています。初回接続には数分かかる場合があります。"
 }

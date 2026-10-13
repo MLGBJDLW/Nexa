@@ -1066,7 +1066,7 @@
   ,"externalAgents": "External agents"
   ,"apiConnectionsHint": "Connect an API or local model. Nexa manages tools and delegation."
   ,"externalAgentsHint": "Use official accounts or installed agents. Each runtime manages its own models and login."
-  ,"externalAgentOwnership": "Install and sign in through the official CLI first. This agent runs its own tools and sends permission requests to Nexa."
+  ,"externalAgentOwnership": "This agent uses its own account and tools. Nexa handles its permission requests."
   ,"externalAgentSetup": "Installation and sign-in guide"
   ,"externalAgentExecutable": "Executable path (optional)"
   ,"externalAgentDirectory": "Working directory"
@@ -1119,7 +1119,7 @@
   "externalAgentArguments": "Arguments (JSON array; blank uses the preset)",
   "externalAgentEnvironment": "Environment (JSON object; stored encrypted)",
   "externalAgentJsonHint": "Use a JSON array of strings for arguments and a JSON object of string values for environment.",
-  "externalAgentPackageHint": "The first connection may download the pinned package through its package manager. Sign in with the agent’s own account.",
+  "externalAgentPackageHint": "Nexa first checks installed adapters, then prepares the pinned package or official binary when available. Connect to choose a sign-in method.",
   "externalAgentPackageProbe": "Download / check connection",
   "subscriptionUsage": "Account usage",
   "subscriptionUsed": "{percent}% used",
@@ -1128,5 +1128,7 @@
   "subscriptionQuotaUnavailable": "Could not read account usage. Refresh, or check the agent’s version and sign-in.",
   "subscriptionQuotaSignIn": "Sign in to this agent in Settings to view account usage.",
   "subscriptionQuotaScope": "Provider-reported account quota, shared across clients. Separate from this chat’s token usage.",
-  "subscriptionQuotaUpdated": "Fetched {time}"
+  "subscriptionQuotaUpdated": "Fetched {time}",
+  "externalAgentAuthRequired": "Choose a sign-in method provided by this agent. Your account stays with the agent.",
+  "externalAgentPreparing": "Preparing the agent and creating a session… First-time setup may take a few minutes."
 }

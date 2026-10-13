@@ -916,5 +916,9 @@
   "htmlStatic": "Статический предпросмотр",
   "htmlRunning": "Скрипты выполняются",
   "htmlRun": "Запустить скрипты",
-  "htmlStop": "Остановить"
+  "htmlStop": "Остановить",
+  "connectionReconnecting": "Повторное подключение",
+  "connectionAttempt": "Попытка {attempt} из {total}",
+  "connectionRetryIn": "Повтор через {seconds}с",
+  "connectionTryingNow": "Подключение"
 }

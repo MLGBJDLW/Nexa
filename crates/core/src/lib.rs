@@ -159,6 +159,7 @@ pub mod workflow_execution;
 pub mod workflow_graph;
 pub mod workflow_ir;
 pub mod workflow_scheduler;
+pub mod workflow_verification;
 pub mod workspace;
 pub mod workspace_rules;
 

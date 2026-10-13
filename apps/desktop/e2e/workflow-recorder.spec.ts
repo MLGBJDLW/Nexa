@@ -418,6 +418,12 @@ test('scheduled workflow previews timezone and saves provider-managed execution 
   await page.getByLabel('Cron').fill('0 9 * * 1-5');
   await page.getByLabel('Timezone (IANA)').fill('Asia/Shanghai');
 
+  // The preview is debounced. Verify the edited form before Save resets it and
+  // legitimately issues a new preview for the next blank form's defaults.
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { __schedulePreviewInputs?: Array<Record<string, unknown>> })
+      .__schedulePreviewInputs?.at(-1),
+  )).toMatchObject({ cron: '0 9 * * 1-5', timezone: 'Asia/Shanghai', limit: 5 });
   await expect(page.getByText('Next 5 runs')).toBeVisible();
   await expect(page.getByText('2026-09-01T09:00:00+08:00[Asia/Shanghai]')).toBeVisible();
   await selectNexaOption(
@@ -439,17 +445,14 @@ test('scheduled workflow previews timezone and saves provider-managed execution 
   await page.getByLabel('Allowed tools').fill('read_file, web_search');
   await page.getByRole('button', { name: 'Save automation' }).click();
 
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as { __savedAutomationInputs?: Array<Record<string, unknown>> })
+      .__savedAutomationInputs?.[0],
+  )).toMatchObject({ trigger: { kind: 'schedule', cron: '0 9 * * 1-5' } });
   const state = await page.evaluate(() => ({
     saved: (window as unknown as { __savedAutomationInputs?: Array<Record<string, unknown>> })
       .__savedAutomationInputs?.[0],
-    previews: (window as unknown as { __schedulePreviewInputs?: Array<Record<string, unknown>> })
-      .__schedulePreviewInputs,
   }));
-  expect(state.previews?.at(-1)).toMatchObject({
-    cron: '0 9 * * 1-5',
-    timezone: 'Asia/Shanghai',
-    limit: 5,
-  });
   expect(state.saved?.trigger).toEqual({ kind: 'schedule', cron: '0 9 * * 1-5' });
   expect(state.saved?.approvalPolicy).toEqual({
     requireBeforeRun: false,

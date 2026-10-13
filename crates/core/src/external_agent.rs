@@ -5,7 +5,9 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, sync::OnceLock};
 
-#[derive(Debug, Default, Deserialize)]
+pub mod launch;
+
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalAgentPreset {
     pub provider: String,
@@ -23,15 +25,35 @@ pub struct ExternalAgentPreset {
     pub distribution: Option<AgentDistribution>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct AgentDistribution {
     #[serde(default)]
     pub binary: BTreeMap<String, BinaryDistribution>,
+    #[serde(default)]
+    pub npx: Option<PackageDistribution>,
+    #[serde(default)]
+    pub uvx: Option<PackageDistribution>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct BinaryDistribution {
+    #[serde(default)]
+    pub archive: String,
     pub cmd: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PackageDistribution {
+    pub package: String,
+    /// Reviewed runner options, kept separate from the adapter's own argv.
+    #[serde(default, rename = "runnerArgs")]
+    pub runner_args: Vec<String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
@@ -81,11 +103,18 @@ impl ExternalAgentPreset {
     }
 
     pub fn launch_env(&self, launch: &ExternalAgentLaunch) -> BTreeMap<String, String> {
-        let mut env = self.env.clone();
-        if let Some(platform) = self.platform_launch() {
-            env.extend(platform.env.clone());
+        let mut env = BTreeMap::new();
+        for (key, value) in &self.env {
+            launch::set_env(&mut env, key, value.clone());
         }
-        env.extend(launch.env.clone());
+        if let Some(platform) = self.platform_launch() {
+            for (key, value) in &platform.env {
+                launch::set_env(&mut env, key, value.clone());
+            }
+        }
+        for (key, value) in &launch.env {
+            launch::set_env(&mut env, key, value.clone());
+        }
         env
     }
 }
@@ -132,10 +161,21 @@ pub struct ExternalAgentLaunch {
     /// Explicitly selected user-managed MCP connectors forwarded to the agent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_server_ids: Vec<String>,
+    /// Explicitly chosen agent authentication method, reapplied only when a
+    /// new connection requires it. Terminal login remains out-of-band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication_method: Option<String>,
 }
 
 impl ExternalAgentLaunch {
     pub fn validate(&self) -> Result<(), CoreError> {
+        if self.authentication_method.as_ref().is_some_and(|method| {
+            method.is_empty() || method.len() > 256 || method.chars().any(char::is_control)
+        }) {
+            return Err(CoreError::InvalidInput(
+                "Invalid external-agent authentication method".into(),
+            ));
+        }
         if self.args.iter().flatten().any(|arg| arg.contains('\0'))
             || self.env.iter().any(|(key, value)| {
                 key.is_empty() || key.contains(['=', '\0']) || value.contains('\0')

@@ -46,6 +46,152 @@ pub(super) struct TurnBudget {
 }
 
 impl TurnBudget {
+    pub(super) fn restore(&mut self, used: u32, prior_limit: Option<u32>) {
+        self.tool_rounds_used = self.tool_rounds_used.max(used);
+        if let Some(prior) = prior_limit.filter(|limit| *limit != u32::MAX) {
+            self.tool_round_limit = Some(
+                self.tool_round_limit
+                    .map_or(prior, |limit| limit.min(prior)),
+            );
+        }
+    }
+
+    pub(super) fn restore_receipts(
+        &mut self,
+        db: &crate::db::Database,
+        conversation: Option<&str>,
+        turn: Option<&str>,
+    ) -> Result<(), crate::error::CoreError> {
+        let (Some(conversation), Some(turn)) = (conversation, turn) else {
+            return Ok(());
+        };
+        let Some(run) = db.get_agent_task_run_by_turn(turn)? else {
+            return Ok(());
+        };
+        if run.conversation_id != conversation {
+            return Err(crate::error::CoreError::InvalidInput(
+                "Turn budget owner mismatch".into(),
+            ));
+        }
+        let mut has_admission = false;
+        for event in db
+            .get_agent_task_run_events(&run.id)?
+            .into_iter()
+            .filter(|event| event.event_type == "tool_round_admitted")
+        {
+            has_admission = true;
+            let value = event.payload.ok_or_else(|| {
+                crate::error::CoreError::InvalidInput("Missing durable tool-round admission".into())
+            })?;
+            let count = value
+                .get("roundsCharged")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| {
+                    crate::error::CoreError::InvalidInput(
+                        "Invalid durable tool-round admission".into(),
+                    )
+                })?;
+            let limit = value
+                .get("maxIterations")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok());
+            self.restore(count, limit);
+        }
+        // Admission receipts are authoritative; legacy sample indices must not
+        // overcharge provider recovery samples on a current-format resume.
+        if !has_admission {
+            let traced_calls = db
+                .get_conversation_turn(turn)?
+                .trace
+                .as_ref()
+                .map(|trace| self.restore_trace(trace))
+                .unwrap_or_default();
+            if self.tool_round_limit.is_some() && self.can_dispatch_tool_round() {
+                for event in db.list_agent_run_events(&run.id)? {
+                    use crate::agent_run::AgentRunEventKind;
+                    if !matches!(
+                        event.kind,
+                        AgentRunEventKind::ToolStarted
+                            | AgentRunEventKind::ToolProgress
+                            | AgentRunEventKind::ToolCompleted
+                    ) {
+                        continue;
+                    }
+                    let payload = event.payload.get("run").unwrap_or(&event.payload);
+                    if payload
+                        .get("providerExecuted")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                    {
+                        continue;
+                    }
+                    if payload
+                        .get("callId")
+                        .and_then(serde_json::Value::as_str)
+                        .is_none_or(|id| !traced_calls.contains(id))
+                    {
+                        return Err(crate::error::CoreError::InvalidInput("This older checkpoint contains started tools without enough durable round accounting to restore its explicit budget. It cannot safely grant additional tool rounds; start a new turn explicitly to continue.".into()));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn restore_trace(&mut self, trace: &serde_json::Value) -> std::collections::HashSet<String> {
+        let mut rounds = std::collections::HashSet::new();
+        let mut calls = std::collections::HashSet::new();
+        for event in trace
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|item| item.get("kind").and_then(serde_json::Value::as_str) == Some("loop"))
+            .filter_map(|item| item.get("event"))
+        {
+            match event.get("kind").and_then(serde_json::Value::as_str) {
+                Some("toolScheduled" | "toolFinished") => {
+                    if let Some(index) = event
+                        .get("iteration")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|value| u32::try_from(value).ok())
+                    {
+                        rounds.insert(index);
+                    }
+                    if let Some(call) = event.get("call_id").and_then(serde_json::Value::as_str) {
+                        calls.insert(call.to_owned());
+                    }
+                }
+                Some("turnStarted") => self.restore(
+                    0,
+                    event
+                        .get("max_iterations")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|value| u32::try_from(value).ok()),
+                ),
+                _ => {}
+            }
+        }
+        self.restore(u32::try_from(rounds.len()).unwrap_or(u32::MAX), None);
+        calls
+    }
+
+    pub(super) fn persist_admission(
+        &self,
+        db: &crate::db::Database,
+        turn: Option<&str>,
+    ) -> Result<(), crate::error::CoreError> {
+        let Some(run) = turn
+            .map(|turn| db.get_agent_task_run_by_turn(turn))
+            .transpose()?
+            .flatten()
+        else {
+            return Ok(());
+        };
+        db.record_agent_task_run_event(&run.id, "tool_round_admitted", "Tool round admitted", Some("running"), Some(&serde_json::json!({"roundsCharged":self.tool_rounds_used.saturating_add(1), "maxIterations":self.tool_round_limit})))?;
+        Ok(())
+    }
     pub(super) fn new(legacy_max_iterations: u32) -> Self {
         Self {
             tool_round_limit: (legacy_max_iterations != u32::MAX).then_some(legacy_max_iterations),
@@ -190,5 +336,111 @@ mod tests {
             budget.permit(TurnStepPurpose::Normal).unwrap().mode,
             TurnStepMode::FinalAnswerOnly
         );
+    }
+
+    #[test]
+    fn resumed_budget_preserves_spend_and_explicit_ceiling() {
+        let mut budget = TurnBudget::new(20);
+        budget.restore(1, Some(2));
+        assert_eq!(budget.remaining_tool_rounds(), Some(1));
+        budget.restore(0, Some(99));
+        assert_eq!(budget.remaining_tool_rounds(), Some(1));
+        budget.record_verified_tool_round();
+        assert!(!budget.can_dispatch_tool_round());
+        assert!(!budget
+            .permit(TurnStepPurpose::Normal)
+            .unwrap()
+            .allows_tools());
+    }
+
+    #[test]
+    fn legacy_started_round_without_an_accounting_receipt_cannot_replenish_budget() {
+        use crate::conversation::{ConversationMessage, CreateConversationInput};
+        let db = crate::db::Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&CreateConversationInput {
+                provider: "test".into(),
+                model: "test".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let message = ConversationMessage {
+            id: "user".into(),
+            conversation_id: conversation.id.clone(),
+            role: crate::llm::Role::User,
+            content: "Change a file".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 0,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&message).unwrap();
+        let turn = db
+            .create_conversation_turn(&conversation.id, &message.id, None)
+            .unwrap();
+        let run = db
+            .create_agent_task_run(
+                &conversation.id,
+                &turn.id,
+                &message.id,
+                "Legacy",
+                None,
+                None,
+            )
+            .unwrap();
+        let event = crate::agent_run::AgentRunEvent::from_agent_event(
+            &super::super::AgentEvent::ToolCallStart {
+                call_id: "started-before-upgrade".into(),
+                tool_name: "edit_file".into(),
+                arguments: "{}".into(),
+            },
+        )
+        .with_context(Some(&run.id), Some(&turn.id), Some(1));
+        db.save_agent_run_event(&event).unwrap();
+        let mut budget = TurnBudget::new(1);
+        assert!(budget
+            .restore_receipts(&db, Some(&conversation.id), Some(&turn.id))
+            .unwrap_err()
+            .to_string()
+            .contains("older checkpoint"));
+        db.record_agent_task_run_event(
+            &run.id,
+            "tool_round_admitted",
+            "admitted",
+            Some("running"),
+            Some(&serde_json::json!({"roundsCharged":1,"maxIterations":1})),
+        )
+        .unwrap();
+        budget
+            .restore_receipts(&db, Some(&conversation.id), Some(&turn.id))
+            .unwrap();
+        assert!(!budget.can_dispatch_tool_round());
+    }
+
+    #[test]
+    fn legacy_parallel_and_interrupted_tools_charge_logical_rounds_once() {
+        let mut budget = TurnBudget::new(3);
+        let calls = budget.restore_trace(&serde_json::json!({"items":[
+            {"kind":"loop","event":{"kind":"toolScheduled","iteration":2,"call_id":"a"}},
+            {"kind":"loop","event":{"kind":"toolFinished","iteration":2,"call_id":"a"}},
+            {"kind":"loop","event":{"kind":"toolScheduled","iteration":2,"call_id":"b"}},
+            {"kind":"loop","event":{"kind":"toolScheduled","iteration":5,"call_id":"c"}}
+        ]}));
+        assert_eq!(calls.len(), 3);
+        assert_eq!(budget.remaining_tool_rounds(), Some(1));
+    }
+
+    #[test]
+    fn untrusted_tool_artifacts_cannot_rewrite_resumed_budget() {
+        let mut budget = TurnBudget::new(20);
+        budget.restore_trace(&serde_json::json!({"items":[{"kind":"tool","toolCall":{"artifacts":{"kind":"turnStarted","max_iterations":0}}},{"kind":"loop","event":{"kind":"toolFinished","iteration":2}}]}));
+        assert_eq!(budget.remaining_tool_rounds(), Some(19));
     }
 }

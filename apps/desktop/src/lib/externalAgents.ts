@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { CopilotModelSummary } from './api';
+import type { CopilotModelSummary, TerminalSessionInfo } from './api';
 import { invalidateSubscriptionModels, runtimeCatalogKey } from './subscriptionModelCatalog';
 import type { AgentConfig, SaveAgentConfigInput } from '../types/conversation';
 import type { ExternalAccountUsage } from './subscriptionUsage';
@@ -15,6 +15,7 @@ export interface ExternalAgentLaunch {
   configOptions?: Record<string, string>;
   configOptionsModel?: string;
   mcpServerIds?: string[];
+  authenticationMethod?: string;
 }
 
 export function parseExternalLaunchFields(argsText: string, envText: string): Pick<ExternalAgentLaunch, 'args' | 'env'> {
@@ -39,9 +40,16 @@ export interface ExternalAgentCatalog {
   models: CopilotModelSummary[];
   configOptions: ExternalAgentConfigOption[];
   commands: string[];
+  authMethods?: { id: string; name: string; description?: string; kind: 'agent' | 'terminal' }[];
+  requiresAuthentication?: boolean;
+  setupError?: string;
 }
-export const inspectExternalAgent = (provider: string, launch: ExternalAgentLaunch, model?: string) =>
-  invoke<ExternalAgentCatalog>('inspect_external_agent_cmd', { provider, launch, model });
+export const inspectExternalAgent = (provider: string, launch: ExternalAgentLaunch, model?: string, requestId?: string) =>
+  invoke<ExternalAgentCatalog>('inspect_external_agent_cmd', { provider, launch, model, requestId });
+
+export const authenticateExternalAgent = (provider: string, launch: ExternalAgentLaunch, methodId: string, model?: string, requestId?: string) =>
+  invoke<{ catalog?: ExternalAgentCatalog; terminal?: TerminalSessionInfo }>('authenticate_external_agent_cmd', { provider, launch, methodId, model, requestId });
+export const cancelExternalAgentSetup = (requestId: string) => invoke<void>('cancel_external_agent_setup_cmd', { requestId });
 
 export const getExternalAgentLaunch = (agentConfigId?: string) => agentConfigId
   ? invoke<ExternalAgentLaunch>('get_external_agent_launch_cmd', { agentConfigId })

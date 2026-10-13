@@ -177,7 +177,7 @@ test.beforeEach(async ({ page }) => {
 
 test("sidebar owns version and update controls without navigating away", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
 
   await expect(page.getByRole("main").getByRole("heading", { name: "App update" })).toHaveCount(0);
   await page.getByTestId("sidebar-update-toggle").click();
@@ -218,7 +218,7 @@ test('update panel stays compact and fits both wide and narrow windows', async (
 
 test("close-to-tray is visible in appearance and saves immediately", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
 
   const trayOption = page.locator("#settings-close-behavior");
   await expect(trayOption).toBeVisible();
@@ -231,7 +231,7 @@ test("close-to-tray is visible in appearance and saves immediately", async ({ pa
 
 test("desktop pet settings are visible and persist locally", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
 
   await page.getByTestId("companion-preferences-trigger").click();
   const card = page.getByTestId("companion-settings-card");
@@ -250,7 +250,7 @@ test("unsupported stored update source falls back to GitHub", async ({ page }) =
     localStorage.setItem("nexa-update-source", "legacy-mirror");
   });
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
 
   await page.getByTestId("sidebar-update-toggle").click();
   await expect(page.getByRole("combobox", { name: "Update source" })).toHaveValue("github");
@@ -309,7 +309,7 @@ test("layout performs the silent startup update check", async ({ page }) => {
 
 test("settings agent behavior controls use the selected locale", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
   await page.getByLabel("Language", { exact: true }).selectOption("zh-CN");
   await page
     .locator("button")

@@ -1,6 +1,8 @@
 //! Native ACP agents own their tools and authentication. No API key is borrowed,
 //! no reported tool is executed twice, and uncertain prompts are never replayed.
+mod auth;
 mod catalog;
+pub(crate) use auth::{authenticate, Authentication};
 pub(super) mod client;
 mod config;
 mod mcp;
@@ -27,7 +29,7 @@ use nexa_core::{
 pub(crate) use pool::shutdown;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use transport::{rpc_result, Wire};
+use transport::Wire;
 
 type Result<T> = std::result::Result<T, CoreError>;
 fn error(cause: impl std::fmt::Display) -> CoreError {
@@ -43,34 +45,18 @@ pub(crate) async fn probe(
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let launch = launch.resolve(db, None, None)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
-    let mut wire = Wire::start(preset, &launch)?;
-    let timeout = if matches!(preset.command.as_str(), "npx" | "uvx") && launch.executable.is_none()
-    {
-        240
-    } else {
-        45
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(timeout), async {
-        let mut session =
-            Session::connect_with_mcp(&mut wire, &launch.working_directory, &servers).await?;
-        session
-            .configure(
-                &mut wire,
-                model,
-                &launch.config_options,
-                None,
-                launch.config_options_model.as_deref(),
-                catalog::ConfigurationUse::Discovery,
-            )
-            .await?;
-        Ok(Catalog {
-            models: session.models,
-            config_options: session.config_options,
-            commands: session.commands,
-        })
-    })
-    .await
-    .map_err(|_| error("External agent connection check timed out"))?
+    let mut wire = Wire::prepare(preset, &launch, adapter_cache_root(db).as_deref()).await?;
+    // Each protocol stage has its own timeout. An outer deadline must not
+    // truncate a cold package installation before initialize can respond.
+    let initialized = Session::initialize(&mut wire).await?;
+    auth::catalog(&mut wire, &launch, model, &servers, initialized).await
+}
+
+fn adapter_cache_root(db: &nexa_core::db::Database) -> Option<std::path::PathBuf> {
+    db.db_path()
+        .and_then(std::path::Path::parent)
+        .filter(|path| path.is_absolute())
+        .map(|path| path.join("runtime").join("external-agents"))
 }
 
 #[derive(serde::Serialize)]
@@ -79,6 +65,10 @@ pub(crate) struct Catalog {
     pub models: Vec<catalog::Model>,
     pub config_options: Vec<config::ConfigOption>,
     pub commands: Vec<String>,
+    pub auth_methods: Vec<auth::AuthMethod>,
+    pub requires_authentication: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_error: Option<String>,
 }
 
 pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) -> Result<Message> {
@@ -141,14 +131,15 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
         }
         None => {
             stage(&request.events, "starting").await?;
-            let mut wire = Wire::start(
-                preset(provider).ok_or_else(|| error("Unknown external agent"))?,
-                &binding.launch,
-            )?;
+            let cache_root = adapter_cache_root(&request.db);
+            let mut wire = tokio::select! {
+                _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while preparing the external agent".into())),
+                result = Wire::prepare(preset(provider).ok_or_else(|| error("Unknown external agent"))?, &binding.launch, cache_root.as_deref()) => result?,
+            };
             stage(&request.events, "connecting").await?;
             let session = tokio::select! {
                 _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while connecting".into())),
-                result = Session::connect_with_mcp(&mut wire, &binding.launch.working_directory, &servers) => result?,
+                result = Session::connect_with_mcp(&mut wire, &binding.launch.working_directory, &servers, binding.launch.authentication_method.as_deref()) => result?,
             };
             pool::Connected {
                 wire,
@@ -739,7 +730,7 @@ async fn drive(
         if message["id"].as_u64() != Some(prompt_id) {
             return Err(error("Uncorrelated ACP response"));
         }
-        let completed = rpc_result(message, "session/prompt")?;
+        let completed = wire.rpc_result(message, "session/prompt")?;
         if !pending_services.is_empty() {
             return Err(error(
                 "External agent completed with pending client service requests",

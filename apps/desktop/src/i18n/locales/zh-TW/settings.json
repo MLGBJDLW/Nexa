@@ -1066,7 +1066,7 @@
   ,"externalAgents": "外部 Agent"
   ,"apiConnectionsHint": "連接 API 或本機模型，由 Nexa 管理工具與任務委派。"
   ,"externalAgentsHint": "接入官方帳戶或已安裝的 Agent，各執行環境管理自己的模型與登入。"
-  ,"externalAgentOwnership": "請先安裝官方 CLI 並完成登入。此 Agent 使用自己的工具，並向 Nexa 傳送權限請求。"
+  ,"externalAgentOwnership": "此 Agent 使用自己的帳戶與工具，由 Nexa 處理其權限請求。"
   ,"externalAgentSetup": "安裝與登入指南"
   ,"externalAgentExecutable": "執行檔路徑（選填）"
   ,"externalAgentDirectory": "工作目錄"
@@ -1119,7 +1119,7 @@
   "externalAgentArguments": "啟動參數（JSON 陣列；留空使用預設）",
   "externalAgentEnvironment": "環境變數（JSON 物件；加密儲存）",
   "externalAgentJsonHint": "參數須為字串 JSON 陣列；環境變數須為值皆為字串的 JSON 物件。",
-  "externalAgentPackageHint": "首次連線可能透過套件管理器下載指定版本。請使用該 agent 自己的帳戶登入。",
+  "externalAgentPackageHint": "Nexa 會先尋找已安裝的配接器，再按需準備指定版本的套件或官方程式。連線後可選擇登入方式。",
   "externalAgentPackageProbe": "下載 / 檢查連線",
   "subscriptionUsage": "訂閱額度",
   "subscriptionUsed": "已用 {percent}%",
@@ -1128,5 +1128,7 @@
   "subscriptionQuotaUnavailable": "暫時無法讀取帳戶用量。請重新整理，或檢查 Agent 版本和登入狀態。",
   "subscriptionQuotaSignIn": "請先在設定中登入此 Agent，再查看帳戶用量。",
   "subscriptionQuotaScope": "服務方回傳的帳戶額度由各用戶端共用，與本次聊天的 token 消耗分開統計。",
-  "subscriptionQuotaUpdated": "讀取於 {time}"
+  "subscriptionQuotaUpdated": "讀取於 {time}",
+  "externalAgentAuthRequired": "請選擇此 Agent 提供的登入方式，帳戶仍由該 Agent 管理。",
+  "externalAgentPreparing": "正在準備 Agent 並建立工作階段……首次連線可能需要幾分鐘。"
 }

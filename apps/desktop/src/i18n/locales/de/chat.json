@@ -916,5 +916,9 @@
   "htmlStatic": "Statische Vorschau",
   "htmlRunning": "Skripte laufen",
   "htmlRun": "Skripte ausführen",
-  "htmlStop": "Stopp"
+  "htmlStop": "Stopp",
+  "connectionReconnecting": "Verbindung wird wiederhergestellt",
+  "connectionAttempt": "Versuch {attempt} von {total}",
+  "connectionRetryIn": "Neuer Versuch in {seconds}s",
+  "connectionTryingNow": "Verbindung wird hergestellt"
 }

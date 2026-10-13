@@ -646,11 +646,10 @@ pub(crate) fn resolve_codex_binary() -> Result<CodexBinary, String> {
         }
         return probe_codex_binary(path.into_os_string());
     }
-    probe_codex_binary(OsString::from(if cfg!(windows) {
-        "codex.exe"
-    } else {
-        "codex"
-    }))
+    let environment = nexa_core::external_agent::launch::process_environment(&Default::default());
+    let path = nexa_core::external_agent::launch::find_executable("codex", &environment)
+        .ok_or_else(|| "codex_runtime_not_found".to_string())?;
+    probe_codex_binary(path.into_os_string())
 }
 
 fn probe_codex_binary(program: OsString) -> Result<CodexBinary, String> {
@@ -1050,8 +1049,8 @@ pub async fn list_subscription_models_cmd(
             Some(&config.model),
         )
         .await
-        .map(|catalog| super::external_agents::summaries(catalog.models))
-        .map_err(|error| error.to_string());
+        .map_err(|error| error.to_string())
+        .and_then(super::external_agents::connected_models);
     }
     match provider.as_str() {
         "github_copilot" => {

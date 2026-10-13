@@ -23,6 +23,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Button } from '../ui/Button';
 import { CollapsiblePanel, Section } from './SettingsSection';
 import { ModelCard } from './ModelCard';
+import { SettingsRow, settingsSelectClass } from './SettingsRow';
 import { NetworkMirrorsPanel } from './NetworkMirrorsPanel';
 import { OfficeRuntimePanel } from './OfficeRuntimePanel';
 
@@ -43,6 +44,7 @@ interface ModelDownloadsSectionProps {
   appConfig: AppConfig | null;
   appConfigLoading: boolean;
   deleteEmbedModelConfirmOpen: boolean;
+  deleteEmbedModelLoading?: boolean;
   onEmbedLocalModelChange: (model: LocalModelId) => void;
   onDownloadModel: () => void;
   onCancelDownload: () => void;
@@ -136,6 +138,7 @@ export function ModelDownloadsSection({
   appConfig,
   appConfigLoading,
   deleteEmbedModelConfirmOpen,
+  deleteEmbedModelLoading = false,
   onEmbedLocalModelChange,
   onDownloadModel,
   onCancelDownload,
@@ -179,7 +182,6 @@ export function ModelDownloadsSection({
           status={
             downloadLoading ? 'downloading'
             : !embedConfig ? 'checking'
-            : embedConfig?.provider !== 'local' ? 'downloaded'
             : localModelReady === null ? 'checking'
             : localModelReady ? 'downloaded'
             : 'not-downloaded'
@@ -190,41 +192,16 @@ export function ModelDownloadsSection({
           onDelete={onRequestDeleteEmbedModel}
           downloadProgress={downloadProgress}
         >
-          {embedConfig?.provider === 'local' && (
+          {embedConfig && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-text-primary">{t('settings.embeddingLocalModelSelect')}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                {([
-                  {
-                    id: 'Qwen3Embedding06B' as const,
-                    label: t('settings.embeddingModelBest'),
-                    desc: t('settings.embeddingModelBestDesc'),
-                  },
-                  {
-                    id: 'MultilingualMiniLM' as const,
-                    label: t('settings.embeddingModelLight'),
-                    desc: t('settings.embeddingModelLightDesc'),
-                  },
-                  {
-                    id: 'MultilingualE5Base' as const,
-                    label: t('settings.embeddingModelQuality'),
-                    desc: t('settings.embeddingModelQualityDesc'),
-                  },
-                ]).map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => onEmbedLocalModelChange(opt.id)}
-                    className={`rounded-lg border p-3 text-left transition-all duration-fast cursor-pointer ${
-                      embedConfig?.localModel === opt.id
-                        ? 'border-accent bg-accent-subtle ring-1 ring-accent/20'
-                        : 'border-border bg-surface-1 hover:border-border-hover hover:bg-surface-3/50'
-                    }`}
-                  >
-                    <div className="text-sm font-medium text-text-primary">{opt.label}</div>
-                    <div className="mt-1 text-xs text-text-tertiary">{opt.desc}</div>
-                  </button>
-                ))}
-              </div>
+              <SettingsRow label={t('settings.embeddingLocalModelSelect')} htmlFor="download-embedding-model">
+                <select id="download-embedding-model" className={settingsSelectClass} value={embedConfig.localModel} disabled={downloadLoading || deleteEmbedModelLoading} onChange={event => onEmbedLocalModelChange(event.target.value as LocalModelId)}>
+                  <option value="Qwen3Embedding06B">{t('settings.embeddingModelBest')}</option>
+                  <option value="MultilingualMiniLM">{t('settings.embeddingModelLight')}</option>
+                  <option value="MultilingualE5Base">{t('settings.embeddingModelQuality')}</option>
+                </select>
+              </SettingsRow>
+              <p className="text-xs text-text-tertiary">{t(embedConfig.localModel === 'Qwen3Embedding06B' ? 'settings.embeddingModelBestDesc' : embedConfig.localModel === 'MultilingualE5Base' ? 'settings.embeddingModelQualityDesc' : 'settings.embeddingModelLightDesc')}</p>
               <div className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-2">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0 text-info" />
                 <p className="text-xs text-info">{t('settings.embeddingModelChangeWarning')}</p>
@@ -280,30 +257,11 @@ export function ModelDownloadsSection({
         >
           {videoConfig && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-text-primary">{t('settings.videoWhisperModel')}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {([
-                  { id: 'tiny' as const, label: t('settings.videoModelTiny'), desc: t('settings.videoModelTinyDesc') },
-                  { id: 'base' as const, label: t('settings.videoModelBase'), desc: t('settings.videoModelBaseDesc') },
-                  { id: 'small' as const, label: t('settings.videoModelSmall'), desc: t('settings.videoModelSmallDesc') },
-                  { id: 'medium' as const, label: t('settings.videoModelMedium'), desc: t('settings.videoModelMediumDesc') },
-                  { id: 'large' as const, label: t('settings.videoModelLarge'), desc: t('settings.videoModelLargeDesc') },
-                  { id: 'large_turbo' as const, label: t('settings.videoModelLargeTurbo'), desc: t('settings.videoModelLargeTurboDesc') },
-                ]).map((opt) => (
-                  <button
-                    key={opt.id}
-                    onClick={() => onWhisperModelChange(opt.id)}
-                    className={`rounded-lg border p-3 text-left transition-all duration-fast cursor-pointer ${
-                      videoConfig.whisperModel === opt.id
-                        ? 'border-accent bg-accent-subtle ring-1 ring-accent/20'
-                        : 'border-border bg-surface-1 hover:border-border-hover hover:bg-surface-3/50'
-                    }`}
-                  >
-                    <div className="text-sm font-medium text-text-primary">{opt.label}</div>
-                    <div className="mt-1 text-xs text-text-tertiary">{opt.desc}</div>
-                  </button>
-                ))}
-              </div>
+              <SettingsRow label={t('settings.videoWhisperModel')} htmlFor="download-whisper-model">
+                <select id="download-whisper-model" className={settingsSelectClass} value={videoConfig.whisperModel} disabled={videoDownloading} onChange={event => onWhisperModelChange(event.target.value as WhisperModel)}>
+                  {([['tiny', 'Tiny'], ['base', 'Base'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['large_turbo', 'LargeTurbo']] as const).map(([id, suffix]) => <option key={id} value={id}>{t(`settings.videoModel${suffix}`)}</option>)}
+                </select>
+              </SettingsRow>
               <div className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-2">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0 text-info" />
                 <p className="text-xs text-info">{t('settings.videoModelChangeWarning')}</p>
@@ -405,6 +363,7 @@ export function ModelDownloadsSection({
         title={t('settings.deleteModel')}
         message={t('settings.deleteModelConfirm')}
         confirmText={t('common.delete')}
+        loading={deleteEmbedModelLoading}
         variant="danger"
       />
       <ConfirmDialog

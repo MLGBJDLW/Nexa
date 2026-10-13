@@ -159,25 +159,116 @@ pub fn terminal_start_session_cmd(
     let (program, args) = profile.invocation(None, &cwd)?;
     let (args, wsl) = nexa_core::shell_environment::wsl_process::prepare(&program, &args)?;
     let wsl = wsl.map(Arc::new);
-    let pty_system = native_pty_system();
+    let shell_label = resolved_shell_label(&profile.label, &program);
+    let bootstrap = shell_integration_bootstrap(
+        if profile.kind == "wsl" {
+            "Bash"
+        } else {
+            &shell_label
+        },
+        &program,
+    );
+    let mut command = CommandBuilder::new(&program);
+    command.args(&args);
+    start_terminal_process(
+        app_handle,
+        &state,
+        TerminalProcess {
+            command,
+            cwd,
+            size,
+            shell_label,
+            bootstrap,
+            conversation_id,
+            workspace_lease,
+            wsl,
+        },
+    )
+}
 
+struct TerminalProcess {
+    command: CommandBuilder,
+    cwd: PathBuf,
+    size: PtySize,
+    shell_label: String,
+    bootstrap: Option<String>,
+    conversation_id: Option<String>,
+    workspace_lease: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
+    wsl: Option<Arc<nexa_core::shell_environment::wsl_process::WslProcessLease>>,
+}
+
+/// ACP terminal login shares Nexa's existing PTY, input and disposal lifecycle.
+/// This internal interface accepts native argv, never a generated shell script.
+pub(crate) fn start_external_login(
+    app_handle: AppHandle,
+    state: &TerminalState,
+    plan: nexa_core::external_agent::launch::LaunchPlan,
+    cwd: String,
+    label: String,
+) -> Result<TerminalSessionInfo, String> {
+    if cfg!(windows)
+        && plan
+            .executable
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
     {
-        let pair = match pty_system.openpty(size) {
-            Ok(pair) => pair,
-            Err(err) => return Err(format!("failed to create terminal pty: {err}")),
-        };
-        let mut command = CommandBuilder::new(&program);
-        command.args(&args);
+        return Err("Interactive sign-in requires the native executable or Node entry point. Select that executable in advanced settings.".into());
+    }
+    let mut command = CommandBuilder::new(&plan.executable);
+    command.args(&plan.args);
+    for (key, value) in plan.env {
+        command.env(key, value);
+    }
+    start_terminal_process(
+        app_handle,
+        state,
+        TerminalProcess {
+            command,
+            cwd: PathBuf::from(cwd),
+            shell_label: label,
+            size: PtySize {
+                rows: 24,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+            bootstrap: None,
+            conversation_id: None,
+            workspace_lease: None,
+            wsl: None,
+        },
+    )
+}
+
+fn start_terminal_process(
+    app_handle: AppHandle,
+    state: &TerminalState,
+    launch: TerminalProcess,
+) -> Result<TerminalSessionInfo, String> {
+    let TerminalProcess {
+        mut command,
+        cwd,
+        size,
+        shell_label,
+        bootstrap,
+        conversation_id,
+        workspace_lease,
+        wsl,
+    } = launch;
+    let pty_system = native_pty_system();
+    {
+        let pair = pty_system
+            .openpty(size)
+            .map_err(|error| format!("failed to create terminal pty: {error}"))?;
         command.cwd(cwd.as_os_str());
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
         command.env("TERM_PROGRAM", "Nexa");
         command.env("NEXA_TERMINAL", "1");
-
         let child = match pair.slave.spawn_command(command) {
             Ok(child) => child,
             Err(err) => {
-                let error = format!("failed to start {} ({}): {err}", profile.label, program);
+                let error = format!("failed to start {shell_label}: {err}");
                 return Err(error);
             }
         };
@@ -190,15 +281,7 @@ pub fn terminal_start_session_cmd(
             .master
             .take_writer()
             .map_err(|err| format!("failed to attach terminal input: {err}"))?;
-        let shell_label = resolved_shell_label(&profile.label, &program);
-        if let Some(integration) = shell_integration_bootstrap(
-            if profile.kind == "wsl" {
-                "Bash"
-            } else {
-                &shell_label
-            },
-            &program,
-        ) {
+        if let Some(integration) = bootstrap {
             writer
                 .write_all(integration.as_bytes())
                 .and_then(|_| writer.flush())
@@ -252,13 +335,13 @@ pub fn terminal_start_session_cmd(
             wsl,
         );
 
-        return Ok(TerminalSessionInfo {
+        Ok(TerminalSessionInfo {
             id: session_id,
             shell: shell_label,
             cwd: cwd.display().to_string(),
             process_id,
             conversation_id,
-        });
+        })
     }
 }
 

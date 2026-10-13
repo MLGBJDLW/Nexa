@@ -23,6 +23,19 @@ does not become an API key, and selecting an API-only feature does not silently
 switch to another connection. Model availability, entitlement, cost, and service
 limits remain properties of the configured account and endpoint.
 
+### OpenRouter credentials
+
+Use a regular inference API key from [OpenRouter API keys](https://openrouter.ai/settings/keys).
+Management/provisioning keys can query key metadata but cannot call models. This
+can produce HTTP 401 `User not found` in both Check connection and Chat even when
+the key-information endpoint accepts the same credential. Nexa preserves the 401
+and explains the key-type distinction; it does not retry inference or create or
+replace account credentials automatically. Invalid or expired inference keys and
+service-side authentication failures can also return 401, so the message alone
+does not prove which case applies.
+
+Source: [OpenRouter management keys](https://openrouter.ai/docs/guides/overview/auth/management-api-keys).
+
 ## Capability resolution
 
 The shared [provider presets](../shared/provider-presets.json),

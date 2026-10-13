@@ -338,3 +338,11 @@ async function main(): Promise<void> {
 }
 
 void main();
+
+
+const quietControllerStatuses = visibleTraceEventsForTimeline([
+  { id: 'routine-defer', kind: 'status', text: 'Deferred to tools', tone: 'muted' },
+  { id: 'routine-route', kind: 'status', text: 'Route selected: CodebaseOperation', tone: 'muted' },
+  { id: 'actionable', kind: 'status', text: 'Authentication is required', tone: 'error' },
+]);
+assert(quietControllerStatuses.length === 1 && quietControllerStatuses[0].id === 'actionable', 'routine orchestration stays quiet while actionable failures remain visible');

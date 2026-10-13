@@ -3,7 +3,9 @@ import { useTranslation } from '../../i18n';
 import type { OcrConfig } from '../../types/ocr';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Section } from './SettingsSection';
+import { CollapsiblePanel, Section } from './SettingsSection';
+import { SettingsRow } from './SettingsRow';
+import { SettingsToggle } from './SettingsToggle';
 
 interface OcrSettingsSectionProps {
   ocrConfig: OcrConfig | null;
@@ -43,95 +45,23 @@ export function OcrSettingsSection({
     >
       {ocrConfig && (
         <div className="min-w-0 space-y-3">
-          {/* Enable toggle */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-primary">{t('settings.ocrEnabled')}</p>
-              <p className="text-xs text-text-tertiary">{t('settings.ocrEnabledDesc')}</p>
-            </div>
-            <button
-              onClick={() => updateConfig({ enabled: !ocrConfig.enabled })}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                ocrConfig.enabled ? 'bg-accent' : 'bg-surface-3'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                  ocrConfig.enabled ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Confidence threshold */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-sm font-medium text-text-primary">{t('settings.ocrConfidence')}</p>
-              <span className="text-xs font-mono text-text-tertiary">{ocrConfig.confidenceThreshold.toFixed(2)}</span>
-            </div>
-            <p className="text-xs text-text-tertiary mb-2">{t('settings.ocrConfidenceDesc')}</p>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={ocrConfig.confidenceThreshold}
-              onChange={(e) => updateConfig({ confidenceThreshold: parseFloat(e.target.value) })}
-              className="w-full accent-accent"
-            />
-          </div>
-
-          {/* LLM fallback toggle */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-primary">{t('settings.ocrLlmFallback')}</p>
-              <p className="text-xs text-text-tertiary">{t('settings.ocrLlmFallbackDesc')}</p>
-            </div>
-            <button
-              onClick={() => updateConfig({ llmFallbackEnabled: !ocrConfig.llmFallbackEnabled })}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                ocrConfig.llmFallbackEnabled ? 'bg-accent' : 'bg-surface-3'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                  ocrConfig.llmFallbackEnabled ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Detection size limit */}
-          <div>
-            <p className="text-sm font-medium text-text-primary mb-1">{t('settings.ocrDetLimit')}</p>
-            <p className="text-xs text-text-tertiary mb-2">{t('settings.ocrDetLimitDesc')}</p>
-            <Input
-              type="number"
-              value={ocrConfig.detLimitSideLen}
-              onChange={(e) => updateConfig({ detLimitSideLen: parseInt(e.target.value) || 960 })}
-              className="w-32"
-            />
-          </div>
-
-          {/* Orientation detection toggle */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-primary">{t('settings.ocrUseCls')}</p>
-              <p className="text-xs text-text-tertiary">{t('settings.ocrUseClsDesc')}</p>
-            </div>
-            <button
-              onClick={() => updateConfig({ useCls: !ocrConfig.useCls })}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                ocrConfig.useCls ? 'bg-accent' : 'bg-surface-3'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                  ocrConfig.useCls ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
+          <SettingsRow label={t('settings.ocrEnabled')} description={t('settings.ocrEnabledDesc')} htmlFor="ocr-enabled">
+            <div className="flex sm:justify-end"><SettingsToggle id="ocr-enabled" label={t('settings.ocrEnabled')} checked={ocrConfig.enabled} onChange={enabled => updateConfig({ enabled })} /></div>
+          </SettingsRow>
+          <SettingsRow label={t('settings.ocrLlmFallback')} description={t('settings.ocrLlmFallbackDesc')} htmlFor="ocr-fallback">
+            <div className="flex sm:justify-end"><SettingsToggle id="ocr-fallback" label={t('settings.ocrLlmFallback')} checked={ocrConfig.llmFallbackEnabled} onChange={llmFallbackEnabled => updateConfig({ llmFallbackEnabled })} /></div>
+          </SettingsRow>
+          <CollapsiblePanel title={t('settings.advanced')}>
+            <SettingsRow label={t('settings.ocrConfidence')} description={t('settings.ocrConfidenceDesc')} htmlFor="ocr-confidence">
+              <div className="flex items-center gap-3"><input id="ocr-confidence" type="range" min="0" max="1" step="0.05" value={ocrConfig.confidenceThreshold} onChange={event => updateConfig({ confidenceThreshold: Number(event.target.value) })} className="min-w-0 flex-1 accent-accent" /><output htmlFor="ocr-confidence" className="w-8 text-right text-xs tabular-nums text-text-secondary">{ocrConfig.confidenceThreshold.toFixed(2)}</output></div>
+            </SettingsRow>
+            <SettingsRow label={t('settings.ocrDetLimit')} description={t('settings.ocrDetLimitDesc')} htmlFor="ocr-detection-limit">
+              <Input id="ocr-detection-limit" type="number" value={ocrConfig.detLimitSideLen} onChange={event => updateConfig({ detLimitSideLen: parseInt(event.target.value) || 960 })} />
+            </SettingsRow>
+            <SettingsRow label={t('settings.ocrUseCls')} description={t('settings.ocrUseClsDesc')} htmlFor="ocr-orientation">
+              <div className="flex sm:justify-end"><SettingsToggle id="ocr-orientation" label={t('settings.ocrUseCls')} checked={ocrConfig.useCls} onChange={useCls => updateConfig({ useCls })} /></div>
+            </SettingsRow>
+          </CollapsiblePanel>
 
           {/* Save button */}
           <div className="flex justify-end pt-2">

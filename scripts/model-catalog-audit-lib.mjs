@@ -4,6 +4,13 @@ function normalizedValues(values) {
     .filter(Boolean))].sort();
 }
 
+/** Video presets carry operation contracts under their own public schema. */
+export function normalizeCatalogModel(surface, model) {
+  if (surface !== 'video') return model;
+  const status = { ga: 'active', preview: 'preview', deprecated: 'deprecated', retired: 'removed', unverified: 'gated' }[model.releaseStatus];
+  return { ...model, id: model.modelId, name: model.displayName, ...(status ? { status } : {}) };
+}
+
 function liveLifecycle(model) {
   const explicit = String(model?.lifecycle ?? model?.status ?? '').trim().toLowerCase();
   if (explicit) return explicit;

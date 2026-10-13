@@ -144,12 +144,29 @@ const SAFE_SHADOW = /^[#0-9a-z.%(), /+\-]+$/i;
 type ThemeInput = Partial<Omit<CustomThemeDefinition, 'version'>> & { version?: number };
 type ThemePluginInput = Partial<Omit<ThemeResourcePlugin, 'manifestVersion'>> & { manifestVersion?: number };
 
+export function themeIdFromName(name: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(name.trim().normalize('NFC'))) {
+    hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+  }
+  return `theme-${hash.toString(16).padStart(16, '0')}`;
+}
+
 export function normalizeCustomTheme(value: unknown): CustomThemeDefinition {
   if (!value || typeof value !== 'object') throw new Error('Theme profile must be an object');
-  const input = value as ThemeInput;
+  const supplied = value as ThemeInput;
+  const name = typeof supplied.name === 'string' ? supplied.name.trim().normalize('NFC') : '';
+  const input: ThemeInput = {
+    ...supplied,
+    version: supplied.version ?? 2,
+    name,
+    id: supplied.id === undefined || supplied.id === '' ? themeIdFromName(name) : supplied.id,
+    baseTheme: supplied.baseTheme ?? (supplied.mode === 'light' ? 'light' : 'dark'),
+    mode: supplied.mode ?? (supplied.baseTheme === 'light' || supplied.baseTheme === 'bloom' ? 'light' : 'dark'),
+  };
   if (input.version !== 1 && input.version !== 2) throw new Error('Unsupported theme profile version');
   if (!input.id || !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(input.id)) throw new Error('Invalid theme id');
-  if (!input.name?.trim() || Array.from(input.name.trim()).length > 80) throw new Error('Invalid theme name');
+  if (!name || Array.from(name).length > 80 || /[\u0000-\u001f\u007f-\u009f]/u.test(name)) throw new Error('Invalid theme name');
   if (!input.baseTheme || !isThemeId(input.baseTheme)) throw new Error('Invalid base theme');
   if (input.mode !== 'dark' && input.mode !== 'light') throw new Error('Invalid theme mode');
 
@@ -215,7 +232,7 @@ export function normalizeCustomTheme(value: unknown): CustomThemeDefinition {
   return {
     version: 2,
     id: input.id,
-    name: input.name.trim(),
+    name,
     baseTheme: input.baseTheme,
     mode: input.mode,
     colors,
@@ -356,7 +373,7 @@ export function themeToResourcePlugin(theme: CustomThemeDefinition, description?
 export function normalizeThemeResourcePlugin(value: unknown): ThemeResourcePlugin {
   if (!value || typeof value !== 'object') throw new Error('Theme resource plugin must be an object');
   const input = value as ThemePluginInput;
-  if (![1, 2].includes(input.manifestVersion ?? 0) || input.kind !== 'theme-resource') throw new Error('Unsupported theme resource plugin');
+  if (![1, 2].includes(input.manifestVersion ?? 2) || (input.kind !== undefined && input.kind !== 'theme-resource')) throw new Error('Unsupported theme resource plugin');
   if (!input.theme || typeof input.theme !== 'object') throw new Error('Theme resource plugin is missing its theme');
   const profile = normalizeCustomTheme({ ...input.theme, version: input.manifestVersion, id: input.id, name: input.name });
   const description = input.description?.trim();
@@ -381,7 +398,7 @@ export function serializeThemeResourcePlugin(theme: CustomThemeDefinition, descr
 }
 
 function isThemeResourcePlugin(value: unknown): value is ThemeResourcePlugin {
-  return Boolean(value && typeof value === 'object' && (value as { kind?: unknown }).kind === 'theme-resource');
+  return Boolean(value && typeof value === 'object' && ((value as { kind?: unknown }).kind === 'theme-resource' || Object.prototype.hasOwnProperty.call(value, 'theme')));
 }
 
 function resourceThemeFromProfile(profile: CustomThemeDefinition): ThemeResourcePlugin['theme'] {

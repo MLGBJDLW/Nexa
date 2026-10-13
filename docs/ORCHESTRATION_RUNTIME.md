@@ -135,6 +135,14 @@ The built-in presets (`Fast Review`, `Deep Research`, and `Cross-model Code
 Review`) are shortcuts over this contract. `Custom` remains bounded by the same
 fan-out, cadence, privacy, and token-reserve controls.
 
+Concurrency limits queue all selected advisors rather than dropping later slots.
+Each advisor uses its own provider request dialect and reasoning settings. The
+default per-advisor reference timeout is 90 seconds; a custom preset can leave
+that deadline to its provider. Partial failures preserve successful advice, and
+unchanged privacy-filtered context reuses advice within the same turn. Usage is
+returned per invocation, so concurrent turns cannot charge each other's calls.
+External CLI/ACP profiles are not converted into HTTP advisor endpoints.
+
 ## Workflow IR and Nexus execution
 
 Nexus compiles the typed task plan into versioned `WorkflowIr` before the first
@@ -158,6 +166,52 @@ action, not prompt advice. The wave is read-only, each worker has a stable node
 id, and worker results update sibling nodes independently. The controller keeps
 dispatching any retryable failed node until it succeeds or exhausts its node
 retry policy, without discarding successful branches.
+
+These synthetic read-only nodes are explicitly advisory. Exhaustion or an
+interrupted attempt remains a failed diagnostic and permits the parent to take
+over investigation; it never satisfies required task steps or independent review.
+Host-owned continuation state restores the workflow identity, successful siblings,
+attempts and original tool/delegation budgets. Late owned receipts are reconciled
+without replaying previously started work. Resume is not budget replenishment.
+
+Verification gates bind settled file content and executable/read-only modes. Subsequent
+edits invalidate tests, lint, typecheck, build and review receipts, including edits
+outside Nexa's file tools. Unchanged reads and checks preserve the receipts. A
+Git commit or index change also requires fresh verification to bind review to the
+new revision. Older interrupted checkpoints without enough host-owned round
+receipts surface an accounting limitation instead of granting a fresh allowance. A
+judgement must contain a valid structured verdict, candidate IDs and confidence;
+only accepted results with current host-owned candidate provenance can satisfy
+independent review. Generic ranking cannot bypass controller-owned patch review.
+
+Source scans run on blocking workers and follow task cancellation. Routine
+observations rebuild the file inventory and reuse unchanged per-file hashes for
+the active turn. Check, review, browser-evidence, resume and completion boundaries
+always read fresh content; metadata cache hits cannot authorize acceptance.
+Every scan revalidates its Git or folder inventory and file metadata after
+hashing, including nested gitlinks. A clean file becoming dirty or a path
+appearing during the scan leaves the source pending, so concurrent formatter
+or build changes cannot preserve old verification receipts.
+An edit and observation in the same unstable batch cannot produce a green source
+receipt, while browser action effects and terminal closure still reconcile.
+Native filename and symlink-target bytes remain part of the source identity;
+valid non-UTF-8 Unix paths do not block capture or collide through lossy decoding.
+Direct tool dispatch persists its round admission before emitting a tool event or
+executing. Failures remain accounted across interruption, and resume does not
+automatically repeat the first direct dispatch.
+Automatic knowledge prefetch is also limited to first entry. A resumed task
+keeps its replayable retrieved evidence and remaining tool rounds; further
+searches are explicit model actions rather than searches for continuation text.
+Live and recovered reconnaissance receipts must match a current authoritative
+capture of their shared read scope. Missing, changed or unsettled source receipts
+become failed advisories for parent takeover; their claims and evidence are not
+adopted or automatically replayed. Isolated write verification retains its own
+source scope.
+
+`spawn_subagent` and each batch worker accept an optional plain-text `name`.
+Names may contain Unicode and may repeat. Stable agent/session IDs still own
+controls, accounting and history; a resumed session inherits its saved display
+name unless the caller supplies a new one.
 
 Each delegated node carries its model-routing class into the executor. `Fast`
 and `IndependentReviewer` use the configured auxiliary model only when that

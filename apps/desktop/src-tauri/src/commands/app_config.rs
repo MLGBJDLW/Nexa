@@ -76,12 +76,16 @@ pub async fn hydrate_appearance_registry_cmd(
     state
         .db_executor
         .write(move |db| {
-            let disk = extensions
+            let mut disk = extensions
                 .load_theme_plugins()
                 .map_err(|error| nexa_core::error::CoreError::Internal(error.to_string()))?;
             for warning in &disk.warnings {
                 log::warn!("{warning}");
             }
+            disk.preserved_theme_ids.extend(
+                db.load_appearance_registry()?
+                    .ids_for_rejected_files(&disk.rejected_files),
+            );
             let mut hydration_plugins = plugins;
             hydration_plugins.extend(disk.plugins.iter().cloned());
             db.hydrate_appearance_registry(hydration_plugins, active_theme_id)?;
@@ -90,13 +94,15 @@ pub async fn hydrate_appearance_registry_cmd(
                 db.reconcile_appearance_file_plugins(disk.plugins, preserved_theme_ids)?;
             materialize_theme_registry(&extensions, &registry, &disk.preserved_theme_ids)
                 .map_err(nexa_core::error::CoreError::Internal)?;
-            db.commit_appearance_file_projection(
-                registry
-                    .plugins
-                    .iter()
-                    .map(|plugin| plugin.id.clone())
-                    .collect(),
-            )
+            let mut sources = disk.source_names;
+            for plugin in &registry.plugins {
+                if !disk.preserved_theme_ids.contains(&plugin.id) {
+                    sources
+                        .entry(plugin.id.clone())
+                        .or_insert_with(|| format!("{}.json", plugin.id));
+                }
+            }
+            db.commit_appearance_file_sources(sources)
         })
         .await
         .map(|result| result.value)
@@ -115,7 +121,7 @@ pub fn apply_appearance_plugin_cmd(
         .map_err(|error| error.to_string())?;
     let registry = state
         .db
-        .apply_appearance_plugin(plugin)
+        .apply_appearance_file_plugin(plugin)
         .map_err(|e| e.to_string())?;
     let _ = app_handle.emit("appearance://changed", &registry);
     Ok(registry)
@@ -151,9 +157,17 @@ pub fn remove_appearance_cmd(
     state: tauri::State<'_, AppState>,
     theme_id: String,
 ) -> Result<nexa_core::appearance::AppearanceRegistry, String> {
+    let previous = state
+        .db
+        .load_appearance_registry()
+        .map_err(|error| error.to_string())?;
+    previous
+        .clone()
+        .remove(&theme_id)
+        .map_err(|error| error.to_string())?;
     state
         .user_extensions
-        .remove_theme_plugin(&theme_id)
+        .remove_theme_plugin_with_source(&theme_id, previous.file_source_for_theme(&theme_id))
         .map_err(|error| error.to_string())?;
     let registry = state
         .db

@@ -1,6 +1,6 @@
 //! Durable appearance registry shared by Settings and the Agent.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ pub struct AppearanceRegistry {
     file_projection_initialized: bool,
     #[serde(default)]
     file_backed_theme_ids: Vec<String>,
+    #[serde(default)]
+    file_backed_theme_sources: BTreeMap<String, String>,
 }
 
 impl Default for AppearanceRegistry {
@@ -40,6 +42,7 @@ impl Default for AppearanceRegistry {
             plugins: Vec::new(),
             file_projection_initialized: false,
             file_backed_theme_ids: Vec::new(),
+            file_backed_theme_sources: BTreeMap::new(),
         }
     }
 }
@@ -69,6 +72,8 @@ impl AppearanceRegistry {
             .retain(|id| plugin_ids.contains(id.as_str()));
         self.file_backed_theme_ids.sort();
         self.file_backed_theme_ids.dedup();
+        self.file_backed_theme_sources
+            .retain(|id, _| plugin_ids.contains(id.as_str()));
         if !self.has_theme(&self.active_theme_id) {
             self.active_theme_id = "dark".to_string();
         }
@@ -175,6 +180,20 @@ impl AppearanceRegistry {
         self.normalize()
     }
 
+    pub fn ids_for_rejected_files(&self, rejected: &BTreeSet<String>) -> BTreeSet<String> {
+        self.file_backed_theme_sources
+            .iter()
+            .filter(|(_, source)| rejected.contains(*source))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    pub fn file_source_for_theme(&self, theme_id: &str) -> Option<&str> {
+        self.file_backed_theme_sources
+            .get(theme_id)
+            .map(String::as_str)
+    }
+
     pub fn apply(mut self, plugin: ThemeResourcePlugin) -> Result<Self, CoreError> {
         let plugin = plugin.normalize()?;
         self.initialized = true;
@@ -261,6 +280,26 @@ impl Database {
         self.mutate_appearance_registry(|registry| registry.apply(plugin))
     }
 
+    /// The caller has successfully written the declaration. Record its file
+    /// ownership in the same registry transaction as application, so deleting
+    /// that file before the next restart cannot silently resurrect it.
+    pub fn apply_appearance_file_plugin(
+        &self,
+        plugin: ThemeResourcePlugin,
+    ) -> Result<AppearanceRegistry, CoreError> {
+        self.mutate_appearance_registry(|registry| {
+            let mut registry = registry.apply(plugin)?;
+            let id = registry.active_theme_id.clone();
+            registry
+                .file_backed_theme_sources
+                .entry(id.clone())
+                .or_insert_with(|| format!("{id}.json"));
+            registry.file_backed_theme_ids.push(id);
+            registry.file_projection_initialized = true;
+            registry.normalize()
+        })
+    }
+
     pub fn reconcile_appearance_file_plugins(
         &self,
         plugins: Vec<ThemeResourcePlugin>,
@@ -276,6 +315,21 @@ impl Database {
         theme_ids: Vec<String>,
     ) -> Result<AppearanceRegistry, CoreError> {
         self.mutate_appearance_registry(|registry| registry.commit_file_projection(theme_ids))
+    }
+
+    pub fn commit_appearance_file_sources(
+        &self,
+        sources: BTreeMap<String, String>,
+    ) -> Result<AppearanceRegistry, CoreError> {
+        self.mutate_appearance_registry(|mut registry| {
+            let ids = registry
+                .plugins
+                .iter()
+                .map(|plugin| plugin.id.clone())
+                .collect();
+            registry.file_backed_theme_sources.extend(sources);
+            registry.commit_file_projection(ids)
+        })
     }
 
     pub fn activate_appearance(&self, theme_id: &str) -> Result<AppearanceRegistry, CoreError> {
@@ -486,5 +540,27 @@ mod tests {
 
         assert_eq!(preserved.plugins, initial.plugins);
         assert_eq!(preserved.active_theme_id, "autumn");
+    }
+
+    #[test]
+    fn friendly_invalid_file_preserves_only_its_previous_theme() {
+        let registry = AppearanceRegistry::default()
+            .hydrate(vec![plugin("autumn"), plugin("winter")], "autumn".into())
+            .unwrap();
+        let db = Database::open_memory().unwrap();
+        db.hydrate_appearance_registry(registry.plugins.clone(), "autumn".into())
+            .unwrap();
+        let registry = db
+            .commit_appearance_file_sources(BTreeMap::from([
+                ("autumn".into(), "秋色.json".into()),
+                ("winter".into(), "冬天.json".into()),
+            ]))
+            .unwrap();
+        let protected = registry.ids_for_rejected_files(&BTreeSet::from(["秋色.json".into()]));
+        let next = registry
+            .reconcile_file_plugins(Vec::new(), &protected.into_iter().collect::<Vec<_>>())
+            .unwrap();
+        assert_eq!(next.plugins.len(), 1);
+        assert_eq!(next.active_theme_id, "autumn");
     }
 }

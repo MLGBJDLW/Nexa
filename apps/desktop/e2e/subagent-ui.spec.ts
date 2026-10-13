@@ -657,7 +657,7 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   await expect(page.getByText('Supervisor synthesis complete.')).toBeVisible();
 
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   await page.getByRole('button', { name: /Advanced capability routing/ }).click();
   await expect(page.getByTestId('registry-capabilities')).toContainText('Agent Capabilities');
   await expect(page.getByTestId('registry-permissions-owner')).toContainText('Permissions');

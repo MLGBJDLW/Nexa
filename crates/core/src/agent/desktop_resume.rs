@@ -11,6 +11,19 @@ use crate::db::Database;
 use crate::error::CoreError;
 use crate::workflow_ir::WorkflowIr;
 
+pub(super) struct ExecutionResumeState {
+    pub(super) workflow: WorkflowIr,
+    pub(super) plan: Option<crate::intelligence::AgentTaskPlan>,
+    pub(super) completed_tool_rounds: u32,
+    pub(super) max_iterations: Option<u32>,
+}
+
+fn saved_plan(value: Option<&Value>) -> Option<crate::intelligence::AgentTaskPlan> {
+    value
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .filter(|plan: &crate::intelligence::AgentTaskPlan| plan.version == 1)
+}
+
 /// Restore host-owned desktop completion obligations for an existing task turn.
 /// This never reads checkpoint claims from user/model text or grants input rights.
 pub fn restore_pending_desktop_evidence(
@@ -78,11 +91,11 @@ fn workflow(value: Option<&Value>) -> Result<Option<WorkflowIr>, CoreError> {
 
 /// The current run's plan covers interaction-response continuations and user
 /// stops. A formally launched checkpoint can carry a newer live-turn snapshot.
-pub(super) fn load_desktop_resume_workflow(
+pub(super) fn load_execution_resume_state(
     db: &Database,
     conversation_id: Option<&str>,
     turn_id: Option<&str>,
-) -> Result<Option<WorkflowIr>, CoreError> {
+) -> Result<Option<ExecutionResumeState>, CoreError> {
     let (Some(conversation_id), Some(turn_id)) = (conversation_id, turn_id) else {
         return Ok(None);
     };
@@ -93,6 +106,21 @@ pub(super) fn load_desktop_resume_workflow(
         return Err(invalid("task turn belongs to another conversation"));
     }
     let mut selected = workflow(run.plan.as_ref().and_then(|plan| plan.get("workflowIr")))?;
+    let mut selected_plan = saved_plan(run.plan.as_ref());
+    let mut completed_tool_rounds = run
+        .plan
+        .as_ref()
+        .and_then(|value| value.get("completedToolRounds"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(u64::from(u32::MAX)) as u32;
+    let mut max_iterations = run
+        .plan
+        .as_ref()
+        .and_then(|value| value.get("maxIterations"))
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok());
+
     let launched = {
         let conn = db.conn();
         conn.query_row(
@@ -146,6 +174,20 @@ pub(super) fn load_desktop_resume_workflow(
         {
             return Err(invalid("checkpoint state belongs to another task turn"));
         }
+        if let Some(count) = state
+            .pointer("/liveTurnState/completedToolRounds")
+            .and_then(Value::as_u64)
+        {
+            completed_tool_rounds =
+                completed_tool_rounds.max(count.min(u64::from(u32::MAX)) as u32);
+        }
+        if let Some(limit) = state
+            .pointer("/liveTurnState/maxIterations")
+            .and_then(Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+        {
+            max_iterations = Some(max_iterations.map_or(limit, |prior| prior.min(limit)));
+        }
         let saved = state
             .pointer("/liveTurnState/workflowIr")
             .filter(|value| !value.is_null())
@@ -157,6 +199,14 @@ pub(super) fn load_desktop_resume_workflow(
                 .as_ref()
                 .is_none_or(|current| candidate.checkpoint.revision >= current.checkpoint.revision)
             {
+                if let Some(current) = selected.as_ref() {
+                    if current.id != candidate.id {
+                        return Err(invalid("checkpoint workflow identity changed"));
+                    }
+                }
+                selected_plan = saved_plan(state.pointer("/liveTurnState/taskPlan"))
+                    .or_else(|| saved_plan(state.pointer("/run/plan")))
+                    .or(selected_plan);
                 selected = Some(candidate);
             }
         }
@@ -164,12 +214,109 @@ pub(super) fn load_desktop_resume_workflow(
     if let Some(saved) = selected.as_mut() {
         reconcile_late_desktop_receipts(db, conversation_id, turn_id, saved)?;
     }
-    Ok(selected.filter(|workflow| {
-        workflow.desktop_evidence_pending()
-            || workflow
-                .completion_contract
-                .desktop_terminal_closure_evidence
+    Ok(selected.map(|workflow| ExecutionResumeState {
+        workflow,
+        plan: selected_plan,
+        completed_tool_rounds,
+        max_iterations,
     }))
+}
+
+pub(super) fn load_desktop_resume_workflow(
+    db: &Database,
+    conversation: Option<&str>,
+    turn: Option<&str>,
+) -> Result<Option<WorkflowIr>, CoreError> {
+    Ok(load_execution_resume_state(db, conversation, turn)?
+        .map(|state| state.workflow)
+        .filter(|workflow| {
+            workflow.desktop_evidence_pending()
+                || workflow
+                    .completion_contract
+                    .desktop_terminal_closure_evidence
+        }))
+}
+
+/// Already paid reconnaissance is never launched again just because its parent
+/// was interrupted. Late completed receipts win; uncertain attempts remain a
+/// failed advisory with a parent takeover, not fabricated success.
+pub(super) fn reconcile_resumed_reconnaissance(
+    db: &Database,
+    turn: Option<&str>,
+    workflow: &mut WorkflowIr,
+    source: &crate::workflow_verification::VerificationSourceState,
+) -> Result<(), CoreError> {
+    use crate::workflow_ir::{
+        WorkflowDeliverable, WorkflowNodeOrigin, WorkflowNodeRequirement, WorkflowNodeStatus,
+    };
+    let Some(run) = turn
+        .map(|turn| db.get_agent_task_run_by_turn(turn))
+        .transpose()?
+        .flatten()
+    else {
+        return Ok(());
+    };
+    let receipts = db.list_agent_subtask_runs(&run.id)?;
+    let pending = workflow
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.origin == WorkflowNodeOrigin::RuntimeReconnaissance
+                && node.requirement == WorkflowNodeRequirement::Advisory
+                && node.status != WorkflowNodeStatus::Succeeded
+        })
+        .map(|node| node.id.clone())
+        .collect::<Vec<_>>();
+    for id in pending {
+        let matching = receipts
+            .iter()
+            .filter(|row| {
+                row.input
+                    .as_ref()
+                    .and_then(|input| input.get("workerId"))
+                    .and_then(Value::as_str)
+                    == Some(&id)
+            })
+            .collect::<Vec<_>>();
+        let receipt = matching.last().copied();
+        let node = workflow
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == id)
+            .unwrap();
+        // An older checkpoint may precede admission while the durable worker
+        // receipt already exists. Receipt ownership outranks its stale counter.
+        node.attempts = node
+            .attempts
+            .max(u8::try_from(matching.len()).unwrap_or(u8::MAX));
+        if node.attempts == 0 {
+            continue;
+        }
+        if let Some(result) = receipt
+            .filter(|row| row.status == "completed")
+            .and_then(|row| row.output.as_ref())
+            .and_then(|output| output.get("run"))
+            .filter(|result| result.get("isError").and_then(Value::as_bool) == Some(false))
+            .filter(|result| result.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        {
+            if let Some(node) = workflow.nodes.iter_mut().find(|node| node.id == id) {
+                node.status = WorkflowNodeStatus::Running;
+            }
+            workflow.apply_reconnaissance_batch_result_at_source(
+                &[id],
+                Some(&serde_json::json!({"runs":[result]})),
+                false,
+                "Recovered completed reconnaissance",
+                Some(source),
+            );
+        } else if let Some(node) = workflow.nodes.iter_mut().find(|node| node.id == id) {
+            node.status = WorkflowNodeStatus::Failed;
+            node.deliverable = Some(WorkflowDeliverable { claims: Vec::new(), evidence: Vec::new(), files_touched: Vec::new(), tests: Vec::new(), uncertainties: vec!["The prior reconnaissance was interrupted; its effect was not replayed. Parent investigation may continue while its durable receipt remains available.".into()] });
+            workflow.evidence_ledger.retain(|entry| entry.node_id != id);
+        }
+    }
+    workflow.refresh_checkpoint();
+    Ok(())
 }
 
 // A committed native worker can finish after the async turn was stopped and its

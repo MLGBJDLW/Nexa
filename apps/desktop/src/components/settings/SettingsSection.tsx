@@ -1,5 +1,6 @@
+import { useReducedMotionPreference as useReducedMotion } from '../../lib/uiMotion';
 import { useId, useRef, useState, type ReactNode } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { getSoftCollapseMotion, INSTANT_TRANSITION } from '../../lib/uiMotion';

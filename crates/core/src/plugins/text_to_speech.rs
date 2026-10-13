@@ -237,3 +237,14 @@ mod tests {
         assert_eq!(checks[0].status, CapabilityRuntimeStatus::Pass);
     }
 }
+
+/// Package-owned projection hook used by the shared declarative host.
+pub(super) fn project(
+    view: super::CapabilityPackageView,
+    context: super::CapabilityPackageViewContext<'_>,
+) -> super::CapabilityPackageView {
+    enrich_manifest(
+        view,
+        context.app_config.map(|config| &config.text_to_speech),
+    )
+}

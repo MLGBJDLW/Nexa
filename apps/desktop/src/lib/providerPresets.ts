@@ -35,8 +35,8 @@ export interface ProviderPreset {
   registryId?: string;
   registryVersion?: string;
   distribution?: {
-    npx?: { package: string; args?: string[]; env?: Record<string, string> };
-    uvx?: { package: string; args?: string[]; env?: Record<string, string> };
+    npx?: { package: string; runnerArgs?: string[]; args?: string[]; env?: Record<string, string> };
+    uvx?: { package: string; runnerArgs?: string[]; args?: string[]; env?: Record<string, string> };
     binary?: Record<string, { archive: string; cmd: string; args?: string[]; env?: Record<string, string>; sha256?: string }>;
   };
   id: string;

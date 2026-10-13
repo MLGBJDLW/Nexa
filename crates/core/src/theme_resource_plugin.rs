@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
 use crate::error::CoreError;
@@ -48,8 +49,11 @@ const COLOR_SLOTS: &[&str] = &[
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeResourcePlugin {
+    #[serde(default = "default_manifest_version")]
     pub manifest_version: u8,
+    #[serde(default = "default_plugin_kind")]
     pub kind: String,
+    #[serde(default)]
     pub id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,8 +64,11 @@ pub struct ThemeResourcePlugin {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeResourceDefinition {
+    #[serde(default)]
     pub base_theme: String,
+    #[serde(default)]
     pub mode: String,
+    #[serde(default)]
     pub colors: BTreeMap<String, String>,
     #[serde(default)]
     pub effects: ThemeResourceEffects,
@@ -198,6 +205,26 @@ struct GeneratedThemeResource {
     theme: ThemeResourceDefinition,
 }
 
+fn default_manifest_version() -> u8 {
+    THEME_RESOURCE_PLUGIN_VERSION
+}
+fn default_plugin_kind() -> String {
+    THEME_RESOURCE_PLUGIN_KIND.into()
+}
+
+/// A portable identity for shorthand theme files. This non-security hash is
+/// shared with the renderer; names never become filesystem paths or selectors.
+pub fn theme_id_from_name(name: &str) -> String {
+    let name: String = name.trim().nfc().collect();
+    let hash = name
+        .as_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325u64, |hash, byte| {
+            (hash ^ *byte as u64).wrapping_mul(0x100000001b3)
+        });
+    format!("theme-{hash:016x}")
+}
+
 impl ThemeResourcePlugin {
     pub fn from_generated_value(value: Value, description: &str) -> Result<Self, CoreError> {
         let generated: GeneratedThemeResource = serde_json::from_value(value).map_err(|error| {
@@ -224,12 +251,18 @@ impl ThemeResourcePlugin {
         if self.kind != THEME_RESOURCE_PLUGIN_KIND {
             return invalid("Invalid theme-resource plugin kind");
         }
+        self.name = self.name.trim().nfc().collect();
+        if self.name.is_empty()
+            || self.name.chars().count() > 80
+            || self.name.chars().any(char::is_control)
+        {
+            return invalid("Theme-resource name must contain 1 to 80 characters");
+        }
+        if self.id.is_empty() {
+            self.id = theme_id_from_name(&self.name);
+        }
         if !valid_id(&self.id) {
             return invalid("Invalid theme-resource plugin id");
-        }
-        self.name = self.name.trim().to_string();
-        if self.name.is_empty() || self.name.chars().count() > 80 {
-            return invalid("Theme-resource name must contain 1 to 80 characters");
         }
         if let Some(description) = self.description.take() {
             let description = description.trim().to_string();
@@ -237,6 +270,22 @@ impl ThemeResourcePlugin {
                 return invalid("Theme-resource description cannot exceed 500 characters");
             }
             self.description = (!description.is_empty()).then_some(description);
+        }
+        if self.theme.base_theme.is_empty() {
+            self.theme.base_theme = if self.theme.mode == "light" {
+                "light"
+            } else {
+                "dark"
+            }
+            .into();
+        }
+        if self.theme.mode.is_empty() {
+            self.theme.mode = if matches!(self.theme.base_theme.as_str(), "light" | "bloom") {
+                "light"
+            } else {
+                "dark"
+            }
+            .into();
         }
         if !matches!(
             self.theme.base_theme.as_str(),
@@ -497,7 +546,7 @@ fn unsafe_css(value: &str) -> bool {
         || value.chars().any(|c| matches!(c, ';' | '{' | '}'))
 }
 
-fn valid_id(value: &str) -> bool {
+pub(crate) fn valid_id(value: &str) -> bool {
     let mut characters = value.chars();
     let Some(first) = characters.next() else {
         return false;
@@ -602,5 +651,18 @@ mod tests {
             .normalize()
             .expect_err("overlong description must fail");
         assert!(error.to_string().contains("500 characters"));
+    }
+
+    #[test]
+    fn plain_unicode_name_is_the_only_required_identity() {
+        let plugin: ThemeResourcePlugin = serde_json::from_value(
+            serde_json::json!({"name":" 暮光 ","theme":{"colors":{"accent":"#abcdef"}}}),
+        )
+        .unwrap();
+        let plugin = plugin.normalize().unwrap();
+        assert_eq!(plugin.name, "暮光");
+        assert_eq!(plugin.id, "theme-8d56ff242bf6aff2");
+        assert_eq!(plugin.theme.mode, "dark");
+        assert_eq!(theme_id_from_name("e\u{301}"), theme_id_from_name("é"));
     }
 }

@@ -155,6 +155,8 @@ interface TerminalDockProps {
   agentLabel?: string;
   onSendSelectionToAgent?: (selection: TerminalAgentSelection) => void;
   onRenderedChange?: (rendered: boolean) => void;
+  /** Attach a host-owned login process using the same terminal renderer. */
+  attachedSession?: TerminalSessionInfo;
 }
 
 export function TerminalDock({
@@ -162,21 +164,22 @@ export function TerminalDock({
   agentLabel,
   onSendSelectionToAgent,
   onRenderedChange,
+  attachedSession,
 }: TerminalDockProps) {
   const { theme } = useTheme();
   const { t } = useTranslation();
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(Boolean(attachedSession));
   const [isTall, setIsTall] = useState(false);
   const [selectedShell, setSelectedShell] = useState<TerminalShell>('default');
   const [shellProfiles, setShellProfiles] = useState<api.ShellProfile[]>([]);
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || attachedSession) return;
     let cancelled = false;
     void api.discoverShellEnvironments().then(result => {
       if (!cancelled && Array.isArray(result?.profiles)) setShellProfiles(result.profiles);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [isOpen]);
+  }, [isOpen, attachedSession]);
   const [session, setSession] = useState<TerminalSessionInfo | null>(null);
   const [availableSessions, setAvailableSessions] = useState<TerminalSessionInfo[]>([]);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -575,6 +578,11 @@ export function TerminalDock({
 
     const restore = async () => {
       try {
+        if (attachedSession) {
+          setIsOpen(true);
+          await attachSession(attachedSession, isCurrent);
+          return;
+        }
         const sessions = await api.listTerminalSessions();
         if (!isCurrent()) return;
         const matching = conversationId
@@ -601,13 +609,13 @@ export function TerminalDock({
     return () => {
       cancelled = true;
     };
-  }, [attachSession, beginSessionRequest, conversationId]);
+  }, [attachSession, attachedSession, beginSessionRequest, conversationId]);
 
   useEffect(() => {
-    if (!isOpen || isRestoring || restoringRef.current?.()) return;
+    if (attachedSession || !isOpen || isRestoring || restoringRef.current?.()) return;
     if (sessionIdRef.current || status !== 'idle') return;
     void startSession(selectedShell);
-  }, [isOpen, isRestoring, selectedShell, startSession, status]);
+  }, [attachedSession, isOpen, isRestoring, selectedShell, startSession, status]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -723,7 +731,7 @@ export function TerminalDock({
       >
         <button
           type="button"
-          onClick={isOpen ? toggleTerminalPanel : handleOpen}
+          onClick={isOpen ? toggleTerminalPanel : attachedSession ? () => setIsOpen(true) : handleOpen}
           className="inline-flex h-8 min-w-0 items-center gap-2 rounded-md border border-border/55 bg-surface-2/70 px-2.5 text-xs font-medium text-text-primary transition-colors hover:border-border-hover hover:bg-surface-3"
           aria-expanded={isOpen}
           aria-keyshortcuts="Control+J Meta+J"
@@ -741,7 +749,7 @@ export function TerminalDock({
           )}
           {statusText}
         </span>
-        <NexaSelect
+        {!attachedSession && <NexaSelect
           value={selectedShell}
           onChange={(event) => handleShellChange(event.target.value as TerminalShell)}
           className="h-8 rounded-md border border-border/55 bg-surface-0 px-2 text-xs text-text-primary outline-none transition-colors hover:border-border-hover focus:border-accent"
@@ -752,8 +760,8 @@ export function TerminalDock({
               {option.label}
             </option>
           ))}
-        </NexaSelect>
-        {availableSessions.length > 1 && (
+        </NexaSelect>}
+        {!attachedSession && availableSessions.length > 1 && (
           <NexaSelect
             value={session?.id ?? ''}
             onChange={(event) => handleSessionChange(event.target.value)}
@@ -819,7 +827,7 @@ export function TerminalDock({
           </div>
         )}
         <div className="ml-auto flex items-center gap-1">
-          <Button
+          {!attachedSession && <><Button
             variant="ghost"
             size="sm"
             iconOnly
@@ -838,7 +846,7 @@ export function TerminalDock({
             title="Restart terminal"
             onClick={() => void restartActiveSession()}
             disabled={status === 'starting'}
-          />
+          /></>}
           <Button
             variant="ghost"
             size="sm"

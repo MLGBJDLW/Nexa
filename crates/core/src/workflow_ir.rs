@@ -102,9 +102,29 @@ pub struct WorkflowDeliverable {
     pub uncertainties: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkflowNodeOrigin {
+    #[default]
+    TaskPlan,
+    RuntimeReconnaissance,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkflowNodeRequirement {
+    #[default]
+    Required,
+    Advisory,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowNode {
+    #[serde(default)]
+    pub origin: WorkflowNodeOrigin,
+    #[serde(default)]
+    pub requirement: WorkflowNodeRequirement,
     pub id: String,
     pub phase: String,
     pub title: String,
@@ -119,6 +139,16 @@ pub struct WorkflowNode {
     pub status: WorkflowNodeStatus,
     pub attempts: u8,
     pub deliverable: Option<WorkflowDeliverable>,
+}
+
+impl WorkflowNode {
+    fn dependency_settled(&self) -> bool {
+        self.status == WorkflowNodeStatus::Succeeded
+            || (self.origin == WorkflowNodeOrigin::RuntimeReconnaissance
+                && self.requirement == WorkflowNodeRequirement::Advisory
+                && self.isolation == WorkflowIsolation::SharedReadOnly
+                && self.status == WorkflowNodeStatus::Failed)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -161,6 +191,8 @@ pub struct DesktopObservationTarget {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowCompletionContract {
+    #[serde(default)]
+    pub controller_owned_review: bool,
     pub require_all_nodes_succeeded: bool,
     pub require_verification_gates: bool,
     pub require_evidence_ledger: bool,
@@ -188,6 +220,8 @@ pub struct ProjectVerificationSupport {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowIr {
+    #[serde(default)]
+    pub verification_source: Option<crate::workflow_verification::VerificationSourceState>,
     pub version: u8,
     pub id: String,
     pub route_kind: String,
@@ -203,6 +237,41 @@ pub struct WorkflowIr {
 }
 
 impl WorkflowIr {
+    /// A receipt is valid only while the host-observed source state is stable.
+    pub fn reconcile_verification_source(
+        &mut self,
+        state: crate::workflow_verification::VerificationSourceState,
+    ) -> bool {
+        // Legacy checkpoints have no source attestation. Their green gates
+        // cannot be adopted as verification of whatever is on disk now.
+        let changed = self.verification_source.as_ref() != Some(&state);
+        if changed || state.pending {
+            for gate in &mut self.verification_gates {
+                if gate.required
+                    && matches!(
+                        gate.kind,
+                        VerificationGateKind::Tests
+                            | VerificationGateKind::Lint
+                            | VerificationGateKind::Typecheck
+                            | VerificationGateKind::Build
+                            | VerificationGateKind::IndependentReview
+                            | VerificationGateKind::WriteIsolation
+                            | VerificationGateKind::BrowserVisualObservation
+                            | VerificationGateKind::BrowserSessionObservation
+                    )
+                {
+                    gate.passed = None;
+                    gate.detail = Some("Source files changed or have unsettled effects; obtain fresh verification for the current state.".into());
+                }
+            }
+        }
+        let stable = !changed && !state.pending;
+        self.verification_source = Some(state);
+        if !stable {
+            self.refresh_checkpoint();
+        }
+        stable
+    }
     pub(crate) fn desktop_evidence_pending(&self) -> bool {
         !self.checkpoint.desktop_observation_targets.is_empty()
             || self.verification_gates.iter().any(|gate| {
@@ -289,6 +358,19 @@ impl WorkflowIr {
             return Err("Workflow IR node identifiers must be unique.".to_string());
         }
         for node in &self.nodes {
+            if node.requirement == WorkflowNodeRequirement::Advisory
+                && (node.origin != WorkflowNodeOrigin::RuntimeReconnaissance
+                    || node.isolation != WorkflowIsolation::SharedReadOnly
+                    || !node.write_scope.is_empty()
+                    || node
+                        .allowed_tools
+                        .iter()
+                        .any(|tool| tool_may_mutate_workspace(tool)))
+            {
+                return Err(
+                    "Only controller-owned read-only reconnaissance can be advisory".into(),
+                );
+            }
             if node
                 .dependencies
                 .iter()
@@ -344,7 +426,7 @@ impl WorkflowIr {
         let succeeded = self
             .nodes
             .iter()
-            .filter(|node| node.status == WorkflowNodeStatus::Succeeded)
+            .filter(|node| node.dependency_settled())
             .map(|node| node.id.as_str())
             .collect::<HashSet<_>>();
         self.nodes
@@ -438,6 +520,24 @@ impl WorkflowIr {
         batch_failed: bool,
         fallback_summary: &str,
     ) {
+        let source = self.verification_source.clone();
+        self.apply_reconnaissance_batch_result_at_source(
+            node_ids,
+            artifacts,
+            batch_failed,
+            fallback_summary,
+            source.as_ref(),
+        );
+    }
+
+    pub fn apply_reconnaissance_batch_result_at_source(
+        &mut self,
+        node_ids: &[String],
+        artifacts: Option<&serde_json::Value>,
+        batch_failed: bool,
+        fallback_summary: &str,
+        source: Option<&crate::workflow_verification::VerificationSourceState>,
+    ) {
         if let Some(remaining) = artifacts
             .and_then(|value| value.pointer("/budgetAfter/remainingTokens"))
             .and_then(serde_json::Value::as_u64)
@@ -463,6 +563,29 @@ impl WorkflowIr {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or(fallback_summary);
                 let _ = self.fail_node(node_id, detail);
+                continue;
+            }
+
+            let receipt_source =
+                run.and_then(|run| run.get("verificationSource"))
+                    .and_then(|value| {
+                        serde_json::from_value::<
+                            crate::workflow_verification::VerificationSourceState,
+                        >(value.clone())
+                        .ok()
+                    });
+            if source.is_none_or(|source| source.pending || receipt_source.as_ref() != Some(source))
+            {
+                if let Some(node) = self.nodes.iter_mut().find(|node| node.id == *node_id) {
+                    node.status = WorkflowNodeStatus::Failed;
+                    node.deliverable = Some(WorkflowDeliverable {
+                        claims: Vec::new(), evidence: Vec::new(), files_touched: Vec::new(), tests: Vec::new(),
+                        uncertainties: vec!["Reconnaissance has no stable receipt for the current source. Its claims were not adopted or replayed; the parent must investigate.".into()],
+                    });
+                }
+                self.evidence_ledger
+                    .retain(|entry| entry.node_id != *node_id);
+                self.refresh_checkpoint();
                 continue;
             }
 
@@ -575,7 +698,31 @@ impl WorkflowIr {
         artifacts: Option<&serde_json::Value>,
         content: &str,
     ) {
-        if tool_name == "run_shell" {
+        self.observe_tool_result_at_source(
+            _call_id,
+            tool_name,
+            tool_arguments,
+            is_error,
+            artifacts,
+            content,
+            true,
+        );
+    }
+
+    /// Mixed edit/observation batches cannot issue source-bound receipts, but
+    /// their action effects and terminal-closure obligations still reconcile.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn observe_tool_result_at_source(
+        &mut self,
+        _call_id: &str,
+        tool_name: &str,
+        tool_arguments: Option<&str>,
+        is_error: bool,
+        artifacts: Option<&serde_json::Value>,
+        content: &str,
+        source_stable: bool,
+    ) {
+        if tool_name == "run_shell" && source_stable {
             self.record_executed_verification(is_error, artifacts);
         }
         let requires_desktop_observation =
@@ -649,7 +796,7 @@ impl WorkflowIr {
                 && (tool_name != "browser_session"
                     || normalized_tool_action(tool_arguments).as_deref() == Some("observe")
                     || verified_browser_opening_observation(tool_arguments, artifacts));
-        if verified_browser_visual_observation {
+        if verified_browser_visual_observation && source_stable {
             self.record_gate(
                 "browser-visual-observation",
                 true,
@@ -803,12 +950,28 @@ impl WorkflowIr {
         }
 
         if tool_name == "judge_subagent_results"
-            && artifacts
-                .and_then(|value| value.get("kind"))
-                .and_then(serde_json::Value::as_str)
-                == Some("subagent_judgement")
+            && source_stable
+            && !self.completion_contract.controller_owned_review
         {
-            self.record_gate("independent-review", true, content);
+            let receipt = artifacts
+                .filter(|value| {
+                    value.get("kind").and_then(serde_json::Value::as_str)
+                        == Some("subagent_judgement")
+                        && value.get("verdict").and_then(serde_json::Value::as_str)
+                            == Some("accepted")
+                })
+                .and_then(|value| value.get("reviewSource"))
+                .and_then(|value| {
+                    serde_json::from_value::<crate::workflow_verification::VerificationSourceState>(
+                        value.clone(),
+                    )
+                    .ok()
+                });
+            if receipt.as_ref().is_some_and(|source| {
+                !source.pending && self.verification_source.as_ref() == Some(source)
+            }) {
+                self.record_gate("independent-review", true, content);
+            }
         }
         self.refresh_checkpoint();
     }
@@ -889,7 +1052,7 @@ impl WorkflowIr {
         let mut blockers = if self.completion_contract.require_all_nodes_succeeded {
             self.nodes
                 .iter()
-                .filter(|node| node.status != WorkflowNodeStatus::Succeeded)
+                .filter(|node| !node.dependency_settled())
                 .map(|node| format!("node:{}:{:?}", node.id, node.status))
                 .collect::<Vec<_>>()
         } else {
@@ -1137,10 +1300,7 @@ impl WorkflowIr {
 
     pub fn completion_allowed(&self) -> bool {
         let nodes_pass = !self.completion_contract.require_all_nodes_succeeded
-            || self
-                .nodes
-                .iter()
-                .all(|node| node.status == WorkflowNodeStatus::Succeeded);
+            || self.nodes.iter().all(WorkflowNode::dependency_settled);
         let gates_pass = self
             .verification_gates
             .iter()
@@ -1253,6 +1413,7 @@ impl WorkflowIr {
     /// controller-owned independent patch review authoritative even when the
     /// planner underpredicts mutation.
     pub fn configure_for_scheduled_isolated_patch(&mut self) {
+        self.completion_contract.controller_owned_review = true;
         let removed_reconnaissance = self
             .nodes
             .iter()
@@ -1293,10 +1454,7 @@ impl WorkflowIr {
     /// review that ran too early.
     pub fn ready_for_runtime_independent_review(&self) -> bool {
         let nodes_pass = !self.completion_contract.require_all_nodes_succeeded
-            || self
-                .nodes
-                .iter()
-                .all(|node| node.status == WorkflowNodeStatus::Succeeded);
+            || self.nodes.iter().all(WorkflowNode::dependency_settled);
         let prerequisite_gates_pass = self
             .verification_gates
             .iter()
@@ -1342,6 +1500,7 @@ impl WorkflowIr {
         }
         self.verification_gates.clear();
         self.completion_contract = WorkflowCompletionContract {
+            controller_owned_review: false,
             require_all_nodes_succeeded: false,
             require_verification_gates: false,
             require_evidence_ledger: false,
@@ -1367,6 +1526,9 @@ impl WorkflowIr {
             let Some(supported) = supported else {
                 continue;
             };
+            if gate.required == supported && gate.passed == Some(true) {
+                continue;
+            }
             gate.required = supported;
             gate.passed = (!supported).then_some(true);
             gate.detail = Some(if supported {
@@ -1382,10 +1544,7 @@ impl WorkflowIr {
 
     pub fn ready_to_promote_isolated_writes(&self) -> bool {
         let nodes_pass = !self.completion_contract.require_all_nodes_succeeded
-            || self
-                .nodes
-                .iter()
-                .all(|node| node.status == WorkflowNodeStatus::Succeeded);
+            || self.nodes.iter().all(WorkflowNode::dependency_settled);
         let other_gates_pass = self
             .verification_gates
             .iter()
@@ -1420,7 +1579,7 @@ impl WorkflowIr {
         )
     }
 
-    fn refresh_checkpoint(&mut self) {
+    pub(crate) fn refresh_checkpoint(&mut self) {
         self.checkpoint.revision = self.checkpoint.revision.saturating_add(1);
         self.checkpoint.completed_node_ids = self
             .nodes
@@ -2143,6 +2302,8 @@ pub fn compile_workflow_ir(
             ),
         ] {
             nodes.push(WorkflowNode {
+                origin: WorkflowNodeOrigin::RuntimeReconnaissance,
+                requirement: WorkflowNodeRequirement::Advisory,
                 id: id.to_string(),
                 phase: "reconnaissance".to_string(),
                 title: title.to_string(),
@@ -2200,6 +2361,8 @@ pub fn compile_workflow_ir(
             .iter()
             .any(|tool| tool_may_mutate_workspace(tool));
         nodes.push(WorkflowNode {
+            origin: WorkflowNodeOrigin::TaskPlan,
+            requirement: WorkflowNodeRequirement::Required,
             id: step.id.clone(),
             phase: if is_last {
                 "synthesis".to_string()
@@ -2372,6 +2535,7 @@ pub fn compile_workflow_ir(
     }
 
     let mut workflow = WorkflowIr {
+        verification_source: None,
         version: WORKFLOW_IR_VERSION,
         id: uuid::Uuid::new_v4().to_string(),
         route_kind: plan.route_kind.clone(),
@@ -2393,6 +2557,7 @@ pub fn compile_workflow_ir(
             desktop_observation_targets: Vec::new(),
         },
         completion_contract: WorkflowCompletionContract {
+            controller_owned_review: false,
             // Balanced is the default interactive profile. Its task plan is
             // an observable controller projection, not a mandatory checklist
             // that can reject an otherwise valid answer or coerce update_plan
@@ -2641,13 +2806,19 @@ mod tests {
     #[test]
     fn batch_results_checkpoint_siblings_independently() {
         let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "current".into(),
+                pending: false,
+            },
+        );
         let ready = workflow.ready_node_ids();
         for id in &ready {
             workflow.start_node(id).unwrap();
         }
         let artifacts = serde_json::json!({
             "runs": [
-                { "id": ready[0], "isError": false, "result": "Found the relevant module.", "evidenceHandoff": [{ "chunkId": "chunk-1" }] },
+                { "id": ready[0], "isError": false, "result": "Found the relevant module.", "evidenceHandoff": [{ "chunkId": "chunk-1" }], "verificationSource": workflow.verification_source },
                 { "id": ready[1], "isError": true, "errorMessage": "diagnostic timed out" }
             ]
         });
@@ -2660,6 +2831,103 @@ mod tests {
             .expect("a single failed reconnaissance node remains schedulable");
         assert_eq!(retry["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(retry["tasks"][0]["id"], ready[1]);
+    }
+
+    #[test]
+    fn reconnaissance_adopts_only_current_stable_receipts_from_its_read_scope() {
+        use crate::workflow_verification::VerificationSourceState;
+        let source = VerificationSourceState {
+            digest: "shared-current".into(),
+            pending: false,
+        };
+        let old = VerificationSourceState {
+            digest: "shared-old".into(),
+            pending: false,
+        };
+        let pending = VerificationSourceState {
+            pending: true,
+            ..source.clone()
+        };
+        for receipt in [None, Some(old), Some(pending), Some(source.clone())] {
+            let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+            // Write verification can cover an isolated checkout; reconnaissance
+            // is attested independently against the original shared read scope.
+            workflow.reconcile_verification_source(VerificationSourceState {
+                digest: "isolated".into(),
+                pending: false,
+            });
+            let ids = workflow.ready_node_ids();
+            for id in &ids {
+                workflow.start_node(id).unwrap();
+            }
+            let artifacts = serde_json::json!({"runs":[
+                {"id":ids[0],"isError":false,"result":"Candidate advice","evidenceHandoff":[{"path":"candidate.rs"}],"verificationSource":receipt},
+                {"id":ids[1],"isError":false,"result":"Current advice","evidenceHandoff":[{"path":"current.rs"}],"verificationSource":source}
+            ]});
+            workflow.apply_reconnaissance_batch_result_at_source(
+                &ids,
+                Some(&artifacts),
+                false,
+                "batch",
+                Some(&source),
+            );
+            let first = workflow
+                .nodes
+                .iter()
+                .find(|node| node.id == ids[0])
+                .unwrap();
+            let accepted = receipt.as_ref() == Some(&source);
+            assert_eq!(
+                first.status,
+                if accepted {
+                    WorkflowNodeStatus::Succeeded
+                } else {
+                    WorkflowNodeStatus::Failed
+                }
+            );
+            assert_eq!(first.attempts, 1);
+            assert!(
+                workflow
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == ids[1])
+                    .unwrap()
+                    .status
+                    == WorkflowNodeStatus::Succeeded
+            );
+            if !accepted {
+                assert!(first.deliverable.as_ref().unwrap().claims.is_empty());
+                assert!(!workflow
+                    .evidence_ledger
+                    .iter()
+                    .any(|entry| entry.node_id == ids[0]));
+                assert!(workflow
+                    .reconnaissance_batch_arguments("parent takeover")
+                    .is_none());
+            }
+        }
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        let ids = workflow.ready_node_ids();
+        for id in &ids {
+            workflow.start_node(id).unwrap();
+        }
+        let artifacts = serde_json::json!({"runs":ids.iter().map(|id|serde_json::json!({"id":id,"isError":false,"result":"advice","verificationSource":source})).collect::<Vec<_>>()});
+        workflow.apply_reconnaissance_batch_result_at_source(
+            &ids,
+            Some(&artifacts),
+            false,
+            "batch",
+            Some(&VerificationSourceState {
+                pending: true,
+                ..source
+            }),
+        );
+        assert!(workflow.evidence_ledger.is_empty());
+        assert!(workflow
+            .nodes
+            .iter()
+            .filter(|node| ids.contains(&node.id))
+            .all(|node| node.status == WorkflowNodeStatus::Failed));
     }
 
     #[test]
@@ -2827,6 +3095,8 @@ mod tests {
             );
         }
         workflow.record_runtime_write_isolation(true, "controller promoted isolated patch");
+        workflow
+            .record_runtime_independent_review(true, "controller reviewed the same source state");
         assert!(workflow
             .verification_gates
             .iter()
@@ -3380,19 +3650,22 @@ mod tests {
                 "pre-close observation cannot prove the requested close was performed"
             );
 
-            workflow.observe_tool_result_with_arguments(
-                "close",
-                "browser_session",
-                Some(arguments),
-                false,
-                Some(&closure_receipt),
-                "Closed the requested browser target.",
-            );
-
-            assert!(
-                workflow.completion_allowed(),
-                "a typed terminal closure receipt must be attainable evidence after the renderable target is gone: {arguments}"
-            );
+            for source_stable in [false, true] {
+                let mut closed = workflow.clone();
+                closed.observe_tool_result_at_source(
+                    "close",
+                    "browser_session",
+                    Some(arguments),
+                    false,
+                    Some(&closure_receipt),
+                    "Closed the requested browser target.",
+                    source_stable,
+                );
+                assert!(
+                    closed.completion_allowed(),
+                    "a typed terminal closure receipt remains valid after the renderable target is gone: {arguments}"
+                );
+            }
         }
     }
 
@@ -4503,6 +4776,12 @@ mod tests {
             1,
         ));
         let mut workflow = compile_workflow_ir(&file_plan, &profile(), true).unwrap();
+        workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "current".into(),
+                pending: false,
+            },
+        );
         let ready = workflow.ready_node_ids();
         assert_eq!(ready.len(), 2);
         assert!(ready.iter().all(|id| id.starts_with("runtime-recon-")));
@@ -4522,7 +4801,8 @@ mod tests {
             "runs": ready.iter().map(|id| serde_json::json!({
                 "id": id,
                 "isError": false,
-                "result": "read-only findings"
+                "result": "read-only findings",
+                "verificationSource": workflow.verification_source
             })).collect::<Vec<_>>()
         });
         workflow.apply_reconnaissance_batch_result(&ready, Some(&artifacts), false, "batch");
@@ -4536,6 +4816,219 @@ mod tests {
                 .unwrap()
                 .status,
             PlanStepStatus::Completed
+        );
+    }
+
+    #[test]
+    fn exhausted_advisory_reconnaissance_releases_parent_but_not_required_review() {
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        let ids = workflow.ready_node_ids();
+        for id in &ids {
+            loop {
+                workflow.start_node(id).unwrap();
+                if !workflow.fail_node(id, "Provider unavailable").unwrap() {
+                    break;
+                }
+            }
+        }
+        assert!(!workflow.ready_node_ids().is_empty());
+        assert!(workflow
+            .nodes
+            .iter()
+            .filter(|node| ids.contains(&node.id))
+            .all(|node| node.status == WorkflowNodeStatus::Failed
+                && node
+                    .deliverable
+                    .as_ref()
+                    .is_some_and(|value| !value.uncertainties.is_empty())));
+        for node in workflow
+            .nodes
+            .iter_mut()
+            .filter(|node| !ids.contains(&node.id))
+        {
+            node.status = WorkflowNodeStatus::Succeeded;
+        }
+        for gate in &mut workflow.verification_gates {
+            gate.passed = Some(true);
+        }
+        workflow.completion_contract.require_evidence_ledger = false;
+        assert!(workflow.completion_allowed());
+        workflow.record_runtime_independent_review(false, "Review is still required");
+        assert!(!workflow.completion_allowed());
+    }
+
+    #[test]
+    fn legacy_checkpoint_cannot_adopt_current_source_with_stale_green_checks() {
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        for gate in &mut workflow.verification_gates {
+            gate.passed = Some(true);
+        }
+        let mut old = serde_json::to_value(workflow).unwrap();
+        old.as_object_mut().unwrap().remove("verificationSource");
+        let mut restored: WorkflowIr = serde_json::from_value(old).unwrap();
+        assert!(!restored.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "source-after-pause".into(),
+                pending: false,
+            }
+        ));
+        assert!(restored
+            .verification_gates
+            .iter()
+            .filter(|gate| gate.required
+                && matches!(
+                    gate.kind,
+                    VerificationGateKind::Tests | VerificationGateKind::IndependentReview
+                ))
+            .all(|gate| gate.passed.is_none()));
+        assert!(!restored.completion_allowed());
+    }
+
+    #[tokio::test]
+    async fn mixed_edit_and_browser_observation_cannot_attest_the_new_source() {
+        use crate::{db::Database, workflow_verification, workspace::Workspace};
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("index.html");
+        std::fs::write(&file, "state A").unwrap();
+        let db = Database::open_memory().unwrap();
+        let workspace = Workspace {
+            roots: vec![root.path().to_string_lossy().into()],
+        };
+        let plan = interaction_plan("帮我用html写一个黑洞演示图");
+        let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+        workflow.reconcile_verification_source(
+            workflow_verification::capture(&db, None, None, &[], Some(&workspace))
+                .await
+                .unwrap(),
+        );
+        // The screenshot settles first, then a parallel edit changes its source.
+        let pixels = serde_json::json!({"artifacts":{"kind":"browserEvidenceCapture","visual":{"screenshotAttached":true}}});
+        std::fs::write(&file, "state B").unwrap();
+        let after = workflow_verification::capture(&db, None, None, &[], Some(&workspace))
+            .await
+            .unwrap();
+        let stable = workflow.reconcile_verification_source(after.clone());
+        assert!(!stable);
+        workflow.observe_tool_result_at_source(
+            "edit",
+            "edit_file",
+            None,
+            false,
+            None,
+            "Changed the page",
+            stable,
+        );
+        workflow.observe_tool_result_at_source(
+            "old-pixels",
+            "browser_evidence_capture",
+            None,
+            false,
+            Some(&pixels),
+            "Captured A",
+            stable,
+        );
+        assert!(workflow.reconcile_verification_source(after));
+        assert_ne!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::BrowserVisualObservation)
+                .unwrap()
+                .passed,
+            Some(true)
+        );
+        workflow.observe_tool_result_at_source(
+            "fresh-pixels",
+            "browser_evidence_capture",
+            None,
+            false,
+            Some(&pixels),
+            "Captured B",
+            true,
+        );
+        assert_eq!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::BrowserVisualObservation)
+                .unwrap()
+                .passed,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn source_changes_invalidate_checks_and_generic_rankings_never_pass_review() {
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        let source = crate::workflow_verification::VerificationSourceState {
+            digest: "source-a".into(),
+            pending: false,
+        };
+        assert!(!workflow.reconcile_verification_source(source.clone()));
+        for gate in &mut workflow.verification_gates {
+            gate.passed = Some(true);
+        }
+        assert!(workflow.reconcile_verification_source(source.clone()));
+        assert!(workflow
+            .verification_gates
+            .iter()
+            .all(|gate| gate.passed == Some(true)));
+        assert!(!workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "source-b".into(),
+                pending: false
+            }
+        ));
+        assert!(workflow
+            .verification_gates
+            .iter()
+            .filter(|gate| matches!(
+                gate.kind,
+                VerificationGateKind::Tests | VerificationGateKind::IndependentReview
+            ))
+            .all(|gate| gate.passed.is_none()));
+        workflow.observe_tool_result("judge", "judge_subagent_results", false, Some(&serde_json::json!({"kind":"subagent_judgement", "verdict":"accepted", "reviewSource":source})), "Stale review");
+        assert!(workflow
+            .verification_gates
+            .iter()
+            .find(|gate| gate.kind == VerificationGateKind::IndependentReview)
+            .unwrap()
+            .passed
+            .is_none());
+        let receipt = serde_json::json!({"kind":"subagent_judgement", "verdict":"accepted", "reviewSource":workflow.verification_source});
+        workflow.observe_tool_result(
+            "judge",
+            "judge_subagent_results",
+            false,
+            Some(&receipt),
+            "Owned review",
+        );
+        assert_eq!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::IndependentReview)
+                .unwrap()
+                .passed,
+            Some(true)
+        );
+        workflow.configure_for_scheduled_isolated_patch();
+        workflow.record_runtime_independent_review(false, "Controller review pending");
+        workflow.observe_tool_result(
+            "judge",
+            "judge_subagent_results",
+            false,
+            Some(&receipt),
+            "Generic ranking",
+        );
+        assert_eq!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::IndependentReview)
+                .unwrap()
+                .passed,
+            Some(false)
         );
     }
 }

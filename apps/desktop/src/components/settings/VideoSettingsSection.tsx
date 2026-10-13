@@ -1,11 +1,9 @@
 import {
   AlertTriangle,
   CheckCircle,
-  ChevronDown,
   Film,
   Loader2,
   Save,
-  Settings2,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -16,7 +14,8 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Input } from '../ui/Input';
-import { Section } from './SettingsSection';
+import { CollapsiblePanel, Section } from './SettingsSection';
+import { SettingsToggle } from './SettingsToggle';
 
 interface VideoSettingsSectionProps {
   videoConfig: VideoConfig | null;
@@ -84,18 +83,7 @@ export function VideoSettingsSection({
               <p className="text-sm font-medium text-text-primary">{t('settings.videoEnabled')}</p>
               <p className="text-xs text-text-tertiary">{t('settings.videoEnabledDesc')}</p>
             </div>
-            <button
-              onClick={() => updateConfig({ enabled: !videoConfig.enabled })}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                videoConfig.enabled ? 'bg-accent' : 'bg-surface-3'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                  videoConfig.enabled ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+            <SettingsToggle label={t('settings.videoEnabled')} checked={videoConfig.enabled} onChange={enabled => updateConfig({ enabled })} />
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -219,18 +207,7 @@ export function VideoSettingsSection({
               <p className="text-sm font-medium text-text-primary">{t('settings.videoFrameExtraction')}</p>
               <p className="text-xs text-text-tertiary">{t('settings.videoFrameExtractionDesc')}</p>
             </div>
-            <button
-              onClick={() => updateConfig({ frameExtractionEnabled: !videoConfig.frameExtractionEnabled })}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                videoConfig.frameExtractionEnabled ? 'bg-accent' : 'bg-surface-3'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                  videoConfig.frameExtractionEnabled ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+            <SettingsToggle label={t('settings.videoFrameExtraction')} checked={videoConfig.frameExtractionEnabled} onChange={frameExtractionEnabled => updateConfig({ frameExtractionEnabled })} />
           </div>
 
           {/* Frame Interval */}
@@ -247,41 +224,15 @@ export function VideoSettingsSection({
             </div>
           )}
 
-          {/* Advanced Settings - collapsible */}
-          <div className="space-y-4 border-t border-border pt-4 mt-4">
-            <button
-              type="button"
-              onClick={onAdvancedToggle}
-              className="flex items-center gap-2 text-sm font-medium text-text-primary cursor-pointer w-full"
-            >
-              <Settings2 size={16} />
-              {t('settings.videoAdvanced')}
-              <ChevronDown
-                size={16}
-                className={`transition-transform duration-fast ${showAdvancedVideo ? 'rotate-180' : ''}`}
-              />
-            </button>
-
-            {showAdvancedVideo && (
-              <div className="space-y-4 pl-4">
+          <CollapsiblePanel title={t('settings.videoAdvanced')} open={showAdvancedVideo} onOpenChange={onAdvancedToggle}>
+              <div className="space-y-3">
                 {/* Prefer Embedded Subtitles */}
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-text-primary">{t('settings.videoPreferSubtitles')}</p>
                     <p className="text-xs text-text-tertiary">{t('settings.videoPreferSubtitlesDesc')}</p>
                   </div>
-                  <button
-                    onClick={() => updateConfig({ preferEmbeddedSubtitles: !videoConfig.preferEmbeddedSubtitles })}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                      videoConfig.preferEmbeddedSubtitles ? 'bg-accent' : 'bg-surface-3'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                        videoConfig.preferEmbeddedSubtitles ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
+                  <SettingsToggle label={t('settings.videoPreferSubtitles')} checked={videoConfig.preferEmbeddedSubtitles} onChange={preferEmbeddedSubtitles => updateConfig({ preferEmbeddedSubtitles })} />
                 </div>
 
                 {/* Scene Detection Threshold */}
@@ -303,8 +254,7 @@ export function VideoSettingsSection({
                 </div>
 
               </div>
-            )}
-          </div>
+          </CollapsiblePanel>
 
           {/* Save button */}
           <div className="flex items-center justify-between pt-2">

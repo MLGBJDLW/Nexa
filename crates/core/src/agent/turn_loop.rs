@@ -649,6 +649,12 @@ impl AgentExecutor {
         // accounting. Answer-only turns must not pay context for a tool
         // surface that can never be transmitted.
         let mut turn_budget = TurnBudget::new(self.config.max_iterations);
+        let mut resumed_execution =
+            super::desktop_resume::load_execution_resume_state(db, conversation_id, turn_id)?;
+        if let Some(saved) = resumed_execution.as_ref() {
+            turn_budget.restore(saved.completed_tool_rounds, saved.max_iterations);
+        }
+        turn_budget.restore_receipts(db, conversation_id, turn_id)?;
 
         // --- 0. Early cancellation check before any work ----------------------
         if self.cancel_token.is_cancelled() {
@@ -741,7 +747,12 @@ impl AgentExecutor {
                 .workspace()
                 .is_some_and(|workspace| !workspace.roots.is_empty());
         let route_plan = route_user_turn(
-            &user_query_text_for_tools,
+            resumed_execution
+                .as_ref()
+                .and_then(|saved| saved.plan.as_ref())
+                .map_or(user_query_text_for_tools.as_str(), |plan| {
+                    plan.objective.as_str()
+                }),
             &self.config.system_prompt,
             has_sources,
         );
@@ -769,6 +780,29 @@ impl AgentExecutor {
             requires_workspace_isolation,
         )
         .map_err(CoreError::InvalidInput)?;
+        let is_execution_resume = resumed_execution.is_some();
+        if let Some(mut saved) = resumed_execution.take() {
+            if let Some(plan) = saved.plan.take() {
+                task_plan = plan;
+            } else if saved
+                .workflow
+                .completion_contract
+                .require_all_nodes_succeeded
+            {
+                return Err(CoreError::InvalidInput("Saved execution checkpoint is missing its task plan; reconcile the checkpoint before resuming this workflow".into()));
+            }
+            let available = self.tools.tool_names();
+            for node in &mut saved.workflow.nodes {
+                node.allowed_tools.retain(|tool| available.contains(tool));
+            }
+            saved.workflow.max_parallel = saved
+                .workflow
+                .max_parallel
+                .min(orchestration_policy.max_parallel)
+                .max(1);
+            saved.workflow.apply_checkpoint_to_task_plan(&mut task_plan);
+            workflow_ir = Some(saved.workflow);
+        }
         if self.config.execution_mode.is_plan() {
             if let Some(workflow) = workflow_ir.as_mut() {
                 workflow.configure_for_plan_mode();
@@ -801,15 +835,6 @@ impl AgentExecutor {
                 );
             }
         }
-        super::desktop_resume::restore_pending_desktop_evidence(
-            db,
-            conversation_id,
-            turn_id,
-            &mut workflow_ir,
-            &task_plan,
-            &orchestration_policy,
-            self.config.power_mode.is_nexus(),
-        )?;
         let mut workspace_isolation = if !self.config.execution_mode.is_plan()
             && (workflow_ir
                 .as_ref()
@@ -833,13 +858,57 @@ impl AgentExecutor {
         } else {
             source_scope.clone()
         };
-        let task_plan_value = workflow_ir
+        let verification_capture =
+            crate::workflow_verification::Capture::new(self.cancel_token.clone());
+        if let Some(workflow) = workflow_ir.as_mut() {
+            let source = verification_capture
+                .capture(
+                    db,
+                    conversation_id,
+                    turn_id,
+                    &execution_source_scope,
+                    self.tools.workspace(),
+                    crate::workflow_verification::CaptureMode::Authoritative,
+                )
+                .await?;
+            workflow.reconcile_verification_source(source.clone());
+            if is_execution_resume {
+                // Reconnaissance reads the original shared workspace, while
+                // write verification may also include an isolated checkout.
+                let read_source = if execution_source_scope == source_scope {
+                    source
+                } else {
+                    verification_capture
+                        .capture(
+                            db,
+                            conversation_id,
+                            turn_id,
+                            &source_scope,
+                            self.tools.workspace(),
+                            crate::workflow_verification::CaptureMode::Authoritative,
+                        )
+                        .await?
+                };
+                super::desktop_resume::reconcile_resumed_reconnaissance(
+                    db,
+                    turn_id,
+                    workflow,
+                    &read_source,
+                )?;
+                workflow.apply_checkpoint_to_task_plan(&mut task_plan);
+            }
+        }
+        let mut task_plan_value = workflow_ir
             .as_ref()
             .map(|workflow| workflow.task_plan_checkpoint(&task_plan))
             .unwrap_or_else(|| {
                 serde_json::to_value(&task_plan)
                     .unwrap_or_else(|_| serde_json::json!({ "error": "serializeTaskPlan" }))
             });
+        task_plan_value["completedToolRounds"] = serde_json::json!(turn_budget.tool_rounds_used());
+        task_plan_value["maxIterations"] = serde_json::json!(turn_budget
+            .configured_tool_round_limit()
+            .unwrap_or(u32::MAX));
         let workflow_ir_value = workflow_ir
             .as_ref()
             .and_then(|workflow| serde_json::to_value(workflow).ok());
@@ -1088,7 +1157,10 @@ impl AgentExecutor {
         let user_query_text = &user_query_text_for_tools;
 
         // --- 3c'. Try direct dispatch (skip LLM for simple commands) ---------
-        if !self.config.execution_mode.is_plan() && turn_budget.can_dispatch_tool_round() {
+        if !self.config.execution_mode.is_plan()
+            && turn_budget.tool_rounds_used() == 0
+            && turn_budget.can_dispatch_tool_round()
+        {
             match self
                 .try_direct_dispatch(
                     user_query_text,
@@ -1098,16 +1170,15 @@ impl AgentExecutor {
                     conversation_id,
                     turn_id,
                     next_sort_order,
+                    &mut turn_budget,
                 )
-                .await
+                .await?
             {
                 direct_dispatch_runner::DirectDispatchOutcome::Completed(message) => {
                     return Ok(message);
                 }
-                direct_dispatch_runner::DirectDispatchOutcome::ExecutedButFailed => {
-                    turn_budget.record_verified_tool_round();
-                }
-                direct_dispatch_runner::DirectDispatchOutcome::NotMatched => {}
+                direct_dispatch_runner::DirectDispatchOutcome::ExecutedButFailed
+                | direct_dispatch_runner::DirectDispatchOutcome::NotMatched => {}
             }
         }
 
@@ -1161,10 +1232,16 @@ impl AgentExecutor {
         // --- 3e. Auto pre-search for KnowledgeRetrieval route ----------------
         // Eagerly execute search_knowledge_base so the LLM already has evidence
         // in context instead of depending on it to call the tool itself.
-        let prefetch_enters_dispatch = route_plan.kind == AgentRouteKind::KnowledgeRetrieval
+        // Prefetch is a first-entry optimization. Resume already retains its
+        // evidence and admission; another search would spend the remaining
+        // budget on checkpoint continuation text instead of the saved objective.
+        let prefetch_enters_dispatch = !is_execution_resume
+            && turn_budget.tool_rounds_used() == 0
+            && route_plan.kind == AgentRouteKind::KnowledgeRetrieval
             && !user_query_text.is_empty()
             && turn_budget.can_dispatch_tool_round();
         let prefetch_observed = if prefetch_enters_dispatch {
+            turn_budget.persist_admission(db, turn_id)?;
             let observed = self
                 .prefetch_knowledge_results(
                     route_plan.kind,
@@ -1249,6 +1326,28 @@ impl AgentExecutor {
                         .map_err(CoreError::InvalidInput)?;
                 }
 
+                // Persist admission before any worker can incur cost or finish.
+                // A crash must not restore the prior Pending wave and replay it.
+                if let Some(tid) = turn_id {
+                    if let Some(task_run) = db.get_agent_task_run_by_turn(tid)? {
+                        let mut checkpoint = workflow_ir.task_plan_checkpoint(&task_plan);
+                        checkpoint["completedToolRounds"] =
+                            serde_json::json!(turn_budget.tool_rounds_used());
+                        checkpoint["maxIterations"] = serde_json::json!(turn_budget
+                            .configured_tool_round_limit()
+                            .unwrap_or(u32::MAX));
+                        db.update_agent_task_run_progress(
+                            &task_run.id,
+                            Some("running"),
+                            Some("tooling"),
+                            Some(route_plan.kind.as_str()),
+                            Some("Reconnaissance wave admitted"),
+                            Some(&checkpoint),
+                            None,
+                        )?;
+                    }
+                }
+
                 let call = ToolCallRequest {
                     id: format!("workflow-recon-{}", Uuid::new_v4()),
                     name: "spawn_subagent_batch".to_string(),
@@ -1321,6 +1420,7 @@ impl AgentExecutor {
                     })
                     .await;
 
+                turn_budget.persist_admission(db, turn_id)?;
                 let mut tool_run_started_ids = HashSet::new();
                 let dispatch_outcome = match self
                     .dispatch_tool_calls(
@@ -1394,13 +1494,24 @@ impl AgentExecutor {
                 if summary.is_some_and(|summary| !summary.is_error) {
                     model_action_observed = true;
                 }
-                workflow_ir.apply_reconnaissance_batch_result(
+                let read_source = verification_capture
+                    .capture(
+                        db,
+                        conversation_id,
+                        turn_id,
+                        &source_scope,
+                        self.tools.workspace(),
+                        crate::workflow_verification::CaptureMode::Authoritative,
+                    )
+                    .await?;
+                workflow_ir.apply_reconnaissance_batch_result_at_source(
                     &node_ids,
                     summary.and_then(|summary| summary.artifacts.as_ref()),
                     summary.is_none_or(|summary| summary.is_error),
                     summary
                         .map(|summary| summary.content.as_str())
                         .unwrap_or("Nexus reconnaissance returned no result."),
+                    Some(&read_source),
                 );
                 workflow_ir.apply_checkpoint_to_task_plan(&mut task_plan);
                 emit_task_plan_update(
@@ -1412,7 +1523,12 @@ impl AgentExecutor {
                 .await;
                 if let Some(tid) = turn_id {
                     if let Ok(Some(task_run)) = db.get_agent_task_run_by_turn(tid) {
-                        let checkpoint = workflow_ir.task_plan_checkpoint(&task_plan);
+                        let mut checkpoint = workflow_ir.task_plan_checkpoint(&task_plan);
+                        checkpoint["completedToolRounds"] =
+                            serde_json::json!(turn_budget.tool_rounds_used());
+                        checkpoint["maxIterations"] = serde_json::json!(turn_budget
+                            .configured_tool_round_limit()
+                            .unwrap_or(u32::MAX));
                         let _ = db.update_agent_task_run_progress(
                             &task_run.id,
                             Some("running"),
@@ -2653,6 +2769,18 @@ impl AgentExecutor {
                     .as_mut()
                     .filter(|workflow| workflow.requires_completion_audit())
                 {
+                    workflow_ir.reconcile_verification_source(
+                        verification_capture
+                            .capture(
+                                db,
+                                conversation_id,
+                                turn_id,
+                                &execution_source_scope,
+                                self.tools.workspace(),
+                                crate::workflow_verification::CaptureMode::Authoritative,
+                            )
+                            .await?,
+                    );
                     workflow_ir.sync_from_task_plan(&task_plan);
                     let final_audit = audit_final_answer(
                         &task_plan,
@@ -2691,6 +2819,18 @@ impl AgentExecutor {
                             }
                         }
                     }
+                    workflow_ir.reconcile_verification_source(
+                        verification_capture
+                            .capture(
+                                db,
+                                conversation_id,
+                                turn_id,
+                                &execution_source_scope,
+                                self.tools.workspace(),
+                                crate::workflow_verification::CaptureMode::Authoritative,
+                            )
+                            .await?,
+                    );
                     if (workflow_ir.requires_runtime_write_isolation()
                         || self.config.request_kind.requires_workspace_isolation())
                         && workflow_ir.ready_to_promote_isolated_writes()
@@ -2910,6 +3050,41 @@ impl AgentExecutor {
             // Preserve the round for that alternate strategy.
             let dispatch_consumes_tool_round = tool_dispatch_block.is_none();
 
+            // A cached observation may invalidate earlier receipts, but only
+            // fresh content can bind commands/reviews to a source revision.
+            let verification_mode = if tool_calls.iter().any(|call| {
+                matches!(
+                    call.name.as_str(),
+                    "run_shell"
+                        | "judge_subagent_results"
+                        | "spawn_subagent"
+                        | "spawn_subagent_batch"
+                        | "browser_evidence_capture"
+                        | "browser_session"
+                )
+            }) {
+                crate::workflow_verification::CaptureMode::Authoritative
+            } else {
+                crate::workflow_verification::CaptureMode::Incremental
+            };
+
+            if let Some(workflow) = workflow_ir.as_mut() {
+                workflow.reconcile_verification_source(
+                    verification_capture
+                        .capture(
+                            db,
+                            conversation_id,
+                            turn_id,
+                            &execution_source_scope,
+                            self.tools.workspace(),
+                            verification_mode,
+                        )
+                        .await?,
+                );
+            }
+            if dispatch_consumes_tool_round {
+                turn_budget.persist_admission(db, turn_id)?;
+            }
             // -- 4e. Execute tool calls in parallel ------------------------------
             let dispatch_outcome = match self
                 .dispatch_tool_calls(
@@ -3020,18 +3195,31 @@ impl AgentExecutor {
                 }
             }
             if let Some(workflow) = workflow_ir.as_mut() {
+                let verification_stable = workflow.reconcile_verification_source(
+                    verification_capture
+                        .capture(
+                            db,
+                            conversation_id,
+                            turn_id,
+                            &execution_source_scope,
+                            self.tools.workspace(),
+                            verification_mode,
+                        )
+                        .await?,
+                );
                 for call in &tool_calls {
                     if let Some(summary) = dispatch_summaries
                         .iter()
                         .find(|summary| summary.call_id == call.id)
                     {
-                        workflow.observe_tool_result_with_arguments(
+                        workflow.observe_tool_result_at_source(
                             &call.id,
                             &call.name,
                             Some(&call.arguments),
                             summary.is_error,
                             summary.artifacts.as_ref(),
                             &summary.content,
+                            verification_stable,
                         );
                     }
                 }
@@ -3043,7 +3231,7 @@ impl AgentExecutor {
             let awaiting_interaction_id = awaiting_user_input_interaction_id(&dispatch_summaries);
             if let Some(tid) = turn_id {
                 if let Ok(Some(task_run)) = db.get_agent_task_run_by_turn(tid) {
-                    let checkpoint = workflow_ir
+                    let mut checkpoint = workflow_ir
                         .as_ref()
                         .map(|workflow| workflow.task_plan_checkpoint(&task_plan))
                         .unwrap_or_else(|| {
@@ -3051,6 +3239,11 @@ impl AgentExecutor {
                                 |_| serde_json::json!({ "error": "serializeTaskPlan" }),
                             )
                         });
+                    checkpoint["completedToolRounds"] =
+                        serde_json::json!(turn_budget.tool_rounds_used());
+                    checkpoint["maxIterations"] = serde_json::json!(turn_budget
+                        .configured_tool_round_limit()
+                        .unwrap_or(u32::MAX));
                     let (status, phase, summary) = if awaiting_interaction_id.is_some() {
                         (
                             "awaiting_user_input",

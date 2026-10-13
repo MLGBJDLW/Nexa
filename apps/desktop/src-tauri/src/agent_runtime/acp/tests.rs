@@ -1,4 +1,5 @@
 use super::*;
+mod live_matrix;
 use nexa_core::{
     agent::{AgentEvent, ToolRunStatus},
     approval::ApprovalDecision,
@@ -14,6 +15,256 @@ use std::{
 
 fn wire(mode: &str) -> Wire {
     wire_with_marker(mode, "")
+}
+
+#[tokio::test]
+async fn discovery_does_not_advertise_unavailable_file_or_terminal_services() {
+    let mut wire = wire("discovery");
+    Session::initialize(&mut wire).await.unwrap();
+}
+
+#[tokio::test]
+async fn native_setup_remains_available_after_a_non_authentication_session_error() {
+    let mut wire = wire("setup_error");
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let launch = ExternalAgentLaunch {
+        working_directory: "fixture".into(),
+        ..Default::default()
+    };
+    let result = super::auth::catalog(&mut wire, &launch, None, &[], initialized).await;
+    assert!(
+        result.is_ok(),
+        "native setup choices must survive a session setup error"
+    );
+    let catalog = result.unwrap();
+    assert!(catalog.models.is_empty());
+    assert_eq!(catalog.auth_methods.len(), 2);
+    assert!(!catalog.requires_authentication);
+    assert!(catalog
+        .setup_error
+        .as_deref()
+        .unwrap()
+        .contains("No provider configured"));
+}
+
+#[tokio::test]
+async fn setup_exposes_native_authentication_without_reporting_a_connected_session() {
+    let mut wire = wire("auth_methods");
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let launch = ExternalAgentLaunch {
+        working_directory: "fixture".into(),
+        ..Default::default()
+    };
+    let catalog = super::auth::catalog(&mut wire, &launch, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(catalog.requires_authentication);
+    assert!(catalog.models.is_empty());
+    assert_eq!(catalog.auth_methods.len(), 2);
+    assert_eq!(catalog.auth_methods[0].kind, "agent");
+    assert_eq!(catalog.auth_methods[1].kind, "terminal");
+    let public = serde_json::to_value(&catalog).unwrap();
+    assert!(!public.to_string().contains("ACP_LOGIN"));
+    wire.request("authenticate", json!({"methodId":"oauth"}))
+        .await
+        .unwrap();
+    // Reinitializing does not log out an authenticated adapter.
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let catalog = super::auth::catalog(&mut wire, &launch, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(!catalog.requires_authentication);
+    assert!(!catalog.models.is_empty());
+    drop(wire);
+    let mut fresh = wire_with_marker("auth_methods", "");
+    let initialized = Session::initialize(&mut fresh).await.unwrap();
+    let catalog = super::auth::catalog(&mut fresh, &launch, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(
+        catalog.requires_authentication,
+        "authentication belongs to the prior process"
+    );
+    let mut selected = launch.clone();
+    selected.authentication_method = Some("oauth".into());
+    let initialized = Session::initialize(&mut fresh).await.unwrap();
+    let catalog = super::auth::catalog(&mut fresh, &selected, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(!catalog.requires_authentication);
+    drop(fresh);
+    let mut chat = wire_with_marker("auth_methods", "");
+    Session::connect_with_mcp(&mut chat, "fixture", &[], Some("oauth"))
+        .await
+        .unwrap();
+    let mut terminal_only = wire_with_marker("auth_methods", "");
+    assert!(
+        Session::connect_with_mcp(&mut terminal_only, "fixture", &[], Some("terminal"))
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn revoked_saved_authentication_keeps_explicit_recovery_choices_available() {
+    let root = tempfile::tempdir().unwrap();
+    let db = nexa_core::db::Database::open_memory().unwrap();
+    let env = nexa_core::external_agent::launch::process_environment(&Default::default());
+    let python = nexa_core::external_agent::launch::find_executable("python", &env).unwrap();
+    for mode in ["auth_revoked", "auth_disconnected"] {
+        let mut launch = ExternalAgentLaunch {
+            executable: Some(python.to_string_lossy().into()),
+            args: Some(vec![
+                "-u".into(),
+                "-c".into(),
+                include_str!("fixture.py").into(),
+                mode.into(),
+            ]),
+            working_directory: root.path().to_string_lossy().into(),
+            authentication_method: Some("oauth".into()),
+            ..Default::default()
+        };
+        let catalog = super::probe("custom_acp", &launch, &db, None)
+            .await
+            .unwrap();
+        assert!(catalog.requires_authentication);
+        assert!(catalog.models.is_empty());
+        assert_eq!(
+            catalog
+                .auth_methods
+                .iter()
+                .map(|method| method.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["oauth", "replacement", "terminal"]
+        );
+        assert!(!serde_json::to_string(&catalog)
+            .unwrap()
+            .contains("credential-secret"));
+        let explicit = super::authenticate("custom_acp", &launch, &db, None, "oauth").await;
+        assert!(
+            explicit.is_err(),
+            "an explicit failed attempt must remain an error"
+        );
+        let super::Authentication::Connected(recovered) =
+            super::authenticate("custom_acp", &launch, &db, None, "replacement")
+                .await
+                .unwrap()
+        else {
+            panic!("replacement account must establish a session");
+        };
+        assert!(!recovered.requires_authentication);
+        assert!(!recovered.models.is_empty());
+        launch.authentication_method = Some("replacement".into());
+        assert!(
+            !super::probe("custom_acp", &launch, &db, None)
+                .await
+                .unwrap()
+                .requires_authentication
+        );
+        let mut chat = wire(mode);
+        let error = Session::connect_with_mcp(&mut chat, "fixture", &[], Some("oauth"))
+            .await
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("Settings"), "{error}");
+        assert!(!error.contains("credential-secret"));
+    }
+}
+
+#[tokio::test]
+async fn acknowledged_authentication_never_replays_a_saved_method_before_session_creation() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("auth.log");
+    let db = nexa_core::db::Database::open_memory().unwrap();
+    let env = nexa_core::external_agent::launch::process_environment(&Default::default());
+    let python = nexa_core::external_agent::launch::find_executable("python", &env).unwrap();
+    for saved in ["oauth", "replacement"] {
+        let launch = ExternalAgentLaunch {
+            executable: Some(python.to_string_lossy().into()),
+            args: Some(vec![
+                "-u".into(),
+                "-c".into(),
+                include_str!("fixture.py").into(),
+                "auth_pending".into(),
+                marker.to_string_lossy().into(),
+            ]),
+            working_directory: root.path().to_string_lossy().into(),
+            authentication_method: Some(saved.into()),
+            ..Default::default()
+        };
+        let super::Authentication::Connected(catalog) =
+            super::authenticate("custom_acp", &launch, &db, None, "replacement")
+                .await
+                .unwrap()
+        else {
+            panic!("expected a catalog after the explicit attempt");
+        };
+        assert!(
+            catalog.requires_authentication,
+            "an acknowledgement alone is not a usable session"
+        );
+        assert!(catalog.models.is_empty());
+    }
+    assert_eq!(
+        std::fs::read_to_string(marker)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        vec!["replacement", "replacement"]
+    );
+}
+
+#[tokio::test]
+async fn process_startup_failures_expose_a_redacted_stderr_cause() {
+    let mut command = tokio::process::Command::new("python");
+    command.args(["-u", "-c", "import sys;sys.stderr.write('Cannot find ACP module\\nAPI_KEY=credential-secret-must-not-escape\\n');sys.stderr.flush();sys.exit(2)"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut wire = Wire::spawn(command).unwrap();
+    let error = wire
+        .request("initialize", json!({}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Cannot find ACP module"), "{error}");
+    assert!(
+        !error.contains("credential-secret-must-not-escape"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn terminal_login_reuses_the_advertised_invocation_without_protocol_authentication() {
+    let root = tempfile::tempdir().unwrap();
+    let db = nexa_core::db::Database::new(root.path().join("nexa.db")).unwrap();
+    let env = nexa_core::external_agent::launch::process_environment(&Default::default());
+    let python = nexa_core::external_agent::launch::find_executable("python", &env).unwrap();
+    let args = vec![
+        "-u".into(),
+        "-c".into(),
+        include_str!("fixture.py").into(),
+        "auth_methods".into(),
+    ];
+    let launch = ExternalAgentLaunch {
+        executable: Some(python.to_string_lossy().into()),
+        args: Some(args.clone()),
+        working_directory: root.path().to_string_lossy().into(),
+        ..Default::default()
+    };
+    let result = super::authenticate("custom_acp", &launch, &db, None, "terminal")
+        .await
+        .unwrap();
+    let super::Authentication::Terminal { plan, cwd, .. } = result else {
+        panic!("expected interactive login")
+    };
+    assert_eq!(plan.executable, python);
+    assert_eq!(&plan.args[..args.len()], &args);
+    assert_eq!(plan.args.last().unwrap(), "--terminal-login");
+    assert_eq!(plan.env.get("ACP_LOGIN").unwrap(), "1");
+    assert_eq!(
+        std::fs::canonicalize(cwd).unwrap(),
+        std::fs::canonicalize(launch.working_directory).unwrap()
+    );
 }
 
 #[tokio::test]
@@ -916,4 +1167,84 @@ async fn external_protocol_launches_installed_cmd_shims_in_unicode_directories()
         .select_model(&mut wire, "vendor/模型")
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires NEXA_TEST_ANTIGRAVITY_ACP=managed or an official adapter path; initialize only"]
+async fn official_antigravity_initializes_through_nexa_without_user_credentials() {
+    let executable = std::env::var("NEXA_TEST_ANTIGRAVITY_ACP").expect("official adapter path");
+    let managed = executable == "managed";
+    let root = tempfile::tempdir().unwrap();
+    let mut env = std::collections::BTreeMap::new();
+    for name in ["PATH", "SystemRoot", "WINDIR", "COMSPEC"] {
+        if let Ok(value) = std::env::var(name) {
+            env.insert(name.to_string(), value);
+        }
+    }
+    for name in [
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+        "GEMINI_HOME",
+    ] {
+        let directory = root.path().join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        env.insert(name.to_string(), directory.to_string_lossy().into_owned());
+    }
+    let launch = ExternalAgentLaunch {
+        executable: (!managed).then_some(executable),
+        args: (!managed).then_some(vec![]),
+        working_directory: root.path().to_string_lossy().into_owned(),
+        env: env.clone(),
+        ..Default::default()
+    };
+    let preset = nexa_core::external_agent::preset("acp_antigravity_acp").unwrap();
+    let cache = root.path().join("adapters");
+    let plan = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+        .await
+        .unwrap();
+    if managed {
+        assert!(
+            plan.prepared,
+            "managed acceptance requires an absent adapter"
+        );
+        assert!(plan.executable.starts_with(&cache));
+        let reused = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+            .await
+            .unwrap();
+        assert_eq!(reused.executable, plan.executable);
+        println!("Official archive checksum, extraction and immutable cache reuse passed");
+    }
+    let receipt = managed.then(|| plan.executable.parent().unwrap().join(".nexa-install.json"));
+    let receipt_modified = receipt
+        .as_ref()
+        .map(|path| std::fs::metadata(path).unwrap().modified().unwrap());
+    let mut command = super::transport::command_from_plan(&plan, &launch).unwrap();
+    command.env_clear().envs(env);
+    let mut wire = Wire::spawn(command).unwrap();
+    let started = std::time::Instant::now();
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let methods = initialized
+        .auth_methods
+        .iter()
+        .map(|method| method.id.as_str())
+        .collect::<Vec<_>>();
+    assert!(methods.contains(&"oauth-personal"));
+    assert!(methods.contains(&"gemini-api-key"));
+    println!("Official Antigravity initialized through Nexa in {}ms; advertised methods: {:?}; no authentication or inference requested", started.elapsed().as_millis(), methods);
+    drop(wire);
+    if let Some(receipt) = receipt {
+        let reused = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+            .await
+            .unwrap();
+        assert_eq!(reused.executable, plan.executable);
+        assert_eq!(
+            Some(std::fs::metadata(receipt).unwrap().modified().unwrap()),
+            receipt_modified
+        );
+        println!("Post-initialize cache reuse retained its verified installation receipt");
+    }
 }

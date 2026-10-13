@@ -48,6 +48,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let registration = lifecycle
             .register(RegisterSubagentRequest {
+                name: None,
                 agent_id: "child".into(),
                 parent_call_id: "parent-call".into(),
                 task: "Inspect a fixture".into(),

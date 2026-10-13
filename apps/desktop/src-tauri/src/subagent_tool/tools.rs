@@ -31,9 +31,11 @@ impl Tool for SubagentTool {
         let args: SpawnSubagentArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid spawn_subagent arguments: {e}"))
         })?;
-        let args = normalize_spawn_args(args)?;
+        let mut args = normalize_spawn_args(args)?;
+        self.runtime.inherit_worker_name(db, &mut args);
         let agent_id = format!("subagent-{}", uuid::Uuid::new_v4());
         let registration = self.runtime.register_worker(RegisterSubagentRequest {
+            name: args.name.clone(),
             agent_id: agent_id.clone(),
             parent_call_id: call_id.to_string(),
             task: args.task.clone(),
@@ -65,6 +67,7 @@ impl Tool for SubagentTool {
                 "sessionId": args.task_id,
                 "status": "queued",
                 "task": args.task,
+                "name": args.name,
                 "roleId": args.role_id,
                 "role": args.role,
                 "expectedOutput": args.expected_output,
@@ -202,6 +205,7 @@ impl Tool for SubagentBatchTool {
         let mut lifecycle_workers = Vec::with_capacity(worker_count);
         let mut pending = FuturesUnordered::new();
         for (index, (worker_id, mut task_args)) in normalized_tasks.into_iter().enumerate() {
+            runtime.inherit_worker_name(&db, &mut task_args);
             if !dependency_indices[index].is_empty() {
                 task_args.stage_handoff.gate = Some(BatchDependencyGate {
                     batch_id: batch_id.clone(),
@@ -226,6 +230,7 @@ impl Tool for SubagentBatchTool {
             let batch_call_id = call_id.to_string();
             let lifecycle_agent_id = format!("subagent-{}", uuid::Uuid::new_v4());
             let registration = runtime.register_worker(RegisterSubagentRequest {
+                name: task_args.name.clone(),
                 agent_id: lifecycle_agent_id.clone(),
                 parent_call_id: call_id.to_string(),
                 task: task_args.task.clone(),
@@ -241,6 +246,7 @@ impl Tool for SubagentBatchTool {
                 "agentId": &lifecycle_agent_id,
                 "workerId": &worker_id,
                 "task": &task_args.task,
+                "name": &task_args.name,
                 "roleId": &task_args.role_id,
                 "role": &task_args.role,
                 "dependsOn": &task_args.stage_handoff.depends_on,

@@ -28,11 +28,29 @@ const presets = registry.agents.map(agent => {
   }
   const distribution = agent.distribution;
   if (!distribution || !['npx','uvx','binary'].some(kind => distribution[kind])) throw new Error(`No launch contract for ${agent.id}`);
+  // Some publishers omit hashes in the ACP feed. Keep Nexa's reviewed pins
+  // only for the identical archive and entrypoint; a new artifact needs a new pin.
+  for (const [platform, binary] of Object.entries(distribution.binary ?? {})) {
+    const pinned = existing?.distribution?.binary?.[platform];
+    if (!binary.sha256 && pinned?.archive === binary.archive && pinned.cmd === binary.cmd
+        && /^[a-f0-9]{64}$/i.test(pinned.sha256 ?? '')) {
+      binary.sha256 = pinned.sha256;
+    }
+  }
+  // Compatibility constraints are reviewed with one exact package release;
+  // a new package pin must be validated again instead of inheriting them.
+  for (const kind of ['npx', 'uvx']) {
+    const runner = distribution[kind];
+    const pinned = existing?.distribution?.[kind];
+    if (runner && !runner.runnerArgs && runner.package === pinned?.package && pinned.runnerArgs) {
+      runner.runnerArgs = pinned.runnerArgs;
+    }
+  }
   let command, args, env;
   if (distribution.npx) {
-    command = 'npx'; args = ['--yes',distribution.npx.package,...(distribution.npx.args ?? [])]; env=distribution.npx.env ?? {};
+    command = 'npx'; args = [...(distribution.npx.runnerArgs ?? []),'--yes',distribution.npx.package,...(distribution.npx.args ?? [])]; env=distribution.npx.env ?? {};
   } else if (distribution.uvx) {
-    command = 'uvx'; args = [distribution.uvx.package,...(distribution.uvx.args ?? [])]; env=distribution.uvx.env ?? {};
+    command = 'uvx'; args = [...(distribution.uvx.runnerArgs ?? []),distribution.uvx.package,...(distribution.uvx.args ?? [])]; env=distribution.uvx.env ?? {};
   } else {
     const platform = distribution.binary['linux-x86_64'] ?? distribution.binary['darwin-aarch64'] ?? Object.values(distribution.binary)[0];
     command = platform.cmd.replaceAll('\\','/').split('/').at(-1); args=platform.args ?? []; env=platform.env ?? {};

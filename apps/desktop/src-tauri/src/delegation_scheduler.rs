@@ -217,6 +217,7 @@ pub(crate) struct BudgetSnapshot {
 
 #[derive(Debug)]
 struct DelegationBudgetState {
+    restore_error: Option<String>,
     limits: DelegationLimitsV2,
     calls_started: u32,
     verification_calls_started: u32,
@@ -228,11 +229,24 @@ struct DelegationBudgetState {
 
 #[derive(Clone)]
 pub(crate) struct DelegationScheduler {
+    resume: Arc<Mutex<Option<ResumeAccounting>>>,
     shared_lane: Option<Arc<Semaphore>>,
     exploration_lane: Arc<Semaphore>,
     verification_lane: Option<Arc<Semaphore>>,
     judge_lane: Option<Arc<Semaphore>>,
     state: Arc<Mutex<DelegationBudgetState>>,
+}
+
+struct ResumeAccounting {
+    db: nexa_core::db::Database,
+    run_id: String,
+    ids: std::collections::HashSet<String>,
+    calls: u32,
+    verification_calls: u32,
+    judge_calls: u32,
+    tokens: u32,
+    cost: u64,
+    reservations: u32,
 }
 
 /// A started provider call keeps its call credit; preflight/setup failures
@@ -283,6 +297,190 @@ impl Drop for WorkerBudgetReservation {
 }
 
 impl DelegationScheduler {
+    pub(crate) fn bind_resume_accounting(
+        &self,
+        db: nexa_core::db::Database,
+        run_id: &str,
+        conversation: &str,
+    ) -> Result<(), CoreError> {
+        let run = db.get_agent_task_run(run_id)?;
+        if run.conversation_id != conversation {
+            return Err(CoreError::InvalidInput(
+                "Delegation accounting owner mismatch".into(),
+            ));
+        }
+        let subtasks = db.list_agent_subtask_runs(run_id)?;
+        let ids = subtasks
+            .iter()
+            .filter(|row| {
+                row.input
+                    .as_ref()
+                    .and_then(|value| value.get("kind"))
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|kind| matches!(kind, "subagent_run" | "subagent_judgement"))
+            })
+            .map(|row| row.id.clone())
+            .collect();
+        {
+            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            for row in &subtasks {
+                if let Some(limits) = row
+                    .input
+                    .as_ref()
+                    .and_then(|value| value.get("delegationLimitsV2"))
+                {
+                    if let Some(limit) = limits
+                        .get("maxCallsPerTurn")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|value| u32::try_from(value).ok())
+                    {
+                        state.limits.max_calls_per_turn = Some(
+                            state
+                                .limits
+                                .max_calls_per_turn
+                                .map_or(limit, |current| current.min(limit)),
+                        );
+                    }
+                    if let Some(limit) = limits
+                        .get("totalActualTokensSoftLimit")
+                        .and_then(serde_json::Value::as_u64)
+                    {
+                        state.limits.total_actual_tokens_soft_limit = Some(
+                            state
+                                .limits
+                                .total_actual_tokens_soft_limit
+                                .map_or(limit, |current| current.min(limit)),
+                        );
+                    }
+                    if let Some(limit) = limits
+                        .get("totalCostSoftLimitMicros")
+                        .and_then(serde_json::Value::as_u64)
+                    {
+                        state.limits.total_cost_soft_limit_micros = Some(
+                            state
+                                .limits
+                                .total_cost_soft_limit_micros
+                                .map_or(limit, |current| current.min(limit)),
+                        );
+                    }
+                }
+            }
+        }
+        *self
+            .resume
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(ResumeAccounting {
+            db,
+            run_id: run_id.into(),
+            ids,
+            calls: 0,
+            verification_calls: 0,
+            judge_calls: 0,
+            tokens: 0,
+            cost: 0,
+            reservations: 0,
+        });
+        self.refresh_resume_accounting()
+    }
+
+    pub(crate) fn block_accounting(&self, detail: String) {
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .restore_error = Some(detail);
+    }
+
+    fn refresh_resume_accounting(&self) -> Result<(), CoreError> {
+        let mut binding = self
+            .resume
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(prior) = binding.as_mut() else {
+            return Ok(());
+        };
+        let result = (|| {
+            let rows = prior.db.list_agent_subtask_runs(&prior.run_id)?;
+            let usage = prior.db.delegated_usage_for_run(&prior.run_id)?;
+            let (mut calls, mut verifiers, mut judges, mut tokens, mut cost, mut reservations) =
+                (0u32, 0u32, 0u32, 0u32, 0u64, 0u32);
+            for row in rows.iter().filter(|row| prior.ids.contains(&row.id)) {
+                let input = row.input.as_ref();
+                if row.started_at.is_some() {
+                    calls = calls.saturating_add(1);
+                    if input
+                        .and_then(|value| value.get("kind"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some("subagent_judgement")
+                    {
+                        judges += 1;
+                    } else if input
+                        .and_then(|value| value.get("roleId"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some("verifier")
+                    {
+                        verifiers += 1;
+                    }
+                    if matches!(row.status.as_str(), "queued" | "running") {
+                        reservations = reservations.saturating_add(row.token_budget.unwrap_or(0));
+                    }
+                }
+                let (ledger_tokens, ledger_cost) = usage.get(&row.id).copied().unwrap_or_default();
+                let artifact_tokens = row
+                    .output
+                    .as_ref()
+                    .and_then(|output| {
+                        output
+                            .pointer("/run/usageTotal/totalTokens")
+                            .or_else(|| output.pointer("/usageTotal/totalTokens"))
+                            .or_else(|| output.pointer("/judgement/usageTotal/totalTokens"))
+                    })
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
+                tokens = tokens.saturating_add(
+                    ledger_tokens.max(artifact_tokens).min(u64::from(u32::MAX)) as u32,
+                );
+                cost = cost.saturating_add(ledger_cost);
+            }
+            Ok::<_, CoreError>((calls, verifiers, judges, tokens, cost, reservations))
+        })();
+        let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        match result {
+            Ok((calls, verifiers, judges, tokens, cost, reservations)) => {
+                state.restore_error = None;
+                state.calls_started = state
+                    .calls_started
+                    .saturating_add(calls.saturating_sub(prior.calls));
+                state.verification_calls_started = state
+                    .verification_calls_started
+                    .saturating_add(verifiers.saturating_sub(prior.verification_calls));
+                state.judge_calls_started = state
+                    .judge_calls_started
+                    .saturating_add(judges.saturating_sub(prior.judge_calls));
+                state.tokens_spent = state
+                    .tokens_spent
+                    .saturating_add(tokens.saturating_sub(prior.tokens));
+                state.cost_spent_micros = state
+                    .cost_spent_micros
+                    .saturating_add(cost.saturating_sub(prior.cost));
+                state.tokens_reserved = state
+                    .tokens_reserved
+                    .saturating_sub(prior.reservations)
+                    .saturating_add(reservations);
+                prior.calls = prior.calls.max(calls);
+                prior.verification_calls = prior.verification_calls.max(verifiers);
+                prior.judge_calls = prior.judge_calls.max(judges);
+                prior.tokens = prior.tokens.max(tokens);
+                prior.cost = prior.cost.max(cost);
+                prior.reservations = reservations;
+                Ok(())
+            }
+            Err(error) => {
+                state.restore_error = Some(error.to_string());
+                Err(error)
+            }
+        }
+    }
+
     pub(crate) fn new(config: &AgentConfig) -> Self {
         Self::with_limits(DelegationLimitsV2::resolve(config))
     }
@@ -292,6 +490,7 @@ impl DelegationScheduler {
         let shared_lane =
             (!dedicated_lanes).then(|| Arc::new(Semaphore::new(limits.max_parallel as usize)));
         Self {
+            resume: Arc::new(Mutex::new(None)),
             shared_lane,
             exploration_lane: Arc::new(Semaphore::new(limits.exploration_lane_slots as usize)),
             verification_lane: (limits.verification_lane_slots > 0)
@@ -299,6 +498,7 @@ impl DelegationScheduler {
             judge_lane: (limits.judge_lane_slots > 0)
                 .then(|| Arc::new(Semaphore::new(limits.judge_lane_slots as usize))),
             state: Arc::new(Mutex::new(DelegationBudgetState {
+                restore_error: None,
                 limits,
                 calls_started: 0,
                 verification_calls_started: 0,
@@ -386,6 +586,7 @@ impl DelegationScheduler {
         lane: DelegationLane,
         cancel_token: &CancellationToken,
     ) -> Result<OwnedSemaphorePermit, CoreError> {
+        self.refresh_resume_accounting()?;
         // Phase one: enqueue and wait for a concrete worker lane. No call or
         // token credit is consumed while this future is merely queued.
         let queue_deadline_ms = {
@@ -434,6 +635,7 @@ impl DelegationScheduler {
         lane: DelegationLane,
         cancel_token: &CancellationToken,
     ) -> Result<(), CoreError> {
+        self.refresh_resume_accounting()?;
         // Phase two: once a slot exists, consume call admission and the small
         // role credit. Actual usage replaces this reservation at completion.
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -459,6 +661,11 @@ impl DelegationScheduler {
         label: &str,
         lane: DelegationLane,
     ) -> Result<(), CoreError> {
+        if let Some(error) = &state.restore_error {
+            return Err(CoreError::InvalidInput(format!(
+                "Delegation accounting could not be restored: {error}"
+            )));
+        }
         let reserved_for_other_control_lanes = match lane {
             DelegationLane::Exploration => {
                 u32::from(
@@ -550,6 +757,7 @@ impl DelegationScheduler {
     }
 
     pub(crate) async fn snapshot(&self) -> BudgetSnapshot {
+        let _ = self.refresh_resume_accounting();
         let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let token_budget = state
             .limits

@@ -192,7 +192,10 @@ pub fn resolve_prompt_cache_profile(
 
     if api_style == PromptCacheApiStyle::OpenAiCompatible
         && is_meta_model_api_endpoint(provider_type, base_url)
-        && model.trim().eq_ignore_ascii_case("muse-spark-1.3")
+        && matches!(
+            model.trim().to_ascii_lowercase().as_str(),
+            "muse-spark-1.3" | "muse-wonder-1.0"
+        )
     {
         return PromptCacheProfile {
             id: "meta-model-api-automatic-v1".to_string(),

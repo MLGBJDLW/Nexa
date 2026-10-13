@@ -78,7 +78,7 @@ an uncertain action.
 
 ## Installed ACP agents
 
-The External agents catalog includes all 41 agents in the reviewed October 10,
+The External agents catalog includes all 41 agents in the reviewed October 13,
 2026 [ACP registry](https://github.com/agentclientprotocol/registry), plus Hermes
 and a custom ACP entry. The shared catalog preserves registry provenance,
 platform distributions and pinned package versions. Existing profiles retain
@@ -96,10 +96,27 @@ their installed CLI commands. Common installed CLI presets include:
 | Goose | `goose acp` | Install and configure a native provider |
 | Auggie | `auggie --acp` | Install and authenticate the Augment CLI |
 
-New package presets such as Pi use their registry `npx` or `uvx` command.
-**Download / check connection** explicitly starts the package runner and may
-download the pinned package on its first run. Binary-only presets require an
-installed executable for a supported platform. **Advanced** accepts a JSON argv
+**Download / check connection** resolves an installed ACP adapter first, then
+prepares the registry's pinned `npx`/`uvx` package or official platform archive.
+Managed archives require a reviewed SHA-256 pin and must match it before
+extraction or execution. Archives without a valid pin require a user-installed
+adapter. Registry refreshes retain locally reviewed pins only while the archive
+URL and entrypoint are unchanged.
+For automatic package preparation, custom arguments belong to the adapter;
+Nexa supplies the pinned package invocation. A previously displayed complete
+runner prefix for the same package, including its older version, is normalized
+to the current reviewed pin without duplication. Explicit executable
+overrides retain their complete process argument contract.
+Archive installation preserves companion executables and publishes only a
+complete extracted directory.
+Cached installations are checked against a host-created receipt covering every
+extracted file, permission mode and safe link. Missing helpers, changed bytes,
+unexpected files or an old/incomplete receipt trigger a fresh pinned download
+and atomic replacement; a failed publication restores the preceding directory.
+Antigravity requires `agy_acp_server.exe` and its
+helper; the separately installed `agy.exe` CLI is not the ACP server. A missing
+package runner or unsupported platform produces an actionable setup error.
+**Advanced** accepts a JSON argv
 array and environment object, including custom ACP servers. These preferences
 are encrypted at rest; legacy preferences remain readable. Windows batch shims
 reject shell metacharacters in custom arguments; use a native executable when
@@ -118,8 +135,62 @@ Launch preferences are stored separately from API credentials under the exact
 saved profile ID. Editing one profile cannot redirect another profile. A project's
 primary workspace folder overrides the profile's fallback directory. The process
 cwd and ACP session cwd always agree; Nexa never infers an ACP cwd from its own
-process directory. On Windows the launcher can
-resolve installed npm `.cmd` shims. Nexa neither installs nor signs in silently.
+process directory. On Windows the launcher respects an explicitly configured
+PATH, otherwise includes current registered and common per-user CLI paths. Known
+npm shims use their Node entry point to preserve literal argv. Adapter preparation
+is part of connecting the selected profile; sign-in requires a separate action.
+
+When a server requires authentication, Settings presents its advertised methods.
+Agent methods use the ACP authentication request. Terminal methods open the same
+adapter in Nexa's existing terminal, and a successful exit triggers a new connection
+check. Editing or closing setup cancels outstanding work. Startup errors include a
+bounded, redacted stderr tail, while credential values remain encrypted at rest.
+The explicitly selected agent method is saved with the profile and reused when a
+fresh process requests authentication. Nexa never selects a method automatically
+or invokes terminal login as part of a chat connection.
+If that saved attempt is rejected or its process fails, Settings keeps the
+advertised recovery choices available. An explicit attempt never retries an old
+method, and its acknowledgement counts as success only after session creation.
+Changing the selected method participates in the unsaved-settings guard.
+If session creation instead fails with a generic configuration error, Settings
+retains both the diagnostic and the advertised native setup methods. This does
+not classify the error as an authentication failure, mark the connection as
+verified or permit saving an unverified selection. Runtime chat still propagates
+the failed session. RPC diagnostics include bounded redacted messages and stderr,
+retaining the final cause of long startup tracebacks without exposing arbitrary
+error payloads.
+
+A first package-runner installation shares the archive installer's ten-minute
+startup window; later session/authentication operations keep their own deadlines.
+Closing setup cancels the owned process tree. Reviewed `runnerArgs` belong to the
+package manager, while profile arguments still belong to the ACP adapter. For
+example, Minion Code 0.1.44 is constrained to its compatible Python ACP SDK rather
+than resolving an incompatible newer SDK on every fresh install. Registry import
+preserves such a constraint only while the exact package pin remains unchanged.
+
+The Windows audit on 2026-10-13 exercised all 43 presets through real adapters
+with isolated homes. Gemini, Claude, Copilot and OpenCode created sessions;
+Codex, Qwen and Pi reached their advertised authentication boundary. Pi still
+requires its separate CLI (the audit used 0.81.0 with pi-acp 0.0.34); installations
+that expose only `pi.exe` can set the adapter's `PI_ACP_PI_COMMAND`. Hermes 0.21.7
+with ACP extras initialized and exposed its terminal setup method; an empty
+provider configuration returned a session error, not a verified connection.
+These checks did not request authentication or inference.
+
+Some published registry entries have upstream limitations that a successful
+download cannot resolve:
+
+| Audited release | Confirmed limitation |
+| --- | --- |
+| Agoragentic 1.3.0 | The published package omits authentication IDs and the ACP chat session methods; it exposes MCP-style tool methods instead. |
+| Cortex Code 1.0.73 Windows | Its archive includes Unix venv links, including `/usr/bin/python3.12`; Nexa does not bypass archive containment checks. |
+| Devin 3000.11.3 Windows | The isolated process fails to determine its config directory despite an explicit APPDATA. The cause is unresolved, not assumed to be authentication. |
+| Harn 0.10.165 | Session admission requires a nonstandard `environmentPolicy` field. Nexa does not invent an environment grant. |
+| Minion Code 0.1.44 Windows | The SDK constraint restores imported APIs, but its global stdout redirection sends the older SDK's Windows protocol writer to stderr. A publisher fix is still needed for Windows ACP. |
+
+Settings keeps genuine startup/session errors visible. A completed handshake,
+native setup availability and a created session are distinct outcomes; none
+alone verifies account quota or a model response.
 
 **Check connection** runs `initialize` and `session/new` without a prompt. It
 loads the real catalog, not a hard-coded cloud model list. Success means the

@@ -146,7 +146,8 @@ fn hermes_usage_args(launch: &ExternalAgentLaunch, model: &str) -> Option<(Vec<S
 }
 
 async fn read_command(mut command: tokio::process::Command, timeout: Duration) -> Result<Value> {
-    command.stdin(Stdio::null());
+    // Quota probes consume only JSON stdout; no protocol Wire drains stderr.
+    command.stdin(Stdio::null()).stderr(Stdio::null());
     let (mut child, _tree) = nexa_core::managed_process::spawn(&mut command)
         .map_err(|_| error("Account usage runtime is unavailable"))?;
     let stdout = child
@@ -240,6 +241,17 @@ mod tests {
         }
         launch.args = Some(vec!["--profile".into(), "other".into(), "acp".into()]);
         assert!(hermes_usage_args(&launch, "anthropic:claude").is_none());
+    }
+
+    #[tokio::test]
+    async fn quota_probe_cannot_block_on_noisy_adapter_stderr() {
+        let mut command = tokio::process::Command::new("python");
+        command.args(["-c", "import sys;sys.stderr.write('x'*1048576);sys.stderr.flush();print('{\"provider\":\"anthropic\"}')"])
+            .stdout(Stdio::piped()).stderr(Stdio::piped());
+        assert_eq!(
+            read_command(command, Duration::from_secs(5)).await.unwrap()["provider"],
+            "anthropic"
+        );
     }
 
     #[cfg(unix)]

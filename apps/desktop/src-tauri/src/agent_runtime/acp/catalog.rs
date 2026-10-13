@@ -18,6 +18,13 @@ pub(crate) struct Model {
     pub reasoning_efforts: Vec<String>,
 }
 
+#[derive(Clone)]
+pub(super) struct Initialization {
+    pub auth_methods: Vec<super::auth::AuthMethod>,
+    images: bool,
+    mcp_capabilities: Value,
+}
+
 pub(super) struct Session {
     pub id: String,
     pub cwd: String,
@@ -103,39 +110,102 @@ impl Session {
     }
 
     pub(super) async fn connect(wire: &mut Wire, cwd: &str) -> Result<Self> {
-        Self::connect_with_mcp(wire, cwd, &[]).await
+        Self::connect_with_mcp(wire, cwd, &[], None).await
     }
 
     pub(super) async fn connect_with_mcp(
         wire: &mut Wire,
         cwd: &str,
         servers: &[nexa_core::mcp::McpServer],
+        authentication_method: Option<&str>,
     ) -> Result<Self> {
+        let initialized = Self::initialize_with_services(wire, true).await?;
+        Self::create_authenticated(wire, cwd, servers, initialized, authentication_method).await?
+            .ok_or_else(|| error("The external agent requires authentication. Open its Settings profile and choose a sign-in method."))
+    }
+
+    pub(super) async fn initialize(wire: &mut Wire) -> Result<Initialization> {
+        Self::initialize_with_services(wire, false).await
+    }
+
+    async fn initialize_with_services(
+        wire: &mut Wire,
+        native_services: bool,
+    ) -> Result<Initialization> {
         let initialized = wire.request("initialize", json!({
             "protocolVersion":1,
             "clientInfo":{"name":"nexa","version":env!("CARGO_PKG_VERSION")},
-            "clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true}
+            "clientCapabilities":{"fs":{"readTextFile":native_services,"writeTextFile":native_services},"terminal":native_services,"auth":{"terminal":true}}
         })).await?;
         if initialized["protocolVersion"] != 1 {
             return Err(error(
-                "The external agent does not support ACP protocol version 1",
+                "This agent did not negotiate ACP version 1. Disable experimental ACP v2 in its launch environment or use a compatible ACP adapter.",
             ));
         }
         let images = initialized
             .pointer("/agentCapabilities/promptCapabilities/image")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let servers = super::mcp::project(
-            servers,
-            &initialized["agentCapabilities"]["mcpCapabilities"],
-        )?;
-        let value = wire
-            .request("session/new", json!({"cwd":cwd,"mcpServers":servers}))
+        Ok(Initialization {
+            auth_methods: super::auth::methods(&initialized)?,
+            images,
+            mcp_capabilities: initialized["agentCapabilities"]["mcpCapabilities"].clone(),
+        })
+    }
+
+    pub(super) async fn create_authenticated(
+        wire: &mut Wire,
+        cwd: &str,
+        servers: &[nexa_core::mcp::McpServer],
+        initialized: Initialization,
+        authentication_method: Option<&str>,
+    ) -> Result<Option<Self>> {
+        let session = Self::create(wire, cwd, servers, initialized.clone()).await?;
+        if session.is_some() {
+            return Ok(session);
+        }
+        let Some(method) = authentication_method.and_then(|id| {
+            initialized
+                .auth_methods
+                .iter()
+                .find(|method| method.id == id && method.kind == "agent")
+        }) else {
+            return Ok(None);
+        };
+        // Only the user's saved choice can authorize authentication on a new
+        // connection. Never auto-select a method or run terminal login here.
+        match wire
+            .request("authenticate", json!({"methodId":method.id}))
+            .await
+        {
+            Ok(_) => {}
+            Err(cause @ nexa_core::error::CoreError::Cancelled(_)) => return Err(cause),
+            // Revoked credentials, timeout or a failed auth process must not
+            // hide the advertised choices. Explicit sign-in starts a new wire
+            // and reports its own failure; no other method is tried here.
+            Err(_) => return Ok(None),
+        }
+        Self::create(wire, cwd, servers, initialized).await
+    }
+
+    pub(super) async fn create(
+        wire: &mut Wire,
+        cwd: &str,
+        servers: &[nexa_core::mcp::McpServer],
+        initialized: Initialization,
+    ) -> Result<Option<Self>> {
+        let servers = super::mcp::project(servers, &initialized.mcp_capabilities)?;
+        let response = wire
+            .request_response("session/new", json!({"cwd":cwd,"mcpServers":servers}))
             .await?;
-        let mut session = Self::parse(&value, images)?;
+        if response["error"]["code"] == -32000 {
+            return Ok(None);
+        }
+        let value = wire.rpc_result(response, "session/new")?;
+        let mut session = Self::parse(&value, initialized.images)?;
         session.cwd = cwd.to_string();
         session.sync(wire)?;
-        Ok(session)
+        Ok(Some(session))
     }
 
     pub(super) async fn select_model(&mut self, wire: &mut Wire, model: &str) -> Result<()> {

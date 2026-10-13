@@ -99,6 +99,7 @@ export interface SubagentArtifact {
   id?: string | null;
   status?: string | null;
   task: string;
+  name?: string | null;
   roleId?: string | null;
   roleName?: string | null;
   role?: string | null;
@@ -136,7 +137,8 @@ export interface SubagentBatchArtifact {
     agentId: string;
     workerId?: string | null;
     task: string;
-    roleId?: string | null;
+    name?: string | null;
+  roleId?: string | null;
     role?: string | null;
   }>;
   batchGoal?: string | null;
@@ -178,6 +180,7 @@ export interface SubagentJudgementArtifact {
 
 export interface PendingSubagentArgs {
   task: string;
+  name?: string | null;
   roleId?: string | null;
   role?: string | null;
   modelPolicy?: string | null;
@@ -200,6 +203,7 @@ export interface SubagentRun {
   runtimeState?: 'live' | 'terminal' | 'interrupted' | 'unverified';
   lifecyclePhase?: 'queued' | 'running' | 'cancelling' | null;
   task: string;
+  name?: string | null;
   roleId?: string | null;
   roleName?: string | null;
   role?: string | null;
@@ -333,6 +337,7 @@ export function projectSubagentLifecycleRuns(
   for (const [agentId, workerEvents] of grouped) {
     const projection = projectSubagentLifecycle(workerEvents);
     let task = '';
+    let name: string | null = null;
     let roleId: string | null = null;
     let role: string | null = null;
     for (const event of workerEvents) {
@@ -340,6 +345,7 @@ export function projectSubagentLifecycleRuns(
       if (envelope?.subagentEvent !== 'spawned') continue;
       const detail = asRecord(envelope.detail);
       task = typeof detail?.task === 'string' ? detail.task : task;
+      name = typeof detail?.name === 'string' ? detail.name : name;
       roleId = typeof detail?.roleId === 'string' ? detail.roleId : roleId;
       role = typeof detail?.role === 'string' ? detail.role : role;
     }
@@ -347,6 +353,7 @@ export function projectSubagentLifecycleRuns(
     if (projection.artifact) {
       runs.push({
         ...buildRunFromArtifact(projection.artifact, agentId),
+        name: projection.artifact.name ?? name,
         status: projection.status ?? 'done',
         runtimeState: projection.status === 'running' ? 'live' : 'terminal',
         lifecyclePhase: projection.lifecyclePhase,
@@ -365,6 +372,7 @@ export function projectSubagentLifecycleRuns(
       runtimeState: projection.status === 'running' ? 'live' : 'terminal',
       lifecyclePhase: projection.lifecyclePhase,
       task,
+      name,
       roleId,
       role,
       result: projection.streamedResult || undefined,
@@ -574,6 +582,7 @@ export function parseSubagentArguments(raw?: string): PendingSubagentArgs | null
     if (!task) return null;
     return {
       task,
+      name: typeof record.name === 'string' ? record.name.trim() : null,
       roleId: typeof record.role_id === 'string' ? record.role_id.trim() : null,
       role: typeof record.role === 'string' ? record.role.trim() : null,
       modelPolicy: typeof record.model_policy === 'string' ? record.model_policy.trim() : null,
@@ -654,6 +663,7 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
     id: typeof record.id === 'string' ? record.id : null,
     status: typeof record.status === 'string' ? record.status : null,
     task: record.task.trim(),
+    name: typeof record.name === 'string' ? record.name.trim() : null,
     roleId: typeof record.roleId === 'string' ? record.roleId : null,
     roleName: typeof record.roleName === 'string' ? record.roleName : null,
     role: typeof record.role === 'string' ? record.role : null,
@@ -711,6 +721,7 @@ function buildRunFromArtifact(artifact: SubagentArtifact, id: string, content?: 
     status,
     runtimeState: persistedRunning ? 'unverified' : interrupted ? 'interrupted' : 'terminal',
     task: artifact.task,
+    name: artifact.name ?? null,
     roleId: artifact.roleId ?? null,
     roleName: artifact.roleName ?? null,
     role: artifact.role ?? null,
@@ -775,6 +786,7 @@ export function extractSubagentBatchArtifact(value: unknown): SubagentBatchArtif
           agentId,
           workerId: typeof row?.workerId === 'string' ? row.workerId : null,
           task,
+          name: typeof row?.name === 'string' ? row.name.trim() : null,
           roleId: typeof row?.roleId === 'string' ? row.roleId : null,
           role: typeof row?.role === 'string' ? row.role : null,
         }];
@@ -877,6 +889,7 @@ export function buildSubagentRun(
     lifecyclePhase: lifecycle.lifecyclePhase
       ?? (artifact?.status === 'queued' ? 'queued' : null),
     task,
+    name: artifact?.name ?? parsedArgs?.name ?? null,
     roleId: artifact?.roleId ?? parsedArgs?.roleId ?? null,
     roleName: artifact?.roleName ?? null,
     role: artifact?.role ?? parsedArgs?.role ?? null,
