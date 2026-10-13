@@ -1232,7 +1232,12 @@ impl AgentExecutor {
         // --- 3e. Auto pre-search for KnowledgeRetrieval route ----------------
         // Eagerly execute search_knowledge_base so the LLM already has evidence
         // in context instead of depending on it to call the tool itself.
-        let prefetch_enters_dispatch = route_plan.kind == AgentRouteKind::KnowledgeRetrieval
+        // Prefetch is a first-entry optimization. Resume already retains its
+        // evidence and admission; another search would spend the remaining
+        // budget on checkpoint continuation text instead of the saved objective.
+        let prefetch_enters_dispatch = !is_execution_resume
+            && turn_budget.tool_rounds_used() == 0
+            && route_plan.kind == AgentRouteKind::KnowledgeRetrieval
             && !user_query_text.is_empty()
             && turn_budget.can_dispatch_tool_round();
         let prefetch_observed = if prefetch_enters_dispatch {

@@ -199,6 +199,9 @@ valid non-UTF-8 Unix paths do not block capture or collide through lossy decodin
 Direct tool dispatch persists its round admission before emitting a tool event or
 executing. Failures remain accounted across interruption, and resume does not
 automatically repeat the first direct dispatch.
+Automatic knowledge prefetch is also limited to first entry. A resumed task
+keeps its replayable retrieved evidence and remaining tool rounds; further
+searches are explicit model actions rather than searches for continuation text.
 Live and recovered reconnaissance receipts must match a current authoritative
 capture of their shared read scope. Missing, changed or unsettled source receipts
 become failed advisories for parent takeover; their claims and evidence are not
