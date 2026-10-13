@@ -177,6 +177,9 @@ without replaying previously started work. Resume is not budget replenishment.
 Verification gates are bound to the current settled workspace content. Subsequent
 edits invalidate tests, lint, typecheck, build and review receipts, including edits
 outside Nexa's file tools. Unchanged reads and checks preserve the receipts. A
+Git commit or index change also requires fresh verification to bind review to the
+new revision. Older interrupted checkpoints without enough host-owned round
+receipts surface an accounting limitation instead of granting a fresh allowance. A
 judgement must contain a valid structured verdict, candidate IDs and confidence;
 only accepted results with current host-owned candidate provenance can satisfy
 independent review. Generic ranking cannot bypass controller-owned patch review.
