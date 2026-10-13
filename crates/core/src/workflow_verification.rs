@@ -104,21 +104,46 @@ fn collect_root(
     if let Some(head) = git(root, &["rev-parse", "HEAD"]) {
         hash.update(&head);
         hash.update(
-            &git(root, &["diff", "--cached", "--binary", "--no-ext-diff"]).ok_or_else(|| {
+            &git(
+                root,
+                &[
+                    "diff",
+                    "--cached",
+                    "--binary",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--relative",
+                    "--",
+                    ".",
+                ],
+            )
+            .ok_or_else(|| {
                 CoreError::Internal("Cannot inspect staged verification source".into())
             })?,
         );
-        let changed = git(
+        // ls-files --modified omits dirty gitlink worktrees when their HEAD
+        // did not change. diff explicitly includes those nested changes.
+        let mut changed = git(
             root,
             &[
-                "ls-files",
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--ignore-submodules=none",
+                "--relative",
+                "--name-only",
                 "-z",
-                "--modified",
-                "--others",
-                "--exclude-standard",
+                "HEAD",
+                "--",
+                ".",
             ],
         )
         .ok_or_else(|| CoreError::Internal("Cannot inspect verification source changes".into()))?;
+        changed.extend(
+            git(root, &["ls-files", "-z", "--others", "--exclude-standard"]).ok_or_else(|| {
+                CoreError::Internal("Cannot inspect untracked verification source".into())
+            })?,
+        );
         for entry in changed
             .split(|byte| *byte == 0)
             .filter(|entry| !entry.is_empty())
