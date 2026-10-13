@@ -2,7 +2,7 @@
 use crate::{db::Database, error::CoreError, workspace::Workspace};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
@@ -64,6 +64,8 @@ impl Capture {
                     files: &mut files,
                     mode,
                     cancel: &cancel,
+                    #[cfg(test)]
+                    after_inventory: None,
                 },
             )
         })
@@ -76,6 +78,8 @@ struct Scan<'a> {
     files: &'a mut cache::FileHashes,
     mode: CaptureMode,
     cancel: &'a CancellationToken,
+    #[cfg(test)]
+    after_inventory: Option<&'a mut dyn FnMut()>,
 }
 
 fn check_cancelled(cancel: &CancellationToken) -> Result<(), CoreError> {
@@ -162,11 +166,16 @@ fn capture_sync(
     }
     let mut paths = BTreeSet::new();
     let mut hash = blake3::Hasher::new();
-    hash.update(b"verification-source-v3");
-    for root in roots {
-        collect_root(&root, &mut hash, &mut paths, scan.cancel)?;
-    }
+    hash.update(b"verification-source-v4");
+    let mut inventories = BTreeMap::new();
     let mut pending = false;
+    for root in roots {
+        pending |= !collect_root(&root, &mut hash, &mut paths, &mut inventories, scan.cancel)?;
+    }
+    #[cfg(test)]
+    if let Some(observer) = scan.after_inventory.take() {
+        observer();
+    }
     if let (Some(conversation), Some(turn)) = (conversation, turn) {
         let connection = db.conn();
         let mut statement = connection.prepare("SELECT absolute_path, MAX(pending), MAX(partial) FROM turn_file_change_events WHERE conversation_id=?1 AND turn_id=?2 GROUP BY absolute_path")?;
@@ -210,12 +219,21 @@ fn capture_sync(
             Ok(_) => {
                 let canonical = path.canonicalize()?;
                 if visited_directories.insert(canonical) {
-                    collect_root(&path, &mut hash, &mut paths, scan.cancel)?;
+                    pending |=
+                        !collect_root(&path, &mut hash, &mut paths, &mut inventories, scan.cancel)?;
                 }
             }
         }
     }
     check_cancelled(scan.cancel)?;
+    // A clean Git file can become dirty after its initial diff, and a new
+    // ordinary-folder entry can appear after its walk. Neither was hashed.
+    // Revalidate every inventory (including gitlinks) before issuing receipts.
+    // Metadata also catches later changes to an already-dirty path. A moving
+    // workspace remains pending rather than receiving a mixed-state receipt.
+    for (root, before) in inventories {
+        pending |= collect_inventory(&root, scan.cancel)? != before;
+    }
     scan.files.retain(&file_paths);
     Ok(VerificationSourceState {
         digest: hash.finalize().to_hex().to_string(),
@@ -227,15 +245,47 @@ fn collect_root(
     root: &Path,
     hash: &mut blake3::Hasher,
     paths: &mut BTreeSet<PathBuf>,
+    inventories: &mut BTreeMap<PathBuf, Inventory>,
     cancel: &CancellationToken,
-) -> Result<(), CoreError> {
+) -> Result<bool, CoreError> {
+    let inventory = collect_inventory(root, cancel)?;
+    hash.update(inventory.digest.as_bytes());
+    paths.extend(inventory.paths.iter().cloned());
+    match inventories.entry(root.to_owned()) {
+        std::collections::btree_map::Entry::Occupied(before) => Ok(before.get() == &inventory),
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(inventory);
+            Ok(true)
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct Inventory {
+    digest: blake3::Hash,
+    paths: BTreeSet<PathBuf>,
+    observations: BTreeMap<PathBuf, PathObservation>,
+}
+
+#[derive(PartialEq, Eq)]
+enum PathObservation {
+    Missing,
+    Present {
+        fingerprint: cache::Fingerprint,
+        kind: (bool, bool, bool),
+        link: Option<PathBuf>,
+    },
+}
+
+fn collect_inventory(root: &Path, cancel: &CancellationToken) -> Result<Inventory, CoreError> {
     check_cancelled(cancel)?;
-    hash_path(hash, root);
+    let mut hash = blake3::Hasher::new();
+    let mut paths = BTreeSet::new();
+    let mut observed_paths = BTreeSet::new();
+    hash_path(&mut hash, root);
     if !root.is_dir() {
         paths.insert(root.to_owned());
-        return Ok(());
-    }
-    if let Some(head) = git(root, &["rev-parse", "HEAD"]) {
+    } else if let Some(head) = git(root, &["rev-parse", "HEAD"]) {
         hash.update(&head);
         // Git may ignore permission changes (Windows readonly, non-executable
         // Unix modes, or core.filemode=false). Inspect metadata for every tracked
@@ -259,6 +309,7 @@ fn collect_root(
                 }
             };
             let path = root.join(git_relative_path(entry)?);
+            observed_paths.insert(path.clone());
             // Git's index hints may hide arbitrary worktree edits from diff.
             // Treat those files as content-bearing even when Git reports clean.
             if tag.is_ascii_lowercase() || tag == b'S' {
@@ -269,7 +320,7 @@ fn collect_root(
             hash.update(entry);
             match std::fs::symlink_metadata(&path) {
                 Ok(metadata) => {
-                    hash_file_mode(hash, &metadata);
+                    hash_file_mode(&mut hash, &metadata);
                     if metadata.is_dir() && !metadata.file_type().is_symlink() {
                         paths.insert(path);
                     }
@@ -347,7 +398,34 @@ fn collect_root(
             }
         }
     }
-    Ok(())
+    observed_paths.extend(paths.iter().cloned());
+    let mut observations = BTreeMap::new();
+    for path in observed_paths {
+        check_cancelled(cancel)?;
+        let observed = match std::fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PathObservation::Missing,
+            Err(error) => return Err(error.into()),
+            Ok(metadata) => PathObservation::Present {
+                fingerprint: cache::Fingerprint::of(&metadata),
+                kind: (
+                    metadata.is_file(),
+                    metadata.is_dir(),
+                    metadata.file_type().is_symlink(),
+                ),
+                link: metadata
+                    .file_type()
+                    .is_symlink()
+                    .then(|| std::fs::read_link(&path))
+                    .transpose()?,
+            },
+        };
+        observations.insert(path, observed);
+    }
+    Ok(Inventory {
+        digest: hash.finalize(),
+        paths,
+        observations,
+    })
 }
 
 fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
@@ -368,6 +446,87 @@ fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clean_git_file_edited_after_inventory_cannot_attest_old_source() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source.rs");
+        std::fs::write(&source, "AAAA").unwrap();
+        for args in [
+            vec!["init"],
+            vec!["config", "user.name", "Nexa test"],
+            vec!["config", "user.email", "test@example.invalid"],
+            vec!["add", "source.rs"],
+            vec!["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+        ] {
+            assert!(git(root.path(), &args).is_some());
+        }
+        let db = Database::open_memory().unwrap();
+        let workspace = Workspace {
+            roots: vec![root.path().to_string_lossy().into()],
+        };
+        let mut files = cache::FileHashes::default();
+        let cancel = CancellationToken::new();
+        let mut edit_source = || std::fs::write(&source, "BBBB").unwrap();
+        let mut scan = Scan {
+            files: &mut files,
+            mode: CaptureMode::Authoritative,
+            cancel: &cancel,
+            after_inventory: None,
+        };
+        let initial = capture_sync(&db, None, None, &[], Some(&workspace), &mut scan).unwrap();
+        scan.after_inventory = Some(&mut edit_source);
+        let racing = capture_sync(&db, None, None, &[], Some(&workspace), &mut scan).unwrap();
+        assert!(
+            racing.pending,
+            "a clean path modified after Git diff must not preserve old receipts"
+        );
+        let settled = capture_sync(&db, None, None, &[], Some(&workspace), &mut scan).unwrap();
+        assert!(!settled.pending);
+        assert_ne!(initial.digest, settled.digest);
+    }
+
+    #[test]
+    fn new_paths_after_inventory_remain_pending_in_git_and_plain_folders() {
+        for git_repository in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::write(root.path().join("source.rs"), "AAAA").unwrap();
+            if git_repository {
+                for args in [
+                    vec!["init"],
+                    vec!["config", "user.name", "Nexa test"],
+                    vec!["config", "user.email", "test@example.invalid"],
+                    vec!["add", "source.rs"],
+                    vec!["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+                ] {
+                    assert!(git(root.path(), &args).is_some());
+                }
+            }
+            let db = Database::open_memory().unwrap();
+            let workspace = Workspace {
+                roots: vec![root.path().to_string_lossy().into()],
+            };
+            let mut files = cache::FileHashes::default();
+            let cancel = CancellationToken::new();
+            let mut add_source = || std::fs::write(root.path().join("new.rs"), "BBBB").unwrap();
+            let mut scan = Scan {
+                files: &mut files,
+                mode: CaptureMode::Authoritative,
+                cancel: &cancel,
+                after_inventory: None,
+            };
+            let initial = capture_sync(&db, None, None, &[], Some(&workspace), &mut scan).unwrap();
+            scan.after_inventory = Some(&mut add_source);
+            assert!(
+                capture_sync(&db, None, None, &[], Some(&workspace), &mut scan)
+                    .unwrap()
+                    .pending
+            );
+            let settled = capture_sync(&db, None, None, &[], Some(&workspace), &mut scan).unwrap();
+            assert!(!settled.pending);
+            assert_ne!(initial.digest, settled.digest);
+        }
+    }
 
     #[tokio::test]
     async fn index_hints_cannot_hide_worktree_edits_from_verification() {

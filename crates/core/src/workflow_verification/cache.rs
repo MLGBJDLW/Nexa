@@ -10,7 +10,7 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, PartialEq, Eq)]
-struct Fingerprint {
+pub(super) struct Fingerprint {
     length: u64,
     modified: Option<SystemTime>,
     created: Option<SystemTime>,
@@ -20,7 +20,7 @@ struct Fingerprint {
 }
 
 impl Fingerprint {
-    fn of(metadata: &Metadata) -> Self {
+    pub(super) fn of(metadata: &Metadata) -> Self {
         #[cfg(unix)]
         use std::os::unix::fs::MetadataExt;
         Self {

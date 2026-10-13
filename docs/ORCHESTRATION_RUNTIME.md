@@ -188,6 +188,10 @@ Source scans run on blocking workers and follow task cancellation. Routine
 observations rebuild the file inventory and reuse unchanged per-file hashes for
 the active turn. Check, review, browser-evidence, resume and completion boundaries
 always read fresh content; metadata cache hits cannot authorize acceptance.
+Every scan revalidates its Git or folder inventory and file metadata after
+hashing, including nested gitlinks. A clean file becoming dirty or a path
+appearing during the scan leaves the source pending, so concurrent formatter
+or build changes cannot preserve old verification receipts.
 An edit and observation in the same unstable batch cannot produce a green source
 receipt, while browser action effects and terminal closure still reconcile.
 Native filename and symlink-target bytes remain part of the source identity;
