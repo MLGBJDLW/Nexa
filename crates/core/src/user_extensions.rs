@@ -311,7 +311,13 @@ impl UserExtensionLayout {
                 .file_stem()
                 .and_then(|value| value.to_str())
                 .map(str::to_string);
-            let source_name = entry.file_name().to_string_lossy().into_owned();
+            let Some(source_name) = entry.file_name().to_str().map(str::to_owned) else {
+                report.warnings.push(format!(
+                    "Rejected user theme {}: rename its filename to valid UTF-8 before importing",
+                    path.display()
+                ));
+                continue;
+            };
             // Removed after successful validation; retained for last-good recovery.
             report.rejected_files.insert(source_name.clone());
             let metadata = match fs::symlink_metadata(&path) {
@@ -516,7 +522,9 @@ fn matching_theme_paths(themes_dir: &Path, theme_id: &str) -> Result<Vec<PathBuf
     let mut matches = Vec::new();
     for entry in fs::read_dir(themes_dir)? {
         let path = entry?.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+        if path.file_name().and_then(|value| value.to_str()).is_none()
+            || path.extension().and_then(|value| value.to_str()) != Some("json")
+        {
             continue;
         }
         let metadata = fs::symlink_metadata(&path)?;
@@ -1177,6 +1185,66 @@ mod tests {
         assert!(layout.write_theme_plugin(plugin).is_err());
         layout.remove_theme_plugin("theme-user-test").unwrap();
         assert!(layout.load_theme_plugins().unwrap().plugins.is_empty());
+    }
+
+    #[test]
+    #[cfg(any(unix, windows))]
+    fn theme_loading_rejects_filenames_that_cannot_preserve_their_identity() {
+        let home = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let layout = UserExtensionLayout::resolve(home.path(), app_data.path(), None).unwrap();
+        layout.bootstrap().unwrap();
+        #[cfg(unix)]
+        let filename = {
+            use std::os::unix::ffi::OsStringExt;
+            std::ffi::OsString::from_vec(b"theme-\xff.json".to_vec())
+        };
+        #[cfg(windows)]
+        let filename = {
+            use std::os::windows::ffi::OsStringExt;
+            let units = "theme-"
+                .encode_utf16()
+                .chain([0xd800])
+                .chain(".json".encode_utf16())
+                .collect::<Vec<_>>();
+            std::ffi::OsString::from_wide(&units)
+        };
+        let raw_path = layout.themes_dir().join(filename);
+        fs::write(
+            &raw_path,
+            br#"{"id":"theme-user-test","name":"Test","theme":{}}"#,
+        )
+        .unwrap();
+        let rejected = layout.load_theme_plugins().unwrap();
+        assert!(
+            rejected.plugins.is_empty(),
+            "a lossy filename must not become a persisted owner"
+        );
+        assert!(rejected.source_names.is_empty());
+        assert!(rejected.rejected_files.is_empty());
+        assert!(rejected
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("UTF-8")));
+        assert!(
+            matching_theme_paths(&layout.themes_dir(), "theme-user-test")
+                .unwrap()
+                .is_empty()
+        );
+
+        let source = layout.themes_dir().join("我的主题.json");
+        fs::rename(&raw_path, &source).unwrap();
+        let accepted = layout.load_theme_plugins().unwrap();
+        assert_eq!(accepted.plugins.len(), 1);
+        assert_eq!(accepted.source_names["theme-user-test"], "我的主题.json");
+        fs::write(&source, b"{ malformed JSON").unwrap();
+        layout
+            .remove_theme_plugin_with_source(
+                "theme-user-test",
+                Some(&accepted.source_names["theme-user-test"]),
+            )
+            .unwrap();
+        assert!(!source.exists());
     }
 
     #[test]
