@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.16.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.0...nexa-monorepo-v0.16.1) (2026-10-13)
+
+
+### Features
+
+* **agents:** preserve named workers and accountable Nexus continuation ([dfaffca](https://github.com/MLGBJDLW/Nexa/commit/dfaffcaccdfc861736ca9db853c40d7ef60bcc6a))
+* **models:** refresh October catalogs and retire unavailable endpoints ([a1c58a0](https://github.com/MLGBJDLW/Nexa/commit/a1c58a0d30ff972ae5142e9bd5ca91c95445c4a6))
+* **plugins:** simplify theme authoring and expose package-owned metadata ([0aa42d7](https://github.com/MLGBJDLW/Nexa/commit/0aa42d7832c10672377cdcbfe11b11ca28409357))
+* simplify plugins and settings, strengthen agent interoperability and recovery ([f5c7cb6](https://github.com/MLGBJDLW/Nexa/commit/f5c7cb69c835c4e9565f434435347d599cbf26b9))
+* **ui:** streamline settings and animate readable recovery status ([bca68df](https://github.com/MLGBJDLW/Nexa/commit/bca68dfd09db641db35d4edbd935f97ee102dbb0))
+
+
+### Bug Fixes
+
+* **acp:** guard unsaved authentication choices ([b8bbdad](https://github.com/MLGBJDLW/Nexa/commit/b8bbdad9f5618065e8c4315c7e0499e81d68da5c))
+* **acp:** normalize legacy package versions after registry upgrades ([bb18867](https://github.com/MLGBJDLW/Nexa/commit/bb1886700c07d7c7208bbd9fbb58afccd219c2dd))
+* **acp:** preserve native launch fallbacks and probe liveness ([f9efd80](https://github.com/MLGBJDLW/Nexa/commit/f9efd8094b3e103fb808cd62a6b78e24f5c6dace))
+* **acp:** recover failed saved authentication without replaying choices ([cb7c998](https://github.com/MLGBJDLW/Nexa/commit/cb7c99834ffbc0472caf4de67a000756f29cd46d))
+* **acp:** resolve registry adapters and support explicit native sign-in ([333a2df](https://github.com/MLGBJDLW/Nexa/commit/333a2df59f56d0fb9a2e7ad6d8d2d3afb83408b0))
+* **acp:** restore explicitly selected authentication on fresh connections ([a62bc8d](https://github.com/MLGBJDLW/Nexa/commit/a62bc8d21030f03aee79c6346bfeaf1f4f98ae99))
+* **acp:** verify managed archives and preserve adapter arguments ([187c532](https://github.com/MLGBJDLW/Nexa/commit/187c5328c6ff94f21369ce122a455ad0219a4266))
+* **agents:** bind verification receipts to source file modes ([7af4639](https://github.com/MLGBJDLW/Nexa/commit/7af463927289ca827070b94add440d9d2dc8e769))
+* **agents:** observe permissions of clean tracked sources ([3310d13](https://github.com/MLGBJDLW/Nexa/commit/3310d135b180498cd8115f94cb1ff34116c67f3b))
+* **agents:** offload source checks and preserve evidence freshness ([4ac05f8](https://github.com/MLGBJDLW/Nexa/commit/4ac05f8db6edf6ee4555200779bafbd59702b42b))
+* **agents:** persist direct dispatch admission before execution ([e36ea9f](https://github.com/MLGBJDLW/Nexa/commit/e36ea9fde2bbca9788a87a4700bf02800b24ec1d))
+* **agents:** preserve knowledge prefetch on resumed turns ([4879086](https://github.com/MLGBJDLW/Nexa/commit/487908624b7d2e4e58221109145f3c9321c019b2))
+* **agents:** reconcile legacy interrupted tool-round accounting ([cdefc57](https://github.com/MLGBJDLW/Nexa/commit/cdefc57d86d650d64e86c4623487a96b5a1324f3))
+* **agents:** retain native setup across adapter failures ([f428343](https://github.com/MLGBJDLW/Nexa/commit/f428343025d409d125b30b06e5e8099e8aa23c9d))
+* **agents:** verify and repair complete adapter caches ([f4a485a](https://github.com/MLGBJDLW/Nexa/commit/f4a485a53bef88f8cfa74f0bd07177d37f1a848b))
+* **agents:** verify worktree files hidden by index hints ([6b0a789](https://github.com/MLGBJDLW/Nexa/commit/6b0a78935face78107324e55d755b5bfc43d6c74))
+* **chat:** announce complete connection failure guidance ([f8a4464](https://github.com/MLGBJDLW/Nexa/commit/f8a44645346e9685abaf8c0a285c205c290f6b27))
+* **ci:** update QUIC security patch and satisfy strict lint ([2fea010](https://github.com/MLGBJDLW/Nexa/commit/2fea010492f3b516ee5a4a2016fd8853f4981b8f))
+* **models:** serialize local embedding deletion and invalidate stale probes ([c39fbd9](https://github.com/MLGBJDLW/Nexa/commit/c39fbd9494eb61ea32ced9162eaebd8325310042))
+* **nexus:** invalidate legacy checks and reconcile admitted reconnaissance ([a2ffb32](https://github.com/MLGBJDLW/Nexa/commit/a2ffb32f143e41da763f861b538e5795e5fa70e3))
+* **nexus:** inventory dirty gitlinks and scope verification paths ([355384c](https://github.com/MLGBJDLW/Nexa/commit/355384c926cd6e26037783dc09ce67966e45047b))
+* **nexus:** revalidate source inventory after hashing ([6f75b05](https://github.com/MLGBJDLW/Nexa/commit/6f75b053feecdcbf38617e0ebf8ec62c638f9d57))
+* **nexus:** validate reconnaissance source receipts before adoption ([e8ee1b5](https://github.com/MLGBJDLW/Nexa/commit/e8ee1b5cea932f6401436c1177dfc8c3f01ffbd7))
+* **openrouter:** explain inference and management key authentication ([c9ea8f8](https://github.com/MLGBJDLW/Nexa/commit/c9ea8f8381b562add7a1e207ce1280b251d1e327))
+* **runtime:** preserve native paths and environment bytes ([2f632e6](https://github.com/MLGBJDLW/Nexa/commit/2f632e64236ee761f4ed7ba27d6a9177855f0279))
+* **themes:** reject lossy source filenames before import ([eeab240](https://github.com/MLGBJDLW/Nexa/commit/eeab240223c2731d0368cfe5c035bd639ad7d645))
+* **themes:** remove malformed declarations by recorded ownership ([3cce359](https://github.com/MLGBJDLW/Nexa/commit/3cce359ca453989ed8a3ba84c2afe19740f2e416))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at f5c7cb69c835c4e9565f434435347d599cbf26b9 -->
+
+### What's Changed
+* feat: simplify plugins and settings, strengthen agent interoperability and recovery by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/470
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.0...nexa-monorepo-v0.16.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.2...nexa-monorepo-v0.16.0) (2026-10-12)
 
 
