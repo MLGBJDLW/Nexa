@@ -780,6 +780,7 @@ impl AgentExecutor {
             requires_workspace_isolation,
         )
         .map_err(CoreError::InvalidInput)?;
+        let is_execution_resume = resumed_execution.is_some();
         if let Some(mut saved) = resumed_execution.take() {
             if let Some(plan) = saved.plan.take() {
                 task_plan = plan;
@@ -799,11 +800,6 @@ impl AgentExecutor {
                 .max_parallel
                 .min(orchestration_policy.max_parallel)
                 .max(1);
-            super::desktop_resume::reconcile_resumed_reconnaissance(
-                db,
-                turn_id,
-                &mut saved.workflow,
-            )?;
             saved.workflow.apply_checkpoint_to_task_plan(&mut task_plan);
             workflow_ir = Some(saved.workflow);
         }
@@ -865,18 +861,42 @@ impl AgentExecutor {
         let verification_capture =
             crate::workflow_verification::Capture::new(self.cancel_token.clone());
         if let Some(workflow) = workflow_ir.as_mut() {
-            workflow.reconcile_verification_source(
-                verification_capture
-                    .capture(
-                        db,
-                        conversation_id,
-                        turn_id,
-                        &execution_source_scope,
-                        self.tools.workspace(),
-                        crate::workflow_verification::CaptureMode::Authoritative,
-                    )
-                    .await?,
-            );
+            let source = verification_capture
+                .capture(
+                    db,
+                    conversation_id,
+                    turn_id,
+                    &execution_source_scope,
+                    self.tools.workspace(),
+                    crate::workflow_verification::CaptureMode::Authoritative,
+                )
+                .await?;
+            workflow.reconcile_verification_source(source.clone());
+            if is_execution_resume {
+                // Reconnaissance reads the original shared workspace, while
+                // write verification may also include an isolated checkout.
+                let read_source = if execution_source_scope == source_scope {
+                    source
+                } else {
+                    verification_capture
+                        .capture(
+                            db,
+                            conversation_id,
+                            turn_id,
+                            &source_scope,
+                            self.tools.workspace(),
+                            crate::workflow_verification::CaptureMode::Authoritative,
+                        )
+                        .await?
+                };
+                super::desktop_resume::reconcile_resumed_reconnaissance(
+                    db,
+                    turn_id,
+                    workflow,
+                    &read_source,
+                )?;
+                workflow.apply_checkpoint_to_task_plan(&mut task_plan);
+            }
         }
         let mut task_plan_value = workflow_ir
             .as_ref()
@@ -1469,13 +1489,24 @@ impl AgentExecutor {
                 if summary.is_some_and(|summary| !summary.is_error) {
                     model_action_observed = true;
                 }
-                workflow_ir.apply_reconnaissance_batch_result(
+                let read_source = verification_capture
+                    .capture(
+                        db,
+                        conversation_id,
+                        turn_id,
+                        &source_scope,
+                        self.tools.workspace(),
+                        crate::workflow_verification::CaptureMode::Authoritative,
+                    )
+                    .await?;
+                workflow_ir.apply_reconnaissance_batch_result_at_source(
                     &node_ids,
                     summary.and_then(|summary| summary.artifacts.as_ref()),
                     summary.is_none_or(|summary| summary.is_error),
                     summary
                         .map(|summary| summary.content.as_str())
                         .unwrap_or("Nexus reconnaissance returned no result."),
+                    Some(&read_source),
                 );
                 workflow_ir.apply_checkpoint_to_task_plan(&mut task_plan);
                 emit_task_plan_update(

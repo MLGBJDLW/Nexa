@@ -520,6 +520,24 @@ impl WorkflowIr {
         batch_failed: bool,
         fallback_summary: &str,
     ) {
+        let source = self.verification_source.clone();
+        self.apply_reconnaissance_batch_result_at_source(
+            node_ids,
+            artifacts,
+            batch_failed,
+            fallback_summary,
+            source.as_ref(),
+        );
+    }
+
+    pub fn apply_reconnaissance_batch_result_at_source(
+        &mut self,
+        node_ids: &[String],
+        artifacts: Option<&serde_json::Value>,
+        batch_failed: bool,
+        fallback_summary: &str,
+        source: Option<&crate::workflow_verification::VerificationSourceState>,
+    ) {
         if let Some(remaining) = artifacts
             .and_then(|value| value.pointer("/budgetAfter/remainingTokens"))
             .and_then(serde_json::Value::as_u64)
@@ -545,6 +563,29 @@ impl WorkflowIr {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or(fallback_summary);
                 let _ = self.fail_node(node_id, detail);
+                continue;
+            }
+
+            let receipt_source =
+                run.and_then(|run| run.get("verificationSource"))
+                    .and_then(|value| {
+                        serde_json::from_value::<
+                            crate::workflow_verification::VerificationSourceState,
+                        >(value.clone())
+                        .ok()
+                    });
+            if source.is_none_or(|source| source.pending || receipt_source.as_ref() != Some(source))
+            {
+                if let Some(node) = self.nodes.iter_mut().find(|node| node.id == *node_id) {
+                    node.status = WorkflowNodeStatus::Failed;
+                    node.deliverable = Some(WorkflowDeliverable {
+                        claims: Vec::new(), evidence: Vec::new(), files_touched: Vec::new(), tests: Vec::new(),
+                        uncertainties: vec!["Reconnaissance has no stable receipt for the current source. Its claims were not adopted or replayed; the parent must investigate.".into()],
+                    });
+                }
+                self.evidence_ledger
+                    .retain(|entry| entry.node_id != *node_id);
+                self.refresh_checkpoint();
                 continue;
             }
 
@@ -2765,13 +2806,19 @@ mod tests {
     #[test]
     fn batch_results_checkpoint_siblings_independently() {
         let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "current".into(),
+                pending: false,
+            },
+        );
         let ready = workflow.ready_node_ids();
         for id in &ready {
             workflow.start_node(id).unwrap();
         }
         let artifacts = serde_json::json!({
             "runs": [
-                { "id": ready[0], "isError": false, "result": "Found the relevant module.", "evidenceHandoff": [{ "chunkId": "chunk-1" }] },
+                { "id": ready[0], "isError": false, "result": "Found the relevant module.", "evidenceHandoff": [{ "chunkId": "chunk-1" }], "verificationSource": workflow.verification_source },
                 { "id": ready[1], "isError": true, "errorMessage": "diagnostic timed out" }
             ]
         });
@@ -2784,6 +2831,103 @@ mod tests {
             .expect("a single failed reconnaissance node remains schedulable");
         assert_eq!(retry["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(retry["tasks"][0]["id"], ready[1]);
+    }
+
+    #[test]
+    fn reconnaissance_adopts_only_current_stable_receipts_from_its_read_scope() {
+        use crate::workflow_verification::VerificationSourceState;
+        let source = VerificationSourceState {
+            digest: "shared-current".into(),
+            pending: false,
+        };
+        let old = VerificationSourceState {
+            digest: "shared-old".into(),
+            pending: false,
+        };
+        let pending = VerificationSourceState {
+            pending: true,
+            ..source.clone()
+        };
+        for receipt in [None, Some(old), Some(pending), Some(source.clone())] {
+            let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+            // Write verification can cover an isolated checkout; reconnaissance
+            // is attested independently against the original shared read scope.
+            workflow.reconcile_verification_source(VerificationSourceState {
+                digest: "isolated".into(),
+                pending: false,
+            });
+            let ids = workflow.ready_node_ids();
+            for id in &ids {
+                workflow.start_node(id).unwrap();
+            }
+            let artifacts = serde_json::json!({"runs":[
+                {"id":ids[0],"isError":false,"result":"Candidate advice","evidenceHandoff":[{"path":"candidate.rs"}],"verificationSource":receipt},
+                {"id":ids[1],"isError":false,"result":"Current advice","evidenceHandoff":[{"path":"current.rs"}],"verificationSource":source}
+            ]});
+            workflow.apply_reconnaissance_batch_result_at_source(
+                &ids,
+                Some(&artifacts),
+                false,
+                "batch",
+                Some(&source),
+            );
+            let first = workflow
+                .nodes
+                .iter()
+                .find(|node| node.id == ids[0])
+                .unwrap();
+            let accepted = receipt.as_ref() == Some(&source);
+            assert_eq!(
+                first.status,
+                if accepted {
+                    WorkflowNodeStatus::Succeeded
+                } else {
+                    WorkflowNodeStatus::Failed
+                }
+            );
+            assert_eq!(first.attempts, 1);
+            assert!(
+                workflow
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == ids[1])
+                    .unwrap()
+                    .status
+                    == WorkflowNodeStatus::Succeeded
+            );
+            if !accepted {
+                assert!(first.deliverable.as_ref().unwrap().claims.is_empty());
+                assert!(!workflow
+                    .evidence_ledger
+                    .iter()
+                    .any(|entry| entry.node_id == ids[0]));
+                assert!(workflow
+                    .reconnaissance_batch_arguments("parent takeover")
+                    .is_none());
+            }
+        }
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        let ids = workflow.ready_node_ids();
+        for id in &ids {
+            workflow.start_node(id).unwrap();
+        }
+        let artifacts = serde_json::json!({"runs":ids.iter().map(|id|serde_json::json!({"id":id,"isError":false,"result":"advice","verificationSource":source})).collect::<Vec<_>>()});
+        workflow.apply_reconnaissance_batch_result_at_source(
+            &ids,
+            Some(&artifacts),
+            false,
+            "batch",
+            Some(&VerificationSourceState {
+                pending: true,
+                ..source
+            }),
+        );
+        assert!(workflow.evidence_ledger.is_empty());
+        assert!(workflow
+            .nodes
+            .iter()
+            .filter(|node| ids.contains(&node.id))
+            .all(|node| node.status == WorkflowNodeStatus::Failed));
     }
 
     #[test]
@@ -4632,6 +4776,12 @@ mod tests {
             1,
         ));
         let mut workflow = compile_workflow_ir(&file_plan, &profile(), true).unwrap();
+        workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "current".into(),
+                pending: false,
+            },
+        );
         let ready = workflow.ready_node_ids();
         assert_eq!(ready.len(), 2);
         assert!(ready.iter().all(|id| id.starts_with("runtime-recon-")));
@@ -4651,7 +4801,8 @@ mod tests {
             "runs": ready.iter().map(|id| serde_json::json!({
                 "id": id,
                 "isError": false,
-                "result": "read-only findings"
+                "result": "read-only findings",
+                "verificationSource": workflow.verification_source
             })).collect::<Vec<_>>()
         });
         workflow.apply_reconnaissance_batch_result(&ready, Some(&artifacts), false, "batch");

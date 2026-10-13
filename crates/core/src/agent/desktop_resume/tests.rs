@@ -542,6 +542,10 @@ fn nexus_resume_keeps_successful_reconnaissance_and_recovers_late_owned_receipts
         0,
     ));
     let mut saved = compile_workflow_ir(&task, &profile(), true).unwrap();
+    let source = crate::workflow_verification::VerificationSourceState {
+        digest: "current".into(),
+        pending: false,
+    };
     let ids = saved.ready_node_ids();
     assert_eq!(ids.len(), 2);
     saved.start_node(&ids[0]).unwrap();
@@ -580,7 +584,7 @@ fn nexus_resume_keeps_successful_reconnaissance_and_recovers_late_owned_receipts
             None,
         )
         .unwrap();
-    db.finish_agent_subtask_run(&row.id, "completed", Some(&json!({"run":{"id":ids[1],"isError":false,"result":"Late evidence retained","evidenceHandoff":[{"path":"late.rs"}]}})), None).unwrap();
+    db.finish_agent_subtask_run(&row.id, "completed", Some(&json!({"run":{"id":ids[1],"isError":false,"result":"Late evidence retained","evidenceHandoff":[{"path":"late.rs"}],"verificationSource":source}})), None).unwrap();
     // Simulate a pre-upgrade crash whose checkpoint predates worker admission.
     checkpoint["workflowIr"]["nodes"]
         .as_array_mut()
@@ -601,7 +605,8 @@ fn nexus_resume_keeps_successful_reconnaissance_and_recovers_late_owned_receipts
     assert_eq!(restored.completed_tool_rounds, 1);
     assert_eq!(restored.max_iterations, Some(2));
     assert_eq!(restored.plan.as_ref().unwrap().objective, task.objective);
-    reconcile_resumed_reconnaissance(&db, Some(&run.turn_id), &mut restored.workflow).unwrap();
+    reconcile_resumed_reconnaissance(&db, Some(&run.turn_id), &mut restored.workflow, &source)
+        .unwrap();
     assert!(restored
         .workflow
         .nodes
@@ -627,7 +632,16 @@ fn unresolved_resumed_reconnaissance_is_not_replayed_or_reported_as_success() {
     let mut workflow = compile_workflow_ir(&task, &profile(), true).unwrap();
     let ids = workflow.ready_node_ids();
     workflow.start_node(&ids[0]).unwrap();
-    reconcile_resumed_reconnaissance(&db, Some(&run.turn_id), &mut workflow).unwrap();
+    reconcile_resumed_reconnaissance(
+        &db,
+        Some(&run.turn_id),
+        &mut workflow,
+        &crate::workflow_verification::VerificationSourceState {
+            digest: "current".into(),
+            pending: false,
+        },
+    )
+    .unwrap();
     let interrupted = workflow
         .nodes
         .iter()
@@ -637,4 +651,92 @@ fn unresolved_resumed_reconnaissance_is_not_replayed_or_reported_as_success() {
     assert_eq!(interrupted.attempts, 1);
     assert!(!workflow.ready_node_ids().contains(&ids[0]));
     assert!(workflow.ready_node_ids().contains(&ids[1]));
+}
+
+#[tokio::test]
+async fn late_reconnaissance_requires_the_current_authoritative_workspace() {
+    use crate::{workflow_ir::WorkflowNodeStatus, workspace::Workspace};
+    for missing in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("source.rs"), "A").unwrap();
+        let workspace = Workspace {
+            roots: vec![root.path().to_string_lossy().into()],
+        };
+        let (db, run, _, _) = fixture_for("Implement and verify a complex cross-module refactor");
+        let task = build_task_plan(TaskPlanningInput::for_route(
+            &run.title,
+            "CodebaseOperation",
+            false,
+            0,
+        ));
+        let mut workflow = compile_workflow_ir(&task, &profile(), true).unwrap();
+        let ids = workflow.ready_node_ids();
+        let before = crate::workflow_verification::capture(
+            &db,
+            Some(&run.conversation_id),
+            Some(&run.turn_id),
+            &[],
+            Some(&workspace),
+        )
+        .await
+        .unwrap();
+        for id in &ids {
+            workflow.start_node(id).unwrap();
+        }
+        let row = db
+            .create_agent_subtask_run(
+                &run.id,
+                &ids[0],
+                "Research",
+                Some(&json!({"workerId":ids[0]})),
+                None,
+            )
+            .unwrap();
+        db.finish_agent_subtask_run(&row.id, "completed", Some(&json!({"run":{"id":ids[0],"isError":false,"result":"Stale advice","evidenceHandoff":[{"path":"source.rs"}],"verificationSource":if missing {None} else {Some(&before)}}})), None).unwrap();
+        std::fs::write(root.path().join("source.rs"), "B").unwrap();
+        let current = crate::workflow_verification::capture(
+            &db,
+            Some(&run.conversation_id),
+            Some(&run.turn_id),
+            &[],
+            Some(&workspace),
+        )
+        .await
+        .unwrap();
+        assert_ne!(before, current);
+        let row = db
+            .create_agent_subtask_run(
+                &run.id,
+                &ids[1],
+                "Research",
+                Some(&json!({"workerId":ids[1]})),
+                None,
+            )
+            .unwrap();
+        db.finish_agent_subtask_run(&row.id, "completed", Some(&json!({"run":{"id":ids[1],"isError":false,"result":"Current advice","verificationSource":current}})), None).unwrap();
+        reconcile_resumed_reconnaissance(&db, Some(&run.turn_id), &mut workflow, &current).unwrap();
+        let stale = workflow
+            .nodes
+            .iter()
+            .find(|node| node.id == ids[0])
+            .unwrap();
+        assert_eq!(stale.status, WorkflowNodeStatus::Failed);
+        assert!(stale.deliverable.as_ref().unwrap().claims.is_empty());
+        assert_eq!(
+            workflow
+                .nodes
+                .iter()
+                .find(|node| node.id == ids[1])
+                .unwrap()
+                .status,
+            WorkflowNodeStatus::Succeeded
+        );
+        assert!(!workflow
+            .evidence_ledger
+            .iter()
+            .any(|entry| entry.node_id == ids[0]));
+        assert!(workflow
+            .reconnaissance_batch_arguments(&task.objective)
+            .is_none());
+    }
 }

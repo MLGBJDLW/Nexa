@@ -244,6 +244,7 @@ pub(super) fn reconcile_resumed_reconnaissance(
     db: &Database,
     turn: Option<&str>,
     workflow: &mut WorkflowIr,
+    source: &crate::workflow_verification::VerificationSourceState,
 ) -> Result<(), CoreError> {
     use crate::workflow_ir::{
         WorkflowDeliverable, WorkflowNodeOrigin, WorkflowNodeRequirement, WorkflowNodeStatus,
@@ -296,19 +297,22 @@ pub(super) fn reconcile_resumed_reconnaissance(
             .and_then(|row| row.output.as_ref())
             .and_then(|output| output.get("run"))
             .filter(|result| result.get("isError").and_then(Value::as_bool) == Some(false))
+            .filter(|result| result.get("id").and_then(Value::as_str) == Some(id.as_str()))
         {
             if let Some(node) = workflow.nodes.iter_mut().find(|node| node.id == id) {
                 node.status = WorkflowNodeStatus::Running;
             }
-            workflow.apply_reconnaissance_batch_result(
+            workflow.apply_reconnaissance_batch_result_at_source(
                 &[id],
                 Some(&serde_json::json!({"runs":[result]})),
                 false,
                 "Recovered completed reconnaissance",
+                Some(source),
             );
         } else if let Some(node) = workflow.nodes.iter_mut().find(|node| node.id == id) {
             node.status = WorkflowNodeStatus::Failed;
-            node.deliverable.get_or_insert_with(|| WorkflowDeliverable { claims: Vec::new(), evidence: Vec::new(), files_touched: Vec::new(), tests: Vec::new(), uncertainties: vec!["The prior reconnaissance was interrupted; its effect was not replayed. Parent investigation may continue while its durable receipt remains available.".into()] });
+            node.deliverable = Some(WorkflowDeliverable { claims: Vec::new(), evidence: Vec::new(), files_touched: Vec::new(), tests: Vec::new(), uncertainties: vec!["The prior reconnaissance was interrupted; its effect was not replayed. Parent investigation may continue while its durable receipt remains available.".into()] });
+            workflow.evidence_ledger.retain(|entry| entry.node_id != id);
         }
     }
     workflow.refresh_checkpoint();
