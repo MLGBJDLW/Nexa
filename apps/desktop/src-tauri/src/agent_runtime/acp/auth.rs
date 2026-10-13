@@ -149,8 +149,14 @@ pub(super) async fn catalog(
     initialized: Initialization,
 ) -> Result<Catalog> {
     let auth_methods = initialized.auth_methods.clone();
-    let Some(mut session) =
-        Session::create(wire, &launch.working_directory, servers, initialized).await?
+    let Some(mut session) = Session::create_authenticated(
+        wire,
+        &launch.working_directory,
+        servers,
+        initialized,
+        launch.authentication_method.as_deref(),
+    )
+    .await?
     else {
         return Ok(Catalog {
             models: vec![],

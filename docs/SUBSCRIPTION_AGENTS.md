@@ -131,6 +131,9 @@ Agent methods use the ACP authentication request. Terminal methods open the same
 adapter in Nexa's existing terminal, and a successful exit triggers a new connection
 check. Editing or closing setup cancels outstanding work. Startup errors include a
 bounded, redacted stderr tail, while credential values remain encrypted at rest.
+The explicitly selected agent method is saved with the profile and reused when a
+fresh process requests authentication. Nexa never selects a method automatically
+or invokes terminal login as part of a chat connection.
 
 **Check connection** runs `initialize` and `session/new` without a prompt. It
 loads the real catalog, not a hard-coded cloud model list. Success means the

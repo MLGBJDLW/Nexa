@@ -50,6 +50,34 @@ async fn setup_exposes_native_authentication_without_reporting_a_connected_sessi
         .unwrap();
     assert!(!catalog.requires_authentication);
     assert!(!catalog.models.is_empty());
+    drop(wire);
+    let mut fresh = wire_with_marker("auth_methods", "");
+    let initialized = Session::initialize(&mut fresh).await.unwrap();
+    let catalog = super::auth::catalog(&mut fresh, &launch, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(
+        catalog.requires_authentication,
+        "authentication belongs to the prior process"
+    );
+    let mut selected = launch.clone();
+    selected.authentication_method = Some("oauth".into());
+    let initialized = Session::initialize(&mut fresh).await.unwrap();
+    let catalog = super::auth::catalog(&mut fresh, &selected, None, &[], initialized)
+        .await
+        .unwrap();
+    assert!(!catalog.requires_authentication);
+    drop(fresh);
+    let mut chat = wire_with_marker("auth_methods", "");
+    Session::connect_with_mcp(&mut chat, "fixture", &[], Some("oauth"))
+        .await
+        .unwrap();
+    let mut terminal_only = wire_with_marker("auth_methods", "");
+    assert!(
+        Session::connect_with_mcp(&mut terminal_only, "fixture", &[], Some("terminal"))
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]

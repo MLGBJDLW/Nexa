@@ -18,6 +18,7 @@ pub(crate) struct Model {
     pub reasoning_efforts: Vec<String>,
 }
 
+#[derive(Clone)]
 pub(super) struct Initialization {
     pub auth_methods: Vec<super::auth::AuthMethod>,
     images: bool,
@@ -109,16 +110,17 @@ impl Session {
     }
 
     pub(super) async fn connect(wire: &mut Wire, cwd: &str) -> Result<Self> {
-        Self::connect_with_mcp(wire, cwd, &[]).await
+        Self::connect_with_mcp(wire, cwd, &[], None).await
     }
 
     pub(super) async fn connect_with_mcp(
         wire: &mut Wire,
         cwd: &str,
         servers: &[nexa_core::mcp::McpServer],
+        authentication_method: Option<&str>,
     ) -> Result<Self> {
         let initialized = Self::initialize_with_services(wire, true).await?;
-        Self::create(wire, cwd, servers, initialized).await?
+        Self::create_authenticated(wire, cwd, servers, initialized, authentication_method).await?
             .ok_or_else(|| error("The external agent requires authentication. Open its Settings profile and choose a sign-in method."))
     }
 
@@ -149,6 +151,32 @@ impl Session {
             images,
             mcp_capabilities: initialized["agentCapabilities"]["mcpCapabilities"].clone(),
         })
+    }
+
+    pub(super) async fn create_authenticated(
+        wire: &mut Wire,
+        cwd: &str,
+        servers: &[nexa_core::mcp::McpServer],
+        initialized: Initialization,
+        authentication_method: Option<&str>,
+    ) -> Result<Option<Self>> {
+        let session = Self::create(wire, cwd, servers, initialized.clone()).await?;
+        if session.is_some() {
+            return Ok(session);
+        }
+        let Some(method) = authentication_method.and_then(|id| {
+            initialized
+                .auth_methods
+                .iter()
+                .find(|method| method.id == id && method.kind == "agent")
+        }) else {
+            return Ok(None);
+        };
+        // Only the user's saved choice can authorize authentication on a new
+        // connection. Never auto-select a method or run terminal login here.
+        wire.request("authenticate", json!({"methodId":method.id}))
+            .await?;
+        Self::create(wire, cwd, servers, initialized).await
     }
 
     pub(super) async fn create(

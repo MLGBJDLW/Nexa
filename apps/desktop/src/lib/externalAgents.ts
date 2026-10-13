@@ -15,6 +15,7 @@ export interface ExternalAgentLaunch {
   configOptions?: Record<string, string>;
   configOptionsModel?: string;
   mcpServerIds?: string[];
+  authenticationMethod?: string;
 }
 
 export function parseExternalLaunchFields(argsText: string, envText: string): Pick<ExternalAgentLaunch, 'args' | 'env'> {

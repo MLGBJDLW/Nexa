@@ -2957,6 +2957,9 @@ for (const method of ['Personal account', 'Terminal sign-in']) {
     await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
     await expect(form.getByRole('status')).toContainText('Session created');
     await expect(form.getByTestId('external-agent-auth')).toHaveCount(0);
+    await form.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.authenticationMethod ?? null))
+      .toBe(method === 'Personal account' ? 'oauth' : null);
   });
 }
 

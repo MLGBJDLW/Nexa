@@ -139,7 +139,7 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
             stage(&request.events, "connecting").await?;
             let session = tokio::select! {
                 _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while connecting".into())),
-                result = Session::connect_with_mcp(&mut wire, &binding.launch.working_directory, &servers) => result?,
+                result = Session::connect_with_mcp(&mut wire, &binding.launch.working_directory, &servers, binding.launch.authentication_method.as_deref()) => result?,
             };
             pool::Connected {
                 wire,

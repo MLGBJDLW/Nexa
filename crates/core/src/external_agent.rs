@@ -158,10 +158,21 @@ pub struct ExternalAgentLaunch {
     /// Explicitly selected user-managed MCP connectors forwarded to the agent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mcp_server_ids: Vec<String>,
+    /// Explicitly chosen agent authentication method, reapplied only when a
+    /// new connection requires it. Terminal login remains out-of-band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication_method: Option<String>,
 }
 
 impl ExternalAgentLaunch {
     pub fn validate(&self) -> Result<(), CoreError> {
+        if self.authentication_method.as_ref().is_some_and(|method| {
+            method.is_empty() || method.len() > 256 || method.chars().any(char::is_control)
+        }) {
+            return Err(CoreError::InvalidInput(
+                "Invalid external-agent authentication method".into(),
+            ));
+        }
         if self.args.iter().flatten().any(|arg| arg.contains('\0'))
             || self.env.iter().any(|(key, value)| {
                 key.is_empty() || key.contains(['=', '\0']) || value.contains('\0')
