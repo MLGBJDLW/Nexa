@@ -4743,7 +4743,7 @@ mod tests {
         let workspace = Workspace {
             roots: vec![root.path().to_string_lossy().into()],
         };
-        let plan = interaction_plan("Open the browser and visit https://example.com");
+        let plan = interaction_plan("帮我用html写一个黑洞演示图");
         let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
         workflow.reconcile_verification_source(
             workflow_verification::capture(&db, None, None, &[], Some(&workspace))
