@@ -191,3 +191,10 @@ test('image theme resources only accept managed sha256 asset ids', () => {
 
   assert.throws(() => normalizeThemeResourcePlugin(unmanaged), /managed local asset id/);
 });
+
+test('friendly Unicode names derive stable cross-runtime IDs without manifest boilerplate', () => {
+  const theme = normalizeThemeResourcePlugin({ name: ' 暮光 ', theme: { colors: { accent: '#abcdef' } } });
+  assert.equal(theme.id, 'theme-8d56ff242bf6aff2');
+  assert.equal(theme.name, '暮光');
+  assert.equal(theme.theme.mode, 'dark');
+});

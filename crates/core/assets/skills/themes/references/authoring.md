@@ -1,26 +1,22 @@
 # Authoring a theme
 
-A minimal `appearance` draft:
+A minimal `appearance` change:
 
 ```json
 {
-  "action": "draft",
+  "action": "apply",
   "plugin": {
-    "manifestVersion": 2,
-    "kind": "theme-resource",
-    "id": "ocean",
     "name": "Ocean",
     "theme": {
-      "baseTheme": "dark",
-      "mode": "dark",
-      "colors": { "accent": "#68b8c6" },
-      "background": { "kind": "none" }
+      "colors": { "accent": "#68b8c6" }
     }
   }
 }
 ```
 
-Choose a base from `dark`, `light`, `midnight`, `aurora`, `bloom`, or `dream`. Mode is `dark` or `light`. Set only the overrides needed for the requested look, preserving the other fields when editing an installed theme. Keep text readable against panels and retain distinct status colors.
+The name can contain Unicode and spaces. Nexa derives an internal id for a new name; applying an existing unique name reuses its id. Explicit old ids remain supported. `manifestVersion`, `kind`, `id`, `baseTheme`, `mode`, and the background are optional. A new minimal theme defaults to dark. Imported JSON files may use friendly filenames such as `Ocean.json` or `海风.json`.
+
+Choose an optional base from `dark`, `light`, `midnight`, `aurora`, `bloom`, or `dream`. Mode is `dark` or `light`, inferred from the base when omitted. Set only the overrides needed for a new look; preserve the other fields when editing an installed theme. Keep text readable against panels and retain distinct status colors.
 
 Useful semantic color slots include `surface0`, `surface1`, `textPrimary`, `textSecondary`, `thinkingText`, `replyText`, `accent`, `border`, `success`, `warning`, and `danger`. Optional objects use the following fields:
 
@@ -33,6 +29,6 @@ Useful semantic color slots include `surface0`, `surface1`, `textPrimary`, `text
 | `content` | `tagline` up to 160 characters, `statusText` up to 80, `quote` up to 240; plain decorative text |
 | `components` | `rail`, `header`, `card`, or `browser`; each accepts `background` (color/gradient), `borderColor`, and `boxShadow` |
 
-For example, `"typography": {"fontFamily": "Inter, sans-serif", "baseSize": 16}` changes interface text. Numbers outside the ranges are clamped. Resolve validation errors and check that the normalized draft retains every intended change before applying; unknown object fields are not customization slots.
+For example, `"typography": {"fontFamily": "Inter, sans-serif", "baseSize": 16}` changes interface text. Numbers outside the ranges are clamped. Both `draft` and `apply` validate the declaration; resolve validation errors before retrying. Unknown object fields are not customization slots.
 
-Backgrounds can use a color or gradient `value`; image backgrounds require an existing managed `assetId`. For a new local image, use Settings → Themes → Import background, then read the installed theme to reuse its managed id. Do not fabricate image ids or put file paths or remote URLs into theme data. Theme resources cannot execute scripts or arbitrary CSS selectors. Use existing tool operations instead of editing app files, the registry database, or extension directories directly.
+Backgrounds can use a color or gradient `value`; image backgrounds require an existing managed `assetId`. For a new local image, use Settings → Themes → Import background, then read the installed theme to reuse its managed id. Do not fabricate image ids or put file paths or remote URLs into theme data. Theme resources cannot execute scripts or arbitrary CSS selectors. Use the appearance tool for live changes; edit portable declaration files when the user requests file-level work. The registry database and application code are not theme-authoring surfaces.

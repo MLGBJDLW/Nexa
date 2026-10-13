@@ -107,19 +107,22 @@ pub struct CapabilityPackageViewContext<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct BuiltinCapabilityDeclaration {
-    id: &'static str,
-    name: &'static str,
-    capability: &'static str,
-    description: &'static str,
-    surface: EcosystemSurfaceKind,
-    tools: &'static [&'static str],
-    settings_surfaces: &'static [&'static str],
-    workflows: &'static [&'static str],
+pub struct CapabilityPackageDeclaration {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub capability: &'static str,
+    pub description: &'static str,
+    pub surface: EcosystemSurfaceKind,
+    pub tools: &'static [&'static str],
+    pub settings_surfaces: &'static [&'static str],
+    pub workflows: &'static [&'static str],
+    pub enrich: Option<
+        fn(CapabilityPackageView, CapabilityPackageViewContext<'_>) -> CapabilityPackageView,
+    >,
 }
 
-impl BuiltinCapabilityDeclaration {
-    fn info(self) -> CapabilityOwner {
+impl CapabilityPackageDeclaration {
+    pub fn info(self) -> CapabilityOwner {
         CapabilityOwner {
             id: self.id.to_string(),
             name: self.name.to_string(),
@@ -128,7 +131,7 @@ impl BuiltinCapabilityDeclaration {
         }
     }
 
-    fn manifest(self) -> CapabilityPackageManifest {
+    pub fn manifest(self) -> CapabilityPackageManifest {
         CapabilityPackageManifest {
             id: self.id.to_string(),
             name: self.name.to_string(),
@@ -152,7 +155,7 @@ impl BuiltinCapabilityDeclaration {
         }
     }
 
-    fn view(self, context: CapabilityPackageViewContext<'_>) -> CapabilityPackageView {
+    pub fn view(self, context: CapabilityPackageViewContext<'_>) -> CapabilityPackageView {
         let manifest = self.manifest();
         let view = CapabilityPackageView {
             id: manifest.id,
@@ -171,22 +174,9 @@ impl BuiltinCapabilityDeclaration {
             provider_catalogs: Vec::new(),
             runtime_checks: Vec::new(),
         };
-        if self.id == IMAGE_PACKAGE.id {
-            image_generation::enrich_manifest(
-                view,
-                context.app_config.map(|config| &config.image_generation),
-            )
-        } else if self.id == TTS_PACKAGE.id {
-            text_to_speech::enrich_manifest(
-                view,
-                context.app_config.map(|config| &config.text_to_speech),
-            )
-        } else if self.id == OFFICE_PACKAGE.id {
-            office_documents::enrich_manifest(view, context.office_runtime)
-        } else if self.id == SYSTEM_ONE_PACKAGE.id {
-            system_one::enrich_manifest(view, context.app_config.map(|config| &config.system_one))
-        } else {
-            view
+        match self.enrich {
+            Some(enrich) => enrich(view, context),
+            None => view,
         }
     }
 
@@ -197,7 +187,8 @@ impl BuiltinCapabilityDeclaration {
     }
 }
 
-const CORE_AGENT_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const CORE_AGENT_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "core-agent",
     name: "Core Agent",
     capability: "Run orchestration",
@@ -217,7 +208,8 @@ const CORE_AGENT_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclar
     workflows: &["task-planning", "verification", "customize-appearance"],
 };
 
-const KNOWLEDGE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const KNOWLEDGE_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "knowledge-base",
     name: "Knowledge Base",
     capability: "Local evidence retrieval",
@@ -241,7 +233,8 @@ const KNOWLEDGE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclara
     workflows: &["ask-knowledge-base", "manage-sources"],
 };
 
-const OFFICE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const OFFICE_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: Some(office_documents::project),
     id: "office-documents",
     name: "Office Documents",
     capability: "Document generation and analysis",
@@ -266,7 +259,8 @@ const OFFICE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaratio
     ],
 };
 
-const IMAGE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const IMAGE_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: Some(image_generation::project),
     id: "image-generation",
     name: "Image Generation",
     capability: "Image creation",
@@ -278,7 +272,8 @@ const IMAGE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration
     workflows: &["generate-image"],
 };
 
-const TTS_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const TTS_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: Some(text_to_speech::project),
     id: "text-to-speech",
     name: "Text to Speech",
     capability: "Speech synthesis",
@@ -289,7 +284,8 @@ const TTS_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
     workflows: &["synthesize-speech"],
 };
 
-const SYSTEM_ONE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const SYSTEM_ONE_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: Some(system_one::project),
     id: "structured-decisions",
     name: "Structured Decisions",
     capability: "Typed decision inference",
@@ -300,7 +296,8 @@ const SYSTEM_ONE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclar
     workflows: &[],
 };
 
-const WEB_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const WEB_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "web-research",
     name: "Web Research",
     capability: "Network research",
@@ -319,7 +316,8 @@ const WEB_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
     workflows: &["research-web", "web-research-context"],
 };
 
-const FILE_WORKSPACE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const FILE_WORKSPACE_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "file-workspace",
     name: "File Workspace",
     capability: "Scoped file work",
@@ -347,7 +345,8 @@ const FILE_WORKSPACE_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDe
     workflows: &["inspect-files", "edit-files", "run-project-tool"],
 };
 
-const DESKTOP_AUTOMATION_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const DESKTOP_AUTOMATION_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "desktop-automation",
     name: "Desktop Automation",
     capability: "System and desktop actions",
@@ -365,7 +364,8 @@ const DESKTOP_AUTOMATION_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabili
     workflows: &["run-command", "control-desktop"],
 };
 
-const MEMORY_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const MEMORY_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "agent-memory",
     name: "Agent Memory",
     capability: "Reusable working context",
@@ -389,7 +389,8 @@ const MEMORY_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaratio
     workflows: &["reuse-playbooks", "manage-memory", "manage-skills"],
 };
 
-const EVALUATION_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const EVALUATION_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "agent-evaluation",
     name: "Agent Evaluation",
     capability: "Quality checks",
@@ -401,7 +402,8 @@ const EVALUATION_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclar
     workflows: &["dry-run-agent"],
 };
 
-const DELEGATION_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const DELEGATION_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "delegation",
     name: "Delegation",
     capability: "Subagent work",
@@ -423,7 +425,8 @@ const DELEGATION_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclar
     workflows: &["parallel-agent-work"],
 };
 
-const MCP_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const MCP_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "mcp-connectors",
     name: "MCP Connectors",
     capability: "External connectors",
@@ -435,7 +438,8 @@ const MCP_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
     workflows: &["connector-tool-call"],
 };
 
-const COMPUTER_USE_CONNECTOR_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapabilityDeclaration {
+const COMPUTER_USE_CONNECTOR_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
     id: "computer-use-connector",
     name: "Computer Use Connector",
     capability: "Vision-guided UI automation",
@@ -447,7 +451,7 @@ const COMPUTER_USE_CONNECTOR_PACKAGE: BuiltinCapabilityDeclaration = BuiltinCapa
     workflows: &["observe-decide-act"],
 };
 
-const BUILTIN_PACKAGES: &[BuiltinCapabilityDeclaration] = &[
+const BUILTIN_PACKAGES: &[CapabilityPackageDeclaration] = &[
     CORE_AGENT_PACKAGE,
     KNOWLEDGE_PACKAGE,
     OFFICE_PACKAGE,
@@ -497,7 +501,7 @@ pub fn capability_owner_for_tool(name: &str) -> CapabilityOwner {
     capability_for_tool_name(name).info()
 }
 
-fn capability_for_tool_name(name: &str) -> BuiltinCapabilityDeclaration {
+fn capability_for_tool_name(name: &str) -> CapabilityPackageDeclaration {
     BUILTIN_PACKAGES
         .iter()
         .copied()

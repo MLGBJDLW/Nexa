@@ -9,7 +9,7 @@ use crate::error::CoreError;
 use crate::skills::Skill;
 use crate::theme_resource_plugin::ThemeResourcePlugin;
 use serde::Serialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -96,6 +96,8 @@ pub struct ThemeFileLoadReport {
     pub plugins: Vec<ThemeResourcePlugin>,
     pub warnings: Vec<String>,
     pub preserved_theme_ids: BTreeSet<String>,
+    pub source_names: BTreeMap<String, String>,
+    pub rejected_files: BTreeSet<String>,
 }
 
 impl UserExtensionLayout {
@@ -301,6 +303,9 @@ impl UserExtensionLayout {
                 .file_stem()
                 .and_then(|value| value.to_str())
                 .map(str::to_string);
+            let source_name = entry.file_name().to_string_lossy().into_owned();
+            // Removed after successful validation; retained for last-good recovery.
+            report.rejected_files.insert(source_name.clone());
             let metadata = match fs::symlink_metadata(&path) {
                 Ok(metadata) => metadata,
                 Err(error) => {
@@ -335,21 +340,18 @@ impl UserExtensionLayout {
                 })
                 .and_then(ThemeResourcePlugin::normalize);
             match result {
-                Ok(plugin)
-                    if path.file_stem().and_then(|value| value.to_str())
-                        == Some(plugin.id.as_str()) =>
-                {
-                    report.plugins.push(plugin)
-                }
                 Ok(plugin) => {
-                    if let Some(theme_id) = file_theme_id {
-                        report.preserved_theme_ids.insert(theme_id);
+                    if report.source_names.contains_key(&plugin.id)
+                        || report.preserved_theme_ids.contains(&plugin.id)
+                    {
+                        report.plugins.retain(|item| item.id != plugin.id);
+                        report.preserved_theme_ids.insert(plugin.id.clone());
+                        report.warnings.push(format!("Duplicate theme identity '{}' in {}; keeping the last valid installed version", plugin.id, path.display()));
+                    } else {
+                        report.rejected_files.remove(&source_name);
+                        report.source_names.insert(plugin.id.clone(), source_name);
+                        report.plugins.push(plugin);
                     }
-                    report.warnings.push(format!(
-                        "Rejected user theme {}: file name must be {}.json",
-                        path.display(),
-                        plugin.id
-                    ));
                 }
                 Err(error) => {
                     if let Some(theme_id) = file_theme_id {
@@ -406,12 +408,24 @@ fn write_theme_plugin_to_directory(
     let plugin = plugin.normalize()?;
     fs::create_dir_all(themes_dir)?;
     let encoded = serde_json::to_vec_pretty(&plugin)?;
-    atomic_write(&theme_path(themes_dir, &plugin.id), &encoded)
+    let paths = matching_theme_paths(themes_dir, &plugin.id)?;
+    if paths.len() > 1 {
+        return Err(CoreError::Conflict(format!(
+            "Multiple theme files declare '{}'; remove the duplicate declaration first",
+            plugin.name
+        )));
+    }
+    atomic_write(
+        &paths
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| theme_path(themes_dir, &plugin.id)),
+        &encoded,
+    )
 }
 
 fn remove_theme_plugin_from_directory(themes_dir: &Path, theme_id: &str) -> Result<(), CoreError> {
-    let path = theme_path(themes_dir, theme_id);
-    if path.exists() {
+    for path in matching_theme_paths(themes_dir, theme_id)? {
         fs::remove_file(&path).map_err(|error| {
             CoreError::Internal(format!(
                 "Failed to remove user theme file {}: {error}",
@@ -420,6 +434,33 @@ fn remove_theme_plugin_from_directory(themes_dir: &Path, theme_id: &str) -> Resu
         })?;
     }
     Ok(())
+}
+
+fn matching_theme_paths(themes_dir: &Path, theme_id: &str) -> Result<Vec<PathBuf>, CoreError> {
+    if !themes_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut matches = Vec::new();
+    for entry in fs::read_dir(themes_dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.len() > MAX_THEME_FILE_BYTES
+        {
+            continue;
+        }
+        if let Ok(plugin) = serde_json::from_slice::<ThemeResourcePlugin>(&fs::read(&path)?) {
+            if plugin.normalize().is_ok_and(|plugin| plugin.id == theme_id) {
+                matches.push(path);
+            }
+        }
+    }
+    matches.sort();
+    Ok(matches)
 }
 
 fn theme_path(themes_dir: &Path, theme_id: &str) -> PathBuf {
@@ -1037,16 +1078,30 @@ mod tests {
             },
         };
         layout.write_theme_plugin(plugin.clone()).unwrap();
-        assert_eq!(layout.load_theme_plugins().unwrap().plugins, vec![plugin]);
-        fs::copy(
+        assert_eq!(
+            layout.load_theme_plugins().unwrap().plugins,
+            vec![plugin.clone()]
+        );
+        fs::rename(
             layout.themes_dir().join("theme-user-test.json"),
-            layout.themes_dir().join("wrong-name.json"),
+            layout.themes_dir().join("我的主题.json"),
+        )
+        .unwrap();
+        let friendly = layout.load_theme_plugins().unwrap();
+        assert_eq!(friendly.plugins, vec![plugin.clone()]);
+        assert_eq!(friendly.source_names["theme-user-test"], "我的主题.json");
+        layout.write_theme_plugin(plugin.clone()).unwrap();
+        assert!(!layout.themes_dir().join("theme-user-test.json").exists());
+        fs::copy(
+            layout.themes_dir().join("我的主题.json"),
+            layout.themes_dir().join("duplicate.json"),
         )
         .unwrap();
         let mismatched = layout.load_theme_plugins().unwrap();
-        assert_eq!(mismatched.plugins.len(), 1);
+        assert_eq!(mismatched.plugins.len(), 0);
         assert_eq!(mismatched.warnings.len(), 1);
-        assert!(mismatched.preserved_theme_ids.contains("wrong-name"));
+        assert!(mismatched.preserved_theme_ids.contains("theme-user-test"));
+        assert!(layout.write_theme_plugin(plugin).is_err());
         layout.remove_theme_plugin("theme-user-test").unwrap();
         assert!(layout.load_theme_plugins().unwrap().plugins.is_empty());
     }
