@@ -86,6 +86,16 @@ fn check_cancelled(cancel: &CancellationToken) -> Result<(), CoreError> {
     }
 }
 
+fn hash_file_mode(hash: &mut blake3::Hasher, metadata: &std::fs::Metadata) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        hash.update(&metadata.permissions().mode().to_le_bytes());
+    }
+    #[cfg(not(unix))]
+    hash.update(&[u8::from(metadata.permissions().readonly())]);
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct VerificationSourceState {
@@ -169,13 +179,7 @@ fn capture_sync(
                 hash.update(std::fs::read_link(&path)?.to_string_lossy().as_bytes());
             }
             Ok(metadata) if metadata.is_file() => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    hash.update(&metadata.permissions().mode().to_le_bytes());
-                }
-                #[cfg(not(unix))]
-                hash.update(&[u8::from(metadata.permissions().readonly())]);
+                hash_file_mode(&mut hash, &metadata);
                 let (digest, stable) = scan.files.read(&path, &metadata, scan.mode, scan.cancel)?;
                 hash.update(digest.as_bytes());
                 pending |= !stable;
@@ -211,6 +215,38 @@ fn collect_root(
     }
     if let Some(head) = git(root, &["rev-parse", "HEAD"]) {
         hash.update(&head);
+        // Git may ignore permission changes (Windows readonly, non-executable
+        // Unix modes, or core.filemode=false). Inspect metadata for every tracked
+        // path without rereading clean tracked content. Recurse through gitlinks
+        // so the same guarantee applies to an otherwise clean submodule.
+        let tracked = git(root, &["ls-files", "-z", "--cached", "--", "."]).ok_or_else(|| {
+            CoreError::Internal("Cannot inspect tracked verification modes".into())
+        })?;
+        for entry in tracked
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty())
+        {
+            check_cancelled(cancel)?;
+            let relative = std::str::from_utf8(entry).map_err(|_| {
+                CoreError::InvalidInput("Verification source has a non-UTF8 path".into())
+            })?;
+            let path = root.join(relative);
+            hash.update(b"tracked-mode\0");
+            hash.update(&(entry.len() as u64).to_le_bytes());
+            hash.update(entry);
+            match std::fs::symlink_metadata(&path) {
+                Ok(metadata) => {
+                    hash_file_mode(hash, &metadata);
+                    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                        paths.insert(path);
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    hash.update(b"deleted");
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
         hash.update(
             &git(
                 root,
@@ -304,12 +340,12 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn permission_only_changes_invalidate_dirty_git_and_plain_workspace_receipts() {
-        for tracked in [false, true] {
+    async fn permission_only_changes_invalidate_clean_dirty_and_plain_workspace_receipts() {
+        for state in ["plain", "clean", "dirty"] {
             let root = tempfile::tempdir().unwrap();
             let file = root.path().join("script.sh");
             std::fs::write(&file, "echo initial").unwrap();
-            if tracked {
+            if state != "plain" {
                 for args in [
                     vec!["init"],
                     vec!["config", "user.name", "Nexa test"],
@@ -320,9 +356,9 @@ mod tests {
                     assert!(git(root.path(), &args).is_some());
                 }
             }
-            // Keep Git content dirty throughout, so inventory changes cannot
-            // accidentally make this mode-only regression pass.
-            std::fs::write(&file, "echo changed").unwrap();
+            if state == "dirty" {
+                std::fs::write(&file, "echo changed").unwrap();
+            }
             let db = Database::open_memory().unwrap();
             let workspace = Workspace {
                 roots: vec![root.path().to_string_lossy().into()],
@@ -338,21 +374,43 @@ mod tests {
                     CaptureMode::Incremental,
                 )
             };
-            let initial = snapshot().await.unwrap();
-            let permissions = std::fs::metadata(&file).unwrap().permissions();
-            let mut changed = permissions.clone();
             #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                changed.set_mode(permissions.mode() ^ 0o111);
-            }
+            let changes = [true, false];
             #[cfg(not(unix))]
-            changed.set_readonly(!permissions.readonly());
-            std::fs::set_permissions(&file, changed).unwrap();
-            let changed_state = snapshot().await;
-            std::fs::set_permissions(&file, permissions).unwrap();
-            assert_ne!(changed_state.unwrap(), initial, "tracked={tracked}");
-            assert_eq!(snapshot().await.unwrap(), initial);
+            let changes = [false];
+            for executable in changes {
+                let initial = snapshot().await.unwrap();
+                let bytes_before = scanner.files.lock().unwrap().bytes_read;
+                let permissions = std::fs::metadata(&file).unwrap().permissions();
+                let mut changed = permissions.clone();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    changed.set_mode(if executable {
+                        permissions.mode() ^ 0o111
+                    } else {
+                        permissions.mode() & !0o222
+                    });
+                }
+                #[cfg(not(unix))]
+                changed.set_readonly(!permissions.readonly());
+                std::fs::set_permissions(&file, changed).unwrap();
+                let changed_state = snapshot().await;
+                std::fs::set_permissions(&file, permissions).unwrap();
+                assert_ne!(
+                    changed_state.unwrap(),
+                    initial,
+                    "state={state}, executable={executable}"
+                );
+                assert_eq!(snapshot().await.unwrap(), initial);
+                if state == "clean" && !executable {
+                    assert_eq!(
+                        scanner.files.lock().unwrap().bytes_read,
+                        bytes_before,
+                        "clean Git content must remain unread for a mode-only change"
+                    );
+                }
+            }
         }
     }
 

@@ -16,7 +16,7 @@ struct Fingerprint {
     created: Option<SystemTime>,
     readonly: bool,
     #[cfg(unix)]
-    identity_and_change: (u64, u64, i64, i64),
+    identity_and_change: (u64, u64, i64, i64, u32),
 }
 
 impl Fingerprint {
@@ -34,6 +34,7 @@ impl Fingerprint {
                 metadata.ino(),
                 metadata.ctime(),
                 metadata.ctime_nsec(),
+                metadata.mode(),
             ),
         }
     }
