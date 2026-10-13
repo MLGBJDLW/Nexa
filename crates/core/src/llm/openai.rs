@@ -2860,6 +2860,15 @@ impl OpenAiProvider {
             .map(|e| e.error.message)
             .unwrap_or_else(|_| format!("HTTP {status}: {body}"));
 
+        if status == reqwest::StatusCode::UNAUTHORIZED && is_openrouter_config(&self.config) {
+            return Err(CoreError::Llm(format!(
+                "OpenRouter authentication rejected (HTTP 401): {message} \
+                 Check the API key in Settings > Providers. Use an active inference API key \
+                 from https://openrouter.ai/settings/keys; management/provisioning keys cannot \
+                 call models. If the inference key is valid, check OpenRouter service status."
+            )));
+        }
+
         if status.is_server_error() {
             Err(CoreError::ProviderUnavailable {
                 status: status.as_u16(),
@@ -5122,6 +5131,68 @@ data: [DONE]
             let _ = unexpected.shutdown().await;
         }
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn openrouter_authentication_failure_explains_key_type_without_replaying() {
+        for provider_type in [ProviderType::OpenRouter, ProviderType::Custom] {
+            for streaming in [false, true] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    read_json_request(&mut socket).await.unwrap();
+                    let body = r#"{"error":{"code":401,"message":"User not found."}}"#;
+                    socket.write_all(format!(
+                        "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    ).as_bytes()).await.unwrap();
+                    socket.shutdown().await.unwrap();
+                    assert!(
+                        tokio::time::timeout(Duration::from_millis(200), listener.accept())
+                            .await
+                            .is_err(),
+                        "authentication failures must not replay inference"
+                    );
+                });
+                let provider = OpenAiProvider::new(ProviderConfig {
+                    provider_type,
+                    base_url: Some(format!("http://{addr}/v1")),
+                    api_key: Some("test-secret".into()),
+                    org_id: None,
+                    timeout_secs: Some(2),
+                    streaming: Default::default(),
+                })
+                .unwrap();
+                let request = CompletionRequest {
+                    model: "test-model".into(),
+                    messages: vec![Message::text(Role::User, "hello")],
+                    provider_type: Some(provider_type),
+                    ..CompletionRequest::default()
+                };
+                let error = if streaming {
+                    match provider.stream_events(&request).await {
+                        Ok(_) => panic!("401 unexpectedly opened a stream"),
+                        Err(error) => error,
+                    }
+                } else {
+                    provider.complete(&request).await.unwrap_err()
+                };
+                let message = error.to_string();
+                assert!(matches!(error, CoreError::Llm(_)));
+                assert!(message.contains("User not found."));
+                assert!(!message.contains("test-secret"));
+                assert_eq!(
+                    message.contains("management/provisioning"),
+                    provider_type == ProviderType::OpenRouter
+                );
+                if provider_type == ProviderType::OpenRouter {
+                    assert!(message.contains("HTTP 401"));
+                    assert!(message.contains("https://openrouter.ai/settings/keys"));
+                }
+                server.await.unwrap();
+            }
+        }
     }
 
     async fn read_json_request(
