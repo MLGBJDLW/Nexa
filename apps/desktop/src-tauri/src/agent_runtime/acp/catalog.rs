@@ -117,16 +117,23 @@ impl Session {
         cwd: &str,
         servers: &[nexa_core::mcp::McpServer],
     ) -> Result<Self> {
-        let initialized = Self::initialize(wire).await?;
+        let initialized = Self::initialize_with_services(wire, true).await?;
         Self::create(wire, cwd, servers, initialized).await?
             .ok_or_else(|| error("The external agent requires authentication. Open its Settings profile and choose a sign-in method."))
     }
 
     pub(super) async fn initialize(wire: &mut Wire) -> Result<Initialization> {
+        Self::initialize_with_services(wire, false).await
+    }
+
+    async fn initialize_with_services(
+        wire: &mut Wire,
+        native_services: bool,
+    ) -> Result<Initialization> {
         let initialized = wire.request("initialize", json!({
             "protocolVersion":1,
             "clientInfo":{"name":"nexa","version":env!("CARGO_PKG_VERSION")},
-            "clientCapabilities":{"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true,"auth":{"terminal":true}}
+            "clientCapabilities":{"fs":{"readTextFile":native_services,"writeTextFile":native_services},"terminal":native_services,"auth":{"terminal":true}}
         })).await?;
         if initialized["protocolVersion"] != 1 {
             return Err(error(

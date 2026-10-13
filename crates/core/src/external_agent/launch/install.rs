@@ -113,6 +113,11 @@ fn extract_zip(archive: &Path, root: &Path) -> Result<(), CoreError> {
         if copied != expected_size {
             return Err(invalid("ACP archive file length mismatch"));
         }
+        #[cfg(unix)]
+        if let Some(mode) = entry.unix_mode() {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(mode & 0o777))?;
+        }
     }
     Ok(())
 }

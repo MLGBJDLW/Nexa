@@ -299,6 +299,21 @@ fn package_plan(
 
 /// Resolve installed commands and package runners. Preparation is separate so a
 /// read-only quota poll never silently downloads or starts a different adapter.
+fn binary_plan(
+    preset: &ExternalAgentPreset,
+    launch: &ExternalAgentLaunch,
+    executable: PathBuf,
+    prepared: bool,
+) -> LaunchPlan {
+    let binary = preset.platform_launch().expect("platform binary selected");
+    LaunchPlan {
+        executable,
+        args: launch.args.as_ref().unwrap_or(&binary.args).clone(),
+        env: process_environment(&preset.launch_env(launch)),
+        prepared,
+    }
+}
+
 pub fn installed(
     preset: &ExternalAgentPreset,
     launch: &ExternalAgentLaunch,
@@ -316,6 +331,14 @@ pub fn installed(
             env,
             prepared: false,
         }));
+    }
+    if let Some(binary) = preset.platform_launch() {
+        let command = binary.cmd.replace('\\', "/");
+        if let Some(executable) =
+            find_executable(command.rsplit('/').next().unwrap_or_default(), &env)
+        {
+            return Ok(Some(binary_plan(preset, launch, executable, false)));
+        }
     }
     if let Some(executable) = find_executable(&preset.launch_command(), &env) {
         return Ok(Some(native_npm_plan(
@@ -357,12 +380,7 @@ pub async fn prepare(
             invalid("The managed external-agent adapter directory is unavailable")
         })?;
         let executable = install::binary(binary, cache_root).await?;
-        return Ok(LaunchPlan {
-            executable,
-            args: preset.launch_args(launch).to_vec(),
-            env: process_environment(&preset.launch_env(launch)),
-            prepared: true,
-        });
+        return Ok(binary_plan(preset, launch, executable, true));
     }
     let hint = if preset
         .distribution
@@ -465,6 +483,44 @@ mod tests {
             let package = preset.distribution.as_ref().unwrap().npx.as_ref().unwrap();
             assert_eq!(&plan.args[..2], &["--yes", package.package.as_str()]);
             assert_eq!(plan.args[2..], package.args);
+        }
+    }
+
+    #[test]
+    fn native_distribution_uses_its_own_arguments_instead_of_npx_argv() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut launch = ExternalAgentLaunch {
+            working_directory: dir.path().to_string_lossy().into_owned(),
+            env: BTreeMap::from([("PATH".into(), dir.path().to_string_lossy().into_owned())]),
+            ..Default::default()
+        };
+        for provider in ["acp_kilo", "acp_sigit"] {
+            let preset = super::super::preset(provider).unwrap();
+            let Some(binary) = preset.platform_launch() else {
+                continue;
+            };
+            let command = binary.cmd.replace('\\', "/");
+            let name = command.rsplit('/').next().unwrap();
+            let path = dir.path().join(name);
+            std::fs::write(&path, b"fixture").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let installed = installed(preset, &launch).unwrap().unwrap();
+            assert_eq!(installed.executable, path);
+            assert_eq!(installed.args, binary.args);
+            assert_eq!(
+                binary_plan(preset, &launch, path.clone(), true).args,
+                binary.args
+            );
+            launch.args = Some(vec!["custom".into()]);
+            assert_eq!(
+                binary_plan(preset, &launch, path, true).args,
+                vec!["custom"]
+            );
+            launch.args = None;
         }
     }
 

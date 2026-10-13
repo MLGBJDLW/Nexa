@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, path::Path, sync::OnceLock};
 
 pub mod launch;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalAgentPreset {
     pub provider: String,
@@ -25,7 +25,7 @@ pub struct ExternalAgentPreset {
     pub distribution: Option<AgentDistribution>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct AgentDistribution {
     #[serde(default)]
     pub binary: BTreeMap<String, BinaryDistribution>,

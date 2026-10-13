@@ -6,10 +6,7 @@ use super::{
     transport::Wire,
     Catalog, Result,
 };
-use nexa_core::external_agent::{
-    launch::{self, LaunchPlan},
-    preset, ExternalAgentLaunch,
-};
+use nexa_core::external_agent::{launch::LaunchPlan, preset, ExternalAgentLaunch};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -107,7 +104,8 @@ pub(crate) async fn authenticate(
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let resolved = preferences.resolve(db, None, None)?;
     let mut plan =
-        launch::prepare(preset, &resolved, super::adapter_cache_root(db).as_deref()).await?;
+        super::transport::prepare_plan(preset, &resolved, super::adapter_cache_root(db).as_deref())
+            .await?;
     let mut wire = Wire::spawn(super::transport::command_from_plan(&plan, &resolved)?)?;
     let initialized = Session::initialize(&mut wire).await?;
     let method = initialized

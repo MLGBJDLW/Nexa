@@ -21,6 +21,57 @@ use tokio::{
 pub(super) const RPC_TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
+fn with_bundled_runtime(
+    preset: &ExternalAgentPreset,
+    launch: &ExternalAgentLaunch,
+    installed: Option<nexa_core::external_agent::launch::LaunchPlan>,
+    resolve_copilot: impl FnOnce() -> std::result::Result<std::path::PathBuf, String>,
+) -> Result<Option<nexa_core::external_agent::launch::LaunchPlan>> {
+    if preset.provider != "github_copilot_acp"
+        || launch.executable.is_some()
+        || launch
+            .env
+            .keys()
+            .any(|key| key.eq_ignore_ascii_case("PATH"))
+        || installed.as_ref().is_some_and(|plan| !plan.prepared)
+    {
+        return Ok(installed);
+    }
+    match resolve_copilot() {
+        Ok(executable) => {
+            let mut bundled = launch.clone();
+            bundled.executable = Some(executable.to_string_lossy().into_owned());
+            nexa_core::external_agent::launch::installed(preset, &bundled)
+        }
+        Err(reason) if reason == "copilot_runtime_not_found" => Ok(installed),
+        Err(reason) => Err(error(reason)),
+    }
+}
+
+pub(super) async fn prepare_plan(
+    preset: &ExternalAgentPreset,
+    launch: &ExternalAgentLaunch,
+    cache_root: Option<&Path>,
+) -> Result<nexa_core::external_agent::launch::LaunchPlan> {
+    let installed = nexa_core::external_agent::launch::installed(preset, launch)?;
+    let preset_owned = preset.clone();
+    let launch_owned = launch.clone();
+    let installed = tokio::task::spawn_blocking(move || {
+        with_bundled_runtime(
+            &preset_owned,
+            &launch_owned,
+            installed,
+            crate::commands::subscription_accounts::resolve_copilot_binary,
+        )
+    })
+    .await
+    .map_err(error)??;
+    if let Some(plan) = installed {
+        return Ok(plan);
+    }
+    nexa_core::external_agent::launch::prepare(preset, launch, cache_root).await
+}
+
 pub(super) struct Wire {
     child: Child,
     _tree: ProcessTree,
@@ -99,7 +150,7 @@ impl Wire {
         launch: &ExternalAgentLaunch,
         cache_root: Option<&Path>,
     ) -> Result<Self> {
-        let plan = nexa_core::external_agent::launch::prepare(preset, launch, cache_root).await?;
+        let plan = prepare_plan(preset, launch, cache_root).await?;
         Self::spawn(command_from_plan(&plan, launch)?)
     }
     pub(super) fn take_pending(&mut self) -> Result<VecDeque<Value>> {
@@ -369,4 +420,39 @@ pub(super) fn rpc_result(message: Value, method: &str) -> Result<Value> {
         .get("result")
         .cloned()
         .ok_or_else(|| error("ACP response has no result"))
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+    #[test]
+    fn bundled_copilot_fills_a_missing_default_runtime_without_overriding_preferences() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("copilot.exe");
+        std::fs::write(&executable, "fixture").unwrap();
+        let preset = nexa_core::external_agent::preset("github_copilot_acp").unwrap();
+        let mut launch = ExternalAgentLaunch {
+            working_directory: directory.path().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let plan = with_bundled_runtime(preset, &launch, None, || Ok(executable.clone()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.executable, executable);
+        assert_eq!(plan.args, vec!["--acp"]);
+        launch.env.insert("PATH".into(), String::new());
+        assert!(with_bundled_runtime(preset, &launch, None, || panic!(
+            "explicit PATH must be authoritative"
+        ))
+        .unwrap()
+        .is_none());
+        launch.env.clear();
+        launch.executable = Some(executable.to_string_lossy().into_owned());
+        let custom = nexa_core::external_agent::launch::installed(preset, &launch).unwrap();
+        assert!(with_bundled_runtime(preset, &launch, custom, || panic!(
+            "explicit executable must be authoritative"
+        ))
+        .unwrap()
+        .is_some());
+    }
 }

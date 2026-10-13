@@ -17,6 +17,12 @@ fn wire(mode: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn discovery_does_not_advertise_unavailable_file_or_terminal_services() {
+    let mut wire = wire("discovery");
+    Session::initialize(&mut wire).await.unwrap();
+}
+
+#[tokio::test]
 async fn setup_exposes_native_authentication_without_reporting_a_connected_session() {
     let mut wire = wire("auth_methods");
     let initialized = Session::initialize(&mut wire).await.unwrap();

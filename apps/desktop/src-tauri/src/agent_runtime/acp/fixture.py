@@ -41,8 +41,11 @@ for line in sys.stdin:
         with open(sys.argv[2], "a", encoding="utf-8") as log:
             log.write(json.dumps(message, ensure_ascii=False) + "\n")
     if method == "initialize":
-        assert message["params"]["clientCapabilities"]["terminal"] is True
-        assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": True, "writeTextFile": True}
+        native_services = message["params"]["clientCapabilities"]["terminal"]
+        assert isinstance(native_services, bool)
+        assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": native_services, "writeTextFile": native_services}
+        if mode == "discovery":
+            assert native_services is False
         reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}, "authMethods": [
             {"id":"oauth","name":"Browser sign-in"},
             {"id":"terminal","name":"Terminal sign-in","type":"terminal","args":["--terminal-login"],"env":{"ACP_LOGIN":"1"}}
