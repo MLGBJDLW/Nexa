@@ -2957,6 +2957,13 @@ for (const method of ['Personal account', 'Terminal sign-in']) {
     await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
     await expect(form.getByRole('status')).toContainText('Session created');
     await expect(form.getByTestId('external-agent-auth')).toHaveCount(0);
+    if (method === 'Personal account') {
+      await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
+      const unsaved = page.getByRole('dialog', { name: 'Discard unsaved changes?' });
+      await expect(unsaved).toBeVisible();
+      await unsaved.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(form).toBeVisible();
+    }
     await form.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.authenticationMethod ?? null))
       .toBe(method === 'Personal account' ? 'oauth' : null);

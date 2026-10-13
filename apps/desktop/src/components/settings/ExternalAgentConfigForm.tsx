@@ -129,10 +129,12 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
         login.dispose(); if (result.terminal) void closeTerminalSession(result.terminal.id).catch(() => {});
         return;
       }
-      if (result.catalog) applyCatalog(result.catalog, model, {
-        ...launch,
-        authenticationMethod: authMethods.find(method => method.id === methodId)?.kind === 'agent' ? methodId : launch.authenticationMethod,
-      });
+      if (result.catalog) {
+        const authenticationMethod = authMethods.find(method => method.id === methodId)?.kind === 'agent'
+          ? methodId : launch.authenticationMethod;
+        if (!result.catalog.requiresAuthentication && authenticationMethod !== launch.authenticationMethod) onDirtyChange(true);
+        applyCatalog(result.catalog, model, { ...launch, authenticationMethod });
+      }
       if (result.terminal) {
         login.id = result.terminal.id; setAuthTerminal(result.terminal);
         const early = earlyExits.get(login.id); if (early) handleExit(early);
