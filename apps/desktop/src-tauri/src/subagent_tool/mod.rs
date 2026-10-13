@@ -263,6 +263,20 @@ impl DelegationRuntime {
         }
     }
 
+    pub fn restore_accounting(&self, db: &Database) {
+        if let (Some(run), Some(conversation)) = (
+            self.parent_task_run_id.as_deref(),
+            self.parent_conversation_id.as_deref(),
+        ) {
+            if let Err(error) = self
+                .budget
+                .bind_resume_accounting(db.clone(), run, conversation)
+            {
+                self.budget.block_accounting(error.to_string());
+            }
+        }
+    }
+
     pub fn require_explicit_route(mut self) -> Self {
         self.requires_explicit_route = true;
         self
@@ -306,6 +320,65 @@ impl DelegationRuntime {
             .lock()
             .ok()
             .and_then(|sessions| sessions.get(task_id).cloned())
+    }
+
+    fn restore_session_snapshot(
+        &self,
+        db: &Database,
+        task_id: &str,
+    ) -> Option<SubagentSessionSnapshot> {
+        if let Some(snapshot) = self.get_session_snapshot(task_id) {
+            return Some(snapshot);
+        }
+        // Only receipts owned by this exact parent run may restore a session.
+        let parent = self.parent_task_run_id.as_deref()?;
+        let runs = db.list_agent_subtask_runs(parent).ok()?;
+        let run = runs
+            .iter()
+            .rev()
+            .filter_map(|row| row.output.as_ref()?.get("run"))
+            .find(|run| {
+                run.get("sessionId").and_then(serde_json::Value::as_str) == Some(task_id)
+            })?;
+        let snapshot = SubagentSessionSnapshot {
+            name: run
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            task_id: task_id.to_string(),
+            last_run_id: run.get("id")?.as_str()?.to_string(),
+            task: run.get("task")?.as_str()?.to_string(),
+            role_id: run
+                .get("roleId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            role_name: run
+                .get("roleName")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            result: run.get("result")?.as_str()?.to_string(),
+            finish_reason: run
+                .get("finishReason")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            usage_total: serde_json::from_value(run.get("usageTotal")?.clone()).ok()?,
+            tool_event_count: run
+                .get("toolEvents")
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, Vec::len),
+        };
+        self.save_session_snapshot(snapshot.clone());
+        Some(snapshot)
+    }
+
+    fn inherit_worker_name(&self, db: &Database, args: &mut SpawnSubagentArgs) {
+        if args.name.is_none() {
+            args.name = args
+                .task_id
+                .as_deref()
+                .and_then(|id| self.restore_session_snapshot(db, id))
+                .and_then(|session| session.name);
+        }
     }
 
     fn save_session_snapshot(&self, snapshot: SubagentSessionSnapshot) {
@@ -470,6 +543,8 @@ impl DelegationRuntime {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct SpawnSubagentArgs {
+    #[serde(default)]
+    name: Option<String>,
     task: String,
     #[serde(skip)]
     stage_handoff: WorkflowStageHandoff,
@@ -509,6 +584,8 @@ struct SpawnSubagentArgs {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct BatchSubagentTaskArgs {
+    #[serde(default)]
+    name: Option<String>,
     #[serde(flatten)]
     route: SubagentRouteArgs,
     #[serde(default)]
@@ -732,6 +809,7 @@ struct AppliedSkillRef {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubagentSessionSnapshot {
+    name: Option<String>,
     task_id: String,
     last_run_id: String,
     task: String,
@@ -746,6 +824,8 @@ struct SubagentSessionSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubagentRunArtifact {
+    verification_source: Option<nexa_core::workflow_verification::VerificationSourceState>,
+    name: Option<String>,
     id: String,
     session_id: String,
     resumed_from_task_id: Option<String>,
@@ -817,6 +897,7 @@ fn subtask_input_payload(
         "workerId": worker_id,
         "taskId": &args.task_id,
         "task": &args.task,
+        "name": &args.name,
         "roleId": role_profile.map(|profile| profile.id),
         "roleName": role_profile.map(|profile| profile.label),
         "role": &args.role,
@@ -1090,6 +1171,8 @@ impl Drop for SubtaskRecorder {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct JudgeDecisionArtifact {
+    verdict: String,
+    review_source: Option<nexa_core::workflow_verification::VerificationSourceState>,
     kind: &'static str,
     task: Option<String>,
     rubric: Option<Vec<String>>,

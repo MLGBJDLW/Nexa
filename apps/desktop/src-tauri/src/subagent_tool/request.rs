@@ -180,6 +180,16 @@ pub(super) fn normalize_spawn_args(
             "spawn_subagent requires a non-empty task".into(),
         ));
     }
+    args.name = trim_optional(args.name);
+    if args
+        .name
+        .as_ref()
+        .is_some_and(|name| name.chars().count() > 80 || name.chars().any(char::is_control))
+    {
+        return Err(CoreError::InvalidInput(
+            "Subagent name must be plain text of at most 80 characters".into(),
+        ));
+    }
     args.role_id = trim_optional(args.role_id).map(|role_id| normalize_role_id(&role_id));
     resolve_role_profile(args.role_id.as_deref(), args.role.as_deref())?;
     args.role = trim_optional(args.role);
@@ -211,6 +221,7 @@ pub(super) fn normalize_batch_task_args(
 ) -> Result<(Option<String>, SpawnSubagentArgs), CoreError> {
     let worker_id = trim_optional(task.id);
     let args = normalize_spawn_args(SpawnSubagentArgs {
+        name: task.name,
         stage_handoff: WorkflowStageHandoff {
             depends_on: task.depends_on,
             ..Default::default()

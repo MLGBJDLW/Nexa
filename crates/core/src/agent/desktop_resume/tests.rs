@@ -530,3 +530,99 @@ fn resume_preserves_original_close_contract_instead_of_prompt_derived_permission
             .desktop_terminal_closure_evidence
     );
 }
+
+#[test]
+fn nexus_resume_keeps_successful_reconnaissance_and_recovers_late_owned_receipts() {
+    use crate::workflow_ir::{WorkflowDeliverable, WorkflowNodeStatus};
+    let (db, run, _, _) = fixture_for("Implement and verify a complex cross-module refactor");
+    let task = build_task_plan(TaskPlanningInput::for_route(
+        &run.title,
+        "CodebaseOperation",
+        false,
+        0,
+    ));
+    let mut saved = compile_workflow_ir(&task, &profile(), true).unwrap();
+    let ids = saved.ready_node_ids();
+    assert_eq!(ids.len(), 2);
+    saved.start_node(&ids[0]).unwrap();
+    saved
+        .complete_node(
+            &ids[0],
+            WorkflowDeliverable {
+                claims: vec!["Observed implementation".into()],
+                evidence: vec!["source.rs".into()],
+                files_touched: vec![],
+                tests: vec![],
+                uncertainties: vec![],
+            },
+        )
+        .unwrap();
+    saved.start_node(&ids[1]).unwrap();
+    let mut checkpoint = saved.task_plan_checkpoint(&task);
+    checkpoint["completedToolRounds"] = json!(1);
+    checkpoint["maxIterations"] = json!(2);
+    db.update_agent_task_run_progress(
+        &run.id,
+        Some("running"),
+        None,
+        None,
+        None,
+        Some(&checkpoint),
+        None,
+    )
+    .unwrap();
+    let row = db
+        .create_agent_subtask_run(
+            &run.id,
+            &ids[1],
+            "Research",
+            Some(&json!({"kind":"subagent_run","workerId":ids[1]})),
+            None,
+        )
+        .unwrap();
+    db.finish_agent_subtask_run(&row.id, "completed", Some(&json!({"run":{"id":ids[1],"isError":false,"result":"Late evidence retained","evidenceHandoff":[{"path":"late.rs"}]}})), None).unwrap();
+    let mut restored =
+        load_execution_resume_state(&db, Some(&run.conversation_id), Some(&run.turn_id))
+            .unwrap()
+            .unwrap();
+    assert_eq!(restored.workflow.id, saved.id);
+    assert_eq!(restored.completed_tool_rounds, 1);
+    assert_eq!(restored.max_iterations, Some(2));
+    assert_eq!(restored.plan.as_ref().unwrap().objective, task.objective);
+    reconcile_resumed_reconnaissance(&db, Some(&run.turn_id), &mut restored.workflow).unwrap();
+    assert!(restored
+        .workflow
+        .nodes
+        .iter()
+        .filter(|node| ids.contains(&node.id))
+        .all(|node| node.status == WorkflowNodeStatus::Succeeded && node.attempts == 1));
+    assert!(restored
+        .workflow
+        .reconnaissance_batch_arguments(&task.objective)
+        .is_none());
+}
+
+#[test]
+fn unresolved_resumed_reconnaissance_is_not_replayed_or_reported_as_success() {
+    use crate::workflow_ir::WorkflowNodeStatus;
+    let (db, run, _, _) = fixture_for("Implement and verify a complex cross-module refactor");
+    let task = build_task_plan(TaskPlanningInput::for_route(
+        &run.title,
+        "CodebaseOperation",
+        false,
+        0,
+    ));
+    let mut workflow = compile_workflow_ir(&task, &profile(), true).unwrap();
+    let ids = workflow.ready_node_ids();
+    workflow.start_node(&ids[0]).unwrap();
+    reconcile_resumed_reconnaissance(&db, Some(&run.turn_id), &mut workflow).unwrap();
+    let interrupted = workflow
+        .nodes
+        .iter()
+        .find(|node| node.id == ids[0])
+        .unwrap();
+    assert_eq!(interrupted.status, WorkflowNodeStatus::Failed);
+    assert_eq!(interrupted.attempts, 1);
+    assert!(!workflow.ready_node_ids().contains(&ids[0]));
+    assert!(workflow.ready_node_ids().contains(&ids[1]));
+}

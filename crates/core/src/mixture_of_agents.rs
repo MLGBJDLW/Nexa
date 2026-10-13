@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::join_all;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -145,10 +144,18 @@ pub struct MoaPreset {
     pub fanout: MoaFanoutCadence,
     #[serde(default)]
     pub reference_max_tokens: Option<u32>,
+    /// Liveness deadline for optional advice, separate from the acting model.
+    /// Null allows the configured advisor provider to own its timeout.
+    #[serde(default = "default_reference_timeout")]
+    pub reference_timeout_secs: Option<u64>,
     pub privacy_filter: MoaPrivacyFilter,
     pub failure_policy: MoaFailurePolicy,
     pub enabled: bool,
     pub budget_policy: MoaBudgetPolicy,
+}
+
+fn default_reference_timeout() -> Option<u64> {
+    Some(90)
 }
 
 impl MoaPreset {
@@ -211,6 +218,7 @@ impl MoaPreset {
             references,
             fanout,
             reference_max_tokens: None,
+            reference_timeout_secs: default_reference_timeout(),
             privacy_filter,
             failure_policy: MoaFailurePolicy::ContinueWithAvailable,
             enabled: true,
@@ -242,8 +250,20 @@ pub struct MoaProvider {
     advisors: Vec<MoaAdvisor>,
     call_index: AtomicU64,
     advisor_calls_reserved: AtomicU64,
-    latest_private_tail: RwLock<Option<String>>,
+    latest_advice: RwLock<Option<CachedAdvice>>,
     usage: RwLock<MoaUsageSnapshot>,
+}
+
+#[derive(Clone)]
+struct CachedAdvice {
+    owner: String,
+    fingerprint: String,
+    tail: Option<String>,
+}
+
+struct AdvisorRound {
+    tail: Option<String>,
+    usage: Usage,
 }
 
 impl MoaProvider {
@@ -262,19 +282,22 @@ impl MoaProvider {
                 "MoA requires at least one configured advisor.".to_string(),
             ));
         }
-        let cap = preset.budget_policy.max_parallel.max(1);
+        if preset.reference_timeout_secs == Some(0) {
+            return Err(CoreError::InvalidInput(
+                "MoA advisor timeout must be positive or null.".into(),
+            ));
+        }
         preset.references = advisors
             .iter()
-            .take(cap)
             .map(|advisor| advisor.slot.clone())
             .collect();
         Ok(Self {
             aggregator,
             preset,
-            advisors: advisors.into_iter().take(cap).collect(),
+            advisors,
             call_index: AtomicU64::new(0),
             advisor_calls_reserved: AtomicU64::new(0),
-            latest_private_tail: RwLock::new(None),
+            latest_advice: RwLock::new(None),
             usage: RwLock::new(MoaUsageSnapshot::default()),
         })
     }
@@ -301,7 +324,23 @@ impl MoaProvider {
     async fn aggregator_request(
         &self,
         request: &CompletionRequest,
-    ) -> Result<CompletionRequest, CoreError> {
+    ) -> Result<(CompletionRequest, Usage), CoreError> {
+        let view = deterministic_advisor_view(&request.messages, &self.preset.privacy_filter);
+        let fingerprint = blake3::hash(&serde_json::to_vec(&view)?).to_string();
+        let owner = blake3::hash(&serde_json::to_vec(&(
+            &request.routing_session_id,
+            request
+                .messages
+                .iter()
+                .rfind(|message| message.role == Role::User),
+        ))?)
+        .to_string();
+        let cached = self
+            .latest_advice
+            .read()
+            .await
+            .clone()
+            .filter(|advice| advice.owner == owner);
         let index = self.call_index.fetch_add(1, Ordering::Relaxed);
         let cadence_matches = match self.preset.fanout {
             MoaFanoutCadence::UserTurn => index == 0,
@@ -310,14 +349,33 @@ impl MoaProvider {
                 index.is_multiple_of(iterations.max(1) as u64)
             }
         };
-        let should_fanout = cadence_matches && self.reserve_advisor_calls();
-        let tail = if should_fanout {
-            self.run_advisors(request).await?
+        // Privacy-filtered identical views cannot produce new evidence. Reuse
+        // successful advice until the visible evidence changes, without adding
+        // an arbitrary cumulative execution ceiling.
+        let fresh = cached
+            .as_ref()
+            .is_some_and(|advice| advice.fingerprint == fingerprint && advice.tail.is_some());
+        let calls = if (cadence_matches || cached.is_none()) && !fresh {
+            self.reserve_advisor_calls()
         } else {
-            self.latest_private_tail.read().await.clone()
+            0
+        };
+        let round = if calls > 0 {
+            let round = self.run_advisors(request, view, calls).await?;
+            *self.latest_advice.write().await = Some(CachedAdvice {
+                owner,
+                fingerprint,
+                tail: round.tail.clone(),
+            });
+            round
+        } else {
+            AdvisorRound {
+                tail: cached.and_then(|advice| advice.tail),
+                usage: Usage::default(),
+            }
         };
         let mut aggregator_request = self.request_for_aggregator(request);
-        if let Some(tail) = tail {
+        if let Some(tail) = round.tail {
             aggregator_request
                 .messages
                 .push(Message::from(crate::llm::MessageData {
@@ -329,39 +387,50 @@ impl MoaProvider {
                     prompt_cache_hint: None,
                 }));
         }
-        Ok(aggregator_request)
+        Ok((aggregator_request, round.usage))
     }
 
-    fn reserve_advisor_calls(&self) -> bool {
+    fn reserve_advisor_calls(&self) -> usize {
         let requested = self.advisors.len() as u64;
         let Some(limit) = self.preset.budget_policy.max_advisor_calls_per_turn else {
-            return requested > 0;
+            return requested as usize;
         };
         let limit = limit as u64;
         let mut current = self.advisor_calls_reserved.load(Ordering::Relaxed);
         loop {
-            if requested == 0 || current.saturating_add(requested) > limit {
-                return false;
+            let reserved = requested.min(limit.saturating_sub(current));
+            if reserved == 0 {
+                return 0;
             }
             match self.advisor_calls_reserved.compare_exchange_weak(
                 current,
-                current + requested,
+                current + reserved,
                 Ordering::AcqRel,
                 Ordering::Relaxed,
             ) {
-                Ok(_) => return true,
+                Ok(_) => return reserved as usize,
                 Err(observed) => current = observed,
             }
         }
     }
 
-    async fn run_advisors(&self, request: &CompletionRequest) -> Result<Option<String>, CoreError> {
-        let advisor_view =
-            deterministic_advisor_view(&request.messages, &self.preset.privacy_filter);
-        let futures = self.advisors.iter().map(|advisor| {
-            let mut advisor_request = request.clone();
-            advisor_request.model = advisor.slot.model.clone();
-            advisor_request.messages = advisor_view.clone();
+    async fn run_advisors(
+        &self,
+        request: &CompletionRequest,
+        advisor_view: Vec<Message>,
+        calls: usize,
+    ) -> Result<AdvisorRound, CoreError> {
+        let futures: Vec<_> = self.advisors.iter().take(calls).enumerate().map(|(index, advisor): (usize, &MoaAdvisor)| {
+            let mut advisor_request = CompletionRequest {
+                model: advisor.slot.model.clone(),
+                messages: advisor_view.clone(),
+                provider_type: crate::provider_registry::provider_type_from_key(&advisor.slot.provider),
+                routing_session_id: request.routing_session_id.clone(),
+                parallel_tool_calls: false,
+                max_tokens: self.preset.reference_max_tokens,
+                reasoning_effort: advisor.slot.reasoning_effort.clone(),
+                ..Default::default()
+            };
             advisor_request.messages.insert(0, Message::from(crate::llm::MessageData {
                 role: Role::System,
                 parts: vec![ContentPart::Text {
@@ -375,26 +444,31 @@ impl MoaProvider {
                 reasoning_content: None,
                 prompt_cache_hint: None,
             }));
-            advisor_request.tools = None;
-            advisor_request.parallel_tool_calls = false;
             // Advisor slots can use a different endpoint/model. An omitted
             // override must remain provider-managed, not inherit a preset or
             // the aggregator's unrelated output ceiling.
-            advisor_request.max_tokens = self.preset.reference_max_tokens;
-            advisor_request.reasoning_effort = advisor.slot.reasoning_effort.clone();
             async move {
+                let result = if let Some(seconds) = self.preset.reference_timeout_secs {
+                    tokio::time::timeout(std::time::Duration::from_secs(seconds), advisor.provider.complete(&advisor_request)).await
+                        .unwrap_or_else(|_| Err(CoreError::Llm("MoA advisor response deadline exceeded".into())))
+                } else { advisor.provider.complete(&advisor_request).await };
                 (
+                    index,
                     advisor.slot.id.clone(),
                     advisor.slot.role.clone(),
-                    advisor.provider.complete(&advisor_request).await,
+                    result,
                 )
             }
-        });
-        let results = join_all(futures).await;
+        }).collect();
+        let mut results: Vec<_> = stream::iter(futures)
+            .buffer_unordered(self.preset.budget_policy.max_parallel.max(1))
+            .collect()
+            .await;
+        results.sort_by_key(|(index, ..)| *index);
         let mut suggestions = Vec::new();
         let mut advisor_usage = Usage::default();
         let mut failures = 0u64;
-        for (id, role, result) in results {
+        for (_, id, role, result) in results {
             match result {
                 Ok(response) => {
                     add_usage(&mut advisor_usage, &response.usage);
@@ -406,6 +480,8 @@ impl MoaProvider {
                     let content = filtered_content.trim();
                     if !content.is_empty() {
                         suggestions.push(format!("[{id} / {role}]\n{content}"));
+                    } else {
+                        failures += 1;
                     }
                 }
                 Err(_) => failures += 1,
@@ -414,9 +490,7 @@ impl MoaProvider {
         {
             let mut usage = self.usage.write().await;
             usage.fanout_rounds = usage.fanout_rounds.saturating_add(1);
-            usage.advisor_calls = usage
-                .advisor_calls
-                .saturating_add(self.advisors.len() as u64);
+            usage.advisor_calls = usage.advisor_calls.saturating_add(calls as u64);
             usage.advisor_failures = usage.advisor_failures.saturating_add(failures);
             add_usage(&mut usage.advisor_usage, &advisor_usage);
         }
@@ -434,8 +508,10 @@ impl MoaProvider {
                 suggestions.join("\n\n")
             )
         });
-        *self.latest_private_tail.write().await = tail.clone();
-        Ok(tail)
+        Ok(AdvisorRound {
+            tail,
+            usage: advisor_usage,
+        })
     }
 }
 
@@ -479,11 +555,9 @@ impl LlmProvider for MoaProvider {
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
-        let before = self.usage_snapshot().await.advisor_usage;
-        let aggregator_request = self.aggregator_request(request).await?;
-        let after = self.usage_snapshot().await.advisor_usage;
+        let (aggregator_request, advisor_usage) = self.aggregator_request(request).await?;
         let mut response = self.aggregator.complete(&aggregator_request).await?;
-        add_usage(&mut response.usage, &usage_delta(&before, &after));
+        add_usage(&mut response.usage, &advisor_usage);
         Ok(response)
     }
 
@@ -498,15 +572,14 @@ impl LlmProvider for MoaProvider {
         Ok(Box::pin(
             stream::once(async move {
                 let prepared = async {
-                    let before = self.usage_snapshot().await.advisor_usage;
-                    let aggregator_request = self.aggregator_request(&request).await?;
-                    let after = self.usage_snapshot().await.advisor_usage;
+                    let (aggregator_request, advisor_usage) =
+                        self.aggregator_request(&request).await?;
                     let provider_stream = self
                         .aggregator
                         .stream_events(&aggregator_request)
                         .await?
                         .fuse();
-                    Ok::<_, CoreError>((provider_stream, usage_delta(&before, &after)))
+                    Ok::<_, CoreError>((provider_stream, advisor_usage))
                 }
                 .await;
                 let events: BoxStream<'_, ProviderStreamEvent> = match prepared {
@@ -561,6 +634,7 @@ impl LlmProvider for MoaProvider {
             "aggregatorModel": self.preset.aggregator_model,
             "fanout": self.preset.fanout,
             "referenceMaxTokens": self.preset.reference_max_tokens,
+            "referenceTimeoutSecs": self.preset.reference_timeout_secs,
             "privacyFilter": self.preset.privacy_filter,
             "failurePolicy": self.preset.failure_policy,
             "budgetPolicy": self.preset.budget_policy,
@@ -649,29 +723,6 @@ fn add_optional(left: Option<u32>, right: Option<u32>) -> Option<u32> {
     }
 }
 
-fn usage_delta(before: &Usage, after: &Usage) -> Usage {
-    Usage {
-        prompt_tokens: after.prompt_tokens.saturating_sub(before.prompt_tokens),
-        completion_tokens: after
-            .completion_tokens
-            .saturating_sub(before.completion_tokens),
-        total_tokens: after.total_tokens.saturating_sub(before.total_tokens),
-        thinking_tokens: subtract_optional(after.thinking_tokens, before.thinking_tokens),
-        tool_prompt_tokens: subtract_optional(after.tool_prompt_tokens, before.tool_prompt_tokens),
-        cache_read_tokens: subtract_optional(after.cache_read_tokens, before.cache_read_tokens),
-        cache_miss_tokens: subtract_optional(after.cache_miss_tokens, before.cache_miss_tokens),
-        cache_creation_tokens: subtract_optional(
-            after.cache_creation_tokens,
-            before.cache_creation_tokens,
-        ),
-        provider_raw: after.provider_raw.clone(),
-    }
-}
-
-fn subtract_optional(after: Option<u32>, before: Option<u32>) -> Option<u32> {
-    after.map(|after| after.saturating_sub(before.unwrap_or_default()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -698,11 +749,142 @@ mod tests {
     struct HostedToolAggregator;
 
     struct SlowAdvisor(Arc<AtomicUsize>);
+    struct ConcurrentAdvisor(tokio::sync::Barrier);
     struct ActiveAdvisor(Arc<AtomicUsize>);
     impl Drop for ActiveAdvisor {
         fn drop(&mut self) {
             self.0.fetch_sub(1, Ordering::SeqCst);
         }
+    }
+
+    #[async_trait]
+    impl LlmProvider for ConcurrentAdvisor {
+        fn name(&self) -> &str {
+            "concurrent-advisor"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn complete(
+            &self,
+            request: &CompletionRequest,
+        ) -> Result<CompletionResponse, CoreError> {
+            self.0.wait().await;
+            provider("advisor", false).complete(request).await
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+            unreachable!()
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn parallel_cap_queues_all_advisors_with_their_own_request_dialect() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::new(RecordingAggregator {
+            requests: requests.clone(),
+        });
+        let mut preset = MoaPreset::builtin(MoaPresetId::DeepResearch, "anthropic", "actor");
+        preset.budget_policy.max_parallel = 1;
+        let advisors = preset
+            .references
+            .iter()
+            .map(|slot| {
+                let mut slot = slot.clone();
+                slot.provider = "google".into();
+                MoaAdvisor {
+                    slot,
+                    provider: recorder.clone(),
+                }
+            })
+            .collect();
+        let moa = MoaProvider::new(provider("aggregator", false), preset, advisors).unwrap();
+        let mut input = request();
+        input.provider_type = Some(ProviderType::Anthropic);
+        input.reasoning_enabled = Some(false);
+        input.thinking_budget = Some(8192);
+        input.temperature = Some(0.8);
+        input.stop = Some(vec!["actor-only".into()]);
+        moa.complete(&input).await.unwrap();
+        let captured = requests.lock().unwrap();
+        assert_eq!(
+            captured.len(),
+            4,
+            "parallelism is not an advisor-count limit"
+        );
+        for request in captured.iter() {
+            assert_eq!(request.provider_type, Some(ProviderType::Google));
+            assert!(request.thinking_budget.is_none() && request.reasoning_enabled.is_none());
+            assert!(request.temperature.is_none() && request.stop.is_none());
+            assert!(request.tools.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_calls_charge_only_their_own_advisor_receipts() {
+        let preset = MoaPreset::builtin(MoaPresetId::DeepResearch, "open_ai", "actor");
+        let advisors = vec![MoaAdvisor {
+            slot: preset.references[0].clone(),
+            provider: Arc::new(ConcurrentAdvisor(tokio::sync::Barrier::new(2))),
+        }];
+        let moa = MoaProvider::new(provider("aggregator", false), preset, advisors).unwrap();
+        let first = request();
+        let mut second = request();
+        second
+            .messages
+            .push(Message::text(Role::User, "Different task"));
+        let (left, right) = tokio::join!(moa.complete(&first), moa.complete(&second));
+        assert_eq!(left.unwrap().usage.total_tokens, 20);
+        assert_eq!(right.unwrap().usage.total_tokens, 20);
+        assert_eq!(moa.usage_snapshot().await.advisor_usage.total_tokens, 20);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_advisor_does_not_block_successful_advice_or_the_actor() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let preset = MoaPreset::builtin(MoaPresetId::FastReview, "open_ai", "actor");
+        let advisors = vec![
+            MoaAdvisor {
+                slot: preset.references[0].clone(),
+                provider: Arc::new(SlowAdvisor(active.clone())),
+            },
+            MoaAdvisor {
+                slot: preset.references[1].clone(),
+                provider: provider("fast", false),
+            },
+        ];
+        let moa = MoaProvider::new(provider("aggregator", false), preset, advisors).unwrap();
+        let start = tokio::time::Instant::now();
+        let result = moa.complete(&request()).await.unwrap();
+        assert_eq!(result.content, "aggregator");
+        assert_eq!(result.usage.total_tokens, 20);
+        assert_eq!(start.elapsed(), std::time::Duration::from_secs(90));
+        assert_eq!(moa.usage_snapshot().await.advisor_failures, 1);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn identical_private_views_reuse_advice_and_partial_budgets_still_run() {
+        let mut preset = MoaPreset::builtin(MoaPresetId::DeepResearch, "open_ai", "actor");
+        preset.budget_policy.max_advisor_calls_per_turn = Some(3);
+        let advisors = preset
+            .references
+            .iter()
+            .map(|slot| MoaAdvisor {
+                slot: slot.clone(),
+                provider: provider("advisor", false),
+            })
+            .collect();
+        let moa = MoaProvider::new(provider("aggregator", false), preset, advisors).unwrap();
+        let input = request();
+        assert_eq!(moa.complete(&input).await.unwrap().usage.total_tokens, 40);
+        assert_eq!(moa.complete(&input).await.unwrap().usage.total_tokens, 10);
+        assert_eq!(moa.usage_snapshot().await.advisor_calls, 3);
     }
 
     #[async_trait]
@@ -977,7 +1159,7 @@ mod tests {
             request.model = "moa/fast_review".into();
             request.provider_type = None;
             document::plan_budgets(&moa, &mut request, Some(128_000));
-            let physical = moa.aggregator_request(&request).await.unwrap();
+            let (physical, _) = moa.aggregator_request(&request).await.unwrap();
             let wire = document::project_request(
                 &physical,
                 ProviderType::OpenAi,
@@ -990,7 +1172,7 @@ mod tests {
                 "the official aggregator receives native documents; private endpoints extract"
             );
             document::plan_budgets(&moa, &mut request, Some(128));
-            let physical = moa.aggregator_request(&request).await.unwrap();
+            let (physical, _) = moa.aggregator_request(&request).await.unwrap();
             let wire = document::project_request(
                 &physical,
                 ProviderType::OpenAi,
@@ -1224,7 +1406,11 @@ mod tests {
             let moa = MoaProvider::new(provider("aggregator", false), preset, advisors).unwrap();
             let mut input = request();
             input.max_tokens = Some(512);
-            for _ in 0..8 {
+            for iteration in 0..8 {
+                input.messages.push(Message::text(
+                    Role::User,
+                    format!("New evidence {iteration}"),
+                ));
                 moa.complete(&input).await.unwrap();
             }
             let expected = if explicit_limit.is_some() { 4 } else { 32 };

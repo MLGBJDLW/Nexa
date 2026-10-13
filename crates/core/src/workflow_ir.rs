@@ -102,9 +102,29 @@ pub struct WorkflowDeliverable {
     pub uncertainties: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkflowNodeOrigin {
+    #[default]
+    TaskPlan,
+    RuntimeReconnaissance,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkflowNodeRequirement {
+    #[default]
+    Required,
+    Advisory,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowNode {
+    #[serde(default)]
+    pub origin: WorkflowNodeOrigin,
+    #[serde(default)]
+    pub requirement: WorkflowNodeRequirement,
     pub id: String,
     pub phase: String,
     pub title: String,
@@ -119,6 +139,16 @@ pub struct WorkflowNode {
     pub status: WorkflowNodeStatus,
     pub attempts: u8,
     pub deliverable: Option<WorkflowDeliverable>,
+}
+
+impl WorkflowNode {
+    fn dependency_settled(&self) -> bool {
+        self.status == WorkflowNodeStatus::Succeeded
+            || (self.origin == WorkflowNodeOrigin::RuntimeReconnaissance
+                && self.requirement == WorkflowNodeRequirement::Advisory
+                && self.isolation == WorkflowIsolation::SharedReadOnly
+                && self.status == WorkflowNodeStatus::Failed)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -161,6 +191,8 @@ pub struct DesktopObservationTarget {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowCompletionContract {
+    #[serde(default)]
+    pub controller_owned_review: bool,
     pub require_all_nodes_succeeded: bool,
     pub require_verification_gates: bool,
     pub require_evidence_ledger: bool,
@@ -188,6 +220,8 @@ pub struct ProjectVerificationSupport {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowIr {
+    #[serde(default)]
+    pub verification_source: Option<crate::workflow_verification::VerificationSourceState>,
     pub version: u8,
     pub id: String,
     pub route_kind: String,
@@ -203,6 +237,42 @@ pub struct WorkflowIr {
 }
 
 impl WorkflowIr {
+    /// A receipt is valid only while the host-observed source state is stable.
+    pub fn reconcile_verification_source(
+        &mut self,
+        state: crate::workflow_verification::VerificationSourceState,
+    ) -> bool {
+        let changed = self
+            .verification_source
+            .as_ref()
+            .is_some_and(|previous| previous != &state);
+        if changed || state.pending {
+            for gate in &mut self.verification_gates {
+                if gate.required
+                    && matches!(
+                        gate.kind,
+                        VerificationGateKind::Tests
+                            | VerificationGateKind::Lint
+                            | VerificationGateKind::Typecheck
+                            | VerificationGateKind::Build
+                            | VerificationGateKind::IndependentReview
+                            | VerificationGateKind::WriteIsolation
+                            | VerificationGateKind::BrowserVisualObservation
+                            | VerificationGateKind::BrowserSessionObservation
+                    )
+                {
+                    gate.passed = None;
+                    gate.detail = Some("Source files changed or have unsettled effects; obtain fresh verification for the current state.".into());
+                }
+            }
+        }
+        let stable = !changed && !state.pending;
+        self.verification_source = Some(state);
+        if !stable {
+            self.refresh_checkpoint();
+        }
+        stable
+    }
     pub(crate) fn desktop_evidence_pending(&self) -> bool {
         !self.checkpoint.desktop_observation_targets.is_empty()
             || self.verification_gates.iter().any(|gate| {
@@ -289,6 +359,19 @@ impl WorkflowIr {
             return Err("Workflow IR node identifiers must be unique.".to_string());
         }
         for node in &self.nodes {
+            if node.requirement == WorkflowNodeRequirement::Advisory
+                && (node.origin != WorkflowNodeOrigin::RuntimeReconnaissance
+                    || node.isolation != WorkflowIsolation::SharedReadOnly
+                    || !node.write_scope.is_empty()
+                    || node
+                        .allowed_tools
+                        .iter()
+                        .any(|tool| tool_may_mutate_workspace(tool)))
+            {
+                return Err(
+                    "Only controller-owned read-only reconnaissance can be advisory".into(),
+                );
+            }
             if node
                 .dependencies
                 .iter()
@@ -344,7 +427,7 @@ impl WorkflowIr {
         let succeeded = self
             .nodes
             .iter()
-            .filter(|node| node.status == WorkflowNodeStatus::Succeeded)
+            .filter(|node| node.dependency_settled())
             .map(|node| node.id.as_str())
             .collect::<HashSet<_>>();
         self.nodes
@@ -803,12 +886,27 @@ impl WorkflowIr {
         }
 
         if tool_name == "judge_subagent_results"
-            && artifacts
-                .and_then(|value| value.get("kind"))
-                .and_then(serde_json::Value::as_str)
-                == Some("subagent_judgement")
+            && !self.completion_contract.controller_owned_review
         {
-            self.record_gate("independent-review", true, content);
+            let receipt = artifacts
+                .filter(|value| {
+                    value.get("kind").and_then(serde_json::Value::as_str)
+                        == Some("subagent_judgement")
+                        && value.get("verdict").and_then(serde_json::Value::as_str)
+                            == Some("accepted")
+                })
+                .and_then(|value| value.get("reviewSource"))
+                .and_then(|value| {
+                    serde_json::from_value::<crate::workflow_verification::VerificationSourceState>(
+                        value.clone(),
+                    )
+                    .ok()
+                });
+            if receipt.as_ref().is_some_and(|source| {
+                !source.pending && self.verification_source.as_ref() == Some(source)
+            }) {
+                self.record_gate("independent-review", true, content);
+            }
         }
         self.refresh_checkpoint();
     }
@@ -889,7 +987,7 @@ impl WorkflowIr {
         let mut blockers = if self.completion_contract.require_all_nodes_succeeded {
             self.nodes
                 .iter()
-                .filter(|node| node.status != WorkflowNodeStatus::Succeeded)
+                .filter(|node| !node.dependency_settled())
                 .map(|node| format!("node:{}:{:?}", node.id, node.status))
                 .collect::<Vec<_>>()
         } else {
@@ -1137,10 +1235,7 @@ impl WorkflowIr {
 
     pub fn completion_allowed(&self) -> bool {
         let nodes_pass = !self.completion_contract.require_all_nodes_succeeded
-            || self
-                .nodes
-                .iter()
-                .all(|node| node.status == WorkflowNodeStatus::Succeeded);
+            || self.nodes.iter().all(WorkflowNode::dependency_settled);
         let gates_pass = self
             .verification_gates
             .iter()
@@ -1253,6 +1348,7 @@ impl WorkflowIr {
     /// controller-owned independent patch review authoritative even when the
     /// planner underpredicts mutation.
     pub fn configure_for_scheduled_isolated_patch(&mut self) {
+        self.completion_contract.controller_owned_review = true;
         let removed_reconnaissance = self
             .nodes
             .iter()
@@ -1293,10 +1389,7 @@ impl WorkflowIr {
     /// review that ran too early.
     pub fn ready_for_runtime_independent_review(&self) -> bool {
         let nodes_pass = !self.completion_contract.require_all_nodes_succeeded
-            || self
-                .nodes
-                .iter()
-                .all(|node| node.status == WorkflowNodeStatus::Succeeded);
+            || self.nodes.iter().all(WorkflowNode::dependency_settled);
         let prerequisite_gates_pass = self
             .verification_gates
             .iter()
@@ -1342,6 +1435,7 @@ impl WorkflowIr {
         }
         self.verification_gates.clear();
         self.completion_contract = WorkflowCompletionContract {
+            controller_owned_review: false,
             require_all_nodes_succeeded: false,
             require_verification_gates: false,
             require_evidence_ledger: false,
@@ -1367,6 +1461,9 @@ impl WorkflowIr {
             let Some(supported) = supported else {
                 continue;
             };
+            if gate.required == supported && gate.passed == Some(true) {
+                continue;
+            }
             gate.required = supported;
             gate.passed = (!supported).then_some(true);
             gate.detail = Some(if supported {
@@ -1382,10 +1479,7 @@ impl WorkflowIr {
 
     pub fn ready_to_promote_isolated_writes(&self) -> bool {
         let nodes_pass = !self.completion_contract.require_all_nodes_succeeded
-            || self
-                .nodes
-                .iter()
-                .all(|node| node.status == WorkflowNodeStatus::Succeeded);
+            || self.nodes.iter().all(WorkflowNode::dependency_settled);
         let other_gates_pass = self
             .verification_gates
             .iter()
@@ -1420,7 +1514,7 @@ impl WorkflowIr {
         )
     }
 
-    fn refresh_checkpoint(&mut self) {
+    pub(crate) fn refresh_checkpoint(&mut self) {
         self.checkpoint.revision = self.checkpoint.revision.saturating_add(1);
         self.checkpoint.completed_node_ids = self
             .nodes
@@ -2143,6 +2237,8 @@ pub fn compile_workflow_ir(
             ),
         ] {
             nodes.push(WorkflowNode {
+                origin: WorkflowNodeOrigin::RuntimeReconnaissance,
+                requirement: WorkflowNodeRequirement::Advisory,
                 id: id.to_string(),
                 phase: "reconnaissance".to_string(),
                 title: title.to_string(),
@@ -2200,6 +2296,8 @@ pub fn compile_workflow_ir(
             .iter()
             .any(|tool| tool_may_mutate_workspace(tool));
         nodes.push(WorkflowNode {
+            origin: WorkflowNodeOrigin::TaskPlan,
+            requirement: WorkflowNodeRequirement::Required,
             id: step.id.clone(),
             phase: if is_last {
                 "synthesis".to_string()
@@ -2372,6 +2470,7 @@ pub fn compile_workflow_ir(
     }
 
     let mut workflow = WorkflowIr {
+        verification_source: None,
         version: WORKFLOW_IR_VERSION,
         id: uuid::Uuid::new_v4().to_string(),
         route_kind: plan.route_kind.clone(),
@@ -2393,6 +2492,7 @@ pub fn compile_workflow_ir(
             desktop_observation_targets: Vec::new(),
         },
         completion_contract: WorkflowCompletionContract {
+            controller_owned_review: false,
             // Balanced is the default interactive profile. Its task plan is
             // an observable controller projection, not a mandatory checklist
             // that can reject an otherwise valid answer or coerce update_plan
@@ -2827,6 +2927,8 @@ mod tests {
             );
         }
         workflow.record_runtime_write_isolation(true, "controller promoted isolated patch");
+        workflow
+            .record_runtime_independent_review(true, "controller reviewed the same source state");
         assert!(workflow
             .verification_gates
             .iter()
@@ -4536,6 +4638,119 @@ mod tests {
                 .unwrap()
                 .status,
             PlanStepStatus::Completed
+        );
+    }
+
+    #[test]
+    fn exhausted_advisory_reconnaissance_releases_parent_but_not_required_review() {
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        let ids = workflow.ready_node_ids();
+        for id in &ids {
+            loop {
+                workflow.start_node(id).unwrap();
+                if !workflow.fail_node(id, "Provider unavailable").unwrap() {
+                    break;
+                }
+            }
+        }
+        assert!(!workflow.ready_node_ids().is_empty());
+        assert!(workflow
+            .nodes
+            .iter()
+            .filter(|node| ids.contains(&node.id))
+            .all(|node| node.status == WorkflowNodeStatus::Failed
+                && node
+                    .deliverable
+                    .as_ref()
+                    .is_some_and(|value| !value.uncertainties.is_empty())));
+        for node in workflow
+            .nodes
+            .iter_mut()
+            .filter(|node| !ids.contains(&node.id))
+        {
+            node.status = WorkflowNodeStatus::Succeeded;
+        }
+        for gate in &mut workflow.verification_gates {
+            gate.passed = Some(true);
+        }
+        workflow.completion_contract.require_evidence_ledger = false;
+        assert!(workflow.completion_allowed());
+        workflow.record_runtime_independent_review(false, "Review is still required");
+        assert!(!workflow.completion_allowed());
+    }
+
+    #[test]
+    fn source_changes_invalidate_checks_and_generic_rankings_never_pass_review() {
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        let source = crate::workflow_verification::VerificationSourceState {
+            digest: "source-a".into(),
+            pending: false,
+        };
+        assert!(workflow.reconcile_verification_source(source.clone()));
+        for gate in &mut workflow.verification_gates {
+            gate.passed = Some(true);
+        }
+        assert!(workflow.reconcile_verification_source(source.clone()));
+        assert!(workflow
+            .verification_gates
+            .iter()
+            .all(|gate| gate.passed == Some(true)));
+        assert!(!workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "source-b".into(),
+                pending: false
+            }
+        ));
+        assert!(workflow
+            .verification_gates
+            .iter()
+            .filter(|gate| matches!(
+                gate.kind,
+                VerificationGateKind::Tests | VerificationGateKind::IndependentReview
+            ))
+            .all(|gate| gate.passed.is_none()));
+        workflow.observe_tool_result("judge", "judge_subagent_results", false, Some(&serde_json::json!({"kind":"subagent_judgement", "verdict":"accepted", "reviewSource":source})), "Stale review");
+        assert!(workflow
+            .verification_gates
+            .iter()
+            .find(|gate| gate.kind == VerificationGateKind::IndependentReview)
+            .unwrap()
+            .passed
+            .is_none());
+        let receipt = serde_json::json!({"kind":"subagent_judgement", "verdict":"accepted", "reviewSource":workflow.verification_source});
+        workflow.observe_tool_result(
+            "judge",
+            "judge_subagent_results",
+            false,
+            Some(&receipt),
+            "Owned review",
+        );
+        assert_eq!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::IndependentReview)
+                .unwrap()
+                .passed,
+            Some(true)
+        );
+        workflow.configure_for_scheduled_isolated_patch();
+        workflow.record_runtime_independent_review(false, "Controller review pending");
+        workflow.observe_tool_result(
+            "judge",
+            "judge_subagent_results",
+            false,
+            Some(&receipt),
+            "Generic ranking",
+        );
+        assert_eq!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::IndependentReview)
+                .unwrap()
+                .passed,
+            Some(false)
         );
     }
 }

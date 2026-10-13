@@ -269,6 +269,7 @@ function normalizeSubtaskRun(
     'completed';
   const status = subtaskStatus(rawStatus);
   const role =
+    asText(record.name) ?? asText(input?.name) ?? asText(run?.name) ??
     asText(record.role) ??
     asText(input?.roleName) ??
     asText(input?.role) ??
@@ -404,7 +405,7 @@ function subtaskArtifactFromTimelineEvent(
   return {
     id,
     label: compactTaskLabel(task ?? callLabel ?? timeline.label ?? event.label),
-    role: asText(payload?.role) ?? asText(nestedRun?.roleName) ?? asText(nestedRun?.role),
+    role: asText(payload?.name) ?? asText(nestedRun?.name) ?? asText(payload?.role) ?? asText(nestedRun?.roleName) ?? asText(nestedRun?.role),
     status,
     phase: asText(payload?.phase),
     task,
@@ -566,7 +567,7 @@ function lifecycleSubtasks(events: ActivityEvent[] | undefined): SubtaskRunArtif
       phase: detail?.status ?? status,
       task: detail?.task ?? result?.task ?? workers.get(agentId)?.task,
       label: detail?.task ?? result?.task ?? workers.get(agentId)?.label ?? agentId,
-      role: detail?.role ?? result?.roleName ?? result?.role,
+      role: detail?.name ?? result?.name ?? workers.get(agentId)?.role ?? detail?.role ?? result?.roleName ?? result?.role,
       errorMessage: detail?.errorMessage,
     }, true);
     if (worker) mergeSubtaskArtifacts(workers, [worker]);

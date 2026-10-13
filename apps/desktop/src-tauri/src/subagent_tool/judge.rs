@@ -1,4 +1,79 @@
 use super::*;
+
+fn validate_candidates(args: &JudgeSubagentResultsArgs) -> Result<usize, CoreError> {
+    let mode = args.decision_mode.as_deref().unwrap_or("single_best");
+    let count = args.required_winner_count.unwrap_or(1) as usize;
+    let ids = args
+        .candidates
+        .iter()
+        .map(|candidate| candidate.id.trim())
+        .collect::<std::collections::HashSet<_>>();
+    if args.candidates.len() < 2
+        || ids.len() != args.candidates.len()
+        || ids.contains("")
+        || args.candidates.iter().any(|candidate| {
+            candidate.id != candidate.id.trim() || candidate.result.trim().is_empty()
+        })
+    {
+        return Err(CoreError::InvalidInput(
+            "Judgement requires at least two nonempty results with unique, nonempty candidate IDs"
+                .into(),
+        ));
+    }
+    if !matches!(mode, "single_best" | "top_k")
+        || count == 0
+        || count > args.candidates.len()
+        || (mode == "single_best" && count != 1)
+    {
+        return Err(CoreError::InvalidInput("Use single_best with one winner, or top_k with a positive count no greater than the candidate count".into()));
+    }
+    Ok(count)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ValidatedJudgement {
+    winner_ids: Vec<String>,
+    confidence: String,
+    summary: String,
+    rationale: String,
+    verdict: String,
+}
+
+fn parse_judgement(
+    raw: &str,
+    args: &JudgeSubagentResultsArgs,
+) -> Result<ValidatedJudgement, CoreError> {
+    let invalid = || {
+        CoreError::InvalidInput("Judge returned an invalid structured result; retry judgement with the same candidates and required JSON schema".into())
+    };
+    let judgement: ValidatedJudgement =
+        serde_json::from_str(extract_json_block(raw).ok_or_else(invalid)?)
+            .map_err(|_| invalid())?;
+    let required = validate_candidates(args)?;
+    let winners = judgement
+        .winner_ids
+        .iter()
+        .collect::<std::collections::HashSet<_>>();
+    if judgement.summary.trim().is_empty()
+        || judgement.rationale.trim().is_empty()
+        || !matches!(judgement.confidence.as_str(), "high" | "medium" | "low")
+        || !matches!(
+            judgement.verdict.as_str(),
+            "accepted" | "needs_changes" | "insufficient_evidence"
+        )
+        || winners.len() != judgement.winner_ids.len()
+        || judgement
+            .winner_ids
+            .iter()
+            .any(|id| !args.candidates.iter().any(|candidate| &candidate.id == id))
+        || (judgement.verdict == "accepted" && judgement.winner_ids.len() != required)
+        || (judgement.verdict != "accepted" && !judgement.winner_ids.is_empty())
+    {
+        return Err(invalid());
+    }
+    Ok(judgement)
+}
 pub(super) fn extract_json_block(raw: &str) -> Option<&str> {
     let trimmed = raw.trim();
     if trimmed.starts_with('{') && trimmed.ends_with('}') {
@@ -101,12 +176,12 @@ pub(super) fn build_judge_request(args: &JudgeSubagentResultsArgs) -> String {
             }
         }
     }
-    let required_winners = args.required_winner_count.unwrap_or(1).clamp(1, 4);
+    let required_winners = args.required_winner_count.unwrap_or(1);
     request.push_str(
-        "\nReturn ONLY JSON with this shape:\n{\"winnerIds\":[\"candidate-id\"],\"confidence\":\"high|medium|low\",\"summary\":\"short final recommendation\",\"rationale\":\"why these candidates won\"}\n",
+        "\nReturn ONLY JSON with this shape:\n{\"winnerIds\":[\"candidate-id\"],\"confidence\":\"high|medium|low\",\"verdict\":\"accepted|needs_changes|insufficient_evidence\",\"summary\":\"short final recommendation\",\"rationale\":\"evidence supporting the verdict\"}\n",
     );
     request.push_str(&format!(
-        "Select exactly {required_winners} winner id(s) unless the evidence clearly supports a tie."
+        "For accepted, select exactly {required_winners} distinct IDs from the supplied candidates. For needs_changes or insufficient_evidence, return an empty winnerIds list. A transport-successful response is not evidence that the work meets the rubric."
     ));
     request
 }
@@ -135,8 +210,9 @@ impl Tool for JudgeSubagentResultsTool {
             call_id,
             arguments,
             db,
-            source_scope: _source_scope,
+            source_scope,
             conversation_id,
+            turn_id,
             ..
         } = context;
         let mut args: JudgeSubagentResultsArgs = serde_json::from_str(arguments).map_err(|e| {
@@ -151,6 +227,18 @@ impl Tool for JudgeSubagentResultsTool {
         args.expected_output = trim_optional(args.expected_output);
         args.parallel_group = trim_optional(args.parallel_group);
         args.decision_mode = trim_optional(args.decision_mode);
+        if args.decision_mode.is_none() && args.required_winner_count.unwrap_or(1) > 1 {
+            args.decision_mode = Some("top_k".into());
+        }
+        validate_candidates(&args)?;
+        let workspace = self.runtime.get_tool_registry()?.workspace().cloned();
+        let source_before = nexa_core::workflow_verification::capture(
+            db,
+            conversation_id,
+            turn_id,
+            source_scope,
+            workspace.as_ref(),
+        )?;
         args.rubric = normalize_string_list(args.rubric.take(), 8);
         let provider = create_provider(self.runtime.provider_config.clone())
             .map_err(|e| CoreError::Llm(e.to_string()))?;
@@ -166,6 +254,7 @@ impl Tool for JudgeSubagentResultsTool {
             .saturating_add(estimate_tokens_for_model(&model, &user_prompt))
             .saturating_add(1_200);
         let subtask_input = serde_json::json!({
+            "delegationLimitsV2": self.runtime.budget.limits().await,
             "kind": "subagent_judgement",
             "callLabel": call_id,
             "task": &args.task,
@@ -450,32 +539,58 @@ impl Tool for JudgeSubagentResultsTool {
             warn!("Failed to persist judge usage: {error}");
         }
         let raw_response = response.content.trim().to_string();
-        let parsed = extract_json_block(&raw_response)
-            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
-            .unwrap_or_else(|| serde_json::json!({ "summary": raw_response }));
-        let winner_ids = parsed
-            .get("winnerIds")
-            .and_then(|value| value.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| item.as_str().map(str::to_string))
-                    .collect::<Vec<_>>()
-            })
+        let parsed = match parse_judgement(&raw_response, &args) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                subtask.finish("failed", Some(&serde_json::json!({"kind":"subagent_judgement_error", "usageTotal":response.usage})), Some(&error.to_string()), None);
+                return Err(error);
+            }
+        };
+        let summary = parsed.summary;
+        let source_after = nexa_core::workflow_verification::capture(
+            db,
+            conversation_id,
+            turn_id,
+            source_scope,
+            workspace.as_ref(),
+        )?;
+        let owned = self
+            .runtime
+            .parent_task_run_id
+            .as_deref()
+            .map(|id| db.list_agent_subtask_runs(id))
+            .transpose()?
             .unwrap_or_default();
-        let summary = parsed
-            .get("summary")
-            .and_then(|value| value.as_str())
-            .unwrap_or(raw_response.as_str())
-            .to_string();
-        let rationale = parsed
-            .get("rationale")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
-        let confidence = parsed
-            .get("confidence")
-            .and_then(|value| value.as_str())
-            .map(str::to_string);
+        let owned_candidates = args.candidates.iter().all(|candidate| {
+            owned.iter().any(|row| {
+                row.output
+                    .as_ref()
+                    .and_then(|output| output.get("run"))
+                    .is_some_and(|run| {
+                        run.get("id").and_then(serde_json::Value::as_str)
+                            == Some(candidate.id.as_str())
+                            && run.get("result").and_then(serde_json::Value::as_str)
+                                == Some(candidate.result.as_str())
+                            && run.get("isError").and_then(serde_json::Value::as_bool)
+                                == Some(false)
+                            && run
+                                .get("verificationSource")
+                                .and_then(|value| {
+                                    serde_json::from_value::<
+                                        nexa_core::workflow_verification::VerificationSourceState,
+                                    >(value.clone())
+                                    .ok()
+                                })
+                                .as_ref()
+                                == Some(&source_after)
+                    })
+            })
+        });
+        let review_source = (parsed.verdict == "accepted"
+            && owned_candidates
+            && source_before == source_after
+            && !source_after.pending)
+            .then_some(source_after);
         let budget = self.runtime.budget.snapshot().await;
         let artifact = JudgeDecisionArtifact {
             kind: "subagent_judgement",
@@ -486,10 +601,12 @@ impl Tool for JudgeSubagentResultsTool {
                 .unwrap_or_else(|| "single_best".to_string()),
             expected_output: args.expected_output,
             parallel_group: args.parallel_group,
-            winner_ids,
-            confidence,
+            winner_ids: parsed.winner_ids,
+            confidence: Some(parsed.confidence),
+            verdict: parsed.verdict,
+            review_source,
             summary: summary.clone(),
-            rationale,
+            rationale: Some(parsed.rationale),
             raw_response: raw_response.clone(),
             candidates: args.candidates,
             usage_total: response.usage,
@@ -512,5 +629,68 @@ impl Tool for JudgeSubagentResultsTool {
             is_error: false,
             artifacts: Some(artifact_value),
         })
+    }
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+    fn args() -> JudgeSubagentResultsArgs {
+        serde_json::from_value(serde_json::json!({"candidates":[{"id":"a","result":"First evidence"},{"id":"b","result":"Second evidence"}]})).unwrap()
+    }
+    fn accepted() -> serde_json::Value {
+        serde_json::json!({"winnerIds":["a"],"confidence":"high","verdict":"accepted","summary":"Candidate A meets the rubric", "rationale":"Concrete evidence supplied"})
+    }
+    #[test]
+    fn judge_rejects_empty_unstructured_and_invalid_selection() {
+        let args = args();
+        for value in ["", "Looks good", "{}", "{broken"] {
+            assert!(parse_judgement(value, &args).is_err());
+        }
+        for winners in [
+            serde_json::json!([]),
+            serde_json::json!(["a", "a"]),
+            serde_json::json!(["unknown"]),
+            serde_json::json!([7]),
+        ] {
+            let mut value = accepted();
+            value["winnerIds"] = winners;
+            assert!(parse_judgement(&value.to_string(), &args).is_err());
+        }
+        for (key, value) in [
+            ("summary", ""),
+            ("confidence", "certain"),
+            ("verdict", "probably"),
+        ] {
+            let mut result = accepted();
+            result[key] = serde_json::json!(value);
+            assert!(parse_judgement(&result.to_string(), &args).is_err());
+        }
+        assert!(parse_judgement(&accepted().to_string(), &args).is_ok());
+        let mut rejected = accepted();
+        rejected["winnerIds"] = serde_json::json!([]);
+        rejected["verdict"] = serde_json::json!("needs_changes");
+        assert_eq!(
+            parse_judgement(&rejected.to_string(), &args)
+                .unwrap()
+                .verdict,
+            "needs_changes"
+        );
+    }
+    #[test]
+    fn candidate_validation_precedes_any_billable_request() {
+        let mut value = args();
+        value.candidates[1].id = "a".into();
+        assert!(validate_candidates(&value).is_err());
+        value.candidates[1].id = "".into();
+        assert!(validate_candidates(&value).is_err());
+        let mut value = args();
+        value.required_winner_count = Some(3);
+        value.decision_mode = Some("top_k".into());
+        assert!(validate_candidates(&value).is_err());
+        value.required_winner_count = Some(2);
+        assert_eq!(validate_candidates(&value).unwrap(), 2);
+        value.decision_mode = Some("invented".into());
+        assert!(validate_candidates(&value).is_err());
     }
 }

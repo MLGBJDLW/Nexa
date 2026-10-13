@@ -177,6 +177,22 @@ pub(crate) fn record_ai_usage_on_connection(
 }
 
 impl Database {
+    /// Durable usage by owned subtask; invocation IDs are already deduplicated
+    /// by the canonical ledger. Actor usage is excluded from delegation spend.
+    pub fn delegated_usage_for_run(
+        &self,
+        run_id: &str,
+    ) -> Result<std::collections::BTreeMap<String, (u64, u64)>, CoreError> {
+        let connection = self.conn();
+        let mut query = connection.prepare("SELECT u.subtask_run_id, COALESCE(SUM(u.total_tokens),0), COALESCE(SUM(u.estimated_cost_micros),0) FROM ai_usage_records u JOIN agent_subtask_runs s ON s.id=u.subtask_run_id WHERE u.run_id=?1 AND s.parent_run_id=?1 GROUP BY u.subtask_run_id")?;
+        let rows = query.query_map([run_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get::<_, u64>(1)?, row.get::<_, u64>(2)?),
+            ))
+        })?;
+        rows.collect::<Result<_, _>>().map_err(CoreError::from)
+    }
     pub fn record_ai_usage(&self, input: &AiUsageRecordInput<'_>) -> Result<bool, CoreError> {
         let conn = self.conn();
         record_ai_usage_on_connection(&conn, input)

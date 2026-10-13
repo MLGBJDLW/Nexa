@@ -72,17 +72,37 @@ fn normalize_turn_attachments(
         .collect()
 }
 
+fn moa_candidate_configs(
+    mut configs: Vec<DbAgentConfig>,
+    aggregator: &DbAgentConfig,
+) -> Result<Vec<DbAgentConfig>, String> {
+    if nexa_core::external_agent::is_agent_runtime(&aggregator.provider) {
+        return Err(
+            "MoA requires an API acting model. Native external agents own their orchestration."
+                .into(),
+        );
+    }
+    configs.retain(|config| {
+        !nexa_core::external_agent::is_agent_runtime(&config.provider)
+            && config.id != aggregator.id
+            && !config.model.trim().is_empty()
+    });
+    // The effective acting route can be an unsaved per-turn override. Never
+    // reconstruct it from a stale profile that merely shares its id.
+    configs.push(aggregator.clone());
+    Ok(configs)
+}
+
 fn build_moa_provider(
     db: &Database,
     aggregator_config: &DbAgentConfig,
     aggregator: Box<dyn nexa_core::llm::LlmProvider>,
     preset_id: MoaPresetId,
 ) -> Result<Box<dyn nexa_core::llm::LlmProvider>, String> {
-    let mut candidates = db.list_agent_configs().map_err(|error| error.to_string())?;
-    candidates.sort_by_key(|config| config.id == aggregator_config.id);
-    if candidates.is_empty() {
-        candidates.push(aggregator_config.clone());
-    }
+    let candidates = moa_candidate_configs(
+        db.list_agent_configs().map_err(|error| error.to_string())?,
+        aggregator_config,
+    )?;
 
     let mut preset = MoaPreset::builtin(
         preset_id,

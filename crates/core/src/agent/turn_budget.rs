@@ -46,6 +46,109 @@ pub(super) struct TurnBudget {
 }
 
 impl TurnBudget {
+    pub(super) fn restore(&mut self, used: u32, prior_limit: Option<u32>) {
+        self.tool_rounds_used = self.tool_rounds_used.max(used);
+        if let Some(prior) = prior_limit.filter(|limit| *limit != u32::MAX) {
+            self.tool_round_limit = Some(
+                self.tool_round_limit
+                    .map_or(prior, |limit| limit.min(prior)),
+            );
+        }
+    }
+
+    pub(super) fn restore_receipts(
+        &mut self,
+        db: &crate::db::Database,
+        conversation: Option<&str>,
+        turn: Option<&str>,
+    ) -> Result<(), crate::error::CoreError> {
+        let (Some(conversation), Some(turn)) = (conversation, turn) else {
+            return Ok(());
+        };
+        let Some(run) = db.get_agent_task_run_by_turn(turn)? else {
+            return Ok(());
+        };
+        if run.conversation_id != conversation {
+            return Err(crate::error::CoreError::InvalidInput(
+                "Turn budget owner mismatch".into(),
+            ));
+        }
+        for event in db
+            .get_agent_task_run_events(&run.id)?
+            .into_iter()
+            .filter(|event| event.event_type == "tool_round_admitted")
+        {
+            let value = event.payload.ok_or_else(|| {
+                crate::error::CoreError::InvalidInput("Missing durable tool-round admission".into())
+            })?;
+            let count = value
+                .get("roundsCharged")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| {
+                    crate::error::CoreError::InvalidInput(
+                        "Invalid durable tool-round admission".into(),
+                    )
+                })?;
+            let limit = value
+                .get("maxIterations")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok());
+            self.restore(count, limit);
+        }
+        // Older hosts recorded logical rounds in the host-owned turn trace.
+        if let Some(trace) = db.get_conversation_turn(turn)?.trace {
+            self.restore_trace(&trace);
+        }
+        Ok(())
+    }
+
+    fn restore_trace(&mut self, trace: &serde_json::Value) {
+        for event in trace
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|item| item.get("kind").and_then(serde_json::Value::as_str) == Some("loop"))
+            .filter_map(|item| item.get("event"))
+        {
+            match event.get("kind").and_then(serde_json::Value::as_str) {
+                Some("toolFinished") => {
+                    if let Some(index) = event
+                        .get("iteration")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|value| u32::try_from(value).ok())
+                    {
+                        self.restore(index.saturating_add(1), None);
+                    }
+                }
+                Some("turnStarted") => self.restore(
+                    0,
+                    event
+                        .get("max_iterations")
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|value| u32::try_from(value).ok()),
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    pub(super) fn persist_admission(
+        &self,
+        db: &crate::db::Database,
+        turn: Option<&str>,
+    ) -> Result<(), crate::error::CoreError> {
+        let Some(run) = turn
+            .map(|turn| db.get_agent_task_run_by_turn(turn))
+            .transpose()?
+            .flatten()
+        else {
+            return Ok(());
+        };
+        db.record_agent_task_run_event(&run.id, "tool_round_admitted", "Tool round admitted", Some("running"), Some(&serde_json::json!({"roundsCharged":self.tool_rounds_used.saturating_add(1), "maxIterations":self.tool_round_limit})))?;
+        Ok(())
+    }
     pub(super) fn new(legacy_max_iterations: u32) -> Self {
         Self {
             tool_round_limit: (legacy_max_iterations != u32::MAX).then_some(legacy_max_iterations),
@@ -190,5 +293,27 @@ mod tests {
             budget.permit(TurnStepPurpose::Normal).unwrap().mode,
             TurnStepMode::FinalAnswerOnly
         );
+    }
+
+    #[test]
+    fn resumed_budget_preserves_spend_and_explicit_ceiling() {
+        let mut budget = TurnBudget::new(20);
+        budget.restore(1, Some(2));
+        assert_eq!(budget.remaining_tool_rounds(), Some(1));
+        budget.restore(0, Some(99));
+        assert_eq!(budget.remaining_tool_rounds(), Some(1));
+        budget.record_verified_tool_round();
+        assert!(!budget.can_dispatch_tool_round());
+        assert!(!budget
+            .permit(TurnStepPurpose::Normal)
+            .unwrap()
+            .allows_tools());
+    }
+
+    #[test]
+    fn untrusted_tool_artifacts_cannot_rewrite_resumed_budget() {
+        let mut budget = TurnBudget::new(20);
+        budget.restore_trace(&serde_json::json!({"items":[{"kind":"tool","toolCall":{"artifacts":{"kind":"turnStarted","max_iterations":0}}},{"kind":"loop","event":{"kind":"toolFinished","iteration":2}}]}));
+        assert_eq!(budget.remaining_tool_rounds(), Some(17));
     }
 }

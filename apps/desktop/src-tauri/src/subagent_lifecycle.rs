@@ -72,6 +72,7 @@ impl SubagentLifecycleEventKind {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubagentWorkerSnapshot {
+    pub name: Option<String>,
     pub agent_id: String,
     pub parent_call_id: String,
     pub task: String,
@@ -101,6 +102,7 @@ pub struct SubagentLifecycleWaitResult {
 }
 
 pub struct RegisterSubagentRequest {
+    pub name: Option<String>,
     pub agent_id: String,
     pub parent_call_id: String,
     pub task: String,
@@ -121,6 +123,7 @@ pub struct SubagentWorkerRegistration {
 }
 
 struct SubagentWorkerState {
+    name: Option<String>,
     agent_id: String,
     parent_call_id: String,
     task: String,
@@ -145,6 +148,7 @@ struct SubagentWorkerState {
 impl SubagentWorkerState {
     fn snapshot(&self) -> SubagentWorkerSnapshot {
         SubagentWorkerSnapshot {
+            name: self.name.clone(),
             agent_id: self.agent_id.clone(),
             parent_call_id: self.parent_call_id.clone(),
             task: self.task.clone(),
@@ -160,6 +164,7 @@ impl SubagentWorkerState {
 
     fn bridge(&self) -> SubagentEventBridge {
         SubagentEventBridge {
+            name: self.name.clone(),
             agent_id: self.agent_id.clone(),
             task: self.task.clone(),
             role_id: self.role_id.clone(),
@@ -219,6 +224,7 @@ impl SubagentLifecycleRuntime {
         let (steering_tx, steering_rx) = mpsc::unbounded_channel();
         let now = Utc::now().to_rfc3339();
         let state = SubagentWorkerState {
+            name: request.name,
             agent_id: agent_id.clone(),
             parent_call_id: request.parent_call_id,
             task: request.task,
@@ -569,6 +575,7 @@ impl SubagentLifecycleRuntime {
 
 #[derive(Clone)]
 pub struct SubagentEventBridge {
+    name: Option<String>,
     agent_id: String,
     task: String,
     role_id: Option<String>,
@@ -612,6 +619,7 @@ impl SubagentEventBridge {
             SubagentLifecycleEventKind::Spawned,
             serde_json::json!({
                 "task": self.task,
+                "name": self.name,
                 "roleId": self.role_id,
                 "role": self.role,
             }),
@@ -684,6 +692,7 @@ mod tests {
 
     fn request(runtime: ActivityRuntime) -> RegisterSubagentRequest {
         RegisterSubagentRequest {
+            name: None,
             agent_id: "agent-1".into(),
             parent_call_id: "call-1".into(),
             task: "check evidence".into(),

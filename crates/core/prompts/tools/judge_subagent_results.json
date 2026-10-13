@@ -1,6 +1,6 @@
 {
   "name": "judge_subagent_results",
-  "description": "Adjudicate or rank multiple delegated worker results using a structured rubric. Use this after parallel subagents return when you need a separate judging pass instead of asking the main worker to merge results implicitly.",
+  "description": "Adjudicate or rank multiple delegated worker results using a structured rubric. Use this after parallel subagents return when you need a separate judging pass instead of asking the main worker to merge results implicitly. Returns a validated accepted, needs_changes, or insufficient_evidence verdict. Only accepted results tied to owned worker receipts for the current source state can satisfy a Nexus independent-review gate.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -11,24 +11,63 @@
         "items": {
           "type": "object",
           "properties": {
-            "id": { "type": "string" },
-            "label": { "type": "string" },
-            "result": { "type": "string" },
-            "evidence_summary": { "type": "string" },
-            "concerns": { "type": "array", "items": { "type": "string" } }
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "result": {
+              "type": "string"
+            },
+            "evidence_summary": {
+              "type": "string"
+            },
+            "concerns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
-          "required": ["id", "result"],
+          "required": [
+            "id",
+            "result"
+          ],
           "additionalProperties": false
         }
       },
-      "task": { "type": "string" },
-      "rubric": { "type": "array", "items": { "type": "string" } },
-      "decision_mode": { "type": "string" },
-      "required_winner_count": { "type": "integer", "minimum": 1, "maximum": 4 },
-      "expected_output": { "type": "string" },
-      "parallel_group": { "type": "string" }
+      "task": {
+        "type": "string"
+      },
+      "rubric": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "decision_mode": {
+        "type": "string",
+        "enum": [
+          "single_best",
+          "top_k"
+        ],
+        "description": "single_best selects one candidate; top_k selects required_winner_count. Defaults to top_k when more than one winner is requested."
+      },
+      "required_winner_count": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "expected_output": {
+        "type": "string"
+      },
+      "parallel_group": {
+        "type": "string"
+      }
     },
-    "required": ["candidates"],
+    "required": [
+      "candidates"
+    ],
     "additionalProperties": false
   }
 }

@@ -17,7 +17,10 @@
             },
             "depends_on": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 },
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
               "description": "Prerequisite task IDs within this batch. This worker starts only after every prerequisite succeeds and receives their complete stored outputs as untrusted evidence. Cycles, unknown IDs, duplicate IDs and duplicate edges are rejected before launch."
             },
             "task_id": {
@@ -121,6 +124,10 @@
                 "ultra"
               ],
               "description": "Optional supported reasoning effort for this worker. Explicit selection takes precedence over automatic role policy."
+            },
+            "name": {
+              "type": "string",
+              "description": "Optional human-friendly display name chosen by the parent, e.g. Atlas or UI Research. Plain text, at most 80 characters; does not change identity, permissions, or role. On task_id resume, omission inherits the prior name."
             }
           },
           "required": [

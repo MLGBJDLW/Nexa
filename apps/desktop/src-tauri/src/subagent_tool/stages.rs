@@ -57,7 +57,7 @@ pub(super) async fn prepare_subagent_worker(
     let history_load_started = Instant::now();
     let previous_session = requested_task_id
         .as_deref()
-        .and_then(|task_id| runtime.get_session_snapshot(task_id));
+        .and_then(|task_id| runtime.restore_session_snapshot(db, task_id));
     let history_load_ms = instant_elapsed_ms(history_load_started);
     let context_build_started = Instant::now();
     let (mut config, provider_config) = resolve_subagent_route(runtime, db, &args.route)?;
@@ -579,6 +579,8 @@ pub(super) async fn admit_subagent_worker(
 }
 
 pub(super) struct SubagentSettlementInput {
+    pub(super) verification_source:
+        Option<nexa_core::workflow_verification::VerificationSourceState>,
     pub(super) worker_id: Option<String>,
     pub(super) call_label: String,
     pub(super) args: SpawnSubagentArgs,
@@ -786,6 +788,8 @@ pub(super) fn settle_subagent_artifact(
     };
     let args = input.args;
     let run = SubagentRunArtifact {
+        verification_source: input.verification_source,
+        name: args.name.clone(),
         id: input.worker_id.unwrap_or_else(|| input.call_label.clone()),
         session_id: input.session_id.clone(),
         resumed_from_task_id: input
@@ -835,6 +839,7 @@ pub(super) fn settle_subagent_artifact(
         effective_model_budgets: Some(input.effective_model_budgets),
     };
     runtime.save_session_snapshot(SubagentSessionSnapshot {
+        name: run.name.clone(),
         task_id: input.session_id,
         last_run_id: run.id.clone(),
         task: run.task.clone(),

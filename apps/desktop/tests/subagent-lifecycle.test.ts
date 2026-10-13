@@ -258,3 +258,13 @@ assert(
 );
 
 console.log('ok - subagent lifecycle projects incremental and terminal events');
+
+
+const namedWorkers = projectSubagentLifecycleRuns([
+  event(1, 'spawned', { task: 'Review files', name: '星河', roleId: 'verifier', role: 'Verifier' }, 'named-1'),
+  event(2, 'spawned', { task: 'Review sources', name: '星河', roleId: 'researcher', role: 'Researcher' }, 'named-2'),
+  event(3, 'failed', { status: 'failed', result: { id: 'named-1', task: 'Review files', result: 'Provider unavailable', isError: true } }, 'named-1'),
+]);
+assert(namedWorkers.length === 2, 'equal display names must not merge lifecycle identities');
+assert(namedWorkers.every(run => run.name === '星河'), 'display names survive both live and terminal receipt replay');
+assert(namedWorkers[0].id !== namedWorkers[1].id, 'worker controls continue to address stable IDs');

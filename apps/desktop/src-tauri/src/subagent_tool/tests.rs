@@ -125,6 +125,7 @@ fn global_lifecycle_does_not_keep_workers_after_their_parent_runtime_is_released
     let lifecycle = runtime.lifecycle.clone();
     let registration = runtime
         .register_worker(RegisterSubagentRequest {
+            name: None,
             agent_id: "retired-worker".into(),
             parent_call_id: "call".into(),
             task: "Inspect".into(),
@@ -633,6 +634,7 @@ fn observed_batch_run(id: &str) -> SubagentRunArtifact {
     failed_subagent_run_artifact(
         id.to_string(),
         SpawnSubagentArgs {
+            name: None,
             stage_handoff: Default::default(),
             task: format!("task-{id}"),
             task_id: None,
@@ -1159,6 +1161,7 @@ fn register_test_worker(
 ) -> crate::subagent_lifecycle::SubagentWorkerRegistration {
     runtime
         .register_worker(RegisterSubagentRequest {
+            name: None,
             agent_id: id.into(),
             parent_call_id: "parent-call".into(),
             task: "Inspect".into(),
@@ -1368,6 +1371,7 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
 #[test]
 fn test_normalize_spawn_args_preserves_explicit_timeout() {
     let args = normalize_spawn_args(SpawnSubagentArgs {
+        name: None,
         stage_handoff: Default::default(),
         task: "Investigate".into(),
         task_id: Some("  worker-1  ".into()),
@@ -1547,6 +1551,7 @@ async fn default_queue_waits_for_capacity_and_can_be_cancelled() {
 #[test]
 fn test_normalize_spawn_args_accepts_structured_role_id() {
     let args = normalize_spawn_args(SpawnSubagentArgs {
+        name: None,
         stage_handoff: Default::default(),
         task: "Check the draft".into(),
         task_id: None,
@@ -1586,6 +1591,7 @@ fn test_normalize_spawn_args_accepts_structured_role_id() {
 #[test]
 fn test_unknown_role_id_is_rejected() {
     let err = normalize_spawn_args(SpawnSubagentArgs {
+        name: None,
         stage_handoff: Default::default(),
         task: "Check the draft".into(),
         task_id: None,
@@ -1666,6 +1672,7 @@ fn test_explicit_source_scope_never_falls_back_to_parent_scope() {
 #[test]
 fn test_preflight_rejects_tools_outside_parent_capabilities() {
     let args = SpawnSubagentArgs {
+        name: None,
         stage_handoff: Default::default(),
         task: "Inspect the repository".into(),
         task_id: None,
@@ -1717,6 +1724,7 @@ fn test_preflight_rejects_tools_outside_parent_capabilities() {
 #[test]
 fn test_preflight_rejects_interactive_surface_tools_even_when_parent_has_them() {
     let args = SpawnSubagentArgs {
+        name: None,
         stage_handoff: Default::default(),
         task: "Click the visible button".into(),
         task_id: None,
@@ -1766,6 +1774,7 @@ fn test_preflight_rejects_interactive_surface_tools_even_when_parent_has_them() 
 #[test]
 fn test_preflight_classifies_invalid_inherited_history() {
     let args = SpawnSubagentArgs {
+        name: None,
         stage_handoff: Default::default(),
         task: "Inspect the repository".into(),
         task_id: None,
@@ -1816,6 +1825,7 @@ fn test_preflight_classifies_invalid_inherited_history() {
 fn test_runtime_saves_subagent_session_snapshot() {
     let runtime = test_runtime();
     runtime.save_session_snapshot(SubagentSessionSnapshot {
+        name: None,
         task_id: "worker-1".to_string(),
         last_run_id: "run-1".to_string(),
         task: "Investigate".to_string(),
@@ -2819,4 +2829,170 @@ fn test_batch_completion_policy_resolves_quorum_and_deadline() {
 
     let schema = spawn_subagent_batch_parameters_schema();
     assert_eq!(schema["properties"]["cancel_remaining"]["type"], "boolean");
+}
+
+#[test]
+fn parent_named_subagents_preserve_unicode_name_separately_from_role_and_identity() {
+    let args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({"task":"Review the patch","name":" 星河 · Review ","role_id":"verifier"})).unwrap();
+    let args = normalize_spawn_args(args).unwrap();
+    assert_eq!(args.name.as_deref(), Some("星河 · Review"));
+    let first = failed_subagent_run_artifact(
+        "id-one".into(),
+        args.clone(),
+        None,
+        &CoreError::Agent("offline".into()),
+    );
+    let second = failed_subagent_run_artifact(
+        "id-two".into(),
+        args,
+        None,
+        &CoreError::Agent("offline".into()),
+    );
+    assert_eq!(first.name, second.name);
+    assert_ne!(first.id, second.id);
+    assert_eq!(first.role_id.as_deref(), Some("verifier"));
+    let invalid: SpawnSubagentArgs =
+        serde_json::from_value(serde_json::json!({"task":"Review","name":"bad\nname"})).unwrap();
+    assert!(normalize_spawn_args(invalid).is_err());
+    let blank: SpawnSubagentArgs =
+        serde_json::from_value(serde_json::json!({"task":"Review","name":"  "})).unwrap();
+    assert!(normalize_spawn_args(blank).unwrap().name.is_none());
+}
+
+#[test]
+fn resuming_a_worker_inherits_its_name_unless_explicitly_renamed() {
+    let runtime = test_runtime();
+    let db = Database::open_memory().unwrap();
+    runtime.save_session_snapshot(SubagentSessionSnapshot {
+        name: Some("Atlas".into()),
+        task_id: "session".into(),
+        last_run_id: "one".into(),
+        task: "Investigate".into(),
+        role_id: None,
+        role_name: None,
+        result: "Evidence".into(),
+        finish_reason: None,
+        usage_total: Usage::default(),
+        tool_event_count: 0,
+    });
+    let mut args: SpawnSubagentArgs =
+        serde_json::from_value(serde_json::json!({"task":"Continue","task_id":"session"})).unwrap();
+    runtime.inherit_worker_name(&db, &mut args);
+    assert_eq!(args.name.as_deref(), Some("Atlas"));
+    args.name = Some("星河".into());
+    runtime.inherit_worker_name(&db, &mut args);
+    assert_eq!(args.name.as_deref(), Some("星河"));
+}
+
+#[tokio::test]
+async fn resumed_delegation_restores_owned_spend_once_and_inherits_durable_names() {
+    let db = Database::open_memory().unwrap();
+    let conversation = db
+        .create_conversation(&CreateConversationInput {
+            provider: "open_ai".into(),
+            model: "gpt-4.1".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap();
+    let user = ConversationMessage {
+        id: "resume-user".into(),
+        conversation_id: conversation.id.clone(),
+        role: Role::User,
+        content: "Investigate".into(),
+        tool_call_id: None,
+        tool_calls: vec![],
+        artifacts: None,
+        token_count: 0,
+        created_at: String::new(),
+        sort_order: 0,
+        thinking: None,
+        image_attachments: None,
+    };
+    db.add_message(&user).unwrap();
+    let turn = db
+        .create_conversation_turn(&conversation.id, &user.id, None)
+        .unwrap();
+    let parent = db
+        .create_agent_task_run(
+            &conversation.id,
+            &turn.id,
+            &user.id,
+            "Investigate",
+            None,
+            None,
+        )
+        .unwrap();
+    let input = serde_json::json!({"kind":"subagent_run", "delegationLimitsV2":{"maxCallsPerTurn":3, "totalActualTokensSoftLimit":200}});
+    let first = db
+        .create_agent_subtask_run(&parent.id, "first", "Research", Some(&input), Some(20))
+        .unwrap();
+    db.mark_agent_subtask_run_started(&first.id, "running")
+        .unwrap();
+    let mut result = successful_stage_result("first", "Owned evidence");
+    result.name = Some("星河".into());
+    result.usage_total.total_tokens = 40;
+    db.finish_agent_subtask_run(
+        &first.id,
+        "completed",
+        Some(&serde_json::json!({"run":result})),
+        None,
+    )
+    .unwrap();
+    let second = db
+        .create_agent_subtask_run(&parent.id, "second", "Research", Some(&input), Some(20))
+        .unwrap();
+    db.mark_agent_subtask_run_started(&second.id, "running")
+        .unwrap();
+    let mut runtime = test_runtime();
+    runtime.parent_task_run_id = Some(parent.id.clone());
+    runtime.parent_conversation_id = Some(conversation.id.clone());
+    runtime.restore_accounting(&db);
+    let initial = runtime.budget.snapshot().await;
+    assert_eq!(initial.calls_started, 2);
+    assert_eq!(initial.remaining_calls, Some(1));
+    assert_eq!(initial.tokens_spent, 40);
+    assert_eq!(initial.tokens_reserved, 20);
+    assert_eq!(
+        runtime
+            .restore_session_snapshot(&db, "first")
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("星河")
+    );
+    let mut late = successful_stage_result("second", "Late evidence");
+    late.usage_total.total_tokens = 60;
+    db.finish_agent_subtask_run(
+        &second.id,
+        "completed",
+        Some(&serde_json::json!({"run":late})),
+        None,
+    )
+    .unwrap();
+    assert_eq!(runtime.budget.snapshot().await.tokens_spent, 100);
+    assert_eq!(runtime.budget.snapshot().await.tokens_spent, 100);
+    assert_eq!(runtime.budget.snapshot().await.tokens_reserved, 0);
+    let mut last = runtime
+        .budget
+        .begin_call("third", 10, false, &runtime.cancel_token)
+        .await
+        .unwrap();
+    last.reservation.mark_started();
+    last.reservation.settle(
+        &Usage {
+            total_tokens: 10,
+            ..Default::default()
+        },
+        None,
+    );
+    drop(last);
+    assert_eq!(runtime.budget.snapshot().await.tokens_spent, 110);
+    assert!(runtime
+        .budget
+        .begin_call("fourth", 0, false, &runtime.cancel_token)
+        .await
+        .is_err());
 }

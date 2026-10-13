@@ -137,7 +137,7 @@ export function SubagentCard({
       : run.status === 'cancelled'
         ? t('chat.toolBriefCancelled')
         : t('chat.subagentInProgress');
-  const displayRole = run.roleName?.trim() || run.role?.trim() || t('chat.helperDefaultLabel');
+  const displayRole = run.name?.trim() || run.roleName?.trim() || run.role?.trim() || t('chat.helperDefaultLabel');
   const isRunning = run.status === 'running' && run.runtimeState === 'live';
   const cardState = isRunning ? 'running' : run.status === 'error' ? 'error' : 'done';
   const effectiveModel = run.effectiveModel?.trim() || run.preflight?.effectiveModel.trim() || null;

@@ -266,6 +266,7 @@ pub(super) fn expand_workflow_template_tasks(
                     .to_string(),
             );
             BatchSubagentTaskArgs {
+                name: None,
                 route: SubagentRouteArgs::default(),
                 id: Some(format!("{}-{}", template.id, task_template.id)),
                 depends_on: task_template
