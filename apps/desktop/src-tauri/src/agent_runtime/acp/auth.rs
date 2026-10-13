@@ -102,7 +102,7 @@ pub(crate) async fn authenticate(
     method_id: &str,
 ) -> Result<Authentication> {
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
-    let resolved = preferences.resolve(db, None, None)?;
+    let mut resolved = preferences.resolve(db, None, None)?;
     let mut plan =
         super::transport::prepare_plan(preset, &resolved, super::adapter_cache_root(db).as_deref())
             .await?;
@@ -135,6 +135,9 @@ pub(crate) async fn authenticate(
     }
     wire.request("authenticate", json!({"methodId":method.id}))
         .await?;
+    // This was an explicit choice. A successful RPC is not yet a session, and
+    // discovery must not replay either this method or the old saved method.
+    resolved.authentication_method = None;
     let servers = super::mcp::selected(db, &resolved.mcp_server_ids)?;
     catalog(&mut wire, &resolved, model, &servers, initialized)
         .await

@@ -81,6 +81,116 @@ async fn setup_exposes_native_authentication_without_reporting_a_connected_sessi
 }
 
 #[tokio::test]
+async fn revoked_saved_authentication_keeps_explicit_recovery_choices_available() {
+    let root = tempfile::tempdir().unwrap();
+    let db = nexa_core::db::Database::open_memory().unwrap();
+    let env = nexa_core::external_agent::launch::process_environment(&Default::default());
+    let python = nexa_core::external_agent::launch::find_executable("python", &env).unwrap();
+    for mode in ["auth_revoked", "auth_disconnected"] {
+        let mut launch = ExternalAgentLaunch {
+            executable: Some(python.to_string_lossy().into()),
+            args: Some(vec![
+                "-u".into(),
+                "-c".into(),
+                include_str!("fixture.py").into(),
+                mode.into(),
+            ]),
+            working_directory: root.path().to_string_lossy().into(),
+            authentication_method: Some("oauth".into()),
+            ..Default::default()
+        };
+        let catalog = super::probe("custom_acp", &launch, &db, None)
+            .await
+            .unwrap();
+        assert!(catalog.requires_authentication);
+        assert!(catalog.models.is_empty());
+        assert_eq!(
+            catalog
+                .auth_methods
+                .iter()
+                .map(|method| method.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["oauth", "replacement", "terminal"]
+        );
+        assert!(!serde_json::to_string(&catalog)
+            .unwrap()
+            .contains("credential-secret"));
+        let explicit = super::authenticate("custom_acp", &launch, &db, None, "oauth").await;
+        assert!(
+            explicit.is_err(),
+            "an explicit failed attempt must remain an error"
+        );
+        let super::Authentication::Connected(recovered) =
+            super::authenticate("custom_acp", &launch, &db, None, "replacement")
+                .await
+                .unwrap()
+        else {
+            panic!("replacement account must establish a session");
+        };
+        assert!(!recovered.requires_authentication);
+        assert!(!recovered.models.is_empty());
+        launch.authentication_method = Some("replacement".into());
+        assert!(
+            !super::probe("custom_acp", &launch, &db, None)
+                .await
+                .unwrap()
+                .requires_authentication
+        );
+        let mut chat = wire(mode);
+        let error = Session::connect_with_mcp(&mut chat, "fixture", &[], Some("oauth"))
+            .await
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("Settings"), "{error}");
+        assert!(!error.contains("credential-secret"));
+    }
+}
+
+#[tokio::test]
+async fn acknowledged_authentication_never_replays_a_saved_method_before_session_creation() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("auth.log");
+    let db = nexa_core::db::Database::open_memory().unwrap();
+    let env = nexa_core::external_agent::launch::process_environment(&Default::default());
+    let python = nexa_core::external_agent::launch::find_executable("python", &env).unwrap();
+    for saved in ["oauth", "replacement"] {
+        let launch = ExternalAgentLaunch {
+            executable: Some(python.to_string_lossy().into()),
+            args: Some(vec![
+                "-u".into(),
+                "-c".into(),
+                include_str!("fixture.py").into(),
+                "auth_pending".into(),
+                marker.to_string_lossy().into(),
+            ]),
+            working_directory: root.path().to_string_lossy().into(),
+            authentication_method: Some(saved.into()),
+            ..Default::default()
+        };
+        let super::Authentication::Connected(catalog) =
+            super::authenticate("custom_acp", &launch, &db, None, "replacement")
+                .await
+                .unwrap()
+        else {
+            panic!("expected a catalog after the explicit attempt");
+        };
+        assert!(
+            catalog.requires_authentication,
+            "an acknowledgement alone is not a usable session"
+        );
+        assert!(catalog.models.is_empty());
+    }
+    assert_eq!(
+        std::fs::read_to_string(marker)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        vec!["replacement", "replacement"]
+    );
+}
+
+#[tokio::test]
 async fn process_startup_failures_expose_a_redacted_stderr_cause() {
     let mut command = tokio::process::Command::new("python");
     command.args(["-u", "-c", "import sys;sys.stderr.write('Cannot find ACP module\\nAPI_KEY=credential-secret-must-not-escape\\n');sys.stderr.flush();sys.exit(2)"])

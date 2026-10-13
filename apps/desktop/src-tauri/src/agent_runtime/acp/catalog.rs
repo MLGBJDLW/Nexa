@@ -174,8 +174,17 @@ impl Session {
         };
         // Only the user's saved choice can authorize authentication on a new
         // connection. Never auto-select a method or run terminal login here.
-        wire.request("authenticate", json!({"methodId":method.id}))
-            .await?;
+        match wire
+            .request("authenticate", json!({"methodId":method.id}))
+            .await
+        {
+            Ok(_) => {}
+            Err(cause @ nexa_core::error::CoreError::Cancelled(_)) => return Err(cause),
+            // Revoked credentials, timeout or a failed auth process must not
+            // hide the advertised choices. Explicit sign-in starts a new wire
+            // and reports its own failure; no other method is tried here.
+            Err(_) => return Ok(None),
+        }
         Self::create(wire, cwd, servers, initialized).await
     }
 

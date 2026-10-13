@@ -143,6 +143,10 @@ bounded, redacted stderr tail, while credential values remain encrypted at rest.
 The explicitly selected agent method is saved with the profile and reused when a
 fresh process requests authentication. Nexa never selects a method automatically
 or invokes terminal login as part of a chat connection.
+If that saved attempt is rejected or its process fails, Settings keeps the
+advertised recovery choices available. An explicit attempt never retries an old
+method, and its acknowledgement counts as success only after session creation.
+Changing the selected method participates in the unsaved-settings guard.
 
 **Check connection** runs `initialize` and `session/new` without a prompt. It
 loads the real catalog, not a hard-coded cloud model list. Success means the
