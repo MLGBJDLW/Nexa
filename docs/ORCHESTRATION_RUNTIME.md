@@ -174,7 +174,7 @@ Host-owned continuation state restores the workflow identity, successful sibling
 attempts and original tool/delegation budgets. Late owned receipts are reconciled
 without replaying previously started work. Resume is not budget replenishment.
 
-Verification gates are bound to the current settled workspace content. Subsequent
+Verification gates bind settled file content and executable/read-only modes. Subsequent
 edits invalidate tests, lint, typecheck, build and review receipts, including edits
 outside Nexa's file tools. Unchanged reads and checks preserve the receipts. A
 Git commit or index change also requires fresh verification to bind review to the

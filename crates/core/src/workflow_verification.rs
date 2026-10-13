@@ -169,6 +169,13 @@ fn capture_sync(
                 hash.update(std::fs::read_link(&path)?.to_string_lossy().as_bytes());
             }
             Ok(metadata) if metadata.is_file() => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    hash.update(&metadata.permissions().mode().to_le_bytes());
+                }
+                #[cfg(not(unix))]
+                hash.update(&[u8::from(metadata.permissions().readonly())]);
                 let (digest, stable) = scan.files.read(&path, &metadata, scan.mode, scan.cancel)?;
                 hash.update(digest.as_bytes());
                 pending |= !stable;
@@ -295,6 +302,60 @@ fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn permission_only_changes_invalidate_dirty_git_and_plain_workspace_receipts() {
+        for tracked in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let file = root.path().join("script.sh");
+            std::fs::write(&file, "echo initial").unwrap();
+            if tracked {
+                for args in [
+                    vec!["init"],
+                    vec!["config", "user.name", "Nexa test"],
+                    vec!["config", "user.email", "test@example.invalid"],
+                    vec!["add", "script.sh"],
+                    vec!["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+                ] {
+                    assert!(git(root.path(), &args).is_some());
+                }
+            }
+            // Keep Git content dirty throughout, so inventory changes cannot
+            // accidentally make this mode-only regression pass.
+            std::fs::write(&file, "echo changed").unwrap();
+            let db = Database::open_memory().unwrap();
+            let workspace = Workspace {
+                roots: vec![root.path().to_string_lossy().into()],
+            };
+            let scanner = Capture::default();
+            let snapshot = || {
+                scanner.capture(
+                    &db,
+                    None,
+                    None,
+                    &[],
+                    Some(&workspace),
+                    CaptureMode::Incremental,
+                )
+            };
+            let initial = snapshot().await.unwrap();
+            let permissions = std::fs::metadata(&file).unwrap().permissions();
+            let mut changed = permissions.clone();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                changed.set_mode(permissions.mode() ^ 0o111);
+            }
+            #[cfg(not(unix))]
+            changed.set_readonly(!permissions.readonly());
+            std::fs::set_permissions(&file, changed).unwrap();
+            let changed_state = snapshot().await;
+            std::fs::set_permissions(&file, permissions).unwrap();
+            assert_ne!(changed_state.unwrap(), initial, "tracked={tracked}");
+            assert_eq!(snapshot().await.unwrap(), initial);
+        }
+    }
+
     #[tokio::test]
     async fn source_identity_tracks_gitlink_commits_and_successive_dirty_edits() {
         let temp = tempfile::tempdir().unwrap();

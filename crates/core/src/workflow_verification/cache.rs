@@ -14,6 +14,7 @@ struct Fingerprint {
     length: u64,
     modified: Option<SystemTime>,
     created: Option<SystemTime>,
+    readonly: bool,
     #[cfg(unix)]
     identity_and_change: (u64, u64, i64, i64),
 }
@@ -26,6 +27,7 @@ impl Fingerprint {
             length: metadata.len(),
             modified: metadata.modified().ok(),
             created: metadata.created().ok(),
+            readonly: metadata.permissions().readonly(),
             #[cfg(unix)]
             identity_and_change: (
                 metadata.dev(),
