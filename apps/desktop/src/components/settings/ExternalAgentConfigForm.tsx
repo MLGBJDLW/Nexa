@@ -30,6 +30,10 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   let launchFieldsValid = true;
   try { parseExternalLaunchFields(argsText, envText); } catch { launchFieldsValid = false; }
   const packageRunner = Boolean(preset.distribution) && !launch.executable;
+  const packageDistribution = preset.distribution?.npx ?? preset.distribution?.uvx;
+  const defaultArguments = packageRunner && packageDistribution
+    ? (packageDistribution.args ?? [])
+    : (preset.args ?? []);
   const [model, setModel] = useState(config?.model ?? '');
   const [models, setModels] = useState<CopilotModelSummary[]>([]);
   const [nativeOptions, setNativeOptions] = useState<ExternalAgentConfigOption[]>([]);
@@ -178,7 +182,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
         onChange={event => changeLaunch({ ...launch, workingDirectory: event.target.value })} />
     </label>
     <label className="mt-3 block text-xs font-medium text-text-secondary">{t('settings.externalAgentArguments')}
-      <textarea className={`${inputClass} font-mono text-xs`} rows={3} value={argsText} placeholder={JSON.stringify(preset.args ?? [])} disabled={!initialLaunch}
+      <textarea className={`${inputClass} font-mono text-xs`} rows={3} value={argsText} placeholder={JSON.stringify(defaultArguments)} disabled={!initialLaunch}
         onChange={event => {
           setArgsText(event.target.value);
           try { changeLaunch({ ...launch, ...parseExternalLaunchFields(event.target.value, envText) }); }

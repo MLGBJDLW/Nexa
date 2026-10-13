@@ -28,6 +28,15 @@ const presets = registry.agents.map(agent => {
   }
   const distribution = agent.distribution;
   if (!distribution || !['npx','uvx','binary'].some(kind => distribution[kind])) throw new Error(`No launch contract for ${agent.id}`);
+  // Some publishers omit hashes in the ACP feed. Keep Nexa's reviewed pins
+  // only for the identical archive and entrypoint; a new artifact needs a new pin.
+  for (const [platform, binary] of Object.entries(distribution.binary ?? {})) {
+    const pinned = existing?.distribution?.binary?.[platform];
+    if (!binary.sha256 && pinned?.archive === binary.archive && pinned.cmd === binary.cmd
+        && /^[a-f0-9]{64}$/i.test(pinned.sha256 ?? '')) {
+      binary.sha256 = pinned.sha256;
+    }
+  }
   let command, args, env;
   if (distribution.npx) {
     command = 'npx'; args = ['--yes',distribution.npx.package,...(distribution.npx.args ?? [])]; env=distribution.npx.env ?? {};

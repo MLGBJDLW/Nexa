@@ -99,33 +99,39 @@
       "binary": {
         "darwin-aarch64": {
           "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-arm64.zip",
-          "cmd": "./agy_acp_server.par"
+          "cmd": "./agy_acp_server.par",
+          "sha256": "7cd97045f7b4fe81175a107cdf16f9c51484e3c78a5162cae415338bb6aa5b88"
         },
         "darwin-x86_64": {
           "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-x86_64.zip",
-          "cmd": "./agy_acp_server.par"
+          "cmd": "./agy_acp_server.par",
+          "sha256": "bb23956b89984bf5d354af2c3725e6c57f0cc1b7228e77a0e91c9c2bc1d47646"
         },
         "linux-x86_64": {
           "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-x86_64.zip",
           "cmd": "./agy_acp_server.par",
           "args": [
             "--uid="
-          ]
+          ],
+          "sha256": "9fb60956af0a9d76220a4db91ca9ac88e2a2372ad68f985ab5fceace6b825b96"
         },
         "linux-aarch64": {
           "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-arm64.zip",
           "cmd": "./agy_acp_server.par",
           "args": [
             "--uid="
-          ]
+          ],
+          "sha256": "500b0bc0fb858e88f4df404d4cedf80bf9298c178291e39e383d6c50b111cbdf"
         },
         "windows-x86_64": {
           "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip",
-          "cmd": "./agy_acp_server.exe"
+          "cmd": "./agy_acp_server.exe",
+          "sha256": "65215e0688681fa3116e048a9eab27ef53af1bbd6f3da3f1c52bd4911d8b17f9"
         },
         "windows-aarch64": {
           "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-arm64.zip",
-          "cmd": "./agy_acp_server.exe"
+          "cmd": "./agy_acp_server.exe",
+          "sha256": "4a0f469720e9beb9438a979f543fdbfad5022ebe0992c052c590bd78b3144ca3"
         }
       }
     }
@@ -323,7 +329,8 @@
           "args": [
             "acp",
             "serve"
-          ]
+          ],
+          "sha256": "b998e8d4d5a43100712ecdf582498dabe26f53594e336bb3e69805d5b6926184"
         },
         "darwin-x86_64": {
           "archive": "https://sfc-repo.snowflakecomputing.com/cortex-code-cli/a4643c4278/1.0.73%2B180523.e6179a031de9/coco-1.0.73%2B180523.e6179a031de9-darwin-amd64.tar.gz",
@@ -331,7 +338,8 @@
           "args": [
             "acp",
             "serve"
-          ]
+          ],
+          "sha256": "0d63e317fd85fa37eea091048db7a57878aff33ddfa298644acc732c41407580"
         },
         "linux-x86_64": {
           "archive": "https://sfc-repo.snowflakecomputing.com/cortex-code-cli/a4643c4278/1.0.73%2B180523.e6179a031de9/coco-1.0.73%2B180523.e6179a031de9-linux-amd64.tar.gz",
@@ -339,7 +347,8 @@
           "args": [
             "acp",
             "serve"
-          ]
+          ],
+          "sha256": "8821e6776d2e260ee82ba3f58e5a5c47457a24105f3c0408f25963f2746ce29e"
         },
         "linux-aarch64": {
           "archive": "https://sfc-repo.snowflakecomputing.com/cortex-code-cli/a4643c4278/1.0.73%2B180523.e6179a031de9/coco-1.0.73%2B180523.e6179a031de9-linux-arm64.tar.gz",
@@ -347,7 +356,8 @@
           "args": [
             "acp",
             "serve"
-          ]
+          ],
+          "sha256": "5bc82617793ab4143f16edd3a121ec201aaaa363461c3b13ff2e0d5a277b4ef7"
         },
         "windows-x86_64": {
           "archive": "https://sfc-repo.snowflakecomputing.com/cortex-code-cli/a4643c4278/1.0.73%2B180523.e6179a031de9/coco-1.0.73%2B180523.e6179a031de9-windows-amd64.tar.gz",
@@ -355,7 +365,8 @@
           "args": [
             "acp",
             "serve"
-          ]
+          ],
+          "sha256": "e58d6b8b20afd426bdde33694712959d2de66d8aacdb135eae824c15a1f2c56d"
         },
         "windows-aarch64": {
           "archive": "https://sfc-repo.snowflakecomputing.com/cortex-code-cli/a4643c4278/1.0.73%2B180523.e6179a031de9/coco-1.0.73%2B180523.e6179a031de9-windows-arm64.tar.gz",
@@ -363,7 +374,8 @@
           "args": [
             "acp",
             "serve"
-          ]
+          ],
+          "sha256": "86532253a97cd8baa6fa5e5082749bfc0df304668c4449e3fa603d6574029ab1"
         }
       }
     }
@@ -389,19 +401,23 @@
       "binary": {
         "darwin-aarch64": {
           "archive": "https://github.com/Corust-ai/corust-agent-release/releases/download/v0.6.0/agent-darwin-arm64.tar.gz",
-          "cmd": "./corust-agent-acp"
+          "cmd": "./corust-agent-acp",
+          "sha256": "6a74d46f645774f0a7e2a95371bad39d63927e231a34d52d2800c79f508f025f"
         },
         "darwin-x86_64": {
           "archive": "https://github.com/Corust-ai/corust-agent-release/releases/download/v0.6.0/agent-darwin-x64.tar.gz",
-          "cmd": "./corust-agent-acp"
+          "cmd": "./corust-agent-acp",
+          "sha256": "1a5ed40bec2abf8b0c3d73032ee9df22d7d63cc0a0e7468d4f5935872fe7cce9"
         },
         "linux-x86_64": {
           "archive": "https://github.com/Corust-ai/corust-agent-release/releases/download/v0.6.0/agent-linux-x64.tar.gz",
-          "cmd": "./corust-agent-acp"
+          "cmd": "./corust-agent-acp",
+          "sha256": "2a2e42572b317c83d38f3c373ef5f417e83b0ccabf2fb43ff2aa038ab9f73ba2"
         },
         "windows-x86_64": {
           "archive": "https://github.com/Corust-ai/corust-agent-release/releases/download/v0.6.0/agent-windows-x64.zip",
-          "cmd": "./corust-agent-acp.exe"
+          "cmd": "./corust-agent-acp.exe",
+          "sha256": "79d28ce683cb5c7d436a1c9abb759425314a57ec6aa4d02b5fcfb0c84ca124a2"
         }
       }
     }
@@ -432,35 +448,40 @@
           "cmd": "./crow-cli",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "30fd3aa932136685fa0cdb60b233772fa100ecf6d8d4442108fd28c130886318"
         },
         "darwin-x86_64": {
           "archive": "https://github.com/crow-cli/crow-cli/releases/download/v0.1.24/crow-cli-darwin-x86_64.tar.gz",
           "cmd": "./crow-cli",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "0d04ffb57a638f058736e63eabe3ea0c9157ae71ff33c18911f62f81d4f5972d"
         },
         "linux-aarch64": {
           "archive": "https://github.com/crow-cli/crow-cli/releases/download/v0.1.24/crow-cli-linux-aarch64.tar.gz",
           "cmd": "./crow-cli",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "5a81df3075694d8fe96692a56d90868721da4f2ce93afff2ee550c570c3b6748"
         },
         "linux-x86_64": {
           "archive": "https://github.com/crow-cli/crow-cli/releases/download/v0.1.24/crow-cli-linux-x86_64.tar.gz",
           "cmd": "./crow-cli",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "cad2bf555b2c8045d7fcfc1670d89ef3244aacda10cb46faefab7585d0a0589d"
         },
         "windows-x86_64": {
           "archive": "https://github.com/crow-cli/crow-cli/releases/download/v0.1.24/crow-cli-windows-x86_64.zip",
           "cmd": "./crow-cli.exe",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "db3b327b89db440dfb0b3eaabe6bed48478596078ba8d896a1a5cce74ec0e4fc"
         }
       }
     }
@@ -491,42 +512,48 @@
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "778d04e542adc5c8b6760fda3ebe0757f903b1764f2792c232ef9a35e6e2151b"
         },
         "darwin-x86_64": {
           "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/darwin/x64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "8930008f9902a4d02d3185c0d34071e0536bac3426439b55bcfd48b78765a3dd"
         },
         "linux-aarch64": {
           "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/linux/arm64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "c31ef0ba6b827fdf8053919de57abae4a7bd71afefdf2cab061e276faac42b3a"
         },
         "linux-x86_64": {
           "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/linux/x64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "ba9a855f8f813c91b9f2707127572d2dc9ae5a62818e1c36719625d0fb8bd452"
         },
         "windows-aarch64": {
           "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/windows/arm64/agent-cli-package.zip",
           "cmd": "./dist-package\\cursor-agent.cmd",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "eda025bf9cc7632e48d290fa52468104916f0db261e2fa44306ad184cd1274c9"
         },
         "windows-x86_64": {
           "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/windows/x64/agent-cli-package.zip",
           "cmd": "./dist-package\\cursor-agent.cmd",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "2558ae1ddc155f43791e8eed145afa0366c5ad6a266b0e40c0b5c9490a945a5f"
         }
       }
     }
@@ -584,42 +611,48 @@
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "c08cc3f3507d103246b8c601a584fcc719fd77f6cc10f26cc90e9f4186640df2"
         },
         "darwin-x86_64": {
           "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-x86_64-apple-darwin.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "594f89b6b0d03dffec4eabc754104e4471cc43a014a2164e2fdd7d0d752d0100"
         },
         "linux-aarch64": {
           "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-aarch64-unknown-linux.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "21a2d7a8dea67987067cde7eb3fe7193a48daa8f8c3d50d414c603c4a2b67f15"
         },
         "linux-x86_64": {
           "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-x86_64-unknown-linux.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "83b3b113c01bf2a3e9e100db08d77e6b086806a7754f091e20831bdfe215157e"
         },
         "windows-aarch64": {
           "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-aarch64-pc-windows.zip",
           "cmd": "./bin\\devin.exe",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "923843438df5956fc7222d5644e3dc995fdb8b347f2dc19c51d1c78c6331d830"
         },
         "windows-x86_64": {
           "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-x86_64-pc-windows.zip",
           "cmd": "./bin\\devin.exe",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "dded69a40dc54012612eda47e0935f2fb394b97cd38cb4d7d84b1e1d71c5f7ea"
         }
       }
     }
@@ -1033,42 +1066,48 @@
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "1e1d62527916ad815a83115ba68bb4af60e322b92ab428f5b1e3bb314d634e6f"
         },
         "darwin-x86_64": {
           "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-macos-amd64.zip",
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "fa2db84e7b780e51ff1c83e6e82916a309e29239be0fd07631a16bf6abbd8533"
         },
         "linux-aarch64": {
           "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-linux-aarch64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "0d29bef6c610caad8cda2877e15bb64e8e9403028548e7b4ce36f8c27fd51e9f"
         },
         "linux-x86_64": {
           "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-linux-amd64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "ebdf36c61e24f634b05dc8c41b4f4f4f7ef1e1026e6162907105bdc47da2412f"
         },
         "windows-x86_64": {
           "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-windows-amd64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "db1a44912ff87b915c7085f91676c8b940c5c105e022a63ec86069f1e5b61218"
         },
         "windows-aarch64": {
           "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-windows-aarch64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
-          ]
+          ],
+          "sha256": "a2219a15806b0c305d92a63dbde801d35963fb3406b21e0c6e6b133edd1a196c"
         }
       }
     }
@@ -1729,35 +1768,40 @@
           "cmd": "./stakpak",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "9c18808f7a3352a5ca2cbb9f123f2b2fafda03a5abef446c20065bb6ec629d1f"
         },
         "darwin-x86_64": {
           "archive": "https://github.com/stakpak/agent/releases/download/v0.3.88/stakpak-darwin-x86_64.tar.gz",
           "cmd": "./stakpak",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "8f30de7df2fa267ec6e7d8ceecf6ed8f5dc7d37d4b489ef210070df3df38845b"
         },
         "linux-aarch64": {
           "archive": "https://github.com/stakpak/agent/releases/download/v0.3.88/stakpak-linux-aarch64.tar.gz",
           "cmd": "./stakpak",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "8312b611b5a635ea7411555f082b0fb3b6d644f99007d2c6a1f30fc6c13e725d"
         },
         "linux-x86_64": {
           "archive": "https://github.com/stakpak/agent/releases/download/v0.3.88/stakpak-linux-x86_64.tar.gz",
           "cmd": "./stakpak",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "1e923d6b632e6bda743b3f48c40914f657853478647c26d0a47729a7728490c6"
         },
         "windows-x86_64": {
           "archive": "https://github.com/stakpak/agent/releases/download/v0.3.88/stakpak-windows-x86_64.zip",
           "cmd": "./stakpak.exe",
           "args": [
             "acp"
-          ]
+          ],
+          "sha256": "67e610b0c8539982fe5dbd8d795abaf6cfc1b70f7b560880f0eddabe41d0490a"
         }
       }
     }
@@ -1795,7 +1839,8 @@
           "env": {
             "VT_ACP_ENABLED": "1",
             "VT_ACP_ZED_ENABLED": "1"
-          }
+          },
+          "sha256": "a648bd325977f90ee140d7dd90b8aed62a7b59ff7cbf464069515daf1f58bd7f"
         },
         "darwin-x86_64": {
           "archive": "https://github.com/vinhnx/VTCode/releases/download/0.96.14/vtcode-0.96.14-x86_64-apple-darwin.tar.gz",
@@ -1806,7 +1851,8 @@
           "env": {
             "VT_ACP_ENABLED": "1",
             "VT_ACP_ZED_ENABLED": "1"
-          }
+          },
+          "sha256": "884e80bc713811514508a745e1cde25d1147f3e9668cc22ea274fb7fca8fb686"
         },
         "linux-x86_64": {
           "archive": "https://github.com/vinhnx/VTCode/releases/download/0.96.14/vtcode-0.96.14-x86_64-unknown-linux-gnu.tar.gz",
@@ -1817,7 +1863,8 @@
           "env": {
             "VT_ACP_ENABLED": "1",
             "VT_ACP_ZED_ENABLED": "1"
-          }
+          },
+          "sha256": "37857dab5c9f758d8a7d2e409feca12ca508682be049c47786f45a5517e438ed"
         },
         "windows-x86_64": {
           "archive": "https://github.com/vinhnx/VTCode/releases/download/0.96.14/vtcode-0.96.14-x86_64-pc-windows-msvc.zip",
@@ -1828,7 +1875,8 @@
           "env": {
             "VT_ACP_ENABLED": "1",
             "VT_ACP_ZED_ENABLED": "1"
-          }
+          },
+          "sha256": "0056d86329d3a07202956d02b46a1b74d41913756c05a56f0671e34bea34f522"
         }
       }
     }

@@ -196,6 +196,16 @@ pub(super) async fn binary(
     binary: &BinaryDistribution,
     cache_root: &Path,
 ) -> Result<PathBuf, CoreError> {
+    // Validate before consulting the cache as well as before downloading. A
+    // previous unverified installation must not bypass the pinned registry.
+    let expected_digest = binary
+        .sha256
+        .as_deref()
+        .filter(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            invalid("This ACP archive has no valid pinned SHA-256 checksum. Install the publisher's ACP adapter yourself and choose its executable in Settings.")
+        })?
+        .to_ascii_lowercase();
     let url = url::Url::parse(&binary.archive)
         .map_err(|_| invalid("Invalid ACP registry archive URL"))?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
@@ -204,17 +214,10 @@ pub(super) async fn binary(
         ));
     }
     let relative = relative_path(&binary.cmd)?;
-    let key = blake3::hash(
-        format!(
-            "{}\0{}\0{}",
-            binary.archive,
-            binary.cmd,
-            binary.sha256.as_deref().unwrap_or_default()
-        )
-        .as_bytes(),
-    )
-    .to_hex()
-    .to_string();
+    let key =
+        blake3::hash(format!("{}\0{}\0{}", binary.archive, binary.cmd, expected_digest).as_bytes())
+            .to_hex()
+            .to_string();
     let directory = cache_root.join(&key);
     let lock = install_lock(&directory);
     let guard = lock.lock_owned().await;
@@ -268,11 +271,7 @@ pub(super) async fn binary(
     file.flush().await?;
     drop(file);
     let digest = format!("{:x}", digest.finalize());
-    if binary
-        .sha256
-        .as_ref()
-        .is_some_and(|expected| !expected.eq_ignore_ascii_case(&digest))
-    {
+    if expected_digest != digest {
         return Err(invalid(
             "ACP archive checksum mismatch; the downloaded adapter was not installed",
         ));
@@ -304,6 +303,36 @@ pub(super) async fn binary(
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[tokio::test]
+    async fn unpinned_archives_cannot_reuse_cache_or_start_downloads() {
+        let scratch = tempfile::tempdir().unwrap();
+        for checksum in [None, Some(""), Some("abcd"), Some(&"z".repeat(64))] {
+            let binary = BinaryDistribution {
+                archive: "https://127.0.0.1:1/agent.zip".into(),
+                cmd: "agent".into(),
+                sha256: checksum.map(str::to_owned),
+                ..Default::default()
+            };
+            let legacy_key = blake3::hash(
+                format!(
+                    "{}\0{}\0{}",
+                    binary.archive,
+                    binary.cmd,
+                    checksum.unwrap_or_default()
+                )
+                .as_bytes(),
+            )
+            .to_hex()
+            .to_string();
+            let cache = scratch.path().join(legacy_key);
+            std::fs::create_dir_all(&cache).unwrap();
+            std::fs::write(cache.join(".nexa-install.json"), "{}").unwrap();
+            std::fs::write(cache.join("agent"), "unverified fixture").unwrap();
+            let error = super::binary(&binary, scratch.path()).await.unwrap_err();
+            assert!(error.to_string().contains("pinned SHA-256"), "{error}");
+        }
+    }
 
     #[test]
     fn zip_install_keeps_adjacent_helpers_and_rejects_path_escape() {

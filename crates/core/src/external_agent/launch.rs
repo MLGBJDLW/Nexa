@@ -269,7 +269,36 @@ pub fn find_executable(command: &str, env: &BTreeMap<String, String>) -> Option<
         .find(|path| is_executable(path))
 }
 
+fn adapter_args<'a>(
+    preset: &ExternalAgentPreset,
+    launch: &'a ExternalAgentLaunch,
+    defaults: &'a [String],
+) -> &'a [String] {
+    let args = launch.args.as_deref().unwrap_or(defaults);
+    // Older Settings examples exposed the complete runner argv. Accept that
+    // exact bundled prefix without duplicating it or passing it to a native
+    // binary; explicit executable overrides keep their original argv contract.
+    if launch.executable.is_none() && launch.args.is_some() {
+        if let Some(distribution) = &preset.distribution {
+            if let Some(package) = &distribution.npx {
+                if args.first().map(String::as_str) == Some("--yes")
+                    && args.get(1) == Some(&package.package)
+                {
+                    return &args[2..];
+                }
+            }
+            if let Some(package) = &distribution.uvx {
+                if args.first() == Some(&package.package) {
+                    return &args[1..];
+                }
+            }
+        }
+    }
+    args
+}
+
 fn package_plan(
+    preset: &ExternalAgentPreset,
     runner: &str,
     package: &PackageDistribution,
     launch: &ExternalAgentLaunch,
@@ -288,7 +317,7 @@ fn package_plan(
     } else {
         vec![package.package.clone()]
     };
-    args.extend(launch.args.as_ref().unwrap_or(&package.args).clone());
+    args.extend_from_slice(adapter_args(preset, launch, &package.args));
     Some(LaunchPlan {
         executable,
         args,
@@ -308,7 +337,7 @@ fn binary_plan(
     let binary = preset.platform_launch().expect("platform binary selected");
     LaunchPlan {
         executable,
-        args: launch.args.as_ref().unwrap_or(&binary.args).clone(),
+        args: adapter_args(preset, launch, &binary.args).to_vec(),
         env: process_environment(&preset.launch_env(launch)),
         prepared,
     }
@@ -340,7 +369,17 @@ pub fn installed(
             return Ok(Some(binary_plan(preset, launch, executable, false)));
         }
     }
-    if let Some(executable) = find_executable(&preset.launch_command(), &env) {
+    let command = preset.launch_command();
+    let declared_runner = preset.distribution.as_ref().is_some_and(|distribution| {
+        (command == "npx" && distribution.npx.is_some())
+            || (command == "uvx" && distribution.uvx.is_some())
+    });
+    let executable = if declared_runner {
+        None
+    } else {
+        find_executable(&command, &env)
+    };
+    if let Some(executable) = executable {
         return Ok(Some(native_npm_plan(
             LaunchPlan {
                 executable,
@@ -355,7 +394,7 @@ pub fn installed(
         for (runner, package) in [("npx", &distribution.npx), ("uvx", &distribution.uvx)] {
             if let Some(plan) = package
                 .as_ref()
-                .and_then(|package| package_plan(runner, package, launch, &env))
+                .and_then(|package| package_plan(preset, runner, package, launch, &env))
             {
                 return Ok(Some(native_npm_plan(plan, preset)));
             }
@@ -483,6 +522,36 @@ mod tests {
             let package = preset.distribution.as_ref().unwrap().npx.as_ref().unwrap();
             assert_eq!(&plan.args[..2], &["--yes", package.package.as_str()]);
             assert_eq!(plan.args[2..], package.args);
+        }
+    }
+
+    #[test]
+    fn custom_agent_arguments_keep_the_declared_package_runner_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = executable(dir.path(), "npx");
+        let mut launch = ExternalAgentLaunch {
+            working_directory: dir.path().to_string_lossy().into(),
+            env: BTreeMap::from([("PATH".into(), dir.path().to_string_lossy().into())]),
+            args: Some(vec!["acp".into(), "--custom-option".into()]),
+            ..Default::default()
+        };
+        for provider in ["acp_kilo", "acp_sigit"] {
+            let preset = super::super::preset(provider).unwrap();
+            let plan = installed(preset, &launch).unwrap().unwrap();
+            let package = preset.distribution.as_ref().unwrap().npx.as_ref().unwrap();
+            assert_eq!(plan.executable, runner);
+            assert_eq!(
+                plan.args,
+                vec!["--yes", &package.package, "acp", "--custom-option"]
+            );
+            let original = launch.args.take().unwrap();
+            launch.args = Some(plan.args.clone());
+            assert_eq!(installed(preset, &launch).unwrap().unwrap().args, plan.args);
+            assert_eq!(
+                binary_plan(preset, &launch, dir.path().join("native"), true).args,
+                original
+            );
+            launch.args = Some(original);
         }
     }
 

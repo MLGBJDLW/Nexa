@@ -126,7 +126,10 @@ async fn terminal_login_reuses_the_advertised_invocation_without_protocol_authen
     assert_eq!(&plan.args[..args.len()], &args);
     assert_eq!(plan.args.last().unwrap(), "--terminal-login");
     assert_eq!(plan.env.get("ACP_LOGIN").unwrap(), "1");
-    assert_eq!(cwd, launch.working_directory);
+    assert_eq!(
+        std::fs::canonicalize(cwd).unwrap(),
+        std::fs::canonicalize(launch.working_directory).unwrap()
+    );
 }
 
 #[tokio::test]
@@ -1032,9 +1035,10 @@ async fn external_protocol_launches_installed_cmd_shims_in_unicode_directories()
 }
 
 #[tokio::test]
-#[ignore = "requires NEXA_TEST_ANTIGRAVITY_ACP pointing to the official downloaded adapter; initialize only"]
+#[ignore = "requires NEXA_TEST_ANTIGRAVITY_ACP=managed or an official adapter path; initialize only"]
 async fn official_antigravity_initializes_through_nexa_without_user_credentials() {
     let executable = std::env::var("NEXA_TEST_ANTIGRAVITY_ACP").expect("official adapter path");
+    let managed = executable == "managed";
     let root = tempfile::tempdir().unwrap();
     let mut env = std::collections::BTreeMap::new();
     for name in ["PATH", "SystemRoot", "WINDIR", "COMSPEC"] {
@@ -1056,16 +1060,29 @@ async fn official_antigravity_initializes_through_nexa_without_user_credentials(
         env.insert(name.to_string(), directory.to_string_lossy().into_owned());
     }
     let launch = ExternalAgentLaunch {
-        executable: Some(executable),
-        args: Some(vec![]),
+        executable: (!managed).then_some(executable),
+        args: (!managed).then_some(vec![]),
         working_directory: root.path().to_string_lossy().into_owned(),
         env: env.clone(),
         ..Default::default()
     };
     let preset = nexa_core::external_agent::preset("acp_antigravity_acp").unwrap();
-    let plan = nexa_core::external_agent::launch::prepare(preset, &launch, None)
+    let cache = root.path().join("adapters");
+    let plan = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
         .await
         .unwrap();
+    if managed {
+        assert!(
+            plan.prepared,
+            "managed acceptance requires an absent adapter"
+        );
+        assert!(plan.executable.starts_with(&cache));
+        let reused = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+            .await
+            .unwrap();
+        assert_eq!(reused.executable, plan.executable);
+        println!("Official archive checksum, extraction and immutable cache reuse passed");
+    }
     let mut command = super::transport::command_from_plan(&plan, &launch).unwrap();
     command.env_clear().envs(env);
     let mut wire = Wire::spawn(command).unwrap();

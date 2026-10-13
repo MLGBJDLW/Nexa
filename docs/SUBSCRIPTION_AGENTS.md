@@ -98,6 +98,14 @@ their installed CLI commands. Common installed CLI presets include:
 
 **Download / check connection** resolves an installed ACP adapter first, then
 prepares the registry's pinned `npx`/`uvx` package or official platform archive.
+Managed archives require a reviewed SHA-256 pin and must match it before
+extraction or execution. Archives without a valid pin require a user-installed
+adapter. Registry refreshes retain locally reviewed pins only while the archive
+URL and entrypoint are unchanged.
+For automatic package preparation, custom arguments belong to the adapter;
+Nexa supplies the pinned package invocation. The previously displayed complete
+bundled runner prefix is accepted without duplication. Explicit executable
+overrides retain their complete process argument contract.
 Archive installation preserves companion executables and publishes only a
 complete extracted directory. Antigravity requires `agy_acp_server.exe` and its
 helper; the separately installed `agy.exe` CLI is not the ACP server. A missing

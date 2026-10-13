@@ -3,6 +3,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 const { build } = createRequire(import.meta.resolve('vite'))('esbuild');
 const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/lib/providerPresets.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', write: false });
 const { findProviderModelPreset: find, isRemovedProviderModel } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
@@ -50,6 +54,41 @@ test('updated ACP packages remain version-pinned and preserve companion archive 
     for (const distribution of [agent.distribution.npx, agent.distribution.uvx].filter(Boolean)) {
       assert.ok(distribution.package.includes(agent.registryVersion), `${agent.id} pins the audited version`);
     }
+    for (const binary of Object.values(agent.distribution.binary ?? {})) {
+      assert.match(binary.sha256 ?? '', /^[a-f0-9]{64}$/i, `${agent.id} archive has a reviewed digest`);
+    }
   }
   assert.ok(agents.find(p => p.id === 'acp-antigravity-acp').distribution.binary['windows-x86_64'].archive.endsWith('.zip'));
+});
+
+test('registry refresh keeps reviewed archive pins without carrying them to a new artifact', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'nexa-registry-pins-'));
+  try {
+    for (const directory of ['scripts', 'shared', 'apps/desktop/public/provider-icons/agents']) {
+      mkdirSync(path.join(root, directory), { recursive: true });
+    }
+    const script = path.join(root, 'scripts/sync-external-agent-registry.mjs');
+    copyFileSync(new URL('../../../scripts/sync-external-agent-registry.mjs', import.meta.url), script);
+    const original = { archive: 'https://publisher.example/v1/agent.zip', cmd: 'agent', sha256: 'a'.repeat(64) };
+    writeFileSync(path.join(root, 'shared/external-agent-presets.json'), JSON.stringify([
+      { provider: 'acp_fixture', distribution: { binary: { same: original, changed: original } } },
+    ]));
+    writeFileSync(path.join(root, 'apps/desktop/public/provider-icons/agents/fixture.svg'), '<svg/>');
+    const input = path.join(root, 'registry.json');
+    writeFileSync(input, JSON.stringify({ version: '1.0.0', agents: [{
+      id: 'fixture', version: '1', name: 'Fixture', repository: 'https://publisher.example',
+      distribution: { binary: {
+        same: { archive: original.archive, cmd: original.cmd },
+        changed: { archive: 'https://publisher.example/v2/agent.zip', cmd: original.cmd },
+      } },
+    }] }));
+    execFileSync(process.execPath, [script, input], { stdio: 'pipe' });
+    const [agent] = JSON.parse(readFileSync(path.join(root, 'shared/external-agent-presets.json'), 'utf8'));
+    assert.equal(agent.distribution.binary.same.sha256, original.sha256);
+    assert.equal(agent.distribution.binary.changed.sha256, undefined);
+  } finally {
+    assert.equal(path.dirname(path.resolve(root)), path.resolve(tmpdir()));
+    assert.ok(path.basename(root).startsWith('nexa-registry-pins-'));
+    rmSync(root, { recursive: true, force: true });
+  }
 });
