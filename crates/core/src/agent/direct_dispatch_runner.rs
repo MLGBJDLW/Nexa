@@ -1,5 +1,6 @@
 //! Direct-dispatch fast path for simple unambiguous commands.
 
+use super::turn_budget::TurnBudget;
 use super::*;
 
 pub(super) enum DirectDispatchOutcome {
@@ -28,15 +29,21 @@ impl AgentExecutor {
         conversation_id: Option<&str>,
         turn_id: Option<&str>,
         sort_order: i64,
-    ) -> DirectDispatchOutcome {
-        if user_text.is_empty() {
-            return DirectDispatchOutcome::NotMatched;
+        turn_budget: &mut TurnBudget,
+    ) -> Result<DirectDispatchOutcome, CoreError> {
+        if user_text.is_empty() || !turn_budget.can_dispatch_tool_round() {
+            return Ok(DirectDispatchOutcome::NotMatched);
         }
         let model = self.config.model.as_deref().unwrap_or(DEFAULT_MODEL);
 
         let Some(dispatch) = direct_dispatch::match_direct_pattern(user_text, db) else {
-            return DirectDispatchOutcome::NotMatched;
+            return Ok(DirectDispatchOutcome::NotMatched);
         };
+
+        // Admission must survive interruption before the first tool event or
+        // execution, including failed and cancelled direct dispatches.
+        turn_budget.persist_admission(db, turn_id)?;
+        turn_budget.record_verified_tool_round();
 
         debug!(
             "Direct dispatch: tool={}, args={}",
@@ -85,7 +92,7 @@ impl AgentExecutor {
             )
             .await;
 
-        match result {
+        Ok(match result {
             Ok(tool_result) => {
                 let direct_run_status = if tool_result.is_error {
                     ToolRunStatus::Failed
@@ -112,7 +119,7 @@ impl AgentExecutor {
                 if tool_result.is_error {
                     // Tool returned an error — fall through to LLM for
                     // a better user-facing response.
-                    return DirectDispatchOutcome::ExecutedButFailed;
+                    return Ok(DirectDispatchOutcome::ExecutedButFailed);
                 }
 
                 // Emit the content as text so streaming listeners see it.
@@ -204,6 +211,6 @@ impl AgentExecutor {
                     .await;
                 DirectDispatchOutcome::ExecutedButFailed
             }
-        }
+        })
     }
 }

@@ -1137,7 +1137,10 @@ impl AgentExecutor {
         let user_query_text = &user_query_text_for_tools;
 
         // --- 3c'. Try direct dispatch (skip LLM for simple commands) ---------
-        if !self.config.execution_mode.is_plan() && turn_budget.can_dispatch_tool_round() {
+        if !self.config.execution_mode.is_plan()
+            && turn_budget.tool_rounds_used() == 0
+            && turn_budget.can_dispatch_tool_round()
+        {
             match self
                 .try_direct_dispatch(
                     user_query_text,
@@ -1147,16 +1150,15 @@ impl AgentExecutor {
                     conversation_id,
                     turn_id,
                     next_sort_order,
+                    &mut turn_budget,
                 )
-                .await
+                .await?
             {
                 direct_dispatch_runner::DirectDispatchOutcome::Completed(message) => {
                     return Ok(message);
                 }
-                direct_dispatch_runner::DirectDispatchOutcome::ExecutedButFailed => {
-                    turn_budget.record_verified_tool_round();
-                }
-                direct_dispatch_runner::DirectDispatchOutcome::NotMatched => {}
+                direct_dispatch_runner::DirectDispatchOutcome::ExecutedButFailed
+                | direct_dispatch_runner::DirectDispatchOutcome::NotMatched => {}
             }
         }
 

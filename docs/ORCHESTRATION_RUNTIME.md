@@ -192,6 +192,9 @@ An edit and observation in the same unstable batch cannot produce a green source
 receipt, while browser action effects and terminal closure still reconcile.
 Native filename and symlink-target bytes remain part of the source identity;
 valid non-UTF-8 Unix paths do not block capture or collide through lossy decoding.
+Direct tool dispatch persists its round admission before emitting a tool event or
+executing. Failures remain accounted across interruption, and resume does not
+automatically repeat the first direct dispatch.
 
 `spawn_subagent` and each batch worker accept an optional plain-text `name`.
 Names may contain Unicode and may repeat. Stable agent/session IDs still own
