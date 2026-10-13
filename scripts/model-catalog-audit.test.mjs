@@ -3,6 +3,7 @@ import {
   compareEndpointModels,
   compareRequiredModelIds,
   driftDetected,
+  normalizeCatalogModel,
 } from './model-catalog-audit-lib.mjs';
 
 const endpoint = {
@@ -61,3 +62,6 @@ const publicMissing = compareRequiredModelIds(requiredPublicIds, [{ id: 'z-ai/gl
 assert.deepEqual(publicMissing.missingIds, ['z-ai/glm-5.3-flash']);
 assert.equal(driftDetected(publicMissing), true);
 process.stdout.write('model catalog audit fixtures passed\n');
+
+assert.deepEqual(normalizeCatalogModel('video', { modelId: 'MiniMax-H3', displayName: 'MiniMax H3', releaseStatus: 'ga', selectable: true }), { modelId: 'MiniMax-H3', displayName: 'MiniMax H3', releaseStatus: 'ga', selectable: true, id: 'MiniMax-H3', name: 'MiniMax H3', status: 'active' });
+assert.equal(normalizeCatalogModel('video', { modelId: 'gated', displayName: 'Gated', releaseStatus: 'unverified' }).status, 'gated');

@@ -4986,6 +4986,24 @@ mod tests {
         assert!(body.get("temperature").is_none());
     }
 
+    #[test]
+    fn muse_wonder_chat_request_keeps_only_supported_reasoning_fields() {
+        let mut request = endpoint_reasoning_request("muse-wonder-1.0");
+        request.reasoning_effort = Some(ReasoningEffort::Max);
+        request.stop = Some(vec!["done".into()]);
+        let meta = endpoint_config(ProviderType::OpenAi, "https://api.meta.ai/v1");
+        let body =
+            serde_json::to_value(build_request_body_with_config(&request, false, Some(&meta)))
+                .unwrap();
+        assert_eq!(body["reasoning_effort"], "max");
+        assert!(body.get("stop").is_none());
+        request.reasoning_effort = None;
+        let body =
+            serde_json::to_value(build_request_body_with_config(&request, false, Some(&meta)))
+                .unwrap();
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
     fn endpoint_reasoning_request(model: &str) -> CompletionRequest {
         CompletionRequest {
             model: model.to_string(),

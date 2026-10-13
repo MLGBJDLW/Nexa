@@ -579,8 +579,11 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
-        "minDimensions": 128
+        "lastVerifiedAt": "2026-10-13",
+        "minDimensions": 128,
+        "status": "deprecated",
+        "deprecationDate": "2028-05-14",
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
       }
     ],
     "documentationUrl": "https://ai.google.dev/gemini-api/docs/embeddings"

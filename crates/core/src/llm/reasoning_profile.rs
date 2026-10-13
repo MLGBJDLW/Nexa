@@ -784,7 +784,9 @@ pub fn resolve_reasoning_profile(
         return value;
     }
 
-    if is_meta_model_api_endpoint(provider, base_url) && model == "muse-spark-1.3" {
+    if is_meta_model_api_endpoint(provider, base_url)
+        && matches!(model.as_str(), "muse-spark-1.3" | "muse-wonder-1.0")
+    {
         let Some((accepted_efforts, default_effort, mandatory)) =
             catalog_reasoning_effort_policy(provider, &model)
         else {
@@ -792,7 +794,7 @@ pub fn resolve_reasoning_profile(
         };
         let mut value = profile(
             key,
-            "meta-muse-spark-1.3-v1",
+            "meta-muse-reasoning-v1",
             if mandatory {
                 ThinkingModeControl::AlwaysOn
             } else {
@@ -1988,5 +1990,29 @@ mod tests {
             flash.replay_policy,
             ReasoningReplayPolicy::RequiredOnToolCall
         );
+    }
+    #[test]
+    fn muse_wonder_reasoning_is_exact_endpoint_scoped_and_has_no_fabricated_default() {
+        let value = resolve_reasoning_profile(
+            ProviderType::OpenAi,
+            Some("https://api.meta.ai/v1"),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            "muse-wonder-1.0",
+        );
+        assert_eq!(value.mode_control, ThinkingModeControl::AlwaysOn);
+        assert_eq!(value.default_effort, None);
+        assert!(!value.accepted_efforts.contains(&ReasoningEffort::None));
+        assert_eq!(
+            value.wire_effort(Some(&ReasoningEffort::Max)).as_deref(),
+            Some("max")
+        );
+        assert!(value.omit_stop_when_reasoning);
+        let private = resolve_reasoning_profile(
+            ProviderType::OpenAi,
+            Some("https://tenant.example/v1"),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            "muse-wonder-1.0",
+        );
+        assert_ne!(private.id, value.id);
     }
 }

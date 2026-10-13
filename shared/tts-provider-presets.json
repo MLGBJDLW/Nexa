@@ -8,29 +8,185 @@
     "baseUrl": "https://api.openai.com/v1",
     "description": "The latest steerable GPT-4o mini speech model, plus low-latency and HD options.",
     "models": [
-      {"id": "gpt-4o-mini-tts", "name": "GPT-4o Mini TTS (Latest)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 4096},
-      {"id": "gpt-4o-mini-tts-2025-12-15", "name": "GPT-4o Mini TTS (2025-12-15)", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
-      {"id": "tts-1", "name": "TTS-1 (Lowest Latency)", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
-      {"id": "tts-1-hd", "name": "TTS-1 HD", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 4096, "status": "deprecated", "documentationRef": "https://developers.openai.com/api/docs/deprecations"}
+      {
+        "id": "gpt-4o-mini-tts",
+        "name": "GPT-4o Mini TTS (Latest)",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-09-29",
+        "maxInputCharacters": 4096
+      },
+      {
+        "id": "gpt-4o-mini-tts-2025-12-15",
+        "name": "GPT-4o Mini TTS (2025-12-15)",
+        "lastVerifiedAt": "2026-10-13",
+        "source": "official",
+        "productReadiness": "known",
+        "maxInputCharacters": 4096,
+        "status": "deprecated",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "deprecationDate": "2027-01-06"
+      },
+      {
+        "id": "tts-1",
+        "name": "TTS-1 (Lowest Latency)",
+        "lastVerifiedAt": "2026-10-13",
+        "source": "official",
+        "productReadiness": "known",
+        "maxInputCharacters": 4096,
+        "status": "deprecated",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "deprecationDate": "2027-01-06"
+      },
+      {
+        "id": "tts-1-hd",
+        "name": "TTS-1 HD",
+        "lastVerifiedAt": "2026-10-08",
+        "source": "official",
+        "productReadiness": "known",
+        "maxInputCharacters": 4096,
+        "status": "deprecated",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+      }
     ],
     "voices": [
-      {"id": "coral", "name": "Coral", "recommended": true, "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "alloy", "name": "Alloy", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "ash", "name": "Ash", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "ballad", "name": "Ballad", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15"]},
-      {"id": "cedar", "name": "Cedar", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15"]},
-      {"id": "echo", "name": "Echo", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "fable", "name": "Fable", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "marin", "name": "Marin", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15"]},
-      {"id": "nova", "name": "Nova", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "onyx", "name": "Onyx", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "sage", "name": "Sage", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "shimmer", "name": "Shimmer", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15", "tts-1", "tts-1-hd"]},
-      {"id": "verse", "name": "Verse", "modelIds": ["gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-12-15"]}
+      {
+        "id": "coral",
+        "name": "Coral",
+        "recommended": true,
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "alloy",
+        "name": "Alloy",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "ash",
+        "name": "Ash",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "ballad",
+        "name": "Ballad",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15"
+        ]
+      },
+      {
+        "id": "cedar",
+        "name": "Cedar",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15"
+        ]
+      },
+      {
+        "id": "echo",
+        "name": "Echo",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "fable",
+        "name": "Fable",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "marin",
+        "name": "Marin",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15"
+        ]
+      },
+      {
+        "id": "nova",
+        "name": "Nova",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "onyx",
+        "name": "Onyx",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "sage",
+        "name": "Sage",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "shimmer",
+        "name": "Shimmer",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15",
+          "tts-1",
+          "tts-1-hd"
+        ]
+      },
+      {
+        "id": "verse",
+        "name": "Verse",
+        "modelIds": [
+          "gpt-4o-mini-tts",
+          "gpt-4o-mini-tts-2025-12-15"
+        ]
+      }
     ],
-    "outputFormats": ["wav", "mp3", "opus", "aac", "flac"],
+    "outputFormats": [
+      "wav",
+      "mp3",
+      "opus",
+      "aac",
+      "flac"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://developers.openai.com/api/docs/guides/text-to-speech", "https://developers.openai.com/api/reference/cli/resources/audio/subresources/speech/methods/create"]
+    "documentationUrls": [
+      "https://developers.openai.com/api/docs/guides/text-to-speech",
+      "https://developers.openai.com/api/reference/cli/resources/audio/subresources/speech/methods/create"
+    ]
   },
   {
     "id": "groq",
@@ -41,26 +197,124 @@
     "baseUrl": "https://api.groq.com/openai/v1",
     "description": "Very fast US-hosted Orpheus speech with expressive English and Saudi Arabic voices.",
     "models": [
-      {"id": "canopylabs/orpheus-v1-english", "name": "Orpheus English", "source": "official", "productReadiness": "known", "recommended": true, "maxInputCharacters": 200, "lastVerifiedAt": "2026-10-08", "status": "preview", "access": "public"},
-      {"id": "canopylabs/orpheus-arabic-saudi", "name": "Orpheus Arabic (Saudi)", "maxInputCharacters": 200, "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "status": "preview", "access": "public"}
+      {
+        "id": "canopylabs/orpheus-v1-english",
+        "name": "Orpheus English",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "maxInputCharacters": 200,
+        "lastVerifiedAt": "2026-10-08",
+        "status": "preview",
+        "access": "public"
+      },
+      {
+        "id": "canopylabs/orpheus-arabic-saudi",
+        "name": "Orpheus Arabic (Saudi)",
+        "maxInputCharacters": 200,
+        "lastVerifiedAt": "2026-10-08",
+        "source": "official",
+        "productReadiness": "known",
+        "status": "preview",
+        "access": "public"
+      }
     ],
     "voices": [
-      {"id": "hannah", "name": "Hannah", "recommended": true, "modelIds": ["canopylabs/orpheus-v1-english"]},
-      {"id": "autumn", "name": "Autumn", "modelIds": ["canopylabs/orpheus-v1-english"]},
-      {"id": "diana", "name": "Diana", "modelIds": ["canopylabs/orpheus-v1-english"]},
-      {"id": "austin", "name": "Austin", "modelIds": ["canopylabs/orpheus-v1-english"]},
-      {"id": "daniel", "name": "Daniel", "modelIds": ["canopylabs/orpheus-v1-english"]},
-      {"id": "troy", "name": "Troy", "modelIds": ["canopylabs/orpheus-v1-english"]},
-      {"id": "fahad", "name": "Fahad (Arabic)", "modelIds": ["canopylabs/orpheus-arabic-saudi"]},
-      {"id": "lulwa", "name": "Lulwa (Arabic)", "modelIds": ["canopylabs/orpheus-arabic-saudi"]},
-      {"id": "abdullah", "name": "Abdullah (Arabic)", "modelIds": ["canopylabs/orpheus-arabic-saudi"], "recommended": true},
-      {"id": "sultan", "name": "Sultan (Arabic)", "modelIds": ["canopylabs/orpheus-arabic-saudi"]},
-      {"id": "noura", "name": "Noura (Arabic)", "modelIds": ["canopylabs/orpheus-arabic-saudi"]},
-      {"id": "aisha", "name": "Aisha (Arabic)", "modelIds": ["canopylabs/orpheus-arabic-saudi"]}
+      {
+        "id": "hannah",
+        "name": "Hannah",
+        "recommended": true,
+        "modelIds": [
+          "canopylabs/orpheus-v1-english"
+        ]
+      },
+      {
+        "id": "autumn",
+        "name": "Autumn",
+        "modelIds": [
+          "canopylabs/orpheus-v1-english"
+        ]
+      },
+      {
+        "id": "diana",
+        "name": "Diana",
+        "modelIds": [
+          "canopylabs/orpheus-v1-english"
+        ]
+      },
+      {
+        "id": "austin",
+        "name": "Austin",
+        "modelIds": [
+          "canopylabs/orpheus-v1-english"
+        ]
+      },
+      {
+        "id": "daniel",
+        "name": "Daniel",
+        "modelIds": [
+          "canopylabs/orpheus-v1-english"
+        ]
+      },
+      {
+        "id": "troy",
+        "name": "Troy",
+        "modelIds": [
+          "canopylabs/orpheus-v1-english"
+        ]
+      },
+      {
+        "id": "fahad",
+        "name": "Fahad (Arabic)",
+        "modelIds": [
+          "canopylabs/orpheus-arabic-saudi"
+        ]
+      },
+      {
+        "id": "lulwa",
+        "name": "Lulwa (Arabic)",
+        "modelIds": [
+          "canopylabs/orpheus-arabic-saudi"
+        ]
+      },
+      {
+        "id": "abdullah",
+        "name": "Abdullah (Arabic)",
+        "modelIds": [
+          "canopylabs/orpheus-arabic-saudi"
+        ],
+        "recommended": true
+      },
+      {
+        "id": "sultan",
+        "name": "Sultan (Arabic)",
+        "modelIds": [
+          "canopylabs/orpheus-arabic-saudi"
+        ]
+      },
+      {
+        "id": "noura",
+        "name": "Noura (Arabic)",
+        "modelIds": [
+          "canopylabs/orpheus-arabic-saudi"
+        ]
+      },
+      {
+        "id": "aisha",
+        "name": "Aisha (Arabic)",
+        "modelIds": [
+          "canopylabs/orpheus-arabic-saudi"
+        ]
+      }
     ],
-    "outputFormats": ["wav"],
+    "outputFormats": [
+      "wav"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://console.groq.com/docs/text-to-speech/orpheus", "https://console.groq.com/docs/deprecations"]
+    "documentationUrls": [
+      "https://console.groq.com/docs/text-to-speech/orpheus",
+      "https://console.groq.com/docs/deprecations"
+    ]
   },
   {
     "id": "elevenlabs",
@@ -71,20 +325,85 @@
     "baseUrl": "https://api.elevenlabs.io/v1",
     "description": "Expressive speech with Eleven v4 through Text to Dialogue, and Flash v2.5 for low latency. Nexa returns completed MP3 audio.",
     "models": [
-      {"id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5 (Fast)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-10-08", "maxInputCharacters": 40000},
-      {"id": "eleven_v4", "name": "Eleven v4", "maxInputCharacters": 10000, "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known"},
-      {"id": "eleven_v3", "name": "Eleven v3", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 5000},
-      {"id": "eleven_multilingual_v2", "name": "Eleven Multilingual v2", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 10000},
-      {"id": "eleven_v4_turbo", "name": "Eleven v4 Turbo", "recommended": false, "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-10-08", "documentationRef": "https://elevenlabs.io/docs/eleven-api/guides/how-to/websockets/realtime-tdd", "speedRange": [1, 1]},
-      {"id": "eleven_v3_conversational", "name": "Eleven v3 Conversational", "recommended": false, "source": "official", "productReadiness": "known", "lastVerifiedAt": "2026-10-08", "documentationRef": "https://elevenlabs.io/docs/eleven-api/guides/how-to/websockets/realtime-tdd", "speedRange": [1, 1]}
+      {
+        "id": "eleven_flash_v2_5",
+        "name": "Eleven Flash v2.5 (Fast)",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-10-08",
+        "maxInputCharacters": 40000
+      },
+      {
+        "id": "eleven_v4",
+        "name": "Eleven v4",
+        "maxInputCharacters": 10000,
+        "lastVerifiedAt": "2026-10-08",
+        "source": "official",
+        "productReadiness": "known"
+      },
+      {
+        "id": "eleven_v3",
+        "name": "Eleven v3",
+        "lastVerifiedAt": "2026-10-08",
+        "source": "official",
+        "productReadiness": "known",
+        "maxInputCharacters": 5000
+      },
+      {
+        "id": "eleven_multilingual_v2",
+        "name": "Eleven Multilingual v2",
+        "lastVerifiedAt": "2026-10-08",
+        "source": "official",
+        "productReadiness": "known",
+        "maxInputCharacters": 10000
+      },
+      {
+        "id": "eleven_v4_turbo",
+        "name": "Eleven v4 Turbo",
+        "recommended": false,
+        "source": "official",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-08",
+        "documentationRef": "https://elevenlabs.io/docs/eleven-api/guides/how-to/websockets/realtime-tdd",
+        "speedRange": [
+          1,
+          1
+        ]
+      },
+      {
+        "id": "eleven_v3_conversational",
+        "name": "Eleven v3 Conversational",
+        "recommended": false,
+        "source": "official",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-08",
+        "documentationRef": "https://elevenlabs.io/docs/eleven-api/guides/how-to/websockets/realtime-tdd",
+        "speedRange": [
+          1,
+          1
+        ]
+      }
     ],
     "voices": [
-      {"id": "JBFqnCBsd6RMkjVDRZzb", "name": "George", "recommended": true}
+      {
+        "id": "JBFqnCBsd6RMkjVDRZzb",
+        "name": "George",
+        "recommended": true
+      }
     ],
-    "outputFormats": ["mp3"],
+    "outputFormats": [
+      "mp3"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://elevenlabs.io/docs/overview/models", "https://elevenlabs.io/docs/api-reference/text-to-dialogue/convert"],
-    "speedRange": [0.7, 1.2]
+    "documentationUrls": [
+      "https://elevenlabs.io/docs/overview/models",
+      "https://elevenlabs.io/docs/api-reference/text-to-dialogue/convert"
+    ],
+    "speedRange": [
+      0.7,
+      1.2
+    ]
   },
   {
     "id": "azure-speech",
@@ -95,18 +414,46 @@
     "baseUrl": "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1",
     "description": "Microsoft neural speech with broad regional, multilingual, and Chinese voice coverage. Replace eastus with your Speech resource region.",
     "models": [
-      {"id": "neural", "name": "Azure Neural Speech", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"}
+      {
+        "id": "neural",
+        "name": "Azure Neural Speech",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-09-29"
+      }
     ],
     "voices": [
-      {"id": "en-US-JennyMultilingualNeural", "name": "Jenny Multilingual (US)", "recommended": true},
-      {"id": "en-US-JennyNeural", "name": "Jenny (US)"},
-      {"id": "en-US-ChristopherNeural", "name": "Christopher (US)"},
-      {"id": "zh-CN-XiaoxiaoNeural", "name": "晓晓 (普通话)"},
-      {"id": "zh-CN-YunxiNeural", "name": "云希 (普通话)"}
+      {
+        "id": "en-US-JennyMultilingualNeural",
+        "name": "Jenny Multilingual (US)",
+        "recommended": true
+      },
+      {
+        "id": "en-US-JennyNeural",
+        "name": "Jenny (US)"
+      },
+      {
+        "id": "en-US-ChristopherNeural",
+        "name": "Christopher (US)"
+      },
+      {
+        "id": "zh-CN-XiaoxiaoNeural",
+        "name": "晓晓 (普通话)"
+      },
+      {
+        "id": "zh-CN-YunxiNeural",
+        "name": "云希 (普通话)"
+      }
     ],
-    "outputFormats": ["wav", "mp3"],
+    "outputFormats": [
+      "wav",
+      "mp3"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech"]
+    "documentationUrls": [
+      "https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech"
+    ]
   },
   {
     "id": "minimax",
@@ -117,15 +464,38 @@
     "baseUrl": "https://api.minimax.io/v1",
     "description": "Speech 2.8 turbo for speed and HD for higher-fidelity output.",
     "models": [
-      {"id": "speech-2.8-turbo", "name": "Speech 2.8 Turbo", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "speech-2.8-hd", "name": "Speech 2.8 HD", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {
+        "id": "speech-2.8-turbo",
+        "name": "Speech 2.8 Turbo",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-09-29"
+      },
+      {
+        "id": "speech-2.8-hd",
+        "name": "Speech 2.8 HD",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      }
     ],
     "voices": [
-      {"id": "male-qn-qingse", "name": "Qingse", "recommended": true}
+      {
+        "id": "male-qn-qingse",
+        "name": "Qingse",
+        "recommended": true
+      }
     ],
-    "outputFormats": ["mp3", "wav", "flac"],
+    "outputFormats": [
+      "mp3",
+      "wav",
+      "flac"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://platform.minimax.io/docs/api-reference/speech-t2a-http"]
+    "documentationUrls": [
+      "https://platform.minimax.io/docs/api-reference/speech-t2a-http"
+    ]
   },
   {
     "id": "qwen-audio-generation",
@@ -136,13 +506,25 @@
     "baseUrl": "",
     "description": "Text-directed audio generation (China Beijing). Enter your workspace HTTPS SpeechSynthesizer endpoint. Describe speech, dialogue or soundscapes in up to 3000 characters; no voice ID is required.",
     "models": [
-      {"id": "qwen-audio-3.1-tts-next", "name": "Qwen Audio 3.1 TTS Next", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 3000}
+      {
+        "id": "qwen-audio-3.1-tts-next",
+        "name": "Qwen Audio 3.1 TTS Next",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-09-29",
+        "maxInputCharacters": 3000
+      }
     ],
-    "voices": [
+    "voices": [],
+    "outputFormats": [
+      "wav",
+      "mp3"
     ],
-    "outputFormats": ["wav", "mp3"],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-next"]
+    "documentationUrls": [
+      "https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-next"
+    ]
   },
   {
     "id": "dashscope-cosyvoice",
@@ -153,36 +535,198 @@
     "baseUrl": "https://dashscope.aliyuncs.com/api-ws/v1/inference",
     "description": "Qwen Audio and CosyVoice use model-specific voices. CosyVoice v3.5 requires a cloned or designed voice in Beijing. Custom model and voice IDs remain editable.",
     "models": [
-      {"id": "qwen-audio-3.0-tts-flash", "name": "Qwen Audio 3.0 TTS Flash", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29", "maxInputCharacters": 200000},
-      {"id": "qwen-audio-3.0-tts-plus", "name": "Qwen Audio 3.0 TTS Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known", "maxInputCharacters": 200000},
-      {"id": "cosyvoice-v3.5-flash", "name": "CosyVoice v3.5 Flash", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "cosyvoice-v3.5-plus", "name": "CosyVoice v3.5 Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "cosyvoice-v3-flash", "name": "CosyVoice v3 Flash", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "cosyvoice-v3-plus", "name": "CosyVoice v3 Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "qwen-audio-3.1-tts-flash", "name": "Qwen Audio 3.1 TTS Flash (Beijing)", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-10-08", "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-flash", "maxInputCharacters": 200000}
+      {
+        "id": "qwen-audio-3.0-tts-flash",
+        "name": "Qwen Audio 3.0 TTS Flash",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-09-29",
+        "maxInputCharacters": 200000
+      },
+      {
+        "id": "qwen-audio-3.0-tts-plus",
+        "name": "Qwen Audio 3.0 TTS Plus",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known",
+        "maxInputCharacters": 200000
+      },
+      {
+        "id": "cosyvoice-v3.5-flash",
+        "name": "CosyVoice v3.5 Flash",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      },
+      {
+        "id": "cosyvoice-v3.5-plus",
+        "name": "CosyVoice v3.5 Plus",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      },
+      {
+        "id": "cosyvoice-v3-flash",
+        "name": "CosyVoice v3 Flash",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      },
+      {
+        "id": "cosyvoice-v3-plus",
+        "name": "CosyVoice v3 Plus",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      },
+      {
+        "id": "qwen-audio-3.1-tts-flash",
+        "name": "Qwen Audio 3.1 TTS Flash (Beijing)",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-08",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-flash",
+        "maxInputCharacters": 200000
+      }
     ],
     "voices": [
-      {"id": "longanhuan_v3.6", "name": "龙安欢 V3.6 (普通话/English)", "recommended": true, "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "longjielidou_v3.6", "name": "龙杰力豆 V3.6 (普通话/English)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "loongeva_v3.6", "name": "Eva V3.6 (American English)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "loongjohn", "name": "John (American English)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "longanlingxin", "name": "龙安灵心 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"], "recommended": true},
-      {"id": "longanlufeng", "name": "龙安露风 (Qwen Audio Plus)", "modelIds": ["qwen-audio-3.0-tts-plus"]},
-      {"id": "longanfengyue", "name": "龙安风月 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "longanyuanfei", "name": "龙安圆菲 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "longanlingxi", "name": "龙安灵汐 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "longanxiaoxin", "name": "龙安小新 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
-      {"id": "longanyang", "name": "龙安阳 (CosyVoice v3)", "recommended": true, "modelIds": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
-      {"id": "longanhuan_v3.1", "name": "longanhuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "longanlingxin_v3.1", "name": "longanlingxin_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "longanfengyue_v3.1", "name": "longanfengyue_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "xunanchuan_v3.1", "name": "xunanchuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "Emily_v3.1", "name": "Emily_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "Andy_v3.1", "name": "Andy_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]}
+      {
+        "id": "longanhuan_v3.6",
+        "name": "龙安欢 V3.6 (普通话/English)",
+        "recommended": true,
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "longjielidou_v3.6",
+        "name": "龙杰力豆 V3.6 (普通话/English)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "loongeva_v3.6",
+        "name": "Eva V3.6 (American English)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "loongjohn",
+        "name": "John (American English)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "longanlingxin",
+        "name": "龙安灵心 (Qwen Audio Plus)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-plus"
+        ],
+        "recommended": true
+      },
+      {
+        "id": "longanlufeng",
+        "name": "龙安露风 (Qwen Audio Plus)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-plus"
+        ]
+      },
+      {
+        "id": "longanfengyue",
+        "name": "龙安风月 (Qwen Audio Flash)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "longanyuanfei",
+        "name": "龙安圆菲 (Qwen Audio Flash)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "longanlingxi",
+        "name": "龙安灵汐 (Qwen Audio Flash)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "longanxiaoxin",
+        "name": "龙安小新 (Qwen Audio Flash)",
+        "modelIds": [
+          "qwen-audio-3.0-tts-flash"
+        ]
+      },
+      {
+        "id": "longanyang",
+        "name": "龙安阳 (CosyVoice v3)",
+        "recommended": true,
+        "modelIds": [
+          "cosyvoice-v3-flash",
+          "cosyvoice-v3-plus"
+        ]
+      },
+      {
+        "id": "longanhuan_v3.1",
+        "name": "longanhuan_v3.1",
+        "modelIds": [
+          "qwen-audio-3.1-tts-flash"
+        ]
+      },
+      {
+        "id": "longanlingxin_v3.1",
+        "name": "longanlingxin_v3.1",
+        "modelIds": [
+          "qwen-audio-3.1-tts-flash"
+        ]
+      },
+      {
+        "id": "longanfengyue_v3.1",
+        "name": "longanfengyue_v3.1",
+        "modelIds": [
+          "qwen-audio-3.1-tts-flash"
+        ]
+      },
+      {
+        "id": "xunanchuan_v3.1",
+        "name": "xunanchuan_v3.1",
+        "modelIds": [
+          "qwen-audio-3.1-tts-flash"
+        ]
+      },
+      {
+        "id": "Emily_v3.1",
+        "name": "Emily_v3.1",
+        "modelIds": [
+          "qwen-audio-3.1-tts-flash"
+        ]
+      },
+      {
+        "id": "Andy_v3.1",
+        "name": "Andy_v3.1",
+        "modelIds": [
+          "qwen-audio-3.1-tts-flash"
+        ]
+      }
     ],
-    "outputFormats": ["wav", "mp3", "opus"],
+    "outputFormats": [
+      "wav",
+      "mp3",
+      "opus"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://www.alibabacloud.com/help/en/model-studio/realtime-tts-user-guide", "https://www.alibabacloud.com/help/en/model-studio/qwen-audio-tts-voice-list", "https://www.alibabacloud.com/help/en/model-studio/cosyvoice-voice-list"]
+    "documentationUrls": [
+      "https://www.alibabacloud.com/help/en/model-studio/realtime-tts-user-guide",
+      "https://www.alibabacloud.com/help/en/model-studio/qwen-audio-tts-voice-list",
+      "https://www.alibabacloud.com/help/en/model-studio/cosyvoice-voice-list"
+    ]
   },
   {
     "id": "sherpa-onnx",
@@ -194,18 +738,51 @@
     "baseUrl": "",
     "description": "Fast, private offline speech through sherpa-onnx-offline-tts. Supports VITS/Piper/MMS, multilingual Kokoro, and Kitten model packages on Windows, macOS, and Linux.",
     "models": [
-      {"id": "vits", "name": "VITS / Piper / MMS", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "kokoro", "name": "Kokoro", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "kitten", "name": "KittenTTS", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {
+        "id": "vits",
+        "name": "VITS / Piper / MMS",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-09-29"
+      },
+      {
+        "id": "kokoro",
+        "name": "Kokoro",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      },
+      {
+        "id": "kitten",
+        "name": "KittenTTS",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      }
     ],
     "voices": [
-      {"id": "0", "name": "Speaker 0", "recommended": true},
-      {"id": "1", "name": "Speaker 1"},
-      {"id": "18", "name": "Speaker 18 (Kokoro zh/en example)"}
+      {
+        "id": "0",
+        "name": "Speaker 0",
+        "recommended": true
+      },
+      {
+        "id": "1",
+        "name": "Speaker 1"
+      },
+      {
+        "id": "18",
+        "name": "Speaker 18 (Kokoro zh/en example)"
+      }
     ],
-    "outputFormats": ["wav"],
+    "outputFormats": [
+      "wav"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://k2-fsa.github.io/sherpa/onnx/tts/index.html"]
+    "documentationUrls": [
+      "https://k2-fsa.github.io/sherpa/onnx/tts/index.html"
+    ]
   },
   {
     "id": "siliconflow",
@@ -216,19 +793,76 @@
     "baseUrl": "https://api.siliconflow.cn/v1",
     "description": "Hosted Chinese and English speech using MOSS-TTSD or CosyVoice2. Voice IDs are model-specific; custom voice IDs remain editable.",
     "models": [
-      {"id": "fnlp/MOSS-TTSD-v0.5", "name": "MOSS-TTSD v0.5", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "FunAudioLLM/CosyVoice2-0.5B", "name": "CosyVoice2 0.5B", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {
+        "id": "fnlp/MOSS-TTSD-v0.5",
+        "name": "MOSS-TTSD v0.5",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-09-29"
+      },
+      {
+        "id": "FunAudioLLM/CosyVoice2-0.5B",
+        "name": "CosyVoice2 0.5B",
+        "lastVerifiedAt": "2026-09-29",
+        "source": "official",
+        "productReadiness": "known"
+      }
     ],
     "voices": [
-      {"id": "fnlp/MOSS-TTSD-v0.5:alex", "name": "Alex", "recommended": true, "modelIds": ["fnlp/MOSS-TTSD-v0.5"]},
-      {"id": "fnlp/MOSS-TTSD-v0.5:anna", "name": "Anna", "modelIds": ["fnlp/MOSS-TTSD-v0.5"]},
-      {"id": "fnlp/MOSS-TTSD-v0.5:bella", "name": "Bella", "modelIds": ["fnlp/MOSS-TTSD-v0.5"]},
-      {"id": "FunAudioLLM/CosyVoice2-0.5B:alex", "name": "Alex (CosyVoice2)", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"], "recommended": true},
-      {"id": "FunAudioLLM/CosyVoice2-0.5B:anna", "name": "Anna (CosyVoice2)", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]},
-      {"id": "FunAudioLLM/CosyVoice2-0.5B:bella", "name": "Bella (CosyVoice2)", "modelIds": ["FunAudioLLM/CosyVoice2-0.5B"]}
+      {
+        "id": "fnlp/MOSS-TTSD-v0.5:alex",
+        "name": "Alex",
+        "recommended": true,
+        "modelIds": [
+          "fnlp/MOSS-TTSD-v0.5"
+        ]
+      },
+      {
+        "id": "fnlp/MOSS-TTSD-v0.5:anna",
+        "name": "Anna",
+        "modelIds": [
+          "fnlp/MOSS-TTSD-v0.5"
+        ]
+      },
+      {
+        "id": "fnlp/MOSS-TTSD-v0.5:bella",
+        "name": "Bella",
+        "modelIds": [
+          "fnlp/MOSS-TTSD-v0.5"
+        ]
+      },
+      {
+        "id": "FunAudioLLM/CosyVoice2-0.5B:alex",
+        "name": "Alex (CosyVoice2)",
+        "modelIds": [
+          "FunAudioLLM/CosyVoice2-0.5B"
+        ],
+        "recommended": true
+      },
+      {
+        "id": "FunAudioLLM/CosyVoice2-0.5B:anna",
+        "name": "Anna (CosyVoice2)",
+        "modelIds": [
+          "FunAudioLLM/CosyVoice2-0.5B"
+        ]
+      },
+      {
+        "id": "FunAudioLLM/CosyVoice2-0.5B:bella",
+        "name": "Bella (CosyVoice2)",
+        "modelIds": [
+          "FunAudioLLM/CosyVoice2-0.5B"
+        ]
+      }
     ],
-    "outputFormats": ["mp3", "wav", "opus"],
+    "outputFormats": [
+      "mp3",
+      "wav",
+      "opus"
+    ],
     "lastVerifiedAt": "2026-09-29",
-    "documentationUrls": ["https://docs.siliconflow.cn/docs/api/audio-speech-post"]
+    "documentationUrls": [
+      "https://docs.siliconflow.cn/docs/api/audio-speech-post"
+    ]
   }
 ]

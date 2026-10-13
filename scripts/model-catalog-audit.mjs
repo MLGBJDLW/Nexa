@@ -6,6 +6,7 @@ import {
   compareEndpointModels,
   compareRequiredModelIds,
   driftDetected,
+  normalizeCatalogModel,
 } from './model-catalog-audit-lib.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,6 +25,8 @@ const sources = [
   ['embedding', 'shared/embedding-provider-presets.json'],
   ['speech_to_text', 'shared/stt-provider-presets.json'],
   ['text_to_speech', 'shared/tts-provider-presets.json'],
+  ['decision', 'shared/system-one-provider-presets.json'],
+  ['video', 'shared/video-provider-presets.json'],
 ];
 
 const discoveryCredentials = new Map([
@@ -44,6 +47,7 @@ const publicRequiredModelIds = new Map([
     'openai/gpt-6-sol', 'openai/gpt-6-luna',
     'openai/gpt-6-sol-pro', 'openai/gpt-6-luna-pro',
     'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed',
+    'meta/muse-wonder', 'stepfun/step-5-preview', 'inclusionai/ling-3.0-flash-sante',
   ]],
 ]);
 
@@ -104,7 +108,8 @@ async function buildStaticCatalog() {
       endpointIds.add(endpointId);
       const seenModels = new Set();
       const models = [];
-      for (const model of preset.models ?? []) {
+      for (const rawModel of preset.models ?? []) {
+        const model = normalizeCatalogModel(surface, rawModel);
         if (!model.id || !model.name) errors.push(`${endpointId}: model id and name are required`);
         if (seenModels.has(model.id)) errors.push(`${endpointId}: duplicate model id ${model.id}`);
         seenModels.add(model.id);
