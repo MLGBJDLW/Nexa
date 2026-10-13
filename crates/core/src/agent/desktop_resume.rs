@@ -263,19 +263,36 @@ pub(super) fn reconcile_resumed_reconnaissance(
             node.origin == WorkflowNodeOrigin::RuntimeReconnaissance
                 && node.requirement == WorkflowNodeRequirement::Advisory
                 && node.status != WorkflowNodeStatus::Succeeded
-                && node.attempts > 0
         })
         .map(|node| node.id.clone())
         .collect::<Vec<_>>();
     for id in pending {
-        let receipt = receipts.iter().rev().find(|row| {
-            row.input
-                .as_ref()
-                .and_then(|input| input.get("workerId"))
-                .and_then(Value::as_str)
-                == Some(&id)
-        });
+        let matching = receipts
+            .iter()
+            .filter(|row| {
+                row.input
+                    .as_ref()
+                    .and_then(|input| input.get("workerId"))
+                    .and_then(Value::as_str)
+                    == Some(&id)
+            })
+            .collect::<Vec<_>>();
+        let receipt = matching.last().copied();
+        let node = workflow
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == id)
+            .unwrap();
+        // An older checkpoint may precede admission while the durable worker
+        // receipt already exists. Receipt ownership outranks its stale counter.
+        node.attempts = node
+            .attempts
+            .max(u8::try_from(matching.len()).unwrap_or(u8::MAX));
+        if node.attempts == 0 {
+            continue;
+        }
         if let Some(result) = receipt
+            .filter(|row| row.status == "completed")
             .and_then(|row| row.output.as_ref())
             .and_then(|output| output.get("run"))
             .filter(|result| result.get("isError").and_then(Value::as_bool) == Some(false))

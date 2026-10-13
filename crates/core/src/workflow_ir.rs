@@ -242,10 +242,9 @@ impl WorkflowIr {
         &mut self,
         state: crate::workflow_verification::VerificationSourceState,
     ) -> bool {
-        let changed = self
-            .verification_source
-            .as_ref()
-            .is_some_and(|previous| previous != &state);
+        // Legacy checkpoints have no source attestation. Their green gates
+        // cannot be adopted as verification of whatever is on disk now.
+        let changed = self.verification_source.as_ref() != Some(&state);
         if changed || state.pending {
             for gate in &mut self.verification_gates {
                 if gate.required
@@ -4680,13 +4679,40 @@ mod tests {
     }
 
     #[test]
+    fn legacy_checkpoint_cannot_adopt_current_source_with_stale_green_checks() {
+        let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
+        for gate in &mut workflow.verification_gates {
+            gate.passed = Some(true);
+        }
+        let mut old = serde_json::to_value(workflow).unwrap();
+        old.as_object_mut().unwrap().remove("verificationSource");
+        let mut restored: WorkflowIr = serde_json::from_value(old).unwrap();
+        assert!(!restored.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "source-after-pause".into(),
+                pending: false,
+            }
+        ));
+        assert!(restored
+            .verification_gates
+            .iter()
+            .filter(|gate| gate.required
+                && matches!(
+                    gate.kind,
+                    VerificationGateKind::Tests | VerificationGateKind::IndependentReview
+                ))
+            .all(|gate| gate.passed.is_none()));
+        assert!(!restored.completion_allowed());
+    }
+
+    #[test]
     fn source_changes_invalidate_checks_and_generic_rankings_never_pass_review() {
         let mut workflow = compile_workflow_ir(&plan(), &profile(), true).unwrap();
         let source = crate::workflow_verification::VerificationSourceState {
             digest: "source-a".into(),
             pending: false,
         };
-        assert!(workflow.reconcile_verification_source(source.clone()));
+        assert!(!workflow.reconcile_verification_source(source.clone()));
         for gate in &mut workflow.verification_gates {
             gate.passed = Some(true);
         }

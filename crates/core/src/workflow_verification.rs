@@ -32,59 +32,7 @@ pub fn capture(
     let mut paths = BTreeSet::new();
     let mut hash = blake3::Hasher::new();
     for root in roots {
-        hash.update(root.to_string_lossy().as_bytes());
-        if !root.is_dir() {
-            paths.insert(root);
-            continue;
-        }
-        if let Some(head) = git(&root, &["rev-parse", "HEAD"]) {
-            hash.update(&head);
-            hash.update(
-                &git(&root, &["diff", "--cached", "--binary", "--no-ext-diff"]).ok_or_else(
-                    || CoreError::Internal("Cannot inspect staged verification source".into()),
-                )?,
-            );
-            let changed = git(
-                &root,
-                &[
-                    "ls-files",
-                    "-z",
-                    "--modified",
-                    "--others",
-                    "--exclude-standard",
-                ],
-            )
-            .ok_or_else(|| {
-                CoreError::Internal("Cannot inspect verification source changes".into())
-            })?;
-            for entry in changed
-                .split(|byte| *byte == 0)
-                .filter(|entry| !entry.is_empty())
-            {
-                let relative = std::str::from_utf8(entry).map_err(|_| {
-                    CoreError::InvalidInput("Verification source has a non-UTF8 path".into())
-                })?;
-                paths.insert(root.join(relative));
-            }
-        } else {
-            // Reuse Git-ignore semantics in ordinary folders; do not follow links.
-            for entry in ignore::WalkBuilder::new(&root)
-                .hidden(false)
-                .require_git(false)
-                .follow_links(false)
-                .build()
-            {
-                let entry = entry.map_err(|error| {
-                    CoreError::Internal(format!("Cannot inspect verification source: {error}"))
-                })?;
-                if entry
-                    .file_type()
-                    .is_some_and(|kind| kind.is_file() || kind.is_symlink())
-                {
-                    paths.insert(entry.into_path());
-                }
-            }
-        }
+        collect_root(&root, &mut hash, &mut paths)?;
     }
     let mut pending = false;
     if let (Some(conversation), Some(turn)) = (conversation, turn) {
@@ -107,7 +55,8 @@ pub fn capture(
             }
         }
     }
-    for path in paths {
+    let mut visited_directories = BTreeSet::new();
+    while let Some(path) = paths.pop_first() {
         hash.update(path.to_string_lossy().as_bytes());
         match std::fs::symlink_metadata(&path) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -129,7 +78,10 @@ pub fn capture(
                 }
             }
             Ok(_) => {
-                hash.update(b"directory");
+                let canonical = path.canonicalize()?;
+                if visited_directories.insert(canonical) {
+                    collect_root(&path, &mut hash, &mut paths)?;
+                }
             }
         }
     }
@@ -137,6 +89,65 @@ pub fn capture(
         digest: hash.finalize().to_hex().to_string(),
         pending,
     })
+}
+
+fn collect_root(
+    root: &Path,
+    hash: &mut blake3::Hasher,
+    paths: &mut BTreeSet<PathBuf>,
+) -> Result<(), CoreError> {
+    hash.update(root.to_string_lossy().as_bytes());
+    if !root.is_dir() {
+        paths.insert(root.to_owned());
+        return Ok(());
+    }
+    if let Some(head) = git(root, &["rev-parse", "HEAD"]) {
+        hash.update(&head);
+        hash.update(
+            &git(root, &["diff", "--cached", "--binary", "--no-ext-diff"]).ok_or_else(|| {
+                CoreError::Internal("Cannot inspect staged verification source".into())
+            })?,
+        );
+        let changed = git(
+            root,
+            &[
+                "ls-files",
+                "-z",
+                "--modified",
+                "--others",
+                "--exclude-standard",
+            ],
+        )
+        .ok_or_else(|| CoreError::Internal("Cannot inspect verification source changes".into()))?;
+        for entry in changed
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty())
+        {
+            let relative = std::str::from_utf8(entry).map_err(|_| {
+                CoreError::InvalidInput("Verification source has a non-UTF8 path".into())
+            })?;
+            paths.insert(root.join(relative));
+        }
+    } else {
+        // Reuse Git-ignore semantics in ordinary folders; do not follow links.
+        for entry in ignore::WalkBuilder::new(root)
+            .hidden(false)
+            .require_git(false)
+            .follow_links(false)
+            .build()
+        {
+            let entry = entry.map_err(|error| {
+                CoreError::Internal(format!("Cannot inspect verification source: {error}"))
+            })?;
+            if entry
+                .file_type()
+                .is_some_and(|kind| kind.is_file() || kind.is_symlink())
+            {
+                paths.insert(entry.into_path());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
@@ -157,6 +168,50 @@ fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn source_identity_tracks_gitlink_commits_and_successive_dirty_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let child = root.join("dependency");
+        std::fs::create_dir(&child).unwrap();
+        let command = |root: &Path, args: &[&str]| {
+            assert!(git(root, args).is_some(), "git {args:?}");
+        };
+        for repo in [root, child.as_path()] {
+            command(repo, &["init"]);
+            command(repo, &["config", "user.name", "Nexa test"]);
+            command(repo, &["config", "user.email", "test@example.invalid"]);
+        }
+        std::fs::write(child.join("source.rs"), "A").unwrap();
+        command(&child, &["add", "source.rs"]);
+        command(
+            &child,
+            &["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+        );
+        command(root, &["add", "dependency"]);
+        command(
+            root,
+            &["-c", "commit.gpgsign=false", "commit", "-m", "gitlink"],
+        );
+        let db = Database::open_memory().unwrap();
+        let workspace = Workspace {
+            roots: vec![root.to_string_lossy().into_owned()],
+        };
+        let snapshot = || capture(&db, None, None, &[], Some(&workspace)).unwrap();
+        let initial = snapshot();
+        std::fs::write(child.join("source.rs"), "B").unwrap();
+        let dirty = snapshot();
+        assert_ne!(initial, dirty);
+        std::fs::write(child.join("source.rs"), "C").unwrap();
+        assert_ne!(dirty, snapshot());
+        command(&child, &["add", "source.rs"]);
+        command(
+            &child,
+            &["-c", "commit.gpgsign=false", "commit", "-m", "change"],
+        );
+        assert_ne!(initial, snapshot());
+        assert_eq!(snapshot(), snapshot());
+    }
     #[test]
     fn source_identity_observes_external_edits_and_ignores_unchanged_reads() {
         let temp = tempfile::tempdir().unwrap();

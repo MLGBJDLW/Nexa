@@ -1292,6 +1292,28 @@ impl AgentExecutor {
                         .map_err(CoreError::InvalidInput)?;
                 }
 
+                // Persist admission before any worker can incur cost or finish.
+                // A crash must not restore the prior Pending wave and replay it.
+                if let Some(tid) = turn_id {
+                    if let Some(task_run) = db.get_agent_task_run_by_turn(tid)? {
+                        let mut checkpoint = workflow_ir.task_plan_checkpoint(&task_plan);
+                        checkpoint["completedToolRounds"] =
+                            serde_json::json!(turn_budget.tool_rounds_used());
+                        checkpoint["maxIterations"] = serde_json::json!(turn_budget
+                            .configured_tool_round_limit()
+                            .unwrap_or(u32::MAX));
+                        db.update_agent_task_run_progress(
+                            &task_run.id,
+                            Some("running"),
+                            Some("tooling"),
+                            Some(route_plan.kind.as_str()),
+                            Some("Reconnaissance wave admitted"),
+                            Some(&checkpoint),
+                            None,
+                        )?;
+                    }
+                }
+
                 let call = ToolCallRequest {
                     id: format!("workflow-recon-{}", Uuid::new_v4()),
                     name: "spawn_subagent_batch".to_string(),

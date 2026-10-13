@@ -581,6 +581,18 @@ fn nexus_resume_keeps_successful_reconnaissance_and_recovers_late_owned_receipts
         )
         .unwrap();
     db.finish_agent_subtask_run(&row.id, "completed", Some(&json!({"run":{"id":ids[1],"isError":false,"result":"Late evidence retained","evidenceHandoff":[{"path":"late.rs"}]}})), None).unwrap();
+    // Simulate a pre-upgrade crash whose checkpoint predates worker admission.
+    checkpoint["workflowIr"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .filter(|node| node["id"] == ids[1])
+        .for_each(|node| {
+            node["attempts"] = json!(0);
+            node["status"] = json!("pending");
+        });
+    db.update_agent_task_run_progress(&run.id, None, None, None, None, Some(&checkpoint), None)
+        .unwrap();
     let mut restored =
         load_execution_resume_state(&db, Some(&run.conversation_id), Some(&run.turn_id))
             .unwrap()
