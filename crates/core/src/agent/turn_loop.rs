@@ -862,14 +862,21 @@ impl AgentExecutor {
         } else {
             source_scope.clone()
         };
+        let verification_capture =
+            crate::workflow_verification::Capture::new(self.cancel_token.clone());
         if let Some(workflow) = workflow_ir.as_mut() {
-            workflow.reconcile_verification_source(crate::workflow_verification::capture(
-                db,
-                conversation_id,
-                turn_id,
-                &execution_source_scope,
-                self.tools.workspace(),
-            )?);
+            workflow.reconcile_verification_source(
+                verification_capture
+                    .capture(
+                        db,
+                        conversation_id,
+                        turn_id,
+                        &execution_source_scope,
+                        self.tools.workspace(),
+                        crate::workflow_verification::CaptureMode::Authoritative,
+                    )
+                    .await?,
+            );
         }
         let mut task_plan_value = workflow_ir
             .as_ref()
@@ -2725,13 +2732,16 @@ impl AgentExecutor {
                     .filter(|workflow| workflow.requires_completion_audit())
                 {
                     workflow_ir.reconcile_verification_source(
-                        crate::workflow_verification::capture(
-                            db,
-                            conversation_id,
-                            turn_id,
-                            &execution_source_scope,
-                            self.tools.workspace(),
-                        )?,
+                        verification_capture
+                            .capture(
+                                db,
+                                conversation_id,
+                                turn_id,
+                                &execution_source_scope,
+                                self.tools.workspace(),
+                                crate::workflow_verification::CaptureMode::Authoritative,
+                            )
+                            .await?,
                     );
                     workflow_ir.sync_from_task_plan(&task_plan);
                     let final_audit = audit_final_answer(
@@ -2772,13 +2782,16 @@ impl AgentExecutor {
                         }
                     }
                     workflow_ir.reconcile_verification_source(
-                        crate::workflow_verification::capture(
-                            db,
-                            conversation_id,
-                            turn_id,
-                            &execution_source_scope,
-                            self.tools.workspace(),
-                        )?,
+                        verification_capture
+                            .capture(
+                                db,
+                                conversation_id,
+                                turn_id,
+                                &execution_source_scope,
+                                self.tools.workspace(),
+                                crate::workflow_verification::CaptureMode::Authoritative,
+                            )
+                            .await?,
                     );
                     if (workflow_ir.requires_runtime_write_isolation()
                         || self.config.request_kind.requires_workspace_isolation())
@@ -2999,14 +3012,37 @@ impl AgentExecutor {
             // Preserve the round for that alternate strategy.
             let dispatch_consumes_tool_round = tool_dispatch_block.is_none();
 
+            // A cached observation may invalidate earlier receipts, but only
+            // fresh content can bind commands/reviews to a source revision.
+            let verification_mode = if tool_calls.iter().any(|call| {
+                matches!(
+                    call.name.as_str(),
+                    "run_shell"
+                        | "judge_subagent_results"
+                        | "spawn_subagent"
+                        | "spawn_subagent_batch"
+                        | "browser_evidence_capture"
+                        | "browser_session"
+                )
+            }) {
+                crate::workflow_verification::CaptureMode::Authoritative
+            } else {
+                crate::workflow_verification::CaptureMode::Incremental
+            };
+
             if let Some(workflow) = workflow_ir.as_mut() {
-                workflow.reconcile_verification_source(crate::workflow_verification::capture(
-                    db,
-                    conversation_id,
-                    turn_id,
-                    &execution_source_scope,
-                    self.tools.workspace(),
-                )?);
+                workflow.reconcile_verification_source(
+                    verification_capture
+                        .capture(
+                            db,
+                            conversation_id,
+                            turn_id,
+                            &execution_source_scope,
+                            self.tools.workspace(),
+                            verification_mode,
+                        )
+                        .await?,
+                );
             }
             if dispatch_consumes_tool_round {
                 turn_budget.persist_admission(db, turn_id)?;
@@ -3121,33 +3157,31 @@ impl AgentExecutor {
                 }
             }
             if let Some(workflow) = workflow_ir.as_mut() {
-                let verification_stable =
-                    workflow.reconcile_verification_source(crate::workflow_verification::capture(
-                        db,
-                        conversation_id,
-                        turn_id,
-                        &execution_source_scope,
-                        self.tools.workspace(),
-                    )?);
+                let verification_stable = workflow.reconcile_verification_source(
+                    verification_capture
+                        .capture(
+                            db,
+                            conversation_id,
+                            turn_id,
+                            &execution_source_scope,
+                            self.tools.workspace(),
+                            verification_mode,
+                        )
+                        .await?,
+                );
                 for call in &tool_calls {
-                    // A simultaneous edit/check batch cannot attest which revision the check saw.
-                    if !verification_stable
-                        && matches!(call.name.as_str(), "run_shell" | "judge_subagent_results")
-                    {
-                        continue;
-                    }
-
                     if let Some(summary) = dispatch_summaries
                         .iter()
                         .find(|summary| summary.call_id == call.id)
                     {
-                        workflow.observe_tool_result_with_arguments(
+                        workflow.observe_tool_result_at_source(
                             &call.id,
                             &call.name,
                             Some(&call.arguments),
                             summary.is_error,
                             summary.artifacts.as_ref(),
                             &summary.content,
+                            verification_stable,
                         );
                     }
                 }

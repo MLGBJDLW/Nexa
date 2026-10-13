@@ -232,13 +232,18 @@ impl Tool for JudgeSubagentResultsTool {
         }
         validate_candidates(&args)?;
         let workspace = self.runtime.get_tool_registry()?.workspace().cloned();
-        let source_before = nexa_core::workflow_verification::capture(
-            db,
-            conversation_id,
-            turn_id,
-            source_scope,
-            workspace.as_ref(),
-        )?;
+        let verification_capture =
+            nexa_core::workflow_verification::Capture::new(self.runtime.cancel_token.clone());
+        let source_before = verification_capture
+            .capture(
+                db,
+                conversation_id,
+                turn_id,
+                source_scope,
+                workspace.as_ref(),
+                nexa_core::workflow_verification::CaptureMode::Authoritative,
+            )
+            .await?;
         args.rubric = normalize_string_list(args.rubric.take(), 8);
         let provider = create_provider(self.runtime.provider_config.clone())
             .map_err(|e| CoreError::Llm(e.to_string()))?;
@@ -547,13 +552,16 @@ impl Tool for JudgeSubagentResultsTool {
             }
         };
         let summary = parsed.summary;
-        let source_after = nexa_core::workflow_verification::capture(
-            db,
-            conversation_id,
-            turn_id,
-            source_scope,
-            workspace.as_ref(),
-        )?;
+        let source_after = verification_capture
+            .capture(
+                db,
+                conversation_id,
+                turn_id,
+                source_scope,
+                workspace.as_ref(),
+                nexa_core::workflow_verification::CaptureMode::Authoritative,
+            )
+            .await?;
         let owned = self
             .runtime
             .parent_task_run_id

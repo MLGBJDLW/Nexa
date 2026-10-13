@@ -184,6 +184,13 @@ judgement must contain a valid structured verdict, candidate IDs and confidence;
 only accepted results with current host-owned candidate provenance can satisfy
 independent review. Generic ranking cannot bypass controller-owned patch review.
 
+Source scans run on blocking workers and follow task cancellation. Routine
+observations rebuild the file inventory and reuse unchanged per-file hashes for
+the active turn. Check, review, browser-evidence, resume and completion boundaries
+always read fresh content; metadata cache hits cannot authorize acceptance.
+An edit and observation in the same unstable batch cannot produce a green source
+receipt, while browser action effects and terminal closure still reconcile.
+
 `spawn_subagent` and each batch worker accept an optional plain-text `name`.
 Names may contain Unicode and may repeat. Stable agent/session IDs still own
 controls, accounting and history; a resumed session inherits its saved display

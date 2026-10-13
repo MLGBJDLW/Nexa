@@ -232,14 +232,19 @@ pub(super) async fn run_subagent_once(
         .as_deref()
         .and_then(|id| db.get_agent_task_run(id).ok())
         .map(|run| run.turn_id);
-    let source_before = nexa_core::workflow_verification::capture(
-        &db,
-        runtime.parent_conversation_id.as_deref(),
-        parent_turn.as_deref(),
-        &effective_source_scope,
-        verification_workspace.as_ref(),
-    )
-    .ok();
+    let verification_capture =
+        nexa_core::workflow_verification::Capture::new(worker_cancel_token.clone());
+    let source_before = verification_capture
+        .capture(
+            &db,
+            runtime.parent_conversation_id.as_deref(),
+            parent_turn.as_deref(),
+            &effective_source_scope,
+            verification_workspace.as_ref(),
+            nexa_core::workflow_verification::CaptureMode::Authoritative,
+        )
+        .await
+        .ok();
     let (final_message, capture) = execute_subagent_worker(
         SubagentExecutionInput {
             runtime: &runtime,
@@ -270,22 +275,26 @@ pub(super) async fn run_subagent_once(
         &mut reservation,
     )
     .await?;
+    let source_after = if source_before.is_some() {
+        verification_capture
+            .capture(
+                &db,
+                runtime.parent_conversation_id.as_deref(),
+                parent_turn.as_deref(),
+                &effective_source_scope,
+                verification_workspace.as_ref(),
+                nexa_core::workflow_verification::CaptureMode::Authoritative,
+            )
+            .await
+            .ok()
+    } else {
+        None
+    };
     let run = settle_subagent_artifact(
         &runtime,
         SubagentSettlementInput {
-            verification_source: source_before.filter(|before| {
-                !before.pending
-                    && nexa_core::workflow_verification::capture(
-                        &db,
-                        runtime.parent_conversation_id.as_deref(),
-                        parent_turn.as_deref(),
-                        &effective_source_scope,
-                        verification_workspace.as_ref(),
-                    )
-                    .ok()
-                    .as_ref()
-                        == Some(before)
-            }),
+            verification_source: source_before
+                .filter(|before| !before.pending && source_after.as_ref() == Some(before)),
             worker_id,
             call_label,
             args,

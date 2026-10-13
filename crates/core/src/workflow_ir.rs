@@ -657,7 +657,31 @@ impl WorkflowIr {
         artifacts: Option<&serde_json::Value>,
         content: &str,
     ) {
-        if tool_name == "run_shell" {
+        self.observe_tool_result_at_source(
+            _call_id,
+            tool_name,
+            tool_arguments,
+            is_error,
+            artifacts,
+            content,
+            true,
+        );
+    }
+
+    /// Mixed edit/observation batches cannot issue source-bound receipts, but
+    /// their action effects and terminal-closure obligations still reconcile.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn observe_tool_result_at_source(
+        &mut self,
+        _call_id: &str,
+        tool_name: &str,
+        tool_arguments: Option<&str>,
+        is_error: bool,
+        artifacts: Option<&serde_json::Value>,
+        content: &str,
+        source_stable: bool,
+    ) {
+        if tool_name == "run_shell" && source_stable {
             self.record_executed_verification(is_error, artifacts);
         }
         let requires_desktop_observation =
@@ -731,7 +755,7 @@ impl WorkflowIr {
                 && (tool_name != "browser_session"
                     || normalized_tool_action(tool_arguments).as_deref() == Some("observe")
                     || verified_browser_opening_observation(tool_arguments, artifacts));
-        if verified_browser_visual_observation {
+        if verified_browser_visual_observation && source_stable {
             self.record_gate(
                 "browser-visual-observation",
                 true,
@@ -885,6 +909,7 @@ impl WorkflowIr {
         }
 
         if tool_name == "judge_subagent_results"
+            && source_stable
             && !self.completion_contract.controller_owned_review
         {
             let receipt = artifacts
@@ -3481,19 +3506,22 @@ mod tests {
                 "pre-close observation cannot prove the requested close was performed"
             );
 
-            workflow.observe_tool_result_with_arguments(
-                "close",
-                "browser_session",
-                Some(arguments),
-                false,
-                Some(&closure_receipt),
-                "Closed the requested browser target.",
-            );
-
-            assert!(
-                workflow.completion_allowed(),
-                "a typed terminal closure receipt must be attainable evidence after the renderable target is gone: {arguments}"
-            );
+            for source_stable in [false, true] {
+                let mut closed = workflow.clone();
+                closed.observe_tool_result_at_source(
+                    "close",
+                    "browser_session",
+                    Some(arguments),
+                    false,
+                    Some(&closure_receipt),
+                    "Closed the requested browser target.",
+                    source_stable,
+                );
+                assert!(
+                    closed.completion_allowed(),
+                    "a typed terminal closure receipt remains valid after the renderable target is gone: {arguments}"
+                );
+            }
         }
     }
 
@@ -4703,6 +4731,79 @@ mod tests {
                 ))
             .all(|gate| gate.passed.is_none()));
         assert!(!restored.completion_allowed());
+    }
+
+    #[tokio::test]
+    async fn mixed_edit_and_browser_observation_cannot_attest_the_new_source() {
+        use crate::{db::Database, workflow_verification, workspace::Workspace};
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("index.html");
+        std::fs::write(&file, "state A").unwrap();
+        let db = Database::open_memory().unwrap();
+        let workspace = Workspace {
+            roots: vec![root.path().to_string_lossy().into()],
+        };
+        let plan = interaction_plan("Open the browser and visit https://example.com");
+        let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+        workflow.reconcile_verification_source(
+            workflow_verification::capture(&db, None, None, &[], Some(&workspace))
+                .await
+                .unwrap(),
+        );
+        // The screenshot settles first, then a parallel edit changes its source.
+        let pixels = serde_json::json!({"artifacts":{"kind":"browserEvidenceCapture","visual":{"screenshotAttached":true}}});
+        std::fs::write(&file, "state B").unwrap();
+        let after = workflow_verification::capture(&db, None, None, &[], Some(&workspace))
+            .await
+            .unwrap();
+        let stable = workflow.reconcile_verification_source(after.clone());
+        assert!(!stable);
+        workflow.observe_tool_result_at_source(
+            "edit",
+            "edit_file",
+            None,
+            false,
+            None,
+            "Changed the page",
+            stable,
+        );
+        workflow.observe_tool_result_at_source(
+            "old-pixels",
+            "browser_evidence_capture",
+            None,
+            false,
+            Some(&pixels),
+            "Captured A",
+            stable,
+        );
+        assert!(workflow.reconcile_verification_source(after));
+        assert_ne!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::BrowserVisualObservation)
+                .unwrap()
+                .passed,
+            Some(true)
+        );
+        workflow.observe_tool_result_at_source(
+            "fresh-pixels",
+            "browser_evidence_capture",
+            None,
+            false,
+            Some(&pixels),
+            "Captured B",
+            true,
+        );
+        assert_eq!(
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::BrowserVisualObservation)
+                .unwrap()
+                .passed,
+            Some(true)
+        );
     }
 
     #[test]
