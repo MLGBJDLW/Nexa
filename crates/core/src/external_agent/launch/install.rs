@@ -14,6 +14,8 @@ use std::{
 };
 use tokio::{io::AsyncWriteExt, sync::Mutex};
 
+mod integrity;
+
 const MAX_ARCHIVE_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_UNPACKED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
@@ -192,6 +194,40 @@ fn extract(archive: &Path, url: &str, root: &Path, executable: &Path) -> Result<
     }
 }
 
+fn publish(root: &Path, directory: &Path, previous: &Path) -> Result<(), CoreError> {
+    let parent = directory
+        .parent()
+        .ok_or_else(|| invalid("ACP cache has no parent"))?
+        .canonicalize()?;
+    for staged in [root, previous] {
+        let owner = staged
+            .parent()
+            .ok_or_else(|| invalid("ACP staging path has no parent"))?
+            .canonicalize()?;
+        if !owner.starts_with(&parent) {
+            return Err(invalid("ACP staging path escaped its cache"));
+        }
+    }
+    if std::fs::symlink_metadata(previous).is_ok() {
+        return Err(invalid("ACP repair backup already exists"));
+    }
+    let had_previous = match std::fs::symlink_metadata(directory) {
+        Ok(_) => {
+            std::fs::rename(directory, previous)?;
+            true
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    if let Err(error) = std::fs::rename(root, directory) {
+        if had_previous && std::fs::symlink_metadata(directory).is_err() {
+            std::fs::rename(previous, directory)?;
+        }
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 pub(super) async fn binary(
     binary: &BinaryDistribution,
     cache_root: &Path,
@@ -221,8 +257,24 @@ pub(super) async fn binary(
     let directory = cache_root.join(&key);
     let lock = install_lock(&directory);
     let guard = lock.lock_owned().await;
-    if directory.join(".nexa-install.json").is_file() {
-        return verify_target(&directory, &relative);
+    let check_directory = directory.clone();
+    let check_binary = binary.clone();
+    let check_digest = expected_digest.clone();
+    let check_relative = relative.clone();
+    let (guard, cached) = tokio::task::spawn_blocking(move || {
+        let cached = integrity::verify(
+            &check_directory,
+            &check_binary,
+            &check_digest,
+            &check_relative,
+        )
+        .ok();
+        (guard, cached)
+    })
+    .await
+    .map_err(|error| invalid(format!("ACP cache verification failed: {error}")))?;
+    if let Some(cached) = cached {
+        return Ok(cached);
     }
     tokio::fs::create_dir_all(cache_root).await?;
     let scratch = tempfile::Builder::new()
@@ -284,16 +336,11 @@ pub(super) async fn binary(
         let root = scratch.path().join("payload");
         extract(&archive, &binary.archive, &root, &relative)?;
         verify_target(&root, &relative)?;
-        std::fs::write(
-            root.join(".nexa-install.json"),
-            serde_json::to_vec(
-                &serde_json::json!({"url":binary.archive,"sha256":digest,"bytes":received}),
-            )?,
-        )?;
+        integrity::write(&root, &binary, &digest)?;
         // An interrupted preparation only leaves its unique temporary folder.
         // No incomplete tree is ever exposed under the immutable cache key.
-        std::fs::rename(&root, &directory)?;
-        verify_target(&directory, &relative)
+        publish(&root, &directory, &scratch.path().join("previous"))?;
+        integrity::verify(&directory, &binary, &digest, &relative)
     })
     .await
     .map_err(|error| invalid(format!("ACP adapter preparation failed: {error}")))?
@@ -303,6 +350,90 @@ pub(super) async fn binary(
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn repair_publishes_complete_payload_and_restores_old_tree_on_failure() {
+        let cache = tempfile::tempdir().unwrap();
+        let preparation = tempfile::tempdir_in(cache.path()).unwrap();
+        let installed = cache.path().join("installed");
+        std::fs::create_dir(&installed).unwrap();
+        std::fs::write(installed.join("agent"), "old").unwrap();
+        let previous = preparation.path().join("previous");
+        assert!(publish(&preparation.path().join("missing"), &installed, &previous).is_err());
+        assert_eq!(std::fs::read(installed.join("agent")).unwrap(), b"old");
+        let payload = preparation.path().join("payload");
+        std::fs::create_dir(&payload).unwrap();
+        std::fs::write(payload.join("agent"), "new").unwrap();
+        std::fs::write(payload.join("helper"), "required companion").unwrap();
+        publish(&payload, &installed, &previous).unwrap();
+        assert_eq!(std::fs::read(installed.join("agent")).unwrap(), b"new");
+        assert!(installed.join("helper").is_file());
+    }
+
+    #[tokio::test]
+    async fn verified_cached_installation_does_not_require_a_download() {
+        let cache = tempfile::tempdir().unwrap();
+        let binary = BinaryDistribution {
+            archive: "https://127.0.0.1:1/agent.zip".into(),
+            cmd: "agent".into(),
+            sha256: Some("0".repeat(64)),
+            ..Default::default()
+        };
+        let digest = binary.sha256.as_deref().unwrap();
+        let key =
+            blake3::hash(format!("{}\0{}\0{}", binary.archive, binary.cmd, digest).as_bytes())
+                .to_hex()
+                .to_string();
+        let root = cache.path().join(key);
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("agent"), "executable").unwrap();
+        std::fs::write(root.join("helper"), "companion").unwrap();
+        verify_target(&root, Path::new("agent")).unwrap();
+        integrity::write(&root, &binary, digest).unwrap();
+        assert_eq!(
+            super::binary(&binary, cache.path()).await.unwrap(),
+            root.join("agent")
+        );
+    }
+
+    #[tokio::test]
+    async fn damaged_cached_installations_are_not_reused() {
+        let scratch = tempfile::tempdir().unwrap();
+        let binary = BinaryDistribution {
+            archive: "https://127.0.0.1:1/agent.zip".into(),
+            cmd: "agent".into(),
+            sha256: Some("0".repeat(64)),
+            ..Default::default()
+        };
+        let key = blake3::hash(
+            format!(
+                "{}\0{}\0{}",
+                binary.archive,
+                binary.cmd,
+                binary.sha256.as_deref().unwrap()
+            )
+            .as_bytes(),
+        )
+        .to_hex()
+        .to_string();
+        let cache = scratch.path().join(key);
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("agent"), "executable fixture").unwrap();
+        std::fs::write(cache.join("helper"), "required companion").unwrap();
+        std::fs::write(
+            cache.join(".nexa-install.json"),
+            serde_json::to_vec(
+                &serde_json::json!({"url": binary.archive, "sha256": binary.sha256, "bytes": 42}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::remove_file(cache.join("helper")).unwrap();
+        assert!(
+            super::binary(&binary, scratch.path()).await.is_err(),
+            "a stale marker must not authorize an incomplete cached installation"
+        );
+    }
 
     #[tokio::test]
     async fn unpinned_archives_cannot_reuse_cache_or_start_downloads() {
