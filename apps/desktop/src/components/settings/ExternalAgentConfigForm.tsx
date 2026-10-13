@@ -45,6 +45,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   const [error, setError] = useState<string | null>(null);
   const [authMethods, setAuthMethods] = useState<NonNullable<ExternalAgentCatalog['authMethods']>>([]);
   const [requiresAuthentication, setRequiresAuthentication] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const [authTerminal, setAuthTerminal] = useState<TerminalSessionInfo | null>(null);
   const pendingSetup = useRef<string | null>(null);
   const terminalLogin = useRef<{ id?: string; dispose: () => void } | null>(null);
@@ -75,15 +76,16 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     return () => { generation.current += 1; };
   }, [config?.id]);
   const changeLaunch = (next: ExternalAgentLaunch) => {
-    cancelSetup(); setAuthTerminal(null); setAuthMethods([]); setRequiresAuthentication(false);
+    cancelSetup(); setAuthTerminal(null); setAuthMethods([]); setRequiresAuthentication(false); setSetupError(null);
     generation.current += 1;
     setLaunch(next); setVerified(false); setModels([]); setNativeOptions([]); setNativeCommands([]); setLoading(false); setError(null); onDirtyChange(true);
   };
   const applyCatalog = (found: ExternalAgentCatalog, selected: string, requestedLaunch: ExternalAgentLaunch) => {
     setModels(found.models); setNativeOptions(found.configOptions); setNativeCommands(found.commands);
     setRequiresAuthentication(found.requiresAuthentication === true); setAuthMethods(found.authMethods ?? []);
-    setVerified(!found.requiresAuthentication && found.models.length > 0);
-    if (found.requiresAuthentication) return;
+    setSetupError(found.setupError ?? null); setError(found.setupError ?? null);
+    setVerified(!found.requiresAuthentication && !found.setupError && found.models.length > 0);
+    if (found.requiresAuthentication || found.setupError) return;
     setLaunch({ ...requestedLaunch, configOptions: Object.fromEntries(found.configOptions
       .filter(option => !isNativeReasoning(option) && Object.prototype.hasOwnProperty.call(requestedLaunch.configOptions ?? {}, option.id))
       .map(option => [option.id, option.currentValue])) });
@@ -132,7 +134,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
       if (result.catalog) {
         const authenticationMethod = authMethods.find(method => method.id === methodId)?.kind === 'agent'
           ? methodId : launch.authenticationMethod;
-        if (!result.catalog.requiresAuthentication && authenticationMethod !== launch.authenticationMethod) onDirtyChange(true);
+        if (!result.catalog.requiresAuthentication && !result.catalog.setupError && authenticationMethod !== launch.authenticationMethod) onDirtyChange(true);
         applyCatalog(result.catalog, model, { ...launch, authenticationMethod });
       }
       if (result.terminal) {
@@ -143,7 +145,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     finally { if (pendingSetup.current === requestId) pendingSetup.current = null; if (generation.current === current) setLoading(false); }
   };
   const unchanged = config?.model === model && JSON.stringify(initialLaunch) === JSON.stringify(launch);
-  const canSave = !!name.trim() && !!model && !loading && !authTerminal && !requiresAuthentication && !saving && !isSaving
+  const canSave = !!name.trim() && !!model && !loading && !authTerminal && !requiresAuthentication && !setupError && !saving && !isSaving
     && launchFieldsValid
     && (unchanged || (verified && models.some(item => item.id === model)));
   const save = async () => {
@@ -238,7 +240,7 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     </fieldset>}
     {nativeCommands.length > 0 && <p className="break-words text-xs text-text-tertiary">{nativeCommands.map(name => `/${name}`).join(' · ')}</p>}
     {verified && <p role="status" className="text-xs text-success">{t('settings.externalAgentConnected')}</p>}
-    {requiresAuthentication && <div className="space-y-2 rounded-lg border border-border p-3" data-testid="external-agent-auth">
+    {(requiresAuthentication || (setupError && authMethods.length > 0)) && <div className="space-y-2 rounded-lg border border-border p-3" data-testid="external-agent-auth">
       <p className="text-xs text-text-secondary">{t('settings.externalAgentAuthRequired')}</p>
       <div className="flex flex-wrap gap-2">{authMethods.map(method => <Button key={method.id} size="sm" variant="secondary" disabled={loading || !!authTerminal} title={method.description} onClick={() => void signIn(method.id)}>{method.name}</Button>)}</div>
     </div>}

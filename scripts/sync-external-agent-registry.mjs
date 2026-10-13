@@ -37,11 +37,20 @@ const presets = registry.agents.map(agent => {
       binary.sha256 = pinned.sha256;
     }
   }
+  // Compatibility constraints are reviewed with one exact package release;
+  // a new package pin must be validated again instead of inheriting them.
+  for (const kind of ['npx', 'uvx']) {
+    const runner = distribution[kind];
+    const pinned = existing?.distribution?.[kind];
+    if (runner && !runner.runnerArgs && runner.package === pinned?.package && pinned.runnerArgs) {
+      runner.runnerArgs = pinned.runnerArgs;
+    }
+  }
   let command, args, env;
   if (distribution.npx) {
-    command = 'npx'; args = ['--yes',distribution.npx.package,...(distribution.npx.args ?? [])]; env=distribution.npx.env ?? {};
+    command = 'npx'; args = [...(distribution.npx.runnerArgs ?? []),'--yes',distribution.npx.package,...(distribution.npx.args ?? [])]; env=distribution.npx.env ?? {};
   } else if (distribution.uvx) {
-    command = 'uvx'; args = [distribution.uvx.package,...(distribution.uvx.args ?? [])]; env=distribution.uvx.env ?? {};
+    command = 'uvx'; args = [...(distribution.uvx.runnerArgs ?? []),distribution.uvx.package,...(distribution.uvx.args ?? [])]; env=distribution.uvx.env ?? {};
   } else {
     const platform = distribution.binary['linux-x86_64'] ?? distribution.binary['darwin-aarch64'] ?? Object.values(distribution.binary)[0];
     command = platform.cmd.replaceAll('\\','/').split('/').at(-1); args=platform.args ?? []; env=platform.env ?? {};

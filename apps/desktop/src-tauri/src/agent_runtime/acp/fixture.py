@@ -37,7 +37,7 @@ authenticated = False
 auth_methods = [
     {"id":"oauth","name":"Browser sign-in"},
     {"id":"terminal","name":"Terminal sign-in","type":"terminal","args":["--terminal-login"],"env":{"ACP_LOGIN":"1"}}
-] if mode in ("auth_methods", "auth_revoked", "auth_disconnected", "auth_pending") else []
+] if mode in ("auth_methods", "auth_revoked", "auth_disconnected", "auth_pending", "setup_error") else []
 if mode in ("auth_revoked", "auth_disconnected", "auth_pending"):
     auth_methods.insert(1, {"id":"replacement","name":"Another account"})
 for line in sys.stdin:
@@ -54,6 +54,9 @@ for line in sys.stdin:
             assert native_services is False
         reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}, "authMethods": auth_methods})
     elif method == "session/new":
+        if mode == "setup_error":
+            emit({"id": message["id"], "error": {"code": -32603, "message": "No provider configured; complete native setup"}})
+            continue
         if mode == "launch":
             with open(sys.argv[2], "w", encoding="utf-8") as log:
                 json.dump({"argument":sys.argv[3],"environment":os.environ["NEXA_ACP_TEST"]}, log)

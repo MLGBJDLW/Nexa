@@ -99,13 +99,21 @@ pub fn redact_diagnostic(value: &str, secrets: &[String]) -> String {
             .replace_all(&value, "[REDACTED]")
             .into_owned();
     }
-    crate::privacy::redact_content(&value, &[])
+    let characters = crate::privacy::redact_content(&value, &[])
         .chars()
         .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
-        .take(2000)
-        .collect::<String>()
-        .trim()
-        .to_string()
+        .collect::<Vec<_>>();
+    let bounded = if characters.len() > 2000 {
+        characters[..500]
+            .iter()
+            .copied()
+            .chain("\n…\n".chars())
+            .chain(characters[characters.len() - 1497..].iter().copied())
+            .collect::<String>()
+    } else {
+        characters.into_iter().collect::<String>()
+    };
+    bounded.trim().to_string()
 }
 
 fn env_value<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
@@ -299,7 +307,7 @@ fn adapter_args<'a>(
             }
             if let Some(package) = &distribution.uvx {
                 if args.first().is_some_and(|argument| {
-                    argument.split("==").next() == package.package.split("==").next()
+                    argument.split(['=', '@']).next() == package.package.split(['=', '@']).next()
                 }) {
                     return &args[1..];
                 }
@@ -324,11 +332,12 @@ fn package_plan(
         set_env(&mut env, key, value.clone());
     }
     let executable = find_executable(runner, &env)?;
-    let mut args = if runner == "npx" {
+    let mut args = package.runner_args.clone();
+    args.extend(if runner == "npx" {
         vec!["--yes".into(), package.package.clone()]
     } else {
         vec![package.package.clone()]
-    };
+    });
     args.extend_from_slice(adapter_args(preset, launch, &package.args));
     Some(LaunchPlan {
         executable,
@@ -466,6 +475,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn long_startup_diagnostics_keep_the_final_cause_after_redaction() {
+        let log = format!(
+            "Installing adapter\n{}\nAPI_KEY=secret-value\nModuleNotFoundError: missing_runtime",
+            "loading dependency\n".repeat(300)
+        );
+        let output = redact_diagnostic(&log, &[]);
+        assert!(output.starts_with("Installing adapter"));
+        assert!(output.ends_with("ModuleNotFoundError: missing_runtime"));
+        assert!(!output.contains("secret-value"));
+        assert!(output.chars().count() <= 2000);
+    }
+
+    #[test]
     fn startup_errors_retain_actionable_causes_without_credentials() {
         let value = redact_diagnostic("Cannot find module 'agent-adapter'\nAPI_KEY=very-secret-key\ncustom-profile-value\nhttps://login.example/oauth?code=secret\nBearer sk-exampletoken", &["custom-profile-value".into()]);
         assert!(value.contains("Cannot find module 'agent-adapter'"));
@@ -535,6 +557,36 @@ mod tests {
             assert_eq!(&plan.args[..2], &["--yes", package.package.as_str()]);
             assert_eq!(plan.args[2..], package.args);
         }
+    }
+
+    #[test]
+    fn reviewed_runner_constraints_remain_separate_from_native_adapter_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        executable(dir.path(), "uvx");
+        let mut launch = ExternalAgentLaunch {
+            working_directory: dir.path().to_string_lossy().into(),
+            env: BTreeMap::from([("PATH".into(), dir.path().to_string_lossy().into())]),
+            args: Some(vec!["acp".into(), "--verbose".into()]),
+            ..Default::default()
+        };
+        let preset = super::super::preset("acp_minion_code").unwrap();
+        let plan = installed(preset, &launch).unwrap().unwrap();
+        assert_eq!(
+            plan.args,
+            vec![
+                "--with",
+                "agent-client-protocol==0.8.1",
+                "minion-code@0.1.44",
+                "acp",
+                "--verbose"
+            ]
+        );
+        launch.args = Some(vec![
+            "minion-code@0.1.43".into(),
+            "acp".into(),
+            "--verbose".into(),
+        ]);
+        assert_eq!(installed(preset, &launch).unwrap().unwrap().args, plan.args);
     }
 
     #[test]

@@ -51,6 +51,9 @@ pub struct BinaryDistribution {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PackageDistribution {
     pub package: String,
+    /// Reviewed runner options, kept separate from the adapter's own argv.
+    #[serde(default, rename = "runnerArgs")]
+    pub runner_args: Vec<String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]

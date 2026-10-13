@@ -1,4 +1,5 @@
 use super::*;
+mod live_matrix;
 use nexa_core::{
     agent::{AgentEvent, ToolRunStatus},
     approval::ApprovalDecision,
@@ -20,6 +21,30 @@ fn wire(mode: &str) -> Wire {
 async fn discovery_does_not_advertise_unavailable_file_or_terminal_services() {
     let mut wire = wire("discovery");
     Session::initialize(&mut wire).await.unwrap();
+}
+
+#[tokio::test]
+async fn native_setup_remains_available_after_a_non_authentication_session_error() {
+    let mut wire = wire("setup_error");
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let launch = ExternalAgentLaunch {
+        working_directory: "fixture".into(),
+        ..Default::default()
+    };
+    let result = super::auth::catalog(&mut wire, &launch, None, &[], initialized).await;
+    assert!(
+        result.is_ok(),
+        "native setup choices must survive a session setup error"
+    );
+    let catalog = result.unwrap();
+    assert!(catalog.models.is_empty());
+    assert_eq!(catalog.auth_methods.len(), 2);
+    assert!(!catalog.requires_authentication);
+    assert!(catalog
+        .setup_error
+        .as_deref()
+        .unwrap()
+        .contains("No provider configured"));
 }
 
 #[tokio::test]
@@ -1193,6 +1218,10 @@ async fn official_antigravity_initializes_through_nexa_without_user_credentials(
         assert_eq!(reused.executable, plan.executable);
         println!("Official archive checksum, extraction and immutable cache reuse passed");
     }
+    let receipt = managed.then(|| plan.executable.parent().unwrap().join(".nexa-install.json"));
+    let receipt_modified = receipt
+        .as_ref()
+        .map(|path| std::fs::metadata(path).unwrap().modified().unwrap());
     let mut command = super::transport::command_from_plan(&plan, &launch).unwrap();
     command.env_clear().envs(env);
     let mut wire = Wire::spawn(command).unwrap();
@@ -1206,4 +1235,16 @@ async fn official_antigravity_initializes_through_nexa_without_user_credentials(
     assert!(methods.contains(&"oauth-personal"));
     assert!(methods.contains(&"gemini-api-key"));
     println!("Official Antigravity initialized through Nexa in {}ms; advertised methods: {:?}; no authentication or inference requested", started.elapsed().as_millis(), methods);
+    drop(wire);
+    if let Some(receipt) = receipt {
+        let reused = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+            .await
+            .unwrap();
+        assert_eq!(reused.executable, plan.executable);
+        assert_eq!(
+            Some(std::fs::metadata(receipt).unwrap().modified().unwrap()),
+            receipt_modified
+        );
+        println!("Post-initialize cache reuse retained its verified installation receipt");
+    }
 }

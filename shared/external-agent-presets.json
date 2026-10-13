@@ -1360,6 +1360,8 @@
     "description": "An enhanced AI code assistant built on the Minion framework with rich development tools",
     "command": "uvx",
     "args": [
+      "--with",
+      "agent-client-protocol==0.8.1",
       "minion-code@0.1.44",
       "acp"
     ],
@@ -1373,6 +1375,10 @@
         "package": "minion-code@0.1.44",
         "args": [
           "acp"
+        ],
+        "runnerArgs": [
+          "--with",
+          "agent-client-protocol==0.8.1"
         ]
       }
     }

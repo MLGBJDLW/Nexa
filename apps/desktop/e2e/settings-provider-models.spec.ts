@@ -504,8 +504,9 @@ test.beforeEach(async ({ page }) => {
           localStorage.setItem('nexa-e2e-acp-cancelled', String(_args.requestId));
           return null;
         case 'inspect_external_agent_cmd': {
-          if (localStorage.getItem('nexa-e2e-acp-needs-auth') && !localStorage.getItem('nexa-e2e-acp-authenticated')) {
-            return { models: [], configOptions: [], commands: [], requiresAuthentication: true, authMethods: [
+          if ((localStorage.getItem('nexa-e2e-acp-needs-auth') || localStorage.getItem('nexa-e2e-acp-needs-setup')) && !localStorage.getItem('nexa-e2e-acp-authenticated')) {
+            const setupError = localStorage.getItem('nexa-e2e-acp-needs-setup') ? 'No provider configured; complete native setup' : undefined;
+            return { models: [], configOptions: [], commands: [], requiresAuthentication: !setupError, setupError, authMethods: [
               { id: 'oauth', name: 'Personal account', kind: 'agent' },
               { id: 'terminal', name: 'Terminal sign-in', kind: 'terminal' },
             ] };
@@ -2940,6 +2941,24 @@ test('registry agents render their SVG identity in light and dark catalogs', asy
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.getByPlaceholder('Search providers or models').fill('pi ACP');
   await page.screenshot({ path: testInfo.outputPath('external-agent-pi-dark.png') });
+});
+
+test('ACP setup retains native sign-in and the error after session configuration fails', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-e2e-acp-needs-setup', '1'));
+  await page.goto('/settings?tab=providers');
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.locator('[data-provider-preset-id="acp-antigravity-acp"]').click();
+  const form = page.getByTestId('external-agent-form');
+  await form.getByRole('button', { name: 'Download / check connection', exact: true }).click();
+  await expect(form.getByRole('alert')).toContainText('No provider configured');
+  await expect(form.getByTestId('external-agent-auth')).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await expect(form.getByText('Session created', { exact: true })).toHaveCount(0);
+  await form.getByRole('button', { name: 'Terminal sign-in', exact: true }).click();
+  await expect(form.getByRole('status')).toContainText('Session created');
+  await expect(form.getByRole('alert')).toHaveCount(0);
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
 });
 
 for (const method of ['Personal account', 'Terminal sign-in']) {

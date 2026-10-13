@@ -201,7 +201,7 @@ impl Session {
         if response["error"]["code"] == -32000 {
             return Ok(None);
         }
-        let value = super::transport::rpc_result(response, "session/new")?;
+        let value = wire.rpc_result(response, "session/new")?;
         let mut session = Self::parse(&value, initialized.images)?;
         session.cwd = cwd.to_string();
         session.sync(wire)?;

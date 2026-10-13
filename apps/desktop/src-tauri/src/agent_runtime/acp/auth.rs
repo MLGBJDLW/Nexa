@@ -152,22 +152,40 @@ pub(super) async fn catalog(
     initialized: Initialization,
 ) -> Result<Catalog> {
     let auth_methods = initialized.auth_methods.clone();
-    let Some(mut session) = Session::create_authenticated(
+    let result = Session::create_authenticated(
         wire,
         &launch.working_directory,
         servers,
         initialized,
         launch.authentication_method.as_deref(),
     )
-    .await?
-    else {
-        return Ok(Catalog {
-            models: vec![],
-            config_options: vec![],
-            commands: vec![],
-            auth_methods,
-            requires_authentication: true,
-        });
+    .await;
+    let mut session = match result {
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            return Ok(Catalog {
+                models: vec![],
+                config_options: vec![],
+                commands: vec![],
+                auth_methods,
+                requires_authentication: true,
+                setup_error: None,
+            })
+        }
+        Err(cause @ nexa_core::error::CoreError::Cancelled(_)) => return Err(cause),
+        Err(cause) if !auth_methods.is_empty() => {
+            return Ok(Catalog {
+                models: vec![],
+                config_options: vec![],
+                commands: vec![],
+                auth_methods,
+                // A session error is not evidence that authentication caused it.
+                // Preserve the diagnostic and explicit native recovery choices.
+                requires_authentication: false,
+                setup_error: Some(cause.to_string()),
+            });
+        }
+        Err(cause) => return Err(cause),
     };
     session
         .configure(
@@ -185,5 +203,6 @@ pub(super) async fn catalog(
         commands: session.commands,
         auth_methods: vec![],
         requires_authentication: false,
+        setup_error: None,
     })
 }

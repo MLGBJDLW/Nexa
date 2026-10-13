@@ -360,11 +360,7 @@ impl Wire {
             .flatten()
             .map(|status| format!(" ({status})"))
             .unwrap_or_default();
-        let bytes = self.diagnostics.lock().unwrap_or_else(|e| e.into_inner());
-        let detail = nexa_core::external_agent::launch::redact_diagnostic(
-            &String::from_utf8_lossy(&bytes),
-            &self.secrets,
-        );
+        let detail = self.stderr_detail();
         error(if detail.is_empty() {
             format!("{context}{status}")
         } else {
@@ -372,12 +368,33 @@ impl Wire {
         })
     }
 
+    fn stderr_detail(&self) -> String {
+        let bytes = self.diagnostics.lock().unwrap_or_else(|e| e.into_inner());
+        nexa_core::external_agent::launch::redact_diagnostic(
+            &String::from_utf8_lossy(&bytes),
+            &self.secrets,
+        )
+    }
+
     pub(super) async fn unsupported(&mut self, message: &Value) -> Result<()> {
         self.write(json!({"jsonrpc":"2.0","id":message["id"],"error":{"code":-32601,"message":"This ACP client capability is not supported"}})).await
     }
 
     pub(super) async fn request(&mut self, method: &str, params: Value) -> Result<Value> {
-        rpc_result(self.request_response(method, params).await?, method)
+        let response = self.request_response(method, params).await?;
+        self.rpc_result(response, method)
+    }
+
+    pub(super) fn rpc_result(&self, message: Value, method: &str) -> Result<Value> {
+        rpc_result(message, method, &self.secrets).map_err(|cause| {
+            let detail = self.stderr_detail();
+            match cause {
+                nexa_core::error::CoreError::Agent(context) if !detail.is_empty() => {
+                    nexa_core::error::CoreError::Agent(format!("{context}\n{detail}"))
+                }
+                cause => cause,
+            }
+        })
     }
 
     pub(super) async fn request_response(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -385,7 +402,7 @@ impl Wire {
         // A reviewed package runner may perform its first installation before
         // initialization. Ordinary RPCs keep the short liveness timeout.
         let timeout = match method {
-            "initialize" => Duration::from_secs(180),
+            "initialize" => Duration::from_secs(600),
             "session/new" => Duration::from_secs(120),
             "authenticate" => Duration::from_secs(300),
             _ => RPC_TIMEOUT,
@@ -413,18 +430,37 @@ impl Wire {
     }
 }
 
-pub(super) fn rpc_result(message: Value, method: &str) -> Result<Value> {
+fn rpc_result(message: Value, method: &str, secrets: &[String]) -> Result<Value> {
     if let Some(failure) = message.get("error") {
         if failure["code"] == -32000 {
             return Err(error("The external agent requires authentication. Sign in through its official CLI, then check the connection again."));
         }
-        // RPC errors may contain environment/secrets; show only the method/code.
+        // Preserve actionable setup failures (missing runtimes, configuration)
+        // under the same bounded credential redaction as stderr. Never dump
+        // arbitrary RPC data, which may include prompts or credential objects.
+        let detail = nexa_core::external_agent::launch::redact_diagnostic(
+            &[
+                failure["message"].as_str(),
+                failure.pointer("/data/message").and_then(Value::as_str),
+                failure.pointer("/data/error").and_then(Value::as_str),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n"),
+            secrets,
+        );
         return Err(error(format!(
-            "ACP {method} failed (code {}). Check the agent's local configuration.",
+            "ACP {method} failed (code {}). {}",
             failure["code"]
                 .as_i64()
                 .map(|code| code.to_string())
-                .unwrap_or_else(|| "invalid".into())
+                .unwrap_or_else(|| "invalid".into()),
+            if detail.is_empty() {
+                "Check the agent's local configuration."
+            } else {
+                &detail
+            }
         )));
     }
     message
@@ -436,6 +472,20 @@ pub(super) fn rpc_result(message: Value, method: &str) -> Result<Value> {
 #[cfg(test)]
 mod launch_tests {
     use super::*;
+
+    #[test]
+    fn rpc_failures_preserve_setup_diagnostics_without_disclosing_credentials_or_payloads() {
+        let error = rpc_result(json!({"error": {
+            "code": -32603,
+            "message": "Pi executable was not found; token=opaque-private-value",
+            "data": {"error": "Install Pi, then retry", "credentials": "private-data", "prompt": "private-prompt"}
+        }}), "session/new", &["opaque-private-value".into()]).unwrap_err().to_string();
+        assert!(error.contains("Pi executable was not found"));
+        assert!(error.contains("Install Pi"));
+        assert!(!error.contains("opaque-private-value"));
+        assert!(!error.contains("private-data"));
+        assert!(!error.contains("private-prompt"));
+    }
 
     #[cfg(unix)]
     #[test]

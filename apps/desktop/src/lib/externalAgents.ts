@@ -42,6 +42,7 @@ export interface ExternalAgentCatalog {
   commands: string[];
   authMethods?: { id: string; name: string; description?: string; kind: 'agent' | 'terminal' }[];
   requiresAuthentication?: boolean;
+  setupError?: string;
 }
 export const inspectExternalAgent = (provider: string, launch: ExternalAgentLaunch, model?: string, requestId?: string) =>
   invoke<ExternalAgentCatalog>('inspect_external_agent_cmd', { provider, launch, model, requestId });

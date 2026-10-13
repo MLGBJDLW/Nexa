@@ -29,7 +29,7 @@ use nexa_core::{
 pub(crate) use pool::shutdown;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
-use transport::{rpc_result, Wire};
+use transport::Wire;
 
 type Result<T> = std::result::Result<T, CoreError>;
 fn error(cause: impl std::fmt::Display) -> CoreError {
@@ -46,12 +46,10 @@ pub(crate) async fn probe(
     let launch = launch.resolve(db, None, None)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
     let mut wire = Wire::prepare(preset, &launch, adapter_cache_root(db).as_deref()).await?;
-    tokio::time::timeout(std::time::Duration::from_secs(360), async {
-        let initialized = Session::initialize(&mut wire).await?;
-        auth::catalog(&mut wire, &launch, model, &servers, initialized).await
-    })
-    .await
-    .map_err(|_| error("External agent connection check timed out"))?
+    // Each protocol stage has its own timeout. An outer deadline must not
+    // truncate a cold package installation before initialize can respond.
+    let initialized = Session::initialize(&mut wire).await?;
+    auth::catalog(&mut wire, &launch, model, &servers, initialized).await
 }
 
 fn adapter_cache_root(db: &nexa_core::db::Database) -> Option<std::path::PathBuf> {
@@ -69,6 +67,8 @@ pub(crate) struct Catalog {
     pub commands: Vec<String>,
     pub auth_methods: Vec<auth::AuthMethod>,
     pub requires_authentication: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_error: Option<String>,
 }
 
 pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) -> Result<Message> {
@@ -730,7 +730,7 @@ async fn drive(
         if message["id"].as_u64() != Some(prompt_id) {
             return Err(error("Uncorrelated ACP response"));
         }
-        let completed = rpc_result(message, "session/prompt")?;
+        let completed = wire.rpc_result(message, "session/prompt")?;
         if !pending_services.is_empty() {
             return Err(error(
                 "External agent completed with pending client service requests",
