@@ -188,6 +188,12 @@ impl AppearanceRegistry {
             .collect()
     }
 
+    pub fn file_source_for_theme(&self, theme_id: &str) -> Option<&str> {
+        self.file_backed_theme_sources
+            .get(theme_id)
+            .map(String::as_str)
+    }
+
     pub fn apply(mut self, plugin: ThemeResourcePlugin) -> Result<Self, CoreError> {
         let plugin = plugin.normalize()?;
         self.initialized = true;

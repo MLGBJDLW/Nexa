@@ -546,7 +546,7 @@ fn unsafe_css(value: &str) -> bool {
         || value.chars().any(|c| matches!(c, ';' | '{' | '}'))
 }
 
-fn valid_id(value: &str) -> bool {
+pub(crate) fn valid_id(value: &str) -> bool {
     let mut characters = value.chars();
     let Some(first) = characters.next() else {
         return false;

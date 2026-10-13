@@ -282,7 +282,15 @@ impl UserExtensionLayout {
     }
 
     pub fn remove_theme_plugin(&self, theme_id: &str) -> Result<(), CoreError> {
-        remove_theme_plugin_from_directory(&self.themes_dir(), theme_id)
+        self.remove_theme_plugin_with_source(theme_id, None)
+    }
+
+    pub fn remove_theme_plugin_with_source(
+        &self,
+        theme_id: &str,
+        source_name: Option<&str>,
+    ) -> Result<(), CoreError> {
+        remove_theme_plugin_from_directory(&self.themes_dir(), theme_id, source_name)
     }
 
     pub fn load_theme_plugins(&self) -> Result<ThemeFileLoadReport, CoreError> {
@@ -394,10 +402,17 @@ pub fn write_theme_plugin_to_configured_directory(
 }
 
 pub fn remove_theme_plugin_from_configured_directory(theme_id: &str) -> Result<bool, CoreError> {
+    remove_theme_plugin_from_configured_directory_with_source(theme_id, None)
+}
+
+pub fn remove_theme_plugin_from_configured_directory_with_source(
+    theme_id: &str,
+    source_name: Option<&str>,
+) -> Result<bool, CoreError> {
     let Some(themes_dir) = USER_THEMES_DIR.get() else {
         return Ok(false);
     };
-    remove_theme_plugin_from_directory(themes_dir, theme_id)?;
+    remove_theme_plugin_from_directory(themes_dir, theme_id, source_name)?;
     Ok(true)
 }
 
@@ -424,8 +439,66 @@ fn write_theme_plugin_to_directory(
     )
 }
 
-fn remove_theme_plugin_from_directory(themes_dir: &Path, theme_id: &str) -> Result<(), CoreError> {
-    for path in matching_theme_paths(themes_dir, theme_id)? {
+fn remove_theme_plugin_from_directory(
+    themes_dir: &Path,
+    theme_id: &str,
+    source_name: Option<&str>,
+) -> Result<(), CoreError> {
+    if !crate::theme_resource_plugin::valid_id(theme_id) {
+        return Err(CoreError::InvalidInput(
+            "Invalid theme-resource plugin id".into(),
+        ));
+    }
+    let mut paths = matching_theme_paths(themes_dir, theme_id)?;
+    if source_name.is_none() {
+        paths.push(theme_path(themes_dir, theme_id));
+    }
+    if let Some(source_name) = source_name {
+        let source = Path::new(source_name);
+        if !matches!(
+            source.components().collect::<Vec<_>>().as_slice(),
+            [std::path::Component::Normal(_)]
+        ) || source.extension().and_then(|value| value.to_str()) != Some("json")
+            || (cfg!(windows) && source_name.contains(':'))
+        {
+            return Err(CoreError::InvalidInput(
+                "Invalid recorded theme filename".into(),
+            ));
+        }
+        paths.push(themes_dir.join(source));
+    }
+    paths.sort();
+    paths.dedup();
+    // Recorded ownership and the canonical filename survive malformed content.
+    // Validate every candidate before deletion; never follow links or remove a
+    // replacement file that now declares another theme's identity.
+    let mut existing = Vec::new();
+    for path in paths {
+        let metadata = match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+            Ok(metadata) => metadata,
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(CoreError::Conflict(format!(
+                "User theme is not a regular file: {}",
+                path.display()
+            )));
+        }
+        if metadata.len() <= MAX_THEME_FILE_BYTES
+            && serde_json::from_slice::<ThemeResourcePlugin>(&fs::read(&path)?)
+                .ok()
+                .and_then(|plugin| plugin.normalize().ok())
+                .is_some_and(|plugin| plugin.id != theme_id)
+        {
+            return Err(CoreError::Conflict(format!(
+                "User theme file now declares another identity: {}",
+                path.display()
+            )));
+        }
+        existing.push(path);
+    }
+    for path in existing {
         fs::remove_file(&path).map_err(|error| {
             CoreError::Internal(format!(
                 "Failed to remove user theme file {}: {error}",
@@ -1104,5 +1177,121 @@ mod tests {
         assert!(layout.write_theme_plugin(plugin).is_err());
         layout.remove_theme_plugin("theme-user-test").unwrap();
         assert!(layout.load_theme_plugins().unwrap().plugins.is_empty());
+    }
+
+    #[test]
+    fn deleting_malformed_themes_uses_persisted_filename_or_canonical_identity() {
+        for source_name in ["theme-user-test.json", "我的主题.json"] {
+            let home = tempdir().unwrap();
+            let app_data = tempdir().unwrap();
+            let layout = UserExtensionLayout::resolve(home.path(), app_data.path(), None).unwrap();
+            layout.bootstrap().unwrap();
+            let plugin: ThemeResourcePlugin = serde_json::from_value(serde_json::json!({
+                "id": "theme-user-test", "name": "User Test", "theme": {}
+            }))
+            .unwrap();
+            layout.write_theme_plugin(plugin).unwrap();
+            let canonical = layout.themes_dir().join("theme-user-test.json");
+            let source = layout.themes_dir().join(source_name);
+            if source != canonical {
+                fs::rename(&canonical, &source).unwrap();
+            }
+            let report = layout.load_theme_plugins().unwrap();
+            let db = crate::db::Database::open_memory().unwrap();
+            db.reconcile_appearance_file_plugins(report.plugins, Vec::new())
+                .unwrap();
+            db.commit_appearance_file_sources(report.source_names)
+                .unwrap();
+            fs::write(&source, b"{ malformed JSON").unwrap();
+            let rejected = layout.load_theme_plugins().unwrap();
+            let previous = db.load_appearance_registry().unwrap();
+            assert!(previous
+                .ids_for_rejected_files(&rejected.rejected_files)
+                .contains("theme-user-test"));
+            layout
+                .remove_theme_plugin_with_source(
+                    "theme-user-test",
+                    previous.file_source_for_theme("theme-user-test"),
+                )
+                .unwrap();
+            db.remove_appearance("theme-user-test").unwrap();
+            assert!(!source.exists());
+            assert!(layout.load_theme_plugins().unwrap().plugins.is_empty());
+            assert!(db.load_appearance_registry().unwrap().plugins.is_empty());
+
+            // Legacy registry entries without a recorded filename still own the
+            // canonical file, even when too large or semantically invalid.
+            for bytes in [
+                vec![b'x'; MAX_THEME_FILE_BYTES as usize + 1],
+                br#"{"id":"theme-user-test","name":"","theme":{}}"#.to_vec(),
+            ] {
+                fs::write(&canonical, bytes).unwrap();
+                layout.remove_theme_plugin("theme-user-test").unwrap();
+                assert!(!canonical.exists());
+            }
+        }
+    }
+
+    #[test]
+    fn recorded_theme_deletion_rejects_escaped_paths_and_replacement_identities() {
+        let home = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let layout = UserExtensionLayout::resolve(home.path(), app_data.path(), None).unwrap();
+        layout.bootstrap().unwrap();
+        let outside = layout.root.join("outside.json");
+        fs::write(&outside, b"preserve").unwrap();
+        assert!(layout
+            .remove_theme_plugin_with_source("theme-user-test", Some("../outside.json"))
+            .is_err());
+        assert_eq!(fs::read(&outside).unwrap(), b"preserve");
+        assert!(layout.remove_theme_plugin("../outside").is_err());
+        let replacement = layout.themes_dir().join("friendly.json");
+        let original =
+            serde_json::to_vec(&serde_json::json!({"id":"theme-other","name":"Other","theme":{}}))
+                .unwrap();
+        fs::write(&replacement, &original).unwrap();
+        let canonical = layout.themes_dir().join("theme-user-test.json");
+        fs::write(&canonical, b"{ malformed").unwrap();
+        assert!(layout
+            .remove_theme_plugin_with_source("theme-user-test", Some("friendly.json"))
+            .is_err());
+        assert_eq!(fs::read(&replacement).unwrap(), original);
+        assert!(
+            canonical.exists(),
+            "preflight must finish before removing any candidate"
+        );
+        fs::write(&replacement, b"{ malformed").unwrap();
+        fs::write(&canonical, &original).unwrap();
+        layout
+            .remove_theme_plugin_with_source("theme-user-test", Some("friendly.json"))
+            .unwrap();
+        assert!(!replacement.exists());
+        assert_eq!(
+            fs::read(&canonical).unwrap(),
+            original,
+            "recorded ownership must preserve unrelated canonical-name files"
+        );
+        fs::create_dir(layout.themes_dir().join("directory.json")).unwrap();
+        assert!(layout
+            .remove_theme_plugin_with_source("theme-user-test", Some("directory.json"))
+            .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recorded_theme_deletion_never_follows_symlinks() {
+        let home = tempdir().unwrap();
+        let app_data = tempdir().unwrap();
+        let layout = UserExtensionLayout::resolve(home.path(), app_data.path(), None).unwrap();
+        layout.bootstrap().unwrap();
+        let outside = layout.root.join("outside.json");
+        fs::write(&outside, b"preserve").unwrap();
+        let link = layout.themes_dir().join("friendly.json");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        assert!(layout
+            .remove_theme_plugin_with_source("theme-user-test", Some("friendly.json"))
+            .is_err());
+        assert_eq!(fs::read(&outside).unwrap(), b"preserve");
+        assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
     }
 }

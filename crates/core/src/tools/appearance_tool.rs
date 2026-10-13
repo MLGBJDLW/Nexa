@@ -162,9 +162,13 @@ impl Tool for AppearanceTool {
             "remove" => {
                 let registry = context.db.load_appearance_registry()?;
                 let theme_id = resolve_theme_id(&registry, &args, action)?;
+                let source = registry.file_source_for_theme(&theme_id).map(str::to_owned);
                 // Validate removal before touching the file projection (built-ins cannot be removed).
                 registry.remove(&theme_id)?;
-                crate::user_extensions::remove_theme_plugin_from_configured_directory(&theme_id)?;
+                crate::user_extensions::remove_theme_plugin_from_configured_directory_with_source(
+                    &theme_id,
+                    source.as_deref(),
+                )?;
                 (context.db.remove_appearance(&theme_id)?, true)
             }
             other => {

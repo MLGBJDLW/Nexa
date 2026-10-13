@@ -157,9 +157,17 @@ pub fn remove_appearance_cmd(
     state: tauri::State<'_, AppState>,
     theme_id: String,
 ) -> Result<nexa_core::appearance::AppearanceRegistry, String> {
+    let previous = state
+        .db
+        .load_appearance_registry()
+        .map_err(|error| error.to_string())?;
+    previous
+        .clone()
+        .remove(&theme_id)
+        .map_err(|error| error.to_string())?;
     state
         .user_extensions
-        .remove_theme_plugin(&theme_id)
+        .remove_theme_plugin_with_source(&theme_id, previous.file_source_for_theme(&theme_id))
         .map_err(|error| error.to_string())?;
     let registry = state
         .db
