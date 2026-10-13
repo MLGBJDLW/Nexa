@@ -2117,7 +2117,7 @@ test("appearance installs the backend-normalized theme draft only after explicit
   await expect(page.getByLabel("Name")).toHaveValue("Generated Ocean");
   await expect(page.getByTestId("theme-preview-thinking-text")).toHaveCSS("color", "rgb(125, 211, 252)");
   await expect(page.getByTestId("theme-preview-reply-text")).toHaveCSS("color", "rgb(254, 243, 199)");
-  await page.getByRole("button", { name: "Controlled component styles" }).click();
+  await page.getByRole("button", { name: "Panel styles" }).click();
   await page.getByRole("group", { name: "Navigation rail" }).getByLabel("Background").fill("rgba(8, 19, 31, 0.92)");
   await expect.poll(() => page.evaluate(() => (
     JSON.parse(localStorage.getItem("nexa-theme-resource-plugins-v2") ?? "[]") as unknown[]

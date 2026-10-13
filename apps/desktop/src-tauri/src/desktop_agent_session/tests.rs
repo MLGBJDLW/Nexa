@@ -213,7 +213,12 @@ fn root_tool_allowlist_only_narrows_the_assembled_registry() {
             "not_a_registered_tool".to_string(),
         ],
     );
-    assert_eq!(filtered.tool_names(), vec!["run_shell".to_string()]);
+    let mut names = filtered.tool_names();
+    names.sort();
+    assert_eq!(
+        names,
+        vec!["run_shell".to_string(), "workspace_rules".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -601,9 +606,17 @@ fn outbox_failure_reconciler_preserves_task_reason_and_closes_host_projections()
             enabled: true,
         })
         .expect("save workflow automation");
+    let now = chrono::Utc::now().to_rfc3339();
     let orchestrator = db
-        .record_workflow_automation_run(&automation.id, None, "queued", Some("queued"))
-        .expect("queue workflow run");
+        .claim_workflow_automation_due_run_at(
+            db.workflow_automation_run_now_due_at(&automation.id, &now)
+                .unwrap(),
+            &now,
+            Some("queued"),
+        )
+        .expect("claim approved occurrence")
+        .run
+        .unwrap();
     db.start_workflow_automation_run(&orchestrator.id, &task.id, Some("running"))
         .expect("start workflow run");
 

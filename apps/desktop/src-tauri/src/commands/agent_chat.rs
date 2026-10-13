@@ -1930,9 +1930,17 @@ mod initialization_error_tests {
                 enabled: true,
             })
             .expect("save automation");
+        let now = chrono::Utc::now().to_rfc3339();
         let orchestrator = db
-            .record_workflow_automation_run(&automation.id, None, "queued", Some("queued"))
-            .expect("queue automation run");
+            .claim_workflow_automation_due_run_at(
+                db.workflow_automation_run_now_due_at(&automation.id, &now)
+                    .unwrap(),
+                &now,
+                Some("queued"),
+            )
+            .expect("claim approved occurrence")
+            .run
+            .unwrap();
         db.start_workflow_automation_run(&orchestrator.id, &task.id, Some("running"))
             .expect("start automation run");
 

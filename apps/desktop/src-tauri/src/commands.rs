@@ -1759,7 +1759,7 @@ mod tests {
         assert_eq!(run.status.as_str(), "queued");
         assert_eq!(
             run.summary.as_deref(),
-            Some(ticket.delivery.queue_item.due_reason.as_str())
+            Some("folder trigger matched a new or updated file")
         );
         let due_runs = db
             .list_due_workflow_automations("2099-01-01T09:00:00Z")
