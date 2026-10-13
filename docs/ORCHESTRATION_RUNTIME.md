@@ -190,6 +190,8 @@ the active turn. Check, review, browser-evidence, resume and completion boundari
 always read fresh content; metadata cache hits cannot authorize acceptance.
 An edit and observation in the same unstable batch cannot produce a green source
 receipt, while browser action effects and terminal closure still reconcile.
+Native filename and symlink-target bytes remain part of the source identity;
+valid non-UTF-8 Unix paths do not block capture or collide through lossy decoding.
 
 `spawn_subagent` and each batch worker accept an optional plain-text `name`.
 Names may contain Unicode and may repeat. Stable agent/session IDs still own

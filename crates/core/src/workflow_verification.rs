@@ -96,6 +96,28 @@ fn hash_file_mode(hash: &mut blake3::Hasher, metadata: &std::fs::Metadata) {
     hash.update(&[u8::from(metadata.permissions().readonly())]);
 }
 
+fn hash_path(hash: &mut blake3::Hasher, path: &Path) {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    hash.update(&(bytes.len() as u64).to_le_bytes());
+    hash.update(bytes);
+}
+
+fn git_relative_path(bytes: &[u8]) -> Result<PathBuf, CoreError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
+    }
+    #[cfg(not(unix))]
+    {
+        std::str::from_utf8(bytes).map(PathBuf::from).map_err(|_| {
+            CoreError::InvalidInput(
+                "Git returned a path that cannot be represented on this platform".into(),
+            )
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct VerificationSourceState {
@@ -140,7 +162,7 @@ fn capture_sync(
     }
     let mut paths = BTreeSet::new();
     let mut hash = blake3::Hasher::new();
-    hash.update(b"verification-source-v2");
+    hash.update(b"verification-source-v3");
     for root in roots {
         collect_root(&root, &mut hash, &mut paths, scan.cancel)?;
     }
@@ -169,14 +191,14 @@ fn capture_sync(
     let mut file_paths = BTreeSet::new();
     while let Some(path) = paths.pop_first() {
         check_cancelled(scan.cancel)?;
-        hash.update(path.to_string_lossy().as_bytes());
+        hash_path(&mut hash, &path);
         match std::fs::symlink_metadata(&path) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 hash.update(b"deleted");
             }
             Err(error) => return Err(error.into()),
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                hash.update(std::fs::read_link(&path)?.to_string_lossy().as_bytes());
+                hash_path(&mut hash, &std::fs::read_link(&path)?);
             }
             Ok(metadata) if metadata.is_file() => {
                 hash_file_mode(&mut hash, &metadata);
@@ -208,7 +230,7 @@ fn collect_root(
     cancel: &CancellationToken,
 ) -> Result<(), CoreError> {
     check_cancelled(cancel)?;
-    hash.update(root.to_string_lossy().as_bytes());
+    hash_path(hash, root);
     if !root.is_dir() {
         paths.insert(root.to_owned());
         return Ok(());
@@ -227,10 +249,7 @@ fn collect_root(
             .filter(|entry| !entry.is_empty())
         {
             check_cancelled(cancel)?;
-            let relative = std::str::from_utf8(entry).map_err(|_| {
-                CoreError::InvalidInput("Verification source has a non-UTF8 path".into())
-            })?;
-            let path = root.join(relative);
+            let path = root.join(git_relative_path(entry)?);
             hash.update(b"tracked-mode\0");
             hash.update(&(entry.len() as u64).to_le_bytes());
             hash.update(entry);
@@ -292,10 +311,7 @@ fn collect_root(
             .split(|byte| *byte == 0)
             .filter(|entry| !entry.is_empty())
         {
-            let relative = std::str::from_utf8(entry).map_err(|_| {
-                CoreError::InvalidInput("Verification source has a non-UTF8 path".into())
-            })?;
-            paths.insert(root.join(relative));
+            paths.insert(root.join(git_relative_path(entry)?));
         }
     } else {
         // Reuse Git-ignore semantics in ordinary folders; do not follow links.
@@ -338,6 +354,58 @@ fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn native_path_bytes_survive_git_capture_and_remain_distinct() {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+        for git_repository in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let first = root.path().join(OsStr::from_bytes(b"source-\xff"));
+            let second = root.path().join(OsStr::from_bytes(b"source-\xfe"));
+            assert_eq!(first.to_string_lossy(), second.to_string_lossy());
+            std::fs::write(&first, "initial").unwrap();
+            if git_repository {
+                for args in [
+                    vec!["init"],
+                    vec!["config", "user.name", "Nexa test"],
+                    vec!["config", "user.email", "test@example.invalid"],
+                    vec!["add", "--all"],
+                    vec!["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+                ] {
+                    assert!(git(root.path(), &args).is_some());
+                }
+            }
+            let db = Database::open_memory().unwrap();
+            let workspace = Workspace {
+                roots: vec![root.path().to_string_lossy().into()],
+            };
+            let snapshot = || capture(&db, None, None, &[], Some(&workspace));
+            let initial = snapshot().await.unwrap();
+            std::fs::write(&first, "changed").unwrap();
+            let edited = snapshot().await.unwrap();
+            assert_ne!(edited, initial);
+            std::fs::rename(&first, &second).unwrap();
+            let renamed = snapshot().await.unwrap();
+            assert_ne!(
+                renamed, edited,
+                "lossy-equivalent filenames must retain distinct identity"
+            );
+            std::fs::write(&second, "changed again").unwrap();
+            assert_ne!(snapshot().await.unwrap(), renamed);
+            std::fs::rename(&second, &first).unwrap();
+            std::fs::write(&first, "initial").unwrap();
+            assert_eq!(snapshot().await.unwrap(), initial);
+
+            // Symlink targets also carry native path identity, even when dangling.
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(OsStr::from_bytes(b"target-\xff"), &link).unwrap();
+            let first_link = snapshot().await.unwrap();
+            std::fs::remove_file(&link).unwrap();
+            std::os::unix::fs::symlink(OsStr::from_bytes(b"target-\xfe"), &link).unwrap();
+            assert_ne!(snapshot().await.unwrap(), first_link);
+        }
+    }
 
     #[tokio::test]
     async fn permission_only_changes_invalidate_clean_dirty_and_plain_workspace_receipts() {

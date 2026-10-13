@@ -21,6 +21,23 @@ use tokio::{
 pub(super) const RPC_TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
+fn inherited_diagnostic_secrets(
+    environment: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> Vec<String> {
+    environment
+        .into_iter()
+        .filter(|(key, _)| {
+            let key = key.to_string_lossy().to_ascii_lowercase();
+            ["key", "token", "secret", "password", "credential"]
+                .iter()
+                .any(|part| key.contains(part))
+        })
+        // stderr is decoded lossily too, so preserve the same representation
+        // for redaction without requiring the inherited environment to be UTF-8.
+        .map(|(_, value)| value.to_string_lossy().into_owned())
+        .collect()
+}
+
 fn with_bundled_runtime(
     preset: &ExternalAgentPreset,
     launch: &ExternalAgentLaunch,
@@ -181,14 +198,8 @@ impl Wire {
     }
 
     pub(super) fn spawn(mut command: tokio::process::Command) -> Result<Self> {
-        let secrets = std::env::vars()
-            .filter(|(key, _)| {
-                let key = key.to_ascii_lowercase();
-                ["key", "token", "secret", "password", "credential"]
-                    .iter()
-                    .any(|part| key.contains(part))
-            })
-            .map(|(_, value)| value)
+        let secrets = inherited_diagnostic_secrets(std::env::vars_os())
+            .into_iter()
             .chain(
                 command
                     .as_std()
@@ -425,6 +436,24 @@ pub(super) fn rpc_result(message: Value, method: &str) -> Result<Value> {
 #[cfg(test)]
 mod launch_tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn non_unicode_environment_remains_redacted_without_panicking() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+        let secrets = inherited_diagnostic_secrets([
+            (
+                OsString::from_vec(b"API_TOKEN\xff".to_vec()),
+                OsString::from_vec(b"private\xfevalue".to_vec()),
+            ),
+            (OsString::from("UNRELATED"), OsString::from_vec(vec![0xff])),
+        ]);
+        assert_eq!(secrets.len(), 1);
+        let stderr = String::from_utf8_lossy(b"failed with private\xfevalue");
+        let redacted = nexa_core::external_agent::launch::redact_diagnostic(&stderr, &secrets);
+        assert!(!redacted.contains("private"));
+        assert!(redacted.contains("[REDACTED]"));
+    }
     #[test]
     fn bundled_copilot_fills_a_missing_default_runtime_without_overriding_preferences() {
         let directory = tempfile::tempdir().unwrap();
