@@ -148,6 +148,8 @@ pub fn process_environment(overrides: &BTreeMap<String, String>) -> BTreeMap<Str
         append_paths(&mut paths, &value);
     }
     #[cfg(windows)]
+    let environment_reference = regex::Regex::new(r"%([^%]+)%").unwrap();
+    #[cfg(windows)]
     for (root, key) in [
         (&windows_registry::CURRENT_USER, "Environment"),
         (
@@ -158,12 +160,10 @@ pub fn process_environment(overrides: &BTreeMap<String, String>) -> BTreeMap<Str
         if let Ok(key) = root.open(key) {
             if let Ok(value) = key.get_string("Path") {
                 // Expand only environment references, never execute shell text.
-                let expanded = regex::Regex::new(r"%([^%]+)%").unwrap().replace_all(
-                    &value,
-                    |captures: &regex::Captures<'_>| {
+                let expanded =
+                    environment_reference.replace_all(&value, |captures: &regex::Captures<'_>| {
                         std::env::var(&captures[1]).unwrap_or_else(|_| captures[0].into())
-                    },
-                );
+                    });
                 append_paths(&mut paths, std::ffi::OsStr::new(expanded.as_ref()));
             }
         }
@@ -205,7 +205,7 @@ pub fn process_environment(overrides: &BTreeMap<String, String>) -> BTreeMap<Str
                         )
                     })
                     .collect();
-                versions.sort_by(|left, right| right.0.cmp(&left.0));
+                versions.sort_by_key(|entry| std::cmp::Reverse(entry.0));
                 extra.extend(versions.into_iter().map(|(_, path)| path));
             }
         }
