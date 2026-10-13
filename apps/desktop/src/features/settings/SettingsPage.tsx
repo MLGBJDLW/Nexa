@@ -1,5 +1,7 @@
+import { useReducedMotionPreference as useReducedMotion } from '../../lib/uiMotion';
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { INSTANT_TRANSITION, SOFT_FADE_TRANSITION } from '../../lib/uiMotion';
 import { useBlocker, useNavigate, useSearchParams } from 'react-router';
 import {
   Database,
@@ -60,6 +62,7 @@ const MEMORY_CHAR_LIMIT = 240;
 const TAB_STRIP_EDGE_EPSILON = 4;
 export function SettingsPage() {
   const { t, locale, setLocale, availableLocales } = useTranslation();
+  const reduceMotion = useReducedMotion();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedTab = settingsTabFromQuery(searchParams.get('tab'));
@@ -284,11 +287,7 @@ export function SettingsPage() {
     try {
       const cfg = await api.getEmbedderConfig();
       setEmbedConfig(cfg);
-      if (cfg.provider === 'local') {
-        setLocalModelReady(null);
-      } else {
-        setLocalModelReady(null);
-      }
+      setLocalModelReady(null);
       return true;
     } catch (e) {
       console.error('Failed to load embedder config:', e);
@@ -303,15 +302,18 @@ export function SettingsPage() {
     }
   }, [activeTab, embedConfig, loadEmbedConfig]);
 
+  const [deleteEmbedModelLoading, setDeleteEmbedModelLoading] = useState(false);
+  const embeddingProbeRevision = useRef(0);
   useEffect(() => {
-    if (activeTab !== 'models_embedding') return;
-    if (embedConfig?.provider === 'local') {
-      const key = `${embedConfig.localModel ?? ''}:${embedConfig.modelPath ?? ''}`;
-      getModelStatus('embed', key, () => api.checkLocalModel(embedConfig.localModel, embedConfig.modelPath))
-        .then(setLocalModelReady)
-        .catch(() => setLocalModelReady(false));
-    }
-  }, [activeTab, embedConfig?.provider, embedConfig?.localModel, embedConfig?.modelPath]);
+    const revision = ++embeddingProbeRevision.current;
+    if (activeTab !== 'models_embedding' || !embedConfig || downloadLoading || deleteEmbedModelLoading) return;
+    const key = `${embedConfig.localModel ?? ''}:${embedConfig.modelPath ?? ''}`;
+    setLocalModelReady(null);
+    getModelStatus('embed', key, () => api.checkLocalModel(embedConfig.localModel, embedConfig.modelPath))
+      .then((ready) => { if (revision === embeddingProbeRevision.current) setLocalModelReady(ready); })
+      .catch(() => { if (revision === embeddingProbeRevision.current) setLocalModelReady(false); });
+    return () => { embeddingProbeRevision.current++; };
+  }, [activeTab, !!embedConfig, embedConfig?.localModel, embedConfig?.modelPath, downloadLoading, deleteEmbedModelLoading]);
 
   useEffect(() => {
     if (activeTab !== 'models_embedding') return;
@@ -324,18 +326,18 @@ export function SettingsPage() {
   }, [activeTab, appConfig?.localModelRoot, embedConfig?.localModel]);
 
   const handleDownloadModel = async () => {
-    await runExclusiveAction('download:embedding-model', async () => {
+    await runExclusiveAction('embedding-model', async () => {
       if (!embedConfig) return;
-      if (downloadLoading) return;
+      if (downloadLoading || deleteEmbedModelLoading) return;
+      embeddingProbeRevision.current++;
       setDownloadLoading(true);
       try {
         await api.downloadLocalModel(embedConfig.localModel, embedConfig.modelPath);
-        setLocalModelReady(true);
-        invalidateModelStatus('embed');
         toast.success(t('settings.embeddingDownloaded'));
       } catch (e) {
         toast.error(t('settings.embeddingDownloadFail') + ': ' + String(e));
       } finally {
+        invalidateModelStatus('embed');
         setDownloadLoading(false);
       }
     });
@@ -344,7 +346,7 @@ export function SettingsPage() {
   const handleCancelDownload = async () => {
     try {
       await api.cancelModelDownload();
-      setDownloadLoading(false);
+      // The download still owns its files until the command settles.
       toast.success(t('settings.downloadCancelled'));
     } catch (e) {
       toast.error(String(e));
@@ -354,17 +356,21 @@ export function SettingsPage() {
   const [deleteEmbedModelConfirmOpen, setDeleteEmbedModelConfirmOpen] = useState(false);
 
   const handleDeleteModel = async () => {
-    if (!embedConfig) return;
-    try {
-      await api.deleteLocalModel(embedConfig.localModel, embedConfig.modelPath);
-      setLocalModelReady(false);
-      invalidateModelStatus('embed');
-      toast.success(t('settings.modelDeleted'));
-    } catch (e) {
-      toast.error(String(e));
-    } finally {
-      setDeleteEmbedModelConfirmOpen(false);
-    }
+    await runExclusiveAction('embedding-model', async () => {
+      if (!embedConfig || downloadLoading) return;
+      embeddingProbeRevision.current++;
+      setDeleteEmbedModelLoading(true);
+      try {
+        await api.deleteLocalModel(embedConfig.localModel, embedConfig.modelPath);
+        setDeleteEmbedModelConfirmOpen(false);
+        toast.success(t('settings.modelDeleted'));
+      } catch (e) {
+        toast.error(String(e));
+      } finally {
+        invalidateModelStatus('embed');
+        setDeleteEmbedModelLoading(false);
+      }
+    });
   };
 
   const handleTestConnection = async (configOverride?: EmbedderConfig) => {
@@ -1640,9 +1646,9 @@ export function SettingsPage() {
     >
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -8 }}
+        initial={reduceMotion ? false : { opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
+        transition={reduceMotion ? INSTANT_TRANSITION : SOFT_FADE_TRANSITION}
         className="settings-page-header"
         data-theme-surface="chrome"
         data-testid="settings-page-header"
@@ -1655,21 +1661,38 @@ export function SettingsPage() {
       <div className="sticky top-0 z-10 bg-surface-0 py-1">
         <div
           ref={tabStripRef}
+          role="tablist"
+          aria-label={t('settings.title')}
           className="flex gap-1 rounded-lg border border-border bg-surface-1 p-1 overflow-x-auto"
           data-theme-surface="chrome"
         >
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              id={`settings-tab-${tab.id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`settings-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
               aria-current={activeTab === tab.id ? 'page' : undefined}
               onClick={() => handleTabChange(tab.id)}
+              onKeyDown={(event) => {
+                const index = tabs.findIndex(item => item.id === tab.id);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length : -1;
+                if (next < 0) return;
+                event.preventDefault();
+                document.getElementById(`settings-tab-${tabs[next].id}`)?.focus();
+                handleTabChange(tabs[next].id);
+              }}
               disabled={modelStorageSaving}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-all duration-fast cursor-pointer whitespace-nowrap ${
+              className={`relative isolate flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors duration-fast cursor-pointer whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
                 activeTab === tab.id
-                  ? 'bg-accent text-white shadow-sm'
+                  ? 'text-white'
                   : 'text-text-tertiary hover:text-text-secondary hover:bg-surface-2'
               }`}
             >
+              {activeTab === tab.id && <motion.span aria-hidden="true" layoutId={reduceMotion ? undefined : 'settings-active-tab'} className="absolute inset-0 -z-10 rounded-md bg-accent shadow-sm" transition={reduceMotion ? INSTANT_TRANSITION : { type: 'spring', stiffness: 480, damping: 38 }} />}
               {tab.icon}
               {tab.label}
               {isTabDirty(tab.id) && (
@@ -1715,6 +1738,10 @@ export function SettingsPage() {
       </div>
 
       {/* ── Tab: Appearance ─────────────────────────────────────── */}
+      <motion.div key={activeTab} id={`settings-panel-${activeTab}`} role="tabpanel" aria-labelledby={`settings-tab-${activeTab}`} tabIndex={0}
+        initial={reduceMotion ? false : { opacity: 0, y: 7 }} animate={{ opacity: 1, y: 0 }}
+        transition={reduceMotion ? INSTANT_TRANSITION : SOFT_FADE_TRANSITION}
+        className="min-w-0 space-y-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40" data-testid="settings-tab-panel" data-reduce-motion={reduceMotion ? 'true' : 'false'}>
       {activeTab === 'appearance' && (
         <AppearanceSettingsTab
           locale={locale}
@@ -1738,7 +1765,7 @@ export function SettingsPage() {
 
       {/* ── Tab: Models & Embedding ──────────────────────────────── */}
       {activeTab === 'models_embedding' && (
-      <fieldset disabled={modelStorageSaving} aria-busy={modelStorageSaving} className="min-w-0 space-y-4">
+      <fieldset disabled={modelStorageSaving || deleteEmbedModelLoading} aria-busy={modelStorageSaving || deleteEmbedModelLoading} className="min-w-0 space-y-4">
         {/* Models section */}
         <EmbeddingConfigSection
           embedConfig={embedConfig}
@@ -1780,6 +1807,7 @@ export function SettingsPage() {
           appConfig={appConfig}
           appConfigLoading={appConfigLoading}
           deleteEmbedModelConfirmOpen={deleteEmbedModelConfirmOpen}
+          deleteEmbedModelLoading={deleteEmbedModelLoading}
           onEmbedLocalModelChange={(localModel) => {
             if (!embedConfig) return;
             void (async () => {
@@ -1797,7 +1825,7 @@ export function SettingsPage() {
           onDownloadModel={handleDownloadModel}
           onCancelDownload={handleCancelDownload}
           onRequestDeleteEmbedModel={() => setDeleteEmbedModelConfirmOpen(true)}
-          onCloseDeleteEmbedModel={() => setDeleteEmbedModelConfirmOpen(false)}
+          onCloseDeleteEmbedModel={() => { if (!deleteEmbedModelLoading) setDeleteEmbedModelConfirmOpen(false); }}
           onConfirmDeleteEmbedModel={() => { void handleDeleteModel(); }}
           onDownloadOcrModels={handleDownloadOcrModels}
           onDeleteOcrModels={handleDeleteOcrModels}
@@ -2042,6 +2070,8 @@ export function SettingsPage() {
           onPackageStateChange={loadSkills}
         />
       )}
+
+      </motion.div>
 
       <ConfirmDialog
         open={pendingTab !== null}

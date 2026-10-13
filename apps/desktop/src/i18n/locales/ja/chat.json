@@ -916,5 +916,9 @@
   "htmlStatic": "静的プレビュー",
   "htmlRunning": "スクリプト実行中",
   "htmlRun": "スクリプトを実行",
-  "htmlStop": "停止"
+  "htmlStop": "停止",
+  "connectionReconnecting": "再接続中",
+  "connectionAttempt": "試行 {attempt} / {total}",
+  "connectionRetryIn": "{seconds} 秒後に再試行",
+  "connectionTryingNow": "接続しています"
 }

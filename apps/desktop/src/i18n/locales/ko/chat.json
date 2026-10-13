@@ -916,5 +916,9 @@
   "htmlStatic": "정적 미리보기",
   "htmlRunning": "스크립트 실행 중",
   "htmlRun": "스크립트 실행",
-  "htmlStop": "중지"
+  "htmlStop": "중지",
+  "connectionReconnecting": "다시 연결 중",
+  "connectionAttempt": "시도 {attempt} / {total}",
+  "connectionRetryIn": "{seconds}초 후 다시 시도",
+  "connectionTryingNow": "연결 중"
 }

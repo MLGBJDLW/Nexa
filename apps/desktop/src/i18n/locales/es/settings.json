@@ -1066,7 +1066,7 @@
   ,"externalAgents": "Agentes externos"
   ,"apiConnectionsHint": "Conecta una API o un modelo local. Nexa gestiona herramientas y delegación."
   ,"externalAgentsHint": "Usa cuentas oficiales o agentes instalados. Cada motor gestiona sus modelos e inicio de sesión."
-  ,"externalAgentOwnership": "Instala la CLI oficial e inicia sesión primero. Este agente ejecuta sus herramientas y envía solicitudes de permiso a Nexa."
+  ,"externalAgentOwnership": "Este agente usa su propia cuenta y herramientas. Nexa gestiona sus solicitudes de permisos."
   ,"externalAgentSetup": "Guía de instalación e inicio de sesión"
   ,"externalAgentExecutable": "Ruta del ejecutable (opcional)"
   ,"externalAgentDirectory": "Directorio de trabajo"
@@ -1119,7 +1119,7 @@
   "externalAgentArguments": "Argumentos (matriz JSON; vacío usa el ajuste)",
   "externalAgentEnvironment": "Entorno (objeto JSON; guardado cifrado)",
   "externalAgentJsonHint": "Use una matriz JSON de cadenas para argumentos y un objeto JSON con valores de texto para el entorno.",
-  "externalAgentPackageHint": "La primera conexión puede descargar la versión fijada. Inicie sesión con la cuenta del agente.",
+  "externalAgentPackageHint": "Nexa busca adaptadores instalados y prepara el paquete fijado o binario oficial cuando está disponible. Conecta para elegir cómo iniciar sesión.",
   "externalAgentPackageProbe": "Descargar / comprobar conexión",
   "subscriptionUsage": "Uso de la cuenta",
   "subscriptionUsed": "{percent}% usado",
@@ -1128,5 +1128,7 @@
   "subscriptionQuotaUnavailable": "No se pudo leer el uso. Actualiza o comprueba la versión del agente y el inicio de sesión.",
   "subscriptionQuotaSignIn": "Inicia sesión en este agente desde Ajustes para ver el uso de la cuenta.",
   "subscriptionQuotaScope": "Cuota de cuenta informada por el proveedor y compartida entre clientes. Es independiente de los tokens de este chat.",
-  "subscriptionQuotaUpdated": "Consultado a las {time}"
+  "subscriptionQuotaUpdated": "Consultado a las {time}",
+  "externalAgentAuthRequired": "Elige un método de inicio de sesión del agente. El agente sigue gestionando tu cuenta.",
+  "externalAgentPreparing": "Preparando el agente y creando una sesión. La primera conexión puede tardar unos minutos."
 }

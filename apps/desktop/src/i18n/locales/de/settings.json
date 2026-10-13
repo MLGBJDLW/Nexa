@@ -1066,7 +1066,7 @@
   ,"externalAgents": "Externe Agenten"
   ,"apiConnectionsHint": "API oder lokales Modell verbinden. Nexa verwaltet Werkzeuge und Delegierung."
   ,"externalAgentsHint": "Offizielle Konten oder installierte Agenten nutzen. Jede Laufzeit verwaltet Modelle und Anmeldung."
-  ,"externalAgentOwnership": "Zuerst die offizielle CLI installieren und anmelden. Der Agent führt eigene Werkzeuge aus und sendet Berechtigungsanfragen an Nexa."
+  ,"externalAgentOwnership": "Dieser Agent verwendet sein eigenes Konto und seine eigenen Werkzeuge. Nexa verarbeitet seine Berechtigungsanfragen."
   ,"externalAgentSetup": "Installation und Anmeldung"
   ,"externalAgentExecutable": "Programmpfad (optional)"
   ,"externalAgentDirectory": "Arbeitsverzeichnis"
@@ -1119,7 +1119,7 @@
   "externalAgentArguments": "Argumente (JSON-Array; leer für Vorgabe)",
   "externalAgentEnvironment": "Umgebung (JSON-Objekt; verschlüsselt gespeichert)",
   "externalAgentJsonHint": "Argumente benötigen ein JSON-Array aus Zeichenfolgen, Umgebungsvariablen ein JSON-Objekt mit Zeichenfolgenwerten.",
-  "externalAgentPackageHint": "Die erste Verbindung kann das festgelegte Paket herunterladen. Melden Sie sich mit dem Konto des Agenten an.",
+  "externalAgentPackageHint": "Nexa sucht installierte Adapter und bereitet bei Bedarf das festgelegte Paket oder die offizielle Binärdatei vor. Nach dem Verbinden können Sie die Anmeldung auswählen.",
   "externalAgentPackageProbe": "Herunterladen / Verbindung prüfen",
   "subscriptionUsage": "Kontonutzung",
   "subscriptionUsed": "{percent} % verbraucht",
@@ -1128,5 +1128,7 @@
   "subscriptionQuotaUnavailable": "Kontonutzung konnte nicht gelesen werden. Aktualisieren Sie oder prüfen Sie Version und Anmeldung des Agenten.",
   "subscriptionQuotaSignIn": "Melden Sie sich in den Einstellungen bei diesem Agenten an, um die Nutzung zu sehen.",
   "subscriptionQuotaScope": "Vom Anbieter gemeldetes, clientübergreifendes Kontokontingent. Getrennt vom Tokenverbrauch dieses Chats.",
-  "subscriptionQuotaUpdated": "Abgerufen um {time}"
+  "subscriptionQuotaUpdated": "Abgerufen um {time}",
+  "externalAgentAuthRequired": "Wähle eine Anmeldemethode dieses Agenten. Das Konto bleibt beim Agenten.",
+  "externalAgentPreparing": "Agent wird vorbereitet und Sitzung erstellt. Die erste Einrichtung kann einige Minuten dauern."
 }

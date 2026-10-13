@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useReducedMotionPreference as useReducedMotion } from '../../lib/uiMotion';
+import { useId, useState } from 'react';
+import { motion } from 'framer-motion';
+import { INSTANT_TRANSITION, SOFT_COLLAPSE_TRANSITION } from '../../lib/uiMotion';
 import {
   Download,
   CheckCircle,
   XCircle,
   Loader2,
   ChevronDown,
-  ChevronUp,
   X,
   Trash2,
 } from 'lucide-react';
@@ -55,16 +57,18 @@ export function ModelCard({
 }: ModelCardProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
+  const reduceMotion = useReducedMotion();
   const hasChildren = !!children;
 
   return (
     <div className="rounded-xl border border-border bg-surface-2 transition-colors">
       {/* Header */}
-      <div className="flex items-center gap-3 p-4">
+      <div className="flex flex-wrap items-center gap-2.5 p-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
           {icon}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[10rem] flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-text-primary truncate">{title}</h3>
             {status === 'checking' ? (
@@ -132,11 +136,14 @@ export function ModelCard({
           )}
           {hasChildren && (
             <button
+              type="button"
+              aria-expanded={expanded}
+              aria-controls={panelId}
               onClick={() => setExpanded(!expanded)}
               className="rounded-md p-1.5 text-text-tertiary hover:text-text-secondary hover:bg-surface-3 transition-colors cursor-pointer"
               aria-label={expanded ? t('common.collapse') : t('common.expand')}
             >
-              {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              <ChevronDown size={16} className={`transition-transform motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`} />
             </button>
           )}
         </div>
@@ -177,10 +184,12 @@ export function ModelCard({
       )}
 
       {/* Expandable children */}
-      {hasChildren && expanded && (
-        <div className="border-t border-border px-4 py-4">
-          {children}
-        </div>
+      {hasChildren && (
+        <motion.div id={panelId} role="region" aria-label={title} aria-hidden={!expanded} inert={!expanded}
+          initial={false} animate={{ height: expanded ? 'auto' : 0, opacity: expanded ? 1 : 0 }}
+          transition={reduceMotion ? INSTANT_TRANSITION : SOFT_COLLAPSE_TRANSITION} className="overflow-hidden">
+          <div className="border-t border-border px-3 py-2">{children}</div>
+        </motion.div>
       )}
     </div>
   );

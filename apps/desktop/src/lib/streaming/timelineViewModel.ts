@@ -47,10 +47,11 @@ const INTERNAL_TRACE_TOOLS = new Set([
   'tool_search',
 ]);
 
-const ROUTINE_RUN_STATUSES = new Set(['Agent started', 'Generating answer', 'Reasoning']);
+const ROUTINE_RUN_STATUSES = new Set(['agent started', 'generating answer', 'reasoning', 'deferred to tools', 'deferred_to_tools']);
+const INTERNAL_STATUS_PREFIX = /^(?:route selected:|workflow ir v\d+ compiled:|activated \d+ deferred tool|(?:final )?answer (?:was )?deferred to tools|deferred to tools(?:[.: ]|$))/iu;
 
 function isRoutineRunStatus(text: string, tone?: TraceTone): boolean {
-  return tone !== 'error' && tone !== 'success' && ROUTINE_RUN_STATUSES.has(text.trim());
+  return tone !== 'error' && (ROUTINE_RUN_STATUSES.has(text.trim().toLowerCase()) || INTERNAL_STATUS_PREFIX.test(text.trim()));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -1,3 +1,4 @@
+import { FlipStatusText } from '../../components/ui/FlipNumber';
 import {
   Fragment,
   type ReactNode,
@@ -590,10 +591,10 @@ function TraceStatusRow({
 }) {
   const toneClass =
     tone === "error"
-      ? "border-danger/25 bg-danger/8 text-danger"
+      ? "text-danger"
       : tone === "success"
-        ? "border-success/25 bg-success/8 text-success"
-        : "border-border/45 bg-surface-0/25 text-text-tertiary";
+        ? "text-success"
+        : "text-text-tertiary";
   const dotClass =
     tone === "error"
       ? "bg-danger"
@@ -603,11 +604,12 @@ function TraceStatusRow({
 
   return (
     <div
-      className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] leading-tight ${toneClass}`}
+      className={`flex max-w-full items-start gap-2 py-1 text-[11px] leading-relaxed ${toneClass}`}
+      role="status"
       title={text}
     >
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
-      <span className="min-w-0 truncate">{text}</span>
+      <span className={`mt-1.5 h-1 w-1 shrink-0 rounded-full ${dotClass}`} />
+      <span className="min-w-0 break-words"><FlipStatusText text={text} /></span>
     </div>
   );
 }
@@ -2033,7 +2035,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       >
         <span className="chat-compact-status-rule" aria-hidden="true" />
         <span className="chat-compact-status-text">
-          {statusText}{" "}
+          <FlipStatusText text={statusText} />{" "}
           <span className="font-mono">{active ? "(>_<)" : "(｡•̀ᴗ-)✧"}</span>
         </span>
         {active && onCancelCompaction && (

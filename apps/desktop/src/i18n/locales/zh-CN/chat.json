@@ -916,5 +916,9 @@
   "htmlStatic": "静态预览",
   "htmlRunning": "脚本运行中",
   "htmlRun": "运行脚本",
-  "htmlStop": "停止"
+  "htmlStop": "停止",
+  "connectionReconnecting": "正在重新连接",
+  "connectionAttempt": "第 {attempt} / {total} 次尝试",
+  "connectionRetryIn": "{seconds} 秒后重试",
+  "connectionTryingNow": "正在连接"
 }

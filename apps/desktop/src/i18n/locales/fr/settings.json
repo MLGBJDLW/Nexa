@@ -1066,7 +1066,7 @@
   ,"externalAgents": "Agents externes"
   ,"apiConnectionsHint": "Connectez une API ou un modèle local. Nexa gère les outils et la délégation."
   ,"externalAgentsHint": "Utilisez des comptes officiels ou des agents installés. Chaque moteur gère ses modèles et sa connexion."
-  ,"externalAgentOwnership": "Installez la CLI officielle et connectez-vous d’abord. Cet agent exécute ses propres outils et envoie ses demandes de permission à Nexa."
+  ,"externalAgentOwnership": "Cet agent utilise son propre compte et ses outils. Nexa traite ses demandes de permission."
   ,"externalAgentSetup": "Guide d’installation et de connexion"
   ,"externalAgentExecutable": "Chemin de l’exécutable (facultatif)"
   ,"externalAgentDirectory": "Répertoire de travail"
@@ -1119,7 +1119,7 @@
   "externalAgentArguments": "Arguments (tableau JSON ; vide pour le préréglage)",
   "externalAgentEnvironment": "Environnement (objet JSON ; stockage chiffré)",
   "externalAgentJsonHint": "Les arguments doivent être un tableau JSON de chaînes, et les variables un objet JSON à valeurs textuelles.",
-  "externalAgentPackageHint": "La première connexion peut télécharger la version fixée. Connectez-vous avec le compte propre à cet agent.",
+  "externalAgentPackageHint": "Nexa recherche les adaptateurs installés et prépare si nécessaire le paquet épinglé ou le programme officiel. Connectez-vous pour choisir une méthode de connexion.",
   "externalAgentPackageProbe": "Télécharger / tester la connexion",
   "subscriptionUsage": "Utilisation du compte",
   "subscriptionUsed": "{percent} % utilisés",
@@ -1128,5 +1128,7 @@
   "subscriptionQuotaUnavailable": "Impossible de lire l’utilisation. Actualisez ou vérifiez la version de l’agent et la connexion.",
   "subscriptionQuotaSignIn": "Connectez-vous à cet agent dans les paramètres pour voir l’utilisation.",
   "subscriptionQuotaScope": "Quota du compte fourni par le service, partagé entre les clients. Distinct des jetons de cette conversation.",
-  "subscriptionQuotaUpdated": "Récupéré à {time}"
+  "subscriptionQuotaUpdated": "Récupéré à {time}",
+  "externalAgentAuthRequired": "Choisissez une méthode de connexion de cet agent. Votre compte reste géré par cet agent.",
+  "externalAgentPreparing": "Préparation de l’agent et création de la session. La première connexion peut prendre quelques minutes."
 }

@@ -13,7 +13,7 @@ test('expanded settings keep compact spacing and controls inside narrow content'
   await page.goto('/settings');
   const settings = page.getByTestId('settings-page');
   for (const tabName of ['Appearance', 'Theme', 'Models & Embedding', 'AI Providers', 'Media Processing', 'Data & Privacy', 'Extensions']) {
-    await page.getByRole('button', { name: tabName, exact: true }).click();
+    await page.getByRole('tab', { name: tabName, exact: true }).click();
     const disclosures = settings.locator('section > button[aria-expanded="false"]');
     while (await disclosures.count()) await disclosures.first().click();
     await expect.poll(() => settings.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
@@ -33,7 +33,7 @@ test('expanded settings keep compact spacing and controls inside narrow content'
 test('image settings select GPT Image 2.5 and Grok Image 2 with model-specific options', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   const panel = page.getByTestId('image-generation-settings-panel');
   await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
   const selects = panel.locator('[data-nexa-select-trigger]');
@@ -83,7 +83,7 @@ async function selectNexaOption(trigger: Locator, value: string) {
 
 test('structured decisions save opt-in settings and clear credentials across providers', async ({ page }, testInfo) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   const panel = page.getByTestId('system-one-settings');
   await panel.locator('button[aria-expanded="false"]').click();
   await expect(panel.getByRole('checkbox')).not.toBeChecked();
@@ -218,6 +218,7 @@ test.beforeEach(async ({ page }) => {
       isDefault: true,
     };
 
+    let localEmbeddingReady = true;
     const embedderConfig = {
       provider: "tfidf",
       apiKey: "",
@@ -488,7 +489,27 @@ test.beforeEach(async ({ page }) => {
         case 'get_external_agent_launch_cmd':
           if (localStorage.getItem('nexa-e2e-legacy-acp-reasoning')) return { executable: null, workingDirectory: '', configOptions: { effort: 'high' } };
           return { executable: null, workingDirectory: '' };
+        case 'authenticate_external_agent_cmd': {
+          localStorage.setItem('nexa-e2e-acp-authenticated', '1');
+          if (_args.methodId === 'terminal') {
+            const payload = { sessionId: 'login-terminal', kind: 'exit', exitCode: 0 };
+            for (const [id, listener] of listeners) {
+              if (listener.event === 'terminal:event') callbackMap.get(listener.handlerId)?.({ id, event: listener.event, payload });
+            }
+            return { terminal: { id: 'login-terminal', shell: 'Agent sign-in', cwd: 'D:\\fixture' } };
+          }
+          return { catalog: { models: [{ id: 'vendor/native-model', name: 'Native model', reasoningEfforts: [] }], configOptions: [], commands: [], requiresAuthentication: false } };
+        }
+        case 'cancel_external_agent_setup_cmd':
+          localStorage.setItem('nexa-e2e-acp-cancelled', String(_args.requestId));
+          return null;
         case 'inspect_external_agent_cmd': {
+          if (localStorage.getItem('nexa-e2e-acp-needs-auth') && !localStorage.getItem('nexa-e2e-acp-authenticated')) {
+            return { models: [], configOptions: [], commands: [], requiresAuthentication: true, authMethods: [
+              { id: 'oauth', name: 'Personal account', kind: 'agent' },
+              { id: 'terminal', name: 'Terminal sign-in', kind: 'terminal' },
+            ] };
+          }
           const delay = Number(localStorage.getItem('nexa-e2e-acp-probe-delay') ?? '0');
           if (delay) await new Promise(resolve => setTimeout(resolve, delay));
           const launch = _args.launch as { configOptions?: Record<string, string> };
@@ -736,6 +757,16 @@ test.beforeEach(async ({ page }) => {
           return { enabled: false, excludePatterns: [], redactPatterns: [] };
         case "get_embedder_config_cmd":
           return clone(embedderConfig);
+        case "check_local_model_cmd":
+          return localEmbeddingReady;
+        case "delete_local_model_cmd":
+          Object.assign(window, { __embeddingDeleteArgs: clone(_args) });
+          if (localStorage.getItem('fail-embedding-delete') === '1') throw new Error('Model is in use');
+          if (localStorage.getItem('hold-embedding-delete') === '1') {
+            await new Promise<void>(resolve => { Object.assign(window, { finishEmbeddingDelete: resolve }); });
+          }
+          localEmbeddingReady = false;
+          return null;
         case "get_app_config_cmd":
           return clone(appConfig);
         case "get_capability_registry_projection_cmd":
@@ -989,7 +1020,7 @@ test.beforeEach(async ({ page }) => {
 
 test('settings persists the selected context management mode and keeps summary as the default', async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name:'Appearance', exact:true }).click();
+  await page.getByRole('tab', { name:'Appearance', exact:true }).click();
   await page.getByRole('button', { name:'Advanced', exact:true }).click();
   const mode = page.getByLabel('Context management', { exact:true });
   await expect(mode).toHaveValue('summary');
@@ -1020,7 +1051,7 @@ test('retired Kimi stays editable and a stale cache cannot restore it to model c
     localStorage.setItem(key,JSON.stringify({ version:3,snapshot }));
   },{key,snapshot});
   await page.goto('/settings');
-  await page.getByRole('button',{name:'AI Providers',exact:true}).click();
+  await page.getByRole('tab',{name:'AI Providers',exact:true}).click();
   await page.getByTitle('Edit').first().click();
   const form = page.locator('form');
   await expect(form.locator('input[value="kimi-k2.5"]')).toBeVisible();
@@ -1067,7 +1098,7 @@ test("settings provider form shows updated preset models for add and edit flows"
       .locator("xpath=..");
 
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
 
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("button", { name: /Anthropic/i }).click();
@@ -1150,7 +1181,7 @@ test("settings provider form shows updated preset models for add and edit flows"
 
 test("settings exposes the secret-free registry and durable runtime rollback", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
 
   const registryDisclosure = page.getByTestId("capability-registry-disclosure-trigger");
   await expect(registryDisclosure).toBeVisible();
@@ -1185,7 +1216,7 @@ test("settings exposes the secret-free registry and durable runtime rollback", a
 
 test("provider catalog prioritizes configured entries and reflows at 320px", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   const providerCards = page.locator("[data-provider-preset-id]");
@@ -1218,7 +1249,7 @@ test("provider catalog prioritizes configured entries and reflows at 320px", asy
 
 test("editing a provider preserves automatic subagent budgets", async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   await page.getByTitle('Edit').first().click();
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   await form.locator('input').first().fill('Renamed provider');
@@ -1236,7 +1267,7 @@ test("editing a provider preserves automatic subagent budgets", async ({ page })
 
 test("subagent tool inheritance remains distinct from an explicit empty allowlist", async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   await page.getByTitle('Edit').first().click();
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   const inherit = form.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' });
@@ -1258,7 +1289,7 @@ test("subagent tool inheritance remains distinct from an explicit empty allowlis
 
 test("legacy provider output caps are retired without manual cleanup", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByTitle("Edit").first().click();
 
   await expect(page.getByText('Per-request output limit', { exact: true })).toHaveCount(0);
@@ -1296,7 +1327,7 @@ test("legacy provider output caps are retired without manual cleanup", async ({ 
 
 test("catalog model picker stays compact and searchable in a narrow settings column", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("button", { name: /^OpenAI/ }).click();
 
@@ -1321,7 +1352,7 @@ test("catalog model picker stays compact and searchable in a narrow settings col
 
 test("provider refresh keeps account-discovered models selectable and cached", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("button", { name: /^Alibaba Cloud Model Studio/ }).click();
 
@@ -1342,7 +1373,7 @@ test("provider refresh keeps account-discovered models selectable and cached", a
 
 test("an edited public base URL cannot inherit catalog identity or capabilities", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("button", { name: /^OpenAI/ }).click();
 
@@ -1370,7 +1401,7 @@ test("an edited public base URL cannot inherit catalog identity or capabilities"
 
 test("settings uses the MiniMax logo for its OpenAI-compatible preset", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   const minimaxCard = page
@@ -1384,7 +1415,7 @@ test("settings uses the MiniMax logo for its OpenAI-compatible preset", async ({
 
 test("provider settings keep normalized model defaults without duplicate reasoning controls", async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   await page.getByTitle('Edit').first().click();
   const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
   await selectNexaOption(model, 'claude-sonnet-5-5');
@@ -1400,7 +1431,7 @@ test("provider settings keep normalized model defaults without duplicate reasoni
 
 test("settings exposes Meta Model API with Muse Spark 1.3 as its verified default", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   const metaCard = page.getByRole("button", { name: /^Meta Model API/ });
@@ -1428,7 +1459,7 @@ test("settings exposes Meta Model API with Muse Spark 1.3 as its verified defaul
 test('October model defaults and dialogue speech controls remain available', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByTitle('Edit').first().click();
   const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
   await selectNexaOption(model, 'claude-haiku-5-5');
@@ -1436,7 +1467,7 @@ test('October model defaults and dialogue speech controls remain available', asy
   await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ model: 'claude-haiku-5-5' });
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   const speech = page.getByTestId('text-to-speech-settings-panel');
   await speech.locator('button').first().click();
   const selects = speech.locator('[data-nexa-select-trigger]');
@@ -1453,7 +1484,7 @@ test('October model defaults and dialogue speech controls remain available', asy
 
 test("settings exposes current Qwen3.8 Token Plan models without the retired preview", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   const tokenPlanCard = page.getByRole("button", { name: /^Qwen Token Plan/ });
@@ -1493,7 +1524,7 @@ test("settings exposes current Qwen3.8 Token Plan models without the retired pre
 
 test("settings projects the Codex subscription account and usage without an API key", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
@@ -1518,7 +1549,7 @@ test("settings completes the official Codex device-code launch and cancellation 
     localStorage.setItem("nexa-e2e-codex-snapshot-max-active", "0");
   });
   await page.reload();
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
@@ -1544,7 +1575,7 @@ test("settings discards a stale account refresh after login starts", async ({ pa
   await page.goto("/");
   await page.evaluate(() => localStorage.setItem("nexa-e2e-codex-account", "signed-out"));
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
@@ -1569,7 +1600,7 @@ test("settings discards a stale account refresh after login starts", async ({ pa
 
 test("settings verifies GitHub Copilot subscription models and quota through the SDK", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
@@ -1590,7 +1621,7 @@ test("settings starts and cancels the official Copilot CLI browser login", async
   await page.goto("/settings");
   await page.evaluate(() => localStorage.setItem("nexa-e2e-copilot-account", "signed-out"));
   await page.reload();
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await expect(page.getByTestId("codex-subscription-account")).toHaveCount(0);
   await expect(page.getByTestId("copilot-subscription-account")).toHaveCount(0);
   await page.getByRole("button", { name: "Add Provider" }).click();
@@ -1606,7 +1637,7 @@ test("settings starts and cancels the official Copilot CLI browser login", async
 
 test("settings selects the public GLM-5.3 flagship route by default", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   await expect(page.getByRole("button", { name: /GLM Coding Plan/ })).toBeVisible();
@@ -1635,7 +1666,7 @@ test("settings selects the public GLM-5.3 flagship route by default", async ({ p
 
 test("settings exposes the complete current Qwen3.8 family through QwenCloud international", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   const qwenCloudCard = page.getByRole("button", { name: /^QwenCloud \(International\)/ });
@@ -1667,7 +1698,7 @@ test("settings exposes the complete current Qwen3.8 family through QwenCloud int
 
 test("settings migrates legacy Qwen pay-as-you-go configs to the Alibaba catalog", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByTitle("Edit").nth(1).click();
 
   const modelField = page
@@ -1687,7 +1718,7 @@ test("settings migrates legacy Qwen pay-as-you-go configs to the Alibaba catalog
 
 test("settings exposes Alibaba Model Studio and SiliconFlow as router presets", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   const alibaba = page.getByRole("button", { name: /^Alibaba Cloud Model Studio/ });
@@ -1712,7 +1743,7 @@ test("settings exposes image generation model config under AI providers", async 
   page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
 
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
 
   const panel = page.getByTestId("image-generation-settings-panel");
   await expect(panel).toBeVisible();
@@ -1755,7 +1786,7 @@ test("settings exposes image generation model config under AI providers", async 
 
 test("settings promotes low-latency speech providers with their own logos", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
 
   const panel = page.getByTestId("text-to-speech-settings-panel");
   await expect(panel.getByRole("heading", { name: "Text to Speech" })).toBeVisible();
@@ -1864,7 +1895,7 @@ test("settings promotes low-latency speech providers with their own logos", asyn
 
 test("speech preset defaults and model changes retain valid voice choices", async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   const tts = page.getByTestId('text-to-speech-settings-panel');
   await tts.locator('button').first().click();
   const selects = tts.locator('[data-nexa-select-trigger]');
@@ -1893,7 +1924,7 @@ test("speech preset defaults and model changes retain valid voice choices", asyn
 
 test("settings discards a stale voice preview after synthesis settings change", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
 
   const panel = page.getByTestId("text-to-speech-settings-panel");
   await panel.locator("button").first().click();
@@ -1926,7 +1957,7 @@ test("settings never reuses a provider key for a user-edited endpoint", async ({
     .getByRole("textbox");
 
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
 
   const imagePanel = page.getByTestId("image-generation-settings-panel");
   await expect(imagePanel.getByText("Qwen CN API key")).toBeVisible();
@@ -1956,7 +1987,7 @@ test("settings never reuses a provider key for a user-edited endpoint", async ({
 
 test("settings keeps local and cloud speech engines in one provider category", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await expect(page.locator('[data-provider-category="image-generation"]')).toContainText("Image generation");
   const speechCategory = page.locator('[data-provider-category="speech"]');
   await expect(speechCategory).toContainText("Speech");
@@ -1973,7 +2004,7 @@ test("settings keeps local and cloud speech engines in one provider category", a
 
 test("media settings expose truthful policies and keep microphone controls with voice input", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Media Processing" }).click();
+  await page.getByRole("tab", { name: "Media Processing" }).click();
 
   const videoSection = page
     .getByRole("heading", { name: "Video Analysis" })
@@ -1985,7 +2016,7 @@ test("media settings expose truthful policies and keep microphone controls with 
   await expect(videoSection.getByText("Beam Search Width")).toHaveCount(0);
   await expect(videoSection.getByText("Microphone", { exact: true })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   const speechInput = page.getByTestId("speech-to-text-settings-panel");
   await speechInput.locator("button").first().click();
   await expect(speechInput.getByText("Voice Input", { exact: true })).toBeVisible();
@@ -1994,7 +2025,7 @@ test("media settings expose truthful policies and keep microphone controls with 
 
 test("settings applies a managed model root and exposes OCR deletion", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Models & Embedding" }).click();
+  await page.getByRole("tab", { name: "Models & Embedding" }).click();
   await page.getByRole("button", { name: /^Models Manage AI models/ }).click();
 
   const rootInput = page.getByRole("textbox", { name: "Local model storage" });
@@ -2030,24 +2061,24 @@ test("settings applies a managed model root and exposes OCR deletion", async ({ 
 
 test("settings discard leaves speech drafts unpersisted while keeping saved Whisper edits", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Models & Embedding" }).click();
+  await page.getByRole("tab", { name: "Models & Embedding" }).click();
   await page.getByRole("button", { name: /^Models Manage AI models/ }).click();
 
   let whisperCard = page
     .getByRole("heading", { name: "Speech Recognition Model" })
     .locator("xpath=../../..");
   await whisperCard.getByRole("button", { name: "Expand" }).click();
-  await page.getByRole("button", { name: /^Small / }).click();
+  await page.locator("#download-whisper-model").selectOption("small");
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __savedVideoConfig?: { whisperModel?: string } }
   ).__savedVideoConfig?.whisperModel)).toBe("small");
 
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   const localTts = page.getByTestId("text-to-speech-settings-panel");
   await localTts.locator("button").first().click();
   await selectNexaOption(localTts.locator("[data-nexa-select-trigger]").first(), "sherpa-onnx");
 
-  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Discard changes" }).click();
   await expect(page.getByRole("heading", { name: "Appearance", exact: true })).toBeVisible();
 
@@ -2055,13 +2086,13 @@ test("settings discard leaves speech drafts unpersisted while keeping saved Whis
     window as unknown as { __savedAppConfig?: unknown }
   ).__savedAppConfig)).toBeUndefined();
 
-  await page.getByRole("button", { name: "Models & Embedding" }).click();
+  await page.getByRole("tab", { name: "Models & Embedding" }).click();
   await page.getByRole("button", { name: /^Models Manage AI models/ }).click();
   whisperCard = page
     .getByRole("heading", { name: "Speech Recognition Model" })
     .locator("xpath=../../..");
   await whisperCard.getByRole("button", { name: "Expand" }).click();
-  await expect(page.getByRole("button", { name: /^Small / })).toHaveClass(/border-accent/);
+  await expect(page.locator("#download-whisper-model")).toHaveValue("small");
 });
 
 test("appearance installs the backend-normalized theme draft only after explicit save", async ({ page }) => {
@@ -2072,8 +2103,8 @@ test("appearance installs the backend-normalized theme draft only after explicit
   await expect(summary).toContainText("Dark");
   await expect(page.getByTestId("theme-studio")).toHaveCount(0);
 
-  await summary.getByRole("button", { name: "Open Theme Studio" }).click();
-  await expect(page.getByRole("button", { name: "Theme", exact: true })).toHaveClass(/bg-accent/);
+  await summary.getByRole("button", { name: "Customize theme" }).click();
+  await expect(page.getByRole("tab", { name: "Theme", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("theme-studio")).toBeVisible();
   await expect(page.getByRole("button", { name: "Advanced colors" })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: "Background & effects" })).toHaveAttribute("aria-expanded", "false");
@@ -2123,7 +2154,7 @@ test("appearance installs the backend-normalized theme draft only after explicit
 
 test("web search settings expose native provider support and persist OpenRouter engine priority", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Extensions", exact: true }).click();
+  await page.getByRole("tab", { name: "Extensions", exact: true }).click();
 
   const section = page.locator("section").filter({
     has: page.getByRole("heading", { name: "Web search", exact: true }),
@@ -2153,7 +2184,7 @@ test("Theme Studio isolates a dark draft from the active light palette", async (
     localStorage.setItem("nexa-theme", "light");
   });
   await page.goto("/settings");
-  await page.getByTestId("theme-summary-card").getByRole("button", { name: "Open Theme Studio" }).click();
+  await page.getByTestId("theme-summary-card").getByRole("button", { name: "Customize theme" }).click();
 
   const previewSurface2 = await page.getByTestId("theme-live-preview").evaluate((element) => (
     getComputedStyle(element).getPropertyValue("--color-surface-2").trim().toLowerCase()
@@ -2163,7 +2194,7 @@ test("Theme Studio isolates a dark draft from the active light palette", async (
 
 test("settings offers Qwen key reuse plus Jina and Mistral embedding presets", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Models & Embedding" }).click();
+  await page.getByRole("tab", { name: "Models & Embedding" }).click();
 
   const section = page.locator("section").filter({
     has: page.getByRole("heading", { name: "Embedding Configuration" }),
@@ -2347,7 +2378,7 @@ test("custom wallpaper appearances cover every workspace surface without sacrifi
     "Data & Privacy",
     "Extensions",
   ]) {
-    await page.getByRole("button", { name: tabName, exact: true }).click();
+    await page.getByRole("tab", { name: tabName, exact: true }).click();
     await expect.poll(() => largeOpaqueSurfaceClasses(settingsPage)).toEqual([]);
     if (tabName === "Extensions") {
       const skillsSection = page.locator("section").filter({
@@ -2361,7 +2392,7 @@ test("custom wallpaper appearances cover every workspace surface without sacrifi
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
     }
   }
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("tab", { name: "Appearance", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Appearance", exact: true })).toBeVisible();
   const nestedAppearancePanel = settingsPage
     .locator('[data-theme-surface="panel"] [data-theme-surface="panel"]')
@@ -2464,7 +2495,7 @@ test("custom wallpaper appearances cover every workspace surface without sacrifi
 
 test("extensions exposes one user-owned .nexa home and reloads registered skill files", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Extensions", exact: true }).click();
+  await page.getByRole("tab", { name: "Extensions", exact: true }).click();
 
   const extensionHome = page.getByTestId("user-extension-home");
   await expect(extensionHome).toContainText("Nexa extension home");
@@ -2480,7 +2511,7 @@ test("extensions exposes one user-owned .nexa home and reloads registered skill 
 test("extensions exposes a user-owned MCP JSON workflow", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("e2e-mcp-reload-race", "1"));
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Extensions", exact: true }).click();
+  await page.getByRole("tab", { name: "Extensions", exact: true }).click();
 
   const mcpSection = page.locator("section").filter({
     has: page.getByRole("heading", { name: "MCP Connectors", exact: true }),
@@ -2544,7 +2575,7 @@ test("custom appearances without a visual background keep the ordinary opaque sh
 for (const runtime of ["GitHub Copilot", "ChatGPT / Codex"]) {
   test(`settings saves ${runtime} as an explicitly added usable model configuration`, async ({ page }) => {
     await page.goto("/settings");
-    await page.getByRole("button", { name: "AI Providers" }).click();
+    await page.getByRole("tab", { name: "AI Providers" }).click();
     await page.getByRole("button", { name: "Add Provider" }).click();
     await page.getByRole("tab", { name: "External agents", exact: true }).click();
     await page.locator(`[data-provider-preset-id="${runtime === 'GitHub Copilot' ? 'github-copilot' : 'openai-codex'}"]`).click();
@@ -2569,7 +2600,7 @@ for (const provider of ["github_copilot", "openai_codex"]) {
         if (offline) localStorage.setItem("nexa-e2e-subscription-models-fail", "1");
       }, { provider, offline });
       await page.goto("/settings");
-      await page.getByRole("button", { name: "AI Providers" }).click();
+      await page.getByRole("tab", { name: "AI Providers" }).click();
       await page.getByRole("tab", { name: "External agents", exact: true }).click();
       await page.getByTitle("Edit").first().click();
       const form = page.getByTestId("subscription-agent-form");
@@ -2586,7 +2617,7 @@ for (const provider of ["github_copilot", "openai_codex"]) {
 
 test("subscription catalog failure invalidates stale models and prevents saving", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "AI Providers" }).click();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("tab", { name: "External agents", exact: true }).click();
   await page.locator('[data-provider-preset-id="github-copilot"]').click();
@@ -2606,7 +2637,7 @@ for (const [name, provider, presetId] of [
   test(`ACP external agent ${name} saves a verified launch separately from API credentials`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 680, height: 850 });
     await page.goto('/settings');
-    await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+    await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
     await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
     await expect(page.locator(`[data-provider-preset-id="${presetId}"]`)).toHaveCount(0);
     await page.getByRole('tab', { name: 'External agents', exact: true }).click();
@@ -2616,7 +2647,7 @@ for (const [name, provider, presetId] of [
     await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
     await form.getByLabel('Working directory', { exact: true }).fill('D:\\工作区\\Example');
-    await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+    await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
     await expect(form.getByRole('status')).toContainText('Inference has not been tested');
     await expect(form.getByRole('combobox', { name: 'Default Model', exact: true })).toHaveValue('vendor/native-model');
     await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
@@ -2631,13 +2662,13 @@ for (const [name, provider, presetId] of [
 
 test('ACP profiles can connect and save without a manual working directory', async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.locator('[data-provider-preset-id="gemini-cli"]').click();
   const form = page.getByTestId('external-agent-form');
-  await expect(form.getByRole('button', { name: 'Check connection', exact: true })).toBeEnabled();
-  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await expect(form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ })).toBeEnabled();
+  await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { workingDirectory: '' } });
@@ -2645,7 +2676,7 @@ test('ACP profiles can connect and save without a manual working directory', asy
 
 test('registry agents and custom ACP profiles expose validated literal launch configuration', async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button',{name:'AI Providers',exact:true}).click();
+  await page.getByRole('tab',{name:'AI Providers',exact:true}).click();
   await page.getByRole('button',{name:'Add Provider',exact:true}).click();
   await page.getByRole('tab',{name:'External agents',exact:true}).click();
   for (const id of ['acp-pi-acp','acp-kimi','acp-cursor','acp-cline','acp-mistral-vibe','custom-acp']) {
@@ -2653,8 +2684,8 @@ test('registry agents and custom ACP profiles expose validated literal launch co
   }
   await page.locator('[data-provider-preset-id="acp-pi-acp"]').click();
   const form=page.getByTestId('external-agent-form');
-  await expect(form).toContainText('pi-acp@0.0.34');
-  await expect(form).toContainText('first connection may download');
+  await expect(form).toContainText('ACP Registry · 0.0.34');
+  await expect(form).toContainText('prepares the pinned package or official binary');
   await form.locator('summary').click();
   const args=form.getByRole('textbox',{name:/Arguments \(JSON/});
   const env=form.getByRole('textbox',{name:/Environment \(JSON/});
@@ -2672,7 +2703,7 @@ test('registry agents and custom ACP profiles expose validated literal launch co
 
 test('ACP external agent launch edits discard stale connection probes', async ({ page }) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('button', { name: /Gemini CLI/ }).click();
@@ -2680,7 +2711,7 @@ test('ACP external agent launch edits discard stale connection probes', async ({
   if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\first');
   await page.evaluate(() => localStorage.setItem('nexa-e2e-acp-probe-delay', '700'));
-  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
   if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\second');
   await page.waitForTimeout(850);
@@ -2691,14 +2722,14 @@ test('ACP external agent launch edits discard stale connection probes', async ({
 test('ACP model changes discard uncategorized native reasoning before verifying the new catalog', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('nexa-e2e-dependent-reasoning', '1'));
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.locator('[data-provider-preset-id="goose"]').click();
   const form = page.getByTestId('external-agent-form');
   if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
-  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
   await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await form.getByRole('combobox', { name: 'Default Model', exact: true }).selectOption('second');
@@ -2715,13 +2746,13 @@ test('ACP discovery exposes replacements without silently changing a retired sav
     localStorage.setItem('nexa-e2e-legacy-acp-reasoning', '1');
   });
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.getByTitle('Edit').first().click();
   const form = page.getByTestId('external-agent-form');
   if (!(await form.getByLabel('Working directory', { exact: true }).isVisible())) await form.locator('summary').filter({ hasText: 'Advanced' }).click();
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
-  await form.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
   const model = form.getByRole('combobox', { name: 'Default Model', exact: true });
   await expect(model).toHaveValue('retired-native-model');
   await expect(model.getByRole('option', { name: 'Native model', exact: true })).toHaveCount(1);
@@ -2735,7 +2766,7 @@ test('ACP discovery exposes replacements without silently changing a retired sav
 test("Qwen Audio and dynamically discovered OpenRouter image models are usable in settings", async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 900 });
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   const tts = page.getByTestId('text-to-speech-settings-panel');
   await tts.locator('button').first().click();
   await selectNexaOption(tts.locator('[data-nexa-select-trigger]').first(), 'qwen-audio-generation');
@@ -2766,7 +2797,7 @@ test("Qwen Audio and dynamically discovered OpenRouter image models are usable i
 test('image generation source follows chat or explicitly selects subscription and API', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 820, height: 900 });
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   const panel = page.getByTestId('image-generation-settings-panel');
   await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
   const source = panel.getByTestId('image-source-selector');
@@ -2790,7 +2821,7 @@ test('image generation source follows chat or explicitly selects subscription an
 test('bottom-edge model and provider menus stay inside the viewport and reach their last option', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 680, height: 300 });
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers' }).click();
+  await page.getByRole('tab', { name: 'AI Providers' }).click();
   const panel = page.getByTestId('image-generation-settings-panel');
   await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
   const triggers = panel.locator('[data-nexa-select-trigger]');
@@ -2842,17 +2873,51 @@ test('model consolidation fences settings and download controls until verified r
   await page.getByRole('button', { name: /^Models Manage AI models/ }).click();
   await page.getByRole('button', { name: 'Consolidate and use', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'AI Providers', exact: true })).toBeDisabled();
+  await expect(page.getByRole('tab', { name: 'AI Providers', exact: true })).toBeDisabled();
   await expect(page.getByRole('textbox', { name: 'Local model storage' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Delete model' }).first()).toBeDisabled();
   await page.evaluate(() => (window as unknown as { finishModelConsolidation: () => void }).finishModelConsolidation());
   await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'AI Providers', exact: true })).toBeEnabled();
+  await expect(page.getByRole('tab', { name: 'AI Providers', exact: true })).toBeEnabled();
+});
+
+test('deleting a local embedding model refreshes its card even with a non-local provider', async ({ page }) => {
+  await page.goto('/settings?tab=models_embedding');
+  await page.getByRole('button', { name: /^Models Manage AI models/ }).click();
+  const card = page.getByRole('heading', { name: 'Embedding Model', exact: true }).locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
+  await card.getByRole('button', { name: 'Delete Model', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Download Model', exact: true })).toBeVisible();
+  await expect(card).toContainText('Not Downloaded');
+});
+
+test('local embedding deletion shows pending state and keeps failures retryable', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('fail-embedding-delete', '1'));
+  await page.goto('/settings?tab=models_embedding');
+  await page.getByRole('button', { name: /^Models Manage AI models/ }).click();
+  const card = page.getByRole('heading', { name: 'Embedding Model', exact: true }).locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
+  await card.getByRole('button', { name: 'Delete Model', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText(/Model is in use/)).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(card).toContainText('Ready');
+  await page.evaluate(() => {
+    localStorage.removeItem('fail-embedding-delete');
+    localStorage.setItem('hold-embedding-delete', '1');
+  });
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Online API', exact: true })).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { finishEmbeddingDelete: () => void }).finishEmbeddingDelete());
+  await expect(dialog).toHaveCount(0);
+  await expect(card).toContainText('Not Downloaded');
 });
 
 test('registry agents render their SVG identity in light and dark catalogs', async ({ page }, testInfo) => {
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   const presets = JSON.parse(readFileSync(new URL('../../../shared/external-agent-presets.json', import.meta.url), 'utf8'));
@@ -2870,9 +2935,49 @@ test('registry agents render their SVG identity in light and dark catalogs', asy
   await page.evaluate(() => localStorage.setItem('nexa-active-theme-v1', 'midnight'));
   await page.reload();
   await expect.poll(() => page.evaluate(() => document.documentElement.style.colorScheme)).toBe('dark');
-  await page.getByRole('button', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await page.getByPlaceholder('Search providers or models').fill('pi ACP');
   await page.screenshot({ path: testInfo.outputPath('external-agent-pi-dark.png') });
+});
+
+for (const method of ['Personal account', 'Terminal sign-in']) {
+  test(`ACP setup completes explicit ${method} authentication before saving`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('nexa-e2e-acp-needs-auth', '1'));
+    await page.goto('/settings?tab=providers');
+    await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+    await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+    await page.locator('[data-provider-preset-id="acp-antigravity-acp"]').click();
+    const form = page.getByTestId('external-agent-form');
+    await form.getByRole('button', { name: 'Download / check connection', exact: true }).click();
+    await expect(form.getByTestId('external-agent-auth')).toBeVisible();
+    await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await form.getByRole('button', { name: method, exact: true }).click();
+    await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+    await expect(form.getByRole('status')).toContainText('Session created');
+    await expect(form.getByTestId('external-agent-auth')).toHaveCount(0);
+  });
+}
+
+
+test('settings tabs support keyboard navigation, compact model choices and reduced motion', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  const appearance = page.getByRole('tab', { name: 'Appearance', exact: true });
+  await appearance.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: 'Theme', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'settings-tab-theme');
+  await page.keyboard.press('End');
+  await expect(page.getByRole('tab', { name: 'Extensions', exact: true })).toBeFocused();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('tab', { name: 'Models & Embedding', exact: true }).click();
+  await expect(page.getByTestId('settings-tab-panel')).toHaveAttribute('data-reduce-motion', 'true');
+  await page.getByRole('button', { name: /^Models / }).click();
+  const card = page.getByRole('heading', { name: 'Embedding Model', exact: true }).locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
+  await card.getByRole('button', { name: 'Expand', exact: true }).click();
+  await expect(card.getByRole('combobox')).toHaveValue('Qwen3Embedding06B');
+  await card.getByRole('button', { name: 'Collapse', exact: true }).click();
+  await expect(card.getByRole('region', { includeHidden: true })).toHaveAttribute('inert', '');
+  await page.screenshot({ path: testInfo.outputPath('settings-compact-models.png') });
 });

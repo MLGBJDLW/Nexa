@@ -1066,7 +1066,7 @@
   ,"externalAgents": "Agentes externos"
   ,"apiConnectionsHint": "Conecte uma API ou modelo local. Nexa gerencia ferramentas e delegação."
   ,"externalAgentsHint": "Use contas oficiais ou agentes instalados. Cada ambiente gerencia seus modelos e login."
-  ,"externalAgentOwnership": "Instale a CLI oficial e faça login primeiro. Este agente executa suas ferramentas e envia pedidos de permissão ao Nexa."
+  ,"externalAgentOwnership": "Este agente usa a sua própria conta e ferramentas. O Nexa trata dos pedidos de permissão."
   ,"externalAgentSetup": "Guia de instalação e login"
   ,"externalAgentExecutable": "Caminho do executável (opcional)"
   ,"externalAgentDirectory": "Diretório de trabalho"
@@ -1119,7 +1119,7 @@
   "externalAgentArguments": "Argumentos (array JSON; vazio usa a predefinição)",
   "externalAgentEnvironment": "Ambiente (objeto JSON; armazenamento criptografado)",
   "externalAgentJsonHint": "Use um array JSON de strings para os argumentos e um objeto JSON com valores de texto para o ambiente.",
-  "externalAgentPackageHint": "A primeira conexão pode baixar a versão fixada. Entre com a conta própria do agente.",
+  "externalAgentPackageHint": "O Nexa procura adaptadores instalados e prepara o pacote da versão indicada ou o programa oficial, quando disponível. Ligue para escolher como iniciar sessão.",
   "externalAgentPackageProbe": "Baixar / testar conexão",
   "subscriptionUsage": "Uso da conta",
   "subscriptionUsed": "{percent}% usado",
@@ -1128,5 +1128,7 @@
   "subscriptionQuotaUnavailable": "Não foi possível ler o uso. Atualize ou verifique a versão do agente e o login.",
   "subscriptionQuotaSignIn": "Entre neste agente nas configurações para ver o uso da conta.",
   "subscriptionQuotaScope": "Cota da conta informada pelo provedor, compartilhada entre clientes. Separada dos tokens deste chat.",
-  "subscriptionQuotaUpdated": "Consultado às {time}"
+  "subscriptionQuotaUpdated": "Consultado às {time}",
+  "externalAgentAuthRequired": "Escolha um método de login deste agente. A conta continua sendo gerenciada pelo agente.",
+  "externalAgentPreparing": "Preparando o agente e criando uma sessão. A primeira conexão pode levar alguns minutos."
 }

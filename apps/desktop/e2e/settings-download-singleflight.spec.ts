@@ -193,7 +193,7 @@ test.beforeEach(async ({ page }) => {
 
 test("model downloads coalesce rapid repeated clicks into one backend call", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Models & Embedding" }).click();
+  await page.getByRole("tab", { name: "Models & Embedding" }).click();
   await page.getByRole("button", { name: /^Models Manage AI models/ }).click();
 
   const downloadButton = page.getByRole("button", { name: "Download Model" }).first();
@@ -213,7 +213,7 @@ test("model downloads coalesce rapid repeated clicks into one backend call", asy
 
 test("model status probes are serialized when the tab opens", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Models & Embedding" }).click();
+  await page.getByRole("tab", { name: "Models & Embedding" }).click();
 
   await expect
     .poll(() => page.evaluate(() => (

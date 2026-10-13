@@ -916,5 +916,9 @@
   "htmlStatic": "Aperçu statique",
   "htmlRunning": "Scripts en cours",
   "htmlRun": "Exécuter les scripts",
-  "htmlStop": "Arrêter"
+  "htmlStop": "Arrêter",
+  "connectionReconnecting": "Reconnexion",
+  "connectionAttempt": "Tentative {attempt} sur {total}",
+  "connectionRetryIn": "Nouvelle tentative dans {seconds}s",
+  "connectionTryingNow": "Connexion en cours"
 }

@@ -107,6 +107,8 @@ test.beforeEach(async ({ page }) => {
       }
     };
 
+    (window as unknown as { __emitTestEvent: typeof emitEvent }).__emitTestEvent = emitEvent;
+
     const defaultAgentConfig = {
       id: 'cfg-stream-isolation',
       name: 'Stream Isolation Config',
@@ -398,7 +400,7 @@ test('saving privacy on the settings route clears a chat stream and ignores its 
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('tool-call-card')).toBeVisible();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
-  await page.getByRole('button', { name: 'Data & Privacy', exact: true }).click();
+  await page.getByRole('tab', { name: 'Data & Privacy', exact: true }).click();
   await page.getByRole('button', { name: /Privacy Settings/ }).click();
   await page.getByRole('button', { name: 'Email example', exact: true }).click();
   await page.getByRole('heading', { name: 'Redaction Rules', exact: true }).locator('..')
@@ -414,4 +416,32 @@ test('saving privacy on the settings route clears a chat stream and ignores its 
   await expect(page.getByText('Investigating retries only for chat A.')).toHaveCount(0);
   await expect(page.getByText('privateCODE late old terminal')).toHaveCount(0);
   await expect(page.getByText('Read the source, keeping my authored prompt.')).toBeVisible();
+});
+
+
+test('connection retries show one live flip counter and clear when recovered', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-stream-a');
+  await expect(page.getByTestId('chat-input-textarea')).toBeVisible();
+  const emit = (state: string, attempt: number) => page.evaluate(({ state, attempt }) => {
+    (window as unknown as { __emitTestEvent: (name: string, payload: Record<string, unknown>) => void }).__emitTestEvent('agent://run-event', {
+      conversationId: 'conv-stream-a', type: 'connectionState', state: { state, providerId: 'open_ai', modelId: 'gpt-4.1', attempt, maxAttempts: 5, nextRetryAt: new Date(Date.now() + 8000).toISOString(), recoverable: true, queuedUserInputs: 0, turnPreserved: true, errorCategory: 'timeout' },
+    });
+  }, { state, attempt });
+  await emit('reconnecting', 1);
+  const banner = page.getByTestId('provider-connection-status');
+  await expect(banner).toBeVisible();
+  await expect(banner.getByLabel('Attempt 1 of 5', { exact: true })).toBeVisible();
+  await emit('reconnecting', 2);
+  await expect(banner.getByLabel('Attempt 2 of 5', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('connection-retry-countdown')).toBeVisible();
+  await expect.poll(async () => {
+    const notice = await banner.boundingBox();
+    const composer = await page.getByTestId('chat-composer-layout').boundingBox();
+    return Boolean(notice && composer && notice.y + notice.height <= composer.y + 1);
+  }).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('retry-flip-counter.png') });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(banner.getByTestId('flip-number')).toHaveCount(0);
+  await emit('recovered', 2);
+  await expect(banner).toHaveCount(0);
 });

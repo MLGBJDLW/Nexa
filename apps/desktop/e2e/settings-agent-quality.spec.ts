@@ -221,7 +221,7 @@ test.beforeEach(async ({ page }) => {
 
 test("settings exposes a runnable agent quality eval panel", async ({ page }) => {
   await page.goto("/settings");
-  await page.getByRole("button", { name: "Agent Quality" }).click();
+  await page.getByRole("tab", { name: "Agent Quality" }).click();
 
   await expect(page.getByRole("heading", { name: "Agent Quality" })).toBeVisible();
   await expect(page.getByText("Not run").first()).toBeVisible();
