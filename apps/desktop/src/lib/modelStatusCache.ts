@@ -85,12 +85,16 @@ export async function getModelStatus<T>(
   // subprocess burst; identical probes are still coalesced through `inFlight`.
   const promise = enqueueProbe(fetcher)
     .then((value) => {
-      cache.set(cacheKey, { value, expiresAt: Date.now() + TTL_MS });
-      saveStorage();
+      // Deletion/download invalidates even a running probe. Its late result
+      // must neither repopulate storage nor replace the newer observation.
+      if (inFlight.get(cacheKey) === promise) {
+        cache.set(cacheKey, { value, expiresAt: Date.now() + TTL_MS });
+        saveStorage();
+      }
       return value;
     })
     .finally(() => {
-      inFlight.delete(cacheKey);
+      if (inFlight.get(cacheKey) === promise) inFlight.delete(cacheKey);
     });
   inFlight.set(cacheKey, promise);
   return promise;

@@ -173,6 +173,49 @@ pub fn check_local_model_exists_for(model_path: Option<&str>, model: &LocalEmbed
     dir.join("model.onnx").exists() && dir.join("tokenizer.json").exists()
 }
 
+/// Remove only files owned by the local embedding model. A custom directory may
+/// contain unrelated files; never recursively remove it. Report the exact failed
+/// file (including Windows sharing violations) instead of claiming deletion.
+pub fn delete_local_model_for(
+    model_path: Option<&str>,
+    model: &LocalEmbeddingModel,
+) -> Result<(), CoreError> {
+    let dir = match model_path.filter(|path| !path.trim().is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => default_model_dir_for(model)?,
+    };
+    for filename in ["model.onnx", "tokenizer.json"] {
+        let path = dir.join(filename);
+        match std::fs::remove_file(&path) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => {
+                return Err(CoreError::Embedding(format!(
+                    "Cannot delete {}: {error}. Stop indexing or other model operations and retry.",
+                    path.display()
+                )));
+            }
+        }
+    }
+    // Removing an empty managed/custom directory is optional. Another task may
+    // create an unrelated file between the removals; retain it without failure.
+    if dir.is_dir() && std::fs::read_dir(&dir)?.next().is_none() {
+        match std::fs::remove_dir(&dir) {
+            Ok(()) => (),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+                ) =>
+            {
+                ()
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
 /// Download the local ONNX model files to the default (or given) directory.
 pub fn download_local_model(model_path: Option<&str>) -> Result<(), CoreError> {
     download_local_model_for(model_path, &LocalEmbeddingModel::default())
@@ -1363,6 +1406,36 @@ pub use api::{test_api_connection, ApiEmbedder};
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_model_deletion_preserves_unrelated_files_and_is_repeatable() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["model.onnx", "tokenizer.json", "notes.txt"] {
+            std::fs::write(dir.path().join(name), b"fixture").unwrap();
+        }
+        let model = LocalEmbeddingModel::default();
+        assert!(check_local_model_exists_for(dir.path().to_str(), &model));
+        delete_local_model_for(dir.path().to_str(), &model).unwrap();
+        assert!(!check_local_model_exists_for(dir.path().to_str(), &model));
+        assert_eq!(
+            std::fs::read(dir.path().join("notes.txt")).unwrap(),
+            b"fixture"
+        );
+        delete_local_model_for(dir.path().to_str(), &model).unwrap();
+    }
+
+    #[test]
+    fn local_model_deletion_reports_the_failed_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("model.onnx")).unwrap();
+        std::fs::write(dir.path().join("tokenizer.json"), b"fixture").unwrap();
+        let error = delete_local_model_for(dir.path().to_str(), &LocalEmbeddingModel::default())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("model.onnx"));
+        assert!(error.contains("retry"));
+        assert!(dir.path().join("tokenizer.json").is_file());
+    }
 
     // ── tokenization ────────────────────────────────────────────────
 
