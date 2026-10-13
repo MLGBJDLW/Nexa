@@ -42,6 +42,16 @@
 * **themes:** reject lossy source filenames before import ([eeab240](https://github.com/MLGBJDLW/Nexa/commit/eeab240223c2731d0368cfe5c035bd639ad7d645))
 * **themes:** remove malformed declarations by recorded ownership ([3cce359](https://github.com/MLGBJDLW/Nexa/commit/3cce359ca453989ed8a3ba84c2afe19740f2e416))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at f5c7cb69c835c4e9565f434435347d599cbf26b9 -->
+
+### What's Changed
+* feat: simplify plugins and settings, strengthen agent interoperability and recovery by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/470
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.0...nexa-monorepo-v0.16.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.15.2...nexa-monorepo-v0.16.0) (2026-10-12)
 
 
