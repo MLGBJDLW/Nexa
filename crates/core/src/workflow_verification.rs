@@ -241,15 +241,29 @@ fn collect_root(
         // Unix modes, or core.filemode=false). Inspect metadata for every tracked
         // path without rereading clean tracked content. Recurse through gitlinks
         // so the same guarantee applies to an otherwise clean submodule.
-        let tracked = git(root, &["ls-files", "-z", "--cached", "--", "."]).ok_or_else(|| {
-            CoreError::Internal("Cannot inspect tracked verification modes".into())
-        })?;
+        let tracked =
+            git(root, &["ls-files", "-v", "-z", "--cached", "--", "."]).ok_or_else(|| {
+                CoreError::Internal("Cannot inspect tracked verification modes".into())
+            })?;
         for entry in tracked
             .split(|byte| *byte == 0)
             .filter(|entry| !entry.is_empty())
         {
             check_cancelled(cancel)?;
+            let (tag, entry) = match entry {
+                [tag, b' ', path @ ..] if !path.is_empty() => (*tag, path),
+                _ => {
+                    return Err(CoreError::Internal(
+                        "Invalid Git verification inventory".into(),
+                    ))
+                }
+            };
             let path = root.join(git_relative_path(entry)?);
+            // Git's index hints may hide arbitrary worktree edits from diff.
+            // Treat those files as content-bearing even when Git reports clean.
+            if tag.is_ascii_lowercase() || tag == b'S' {
+                paths.insert(path.clone());
+            }
             hash.update(b"tracked-mode\0");
             hash.update(&(entry.len() as u64).to_le_bytes());
             hash.update(entry);
@@ -354,6 +368,58 @@ fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn index_hints_cannot_hide_worktree_edits_from_verification() {
+        for flags in [
+            vec!["--assume-unchanged"],
+            vec!["--skip-worktree"],
+            vec!["--assume-unchanged", "--skip-worktree"],
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let source = root.path().join("source.rs");
+            std::fs::write(&source, "AAAA").unwrap();
+            for args in [
+                vec!["init"],
+                vec!["config", "user.name", "Nexa test"],
+                vec!["config", "user.email", "test@example.invalid"],
+                vec!["add", "source.rs"],
+                vec!["-c", "commit.gpgsign=false", "commit", "-m", "initial"],
+            ] {
+                assert!(git(root.path(), &args).is_some());
+            }
+            for flag in &flags {
+                assert!(git(root.path(), &["update-index", flag, "--", "source.rs"]).is_some());
+            }
+            let db = Database::open_memory().unwrap();
+            let workspace = Workspace {
+                roots: vec![root.path().to_string_lossy().into()],
+            };
+            let scanner = Capture::default();
+            let snapshot = |mode| scanner.capture(&db, None, None, &[], Some(&workspace), mode);
+            let initial = snapshot(CaptureMode::Authoritative).await.unwrap();
+            let modified = std::fs::metadata(&source).unwrap().modified().unwrap();
+            std::fs::write(&source, "BBBB").unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&source)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+            assert!(git(root.path(), &["diff", "--name-only", "HEAD"])
+                .unwrap()
+                .is_empty());
+            let changed = snapshot(CaptureMode::Authoritative).await.unwrap();
+            assert_ne!(
+                initial, changed,
+                "index flags {flags:?} must not preserve old receipts"
+            );
+            std::fs::write(&source, "CCCC").unwrap();
+            assert_ne!(snapshot(CaptureMode::Incremental).await.unwrap(), changed);
+            std::fs::write(&source, "AAAA").unwrap();
+            assert_eq!(snapshot(CaptureMode::Authoritative).await.unwrap(), initial);
+        }
+    }
 
     #[cfg(unix)]
     #[tokio::test]
