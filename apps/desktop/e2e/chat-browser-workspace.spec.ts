@@ -490,8 +490,13 @@ test('opens a shared Browser Workspace and attaches pointed page context', async
   await expect(page.getByText('Example Domain', { exact: true })).toHaveCount(2);
 
   await page.getByRole('button', { name: 'Point out' }).click();
+  const attachedNotice = page.getByRole('region', { name: 'Notifications alt+T' })
+    .getByRole('listitem').filter({ hasText: 'Browser context attached to the chat input' });
+  await expect(attachedNotice).toBeVisible();
   await expect(page.getByTestId('chat-input-textarea')).toHaveValue(/<browser_artifact>/);
   await expect(page.getByTestId('chat-input-textarea')).toHaveValue(/More information/);
+  await attachedNotice.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(attachedNotice).toHaveCount(0);
 
   await page.getByTestId('browser-workspace-toggle').click();
   await expect(page.getByTestId('browser-dock')).toHaveCount(0);
