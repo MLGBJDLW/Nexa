@@ -269,6 +269,13 @@ pub fn find_executable(command: &str, env: &BTreeMap<String, String>) -> Option<
         .find(|path| is_executable(path))
 }
 
+fn npm_package_name(package: &str) -> &str {
+    package
+        .rsplit_once('@')
+        .filter(|(name, _)| !name.is_empty())
+        .map_or(package, |(name, _)| name)
+}
+
 fn adapter_args<'a>(
     preset: &ExternalAgentPreset,
     launch: &'a ExternalAgentLaunch,
@@ -276,19 +283,24 @@ fn adapter_args<'a>(
 ) -> &'a [String] {
     let args = launch.args.as_deref().unwrap_or(defaults);
     // Older Settings examples exposed the complete runner argv. Accept that
-    // exact bundled prefix without duplicating it or passing it to a native
-    // binary; explicit executable overrides keep their original argv contract.
+    // prefix for the same package, including a pre-upgrade version, without
+    // duplicating it or passing it to a native binary. Explicit executable
+    // overrides keep their original argv contract.
     if launch.executable.is_none() && launch.args.is_some() {
         if let Some(distribution) = &preset.distribution {
             if let Some(package) = &distribution.npx {
                 if args.first().map(String::as_str) == Some("--yes")
-                    && args.get(1) == Some(&package.package)
+                    && args.get(1).is_some_and(|argument| {
+                        npm_package_name(argument) == npm_package_name(&package.package)
+                    })
                 {
                     return &args[2..];
                 }
             }
             if let Some(package) = &distribution.uvx {
-                if args.first() == Some(&package.package) {
+                if args.first().is_some_and(|argument| {
+                    argument.split("==").next() == package.package.split("==").next()
+                }) {
                     return &args[1..];
                 }
             }
@@ -546,6 +558,9 @@ mod tests {
             );
             let original = launch.args.take().unwrap();
             launch.args = Some(plan.args.clone());
+            assert_eq!(installed(preset, &launch).unwrap().unwrap().args, plan.args);
+            launch.args.as_mut().unwrap()[1] =
+                format!("{}@0.0.1", npm_package_name(&package.package));
             assert_eq!(installed(preset, &launch).unwrap().unwrap().args, plan.args);
             assert_eq!(
                 binary_plan(preset, &launch, dir.path().join("native"), true).args,

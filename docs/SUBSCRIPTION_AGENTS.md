@@ -103,8 +103,9 @@ extraction or execution. Archives without a valid pin require a user-installed
 adapter. Registry refreshes retain locally reviewed pins only while the archive
 URL and entrypoint are unchanged.
 For automatic package preparation, custom arguments belong to the adapter;
-Nexa supplies the pinned package invocation. The previously displayed complete
-bundled runner prefix is accepted without duplication. Explicit executable
+Nexa supplies the pinned package invocation. A previously displayed complete
+runner prefix for the same package, including its older version, is normalized
+to the current reviewed pin without duplication. Explicit executable
 overrides retain their complete process argument contract.
 Archive installation preserves companion executables and publishes only a
 complete extracted directory. Antigravity requires `agy_acp_server.exe` and its
