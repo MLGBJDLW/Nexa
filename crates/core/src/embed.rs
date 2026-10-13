@@ -206,10 +206,7 @@ pub fn delete_local_model_for(
                 if matches!(
                     error.kind(),
                     std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
-                ) =>
-            {
-                ()
-            }
+                ) => {}
             Err(error) => return Err(error.into()),
         }
     }
