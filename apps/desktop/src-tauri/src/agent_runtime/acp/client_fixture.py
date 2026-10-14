@@ -48,6 +48,12 @@ for line in sys.stdin:
     elif method == "session/prompt":
         prompt = message
         blocks = message["params"]["prompt"]
+        if mode == "model_reroute":
+            update({"sessionUpdate": "usage_update", "used": 1000, "size": 64000})
+            update({"sessionUpdate": "current_model_update", "currentModelId": "native-fallback"})
+            update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Rerouted without further usage"}})
+            reply(prompt, {"stopReason": "end_turn"})
+            continue
         if mode == "parallel_permission":
             emit({"id": "approval", "method": "session/request_permission", "params": {"sessionId":session, "toolCall":{"toolCallId":"native-read", "title":"Read fixture"}, "options":[{"optionId":"once", "kind":"allow_once", "name":"Allow once"}]}})
             # This RPC must be serviced while the user's permission is pending.

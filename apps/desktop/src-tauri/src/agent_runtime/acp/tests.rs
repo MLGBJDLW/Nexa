@@ -565,6 +565,54 @@ async fn user_permission_does_not_block_concurrent_filesystem_requests() {
 }
 
 #[tokio::test]
+async fn model_change_without_later_usage_reaches_live_and_terminal_context() {
+    let directory = tempfile::tempdir().unwrap();
+    let (request, mut rx, _, _) =
+        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("gemini_cli"), "native");
+    let drain = tokio::spawn(async move {
+        let mut events = Vec::new();
+        while let Some(event) = rx.recv().await {
+            events.push(event);
+        }
+        events
+    });
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        run_connected(
+            "gemini_cli",
+            request,
+            client_wire(directory.path(), "model_reroute"),
+            &directory.path().to_string_lossy(),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let events = drain.await.unwrap();
+    let mut live = None;
+    let mut terminal = None;
+    for event in events {
+        match event {
+            AgentEvent::UsageUpdate {
+                context_breakdown, ..
+            } => live = context_breakdown,
+            AgentEvent::Done {
+                context_breakdown, ..
+            } => terminal = context_breakdown,
+            _ => {}
+        }
+    }
+    for context in [live.unwrap(), terminal.unwrap()] {
+        assert_eq!(context.runtime_model.as_deref(), Some("native-fallback"));
+        assert_eq!(context.runtime_provider.as_deref(), Some("gemini_cli"));
+        assert_eq!(
+            context.context_window, None,
+            "old model capacity must not survive a reroute"
+        );
+    }
+}
+
+#[tokio::test]
 async fn native_services_create_missing_files_render_released_terminals_and_survive_long_polling() {
     let directory = tempfile::tempdir().unwrap();
     let (mut request, mut rx, effects, _) =

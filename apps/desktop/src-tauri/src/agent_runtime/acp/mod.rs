@@ -626,6 +626,7 @@ async fn drive(
             if session.update(update)? {
                 if let Some(model) = session.current_model() {
                     output.observe_runtime_model(model);
+                    output.publish_usage(&turn.events).await?;
                 }
                 continue;
             }

@@ -185,6 +185,22 @@ impl Projection {
         self.publish_usage(tx).await
     }
 
+    fn context_for_publication(&self) -> Option<nexa_core::agent::context::ContextUsageBreakdown> {
+        self.context_breakdown.clone().or_else(|| {
+            self.runtime_identity.as_ref().map(|(provider, model)| {
+                nexa_core::agent::context::ContextUsageBreakdown {
+                    total_tokens: self.last_prompt_tokens,
+                    segments: vec![],
+                    budget: None,
+                    measurement: Some(nexa_core::agent::context::ContextMeasurement::Provider),
+                    context_window: None,
+                    runtime_provider: Some(provider.clone()),
+                    runtime_model: Some(model.clone()),
+                }
+            })
+        })
+    }
+
     pub(super) async fn publish_usage(
         &self,
         tx: &mpsc::Sender<AgentEvent>,
@@ -192,19 +208,7 @@ impl Projection {
         tx.send(AgentEvent::UsageUpdate {
             usage_total: self.usage.clone(),
             last_prompt_tokens: self.last_prompt_tokens,
-            context_breakdown: self.context_breakdown.clone().or_else(|| {
-                self.runtime_identity.as_ref().map(|(provider, model)| {
-                    nexa_core::agent::context::ContextUsageBreakdown {
-                        total_tokens: self.last_prompt_tokens,
-                        segments: vec![],
-                        budget: None,
-                        measurement: Some(nexa_core::agent::context::ContextMeasurement::Provider),
-                        context_window: None,
-                        runtime_provider: Some(provider.clone()),
-                        runtime_model: Some(model.clone()),
-                    }
-                })
-            }),
+            context_breakdown: self.context_for_publication(),
         })
         .await
         .map_err(protocol_error)
@@ -540,12 +544,13 @@ impl Projection {
             ),
             None => return Err(protocol_error("upstream completed without a final answer")),
         };
+        let context_breakdown = self.context_for_publication();
         turn.events
             .send(AgentEvent::Done {
                 message: message.clone(),
                 last_prompt_tokens: self.last_prompt_tokens,
                 usage_total: self.usage,
-                context_breakdown: self.context_breakdown,
+                context_breakdown,
                 assistant_message_id,
                 cached: false,
                 finish_reason: Some("stop".into()),
