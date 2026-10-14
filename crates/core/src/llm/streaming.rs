@@ -1062,6 +1062,14 @@ async fn parse_sse_with_output(
         }
     }
 
+    if terminal_finish_seen {
+        // Complete tail events (including usage) were dispatched above. An
+        // unterminated event left by EOF, a transport error, or the grace
+        // deadline is not a new sample and cannot invalidate this answer.
+        buffer.clear();
+        event_data_lines.clear();
+    }
+
     if !buffer.is_empty() {
         let line = decode_sse_line(&buffer);
         if collect_or_dispatch_sse_line(
@@ -1130,6 +1138,61 @@ async fn parse_sse_with_output(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn terminal_answer_survives_incomplete_usage_tail_at_timeout_and_eof() {
+        for tail_mode in 0..3 {
+            for tail in [b"data: {\"usage\":".as_slice(), b"data: {\"usage\":\n"] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 2048];
+                    socket.read(&mut request).await.unwrap();
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"Finished\"},\"finish_reason\":\"stop\"}]}\n\n").await.unwrap();
+                    socket.write_all(tail).await.unwrap();
+                    if tail_mode == 1 {
+                        std::future::pending::<()>().await;
+                    } else if tail_mode == 2 {
+                        loop {
+                            if socket.write_all(b" ").await.is_err() {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        }
+                    }
+                });
+                let response = reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let (tx, mut rx) = mpsc::channel(16);
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(4),
+                    parse_sse_stream_with_idle_timeout(
+                        response,
+                        tx,
+                        std::time::Duration::from_millis(50),
+                    ),
+                )
+                .await;
+                server.abort();
+                result
+                    .expect("a partial tail cannot extend the terminal deadline")
+                    .expect("an unfinished usage tail cannot invalidate a terminal answer");
+                let answer = rx.recv().await.unwrap().unwrap();
+                assert_eq!(answer.delta, "Finished");
+                assert_eq!(answer.finish_reason, Some(FinishReason::Stop));
+                while let Some(chunk) = rx.recv().await {
+                    chunk.expect("an incomplete tail must not emit a downstream protocol failure");
+                }
+            }
+        }
+    }
 
     #[tokio::test]
     async fn terminal_tail_heartbeats_cannot_delay_the_completed_answer() {
