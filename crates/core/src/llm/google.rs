@@ -1709,6 +1709,14 @@ async fn parse_gemini_hop(
         }
     }
 
+    if saw_finish_reason {
+        // Complete tail events have already been dispatched. EOF, a timeout,
+        // or the terminal grace deadline can leave partial JSON/UTF-8 behind;
+        // those unfinished bytes cannot invalidate a committed response/hop.
+        pending_utf8.clear();
+        event_data_lines.clear();
+    }
+
     if !pending_utf8.is_empty() {
         return Err(CoreError::Llm(
             "Invalid UTF-8 in stream: incomplete UTF-8 byte sequence at end of stream".to_string(),
@@ -2240,6 +2248,73 @@ impl LlmProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn completed_gemini_response_discards_partial_json_and_utf8_tail() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for mode in 0..3 {
+            for tail in [b"data: {\"usageMetadata\":\n".as_slice(), b"\xe4"] {
+                if mode == 2 && tail == b"\xe4" {
+                    continue;
+                }
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 2048];
+                    socket.read(&mut request).await.unwrap();
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Finished\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":2,\"totalTokenCount\":6}}\n\n").await.unwrap();
+                    socket.write_all(tail).await.unwrap();
+                    if mode == 1 {
+                        std::future::pending::<()>().await;
+                    }
+                    if mode == 2 {
+                        loop {
+                            if socket.write_all(b" ").await.is_err() {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                        }
+                    }
+                });
+                let response = reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let (tx, mut rx) = mpsc::channel(16);
+                let result = tokio::time::timeout(
+                    Duration::from_secs(4),
+                    parse_gemini_hop(
+                        response,
+                        tx,
+                        Duration::from_millis(50),
+                        &mut GeminiToolCallStreamState::default(),
+                    ),
+                )
+                .await;
+                server.abort();
+                assert!(result
+                    .expect("tail cannot extend completion")
+                    .expect("partial tail cannot invalidate completion")
+                    .is_none());
+                let mut answer = String::new();
+                let mut tokens = 0;
+                while let Some(chunk) = rx.recv().await {
+                    let chunk = chunk.unwrap();
+                    answer.push_str(&chunk.delta);
+                    if let Some(usage) = chunk.usage {
+                        tokens = usage.total_tokens;
+                    }
+                }
+                assert_eq!(answer, "Finished");
+                assert_eq!(tokens, 6);
+            }
+        }
+    }
 
     #[tokio::test]
     async fn completed_gemini_response_survives_missing_transport_tail() {
