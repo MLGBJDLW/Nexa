@@ -4306,6 +4306,15 @@ impl Database {
         Ok(())
     }
 
+    /// Current append position for a conversation's serialized message producer.
+    pub(crate) fn next_message_sort_order(&self, conversation_id: &str) -> Result<i64, CoreError> {
+        Ok(self.conn().query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM messages WHERE conversation_id = ?1",
+            [conversation_id],
+            |row| row.get(0),
+        )?)
+    }
+
     /// Get all messages for a conversation, ordered by `sort_order` ASC.
     pub fn get_messages(
         &self,

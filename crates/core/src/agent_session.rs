@@ -169,6 +169,12 @@ impl AgentSession for ExecutorAgentSession {
 
         let conversation_id = task_run.conversation_id;
         let turn_id = task_run.turn_id;
+        // Checkpoint and interaction continuations append their user response
+        // outside this cached session. Reload the durable append position before
+        // each producer starts, retaining any higher caller-reserved position.
+        self.next_sort_order = self
+            .next_sort_order
+            .max(self.db.next_message_sort_order(&conversation_id)?);
         let session_id = self.config.session_id.clone();
         let outbox = self.outboxes()?.open(&conversation_id, &run_id).await?;
         if outbox.is_closed_for_submission() {
@@ -541,6 +547,26 @@ mod tests {
         (session, turn_id, run_id, calls)
     }
 
+    fn assert_resume_transcript_order(db: &Database, conversation: &str, response_id: &str) {
+        let messages = db.get_messages(conversation).unwrap();
+        assert!(
+            messages
+                .windows(2)
+                .all(|pair| pair[0].sort_order < pair[1].sort_order),
+            "conversation message order must be unique and increasing"
+        );
+        let response_index = messages
+            .iter()
+            .position(|message| message.id == response_id)
+            .unwrap();
+        assert!(
+            messages[response_index + 1..]
+                .iter()
+                .any(|message| message.role == Role::Assistant),
+            "resumed answer must follow the durable user response"
+        );
+    }
+
     #[tokio::test]
     async fn interrupted_executor_session_preserves_partial_work_without_a_terminal_error() {
         use crate::llm::{
@@ -641,14 +667,6 @@ mod tests {
                     ..Default::default()
                 },
             );
-            session.next_sort_order = db
-                .get_messages(&response.conversation_id)
-                .unwrap()
-                .iter()
-                .map(|message| message.sort_order)
-                .max()
-                .unwrap()
-                + 1;
             let resumed = tokio::time::timeout(
                 std::time::Duration::from_secs(10),
                 session.start_turn(AgentTurnInput::text(response.content)),
@@ -658,6 +676,7 @@ mod tests {
             .unwrap();
             assert_eq!(resumed.run_id, run_id);
             assert_eq!(resumed.turn_id, turn_id);
+            assert_resume_transcript_order(&db, &response.conversation_id, &response.id);
             assert_eq!(
                 resumed.state,
                 AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed),
@@ -777,12 +796,12 @@ mod tests {
                 ..Default::default()
             },
         );
-        session.next_sort_order = 10;
         let resumed = session
             .start_turn(AgentTurnInput::text(response.content))
             .await
             .unwrap();
         assert_eq!(resumed.turn_id, turn_id);
+        assert_resume_transcript_order(&db, &response.conversation_id, &response.id);
         assert_eq!(
             resumed.state,
             AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed)
@@ -837,6 +856,59 @@ mod tests {
             .iter()
             .all(|event| !event.closes_run()));
         assert!(!db.list_task_resume_checkpoints(&run_id).unwrap().is_empty());
+        let conversation = db.get_agent_task_run(&run_id).unwrap().conversation_id;
+        let question = db
+            .list_interaction_requests(Some(&conversation), false)
+            .unwrap()
+            .pop()
+            .unwrap();
+        db.mark_interaction_presented(&question.interaction_id)
+            .unwrap();
+        let response = ConversationMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            conversation_id: conversation.clone(),
+            role: Role::User,
+            content: "Which folder?\nRepo".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: Some(serde_json::json!({"kind":"questionResponse", "version":2,
+                "interactionId":question.interaction_id, "requestCallId":"question-1",
+                "answers":[{"id":"scope","question":"Which folder?","answers":["Repo"]}]})),
+            token_count: 4,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.resume_agent_turn_with_interaction_response(
+            &response,
+            None,
+            None,
+            "question-resume",
+            &crate::interaction::SubmitInteractionResponse {
+                interaction_id: question.interaction_id,
+                resume_token: question.resume_token,
+                answers: std::collections::BTreeMap::from([("scope".into(), vec!["Repo".into()])]),
+            },
+        )
+        .unwrap();
+        session.executor = AgentExecutor::new(
+            Box::new(StaticProvider),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("static-model".into()),
+                ..Default::default()
+            },
+        );
+        let resumed = session
+            .start_turn(AgentTurnInput::text(response.content))
+            .await
+            .unwrap();
+        assert_eq!(
+            resumed.state,
+            AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed)
+        );
+        assert_resume_transcript_order(&db, &conversation, &response.id);
     }
 
     fn settle_uncertain_worker(db: &Database, worker_id: &str) {
