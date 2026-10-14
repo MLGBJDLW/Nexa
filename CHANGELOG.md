@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.16.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.1...nexa-monorepo-v0.16.2) (2026-10-14)
+
+
+### Features
+
+* **embeddings:** add verified Jina Omni and router routes ([91c6aef](https://github.com/MLGBJDLW/Nexa/commit/91c6aef1403e54940d5e2e7610a244c22a086e77))
+* improve runtime continuity, model context and Computer Use ([20f01fb](https://github.com/MLGBJDLW/Nexa/commit/20f01fbfed43c828ce2877133b039ba7b5e042c7))
+* **providers:** refresh model lifecycles and continue native Gemini hops ([8478dd8](https://github.com/MLGBJDLW/Nexa/commit/8478dd84225f6798894b63e6383dec74dacd6717))
+* **subscriptions:** align native context, compaction and account usage ([32f46cb](https://github.com/MLGBJDLW/Nexa/commit/32f46cb2e5e3aa78dcba541eecf979fc36e3908d))
+
+
+### Bug Fixes
+
+* **computer-use:** fence stopped workers and close approval races ([4ee2490](https://github.com/MLGBJDLW/Nexa/commit/4ee249072c8295a6634079d266ea591521ce9fc2))
+* **computer-use:** scope stop to desktop control and animate the Nexa logo ([785b41c](https://github.com/MLGBJDLW/Nexa/commit/785b41cdb7d1b0208e6ad5ceb2c701e72cd02a76))
+* **runtime:** publish native model reroutes through completion ([11b2fae](https://github.com/MLGBJDLW/Nexa/commit/11b2faea91f788dc359472f57856f977c75a54dd))
+* **runtime:** settle retry status when native work resumes ([be16b2d](https://github.com/MLGBJDLW/Nexa/commit/be16b2d290952956d2c6792927f1c6a14b6d04a1))
+* **streaming:** preserve active turns across event journal outages ([98ea491](https://github.com/MLGBJDLW/Nexa/commit/98ea491a070bd9fe8f05ad90f7be99cdffb22c9a))
+* **subscriptions:** invalidate account reads across login cancellation ([fd2ddac](https://github.com/MLGBJDLW/Nexa/commit/fd2ddac4f557c6fcbf170c68c91bdfc36d6993da))
+* **subscriptions:** keep login polling alive after transient read errors ([2740129](https://github.com/MLGBJDLW/Nexa/commit/2740129333b212d3e7cf7b0634f524a1444d1f65))
+* **subscriptions:** scope usage to active runs and accept native notices ([8d2a771](https://github.com/MLGBJDLW/Nexa/commit/8d2a771e617622a22a6186efe5cbdb136f53e49e))
+
 ## [0.16.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.0...nexa-monorepo-v0.16.1) (2026-10-13)
 
 
