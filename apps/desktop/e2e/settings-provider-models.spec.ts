@@ -1541,6 +1541,40 @@ test("settings projects the Codex subscription account and usage without an API 
   await expect(account).not.toContainText("API key");
 });
 
+for (const runtime of ['codex', 'copilot'] as const) {
+  test(`${runtime} login polling recovers after a failed account read`, async ({ page }) => {
+    await page.goto('/settings');
+    await page.evaluate(name => localStorage.setItem(`nexa-e2e-${name}-account`, 'pending'), runtime);
+    await page.reload();
+    await page.getByRole('tab', { name: 'AI Providers' }).click();
+    await page.getByRole('button', { name: 'Add Provider' }).click();
+    await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+    await page.locator(`[data-provider-preset-id="${runtime === 'codex' ? 'openai-codex' : 'github-copilot'}"]`).click();
+    const account = page.getByTestId(`${runtime}-subscription-account`);
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toBeVisible();
+    await page.evaluate(name => {
+      const host = (window as any).__TAURI_INTERNALS__;
+      const invoke = host.invoke;
+      let fail = true;
+      host.invoke = (command: string, args: unknown) => {
+        if (command === `get_${name}_account_snapshot_cmd`) {
+          if (fail) {
+            fail = false;
+            localStorage.setItem('nexa-e2e-login-read-failed', '1');
+            return Promise.reject(new Error('transient account read failure'));
+          }
+          localStorage.setItem(`nexa-e2e-${name}-account`, name === 'codex' ? 'signed-in' : 'verified');
+        }
+        return invoke(command, args);
+      };
+    }, runtime);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('nexa-e2e-login-read-failed'))).toBe('1');
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toBeVisible();
+    await expect(account).toContainText(runtime === 'codex' ? 'reader@example.com' : 'octocat');
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toHaveCount(0);
+  });
+}
+
 test("settings completes the official Codex device-code launch and cancellation flow", async ({ page }) => {
   await page.goto("/settings");
   await page.evaluate(() => {
