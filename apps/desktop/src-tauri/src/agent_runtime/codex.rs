@@ -581,8 +581,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     // Dropping cancelled dispatch futures releases their timeline locks and
     // runs receipt guards before persisting pending user/assistant messages.
     pending.clear();
-    if result.is_err() {
-        projection.persist_partial(&turn).await?;
+    if let Err(cause) = &result {
+        projection.persist_partial(&turn, cause).await?;
         for message in steering_queue {
             turn.transcript.persist_steering(&message).await?;
         }

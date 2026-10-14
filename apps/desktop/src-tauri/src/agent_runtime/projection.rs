@@ -528,8 +528,14 @@ impl Projection {
         Ok(())
     }
 
-    pub(super) async fn persist_partial(&mut self, turn: &PreparedTurn) -> Result<(), CoreError> {
-        self.finish_usage(if turn.cancellation.is_cancelled() {
+    pub(super) async fn persist_partial(
+        &mut self,
+        turn: &PreparedTurn,
+        cause: &CoreError,
+    ) -> Result<(), CoreError> {
+        // Native runtimes cancel child work during error cleanup too. Only
+        // the actual turn outcome distinguishes user cancellation from failure.
+        self.finish_usage(if matches!(cause, CoreError::Cancelled(_)) {
             "cancelled"
         } else {
             "error"
@@ -692,7 +698,13 @@ mod tests {
             )
             .await
             .unwrap();
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         let history = db.get_messages(&conversation).unwrap();
         assert_eq!(
             history[1..]
@@ -732,7 +744,13 @@ mod tests {
             .discard_answer_blocks(&turn.events, vec!["a".into(), "b".into()])
             .await
             .is_err());
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         assert_eq!(db.get_messages(&conversation).unwrap().len(), 1);
         assert_eq!(projection.draft_bytes, 0);
     }
@@ -827,7 +845,13 @@ mod tests {
             projection.answer.is_empty(),
             "there was no full-message event"
         );
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         assert_eq!(
             db.get_messages(&conversation)
                 .unwrap()

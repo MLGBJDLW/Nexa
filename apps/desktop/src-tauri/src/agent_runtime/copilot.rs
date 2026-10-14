@@ -328,8 +328,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         }
     }.await;
     turn.cancellation.cancel();
-    if run.is_err() {
-        projection.persist_partial(&turn).await?;
+    if let Err(cause) = &run {
+        projection.persist_partial(&turn, cause).await?;
         for message in steering {
             if message.recovery_control.is_none() {
                 turn.transcript.persist_steering(&message).await?;
@@ -1315,7 +1315,13 @@ mod tests {
             .persist_steering(&AgentSteeringMessage::text("follow up"))
             .await
             .unwrap();
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         let history = db.get_messages(&conversation).unwrap();
         assert_eq!(history.len(), 3);
         assert_eq!(history[1].content, "第一段\n\n第二段");
@@ -1465,7 +1471,13 @@ mod tests {
         )
         .await
         .is_err());
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         let history = db.get_messages(&conversation).unwrap();
         assert_eq!(
             history[1..]

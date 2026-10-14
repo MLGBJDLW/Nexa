@@ -191,7 +191,19 @@ pub(super) fn fixture(
     Arc<AtomicUsize>,
     String,
 ) {
-    let db = Arc::new(Database::open_memory().unwrap());
+    fixture_with_database(kind, model, Arc::new(Database::open_memory().unwrap()))
+}
+
+pub(super) fn fixture_with_database(
+    kind: AgentRuntimeKind,
+    model: &str,
+    db: Arc<Database>,
+) -> (
+    AgentRuntimeTurnRequest,
+    mpsc::Receiver<AgentEvent>,
+    Arc<AtomicUsize>,
+    String,
+) {
     let conversation = db
         .create_conversation(&CreateConversationInput {
             provider: "subscription".into(),

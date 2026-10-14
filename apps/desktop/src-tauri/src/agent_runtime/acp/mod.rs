@@ -301,7 +301,7 @@ async fn run_initialized(
             let _ = reports
                 .close_pending(&turn.events, turn.cancellation.is_cancelled())
                 .await;
-            output.persist_partial(&turn).await?;
+            output.persist_partial(&turn, &cause).await?;
             Err(cause)
         }
     }

@@ -22,6 +22,54 @@ mod tests {
     use nexa_core::usage_analytics::UsageAnalyticsFilter;
 
     #[tokio::test]
+    async fn cleanup_cancellation_does_not_change_the_recorded_turn_outcome() {
+        for kind in [
+            AgentRuntimeKind::Codex,
+            AgentRuntimeKind::Copilot,
+            AgentRuntimeKind::Acp("hermes"),
+        ] {
+            for user_cancelled in [false, true] {
+                let directory = tempfile::tempdir().unwrap();
+                let path = directory.path().join("usage.db");
+                let database = Arc::new(Database::new(&path).unwrap());
+                let (request, _rx, _, _) =
+                    super::super::tests::fixture_with_database(kind, "native", database);
+                let turn = request.prepare(false).unwrap();
+                let mut output = Projection::for_turn(&turn);
+                output.usage_reported = true;
+                output.usage = Usage {
+                    prompt_tokens: 10,
+                    completion_tokens: 2,
+                    total_tokens: 12,
+                    ..Default::default()
+                };
+                let cause = if user_cancelled {
+                    CoreError::Cancelled("Stopped by user".into())
+                } else {
+                    CoreError::StreamIncomplete("Native connection closed".into())
+                };
+                // All runtimes may stop child work before saving partial output.
+                turn.cancellation.cancel();
+                output.persist_partial(&turn, &cause).await.unwrap();
+                let reader = rusqlite::Connection::open_with_flags(
+                    &path,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .unwrap();
+                let (status, tokens): (String, u64) = reader
+                    .query_row(
+                        "SELECT request_status, total_tokens FROM ai_usage_records",
+                        [],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .unwrap();
+                assert_eq!(status, if user_cancelled { "cancelled" } else { "error" });
+                assert_eq!(tokens, 12);
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn runtime_usage_reaches_analytics_once_and_survives_interruption() {
         let (request, _rx, _, _) = fixture(AgentRuntimeKind::Codex, "model-one");
         let db = request.db.clone();
@@ -49,8 +97,20 @@ mod tests {
         output.usage.completion_tokens += 5;
         output.usage.total_tokens += 35;
         output.publish_usage(&turn.events).await.unwrap();
-        output.persist_partial(&turn).await.unwrap();
-        output.persist_partial(&turn).await.unwrap();
+        output
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
+        output
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         let analytics = db
             .get_usage_analytics(&UsageAnalyticsFilter::default())
             .unwrap();
@@ -84,7 +144,13 @@ mod tests {
             .context_snapshot(&turn.events, 12000, Some(128000), vec![])
             .await
             .unwrap();
-        output.persist_partial(&turn).await.unwrap();
+        output
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         let totals = db
             .get_usage_analytics(&UsageAnalyticsFilter::default())
             .unwrap()
