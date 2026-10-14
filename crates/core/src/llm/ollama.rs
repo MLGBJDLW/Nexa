@@ -519,6 +519,10 @@ impl OllamaProvider {
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
+    fn manages_request_timeout(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> &str {
         "ollama"
     }

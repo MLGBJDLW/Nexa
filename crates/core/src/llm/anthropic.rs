@@ -2479,6 +2479,10 @@ mod tests {
 
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
+    fn manages_request_timeout(&self) -> bool {
+        true
+    }
+
     fn supports_document_input(
         &self,
         request: &CompletionRequest,

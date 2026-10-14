@@ -1870,6 +1870,10 @@ fn with_google_api_key(request: reqwest::RequestBuilder, api_key: &str) -> reqwe
 
 #[async_trait]
 impl LlmProvider for GeminiProvider {
+    fn manages_request_timeout(&self) -> bool {
+        true
+    }
+
     fn supports_document_input(
         &self,
         request: &CompletionRequest,

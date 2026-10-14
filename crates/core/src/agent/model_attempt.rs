@@ -188,7 +188,7 @@ pub(super) struct ModelAttempt<'provider, 'events> {
     events: &'events mpsc::Sender<AgentEvent>,
     original_request: CompletionRequest,
     policy: StreamRecoveryPolicy,
-    connect_timeout: Duration,
+    connect_timeout: Option<Duration>,
     phase: AttemptPhase<'provider>,
     request_started_at: Instant,
     candidate_sample_id: Option<String>,
@@ -216,11 +216,13 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
     ) -> Self {
         let initial_provider_id = provider.name().to_string();
         let initial_model_id = original_request.model.clone();
-        let connect_timeout = super::model_recovery::ModelProgressPolicy::for_model(
-            original_request.provider_type,
-            &original_request.model,
-        )
-        .connect_deadline;
+        let connect_timeout = (!provider.manages_request_timeout()).then(|| {
+            super::model_recovery::ModelProgressPolicy::for_model(
+                original_request.provider_type,
+                &original_request.model,
+            )
+            .connect_deadline
+        });
         let phase = if force_non_streaming {
             AttemptPhase::ReadyToComplete {
                 switched_to_non_streaming: false,
@@ -576,6 +578,9 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
         let timeout = self.connect_timeout;
         self.phase = AttemptPhase::OpeningStream(Box::pin(async move {
             crate::privacy::runtime::ensure_invocation_current()?;
+            let Some(timeout) = timeout else {
+                return provider.stream_events(&request).await;
+            };
             tokio::time::timeout(timeout, provider.stream_events(&request))
                 .await
                 .map_err(|_| {
@@ -599,6 +604,9 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
         self.phase = AttemptPhase::OpeningCompletion {
             future: Box::pin(async move {
                 crate::privacy::runtime::ensure_invocation_current()?;
+                let Some(timeout) = timeout else {
+                    return provider.complete(&request).await;
+                };
                 tokio::time::timeout(timeout, provider.complete(&request))
                     .await
                     .map_err(|_| {
@@ -1098,6 +1106,108 @@ mod tests {
         FinishReason, Message, ProviderHostedToolEvent, ProviderHostedToolKind,
         ProviderHostedToolStatus, ProviderType, Role, StreamChunk, ToolCallRequest, Usage,
     };
+
+    struct ManagedDeadlineProvider {
+        timeout_secs: u64,
+        delay_secs: u64,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl ManagedDeadlineProvider {
+        async fn wait(&self) -> Result<(), CoreError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let wait = tokio::time::sleep(Duration::from_secs(self.delay_secs));
+            if self.timeout_secs == 0 {
+                wait.await;
+            } else {
+                tokio::time::timeout(Duration::from_secs(self.timeout_secs), wait)
+                    .await
+                    .map_err(|_| CoreError::TransientLlm("configured endpoint timeout".into()))?;
+            }
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl LlmProvider for ManagedDeadlineProvider {
+        fn name(&self) -> &str {
+            "custom"
+        }
+        fn manages_request_timeout(&self) -> bool {
+            true
+        }
+        fn stream_max_retries(&self) -> Option<u32> {
+            Some(0)
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec![])
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            self.wait().await?;
+            Ok(response("finished within endpoint policy"))
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+            self.wait().await?;
+            Ok(Box::pin(stream::empty()))
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn configured_endpoint_deadlines_are_not_shortened_by_model_policy() {
+        for non_streaming in [false, true] {
+            for (timeout_secs, delay_secs) in [(0, 1800), (1200, 1000)] {
+                let provider = ManagedDeadlineProvider {
+                    timeout_secs,
+                    delay_secs,
+                    calls: Default::default(),
+                };
+                let (tx, _rx) = event_channel();
+                let mut attempt = ModelAttempt::new(&provider, request(), &tx, non_streaming);
+                let start = tokio::time::Instant::now();
+                if non_streaming {
+                    assert!(matches!(
+                        attempt.next().await,
+                        ModelAttemptProgress::Completion(_)
+                    ));
+                } else {
+                    expect_stream_opened(&mut attempt).await;
+                    assert!(matches!(
+                        attempt.next().await,
+                        ModelAttemptProgress::StreamComplete { .. }
+                    ));
+                }
+                assert_eq!(start.elapsed(), Duration::from_secs(delay_secs));
+                assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn disabled_endpoint_deadline_remains_cancellable_without_resend() {
+        for non_streaming in [false, true] {
+            let provider = ManagedDeadlineProvider {
+                timeout_secs: 0,
+                delay_secs: 3600,
+                calls: Default::default(),
+            };
+            let (tx, _rx) = event_channel();
+            let cancel = CancellationToken::new();
+            let mut attempt = ModelAttempt::new(&provider, request(), &tx, non_streaming)
+                .with_cancel_token(cancel.clone());
+            let (progress, ()) = tokio::join!(attempt.next(), async {
+                tokio::time::sleep(Duration::from_secs(1500)).await;
+                cancel.cancel();
+            });
+            assert!(matches!(progress, ModelAttemptProgress::Cancelled(_)));
+            assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        }
+    }
 
     enum Invocation {
         Stream(Result<Vec<ProviderStreamEvent>, CoreError>),

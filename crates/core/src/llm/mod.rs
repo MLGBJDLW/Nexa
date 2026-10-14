@@ -855,6 +855,13 @@ pub trait LlmProvider: Send + Sync {
         None
     }
 
+    /// Whether this adapter already owns request/startup deadlines, including
+    /// an explicitly disabled timeout. The model loop must not impose a
+    /// second, shorter deadline over configured endpoints or route sequences.
+    fn manages_request_timeout(&self) -> bool {
+        false
+    }
+
     /// Resolved cache capability for this concrete provider endpoint. Agent
     /// diagnostics consume the same profile as the wire adapter.
     fn prompt_cache_profile(&self, model: &str) -> prompt_cache::PromptCacheProfile {
@@ -1007,6 +1014,10 @@ impl MessageValidatingProvider {
 
 #[async_trait]
 impl LlmProvider for MessageValidatingProvider {
+    fn manages_request_timeout(&self) -> bool {
+        self.inner.manages_request_timeout()
+    }
+
     fn name(&self) -> &str {
         self.inner.name()
     }
@@ -1226,6 +1237,33 @@ pub fn model_declares_vision_support(provider_type: &ProviderType, model: &str) 
 mod tests {
     use super::*;
     use futures::{stream, StreamExt};
+
+    #[test]
+    fn configured_http_deadlines_survive_the_message_validation_adapter() {
+        for provider_type in [
+            ProviderType::OpenAi,
+            ProviderType::Anthropic,
+            ProviderType::Google,
+            ProviderType::Ollama,
+            ProviderType::Custom,
+        ] {
+            for timeout_secs in [0, 1200] {
+                let provider = create_provider(ProviderConfig {
+                    provider_type,
+                    base_url: Some("http://127.0.0.1:12345".into()),
+                    api_key: Some("fixture".into()),
+                    org_id: None,
+                    timeout_secs: Some(timeout_secs),
+                    streaming: Default::default(),
+                })
+                .unwrap();
+                assert!(
+                    provider.manages_request_timeout(),
+                    "{provider_type:?}/{timeout_secs}"
+                );
+            }
+        }
+    }
 
     struct NoRetiredRequests;
     #[async_trait]
