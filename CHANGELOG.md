@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.16.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.2...nexa-monorepo-v0.16.3) (2026-10-14)
+
+
+### Features
+
+* **runtime:** unify external usage and recover long-running agents ([3ef96be](https://github.com/MLGBJDLW/Nexa/commit/3ef96be1d2cb02deb294f3b337dccad1d56dbe7d))
+* **usage:** include external runtime tokens in unified analytics ([fc28787](https://github.com/MLGBJDLW/Nexa/commit/fc287874a19d3d79b68b2d32ff4cc7dd89a48a7c))
+
+
+### Bug Fixes
+
+* **agent:** checkpoint interrupted native result delivery ([dd8b6cf](https://github.com/MLGBJDLW/Nexa/commit/dd8b6cfa0bd178b858f39d3cecb652a960a9c78a))
+* **agent:** fence delegated recovery in external sessions ([23a0529](https://github.com/MLGBJDLW/Nexa/commit/23a052964d10e8a08942cf48d268a03407b2cae3))
+* **agent:** preserve durable resumes across session adapters ([112eb79](https://github.com/MLGBJDLW/Nexa/commit/112eb798bc6d8f6d0a6e90b448d5e59f8ce2da9b))
+* **agent:** preserve resumable work across provider connection failures ([ba9faf6](https://github.com/MLGBJDLW/Nexa/commit/ba9faf68b06ac270ac47897094ecc0761a32da46))
+* **agent:** propagate delegated action recovery to parent runs ([0187e48](https://github.com/MLGBJDLW/Nexa/commit/0187e48b1283583e177bd738aaec215e4e84b4c6))
+* **agent:** recheck delegated recovery at action commit boundaries ([462f3bb](https://github.com/MLGBJDLW/Nexa/commit/462f3bb1cd1545c4ecd672f25751f835944bf05a))
+* **agent:** refresh durable transcript order on resume ([1d1f5e0](https://github.com/MLGBJDLW/Nexa/commit/1d1f5e0df119572b1321112dc6467ea4d42035a0))
+* **agent:** restore reconciliation fences across connection pauses ([b259fd6](https://github.com/MLGBJDLW/Nexa/commit/b259fd6df868b48760b53239c84ec2924a1e29ce))
+* **agent:** retain artifacts when recovery pauses a desktop run ([c0f4643](https://github.com/MLGBJDLW/Nexa/commit/c0f464373b943501723e38c588fbc222df754f9d))
+* **agent:** retain checkpoints across external stream loss ([a86250f](https://github.com/MLGBJDLW/Nexa/commit/a86250fc9d622208b30a4ce6397a20b8ae9f02bf))
+* **agent:** retain opaque action reconciliation fences ([0799094](https://github.com/MLGBJDLW/Nexa/commit/0799094390bead22df6aa5e1cff85acb565cd228))
+* **chat:** show question tool activity and waiting states ([927c1fa](https://github.com/MLGBJDLW/Nexa/commit/927c1faefe74692c2c8f07820473e5dca687bf8c))
+* **gemini:** preserve completion across partial transport tails ([813318f](https://github.com/MLGBJDLW/Nexa/commit/813318fc4b31f7829e5eb4770d232884c4f2cc8c))
+* **gemini:** retain complete usage tails across completed hops ([c61f4aa](https://github.com/MLGBJDLW/Nexa/commit/c61f4aadb56fc66712a948e0433601d7d197303d))
+* **llm:** preserve provider-owned request timeout policies ([bb9ebeb](https://github.com/MLGBJDLW/Nexa/commit/bb9ebeb20d8aee3e3122e881a1d004c98bdb9fa8))
+* **llm:** preserve recoverable native completion transport errors ([250d990](https://github.com/MLGBJDLW/Nexa/commit/250d9907307208f55fda9ee98ea6f33bc5e777d2))
+* **llm:** resolve implicit deadlines from request models ([5667cd8](https://github.com/MLGBJDLW/Nexa/commit/5667cd85e2ce77238d663bb5b76d525c5baba74c))
+* **llm:** retain complete usage events at clean stream EOF ([06063a6](https://github.com/MLGBJDLW/Nexa/commit/06063a6176520fe66399dbfecf23994e7de6952c))
+* **models:** refresh routed aliases and available embedding models ([1e8fd3d](https://github.com/MLGBJDLW/Nexa/commit/1e8fd3de459b925363add22a5b38dab41f7b4293))
+* **streaming:** discard incomplete transport tails after completion ([8932a7f](https://github.com/MLGBJDLW/Nexa/commit/8932a7f2af798e7a84253c8a798c18bf1e376a05))
+* **tools:** rotate deferred schemas without capability ceilings ([77ee291](https://github.com/MLGBJDLW/Nexa/commit/77ee29194afd7e704e37af6b6f2a4c41354b12a0))
+* **usage:** recover missing Hermes snapshots without losing consumption ([271af1a](https://github.com/MLGBJDLW/Nexa/commit/271af1a5641ef756902bf704a8541181c090b70d))
+* **usage:** settle native consumption with the actual turn outcome ([133d456](https://github.com/MLGBJDLW/Nexa/commit/133d456e4af24da38fb13b143a55d02b2535941e))
+* **usage:** settle native snapshots on privacy cancellation ([831113b](https://github.com/MLGBJDLW/Nexa/commit/831113b85521df641327ae7a28343045c0a18d1e))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 3ef96be1d2cb02deb294f3b337dccad1d56dbe7d -->
+
+### What's Changed
+* feat(runtime): unify external usage and recover long-running agents by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/474
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.2...nexa-monorepo-v0.16.3
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.1...nexa-monorepo-v0.16.2) (2026-10-14)
 
 
