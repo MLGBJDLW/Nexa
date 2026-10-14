@@ -839,9 +839,12 @@ mod tests {
             );
         }
         let mut codes = Vec::new();
+        let mut output = String::new();
         while let Ok(event) = rx.try_recv() {
-            if let AgentEvent::ControllerStatus { code, .. } = event {
-                codes.push(code);
+            match event {
+                AgentEvent::ControllerStatus { code, .. } => codes.push(code),
+                AgentEvent::StreamBlockDelta { delta, .. } => output.push_str(&delta),
+                _ => {}
             }
         }
         assert_eq!(
@@ -853,7 +856,7 @@ mod tests {
             ]
         );
         assert!(!projection.retrying);
-        assert_eq!(projection.answer, "BeforeAfter");
+        assert_eq!(output, "BeforeAfter");
     }
 
     #[tokio::test]
