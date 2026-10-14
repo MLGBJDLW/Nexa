@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.16.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.3...nexa-monorepo-v0.16.4) (2026-10-14)
+
+### Included in this public release
+
+Version 0.16.3 remained an unpublished draft after the release audit detected newly published rustls advisories. This release includes all changes from that draft plus rustls 0.23.46.
+
+- External Codex, Copilot, and supported ACP runtimes now contribute reported token usage to AI Usage with deduplication and model attribution.
+- Long-running model requests use five transient retries by default, preserve provider timeout settings, and retain resumable checkpoints and completed responses across recoverable transport failures.
+- Explicitly discovered file and shell tools remain available when the tool-schema optimization budget is full.
+- User-question tools show active, waiting, and answered states, with keyboard and reduced-motion support.
+- Model aliases and supported embedding routes are refreshed. The audit covers 77 endpoints and 1,034 model projections; account-specific availability still depends on provider discovery and permissions.
+- rustls 0.23.46 addresses RUSTSEC-2026-0346, RUSTSEC-2026-0347, RUSTSEC-2026-0348, and RUSTSEC-2026-0349.
+
+Feature and recovery work: https://github.com/MLGBJDLW/Nexa/pull/474. Dependency fix: https://github.com/MLGBJDLW/Nexa/pull/476.
+
+
+### Bug Fixes
+
+* **deps:** upgrade rustls for October security advisories ([5354a30](https://github.com/MLGBJDLW/Nexa/commit/5354a302535b9486a9f426f70c6d66946ab30ebf))
+* **deps:** upgrade rustls for October security advisories ([240292b](https://github.com/MLGBJDLW/Nexa/commit/240292b931581e0af5063dec8f0e581a168baa9d))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 5354a302535b9486a9f426f70c6d66946ab30ebf -->
+
+### What's Changed
+* fix(deps): upgrade rustls for October security advisories by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/476
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.3...nexa-monorepo-v0.16.4
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.2...nexa-monorepo-v0.16.3) (2026-10-14)
 
 
