@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.3...nexa-monorepo-v0.16.4) (2026-10-14)
+
+
+### Bug Fixes
+
+* **deps:** upgrade rustls for October security advisories ([5354a30](https://github.com/MLGBJDLW/Nexa/commit/5354a302535b9486a9f426f70c6d66946ab30ebf))
+* **deps:** upgrade rustls for October security advisories ([240292b](https://github.com/MLGBJDLW/Nexa/commit/240292b931581e0af5063dec8f0e581a168baa9d))
+
 ## [0.16.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.2...nexa-monorepo-v0.16.3) (2026-10-14)
 
 
