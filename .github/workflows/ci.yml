@@ -614,7 +614,9 @@ jobs:
     needs: classify
     if: needs.classify.outputs.release_metadata_only != 'true'
     runs-on: windows-latest
-    timeout-minutes: 20
+    # Cold default-feature checking plus the separate test profile can consume
+    # twenty minutes before the final native PowerShell smoke even starts.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
         with:

@@ -23,17 +23,23 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_cancellation_does_not_change_the_recorded_turn_outcome() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("usage.db");
+        let database = Arc::new(Database::new(&path).unwrap());
+        let reader = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
         for kind in [
             AgentRuntimeKind::Codex,
             AgentRuntimeKind::Copilot,
             AgentRuntimeKind::Acp("hermes"),
         ] {
             for user_cancelled in [false, true] {
-                let directory = tempfile::tempdir().unwrap();
-                let path = directory.path().join("usage.db");
-                let database = Arc::new(Database::new(&path).unwrap());
                 let (request, _rx, _, _) =
-                    super::super::tests::fixture_with_database(kind, "native", database);
+                    super::super::tests::fixture_with_database(kind, "native", database.clone());
+                let turn_id = request.turn_id.clone();
                 let turn = request.prepare(false).unwrap();
                 let mut output = Projection::for_turn(&turn);
                 output.usage_reported = true;
@@ -51,15 +57,10 @@ mod tests {
                 // All runtimes may stop child work before saving partial output.
                 turn.cancellation.cancel();
                 output.persist_partial(&turn, &cause).await.unwrap();
-                let reader = rusqlite::Connection::open_with_flags(
-                    &path,
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-                )
-                .unwrap();
                 let (status, tokens): (String, u64) = reader
                     .query_row(
-                        "SELECT request_status, total_tokens FROM ai_usage_records",
-                        [],
+                        "SELECT request_status, total_tokens FROM ai_usage_records WHERE turn_id=?1",
+                        [&turn_id],
                         |row| Ok((row.get(0)?, row.get(1)?)),
                     )
                     .unwrap();
