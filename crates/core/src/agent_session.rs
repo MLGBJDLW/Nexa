@@ -176,6 +176,12 @@ impl AgentSession for ExecutorAgentSession {
                 "Agent Run {run_id} is already closed"
             )));
         }
+        // The durable task state above is authoritative. A checkpoint resume
+        // can reuse this session's cached outbox after atomically re-queuing
+        // the run; reopen its publication boundary before starting a producer.
+        outbox.resume_submissions().map_err(|error| {
+            CoreError::Agent(format!("Could not reopen Agent Run {run_id}: {error}"))
+        })?;
         let (tx, rx) = mpsc::channel::<AgentEvent>(64);
         let collector_run_id = run_id.clone();
         let collector_turn_id = turn_id.clone();
@@ -202,7 +208,7 @@ impl AgentSession for ExecutorAgentSession {
                 user_parts,
                 &self.db,
                 Some(&conversation_id),
-                None,
+                Some(&turn_id),
                 self.source_scope_override.clone(),
                 tx,
                 self.next_sort_order,
@@ -223,6 +229,51 @@ impl AgentSession for ExecutorAgentSession {
                 };
             }
         };
+
+        if !collected.terminal_submitted {
+            let suspended = match &result {
+                Err(CoreError::RecoveryRequired {
+                    action_reconciliation,
+                    ..
+                }) => {
+                    let reason = if *action_reconciliation {
+                        "connection_interrupted_requires_action_reconciliation:provider_hosted_action"
+                    } else {
+                        "provider_connection_interrupted"
+                    };
+                    outbox
+                        .pause_with_checkpoint(&turn_id, reason)
+                        .await
+                        .map_err(|error| {
+                            CoreError::Agent(format!(
+                                "Could not preserve interrupted task: {error}"
+                            ))
+                        })?;
+                    Some(AgentTurnState::Paused)
+                }
+                Err(CoreError::AwaitingUserInput { .. }) => {
+                    // The executor already saved the durable question checkpoint.
+                    outbox.flush().await.map_err(|error| {
+                        CoreError::Agent(format!("Could not publish pending interaction: {error}"))
+                    })?;
+                    Some(AgentTurnState::AwaitingUserInput)
+                }
+                _ => None,
+            };
+            if let Some(state) = suspended {
+                self.events_by_run
+                    .insert(run_id.clone(), self.db.list_agent_run_events(&run_id)?);
+                self.results_by_run.remove(&run_id);
+                // A paused handle is observable now; a terminal result and its
+                // commit barrier belong to the later resumed execution.
+                return Ok(AgentTurnHandle {
+                    session_id,
+                    run_id,
+                    turn_id,
+                    state,
+                });
+            }
+        }
 
         let final_message = match result {
             Ok(message) => Some(message.text_content()),
@@ -413,6 +464,240 @@ mod tests {
 
     struct CountingProvider {
         stream_calls: Arc<AtomicUsize>,
+    }
+
+    struct ScriptedSessionProvider {
+        events: Vec<crate::llm::ProviderStreamEvent>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for ScriptedSessionProvider {
+        fn name(&self) -> &str {
+            "static"
+        }
+        fn stream_max_retries(&self) -> Option<u32> {
+            Some(0)
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec!["static-model".into()])
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            Err(CoreError::TransientLlm("fixture connection lost".into()))
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(stream::iter(self.events.clone()).boxed())
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    fn scripted_session(
+        db: &Database,
+        events: Vec<crate::llm::ProviderStreamEvent>,
+        tools: ToolRegistry,
+    ) -> (ExecutorAgentSession, String, String, Arc<AtomicUsize>) {
+        let (conversation_id, turn_id, run_id) = create_started_run(db, "suspended");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let session = ExecutorAgentSession::new(
+            AgentSessionConfig {
+                conversation_id: Some(conversation_id),
+                task_run_id: Some(run_id.clone()),
+                ..Default::default()
+            },
+            Box::new(ScriptedSessionProvider {
+                events,
+                calls: calls.clone(),
+            }),
+            tools,
+            AgentConfig {
+                model: Some("static-model".into()),
+                tool_approval_mode: crate::approval::ToolApprovalMode::AllowAll,
+                ..Default::default()
+            },
+            db.clone(),
+        )
+        .with_history(vec![], 1);
+        (session, turn_id, run_id, calls)
+    }
+
+    #[tokio::test]
+    async fn interrupted_executor_session_preserves_partial_work_without_a_terminal_error() {
+        use crate::llm::{
+            ProviderHostedToolEvent, ProviderHostedToolKind, ProviderHostedToolStatus,
+            ProviderRecoveryCategory, ProviderStreamEvent,
+        };
+        for hosted_action in [false, true] {
+            let db = Database::open_memory().unwrap();
+            let mut events = vec![ProviderStreamEvent::Chunk {
+                chunk: Box::new(StreamChunk {
+                    delta: "Saved partial output".into(),
+                    tool_call_delta: None,
+                    finish_reason: None,
+                    usage: None,
+                    thinking_delta: None,
+                }),
+            }];
+            if hosted_action {
+                events.push(ProviderStreamEvent::HostedTool {
+                    tool: Box::new(ProviderHostedToolEvent {
+                        call_id: "hosted-1".into(),
+                        tool_name: "web_search".into(),
+                        kind: ProviderHostedToolKind::WebSearch,
+                        provider_id: "static".into(),
+                        status: ProviderHostedToolStatus::Running,
+                        arguments: None,
+                        content: None,
+                        artifacts: None,
+                    }),
+                });
+            }
+            events.push(ProviderStreamEvent::RecoverableError {
+                message: "fixture connection lost".into(),
+                category: ProviderRecoveryCategory::Network,
+            });
+            let (mut session, turn_id, run_id, calls) =
+                scripted_session(&db, events, ToolRegistry::new());
+            let handle = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session.start_turn(AgentTurnInput::text("Continue the task")),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(handle.state, AgentTurnState::Paused);
+            assert!(session.result_for_run(&run_id).is_none());
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert_eq!(db.get_agent_task_run(&run_id).unwrap().status, "paused");
+            let turn = db.get_conversation_turn(&turn_id).unwrap();
+            assert_eq!(turn.status, "paused");
+            assert!(turn.trace.is_some());
+            let checkpoints = db.list_task_resume_checkpoints(&run_id).unwrap();
+            assert_eq!(checkpoints.len(), 1);
+            assert!(checkpoints[0]
+                .resume_prompt
+                .contains("Saved partial output"));
+            assert_eq!(
+                checkpoints[0]
+                    .resume_prompt
+                    .contains("provider_hosted_action"),
+                hosted_action
+            );
+            let events = session.read_events(&run_id).await.unwrap();
+            assert!(events.iter().all(|event| !event.closes_run()));
+            assert_eq!(events.last().unwrap().phase, AgentRunPhase::Paused);
+            session.events_by_run.clear();
+            assert_eq!(
+                session.read_events(&run_id).await.unwrap().len(),
+                events.len()
+            );
+            let response = ConversationMessage {
+                id: uuid::Uuid::new_v4().to_string(),
+                conversation_id: db.get_agent_task_run(&run_id).unwrap().conversation_id,
+                role: Role::User,
+                content: checkpoints[0].resume_prompt.clone(),
+                tool_call_id: None,
+                tool_calls: vec![],
+                artifacts: None,
+                token_count: 1,
+                created_at: String::new(),
+                sort_order: 0,
+                thinking: None,
+                image_attachments: None,
+            };
+            db.resume_agent_turn_from_checkpoint(
+                &response,
+                None,
+                None,
+                "session-resume",
+                &checkpoints[0].id,
+            )
+            .unwrap();
+            session.executor = AgentExecutor::new(
+                Box::new(StaticProvider),
+                ToolRegistry::new(),
+                AgentConfig {
+                    model: Some("static-model".into()),
+                    ..Default::default()
+                },
+            );
+            session.next_sort_order = db
+                .get_messages(&response.conversation_id)
+                .unwrap()
+                .iter()
+                .map(|message| message.sort_order)
+                .max()
+                .unwrap()
+                + 1;
+            let resumed = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session.start_turn(AgentTurnInput::text(response.content)),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(resumed.run_id, run_id);
+            assert_eq!(resumed.turn_id, turn_id);
+            assert_eq!(
+                resumed.state,
+                AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed),
+                "resume events: {:?}",
+                session
+                    .read_events(&run_id)
+                    .await
+                    .unwrap()
+                    .iter()
+                    .filter(|event| event.closes_run())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(db.get_agent_task_run(&run_id).unwrap().status, "completed");
+            validate_runtime_turn_events(&session.read_events(&run_id).await.unwrap()).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn executor_session_keeps_a_durable_question_non_terminal() {
+        let db = Database::open_memory().unwrap();
+        let mut tools = ToolRegistry::new();
+        tools.register(Box::new(
+            crate::tools::request_user_input_tool::RequestUserInputTool,
+        ));
+        let events = vec![crate::llm::ProviderStreamEvent::Chunk { chunk: Box::new(StreamChunk {
+            delta: String::new(),
+            tool_call_delta: Some(ToolCallDelta {
+                id: "question-1".into(), name: Some("request_user_input".into()), index: Some(0), thought_signature: None,
+                arguments_delta: serde_json::json!({"questions":[{"id":"scope","header":"Scope","question":"Which folder?","type":"short"}]}).to_string().into(),
+            }),
+            finish_reason: Some(FinishReason::ToolCalls), usage: None, thinking_delta: None,
+        }) }];
+        let (mut session, turn_id, run_id, calls) = scripted_session(&db, events, tools);
+        let handle = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            session.start_turn(AgentTurnInput::text("Ask which folder to use")),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(handle.state, AgentTurnState::AwaitingUserInput);
+        assert_eq!(
+            db.get_conversation_turn(&turn_id).unwrap().status,
+            "awaiting_user_input"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+        assert!(!db.list_task_resume_checkpoints(&run_id).unwrap().is_empty());
     }
 
     fn create_started_run(db: &Database, suffix: &str) -> (String, String, String) {

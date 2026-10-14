@@ -1,4 +1,4 @@
-use super::WorkflowSchedulerEventType;
+use super::{partial_assistant_output, WorkflowSchedulerEventType};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -1600,6 +1600,52 @@ fn task_resume_checkpoint_carries_partial_assistant_output_forward() {
     assert!(checkpoint
         .resume_prompt
         .contains("continue after it without repeating it"));
+}
+
+#[test]
+fn partial_output_preserves_legacy_sessions_without_duplicating_block_projections() {
+    let legacy = |text: &str| {
+        AgentRunEvent::from_agent_event(&crate::agent::AgentEvent::TextDelta { delta: text.into() })
+    };
+    let mut events = vec![legacy("Legacy "), legacy("partial")];
+    assert_eq!(
+        partial_assistant_output(&events).unwrap()["text"],
+        "Legacy partial"
+    );
+    events.push(AgentRunEvent::output_delta(
+        "run",
+        Some("turn"),
+        1,
+        "answer",
+        StreamBlockChannel::Answer,
+        0,
+        "Authoritative answer",
+    ));
+    assert_eq!(
+        partial_assistant_output(&events).unwrap()["text"],
+        "Authoritative answer"
+    );
+    events.push(AgentRunEvent::from_agent_event(
+        &crate::agent::AgentEvent::StreamReset {
+            reason: "retry metadata only".into(),
+            discard_sample: false,
+        },
+    ));
+    assert_eq!(
+        partial_assistant_output(&events).unwrap()["text"],
+        "Authoritative answer"
+    );
+    events.push(AgentRunEvent::from_agent_event(
+        &crate::agent::AgentEvent::StreamReset {
+            reason: "retry".into(),
+            discard_sample: true,
+        },
+    ));
+    events.push(legacy("After reset"));
+    assert_eq!(
+        partial_assistant_output(&events).unwrap()["text"],
+        "After reset"
+    );
 }
 
 #[test]

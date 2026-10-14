@@ -1,4 +1,4 @@
-//! Restore desktop evidence obligations from host-owned continuation state.
+//! Restore execution plans and desktop evidence from host-owned continuation state.
 //! Prompt text and model-provided JSON are never a checkpoint authority.
 
 use rusqlite::OptionalExtension;
@@ -12,7 +12,7 @@ use crate::error::CoreError;
 use crate::workflow_ir::WorkflowIr;
 
 pub(super) struct ExecutionResumeState {
-    pub(super) workflow: WorkflowIr,
+    pub(super) workflow: Option<WorkflowIr>,
     pub(super) plan: Option<crate::intelligence::AgentTaskPlan>,
     pub(super) completed_tool_rounds: u32,
     pub(super) max_iterations: Option<u32>,
@@ -209,17 +209,23 @@ pub(super) fn load_execution_resume_state(
                     .or(selected_plan);
                 selected = Some(candidate);
             }
+        } else if selected.is_none() {
+            selected_plan = saved_plan(state.pointer("/liveTurnState/taskPlan"))
+                .or_else(|| saved_plan(state.pointer("/run/plan")))
+                .or(selected_plan);
         }
     }
     if let Some(saved) = selected.as_mut() {
         reconcile_late_desktop_receipts(db, conversation_id, turn_id, saved)?;
     }
-    Ok(selected.map(|workflow| ExecutionResumeState {
-        workflow,
-        plan: selected_plan,
-        completed_tool_rounds,
-        max_iterations,
-    }))
+    Ok(
+        (selected.is_some() || selected_plan.is_some()).then_some(ExecutionResumeState {
+            workflow: selected,
+            plan: selected_plan,
+            completed_tool_rounds,
+            max_iterations,
+        }),
+    )
 }
 
 pub(super) fn load_desktop_resume_workflow(
@@ -228,7 +234,7 @@ pub(super) fn load_desktop_resume_workflow(
     turn: Option<&str>,
 ) -> Result<Option<WorkflowIr>, CoreError> {
     Ok(load_execution_resume_state(db, conversation, turn)?
-        .map(|state| state.workflow)
+        .and_then(|state| state.workflow)
         .filter(|workflow| {
             workflow.desktop_evidence_pending()
                 || workflow

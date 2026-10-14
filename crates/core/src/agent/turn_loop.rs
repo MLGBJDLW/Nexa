@@ -747,12 +747,17 @@ impl AgentExecutor {
             has_sources,
         );
         let mut loop_recorder = TurnLoopRecorder::new(route_plan.kind, self.config.max_iterations);
-        let mut task_plan = build_task_plan(TaskPlanningInput::for_requirements(
-            &user_query_text_for_tools,
-            &route_plan.requirements,
-            has_sources,
-            source_scope.len(),
-        ));
+        let mut task_plan = resumed_execution
+            .as_ref()
+            .and_then(|saved| saved.plan.clone())
+            .unwrap_or_else(|| {
+                build_task_plan(TaskPlanningInput::for_requirements(
+                    &user_query_text_for_tools,
+                    &route_plan.requirements,
+                    has_sources,
+                    source_scope.len(),
+                ))
+            });
         let orchestration_policy = resolve_orchestration_profile(OrchestrationProfileInput {
             profile: self.config.orchestration_profile,
             custom: self.config.custom_orchestration.clone(),
@@ -776,22 +781,26 @@ impl AgentExecutor {
                 task_plan = plan;
             } else if saved
                 .workflow
-                .completion_contract
-                .require_all_nodes_succeeded
+                .as_ref()
+                .is_some_and(|workflow| workflow.completion_contract.require_all_nodes_succeeded)
             {
                 return Err(CoreError::InvalidInput("Saved execution checkpoint is missing its task plan; reconcile the checkpoint before resuming this workflow".into()));
             }
-            let available = self.tools.tool_names();
-            for node in &mut saved.workflow.nodes {
-                node.allowed_tools.retain(|tool| available.contains(tool));
+            if let Some(workflow) = saved.workflow.as_mut() {
+                let available = self.tools.tool_names();
+                for node in &mut workflow.nodes {
+                    node.allowed_tools.retain(|tool| available.contains(tool));
+                }
+                workflow.max_parallel = workflow
+                    .max_parallel
+                    .min(orchestration_policy.max_parallel)
+                    .max(1);
+                workflow.apply_checkpoint_to_task_plan(&mut task_plan);
             }
-            saved.workflow.max_parallel = saved
-                .workflow
-                .max_parallel
-                .min(orchestration_policy.max_parallel)
-                .max(1);
-            saved.workflow.apply_checkpoint_to_task_plan(&mut task_plan);
-            workflow_ir = Some(saved.workflow);
+            // A plain-chat checkpoint may only have a plan. The workflow
+            // compiled from that authoritative plan still honors current host
+            // requirements; a saved graph additionally preserves node state.
+            workflow_ir = saved.workflow.or(workflow_ir);
         }
         if self.config.execution_mode.is_plan() {
             if let Some(workflow) = workflow_ir.as_mut() {

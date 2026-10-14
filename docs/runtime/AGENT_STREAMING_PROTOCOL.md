@@ -205,12 +205,21 @@ post-completion heartbeats hold the task open. Malformed/incomplete responses
 without a terminal marker remain errors eligible for the appropriate recovery.
 
 When transient recovery is exhausted, `RecoveryRequired` retains the partial
-answer and successful tool history. The desktop drains its producer and event
-consumer, then commits the existing atomic pause/checkpoint outbox operation.
+answer and successful tool history. Desktop and core `ExecutorAgentSession`
+hosts drain their producer and event consumer, then commit the existing atomic
+pause/checkpoint outbox operation. The core session returns a paused handle
+without manufacturing a terminal result or waiting for a terminal commit.
 Resume continues from that durable state. A provider-hosted action or interrupted
 external agent adds an action-reconciliation fence; its original request is never
 blindly replayed. Authentication, configuration, and schema failures remain
 ordinary errors. Cancellation and explicit execution budgets remain authoritative.
+
+Resume routing restores the host-owned task plan even when a plain-chat task
+has no workflow graph. The checkpoint's control instructions are not a new user
+objective. Existing graph obligations remain authoritative. Checkpoints retain
+legacy text deltas when typed answer blocks are absent; typed blocks take
+precedence in mixed streams, and only a sample-discarding reset removes them.
+An atomically re-queued core session reopens its existing outbox before execution.
 
 Deferred tool count/token targets optimize the prompt, not tool authorization.
 Discovery unloads unrelated definitions and admits the requested tools, including
