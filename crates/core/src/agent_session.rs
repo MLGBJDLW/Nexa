@@ -839,6 +839,173 @@ mod tests {
         assert!(!db.list_task_resume_checkpoints(&run_id).unwrap().is_empty());
     }
 
+    fn settle_uncertain_worker(db: &Database, worker_id: &str) {
+        db.finish_agent_subtask_run(worker_id, "failed", Some(&serde_json::json!({
+            "recoveryRequired": {"actionReconciliation": true, "message": "Hosted action outcome is uncertain"}
+        })), Some("connection lost")).unwrap();
+    }
+
+    #[tokio::test]
+    async fn delegated_recovery_during_approval_prevents_the_file_write() {
+        let db = Database::open_memory().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("must-not-be-created.txt");
+        let workspace =
+            crate::workspace::Workspace::validate(&[directory.path().to_string_lossy().into()])
+                .unwrap();
+        let mut tools = ToolRegistry::new().with_workspace(Some(workspace));
+        tools.register(Box::new(crate::tools::create_file_tool::CreateFileTool));
+        let events = vec![crate::llm::ProviderStreamEvent::Chunk {
+            chunk: Box::new(StreamChunk {
+                delta: String::new(),
+                tool_call_delta: Some(ToolCallDelta {
+                    id: "late-write".into(),
+                    name: Some("create_file".into()),
+                    index: Some(0),
+                    thought_signature: None,
+                    arguments_delta:
+                        serde_json::json!({"path": target, "content": "must not execute"})
+                            .to_string()
+                            .into(),
+                }),
+                finish_reason: Some(FinishReason::ToolCalls),
+                usage: None,
+                thinking_delta: None,
+            }),
+        }];
+        let (mut session, _, run_id, calls) = scripted_session(&db, vec![], ToolRegistry::new());
+        let worker = db
+            .create_agent_subtask_run(&run_id, "worker", "worker", None, None)
+            .unwrap();
+        let approvals = Arc::new(AtomicUsize::new(0));
+        let callback_db = db.clone();
+        let callback_count = approvals.clone();
+        session.executor = AgentExecutor::new(
+            Box::new(ScriptedSessionProvider {
+                events,
+                calls: calls.clone(),
+                settle_subtask: None,
+            }),
+            tools,
+            AgentConfig {
+                model: Some("static-model".into()),
+                dynamic_tool_visibility: false,
+                tool_approval_mode: crate::approval::ToolApprovalMode::Ask,
+                ..Default::default()
+            },
+        )
+        .with_approval_callback(Arc::new(move |_| {
+            callback_count.fetch_add(1, Ordering::SeqCst);
+            settle_uncertain_worker(&callback_db, &worker.id);
+            Box::pin(async { ApprovalDecision::AllowOnce })
+        }));
+        let handle = session
+            .start_turn(AgentTurnInput::text("Create the requested file"))
+            .await
+            .unwrap();
+        assert_eq!(approvals.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(
+            !target.exists(),
+            "approval must not admit a new write over an uncertain worker"
+        );
+        assert_eq!(handle.state, AgentTurnState::Paused);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+    }
+
+    #[tokio::test]
+    async fn delegated_recovery_during_completion_hook_prevents_final_answer_commit() {
+        let db = Database::open_memory().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join(".nexa/tools")).unwrap();
+        #[cfg(windows)]
+        let command = serde_json::json!({"program":"powershell.exe","args":["-NoProfile","-NonInteractive","-Command","Set-Content -LiteralPath hook-started.txt -Value entered; while (-not (Test-Path -LiteralPath hook-release.txt)) { Start-Sleep -Milliseconds 50 }; exit 0"],"timeoutSecs":20});
+        #[cfg(not(windows))]
+        let command = serde_json::json!({"program":"sh","args":["-c","touch hook-started.txt; while [ ! -f hook-release.txt ]; do sleep 0.05; done"],"timeoutSecs":20});
+        std::fs::write(directory.path().join(".nexa/tools/check.json"), serde_json::to_vec(&serde_json::json!({"name":"check","description":"Completion barrier","command":command,"access":{"read":true,"write":true,"execute":true}})).unwrap()).unwrap();
+        let workspace =
+            crate::workspace::Workspace::validate(&[directory.path().to_string_lossy().into()])
+                .unwrap();
+        let mut tools = ToolRegistry::new().with_workspace(Some(workspace.clone()));
+        tools.register(Box::new(crate::tools::project_tool::ProjectTool));
+        let (mut session, _, run_id, _) = scripted_session(&db, vec![], ToolRegistry::new());
+        let conversation_id = db.get_agent_task_run(&run_id).unwrap().conversation_id;
+        db.execute_batch_for_test(
+            "INSERT INTO projects(id,name) VALUES('recovery-hooks','Recovery hooks')",
+        )
+        .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE projects SET workspace_roots_json=?1 WHERE id='recovery-hooks'",
+                [serde_json::to_string(&workspace.roots).unwrap()],
+            )
+            .unwrap();
+        db.move_conversation_to_project(&conversation_id, "recovery-hooks")
+            .unwrap();
+        let catalog =
+            crate::tools::project_tool::workspace_project_tool_catalog(&db, &workspace).unwrap();
+        db.save_project_hook(
+            "recovery-hooks",
+            crate::project_hooks::ProjectHook {
+                id: String::new(),
+                name: "check".into(),
+                manifest_hash: catalog.tools[0].manifest_hash.clone(),
+                event: crate::project_hooks::HookEvent::BeforeComplete,
+                arguments: serde_json::json!({}),
+                enabled: true,
+            },
+        )
+        .unwrap();
+        session.executor = AgentExecutor::new(
+            Box::new(StaticProvider),
+            tools,
+            AgentConfig {
+                model: Some("static-model".into()),
+                tool_approval_mode: crate::approval::ToolApprovalMode::AllowAll,
+                ..Default::default()
+            },
+        );
+        let worker = db
+            .create_agent_subtask_run(&run_id, "worker", "worker", None, None)
+            .unwrap();
+        let during_hook = async {
+            tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                while !directory.path().join("hook-started.txt").exists() {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("completion hook reached its execution barrier");
+            settle_uncertain_worker(&db, &worker.id);
+            std::fs::write(directory.path().join("hook-release.txt"), "continue").unwrap();
+        };
+        let (result, ()) = tokio::join!(
+            session.start_turn(AgentTurnInput::text("Answer the original question")),
+            during_hook,
+        );
+        let hook_runs = db.project_hook_runs("recovery-hooks").unwrap();
+        assert_eq!(hook_runs[0].status, "passed", "{}", hook_runs[0].detail);
+        assert_eq!(result.unwrap().state, AgentTurnState::Paused);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+        assert!(!db
+            .get_messages(&conversation_id)
+            .unwrap()
+            .iter()
+            .any(|message| message.role == Role::Assistant && message.content == "session answer"));
+    }
+
     fn create_started_run(db: &Database, suffix: &str) -> (String, String, String) {
         let conversation = db
             .create_conversation(&CreateConversationInput {

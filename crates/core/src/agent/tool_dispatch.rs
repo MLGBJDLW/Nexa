@@ -516,6 +516,7 @@ fn append_provider_safe_tool_round_context(
 }
 
 pub(super) struct ToolDispatchContext<'a> {
+    pub(super) delegated_recovery: Option<model_recovery::DelegatedRecoveryGuard<'a>>,
     pub(super) db: &'a Database,
     pub(super) tx: &'a mpsc::Sender<AgentEvent>,
     pub(super) conversation_id: Option<&'a str>,
@@ -759,6 +760,7 @@ impl ToolDispatchRuntime<'_> {
     ) -> Result<ToolDispatchOutcome, CoreError> {
         let tool_calls = verified_tool_calls.as_slice();
         let ToolDispatchContext {
+            delegated_recovery,
             db,
             tx,
             conversation_id,
@@ -873,6 +875,7 @@ impl ToolDispatchRuntime<'_> {
             );
         }
         enum ToolExecutionOutcome {
+            AdmissionBlocked(CoreError),
             Result(crate::tools::ToolResult, ToolRunStatus),
             ExecutionError(CoreError),
             Cancelled,
@@ -906,6 +909,7 @@ impl ToolDispatchRuntime<'_> {
         let mut post_tool_loop_guard_prompt: Option<String> = None;
         let mut terminal_loop_guard_reason: Option<String> = None;
         let mut interaction_barrier_reached = false;
+        let mut admission_failure = None;
 
         let mut dispatch_action_reconciliation = pending_action_reconciliation;
         let mut desktop_target_bindings = std::collections::HashMap::new();
@@ -1374,6 +1378,17 @@ impl ToolDispatchRuntime<'_> {
                             }
                         }
 
+                        // Approval may outlive the parent's model sample. A
+                        // newly settled worker must fence this actual action.
+                        if let Some(guard) = delegated_recovery {
+                            if let Err(error) = guard.check() {
+                                return FinishedToolExecution {
+                                    index, call: tc, timeout: tool_timeout,
+                                    outcome: ToolExecutionOutcome::AdmissionBlocked(error),
+                                    elapsed: Duration::ZERO,
+                                };
+                            }
+                        }
                         let tool_start = std::time::Instant::now();
                         let execute_tool = async {
                             let activity_dispatch_id = uuid::Uuid::new_v4().to_string();
@@ -1559,6 +1574,20 @@ impl ToolDispatchRuntime<'_> {
                     tool_is_error,
                     run_status,
                 ) = match finished_tool.outcome {
+                    ToolExecutionOutcome::AdmissionBlocked(error) => {
+                        let content = "Tool execution was deferred because a delegated action requires reconciliation before continuing.".to_string();
+                        admission_failure.get_or_insert(error);
+                        (
+                            content.clone(),
+                            content,
+                            Some(
+                                serde_json::json!({"kind":"toolDeferred","reason":"delegated_action_reconciliation","retryable":true}),
+                            ),
+                            Vec::new(),
+                            true,
+                            ToolRunStatus::Declined,
+                        )
+                    }
                     ToolExecutionOutcome::Result(result, status) => {
                         let context_content = result.llm_context_content();
                         let mut artifacts = result.artifacts;
@@ -2121,6 +2150,14 @@ impl ToolDispatchRuntime<'_> {
             provider_tool_results,
             visual_context_messages,
         );
+        // Settle and persist every admitted call before leaving the batch;
+        // do not drop in-flight actions when another admission is fenced.
+        if let Some(error) = admission_failure {
+            return Err(error);
+        }
+        if let Some(guard) = delegated_recovery {
+            guard.check()?;
+        }
         let hook_runs = crate::project_hooks::run_event(
             &crate::project_hooks::HookContext {
                 db,

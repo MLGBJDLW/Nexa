@@ -7,6 +7,31 @@ use std::time::Duration;
 use crate::llm::{ProviderType, ReasoningEffort};
 use crate::provider_catalog::model_capabilities_from_catalog;
 
+#[derive(Clone, Copy)]
+pub(super) struct DelegatedRecoveryGuard<'a> {
+    pub(super) db: &'a crate::db::Database,
+    pub(super) run_id: &'a str,
+    pub(super) checkpointed: &'a std::collections::HashSet<String>,
+}
+
+impl DelegatedRecoveryGuard<'_> {
+    pub(super) fn check(self) -> Result<(), crate::error::CoreError> {
+        let pending: Vec<_> = self
+            .db
+            .agent_subtask_action_reconciliations(self.run_id)?
+            .into_keys()
+            .filter(|id| !self.checkpointed.contains(id))
+            .collect();
+        if pending.is_empty() {
+            return Ok(());
+        }
+        Err(crate::error::CoreError::RecoveryRequired {
+            message: format!("Delegated task(s) {} stopped after a provider-hosted action. Inspect their retained action receipts before continuing; do not replay their requests.", pending.join(", ")),
+            action_reconciliation: true,
+        })
+    }
+}
+
 const LONG_REASONER_CONNECT_DEADLINE: Duration = Duration::from_secs(900);
 const DEFAULT_CONNECT_DEADLINE: Duration = Duration::from_secs(300);
 const LOCAL_MODEL_CONNECT_DEADLINE: Duration = Duration::from_secs(300);

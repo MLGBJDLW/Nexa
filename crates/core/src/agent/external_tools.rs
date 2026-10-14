@@ -980,6 +980,7 @@ impl ExternalToolSession {
         }
         .dispatch_tool_calls(
             ToolDispatchContext {
+                delegated_recovery: None,
                 db: &self.input.db,
                 tx: &self.input.events,
                 conversation_id: Some(&self.input.conversation_id),

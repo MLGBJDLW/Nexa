@@ -391,6 +391,23 @@ async fn emit_tool_dispatch_failure(
     persisted_trace_items: &mut Vec<PersistedTraceItem>,
     error: &CoreError,
 ) {
+    if let CoreError::RecoveryRequired {
+        message,
+        action_reconciliation,
+    } = error
+    {
+        emit_recovery_required(
+            tx,
+            db,
+            turn_id,
+            route_kind,
+            persisted_trace_items,
+            message.clone(),
+            *action_reconciliation,
+        )
+        .await;
+        return;
+    }
     let frontend_message = "Nexa stopped the turn because a tool result could not be saved. No follow-up model request was sent.";
     let trace_message = format!("tool_result_persistence_failed: {error}");
     append_persisted_trace_status(persisted_trace_items, frontend_message, "error");
@@ -1154,16 +1171,35 @@ impl AgentExecutor {
             .transpose()?
             .flatten()
             .map(|run| run.id);
+        let delegated_recovery =
+            recovery_parent_run
+                .as_deref()
+                .map(|run_id| model_recovery::DelegatedRecoveryGuard {
+                    db,
+                    run_id,
+                    checkpointed: &checkpointed_subtask_recoveries,
+                });
         macro_rules! check_delegated_action_recovery {
             () => {
-                if let Some(run_id) = recovery_parent_run.as_deref() {
-                    let pending: Vec<_> = db.agent_subtask_action_reconciliations(run_id)?
-                        .into_keys().filter(|id| !checkpointed_subtask_recoveries.contains(id)).collect();
-                    if !pending.is_empty() {
+                if let Some(guard) = delegated_recovery {
+                    if let Err(error) = guard.check() {
+                        let CoreError::RecoveryRequired {
+                            message,
+                            action_reconciliation,
+                        } = error
+                        else {
+                            return Err(error);
+                        };
                         return Err(emit_recovery_required(
-                            &tx, db, turn_id, route_plan.kind, &mut persisted_trace_items,
-                            format!("Delegated task(s) {} stopped after a provider-hosted action. Inspect their retained action receipts before continuing; do not replay their requests.", pending.join(", ")), true,
-                        ).await);
+                            &tx,
+                            db,
+                            turn_id,
+                            route_plan.kind,
+                            &mut persisted_trace_items,
+                            message,
+                            action_reconciliation,
+                        )
+                        .await);
                     }
                 }
             };
@@ -1444,9 +1480,11 @@ impl AgentExecutor {
 
                 turn_budget.persist_admission(db, turn_id)?;
                 let mut tool_run_started_ids = HashSet::new();
+                check_delegated_action_recovery!();
                 let dispatch_outcome = match self
                     .dispatch_tool_calls(
                         tool_dispatch::ToolDispatchContext {
+                            delegated_recovery,
                             workspace_isolation: workspace_isolation.is_some(),
                             db,
                             tx: &tx,
@@ -2746,6 +2784,7 @@ impl AgentExecutor {
                     next_step_purpose = TurnStepPurpose::Recovery;
                     continue 'react_loop;
                 }
+                check_delegated_action_recovery!();
                 let hook_feedback =
                     crate::project_hooks::completion_feedback(&crate::project_hooks::HookContext {
                         db,
@@ -2759,7 +2798,9 @@ impl AgentExecutor {
                         isolated: workspace_isolation.is_some(),
                         approval_mode: self.config.tool_approval_mode,
                     })
-                    .await?;
+                    .await;
+                check_delegated_action_recovery!();
+                let hook_feedback = hook_feedback?;
                 if let Some(blocker) = hook_feedback.blocker {
                     append_persisted_trace_status(&mut persisted_trace_items, &blocker, "warning");
                     let _ = tx
@@ -2859,6 +2900,7 @@ impl AgentExecutor {
                         || self.config.request_kind.requires_workspace_isolation())
                         && workflow_ir.ready_to_promote_isolated_writes()
                     {
+                        check_delegated_action_recovery!();
                         let promotion = workspace_isolation
                             .as_mut()
                             .ok_or_else(|| {
@@ -2977,6 +3019,7 @@ impl AgentExecutor {
                     continue;
                 }
                 append_persisted_trace_thinking(&mut persisted_trace_items, &iteration_thinking);
+                check_delegated_action_recovery!();
                 let finalized = self
                     .finish_successful_turn(
                         finalization::TurnFinalizationContext {
@@ -2999,6 +3042,7 @@ impl AgentExecutor {
                         last_prompt_tokens,
                         last_context_breakdown,
                         last_finish_reason,
+                        delegated_recovery,
                     )
                     .await;
                 let assistant_msg = match finalized {
@@ -3110,9 +3154,11 @@ impl AgentExecutor {
                 turn_budget.persist_admission(db, turn_id)?;
             }
             // -- 4e. Execute tool calls in parallel ------------------------------
+            check_delegated_action_recovery!();
             let dispatch_outcome = match self
                 .dispatch_tool_calls(
                     tool_dispatch::ToolDispatchContext {
+                        delegated_recovery,
                         workspace_isolation: workspace_isolation.is_some(),
                         db,
                         tx: &tx,
@@ -3402,7 +3448,8 @@ impl AgentExecutor {
             Err(err) => warn!("Failed to create max-iterations resume checkpoint: {err}"),
         }
 
-        if let Some(blocker) =
+        check_delegated_action_recovery!();
+        let completion_blocker =
             crate::project_hooks::completion_blocker(&crate::project_hooks::HookContext {
                 db,
                 tools: &self.tools,
@@ -3415,8 +3462,9 @@ impl AgentExecutor {
                 isolated: workspace_isolation.is_some(),
                 approval_mode: self.config.tool_approval_mode,
             })
-            .await?
-        {
+            .await;
+        check_delegated_action_recovery!();
+        if let Some(blocker) = completion_blocker? {
             return Err(CoreError::Agent(blocker));
         }
         let final_content = if !last_iteration_content.trim().is_empty() {
@@ -3444,8 +3492,9 @@ impl AgentExecutor {
                 last_prompt_tokens,
                 last_context_breakdown,
                 last_finish_reason,
+                delegated_recovery,
             )
-            .await;
+            .await?;
         Ok(final_msg)
     }
 }

@@ -172,6 +172,7 @@ impl AgentExecutor {
         last_prompt_tokens: u32,
         context_breakdown: Option<context::ContextUsageBreakdown>,
         last_finish_reason: Option<String>,
+        delegated_recovery: Option<model_recovery::DelegatedRecoveryGuard<'_>>,
     ) -> Result<Message, CoreError> {
         let TurnFinalizationContext {
             db,
@@ -276,6 +277,29 @@ impl AgentExecutor {
         );
         let provider_turn = assistant_msg.provider_turn().cloned();
 
+        // Plan updates can await UI delivery. Re-read worker outcomes after
+        // that wait and immediately before committing the final answer.
+        if let Some(guard) = delegated_recovery {
+            if let Err(error) = guard.check() {
+                let CoreError::RecoveryRequired {
+                    message,
+                    action_reconciliation,
+                } = error
+                else {
+                    return Err(error);
+                };
+                return Err(emit_recovery_required(
+                    tx,
+                    db,
+                    turn_id,
+                    route_kind,
+                    persisted_trace_items,
+                    message,
+                    action_reconciliation,
+                )
+                .await);
+            }
+        }
         if let Some(cid) = conversation_id {
             let assistant_message_id = Uuid::new_v4().to_string();
             let reasoning_envelope = self.reasoning_envelope_for_persistence(
@@ -425,7 +449,8 @@ impl AgentExecutor {
         last_prompt_tokens: u32,
         context_breakdown: Option<context::ContextUsageBreakdown>,
         last_finish_reason: Option<String>,
-    ) -> Message {
+        delegated_recovery: Option<model_recovery::DelegatedRecoveryGuard<'_>>,
+    ) -> Result<Message, CoreError> {
         let TurnFinalizationContext {
             db,
             tx,
@@ -464,6 +489,27 @@ impl AgentExecutor {
                 "Execution plan stopped at the configured tool-round limit",
             )
             .await;
+        }
+        if let Some(guard) = delegated_recovery {
+            if let Err(error) = guard.check() {
+                let CoreError::RecoveryRequired {
+                    message,
+                    action_reconciliation,
+                } = error
+                else {
+                    return Err(error);
+                };
+                return Err(emit_recovery_required(
+                    tx,
+                    db,
+                    turn_id,
+                    route_kind,
+                    persisted_trace_items,
+                    message,
+                    action_reconciliation,
+                )
+                .await);
+            }
         }
         let finished = TurnLoopEvent::TurnFinished {
             outcome: "max_iterations".to_string(),
@@ -521,7 +567,7 @@ impl AgentExecutor {
             }
         }
 
-        final_msg
+        Ok(final_msg)
     }
 }
 
