@@ -25,6 +25,10 @@ pub async fn run_desktop_agent_turn(request: DesktopAgentTurnRequest) -> Desktop
         task_run_id: stream.task_run_id.clone(),
         approval_runtime,
         cancellation: cancel_token.clone(),
+        desktop_stop: nexa_core::tools::computer_use_tool::desktop_session_stop_token(
+            Some(&conversation_id),
+            Some(&turn_id),
+        ),
     });
 
     let (events_tx, events_rx) = mpsc::channel::<AgentEvent>(64);

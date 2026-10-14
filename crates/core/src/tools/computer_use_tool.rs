@@ -62,6 +62,14 @@ pub fn stop_desktop_session(conversation_id: &str, turn_id: &str) {
     session.stopped.cancel();
 }
 
+/// Shared stop signal used by approval admission as well as execution.
+pub fn desktop_session_stop_token(
+    conversation_id: Option<&str>,
+    turn_id: Option<&str>,
+) -> crate::agent::CancellationToken {
+    control_session(conversation_id, turn_id).stopped
+}
+
 pub fn release_desktop_session(conversation_id: &str, turn_id: &str) {
     if let Some(session) = control_sessions()
         .lock()
@@ -794,6 +802,13 @@ pub(crate) fn bind_window_session_approval(
     conversation_id: Option<&str>,
     turn_id: Option<&str>,
 ) -> Result<(), CoreError> {
+    if matches!(
+        request.tool_name.as_str(),
+        "computer_observe" | "computer_control"
+    ) && desktop_session_stop_token(conversation_id, turn_id).is_cancelled()
+    {
+        return Err(CoreError::Cancelled("The user stopped Computer Use for this turn; continue without desktop tools until a new user turn.".into()));
+    }
     if !matches!(
         request.tool_name.as_str(),
         "computer_observe" | "computer_control"
@@ -1342,12 +1357,15 @@ struct ControlCommitTracker {
     effect_may_have_occurred: Arc<AtomicBool>,
     observation_consumed: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
+    session_stopped: Arc<AtomicBool>,
+    worker_state: Arc<AtomicU8>,
 }
 
 impl ControlCommitTracker {
-    #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
     fn ensure_running(&self) -> Result<(), CoreError> {
-        if self.cancelled.load(AtomicOrdering::Acquire) {
+        if self.cancelled.load(AtomicOrdering::Acquire)
+            || self.session_stopped.load(AtomicOrdering::Acquire)
+        {
             return Err(CoreError::Cancelled(
                 "Computer control stopped; no further input will be sent.".into(),
             ));
@@ -1356,9 +1374,32 @@ impl ControlCommitTracker {
     }
 
     #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
-    fn mark(&self) {
+    fn mark(&self) -> Result<(), CoreError> {
+        self.ensure_running()?;
         self.effect_may_have_occurred
             .store(true, AtomicOrdering::Release);
+        Ok(())
+    }
+
+    fn cancel_unsettled_worker(&self, cause: CoreError) -> ControlFailure {
+        self.cancelled.store(true, AtomicOrdering::Release);
+        // Share the worker's admission atomic: either cancellation prevents it
+        // starting, or its unsettled result must remain conservatively uncertain.
+        let already_started = self
+            .worker_state
+            .compare_exchange(
+                WORKER_PENDING,
+                WORKER_CANCELLED,
+                AtomicOrdering::AcqRel,
+                AtomicOrdering::Acquire,
+            )
+            .is_err_and(|state| state == WORKER_STARTED);
+        let mut failure = self.failure_as(PreCommitFailureKind::Cancelled, cause);
+        if already_started {
+            failure.phase = ControlFailurePhase::EffectMayHaveOccurred;
+            failure.observation_consumed = true;
+        }
+        failure
     }
 
     fn effect_may_have_occurred(&self) -> bool {
@@ -2871,7 +2912,7 @@ impl Tool for ComputerControlTool {
             return Ok(desktop_stopped_result(context.call_id));
         }
         let commit_tracker = ControlCommitTracker {
-            cancelled: session.input_stopped.clone(),
+            session_stopped: session.input_stopped.clone(),
             ..Default::default()
         };
         let cancellation_tracker = commit_tracker.clone();
@@ -2992,7 +3033,7 @@ impl Tool for ComputerControlTool {
             let worker_activity_runtime = activity_runtime.cloned();
             let worker_activity_id = activity_id.clone();
             let action_label = action.label();
-            let worker_state = std::sync::Arc::new(AtomicU8::new(WORKER_PENDING));
+            let worker_state = Arc::clone(&commit_tracker.worker_state);
             let mut pending_worker =
                 PendingWorkerCancellation::new(std::sync::Arc::clone(&worker_state));
             pending_worker.running_control = Some(Arc::clone(&commit_tracker.cancelled));
@@ -3023,6 +3064,7 @@ impl Tool for ComputerControlTool {
                             ),
                         ));
                     }
+                    action_commit_tracker.result(action_commit_tracker.ensure_running())?;
                     // This guard lives inside the non-cancellable OS worker. If the
                     // async caller times out, the actual input worker retains global
                     // ownership until it truly exits, preventing cross-run overlap.
@@ -3290,8 +3332,7 @@ impl Tool for ComputerControlTool {
         };
         let result = tokio::select! {
             biased;
-            _ = session.stopped.cancelled() => Err(cancellation_tracker.failure_as(
-                PreCommitFailureKind::Cancelled,
+            _ = session.stopped.cancelled() => Err(cancellation_tracker.cancel_unsettled_worker(
                 CoreError::Cancelled("The user stopped Computer Use for this turn. Continue without desktop tools until a new user turn.".into()),
             )),
             result = action => result,
@@ -4786,7 +4827,7 @@ mod platform {
                 native_checkbox_toggle(button, window, before.0, commit_tracker)?;
                 "native_checkbox_notification"
             } else {
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(
                     unsafe { pattern.Toggle() }
                         .map_err(|error| platform_error("toggle UI Automation element", error)),
@@ -4814,7 +4855,7 @@ mod platform {
         if let Ok(pattern) = unsafe {
             element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
         } {
-            commit_tracker.mark();
+            commit_tracker.result(commit_tracker.mark())?;
             commit_tracker.result(
                 unsafe { pattern.Invoke() }
                     .map_err(|error| platform_error("invoke UI Automation element", error)),
@@ -4826,7 +4867,7 @@ mod platform {
                 UIA_SelectionItemPatternId,
             )
         } {
-            commit_tracker.mark();
+            commit_tracker.result(commit_tracker.mark())?;
             commit_tracker.result(
                 unsafe { pattern.Select() }
                     .map_err(|error| platform_error("select UI Automation element", error)),
@@ -4843,7 +4884,7 @@ mod platform {
                     .map_err(|error| platform_error("read expand/collapse state", error)),
             )?;
             if state == ExpandCollapseState_Expanded {
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker
                     .result(unsafe { pattern.Collapse() }.map_err(|error| {
                         platform_error("collapse UI Automation element", error)
@@ -4853,7 +4894,7 @@ mod platform {
             if state == ExpandCollapseState_Collapsed
                 || state == ExpandCollapseState_PartiallyExpanded
             {
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(
                     unsafe { pattern.Expand() }
                         .map_err(|error| platform_error("expand UI Automation element", error)),
@@ -4956,7 +4997,7 @@ mod platform {
         // For an identity-checked native EDIT child, WM_SETTEXT performs the
         // same value replacement without activating the desktop window.
         let native_edit = native_child_handle(element, window, "edit");
-        commit_tracker.mark();
+        commit_tracker.result(commit_tracker.mark())?;
         let route = if let Some(handle) = native_edit {
             use windows::Win32::Foundation::{LPARAM, WPARAM};
             use windows::Win32::UI::WindowsAndMessaging::{
@@ -5077,7 +5118,7 @@ mod platform {
         // For exact standard checkbox styles, reproduce the documented state
         // transition and the application's actual BN_CLICKED notification.
         // Manual checkbox styles leave the transition to that app handler.
-        commit_tracker.mark();
+        commit_tracker.result(commit_tracker.mark())?;
         if automatic {
             let next = (state + 1) % if three_state { 3 } else { 2 };
             commit_tracker.result(native_checkbox_message(button, BM_SETCHECK, next, 0))?;
@@ -5161,12 +5202,12 @@ mod platform {
                 return Err(invalid(format!("Window {} is no longer valid.", window.id)));
             }
             if IsIconic(handle).as_bool() {
-                commit_tracker.mark();
+                commit_tracker.mark()?;
                 let _ = ShowWindow(handle, SW_RESTORE);
                 thread::sleep(INPUT_SETTLE);
             }
             if GetForegroundWindow() != handle {
-                commit_tracker.mark();
+                commit_tracker.mark()?;
                 if !SetForegroundWindow(handle).as_bool() {
                     return Err(invalid(format!(
                         "Windows refused to focus window {}. Bring it to the foreground and retry.",
@@ -6217,7 +6258,7 @@ mod platform {
                     PreCommitFailureKind::TargetOccluded,
                     ensure_point_targets_window(target.point, &current),
                 )?;
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(approach_pointer(
                     target.point,
                     &current,
@@ -6269,7 +6310,7 @@ mod platform {
                     PreCommitFailureKind::UserTakeover,
                     ensure_mouse_button_not_physically_pressed(button),
                 )?;
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(approach_pointer(
                     target.point,
                     &current,
@@ -6320,7 +6361,7 @@ mod platform {
                         }
                         return Err(ControlFailure::effect_may_have_occurred(error));
                     }
-                    commit_tracker.mark();
+                    commit_tracker.result(commit_tracker.mark())?;
                     commit_tracker.result(send_mouse_click(button))?;
                     if index + 1 < count {
                         thread::sleep(Duration::from_millis(75));
@@ -6386,7 +6427,7 @@ mod platform {
                     PreCommitFailureKind::UserTakeover,
                     ensure_target_foreground(&current),
                 )?;
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(approach_pointer(
                     from.point,
                     &current,
@@ -6445,7 +6486,7 @@ mod platform {
                     PreCommitFailureKind::UserTakeover,
                     ensure_target_foreground(&current),
                 )?;
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(approach_pointer(
                     target.point,
                     &current,
@@ -6478,7 +6519,7 @@ mod platform {
                 }
                 commit_tracker.result(commit_tracker.ensure_running())?;
                 if scroll_y != 0 {
-                    commit_tracker.mark();
+                    commit_tracker.result(commit_tracker.mark())?;
                     commit_tracker.result(send_scroll_steps(false, scroll_y))?;
                 }
                 if scroll_x != 0 {
@@ -6507,7 +6548,7 @@ mod platform {
                             }))?;
                         }
                     }
-                    commit_tracker.mark();
+                    commit_tracker.result(commit_tracker.mark())?;
                     commit_tracker.result(send_scroll_steps(true, scroll_x))?;
                 }
                 format!("Scrolled inside window {}.", current.id)
@@ -6548,7 +6589,7 @@ mod platform {
                         bounds.x + (bounds.width / 2) as i32,
                         bounds.y + (bounds.height / 2) as i32,
                     ));
-                    commit_tracker.mark();
+                    commit_tracker.result(commit_tracker.mark())?;
                     commit_tracker
                         .result(unsafe { live.element.SetFocus() }.map_err(|error| {
                             platform_error("focus semantic text target", error)
@@ -6563,7 +6604,7 @@ mod platform {
                     ensure_focused_target_is_not_password(&current),
                 )?;
                 let text = args.text.as_deref().expect("validated text");
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(type_text_checked(
                     text,
                     &current,
@@ -6597,7 +6638,7 @@ mod platform {
                     .key_sequence
                     .as_deref()
                     .expect("validated key_sequence");
-                commit_tracker.mark();
+                commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(send_key_sequence(sequence))?;
                 format!("Sent an approved key sequence to window {}.", current.id)
             }
@@ -7223,7 +7264,7 @@ mod tests {
         assert_eq!(consumed_artifacts["sideEffect"], "not_started");
         assert_eq!(consumed_artifacts["observationConsumed"], true);
 
-        tracker.mark();
+        tracker.mark().unwrap();
         let after = tracker.failure_as(
             PreCommitFailureKind::InvalidAction,
             CoreError::InvalidInput("no input was sent".to_string()),
@@ -7235,7 +7276,7 @@ mod tests {
         assert!(after_artifacts.get("effectMayHaveOccurred").is_none());
         assert!(after_artifacts.get("failurePhase").is_none());
 
-        tracker.mark();
+        tracker.mark().unwrap();
         assert!(tracker.effect_may_have_occurred());
     }
 
@@ -7518,7 +7559,7 @@ mod tests {
         let tracker = ControlCommitTracker::default();
         let mut pending = PendingWorkerCancellation::new(Arc::clone(&state));
         pending.running_control = Some(Arc::clone(&tracker.cancelled));
-        tracker.mark();
+        tracker.mark().unwrap();
         let worker = tracker.clone();
         drop(pending);
         assert_eq!(state.load(AtomicOrdering::Acquire), WORKER_STARTED);
@@ -7549,6 +7590,53 @@ mod tests {
                 AtomicOrdering::Acquire,
             )
             .is_err());
+    }
+
+    #[test]
+    fn cancelled_unsettled_worker_never_claims_no_effect_and_blocks_late_commit() {
+        for started in [false, true] {
+            let tracker = ControlCommitTracker::default();
+            if started {
+                tracker
+                    .worker_state
+                    .store(WORKER_STARTED, AtomicOrdering::Release);
+            }
+            let failure = tracker.cancel_unsettled_worker(CoreError::Cancelled("stop".into()));
+            assert_eq!(failure.phase.effect_may_have_occurred(), started);
+            assert!(
+                tracker.mark().is_err(),
+                "UIA resolution must not commit after stop"
+            );
+            assert!(tracker
+                .worker_state
+                .compare_exchange(
+                    WORKER_PENDING,
+                    WORKER_STARTED,
+                    AtomicOrdering::AcqRel,
+                    AtomicOrdering::Acquire
+                )
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn dropping_one_call_does_not_poison_the_turn_but_explicit_stop_does() {
+        let session = ControlSession::default();
+        let tracker = ControlCommitTracker {
+            session_stopped: session.input_stopped.clone(),
+            ..Default::default()
+        };
+        let mut pending = PendingWorkerCancellation::new(tracker.worker_state.clone());
+        pending.running_control = Some(tracker.cancelled.clone());
+        drop(pending);
+        assert!(tracker.ensure_running().is_err());
+        let next = ControlCommitTracker {
+            session_stopped: session.input_stopped.clone(),
+            ..Default::default()
+        };
+        assert!(next.ensure_running().is_ok());
+        session.input_stopped.store(true, AtomicOrdering::Release);
+        assert!(next.mark().is_err());
     }
 
     #[test]

@@ -276,6 +276,7 @@ async fn desktop_allow_all_applies_to_computer_browser_and_screen_disclosure() {
                 approval_mode: mode,
             },
             cancellation: CancellationToken::new(),
+            desktop_stop: CancellationToken::new(),
         });
         for request in [&control, &capture, &browser, &reusable_window] {
             let result =
@@ -286,6 +287,50 @@ async fn desktop_allow_all_applies_to_computer_browser_and_screen_disclosure() {
             assert!(pending.lock().await.is_empty());
         }
     }
+}
+
+#[tokio::test]
+async fn desktop_stop_rejects_queued_and_future_approvals_without_cancelling_chat() {
+    let pending = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+    let stop = CancellationToken::new();
+    let chat = CancellationToken::new();
+    let callback = build_desktop_approval_callback(DesktopApprovalCallbackInput {
+        db: Arc::new(Database::open_memory().unwrap()),
+        task_run_id: "stop-race".into(),
+        approval_runtime: DesktopAgentApprovalRuntime {
+            pending: pending.clone(),
+            session_store: SessionApprovalStore::default(),
+            approval_mode: ToolApprovalMode::Ask,
+        },
+        cancellation: chat.clone(),
+        desktop_stop: stop.clone(),
+    });
+    let request = ApprovalRequest::new(
+        "stop-race-approval",
+        "computer_control",
+        &serde_json::json!({}),
+        ApprovalRisk::High,
+        "Control",
+    );
+    let queued = tokio::spawn(callback(request.clone()));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while pending.lock().await.is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    stop.cancel();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), queued)
+            .await
+            .unwrap()
+            .unwrap(),
+        ApprovalDecision::Deny
+    );
+    assert_eq!(callback(request).await, ApprovalDecision::Deny);
+    assert!(pending.lock().await.is_empty());
+    assert!(!chat.is_cancelled());
 }
 
 #[tokio::test]
@@ -302,6 +347,7 @@ async fn explicitly_granted_window_task_reuses_only_its_exact_permission() {
             approval_mode: ToolApprovalMode::Ask,
         },
         cancellation: cancellation.clone(),
+        desktop_stop: CancellationToken::new(),
     });
     let permission = ToolPermissionKey::new(
         "computer_control",
