@@ -577,7 +577,19 @@ impl Projection {
         mut self,
         turn: &PreparedTurn,
     ) -> Result<nexa_core::llm::Message, CoreError> {
+        let result = self.finish_current(turn).await;
+        if let Err(error) = &result {
+            self.persist_partial(turn, error).await?;
+        }
+        result
+    }
+
+    async fn finish_current(
+        &mut self,
+        turn: &PreparedTurn,
+    ) -> Result<nexa_core::llm::Message, CoreError> {
         turn.privacy_lease.ensure_current()?;
+        turn.transcript.ensure_delegated_recovery_clear()?;
         let saved = self.persist_completed_answer(turn).await?;
         let (message, assistant_message_id) = match saved.or_else(|| {
             if self.completed_command {
@@ -596,13 +608,14 @@ impl Projection {
                 return Err(protocol_error("upstream completed without a final answer"));
             }
         };
+        turn.transcript.ensure_delegated_recovery_clear()?;
         self.finish_usage("success");
         let context_breakdown = self.context_for_publication();
         turn.events
             .send(AgentEvent::Done {
                 message: message.clone(),
                 last_prompt_tokens: self.last_prompt_tokens,
-                usage_total: self.usage,
+                usage_total: self.usage.clone(),
                 context_breakdown,
                 assistant_message_id,
                 cached: false,
@@ -617,6 +630,80 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn delegated_recovery_prevents_external_finalization_and_retains_usage() {
+        for kind in [
+            super::super::AgentRuntimeKind::Codex,
+            super::super::AgentRuntimeKind::Copilot,
+        ] {
+            for completed_command in [false, true] {
+                let (request, mut rx, _, _) = super::super::tests::fixture(kind, "test");
+                let db = request.db.clone();
+                let conversation = request.conversation_id.clone();
+                let saved_turn = db.get_conversation_turn(&request.turn_id).unwrap();
+                let run = db
+                    .create_agent_task_run(
+                        &conversation,
+                        &request.turn_id,
+                        &saved_turn.user_message_id,
+                        "Delegated recovery fixture",
+                        Some(kind.provider()),
+                        Some("test"),
+                    )
+                    .unwrap();
+                let turn = request.prepare(false).unwrap();
+                let mut projection = Projection::for_turn(&turn);
+                projection.usage = Usage {
+                    prompt_tokens: 10,
+                    completion_tokens: 2,
+                    total_tokens: 12,
+                    ..Default::default()
+                };
+                projection.usage_reported = true;
+                projection.completed_command = completed_command;
+                if !completed_command {
+                    projection
+                        .complete(&turn.events, "answer", "Retained partial reply")
+                        .await
+                        .unwrap();
+                }
+                let worker = db
+                    .create_agent_subtask_run(&run.id, "worker", "worker", None, None)
+                    .unwrap();
+                db.finish_agent_subtask_run(&worker.id, "failed", Some(&serde_json::json!({
+                    "recoveryRequired": {"actionReconciliation": true, "message": "Hosted action outcome is uncertain"}
+                })), None).unwrap();
+                assert!(matches!(
+                    projection.finish(&turn).await,
+                    Err(CoreError::RecoveryRequired {
+                        action_reconciliation: true,
+                        ..
+                    })
+                ));
+                assert_eq!(
+                    db.get_usage_analytics(
+                        &nexa_core::usage_analytics::UsageAnalyticsFilter::default()
+                    )
+                    .unwrap()
+                    .totals
+                    .total_tokens,
+                    12
+                );
+                let history = db.get_messages(&conversation).unwrap();
+                assert!(history.iter().all(|message| message
+                    .artifacts
+                    .as_ref()
+                    .is_none_or(|value| value["phase"] != "final_answer")));
+                if !completed_command {
+                    assert_eq!(history.last().unwrap().content, "Retained partial reply");
+                }
+                while let Ok(event) = rx.try_recv() {
+                    assert!(!matches!(event, AgentEvent::Done { .. }));
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     async fn compaction_identity_is_independent_of_answer_and_parallel_compactions() {
         let (tx, mut rx) = mpsc::channel(16);

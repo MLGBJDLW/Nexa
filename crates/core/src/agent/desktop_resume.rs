@@ -226,15 +226,16 @@ pub(super) fn load_execution_resume_state(
     if let Some(saved) = selected.as_mut() {
         reconcile_late_desktop_receipts(db, conversation_id, turn_id, saved)?;
     }
-    Ok(
-        (selected.is_some() || selected_plan.is_some()).then_some(ExecutionResumeState {
-            workflow: selected,
-            plan: selected_plan,
-            completed_tool_rounds,
-            max_iterations,
-            checkpointed_subtask_recoveries,
-        }),
-    )
+    Ok((selected.is_some()
+        || selected_plan.is_some()
+        || !checkpointed_subtask_recoveries.is_empty())
+    .then_some(ExecutionResumeState {
+        workflow: selected,
+        plan: selected_plan,
+        completed_tool_rounds,
+        max_iterations,
+        checkpointed_subtask_recoveries,
+    }))
 }
 
 pub(super) fn load_desktop_resume_workflow(
