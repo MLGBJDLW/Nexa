@@ -123,41 +123,13 @@ pub async fn finalize_desktop_agent_turn(finalization: DesktopAgentTurnFinalizat
         .get_agent_task_run(task_run_id)
         .ok()
         .map(|run| run.status);
-    if current_task_status.as_deref() == Some("awaiting_user_input")
-        || matches!(
-            &outcome.result,
-            Some(Err(
-                CoreError::AwaitingUserInput { .. } | CoreError::RecoveryRequired { .. }
-            ))
-        )
-    {
-        if current_task_status.as_deref() == Some("awaiting_user_input") {
-            let _ = db.update_agent_task_run_progress(
-                task_run_id,
-                Some("awaiting_user_input"),
-                Some("awaiting_user_input"),
-                None,
-                Some("Waiting for user input"),
-                None,
-                Some(&task_artifacts),
-            );
-        }
-        // A fast response can re-queue this same durable run before the
-        // suspended executor reaches finalization. Never let that stale
-        // executor overwrite the resumed or explicitly cancelled state.
-        emit_agent_task_run_update(db, app_handle, conversation_id, task_run_id);
-        return;
-    }
-    if current_task_status.as_deref() == Some("paused") {
-        let _ = db.update_agent_task_run_progress(
-            task_run_id,
-            Some("paused"),
-            Some("paused"),
-            None,
-            Some("Paused with a resumable checkpoint"),
-            None,
-            Some(&task_artifacts),
-        );
+    if finalize_suspended_task_artifacts(
+        db,
+        task_run_id,
+        current_task_status.as_deref(),
+        &outcome.result,
+        &task_artifacts,
+    ) {
         emit_agent_task_run_update(db, app_handle, conversation_id, task_run_id);
         return;
     }
@@ -245,6 +217,39 @@ pub async fn finalize_desktop_agent_turn(finalization: DesktopAgentTurnFinalizat
     if !matches!(&outcome.result, Some(Ok(_))) {
         repair_orphaned_tool_calls(db, conversation_id);
     }
+}
+
+pub(crate) fn finalize_suspended_task_artifacts(
+    db: &Database,
+    task_run_id: &str,
+    current_task_status: Option<&str>,
+    result: &Option<Result<Message, CoreError>>,
+    task_artifacts: &serde_json::Value,
+) -> bool {
+    let summary = match current_task_status {
+        Some("awaiting_user_input") => "Waiting for user input",
+        Some("paused") => "Paused with a resumable checkpoint",
+        _ => {
+            // A fast response can re-queue this durable run before the
+            // suspended executor reaches finalization. Keep the newer state.
+            return matches!(
+                result,
+                Some(Err(
+                    CoreError::AwaitingUserInput { .. } | CoreError::RecoveryRequired { .. }
+                ))
+            );
+        }
+    };
+    let _ = db.update_agent_task_run_progress(
+        task_run_id,
+        current_task_status,
+        current_task_status,
+        None,
+        Some(summary),
+        None,
+        Some(task_artifacts),
+    );
+    true
 }
 
 pub async fn finalize_desktop_agent_stop(finalization: DesktopAgentStopFinalization<'_>) {

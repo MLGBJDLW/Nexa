@@ -536,6 +536,7 @@ jobs:
         run: >-
           cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
           desktop_agent_session::stop::
+          recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
           desktop_stop_rejects_queued_and_future_approvals_without_cancelling_chat
           completed_agent_appearance_reaches_native_change_notification
           browser::
@@ -654,6 +655,7 @@ jobs:
         run: >-
           cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
           desktop_stop_rejects_queued_and_future_approvals_without_cancelling_chat
+          recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
           command_dispatch::tests::
           commands::terminal::tests::
           browser::agent_tool::tests::
