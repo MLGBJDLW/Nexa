@@ -124,7 +124,9 @@ impl Wire {
                     Ok(chunk) if chunk.is_empty() => break,
                     Ok(chunk) => chunk,
                     Err(error) => {
-                        let _ = tx.send(Err(protocol_error(error))).await;
+                        let _ = tx
+                            .send(Err(CoreError::StreamIncomplete(error.to_string())))
+                            .await;
                         break;
                     }
                 };
@@ -229,10 +231,9 @@ impl Wire {
         if let Some(message) = self.queued.pop_front() {
             return Ok(message);
         }
-        self.messages
-            .recv()
-            .await
-            .ok_or_else(|| protocol_error("Codex process exited before turn completion"))?
+        self.messages.recv().await.ok_or_else(|| {
+            CoreError::StreamIncomplete("Codex process exited before turn completion".into())
+        })?
     }
 }
 

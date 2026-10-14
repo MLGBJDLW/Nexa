@@ -72,7 +72,7 @@ mod finalization;
 mod long_task;
 pub mod loop_guard;
 mod model_attempt;
-mod model_progress_watchdog;
+mod model_recovery;
 mod model_step;
 mod output_budget;
 mod output_recovery;
@@ -185,6 +185,36 @@ async fn emit_error_and_finalize_turn(
         }
         let trace = build_turn_trace(route_kind, persisted_trace_items);
         let _ = db.finalize_conversation_turn(tid, "error", None, Some(&trace));
+    }
+}
+
+async fn emit_recovery_required(
+    tx: &mpsc::Sender<AgentEvent>,
+    db: &Database,
+    turn_id: Option<&str>,
+    route_kind: AgentRouteKind,
+    persisted_trace_items: &mut Vec<PersistedTraceItem>,
+    message: String,
+    action_reconciliation: bool,
+) -> CoreError {
+    let message = crate::sensitive_data::sanitize_diagnostic(&message, None);
+    append_persisted_trace_status(persisted_trace_items, &message, "warning");
+    if let Some(turn_id) = turn_id {
+        let trace = build_turn_trace(route_kind, persisted_trace_items);
+        if let Err(error) = db.update_conversation_turn_trace(turn_id, Some(&trace)) {
+            warn!("Failed to save interrupted turn trace: {error}");
+        }
+    }
+    let _ = tx
+        .send(AgentEvent::ControllerStatus {
+            code: "provider_connection_paused".into(),
+            content: message.clone(),
+            tone: Some("warning".into()),
+        })
+        .await;
+    CoreError::RecoveryRequired {
+        message,
+        action_reconciliation,
     }
 }
 

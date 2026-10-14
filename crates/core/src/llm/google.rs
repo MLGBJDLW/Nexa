@@ -1646,20 +1646,36 @@ async fn parse_gemini_hop(
     let mut event_data_lines: Vec<String> = Vec::new();
     tool_call_state.continuation_token = None;
     let mut saw_finish_reason = false;
+    let mut terminal_deadline = None;
 
-    'stream: while let Some(chunk_result) = next_stream_item_with_idle_timeout(
-        &mut byte_stream,
-        stream_idle_timeout,
-        "Gemini SSE stream",
-    )
-    .await?
-    {
-        let chunk = chunk_result.map_err(|e| {
-            CoreError::TransientLlm(format!(
-                "Stream read error: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
+    'stream: loop {
+        let idle_timeout = if saw_finish_reason {
+            let deadline = terminal_deadline.get_or_insert_with(|| {
+                tokio::time::Instant::now() + super::TERMINAL_STREAM_TAIL_GRACE
+            });
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            stream_idle_timeout.min(remaining)
+        } else {
+            stream_idle_timeout
+        };
+        let next =
+            next_stream_item_with_idle_timeout(&mut byte_stream, idle_timeout, "Gemini SSE stream")
+                .await;
+        let chunk = match next {
+            Ok(Some(Ok(chunk))) => chunk,
+            Ok(None) => break,
+            Ok(Some(Err(_))) | Err(_) if saw_finish_reason => break,
+            Ok(Some(Err(error))) => {
+                return Err(CoreError::TransientLlm(format!(
+                    "Stream read error: {}",
+                    super::transport::describe_http_error(&error)
+                )))
+            }
+            Err(error) => return Err(error),
+        };
         push_utf8_stream_chunk(&mut buffer, &mut pending_utf8, &chunk)?;
 
         // Process complete lines.
@@ -2142,7 +2158,10 @@ impl LlmProvider for GeminiProvider {
         let (tx, rx) = mpsc::channel(64);
         info!("Gemini SSE stream started");
 
-        let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
+        let stream_idle_timeout = self
+            .config
+            .streaming
+            .stream_idle_timeout_for_model(&request.model);
         let provider = self.clone();
         let api_key = api_key.to_string();
         // streamGenerateContent supports 65,536-token hops, unlike the direct
@@ -2221,6 +2240,38 @@ impl LlmProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn completed_gemini_response_survives_missing_transport_tail() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 2048];
+            socket.read(&mut request).await.unwrap();
+            let body = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Already finished\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":2,\"totalTokenCount\":6}}\n\n";
+            // A proxy closes without delivering its promised transport tail,
+            // after Gemini has already committed its complete response.
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n{body}", body.len() + 100).as_bytes()).await.unwrap();
+        });
+        let response = reqwest::get(format!("http://{address}")).await.unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let result = parse_gemini_hop(
+            response,
+            tx,
+            Duration::from_secs(1),
+            &mut GeminiToolCallStreamState::default(),
+        )
+        .await;
+        server.await.unwrap();
+        result.expect("semantic completion must survive a broken HTTP tail");
+        let mut answer = String::new();
+        while let Some(chunk) = rx.recv().await {
+            answer.push_str(&chunk.unwrap().delta);
+        }
+        assert_eq!(answer, "Already finished");
+    }
 
     #[tokio::test]
     async fn argon_continuation_keeps_original_request_and_counts_each_hop_once() {

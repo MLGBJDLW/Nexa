@@ -70,6 +70,14 @@ pub enum CoreError {
     #[error("Agent is awaiting user input for interaction {interaction_id}")]
     AwaitingUserInput { interaction_id: String },
 
+    /// A transient model failure exhausted automatic recovery. The host must
+    /// commit a resumable checkpoint through its existing Run Event outbox.
+    #[error("Agent connection interrupted; resume is available: {message}")]
+    RecoveryRequired {
+        message: String,
+        action_reconciliation: bool,
+    },
+
     #[error("MCP error: {0}")]
     Mcp(String),
 

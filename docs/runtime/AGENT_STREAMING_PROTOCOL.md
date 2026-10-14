@@ -185,7 +185,38 @@ Attempt resets are control-plane events. They may clear an abandoned answer,
 thinking block, or preparing tool card, but their retry reason is developer
 telemetry and never becomes a chat status row. Reconnecting, degraded, and
 recovered states remain silent when recovery succeeds; only a final
-failed/offline connection state is user-facing.
+failed/offline connection state is user-facing. A recoverable connection outage
+is shown as paused with Resume available rather than as a failed task.
+
+The model-attempt owner retries transient connection, rate-limit and stream
+failures up to five times by default, honoring provider retry overrides and
+Retry-After. Each physical connection/completion has its own deadline; retry
+backoff does not consume a separate outer connection watchdog. Stream adapters
+own byte-level inactivity detection, including keep-alives during hosted actions.
+There is no additional semantic-progress timeout racing an active stream.
+Complex requests get a fifteen-minute first-response deadline; ordinary/local
+requests get five minutes. Gemini 4 also defaults to fifteen minutes of stream
+silence, while an explicit provider idle timeout remains authoritative.
+
+Gemini `finishReason` and compatible Chat Completions `finish_reason` commit
+semantic completion even if a proxy subsequently truncates the HTTP body. A
+two-second absolute tail window permits trailing usage without letting endless
+post-completion heartbeats hold the task open. Malformed/incomplete responses
+without a terminal marker remain errors eligible for the appropriate recovery.
+
+When transient recovery is exhausted, `RecoveryRequired` retains the partial
+answer and successful tool history. The desktop drains its producer and event
+consumer, then commits the existing atomic pause/checkpoint outbox operation.
+Resume continues from that durable state. A provider-hosted action or interrupted
+external agent adds an action-reconciliation fence; its original request is never
+blindly replayed. Authentication, configuration, and schema failures remain
+ordinary errors. Cancellation and explicit execution budgets remain authoritative.
+
+Deferred tool count/token targets optimize the prompt, not tool authorization.
+Discovery unloads unrelated definitions and admits the requested tools, including
+file and shell capabilities, even when their schemas exceed those soft targets.
+The execution registry still owns permissions and validation; the real model
+context limit remains enforced by request preparation.
 
 A terminal submission is not completion by itself. The terminal completion
 barrier resolves only after the terminal Run Event and its task projection are

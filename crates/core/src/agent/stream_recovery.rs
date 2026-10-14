@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::error::CoreError;
 
 pub(super) const MAX_CONTEXT_RECOVERY_ATTEMPTS: u32 = 2;
-pub(super) const MAX_STREAM_DISCONNECT_RETRIES: u32 = 2;
+pub(super) const MAX_STREAM_DISCONNECT_RETRIES: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum StreamRecoveryDecision {
@@ -55,7 +55,7 @@ impl Default for StreamRecoveryPolicy {
     fn default() -> Self {
         Self {
             max_context_recovery_attempts: MAX_CONTEXT_RECOVERY_ATTEMPTS,
-            max_connect_retries: 4,
+            max_connect_retries: 5,
             max_disconnect_retries: MAX_STREAM_DISCONNECT_RETRIES,
         }
     }
@@ -208,6 +208,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn transient_disconnects_receive_five_recovery_attempts() {
+        let policy = StreamRecoveryPolicy::default();
+        for completed in 0..5 {
+            assert!(matches!(
+                policy.decide_after_incomplete(false, completed, false, "idle timeout"),
+                StreamRecoveryDecision::Reconnect { .. }
+            ));
+            assert!(matches!(
+                policy.decide_after_transient_error(completed, "connection reset"),
+                StreamConnectRetryDecision::Retry { .. }
+            ));
+        }
+        assert!(matches!(
+            policy.decide_after_incomplete(false, 5, false, "idle timeout"),
+            StreamRecoveryDecision::GiveUp { .. }
+        ));
+    }
+
+    #[test]
     fn reconnects_until_disconnect_retry_budget_is_used() {
         let decision = StreamRecoveryPolicy::default().decide_after_incomplete(
             false,
@@ -313,7 +332,7 @@ mod tests {
     #[test]
     fn rate_limit_retry_uses_retry_after_before_giving_up() {
         let retry = StreamRecoveryPolicy::default().decide_after_rate_limit(0, 7);
-        let give_up = StreamRecoveryPolicy::default().decide_after_rate_limit(4, 0);
+        let give_up = StreamRecoveryPolicy::default().decide_after_rate_limit(5, 0);
 
         assert_eq!(
             retry,
@@ -325,7 +344,7 @@ mod tests {
         assert_eq!(
             give_up,
             StreamConnectRetryDecision::GiveUp {
-                user_message: "Rate limited after 4 retries".to_string(),
+                user_message: "Rate limited after 5 retries".to_string(),
                 trace_message: "rate limited".to_string(),
             }
         );
@@ -334,7 +353,7 @@ mod tests {
     #[test]
     fn transient_retry_uses_exponential_backoff_before_giving_up() {
         let retry = StreamRecoveryPolicy::default().decide_after_transient_error(1, "closed");
-        let give_up = StreamRecoveryPolicy::default().decide_after_transient_error(4, "closed");
+        let give_up = StreamRecoveryPolicy::default().decide_after_transient_error(5, "closed");
 
         assert_eq!(
             retry,
@@ -346,8 +365,8 @@ mod tests {
         assert_eq!(
             give_up,
             StreamConnectRetryDecision::GiveUp {
-                user_message: "Transient error after 4 retries: closed".to_string(),
-                trace_message: "Transient error after 4 retries: closed".to_string(),
+                user_message: "Transient error after 5 retries: closed".to_string(),
+                trace_message: "Transient error after 5 retries: closed".to_string(),
             }
         );
     }
@@ -356,7 +375,7 @@ mod tests {
     fn gives_control_back_after_disconnect_retry_budget() {
         let decision = StreamRecoveryPolicy::default().decide_after_incomplete(
             false,
-            2,
+            5,
             false,
             "connection closed",
         );
@@ -366,7 +385,7 @@ mod tests {
             StreamRecoveryDecision::GiveUp {
                 user_message: "The model stream disconnected repeatedly. Partial output was preserved; retry when the provider connection is stable.".to_string(),
                 trace_message:
-                    "model stream disconnected after 2 replay attempt(s): connection closed"
+                    "model stream disconnected after 5 replay attempt(s): connection closed"
                         .to_string(),
             }
         );

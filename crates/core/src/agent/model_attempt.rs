@@ -188,6 +188,7 @@ pub(super) struct ModelAttempt<'provider, 'events> {
     events: &'events mpsc::Sender<AgentEvent>,
     original_request: CompletionRequest,
     policy: StreamRecoveryPolicy,
+    connect_timeout: Duration,
     phase: AttemptPhase<'provider>,
     request_started_at: Instant,
     candidate_sample_id: Option<String>,
@@ -215,6 +216,11 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
     ) -> Self {
         let initial_provider_id = provider.name().to_string();
         let initial_model_id = original_request.model.clone();
+        let connect_timeout = super::model_recovery::ModelProgressPolicy::for_model(
+            original_request.provider_type,
+            &original_request.model,
+        )
+        .connect_deadline;
         let phase = if force_non_streaming {
             AttemptPhase::ReadyToComplete {
                 switched_to_non_streaming: false,
@@ -228,6 +234,7 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
             original_request,
             policy: StreamRecoveryPolicy::default()
                 .with_stream_max_retries(provider.stream_max_retries()),
+            connect_timeout,
             phase,
             request_started_at: Instant::now(),
             candidate_sample_id: None,
@@ -566,9 +573,17 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
         self.candidate_sample_id = Some(Uuid::new_v4().to_string());
         info!(attempt = self.connect_retries + 1, "Initiating LLM stream");
         let provider = self.provider;
+        let timeout = self.connect_timeout;
         self.phase = AttemptPhase::OpeningStream(Box::pin(async move {
             crate::privacy::runtime::ensure_invocation_current()?;
-            provider.stream_events(&request).await
+            tokio::time::timeout(timeout, provider.stream_events(&request))
+                .await
+                .map_err(|_| {
+                    CoreError::TransientLlm(format!(
+                        "Provider did not open a stream within {} seconds",
+                        timeout.as_secs()
+                    ))
+                })?
         }));
     }
 
@@ -580,10 +595,18 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
             "Initiating LLM completion"
         );
         let provider = self.provider;
+        let timeout = self.connect_timeout;
         self.phase = AttemptPhase::OpeningCompletion {
             future: Box::pin(async move {
                 crate::privacy::runtime::ensure_invocation_current()?;
-                provider.complete(&request).await
+                tokio::time::timeout(timeout, provider.complete(&request))
+                    .await
+                    .map_err(|_| {
+                        CoreError::TransientLlm(format!(
+                            "Provider did not complete the request within {} seconds",
+                            timeout.as_secs()
+                        ))
+                    })?
             }),
             switched_to_non_streaming,
         };
@@ -657,14 +680,6 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
                             self.connect_retries,
                             self.policy.max_connect_retries(),
                         );
-                        let error = match error {
-                            CoreError::TransientLlm(_)
-                                if stage == ModelAttemptFailureStage::Connect =>
-                            {
-                                CoreError::Llm(trace_message.clone())
-                            }
-                            error => error,
-                        };
                         ConnectErrorAction::Finish(Box::new(self.failure(
                             stage,
                             error,
@@ -960,7 +975,7 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
             attempt,
             max_attempts,
             delay: None,
-            recoverable: false,
+            recoverable: true,
             accepted: self.accepted.clone(),
         });
     }
@@ -1493,6 +1508,7 @@ mod tests {
         );
         let (tx, _rx) = event_channel();
         let mut attempt = ModelAttempt::new(provider.as_ref(), request(), &tx, false);
+        attempt.policy = StreamRecoveryPolicy::default().with_stream_max_retries(Some(2));
 
         expect_stream_opened(&mut attempt).await;
         expect_stream_opened(&mut attempt).await;
@@ -1966,6 +1982,7 @@ mod tests {
         );
         let (tx, mut rx) = event_channel();
         let mut attempt = ModelAttempt::new(provider.as_ref(), request(), &tx, false);
+        attempt.policy = StreamRecoveryPolicy::default().with_stream_max_retries(Some(4));
         let started_at = tokio::time::Instant::now();
 
         let ModelAttemptProgress::Failed(failure) = attempt.next().await else {
@@ -2003,7 +2020,7 @@ mod tests {
         assert_eq!(states[4].state, ConnectionStateKind::Failed);
         assert_eq!(states[4].attempt, 4);
         assert_eq!(states[4].max_attempts, 4);
-        assert!(!states[4].recoverable);
+        assert!(states[4].recoverable);
     }
 
     #[tokio::test(start_paused = true)]
@@ -2100,6 +2117,7 @@ mod tests {
         );
         let (tx, mut rx) = event_channel();
         let mut attempt = ModelAttempt::new(provider.as_ref(), request(), &tx, false);
+        attempt.policy = StreamRecoveryPolicy::default().with_stream_max_retries(Some(4));
 
         expect_stream_opened(&mut attempt).await;
         let started_at = tokio::time::Instant::now();
@@ -2145,7 +2163,7 @@ mod tests {
         );
         assert_eq!(states[4].attempt, 4);
         assert_eq!(states[4].max_attempts, 4);
-        assert!(!states[4].recoverable);
+        assert!(states[4].recoverable);
     }
 
     #[tokio::test(start_paused = true)]
@@ -2186,6 +2204,7 @@ mod tests {
         );
         let (tx, mut rx) = event_channel();
         let mut attempt = ModelAttempt::new(provider.as_ref(), request(), &tx, false);
+        attempt.policy = StreamRecoveryPolicy::default().with_stream_max_retries(Some(4));
 
         expect_stream_opened(&mut attempt).await;
         let started_at = tokio::time::Instant::now();
@@ -2814,6 +2833,7 @@ mod tests {
                 Invocation::Complete(Err(CoreError::TransientLlm("reset three".to_string()))),
                 Invocation::Complete(Err(CoreError::TransientLlm("give up".to_string()))),
                 Invocation::Complete(Err(CoreError::TransientLlm("give up".to_string()))),
+                Invocation::Complete(Err(CoreError::TransientLlm("give up".to_string()))),
             ],
             Arc::clone(&requests),
             Arc::new(Mutex::new(0)),
@@ -2823,7 +2843,7 @@ mod tests {
         let started_at = tokio::time::Instant::now();
 
         let ModelAttemptProgress::Failed(failure) = attempt.next().await else {
-            panic!("fifth completion failure should exhaust four retries")
+            panic!("sixth completion failure should exhaust five retries")
         };
 
         assert_eq!(failure.stage, ModelAttemptFailureStage::Completion);
@@ -2831,8 +2851,8 @@ mod tests {
             failure.error,
             CoreError::TransientLlm(ref message) if message == "give up"
         ));
-        assert_eq!(requests.lock().unwrap().len(), 5);
-        assert_eq!(started_at.elapsed(), Duration::from_millis(76_370));
+        assert_eq!(requests.lock().unwrap().len(), 6);
+        assert_eq!(started_at.elapsed(), Duration::from_millis(117_055));
 
         let states = std::iter::from_fn(|| rx.try_recv().ok())
             .filter_map(|event| match event {
@@ -2843,6 +2863,7 @@ mod tests {
         assert_eq!(
             states.iter().map(|state| state.state).collect::<Vec<_>>(),
             vec![
+                ConnectionStateKind::Reconnecting,
                 ConnectionStateKind::Reconnecting,
                 ConnectionStateKind::Reconnecting,
                 ConnectionStateKind::Reconnecting,

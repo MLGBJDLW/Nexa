@@ -1567,6 +1567,9 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             Some(Err(CoreError::AwaitingUserInput { interaction_id })) => {
                 log::info!("Agent turn {turn_id} is waiting for interaction {interaction_id}");
             }
+            Some(Err(CoreError::RecoveryRequired { .. })) => {
+                log::info!("Agent turn {turn_id} paused with a resumable connection checkpoint");
+            }
             Some(Err(CoreError::Cancelled(message))) => {
                 warn!("Agent execution cancelled for conversation {conv_id}: {message}");
                 let payload = serde_json::json!({ "reason": message });

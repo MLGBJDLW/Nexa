@@ -248,7 +248,11 @@ impl Wire {
                     }
                     Ok(chunk) => chunk,
                     Err(cause) => {
-                        let _ = tx.send(Err(error(cause))).await;
+                        let _ = tx
+                            .send(Err(nexa_core::error::CoreError::StreamIncomplete(
+                                cause.to_string(),
+                            )))
+                            .await;
                         break;
                     }
                 };
@@ -332,9 +336,11 @@ impl Wire {
         }
         match self.messages.recv().await {
             Some(result) => result,
-            None => Err(self
-                .closed_error("External agent exited before completing the request")
-                .await),
+            None => Err(nexa_core::error::CoreError::StreamIncomplete(
+                self.closed_error("External agent exited before completing the request")
+                    .await
+                    .to_string(),
+            )),
         }
     }
 

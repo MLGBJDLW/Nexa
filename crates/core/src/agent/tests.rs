@@ -10359,7 +10359,7 @@ async fn test_stream_incomplete_before_visible_output_replays_stream() {
 }
 
 #[tokio::test]
-async fn test_repeated_stream_incomplete_fails_without_non_streaming_fallback() {
+async fn test_repeated_stream_incomplete_preserves_a_resumable_turn() {
     let registry = ToolRegistry::new();
     let stream_calls = Arc::new(AtomicUsize::new(0));
     let complete_calls = Arc::new(AtomicUsize::new(0));
@@ -10378,7 +10378,7 @@ async fn test_repeated_stream_incomplete_fails_without_non_streaming_fallback() 
     );
 
     let db = Database::open_memory().expect("in-memory db");
-    let (tx, mut rx) = mpsc::channel(32);
+    let (tx, mut rx) = mpsc::channel(128);
 
     let error = executor
         .run(
@@ -10393,14 +10393,14 @@ async fn test_repeated_stream_incomplete_fails_without_non_streaming_fallback() 
             0,
         )
         .await
-        .expect_err("repeated stream disconnects should fail explicitly");
+        .expect_err("repeated disconnects should return a resumable outcome");
 
     assert!(matches!(
         error,
-        CoreError::StreamIncomplete(ref message)
-            if message.contains("disconnected after 2 replay attempt")
+        CoreError::RecoveryRequired { ref message, action_reconciliation: false }
+            if message.contains("Resume this task")
     ));
-    assert_eq!(stream_calls.load(Ordering::SeqCst), 3);
+    assert_eq!(stream_calls.load(Ordering::SeqCst), 6);
     assert_eq!(complete_calls.load(Ordering::SeqCst), 0);
 
     let mut saw_reset = false;
@@ -10422,8 +10422,8 @@ async fn test_repeated_stream_incomplete_fails_without_non_streaming_fallback() 
 
     assert!(saw_reset, "expected stream resets before explicit failure");
     assert!(
-        saw_error,
-        "exhausted stream recovery should surface an error"
+        !saw_error,
+        "exhausted stream recovery must not terminalize a resumable task"
     );
     assert_eq!(visible_text, "");
 }
@@ -10986,8 +10986,10 @@ async fn assert_interrupted_output_recovery_persists_canonical_partial_answer(
     if disconnect_after_hosted_tool {
         assert!(matches!(
             error,
-            CoreError::StreamIncomplete(ref message)
-                if message.contains("hosted action") && message.contains("retry suppressed")
+            CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            }
         ));
     } else {
         assert!(matches!(
@@ -11989,7 +11991,7 @@ async fn model_progress_user_recovery_restarts_with_request_side_controls() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn model_progress_pending_stream_open_stops_without_executing_tools() {
+async fn model_progress_pending_stream_open_retries_without_executing_tools() {
     let stream_calls = Arc::new(AtomicUsize::new(0));
     let thinking_chunks = Arc::new(AtomicUsize::new(0));
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -12038,36 +12040,33 @@ async fn model_progress_pending_stream_open_stops_without_executing_tools() {
     tokio::time::timeout(Duration::from_secs(1), invocation_started.notified())
         .await
         .expect("the provider stream-open future must start");
-    tokio::time::advance(Duration::from_secs(89)).await;
+    tokio::time::advance(Duration::from_secs(899)).await;
     settle_paused_runtime().await;
     assert!(
         !run.is_finished(),
-        "connect timeout fired before 90 seconds"
+        "connect timeout fired before 900 seconds"
     );
     assert_eq!(stream_calls.load(Ordering::SeqCst), 1);
 
     tokio::time::advance(Duration::from_secs(1)).await;
     settle_paused_runtime().await;
-    let error = tokio::time::timeout(Duration::from_secs(1), run)
+    let answer = tokio::time::timeout(Duration::from_secs(10), run)
         .await
-        .expect("connect deadline must terminalize the run")
+        .expect("per-attempt deadline must retry the connection")
         .expect("agent run task")
-        .expect_err("a stream that never opens must fail");
+        .expect("the next connection attempt should recover");
     let event_counts = event_drain.await.expect("agent event drain");
     let elapsed = tokio::time::Instant::now().duration_since(started_at);
 
-    assert!(matches!(
-        error,
-        CoreError::Agent(ref message) if message.contains("provider did not establish a model stream")
-    ));
-    assert!(elapsed >= Duration::from_secs(90));
-    assert!(elapsed <= Duration::from_secs(91));
-    assert_eq!(requests.lock().unwrap().len(), 1);
+    assert_eq!(answer.text_content(), "recovered answer");
+    assert!(elapsed >= Duration::from_secs(900));
+    assert!(elapsed <= Duration::from_secs(910));
+    assert_eq!(requests.lock().unwrap().len(), 2);
     assert_eq!(executions.load(Ordering::SeqCst), 0);
     assert_eq!(event_counts.slow_warnings, 0);
     assert_eq!(event_counts.resets, 0);
-    assert_eq!(event_counts.errors, 1);
-    assert_eq!(event_counts.done, 0);
+    assert_eq!(event_counts.errors, 0);
+    assert_eq!(event_counts.done, 1);
 }
 
 #[tokio::test(start_paused = true)]

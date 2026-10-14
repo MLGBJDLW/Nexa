@@ -272,7 +272,7 @@ fn redact_user_text(text: &str, privacy: &nexa_core::privacy::PrivacyConfig) -> 
 
 pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
     let lease = request.db.privacy_lease(&request.cancellation)?;
-    tokio::select! {
+    let result = tokio::select! {
         biased;
         _ = lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed; start a new turn".into())),
         result = async {
@@ -282,7 +282,18 @@ pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 AgentRuntimeKind::Acp(provider) => acp::run(provider, request).await,
             }
         } => result,
-    }
+    };
+    result.map_err(|error| match error {
+        CoreError::StreamIncomplete(message) | CoreError::TransientLlm(message) => {
+            CoreError::RecoveryRequired {
+                message: nexa_core::sensitive_data::sanitize_diagnostic(&message, None),
+                // External loops may have launched native tools before delivery
+                // stopped. Resume from durable evidence, never replay their prompt.
+                action_reconciliation: true,
+            }
+        }
+        error => error,
+    })
 }
 
 fn protocol_error(error: impl std::fmt::Display) -> CoreError {

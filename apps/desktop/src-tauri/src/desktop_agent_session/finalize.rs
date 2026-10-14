@@ -21,7 +21,9 @@ pub async fn finalize_desktop_agent_turn(finalization: DesktopAgentTurnFinalizat
         Some("awaiting_user_input" | "paused")
     ) || matches!(
         &outcome.result,
-        Some(Err(CoreError::AwaitingUserInput { .. }))
+        Some(Err(
+            CoreError::AwaitingUserInput { .. } | CoreError::RecoveryRequired { .. }
+        ))
     );
     let publication = if resumably_suspended {
         event_seq.flush().await.map(|_| ())
@@ -124,7 +126,9 @@ pub async fn finalize_desktop_agent_turn(finalization: DesktopAgentTurnFinalizat
     if current_task_status.as_deref() == Some("awaiting_user_input")
         || matches!(
             &outcome.result,
-            Some(Err(CoreError::AwaitingUserInput { .. }))
+            Some(Err(
+                CoreError::AwaitingUserInput { .. } | CoreError::RecoveryRequired { .. }
+            ))
         )
     {
         if current_task_status.as_deref() == Some("awaiting_user_input") {

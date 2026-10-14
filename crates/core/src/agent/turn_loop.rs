@@ -202,19 +202,6 @@ impl ActionReconciliationFence {
     }
 }
 
-fn successful_executable_action(
-    calls: &[ToolCallRequest],
-    summaries: &[tool_dispatch::ToolDispatchSummary],
-) -> bool {
-    calls.iter().any(|call| {
-        loop_guard::tool_call_is_action_progress(&call.name)
-            && summaries
-                .iter()
-                .find(|summary| summary.call_id == call.id)
-                .is_some_and(|summary| !summary.is_error)
-    })
-}
-
 fn cumulative_run_step_output_budget(
     configured_step_max: u32,
     actual_run_limit: Option<u32>,
@@ -1240,32 +1227,28 @@ impl AgentExecutor {
             && route_plan.kind == AgentRouteKind::KnowledgeRetrieval
             && !user_query_text.is_empty()
             && turn_budget.can_dispatch_tool_round();
-        let prefetch_observed = if prefetch_enters_dispatch {
+        if prefetch_enters_dispatch {
             turn_budget.persist_admission(db, turn_id)?;
-            let observed = self
-                .prefetch_knowledge_results(
-                    route_plan.kind,
-                    user_query_text,
-                    db,
-                    &source_scope,
-                    &tx,
-                    conversation_id,
-                    turn_id,
-                    model,
-                    &mut sort_order,
-                    &mut messages,
-                    &mut persisted_trace_items,
-                    &mut task_plan,
-                )
-                .await;
+            self.prefetch_knowledge_results(
+                route_plan.kind,
+                user_query_text,
+                db,
+                &source_scope,
+                &tx,
+                conversation_id,
+                turn_id,
+                model,
+                &mut sort_order,
+                &mut messages,
+                &mut persisted_trace_items,
+                &mut task_plan,
+            )
+            .await;
             // Graph-guided retrieval is one controller-owned logical batch.
             // Count the dispatch even if the provider returns no evidence or
             // the local search tool reports an error.
             turn_budget.record_verified_tool_round();
-            observed
-        } else {
-            false
-        };
+        }
 
         // --- 4. ReAct loop ----------------------------------------------------
         let mut last_tool_calls: Option<Vec<ToolCallRequest>> = None;
@@ -1284,7 +1267,6 @@ impl AgentExecutor {
                 crate::llm::provider_uses_non_streaming_fallback(provider, model)
             });
         let mut reasoning_disabled_for_tool_loop = false;
-        let mut model_action_observed = prefetch_observed;
         let mut prompt_was_compacted = history_was_compacted;
 
         // Nexus owns reconnaissance waves at runtime. This is a deterministic
@@ -1491,9 +1473,6 @@ impl AgentExecutor {
                 }
                 let summaries = dispatch_outcome.summaries;
                 let summary = summaries.iter().find(|summary| summary.call_id == call.id);
-                if summary.is_some_and(|summary| !summary.is_error) {
-                    model_action_observed = true;
-                }
                 let read_source = verification_capture
                     .capture(
                         db,
@@ -1838,7 +1817,6 @@ impl AgentExecutor {
                     suppress_tools: suppress_tools_for_step,
                     buffer_answer_projection,
                     output_recovery: &output_recovery,
-                    requires_first_action: !model_action_observed,
                     total_usage: &mut total_usage,
                 })
                 .await;
@@ -1885,7 +1863,6 @@ impl AgentExecutor {
                     continue 'react_loop;
                 }
             };
-            model_action_observed |= !tool_run_started_ids.is_empty();
             if let Some(isolation) = workspace_isolation.as_mut() {
                 isolation.rewrite_tool_calls(&mut tool_calls)?;
             }
@@ -3152,7 +3129,6 @@ impl AgentExecutor {
                 .await;
                 return Err(CoreError::Agent(trace_message));
             }
-            model_action_observed |= successful_executable_action(&tool_calls, &dispatch_summaries);
             let reconciliation_was_pending = action_reconciliation.blocks_interactive_input();
             action_reconciliation.observe_tool_results(&tool_calls, &dispatch_summaries);
             if reconciliation_was_pending && !action_reconciliation.blocks_interactive_input() {

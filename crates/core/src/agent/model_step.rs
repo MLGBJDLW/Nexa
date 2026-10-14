@@ -72,14 +72,6 @@ enum ModelStepWaitSignal {
     Progress(Box<model_attempt::ModelAttemptProgress>),
     Steering(Option<AgentSteeringMessage>),
     Cancellation,
-    ProgressDeadline,
-}
-
-async fn wait_for_model_progress_deadline(deadline: Option<tokio::time::Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(deadline).await,
-        None => std::future::pending::<()>().await,
-    }
 }
 
 pub(super) struct ModelStepContext<'a> {
@@ -113,7 +105,6 @@ pub(super) struct ModelStepContext<'a> {
     /// and de-duplicates it. Thinking and tool protocol events remain live.
     pub(super) buffer_answer_projection: bool,
     pub(super) output_recovery: &'a super::output_recovery::OutputRecovery,
-    pub(super) requires_first_action: bool,
     pub(super) total_usage: &'a mut Usage,
 }
 
@@ -332,7 +323,6 @@ impl AgentExecutor {
             suppress_tools,
             buffer_answer_projection,
             output_recovery,
-            requires_first_action,
             total_usage,
         } = ctx;
 
@@ -343,7 +333,6 @@ impl AgentExecutor {
         } else {
             request_tools_with_native_search_plan(tool_defs, self.config.native_search_plan)?
         };
-        let has_executable_tools = !request_tools.is_empty();
         let cumulative_budget_requires_low_reasoning =
             self.config.max_actual_tokens_per_run.is_some() && max_response_tokens <= 4_096;
         let forced_progress_controls = (force_answer_only
@@ -354,9 +343,9 @@ impl AgentExecutor {
                     && !*reasoning_disabled_for_tool_loop
                     && self.config.catalog_limits_authoritative.unwrap_or(true)
                 {
-                    model_progress_watchdog::continuation_controls(self.config.provider_type, model)
+                    model_recovery::continuation_controls(self.config.provider_type, model)
                 } else {
-                    model_progress_watchdog::recovery_controls(self.config.provider_type, model)
+                    model_recovery::recovery_controls(self.config.provider_type, model)
                 }
             });
         let mut configured_thinking_budget = self
@@ -449,16 +438,6 @@ impl AgentExecutor {
             *force_non_streaming_llm,
         )
         .with_cancel_token(self.cancel_token.clone());
-        let mut progress_watchdog = model_progress_watchdog::ModelProgressWatchdog::new(
-            self.config.provider_type,
-            model,
-            route_kind,
-            has_executable_tools && requires_first_action && !force_answer_only,
-        );
-        if *force_non_streaming_llm {
-            progress_watchdog.arm();
-        }
-
         macro_rules! bind_accepted_attempt {
             ($next:expr, $first_for_sample:expr) => {{
                 let next = $next;
@@ -511,18 +490,12 @@ impl AgentExecutor {
                     maybe_steering = self.wait_for_steering_message() => {
                         ModelStepWaitSignal::Steering(maybe_steering)
                     }
-                    _ = wait_for_model_progress_deadline(progress_watchdog.deadline()) => {
-                        ModelStepWaitSignal::ProgressDeadline
-                    }
                     progress = model_attempt.next() => ModelStepWaitSignal::Progress(Box::new(progress)),
                 }
             } else {
                 tokio::select! {
                     biased;
                     _ = self.cancel_token.cancelled() => ModelStepWaitSignal::Cancellation,
-                    _ = wait_for_model_progress_deadline(progress_watchdog.deadline()) => {
-                        ModelStepWaitSignal::ProgressDeadline
-                    }
                     progress = model_attempt.next() => ModelStepWaitSignal::Progress(Box::new(progress)),
                 }
             };
@@ -547,7 +520,7 @@ impl AgentExecutor {
                             );
                         discarded_sample_tokens = discarded_sample_tokens
                             .saturating_add(discarded_prompt.saturating_add(discarded_output));
-                        let controls = model_progress_watchdog::recovery_controls(
+                        let controls = model_recovery::recovery_controls(
                             current_request.provider_type,
                             &current_request.model,
                         );
@@ -594,10 +567,7 @@ impl AgentExecutor {
                             *force_non_streaming_llm,
                         )
                         .with_cancel_token(self.cancel_token.clone());
-                        progress_watchdog.reset_for_new_attempt();
-                        if *force_non_streaming_llm {
-                            progress_watchdog.arm();
-                        }
+
                         continue 'model_attempt;
                     }
                     stream_interrupted_by_steering = Some(steering);
@@ -609,88 +579,10 @@ impl AgentExecutor {
                 }
                 ModelStepWaitSignal::Cancellation => model_attempt.next().await,
                 ModelStepWaitSignal::Progress(progress) => *progress,
-                ModelStepWaitSignal::ProgressDeadline => match progress_watchdog.on_deadline() {
-                    model_progress_watchdog::ModelProgressDeadlineAction::StopConnecting => {
-                        let trace_message = "model_progress_watchdog: provider did not establish a model stream or completion before the connect deadline".to_string();
-                        append_developer_persisted_trace_status(
-                            persisted_trace_items,
-                            &trace_message,
-                            "error",
-                        );
-                        emit_error_and_finalize_turn(
-                                tx,
-                                db,
-                                trace,
-                                turn_id,
-                                route_kind,
-                                persisted_trace_items,
-                                TurnErrorMessages {
-                                    frontend_message: "The model provider did not start responding within 90 seconds. The turn was stopped before any action ran; check the provider connection or retry.".to_string(),
-                                    trace_message: trace_message.clone(),
-                                },
-                            )
-                            .await;
-                        return Err(CoreError::Agent(trace_message));
-                    }
-                    model_progress_watchdog::ModelProgressDeadlineAction::StopHostedTool => {
-                        let trace_message = "model_progress_watchdog: provider-hosted action stopped reporting activity; no automatic retry was attempted".to_string();
-                        let draft_preserved = if let Some(accepted) = accepted_attempt.as_ref() {
-                            self.persist_interrupted_provider_draft(
-                                assistant_turn::AssistantTurnPersistenceContext {
-                                    db,
-                                    conversation_id,
-                                    turn_id,
-                                    model,
-                                    route_kind,
-                                    persisted_trace_items: &mut *persisted_trace_items,
-                                    sort_order: &mut *sort_order,
-                                },
-                                InterruptedProviderDraftCapture {
-                                    accepted,
-                                    sample_content: &full_content,
-                                    iteration_thinking: &iteration_thinking,
-                                    reasoning_was_requested,
-                                    output_recovery: buffer_answer_projection
-                                        .then_some(output_recovery),
-                                },
-                                final_answer_hygiene_scope,
-                                tx,
-                            )
-                            .await
-                        } else {
-                            false
-                        };
-                        append_developer_persisted_trace_status(
-                            persisted_trace_items,
-                            &trace_message,
-                            "error",
-                        );
-                        emit_error_and_finalize_turn(
-                                tx,
-                                db,
-                                trace,
-                                turn_id,
-                                route_kind,
-                                persisted_trace_items,
-                                TurnErrorMessages {
-                                    frontend_message: if draft_preserved {
-                                        "The provider-hosted action stopped reporting activity. The partial draft was preserved; no automatic retry was attempted because the remote action may have side effects.".to_string()
-                                    } else {
-                                        "The provider-hosted action stopped reporting activity. No safe assistant draft was preserved, and no automatic retry was attempted because the remote action may have side effects.".to_string()
-                                    },
-                                    trace_message: trace_message.clone(),
-                                },
-                            )
-                            .await;
-                        return Err(CoreError::StreamIncomplete(trace_message));
-                    }
-                },
             };
 
             match progress {
-                model_attempt::ModelAttemptProgress::StreamOpened => {
-                    progress_watchdog.arm();
-                }
+                model_attempt::ModelAttemptProgress::StreamOpened => {}
                 model_attempt::ModelAttemptProgress::Provider(
                     model_attempt::ModelAttemptProviderEvent {
                         event: model_attempt::AcceptedProviderEvent::Chunk(chunk),
@@ -706,7 +598,6 @@ impl AgentExecutor {
                     // Forward thinking deltas.
                     if let Some(ref thinking) = chunk.thinking_delta {
                         if !thinking.is_empty() {
-                            progress_watchdog.observe_thinking_progress();
                             thinking_delta_seen = true;
                             iteration_thinking.push_str(thinking);
                             let _ = tx
@@ -718,7 +609,6 @@ impl AgentExecutor {
                     }
                     // Forward text deltas.
                     if !chunk.delta.is_empty() {
-                        progress_watchdog.observe_answer_progress();
                         answer_delta_seen = true;
                         full_content.push_str(&chunk.delta);
                         if !buffer_answer_projection {
@@ -728,7 +618,6 @@ impl AgentExecutor {
                     }
                     // Accumulate tool-call deltas.
                     if let Some(ref tc_delta) = chunk.tool_call_delta {
-                        progress_watchdog.observe_tool_call_progress();
                         if !accumulate_tool_call(&mut tool_calls, tc_delta) {
                             tool_call_assembly_rejected = true;
                         }
@@ -812,7 +701,7 @@ impl AgentExecutor {
                     },
                 ) => {
                     bind_accepted_attempt!(accepted, first_for_sample);
-                    progress_watchdog.observe_hosted_tool_progress();
+
                     *context_recovery_attempts = 0;
                     let status = tool.status;
                     let run = build_provider_hosted_tool_run_item(&self.tools, &tool);
@@ -858,7 +747,7 @@ impl AgentExecutor {
                 }
                 model_attempt::ModelAttemptProgress::StreamComplete { accepted, timing } => {
                     bind_accepted_attempt!(accepted, false);
-                    progress_watchdog.complete();
+
                     info!(
                         "Stream complete: {chunk_count} chunks, {} chars",
                         full_content.len()
@@ -985,20 +874,16 @@ impl AgentExecutor {
                         tx,
                     )
                     .await;
-                    emit_error_and_finalize_turn(
+                    return Err(emit_recovery_required(
                         tx,
                         db,
-                        trace,
                         turn_id,
                         route_kind,
                         persisted_trace_items,
-                        TurnErrorMessages {
-                            frontend_message: user_message,
-                            trace_message: trace_message.clone(),
-                        },
+                        user_message,
+                        true,
                     )
-                    .await;
-                    return Err(CoreError::StreamIncomplete(trace_message));
+                    .await);
                 }
                 model_attempt::ModelAttemptProgress::NeedsContextCompaction(overflow) => {
                     let model_attempt::ModelAttemptContextOverflow {
@@ -1085,10 +970,7 @@ impl AgentExecutor {
                                 *force_non_streaming_llm,
                             )
                             .with_cancel_token(self.cancel_token.clone());
-                            progress_watchdog.reset_for_context_retry();
-                            if *force_non_streaming_llm {
-                                progress_watchdog.arm();
-                            }
+
                             continue 'model_attempt;
                         }
                         ContextOverflowRecoveryDecision::GiveUp { user_message } => {
@@ -1115,9 +997,44 @@ impl AgentExecutor {
                         error,
                         user_message,
                         trace_message,
-                        accepted: _accepted,
+                        accepted,
                         timing: _timing,
                     } = failure;
+                    if matches!(
+                        error,
+                        CoreError::StreamIncomplete(_)
+                            | CoreError::TransientLlm(_)
+                            | CoreError::RateLimited { .. }
+                            | CoreError::ProviderUnavailable { .. }
+                    ) {
+                        if let Some(accepted) = accepted.as_ref() {
+                            self.persist_interrupted_provider_draft(
+                                assistant_turn::AssistantTurnPersistenceContext {
+                                    db,
+                                    conversation_id,
+                                    turn_id,
+                                    model,
+                                    route_kind,
+                                    persisted_trace_items: &mut *persisted_trace_items,
+                                    sort_order: &mut *sort_order,
+                                },
+                                InterruptedProviderDraftCapture {
+                                    accepted,
+                                    sample_content: &full_content,
+                                    iteration_thinking: &iteration_thinking,
+                                    reasoning_was_requested,
+                                    output_recovery: buffer_answer_projection
+                                        .then_some(output_recovery),
+                                },
+                                final_answer_hygiene_scope,
+                                tx,
+                            )
+                            .await;
+                        }
+                        return Err(emit_recovery_required(tx, db, turn_id, route_kind,
+                            persisted_trace_items,
+                            format!("{user_message} Completed work was kept. Resume this task to continue from its checkpoint."), false).await);
+                    }
                     error!("LLM model attempt failed: {trace_message}");
                     emit_error_and_finalize_turn(
                         tx,
@@ -1347,10 +1264,8 @@ impl AgentExecutor {
 
             let required_route = current_accepted_route.clone();
             let mut safe_request = current_request.clone();
-            let safe_controls = model_progress_watchdog::recovery_controls(
-                safe_request.provider_type,
-                &safe_request.model,
-            );
+            let safe_controls =
+                model_recovery::recovery_controls(safe_request.provider_type, &safe_request.model);
             safe_request.reasoning_enabled = safe_controls.reasoning_enabled;
             safe_request.reasoning_effort = safe_controls.reasoning_effort;
             safe_request.thinking_budget = safe_controls.thinking_budget;
@@ -1363,38 +1278,9 @@ impl AgentExecutor {
                     true,
                 )
                 .with_cancel_token(self.cancel_token.clone());
-                let mut safe_watchdog = model_progress_watchdog::ModelProgressWatchdog::new(
-                    self.config.provider_type,
-                    model,
-                    route_kind,
-                    has_executable_tools && requires_first_action && !force_answer_only,
-                );
-                safe_watchdog.arm();
                 let safe_progress = tokio::select! {
                     biased;
                     _ = self.cancel_token.cancelled() => safe_attempt.next().await,
-                    _ = wait_for_model_progress_deadline(safe_watchdog.deadline()) => {
-                        let trace_message = "reasoning_replay_safe_restart_progress_deadline: provider produced no replay-safe answer or tool call before the bounded deadline".to_string();
-                        append_developer_persisted_trace_status(
-                            persisted_trace_items,
-                            &trace_message,
-                            "error",
-                        );
-                        emit_error_and_finalize_turn(
-                            tx,
-                            db,
-                            trace,
-                            turn_id,
-                            route_kind,
-                            persisted_trace_items,
-                            TurnErrorMessages {
-                                frontend_message: "The provider did not complete the replay-safe restart within its bounded deadline. No tools were executed.".to_string(),
-                                trace_message: trace_message.clone(),
-                            },
-                        )
-                        .await;
-                        return Err(CoreError::Agent(trace_message));
-                    }
                     progress = safe_attempt.next() => progress,
                 };
                 match safe_progress {
@@ -1503,12 +1389,30 @@ impl AgentExecutor {
                     model_attempt::ModelAttemptProgress::Failed(failure) => {
                         let model_attempt::ModelAttemptFailure {
                             stage,
-                            error: _error,
-                            user_message: _user_message,
+                            error,
+                            user_message,
                             trace_message: provider_trace_message,
                             accepted: _accepted,
                             timing: _timing,
                         } = failure;
+                        if matches!(
+                            error,
+                            CoreError::StreamIncomplete(_)
+                                | CoreError::TransientLlm(_)
+                                | CoreError::RateLimited { .. }
+                                | CoreError::ProviderUnavailable { .. }
+                        ) {
+                            return Err(emit_recovery_required(
+                                tx,
+                                db,
+                                turn_id,
+                                route_kind,
+                                persisted_trace_items,
+                                user_message,
+                                false,
+                            )
+                            .await);
+                        }
                         let trace_message = format!(
                             "reasoning_replay_safe_restart_failed: provider={}, model={}, stage={stage:?}, error={provider_trace_message}",
                             self.provider.name(),

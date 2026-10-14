@@ -753,6 +753,7 @@ fn build_resume_prompt(
         .unwrap_or_default();
     let reconciliation = reason
         .strip_prefix("user_stop_requires_action_reconciliation:")
+        .or_else(|| reason.strip_prefix("connection_interrupted_requires_action_reconciliation:"))
         .map(|activity_ids| {
             format!(
                 "\n- SAFETY FENCE: action receipt(s) {activity_ids} may have executed while the turn was stopping. Before any further browser/computer input, obtain a fresh observation and reconcile the visible state. Inspect files, running processes and external state before continuing interrupted native-agent work. Never redispatch a prior action merely because its tool result is absent."
