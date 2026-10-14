@@ -26,6 +26,7 @@ pub(super) struct Initialization {
 }
 
 pub(super) struct Session {
+    pub usage: super::usage::SessionUsage,
     pub id: String,
     pub cwd: String,
     pub terminals: std::sync::Arc<super::terminals::Terminals>,
@@ -100,6 +101,7 @@ impl Session {
             models.sort_by_key(|model| model.id != *current);
         }
         Ok(Self {
+            usage: Default::default(),
             id,
             cwd: String::new(),
             terminals: std::sync::Arc::new(super::terminals::Terminals::default()),

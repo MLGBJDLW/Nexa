@@ -490,6 +490,8 @@ async fn project_event(
             }
         }
         "assistant.usage" => {
+            projection.usage_reported |=
+                data["inputTokens"].as_u64().is_some() || data["outputTokens"].as_u64().is_some();
             if data
                 .get("initiator")
                 .and_then(serde_json::Value::as_str)
@@ -536,7 +538,9 @@ async fn project_event(
                     *target = Some(target.unwrap_or(0).saturating_add(tokens(field)));
                 }
             }
-            projection.publish_usage(tx).await?;
+            projection
+                .publish_usage_for_model(tx, data["model"].as_str())
+                .await?;
             // Copilot normalizes Anthropic's refusal stop reason to content_filter.
             // Treat the explicit protocol signal as a failed turn, never infer it
             // from assistant prose (which may be quoting an error for the user).

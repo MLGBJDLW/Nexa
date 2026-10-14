@@ -10,6 +10,7 @@ mod projection;
 #[cfg(test)]
 mod tests;
 mod transcript;
+mod usage_accounting;
 
 use crate::desktop_agent_session::DesktopAgentSessionDependencies;
 use nexa_core::agent::{
@@ -31,6 +32,13 @@ pub enum AgentRuntimeKind {
 }
 
 impl AgentRuntimeKind {
+    fn provider(self) -> &'static str {
+        match self {
+            Self::Copilot => "github_copilot",
+            Self::Codex => "openai_codex",
+            Self::Acp(provider) => provider,
+        }
+    }
     pub(crate) fn from_provider(provider: &str) -> Option<Self> {
         match provider {
             "github_copilot" => Some(Self::Copilot),
@@ -82,11 +90,20 @@ struct PreparedTurn {
     approval: ApprovalCallback,
     permission_scope: String,
     files: acp::client::FileContext,
+    usage_accounting: Arc<std::sync::Mutex<usage_accounting::RuntimeUsageAccounting>>,
 }
 
 impl AgentRuntimeTurnRequest {
     fn prepare(self, native_vision: bool) -> Result<PreparedTurn, CoreError> {
         let privacy_lease = self.db.privacy_lease(&self.cancellation)?;
+        let usage_accounting = Arc::new(std::sync::Mutex::new(
+            usage_accounting::RuntimeUsageAccounting::new(
+                self.db.clone(),
+                self.conversation_id.clone(),
+                self.turn_id.clone(),
+                self.kind.provider(),
+            )?,
+        ));
         let workspace = self.dependencies.tools.workspace().cloned();
         let permission_scope = self
             .external
@@ -226,6 +243,7 @@ impl AgentRuntimeTurnRequest {
             system_prompt.push_str(section);
         }
         Ok(PreparedTurn {
+            usage_accounting,
             runtime: self.kind,
             transcript,
             config: self.config,

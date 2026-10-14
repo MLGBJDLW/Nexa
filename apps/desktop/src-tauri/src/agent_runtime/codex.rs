@@ -758,6 +758,9 @@ async fn project_event(
         }
         "thread/tokenUsage/updated" => {
             let usage = &params["tokenUsage"]["total"];
+            projection.usage_reported |= usage["totalTokens"].as_u64().is_some()
+                || usage["inputTokens"].as_u64().is_some()
+                || usage["outputTokens"].as_u64().is_some();
             let tokens = |key: &str| usage[key].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32;
             projection.usage.prompt_tokens = tokens("inputTokens");
             projection.last_prompt_tokens = params["tokenUsage"]["last"]["inputTokens"]

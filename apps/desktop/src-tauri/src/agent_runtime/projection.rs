@@ -18,6 +18,9 @@ pub(super) struct Projection {
     pub(super) answer: String,
     answer_block_ids: Vec<String>,
     pub(super) usage: Usage,
+    pub(super) usage_reported: bool,
+    usage_accounting:
+        Option<std::sync::Arc<std::sync::Mutex<super::usage_accounting::RuntimeUsageAccounting>>>,
     pub(super) last_prompt_tokens: u32,
     pub(super) context_breakdown: Option<nexa_core::agent::context::ContextUsageBreakdown>,
     pub(super) native_final_fallback: Option<nexa_core::agent::PersistedAssistantMessage>,
@@ -139,12 +142,9 @@ impl Projection {
         }
     }
     pub(super) fn for_turn(turn: &PreparedTurn) -> Self {
-        let provider = match turn.runtime {
-            super::AgentRuntimeKind::Copilot => "github_copilot",
-            super::AgentRuntimeKind::Codex => "openai_codex",
-            super::AgentRuntimeKind::Acp(provider) => provider,
-        };
+        let provider = turn.runtime.provider();
         Self {
+            usage_accounting: Some(turn.usage_accounting.clone()),
             runtime_identity: Some((
                 provider.into(),
                 turn.config.model.clone().unwrap_or_default(),
@@ -205,6 +205,27 @@ impl Projection {
         &self,
         tx: &mpsc::Sender<AgentEvent>,
     ) -> Result<(), CoreError> {
+        self.publish_usage_for_model(tx, None).await
+    }
+
+    pub(super) async fn publish_usage_for_model(
+        &self,
+        tx: &mpsc::Sender<AgentEvent>,
+        reported_model: Option<&str>,
+    ) -> Result<(), CoreError> {
+        if self.usage_reported {
+            if let (Some(accounting), Some((_, model))) =
+                (&self.usage_accounting, &self.runtime_identity)
+            {
+                if let Err(error) = accounting
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .observe(reported_model.unwrap_or(model), &self.usage)
+                {
+                    log::warn!("Failed to persist external runtime usage: {error}");
+                }
+            }
+        }
         tx.send(AgentEvent::UsageUpdate {
             usage_total: self.usage.clone(),
             last_prompt_tokens: self.last_prompt_tokens,
@@ -508,6 +529,11 @@ impl Projection {
     }
 
     pub(super) async fn persist_partial(&mut self, turn: &PreparedTurn) -> Result<(), CoreError> {
+        self.finish_usage(if turn.cancellation.is_cancelled() {
+            "cancelled"
+        } else {
+            "error"
+        });
         turn.privacy_lease.ensure_current()?;
         self.flush_async_messages(turn).await?;
         let text = self
@@ -522,6 +548,23 @@ impl Projection {
             turn.transcript.persist_intermediate(&text).await?;
         }
         Ok(())
+    }
+
+    fn finish_usage(&self, status: &str) {
+        if let (Some(accounting), Some((_, model))) =
+            (&self.usage_accounting, &self.runtime_identity)
+        {
+            let mut accounting = accounting.lock().unwrap_or_else(|e| e.into_inner());
+            let result = if self.usage_reported {
+                accounting.observe(model, &self.usage)
+            } else {
+                Ok(())
+            }
+            .and_then(|_| accounting.finish(model, status));
+            if let Err(error) = result {
+                log::warn!("Failed to finalize external runtime usage: {error}");
+            }
+        }
     }
 
     pub(super) async fn finish(
@@ -542,8 +585,12 @@ impl Projection {
                 nexa_core::llm::Message::text(nexa_core::llm::Role::Assistant, ""),
                 None,
             ),
-            None => return Err(protocol_error("upstream completed without a final answer")),
+            None => {
+                self.finish_usage("error");
+                return Err(protocol_error("upstream completed without a final answer"));
+            }
         };
+        self.finish_usage("success");
         let context_breakdown = self.context_for_publication();
         turn.events
             .send(AgentEvent::Done {

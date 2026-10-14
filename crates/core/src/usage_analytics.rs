@@ -198,6 +198,57 @@ impl Database {
         record_ai_usage_on_connection(&conn, input)
     }
 
+    /// External runtimes report cumulative usage snapshots, sometimes before
+    /// their turn ends. Replace the counters of the same observation rather
+    /// than charging every notification as another invocation. Identity is
+    /// immutable; a resumed runtime or model change needs its own invocation ID.
+    pub fn record_ai_usage_snapshot(
+        &self,
+        input: &AiUsageRecordInput<'_>,
+    ) -> Result<(), CoreError> {
+        let mut conn = self.conn();
+        let transaction = conn.transaction()?;
+        if !record_ai_usage_on_connection(&transaction, input)? {
+            let raw = serde_json::to_string(&crate::sensitive_data::sanitize_json_strings(
+                input.provider_raw,
+                None,
+            ))?;
+            let updated = transaction.execute(
+                "UPDATE ai_usage_records SET
+                 prompt_tokens=?1, completion_tokens=?2, thinking_tokens=?3, total_tokens=?4,
+                 cache_read_tokens=?5, cache_miss_tokens=?6, cache_creation_tokens=?7,
+                 usage_source=?8, request_status=?9, latency_ms=?10, provider_raw_json=?11
+                 WHERE invocation_id=?12 AND provider_id=?13 AND model_id=?14
+                 AND conversation_id IS ?15 AND turn_id IS ?16",
+                params![
+                    to_i64(input.prompt_tokens),
+                    to_i64(input.completion_tokens),
+                    to_i64(input.thinking_tokens),
+                    to_i64(input.total_tokens),
+                    to_i64(input.cache_read_tokens),
+                    to_i64(input.cache_miss_tokens),
+                    to_i64(input.cache_creation_tokens),
+                    input.usage_source,
+                    input.request_status,
+                    input.latency_ms.map(to_i64),
+                    raw,
+                    input.invocation_id,
+                    input.provider_id,
+                    input.model_id,
+                    input.conversation_id,
+                    input.turn_id
+                ],
+            )?;
+            if updated != 1 {
+                return Err(CoreError::Conflict(
+                    "Usage snapshot identity changed".into(),
+                ));
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn record_model_step_usage(
         &self,
@@ -648,6 +699,35 @@ mod tests {
                 .totals
                 .request_count,
             1
+        );
+    }
+
+    #[test]
+    fn cumulative_snapshots_replace_usage_without_changing_identity_or_double_charging() {
+        let db = Database::open_memory().unwrap();
+        let raw = serde_json::json!({"runtime":"hermes"});
+        let mut snapshot = input("external-turn", &raw);
+        db.record_ai_usage_snapshot(&snapshot).unwrap();
+        snapshot.total_tokens = 250;
+        snapshot.prompt_tokens = 200;
+        snapshot.completion_tokens = 50;
+        db.record_ai_usage_snapshot(&snapshot).unwrap();
+        db.record_ai_usage_snapshot(&snapshot).unwrap();
+        let totals = db
+            .get_usage_analytics(&UsageAnalyticsFilter::default())
+            .unwrap()
+            .totals;
+        assert_eq!(totals.request_count, 1);
+        assert_eq!(totals.total_tokens, 250);
+        snapshot.model_id = "different-model";
+        assert!(db.record_ai_usage_snapshot(&snapshot).is_err());
+        assert_eq!(
+            db.get_usage_analytics(&UsageAnalyticsFilter::default())
+                .unwrap()
+                .by_model[0]
+                .model_id
+                .as_deref(),
+            Some("gpt-test")
         );
     }
 
