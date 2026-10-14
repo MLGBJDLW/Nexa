@@ -315,6 +315,14 @@ identities; display labels prefer the artifact's exact tool name.
 
 ## Implementation and verification
 
+A failed bounded event-gap recovery batch marks delivery as reconnecting; it
+does not fabricate an agent terminal event or erase buffered successors. Only
+the authoritative host run can settle that turn. The watchdog retries journal
+reads while late live events may fill the gap. Copilot byte-only progress renews
+delivery liveness without inventing answer text. Its post-idle history repair is
+bounded and cancellable; a cursor retired by native compaction is never replayed
+and cannot invalidate a complete ordered live response.
+
 ### Copilot readable reasoning
 
 The subscription adapter requests native streaming and forwards each answer or
