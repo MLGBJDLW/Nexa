@@ -26,9 +26,27 @@ pub(super) struct Projection {
     cancellation: Option<nexa_core::agent::CancellationToken>,
     compactions: HashSet<String>,
     last_network_progress: Option<std::time::Instant>,
+    pub(super) retrying: bool,
 }
 
 impl Projection {
+    pub(super) async fn resume_after_retry(
+        &mut self,
+        tx: &mpsc::Sender<AgentEvent>,
+    ) -> Result<(), CoreError> {
+        if self.retrying {
+            tx.send(AgentEvent::ControllerStatus {
+                code: "external_agent_active".into(),
+                content: "The external runtime resumed model or tool progress".into(),
+                tone: None,
+            })
+            .await
+            .map_err(protocol_error)?;
+            self.retrying = false;
+        }
+        Ok(())
+    }
+
     pub(super) async fn network_progress(
         &mut self,
         tx: &mpsc::Sender<AgentEvent>,
