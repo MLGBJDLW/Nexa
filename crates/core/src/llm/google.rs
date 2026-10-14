@@ -2044,7 +2044,11 @@ impl LlmProvider for GeminiProvider {
                 with_google_api_key(transport.client().post(&url), api_key)
                     .header("Content-Type", "application/json")
                     .body(body_bytes),
-                self.request_timeout,
+                super::request_timeout::for_model(
+                    &self.config,
+                    &request.model,
+                    DEFAULT_TIMEOUT_SECS,
+                ),
             )
             .send()
             .await
@@ -2166,7 +2170,7 @@ impl LlmProvider for GeminiProvider {
             with_google_api_key(transport.client().post(&url), api_key)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Gemini stream request",
         )
         .await
@@ -2199,6 +2203,8 @@ impl LlmProvider for GeminiProvider {
             .config
             .streaming
             .stream_idle_timeout_for_model(&request.model);
+        let request_timeout =
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS);
         let provider = self.clone();
         let api_key = api_key.to_string();
         // streamGenerateContent supports 65,536-token hops, unlike the direct
@@ -2235,7 +2241,7 @@ impl LlmProvider for GeminiProvider {
                                 &continuation_body,
                                 "Gemini continuation",
                             )?),
-                        provider.request_timeout,
+                        request_timeout,
                         "Gemini continuation",
                     )
                     .await?;
@@ -2277,6 +2283,85 @@ impl LlmProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn argon_http_startup_uses_model_default_and_preserves_explicit_timeouts() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for streaming in [false, true] {
+            for timeout_secs in [None, Some(0), Some(300), Some(1200)] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let (accepted, ready) = tokio::sync::oneshot::channel();
+                let (release, wait) = tokio::sync::oneshot::channel();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 8192];
+                    socket.read(&mut request).await.unwrap();
+                    accepted.send(()).unwrap();
+                    if wait.await.is_err() {
+                        return;
+                    }
+                    let json = r#"{"candidates":[{"content":{"parts":[{"text":"Ready"}]},"finishReason":"STOP"}]}"#;
+                    let body = if streaming {
+                        format!("data: {json}\n\n")
+                    } else {
+                        json.into()
+                    };
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                });
+                let provider = GeminiProvider::new(ProviderConfig {
+                    provider_type: ProviderType::Google,
+                    base_url: Some(format!("http://{address}")),
+                    api_key: Some("fixture".into()),
+                    org_id: None,
+                    timeout_secs,
+                    streaming: Default::default(),
+                })
+                .unwrap();
+                let request = CompletionRequest {
+                    model: "gemini-4-argon".into(),
+                    messages: vec![Message::text(Role::User, "Think")],
+                    ..Default::default()
+                };
+                let call = tokio::spawn(async move {
+                    if streaming {
+                        provider.stream_events(&request).await.map(|_| ())
+                    } else {
+                        provider.complete(&request).await.map(|_| ())
+                    }
+                });
+                ready.await.unwrap();
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(600)).await;
+                for _ in 0..5 {
+                    tokio::task::yield_now().await;
+                }
+                if timeout_secs == Some(300) {
+                    assert!(
+                        call.is_finished(),
+                        "explicit deadline must remain authoritative"
+                    );
+                    assert!(matches!(
+                        call.await.unwrap(),
+                        Err(CoreError::TransientLlm(_))
+                    ));
+                    drop(release);
+                } else {
+                    assert!(
+                        !call.is_finished(),
+                        "{streaming}/{timeout_secs:?} timed out before Argon headers"
+                    );
+                    tokio::time::resume();
+                    release.send(()).unwrap();
+                    call.await.unwrap().unwrap();
+                    server.await.unwrap();
+                    continue;
+                }
+                tokio::time::resume();
+                server.await.unwrap();
+            }
+        }
+    }
 
     #[tokio::test]
     async fn completed_gemini_hop_retains_complete_usage_at_clean_eof() {

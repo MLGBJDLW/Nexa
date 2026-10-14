@@ -2658,7 +2658,7 @@ impl LlmProvider for AnthropicProvider {
                 .header("anthropic-beta", anthropic_beta_headers(&request.model))
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
@@ -2892,7 +2892,7 @@ impl LlmProvider for AnthropicProvider {
                 .header("anthropic-beta", anthropic_beta_headers(&request.model))
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Anthropic stream request",
         )
         .await

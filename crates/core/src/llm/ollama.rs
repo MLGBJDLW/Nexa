@@ -574,7 +574,7 @@ impl LlmProvider for OllamaProvider {
                 .post(&url)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
@@ -653,7 +653,7 @@ impl LlmProvider for OllamaProvider {
                 .post(&url)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Ollama stream request",
         )
         .await

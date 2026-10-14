@@ -25,6 +25,7 @@ pub(crate) mod provider_boundary;
 pub mod provider_turn;
 pub mod reasoning_profile;
 pub mod reasoning_replay;
+pub(crate) mod request_timeout;
 pub use message::{Message, MessageData};
 #[cfg(test)]
 mod message_snapshot_tests;

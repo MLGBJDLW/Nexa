@@ -2901,7 +2901,7 @@ impl OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
@@ -2990,7 +2990,7 @@ impl OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Responses streaming request",
         )
         .await
@@ -3283,7 +3283,7 @@ impl LlmProvider for OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
@@ -3545,7 +3545,7 @@ impl LlmProvider for OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "OpenAI stream request",
         )
         .await

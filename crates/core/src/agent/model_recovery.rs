@@ -32,10 +32,6 @@ impl DelegatedRecoveryGuard<'_> {
     }
 }
 
-const LONG_REASONER_CONNECT_DEADLINE: Duration = Duration::from_secs(900);
-const DEFAULT_CONNECT_DEADLINE: Duration = Duration::from_secs(300);
-const LOCAL_MODEL_CONNECT_DEADLINE: Duration = Duration::from_secs(300);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ModelProgressPolicy {
     pub(super) connect_deadline: Duration,
@@ -43,48 +39,11 @@ pub(super) struct ModelProgressPolicy {
 
 impl ModelProgressPolicy {
     pub(super) fn for_model(provider: Option<ProviderType>, model: &str) -> Self {
-        let normalized = model.trim().to_ascii_lowercase();
-        let catalog_limits = provider.and_then(|provider| {
-            crate::provider_catalog::model_limits_from_catalog(provider, model)
-        });
-        let catalog_reasoning = provider
-            .and_then(|provider| model_capabilities_from_catalog(provider, model))
-            .and_then(|capabilities| capabilities.reasoning);
-        let capability_long_reasoner = catalog_limits.as_ref().is_some_and(|limits| {
-            limits
-                .context_tokens
-                .is_some_and(|tokens| tokens >= 500_000)
-                || limits
-                    .max_output_tokens
-                    .is_some_and(|tokens| tokens >= 65_536)
-        }) || catalog_reasoning.as_ref().is_some_and(|reasoning| {
-            matches!(reasoning.default_effort.as_deref(), Some("xhigh" | "max"))
-                || reasoning
-                    .thinking_budget
-                    .as_ref()
-                    .and_then(|budget| budget.max_tokens)
-                    .is_some_and(|tokens| tokens >= 65_536)
-        });
-        let long_reasoner = capability_long_reasoner
-            || normalized.contains("kimi-k3")
-            || normalized.contains("qwen3.8-max")
-            || normalized.contains("qwen3.8_max");
-
         Self {
-            connect_deadline: if matches!(
-                provider,
-                Some(ProviderType::Ollama | ProviderType::LmStudio)
-            ) {
-                LOCAL_MODEL_CONNECT_DEADLINE
-            } else if long_reasoner {
-                LONG_REASONER_CONNECT_DEADLINE
-            } else {
-                DEFAULT_CONNECT_DEADLINE
-            },
+            connect_deadline: crate::llm::request_timeout::model_default(provider, model),
         }
     }
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ModelProgressRecoveryControls {
     pub(super) reasoning_enabled: Option<bool>,
