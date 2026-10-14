@@ -1795,7 +1795,7 @@ impl ToolDispatchRuntime<'_> {
                 }
 
                 if !tool_is_error && tc.name == "tool_search" {
-                    let mut activation = if has_hidden_registered_tools {
+                    let activation = if has_hidden_registered_tools {
                         let (max_definitions, max_tool_tokens) =
                             prompt_layout::cache_stable_tool_surface_limits(
                                 model,
@@ -1805,7 +1805,7 @@ impl ToolDispatchRuntime<'_> {
                                     .or(self.config.context_window),
                                 self.config.resolved_max_response_tokens(model),
                             );
-                        tool_discovery::activate_tool_search_matches_bounded(
+                        tool_discovery::activate_tool_search_matches_with_targets(
                             discovery_tools,
                             tool_defs,
                             tool_artifacts.as_ref(),
@@ -1839,21 +1839,6 @@ impl ToolDispatchRuntime<'_> {
                     }
                     if !activation.evicted.is_empty() {
                         tool_context_msg.push_str(&format!("\n\nActivated the requested tools by unloading older deferred definitions: {}. Their implementations remain available through later discovery if needed.", activation.evicted.join(", ")));
-                    }
-                    if !activation.capacity_limited.is_empty() {
-                        let names = std::mem::take(&mut activation.capacity_limited).join(", ");
-                        let content = format!(
-                            "Tool-surface capacity prevented activating: {names}. Repeating or rephrasing discovery will not increase capacity. Use an already available tool for the task, or report that these definitions cannot fit the current model's tool budget."
-                        );
-                        tool_context_msg.push_str("\n\n");
-                        tool_context_msg.push_str(&content);
-                        append_persisted_trace_status(persisted_trace_items, &content, "warning");
-                        let _ = tx
-                            .send(AgentEvent::Status {
-                                content,
-                                tone: Some("warning".to_string()),
-                            })
-                            .await;
                     }
                 }
 
