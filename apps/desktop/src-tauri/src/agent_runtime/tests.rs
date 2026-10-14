@@ -8,6 +8,58 @@ use nexa_core::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[tokio::test]
+async fn broken_result_pipe_preserves_a_reconcilable_runtime_checkpoint() {
+    for runtime in ["Codex", "ACP"] {
+        let (mut writer, reader) = tokio::io::duplex(64);
+        drop(reader);
+        let error = write_runtime_message(
+            &mut writer,
+            br#"{"id":1,"result":{"completed":true}}"#,
+            std::time::Duration::from_secs(1),
+            runtime,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            recover_interrupted_runtime(error),
+            CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            }
+        ));
+    }
+    assert!(matches!(
+        recover_interrupted_runtime(protocol_error("invalid JSON")),
+        CoreError::Agent(_)
+    ));
+}
+
+#[tokio::test]
+async fn partial_result_write_timeout_is_resumable_without_replaying_bytes() {
+    use tokio::io::AsyncReadExt;
+    let (mut writer, mut reader) = tokio::io::duplex(1);
+    let error = write_runtime_message(
+        &mut writer,
+        b"result",
+        std::time::Duration::from_millis(10),
+        "ACP",
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        recover_interrupted_runtime(error),
+        CoreError::RecoveryRequired {
+            action_reconciliation: true,
+            ..
+        }
+    ));
+    drop(writer);
+    let mut received = Vec::new();
+    reader.read_to_end(&mut received).await.unwrap();
+    assert_eq!(received, b"r");
+}
+
 struct NonceTool {
     name: &'static str,
     calls: Arc<AtomicUsize>,

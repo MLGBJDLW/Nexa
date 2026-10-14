@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::{Child, ChildStdin},
     sync::mpsc,
 };
@@ -311,10 +311,7 @@ impl Wire {
             return Err(error("ACP request too large"));
         }
         bytes.push(b'\n');
-        tokio::time::timeout(RPC_TIMEOUT, self.stdin.write_all(&bytes))
-            .await
-            .map_err(|_| error("ACP write timed out"))?
-            .map_err(error)
+        super::super::write_runtime_message(&mut self.stdin, &bytes, RPC_TIMEOUT, "ACP").await
     }
 
     pub(super) async fn send(&mut self, method: &str, params: Value) -> Result<u64> {

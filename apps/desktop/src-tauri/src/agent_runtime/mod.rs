@@ -283,7 +283,11 @@ pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             }
         } => result,
     };
-    result.map_err(|error| match error {
+    result.map_err(recover_interrupted_runtime)
+}
+
+fn recover_interrupted_runtime(error: CoreError) -> CoreError {
+    match error {
         CoreError::StreamIncomplete(message) | CoreError::TransientLlm(message) => {
             CoreError::RecoveryRequired {
                 message: nexa_core::external_agent::launch::redact_diagnostic(&message, &[]),
@@ -293,7 +297,22 @@ pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             }
         }
         error => error,
-    })
+    }
+}
+
+async fn write_runtime_message(
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+    bytes: &[u8],
+    timeout: std::time::Duration,
+    runtime: &str,
+) -> Result<(), CoreError> {
+    use tokio::io::AsyncWriteExt;
+    // A partial write may follow completed native tool effects. Preserve the
+    // checkpoint boundary and never retry the message on an uncertain stream.
+    tokio::time::timeout(timeout, writer.write_all(bytes))
+        .await
+        .map_err(|_| CoreError::StreamIncomplete(format!("{runtime} write timed out")))?
+        .map_err(|error| CoreError::StreamIncomplete(format!("{runtime} write failed: {error}")))
 }
 
 fn protocol_error(error: impl std::fmt::Display) -> CoreError {

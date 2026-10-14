@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
     process::{Child, ChildStdin},
 };
 
@@ -174,10 +174,7 @@ impl Wire {
     async fn write(&mut self, message: Value) -> Result<(), CoreError> {
         let mut bytes = serde_json::to_vec(&message).map_err(protocol_error)?;
         bytes.push(b'\n');
-        tokio::time::timeout(RPC_TIMEOUT, self.stdin.write_all(&bytes))
-            .await
-            .map_err(|_| protocol_error("Codex write timed out"))?
-            .map_err(protocol_error)
+        write_runtime_message(&mut self.stdin, &bytes, RPC_TIMEOUT, "Codex").await
     }
 
     async fn send(&mut self, method: &str, params: Value) -> Result<u64, CoreError> {
