@@ -2051,12 +2051,7 @@ impl LlmProvider for GeminiProvider {
             .inspect_err(|error| {
                 transport.record_transport_failure(error);
             })
-            .map_err(|e| {
-                CoreError::Llm(format!(
-                    "Request failed: {}",
-                    super::transport::describe_http_error(&e)
-                ))
-            })?;
+            .map_err(|e| super::transport::classify_http_error(&e, "Request failed"))?;
 
             let status = response.status().as_u16();
             let response = match self.check_response(response).await {
@@ -2086,10 +2081,7 @@ impl LlmProvider for GeminiProvider {
                     transport.record_transport_failure(error);
                 })
                 .map_err(|e| {
-                    CoreError::Llm(format!(
-                        "Failed to parse response: {}",
-                        super::transport::describe_http_error(&e)
-                    ))
+                    super::transport::classify_http_error(&e, "Failed to parse response")
                 })?;
             transport.record_transport_success();
 

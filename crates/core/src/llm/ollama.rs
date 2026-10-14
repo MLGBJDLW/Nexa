@@ -578,21 +578,14 @@ impl LlmProvider for OllamaProvider {
         )
         .send()
         .await
-        .map_err(|e| {
-            CoreError::Llm(format!(
-                "Request failed: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
+        .map_err(|e| super::transport::classify_http_error(&e, "Request failed"))?;
 
         let response = self.check_response(response).await?;
 
-        let resp: OllamaResponse = response.json().await.map_err(|e| {
-            CoreError::Llm(format!(
-                "Failed to parse response: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
+        let resp: OllamaResponse = response
+            .json()
+            .await
+            .map_err(|e| super::transport::classify_http_error(&e, "Failed to parse response"))?;
 
         let raw_content = resp
             .message

@@ -1265,6 +1265,68 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn native_completion_transport_failures_stay_recoverable_but_invalid_json_does_not() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for provider_type in [
+            ProviderType::OpenAi,
+            ProviderType::Anthropic,
+            ProviderType::Google,
+            ProviderType::Ollama,
+        ] {
+            for failure in ["headers", "body", "timeout", "json"] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 8192];
+                    socket.read(&mut request).await.unwrap();
+                    match failure {
+                        "headers" => {}
+                        "timeout" => std::future::pending::<()>().await,
+                        "body" => socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 999\r\nConnection: close\r\n\r\n{\"id\":\"fixture\"}").await.unwrap(),
+                        "json" => socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1\r\nConnection: close\r\n\r\n{").await.unwrap(),
+                        _ => unreachable!(),
+                    }
+                });
+                let provider = create_provider(ProviderConfig {
+                    provider_type,
+                    base_url: Some(format!("http://{address}")),
+                    api_key: Some("fixture".into()),
+                    org_id: None,
+                    timeout_secs: Some(1),
+                    streaming: Default::default(),
+                })
+                .unwrap();
+                let request = CompletionRequest {
+                    model: "fixture-model".into(),
+                    provider_type: Some(provider_type),
+                    messages: vec![Message::text(Role::User, "Reply briefly")],
+                    ..Default::default()
+                };
+                let error = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    provider.complete(&request),
+                )
+                .await
+                .unwrap()
+                .unwrap_err();
+                server.abort();
+                if failure == "json" {
+                    assert!(
+                        matches!(error, CoreError::Llm(_)),
+                        "{provider_type:?}/{failure}: {error}"
+                    );
+                } else {
+                    assert!(
+                        matches!(error, CoreError::TransientLlm(_)),
+                        "{provider_type:?}/{failure}: {error}"
+                    );
+                }
+            }
+        }
+    }
+
     struct NoRetiredRequests;
     #[async_trait]
     impl LlmProvider for NoRetiredRequests {
