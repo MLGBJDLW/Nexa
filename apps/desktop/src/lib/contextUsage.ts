@@ -16,7 +16,9 @@ export function resolveContextUsage(usage: UsageInput | null | undefined) {
     && candidate.compactPercent >= 60 && candidate.compactPercent <= 95
     && candidate.compactThreshold === Math.floor(candidate.inputBudget * candidate.compactPercent / 100)
     ? candidate : undefined;
-  const capacity = budget?.capacityTokens ?? usage?.contextWindow ?? 0;
+  const reported = usage?.contextBreakdown?.contextWindow;
+  const runtimeCapacity = typeof reported === 'number' && Number.isSafeInteger(reported) && reported > 0 ? reported : undefined;
+  const capacity = budget?.capacityTokens ?? runtimeCapacity ?? usage?.contextWindow ?? 0;
   const inputBudget = budget?.inputBudget ?? capacity;
   const used = Math.max(0, usage?.promptTokens ?? 0);
   const percent = inputBudget > 0 ? Math.min(100, used / inputBudget * 100) : used > 0 ? 100 : 0;

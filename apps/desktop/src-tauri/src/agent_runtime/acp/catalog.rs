@@ -38,6 +38,9 @@ pub(super) struct Session {
 }
 
 impl Session {
+    pub(super) fn current_model(&self) -> Option<&str> {
+        self.current_model.as_deref()
+    }
     pub(super) fn parse(value: &Value, images: bool) -> Result<Self> {
         let id = value["sessionId"]
             .as_str()
@@ -135,7 +138,7 @@ impl Session {
         let initialized = wire.request("initialize", json!({
             "protocolVersion":1,
             "clientInfo":{"name":"nexa","version":env!("CARGO_PKG_VERSION")},
-            "clientCapabilities":{"fs":{"readTextFile":native_services,"writeTextFile":native_services},"terminal":native_services,"auth":{"terminal":true}}
+            "clientCapabilities":{"fs":{"readTextFile":native_services,"writeTextFile":native_services},"terminal":native_services,"auth":{"terminal":true},"session":{"compaction":{},"notices":{}}}
         })).await?;
         if initialized["protocolVersion"] != 1 {
             return Err(error(
@@ -313,6 +316,14 @@ impl Session {
 
     pub(super) fn update(&mut self, update: &Value) -> Result<bool> {
         match update["sessionUpdate"].as_str() {
+            Some("current_model_update") => {
+                if let Some(model) = update["currentModelId"]
+                    .as_str()
+                    .filter(|id| !id.is_empty() && id.len() <= 1024)
+                {
+                    self.current_model = Some(model.into());
+                }
+            }
             Some("config_option_update") => self.replace_options(update)?,
             Some("current_mode_update") => {
                 if let Some(mode) = update["currentModeId"].as_str() {

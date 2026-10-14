@@ -1710,18 +1710,19 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   // The context ring uses the latest prompt; cache totals use the periodically
   // refreshed durable aggregate, including confirmed steps of the active run.
   const cacheUsageForView = isUsingLiveUsage ? usageSnapshot : usageForView;
-  const contextRouteMatches = (!usageForView?.contextBreakdown?.runtimeProvider || usageForView.contextBreakdown.runtimeProvider === agentConfig?.provider)
-    && (!usageForView?.contextBreakdown?.runtimeModel || usageForView.contextBreakdown.runtimeModel === agentConfig?.model);
-  const durableContextAuthority = !isUsingLiveUsage && contextRouteMatches ? usageSnapshot?.contextAuthority : null;
+  const runtimeProvider = usageForView?.contextBreakdown?.runtimeProvider ?? activeTaskRun?.provider ?? activeConversation?.provider ?? agentConfig?.provider;
+  const runtimeModel = usageForView?.contextBreakdown?.runtimeModel ?? activeTaskRun?.model ?? activeConversation?.model ?? agentConfig?.model;
+  const selectedRouteMatches = runtimeProvider === agentConfig?.provider && runtimeModel === agentConfig?.model;
+  const durableContextAuthority = !isUsingLiveUsage ? usageSnapshot?.contextAuthority : null;
   const nativeCapacity = usageForView?.contextBreakdown?.contextWindow;
-  const localCapacity = contextRouteMatches ? usageForView?.contextBreakdown?.budget?.capacityTokens : undefined;
-  const hasNativeCapacity = contextRouteMatches && typeof nativeCapacity === 'number' && Number.isSafeInteger(nativeCapacity) && nativeCapacity > 0;
+  const localCapacity = usageForView?.contextBreakdown?.budget?.capacityTokens;
+  const hasNativeCapacity = typeof nativeCapacity === 'number' && Number.isSafeInteger(nativeCapacity) && nativeCapacity > 0;
   const usageContextWindow = hasNativeCapacity ? nativeCapacity : localCapacity && localCapacity > 0 ? localCapacity : durableContextAuthority
     ? usageSnapshot?.contextCapacity ?? 0
-    : contextWindow;
+    : selectedRouteMatches ? contextWindow : 0;
   const runtimeContextAuthority = hasNativeCapacity ? 'provider_managed' : durableContextAuthority ?? contextAuthority;
 
-  const tokenUsage = contextRouteMatches && usageContextWindow > 0
+  const tokenUsage = usageContextWindow > 0
     ? (usageForView
       ? (() => {
           const promptTokens = usageForView.lastPromptTokens ?? usageForView.promptTokens;
@@ -1747,7 +1748,9 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
 
   const runtimeProfile = buildRuntimeProfile(
     agentConfig,
-    activeConversation,
+    activeConversation && runtimeProvider && runtimeModel
+      ? { ...activeConversation, provider: runtimeProvider, model: runtimeModel }
+      : activeConversation,
     usageContextWindow,
     runtimeContextAuthority,
     t,

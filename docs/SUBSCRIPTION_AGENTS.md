@@ -14,6 +14,24 @@ refreshing the panel reads the account; while it remains visible it refreshes
 once per minute without overlapping requests. Closing it stops polling. A failed
 refresh clears old percentages, and changing profiles discards late responses.
 Transient read failures retry on the same visible-panel schedule.
+Chat and Settings share bounded in-flight account reads. A stalled read settles
+as unavailable with Refresh enabled; late responses cannot replace a newer read.
+Codex version probes and process trees are bounded, and optional cumulative token
+statistics do not delay quota. Copilot quota and model discovery run independently
+within the account read, so a stalled model catalog does not discard valid quota.
+
+Copilot Context policy offers the native `default` and, only when the current
+account catalog advertises it, `long_context` tier. The choice is saved through the
+existing endpoint/model policy and applies on the next turn. Prompt limits are
+shown as prompt limits, not invented total context windows; the active runtime's
+usage event remains the authority for occupancy. Native runtimes continue to own
+their compaction thresholds.
+
+Background compaction and foreground streaming can coexist. ACP negotiates
+`session.compaction` and projects compaction IDs and terminal statuses separately
+from answer/tool activity. Compaction summaries never become assistant answers;
+notices do not terminate prompts. Native model changes update usage identity,
+while the composer selection only configures the next request.
 
 | Connection | Account quota source |
 | --- | --- |

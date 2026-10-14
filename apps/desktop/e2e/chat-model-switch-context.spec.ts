@@ -154,6 +154,13 @@ test.beforeEach(async ({ page }) => {
         case 'plugin:event|unlisten':
           listeners.delete(Number(args.eventId ?? 0));
           return null;
+        case 'get_model_context_policy_cmd':
+        case 'save_model_context_policy_cmd': {
+          if (cmd === 'save_model_context_policy_cmd') localStorage.setItem('e2e-context-policy', JSON.stringify(args.policy));
+          return { model: args.model, policy: JSON.parse(localStorage.getItem('e2e-context-policy') ?? '{"contextWindow":null,"autoCompactPercent":null}'), managedByProvider: true,
+            contextTiers: args.agentConfigId === 'cfg-subscription' ? [{ id: 'default', promptTokenLimit: 128000 }, { id: 'long_context', promptTokenLimit: 200000 }] : [],
+            contextAuthority: 'provider_managed', effectiveContextWindow: null };
+        }
         case 'start_context_compaction_cmd':
           localStorage.setItem('e2e-compact-started', '1');
           throw new Error('Unexpected subscription compaction API request');
@@ -222,6 +229,7 @@ test.beforeEach(async ({ page }) => {
           return [];
         case 'get_conversation_usage_snapshot_cmd':
           return {
+            ...(localStorage.getItem('e2e-runtime-usage') ? { contextBreakdown: { totalTokens: 10000, segments: [], contextWindow: 200000, runtimeProvider: 'github_copilot', runtimeModel: 'gpt-native' } } : {}),
             source: 'provider',
             promptTokens: 10000,
             completionTokens: 250,
@@ -796,6 +804,47 @@ test('late account quota responses cannot appear after switching agent profiles'
   await page.waitForTimeout(900);
   await expect(panel).toContainText('64% remaining');
   await expect(panel).not.toContainText('82% remaining');
+});
+
+test('a stalled account read settles visibly and Refresh can recover', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
+  await page.clock.install();
+  await page.evaluate(() => { (window as any).__quotaDelay = 120000; });
+  await page.getByTestId('subscription-usage-trigger').click();
+  const panel = page.getByTestId('subscription-usage-popover');
+  await expect(panel).toContainText('Loading');
+  await page.clock.fastForward(41000);
+  await expect(panel).toContainText('Could not read account usage');
+  await page.evaluate(() => { (window as any).__quotaDelay = 0; });
+  await panel.getByRole('button', { name: 'Refresh' }).click();
+  await expect(panel).toContainText('82% remaining');
+});
+
+test('context occupancy keeps the recorded runtime after selecting another model', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('e2e-runtime-usage', '1'));
+  await page.goto('/chat/conv-model-switch');
+  await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
+  await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
+});
+
+test('Copilot context policy exposes only native tiers and saves for the next turn', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await page.getByTestId('agent-model-option-cfg-subscription-gpt-native').click();
+  await page.getByRole('button', { name: /5% context used/ }).click();
+  const panel = page.getByTestId('context-policy-panel');
+  await expect(panel.getByTestId('context-tier-default')).toHaveAttribute('aria-pressed', 'true');
+  await expect(panel.getByTestId('context-policy-capacity')).toHaveCount(0);
+  await panel.getByTestId('context-tier-long_context').click();
+  await panel.getByTestId('context-policy-save').click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('e2e-context-policy') ?? 'null'))).toEqual({ contextWindow: null, autoCompactPercent: null, contextTier: 'long_context' });
 });
 
 test('account quota retries transient failures while open and stops polling when closed', async ({ page }) => {

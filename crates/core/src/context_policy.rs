@@ -11,6 +11,8 @@ pub const DEFAULT_COMPACT_PERCENT: u8 = 90;
 pub struct ModelContextPolicy {
     pub context_window: Option<u32>,
     pub auto_compact_percent: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tier: Option<String>,
 }
 
 impl ModelContextPolicy {
@@ -21,6 +23,22 @@ impl ModelContextPolicy {
     }
 
     pub fn validate(&self, model_limit: Option<u32>) -> Result<(), CoreError> {
+        if self
+            .context_tier
+            .as_deref()
+            .is_some_and(|tier| !matches!(tier, "default" | "long_context"))
+        {
+            return Err(CoreError::InvalidInput(
+                "Unknown native context tier".into(),
+            ));
+        }
+        if self.context_tier.is_some()
+            && (self.context_window.is_some() || self.auto_compact_percent.is_some())
+        {
+            return Err(CoreError::InvalidInput(
+                "Native context tiers cannot be combined with a local compaction policy".into(),
+            ));
+        }
         if self
             .auto_compact_percent
             .is_some_and(|value| !(60..=95).contains(&value))
@@ -86,6 +104,18 @@ impl Database {
         if model.trim().is_empty() {
             return Err(CoreError::InvalidInput("Select a model first".into()));
         }
+        if crate::external_agent::is_agent_runtime(provider) {
+            if provider != "github_copilot"
+                || policy.context_window.is_some()
+                || policy.auto_compact_percent.is_some()
+            {
+                return Err(CoreError::InvalidInput("This runtime owns context and compaction; only Copilot's advertised context tiers can be selected".into()));
+            }
+        } else if policy.context_tier.is_some() {
+            return Err(CoreError::InvalidInput(
+                "Context tiers require the Copilot runtime".into(),
+            ));
+        }
         let model_limit = crate::provider_catalog::resolve_endpoint_model_context_window(
             provider, base_url, model, None,
         )
@@ -115,6 +145,15 @@ pub struct ModelContextPolicySnapshot {
     pub prompt_budget: Option<u32>,
     pub trigger_tokens: Option<u32>,
     pub managed_by_provider: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_tiers: Vec<NativeContextTier>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeContextTier {
+    pub id: String,
+    pub prompt_token_limit: Option<u32>,
 }
 
 pub fn policy_snapshot(
@@ -128,6 +167,7 @@ pub fn policy_snapshot(
                 .context_window
                 .and_then(|value| u32::try_from(value).ok()),
             auto_compact_percent: None,
+            context_tier: None,
         });
     let natural = crate::provider_catalog::resolve_endpoint_model_context_window(
         &config.provider,
@@ -197,6 +237,7 @@ pub fn policy_snapshot(
         trigger_tokens: prompt_budget
             .map(|budget| (u64::from(budget) * u64::from(policy.compact_percent()) / 100) as u32),
         managed_by_provider: crate::external_agent::is_agent_runtime(&config.provider),
+        context_tiers: Vec::new(),
         policy,
     })
 }
@@ -237,6 +278,7 @@ mod tests {
         let policy = ModelContextPolicy {
             context_window: Some(128_000),
             auto_compact_percent: Some(65),
+            context_tier: None,
         };
         {
             let db = Database::new(&path).unwrap();
@@ -284,14 +326,16 @@ mod tests {
     fn rejects_impossible_capacity_and_unsafe_thresholds() {
         assert!(ModelContextPolicy {
             context_window: Some(256_000),
-            auto_compact_percent: None
+            auto_compact_percent: None,
+            context_tier: None,
         }
         .validate(Some(128_000))
         .is_err());
         for percent in [0, 55, 59, 96, 100] {
             assert!(ModelContextPolicy {
                 context_window: None,
-                auto_compact_percent: Some(percent)
+                auto_compact_percent: Some(percent),
+                context_tier: None,
             }
             .validate(None)
             .is_err());

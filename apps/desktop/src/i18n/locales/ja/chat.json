@@ -920,5 +920,11 @@
   "connectionReconnecting": "再接続中",
   "connectionAttempt": "試行 {attempt} / {total}",
   "connectionRetryIn": "{seconds} 秒後に再試行",
-  "connectionTryingNow": "接続しています"
+  "connectionTryingNow": "接続しています",
+  "contextTierDefault": "標準",
+  "contextTierLong": "拡張",
+  "contextTierPromptLimit": "入力トークン上限: {tokens}",
+  "contextTierScope": "次のターンから適用されます。圧縮と実際の容量は Copilot が管理します。拡張コンテキストは料金が増える場合があります。",
+  "agentCompactingBackground": "バックグラウンドでコンテキストを圧縮中",
+  "computerUseStop": "コンピューター操作を停止"
 }

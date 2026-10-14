@@ -920,5 +920,11 @@
   "connectionReconnecting": "正在重新连接",
   "connectionAttempt": "第 {attempt} / {total} 次尝试",
   "connectionRetryIn": "{seconds} 秒后重试",
-  "connectionTryingNow": "正在连接"
+  "connectionTryingNow": "正在连接",
+  "contextTierDefault": "标准上下文",
+  "contextTierLong": "扩展上下文",
+  "contextTierPromptLimit": "最多 {tokens} 输入 tokens",
+  "contextTierScope": "下轮生效。Copilot 负责压缩并报告实际容量；扩展上下文可能增加用量费用。",
+  "agentCompactingBackground": "正在后台压缩上下文",
+  "computerUseStop": "停止电脑操作"
 }

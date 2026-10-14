@@ -620,6 +620,25 @@ async fn project_event(
     params: &Value,
 ) -> Result<bool, CoreError> {
     match method {
+        "item/started" if params["item"]["type"] == "contextCompaction" => {
+            projection
+                .compaction(
+                    &turn.events,
+                    params["item"]["id"].as_str().unwrap_or("codex"),
+                    "in_progress",
+                )
+                .await?;
+        }
+        "error" if params["willRetry"] == true => {
+            turn.events
+                .send(AgentEvent::ControllerStatus {
+                    code: "external_agent_retrying".into(),
+                    content: "Codex is retrying a recoverable provider error".into(),
+                    tone: None,
+                })
+                .await
+                .map_err(protocol_error)?;
+        }
         "warning" => {
             turn.events
                 .send(AgentEvent::ControllerStatus {
@@ -661,6 +680,15 @@ async fn project_event(
         }
         "item/completed" => {
             let item = &params["item"];
+            if item["type"] == "contextCompaction" {
+                projection
+                    .compaction(
+                        &turn.events,
+                        item["id"].as_str().unwrap_or("codex"),
+                        "completed",
+                    )
+                    .await?;
+            }
             if item["type"] == "reasoning" {
                 projection.finish_reasoning(&required_string(item, "id")?);
             }

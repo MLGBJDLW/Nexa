@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { accountSnapshotRequest } from './accountSnapshotRequest';
 import { createTerminalInputWriter } from './terminalInput';
 export interface FontAsset {
   id: string;
@@ -999,7 +1000,7 @@ export interface CodexAccountSnapshot {
 }
 
 export const getCodexAccountSnapshot = async () => {
-  const snapshot = await invoke<CodexAccountSnapshot>('get_codex_account_snapshot_cmd');
+  const snapshot = await accountSnapshotRequest('openai_codex', () => invoke<CodexAccountSnapshot>('get_codex_account_snapshot_cmd'));
   reconcileSubscriptionAccount('openai_codex', snapshot.account ? `${snapshot.account.accountType}:${snapshot.account.email}` : null);
   return snapshot;
 };
@@ -1019,6 +1020,7 @@ export const logoutCodexAccount = async () => {
 };
 
 export interface CopilotModelSummary {
+  contextTiers?: { id: 'default' | 'long_context'; promptTokenLimit: number | null }[];
   contextWindow?: number;
   id: string;
   name: string;
@@ -1048,7 +1050,7 @@ export interface CopilotAccountSnapshot {
 }
 
 export const getCopilotAccountSnapshot = async () => {
-  const snapshot = await invoke<CopilotAccountSnapshot>('get_copilot_account_snapshot_cmd');
+  const snapshot = await accountSnapshotRequest('github_copilot', () => invoke<CopilotAccountSnapshot>('get_copilot_account_snapshot_cmd'));
   reconcileSubscriptionAccount('github_copilot', snapshot.authenticated ? `${snapshot.host}:${snapshot.login}` : null);
   return snapshot;
 };
@@ -1970,6 +1972,7 @@ export interface ModelContextWindowResolution {
 export interface ModelContextPolicy {
   contextWindow: number | null;
   autoCompactPercent: number | null;
+  contextTier?: 'default' | 'long_context';
 }
 
 export interface ModelContextPolicySnapshot {
@@ -1987,6 +1990,7 @@ export interface ModelContextPolicySnapshot {
   promptBudget: number | null;
   triggerTokens: number | null;
   managedByProvider: boolean;
+  contextTiers?: NonNullable<CopilotModelSummary['contextTiers']>;
 }
 
 export const getModelContextPolicy = (agentConfigId: string, model: string) =>

@@ -920,5 +920,11 @@
   "connectionReconnecting": "Reconnecting",
   "connectionAttempt": "Attempt {attempt} of {total}",
   "connectionRetryIn": "Retrying in {seconds}s",
-  "connectionTryingNow": "Connecting now"
+  "connectionTryingNow": "Connecting now",
+  "contextTierDefault": "Standard",
+  "contextTierLong": "Extended",
+  "contextTierPromptLimit": "Up to {tokens} prompt tokens",
+  "contextTierScope": "Applies to the next turn. Copilot manages compaction and reports the actual capacity. Extended context may cost more.",
+  "agentCompactingBackground": "Compacting context in background",
+  "computerUseStop": "Stop Computer Use"
 }

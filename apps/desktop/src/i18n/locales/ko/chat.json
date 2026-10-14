@@ -920,5 +920,11 @@
   "connectionReconnecting": "다시 연결 중",
   "connectionAttempt": "시도 {attempt} / {total}",
   "connectionRetryIn": "{seconds}초 후 다시 시도",
-  "connectionTryingNow": "연결 중"
+  "connectionTryingNow": "연결 중",
+  "contextTierDefault": "표준",
+  "contextTierLong": "확장",
+  "contextTierPromptLimit": "입력 토큰 최대 {tokens}",
+  "contextTierScope": "다음 턴부터 적용됩니다. Copilot이 압축을 관리하고 실제 용량을 보고합니다. 확장 컨텍스트는 비용이 늘어날 수 있습니다.",
+  "agentCompactingBackground": "백그라운드에서 컨텍스트 압축 중",
+  "computerUseStop": "컴퓨터 조작 중지"
 }

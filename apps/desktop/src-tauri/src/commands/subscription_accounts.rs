@@ -1,6 +1,6 @@
 use std::env;
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -90,11 +90,66 @@ pub struct CodexAccountSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CopilotModelSummary {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(super) context_tiers: Vec<nexa_core::context_policy::NativeContextTier>,
     pub(super) id: String,
     pub(super) name: String,
     pub(super) reasoning_efforts: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) context_window: Option<u32>,
+}
+
+pub(crate) fn copilot_context_tiers(
+    model: &github_copilot_sdk::rpc::Model,
+) -> Vec<nexa_core::context_policy::NativeContextTier> {
+    use nexa_core::context_policy::NativeContextTier;
+    let positive =
+        |value: Option<i64>| value.and_then(|v| u32::try_from(v).ok()).filter(|v| *v > 0);
+    let prices = model
+        .billing
+        .as_ref()
+        .and_then(|billing| billing.token_prices.as_ref());
+    let mut tiers = vec![NativeContextTier {
+        id: "default".into(),
+        prompt_token_limit: positive(prices.and_then(|price| price.max_prompt_tokens).or_else(
+            || {
+                model
+                    .capabilities
+                    .limits
+                    .as_ref()
+                    .and_then(|limits| limits.max_prompt_tokens)
+            },
+        )),
+    }];
+    if let Some(long) = prices.and_then(|price| price.long_context.as_ref()) {
+        tiers.push(NativeContextTier {
+            id: "long_context".into(),
+            prompt_token_limit: positive(long.max_prompt_tokens),
+        });
+    }
+    tiers
+}
+
+fn copilot_model_summary(model: github_copilot_sdk::rpc::Model) -> CopilotModelSummary {
+    CopilotModelSummary {
+        context_tiers: copilot_context_tiers(&model),
+        context_window: model
+            .capabilities
+            .limits
+            .as_ref()
+            .and_then(|limits| limits.max_context_window_tokens)
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value > 0),
+        id: bounded_field(&model.id, 120),
+        name: bounded_field(&model.name, 160),
+        reasoning_efforts: model
+            .supported_reasoning_efforts
+            .unwrap_or_default()
+            .into_iter()
+            .take(12)
+            .map(|value| bounded_field(&value, 32))
+            .collect(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -454,6 +509,7 @@ impl<'de> serde::Deserialize<'de> for CodexLoginKind {
 
 struct CodexAppServerClient {
     child: Child,
+    process_tree: Option<nexa_core::managed_process::ProcessTree>,
     stdin: ChildStdin,
     messages: Receiver<Result<Value, String>>,
     reader: Option<JoinHandle<()>>,
@@ -472,8 +528,7 @@ impl CodexAppServerClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         configure_background_command(&mut command);
-        let mut child = command
-            .spawn()
+        let (mut child, process_tree) = nexa_core::managed_process::spawn_standard(&mut command)
             .map_err(|_| "codex_runtime_start_failed".to_string())?;
         let stdin = child
             .stdin
@@ -503,6 +558,7 @@ impl CodexAppServerClient {
 
         let mut client = Self {
             child,
+            process_tree: Some(process_tree),
             stdin,
             messages,
             reader: Some(reader),
@@ -615,9 +671,8 @@ impl CodexAppServerClient {
             if let Ok(rate_limits) = self.request("account/rateLimits/read", None) {
                 snapshot.rate_limits = parse_rate_limits(&rate_limits);
             }
-            if let Ok(usage) = self.request("account/usage/read", None) {
-                snapshot.usage = parse_usage(&usage);
-            }
+            // Token-activity totals are not subscription quota. Optional
+            // account/usage/read support must not delay a successful quota read.
         }
         Ok(snapshot)
     }
@@ -625,10 +680,15 @@ impl CodexAppServerClient {
 
 impl Drop for CodexAppServerClient {
     fn drop(&mut self) {
+        self.process_tree.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
         if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+            // A wrapper's descendant can retain stdout after its parent exits.
+            // Never hold an account snapshot (or login lock) waiting on that pipe.
+            if reader.is_finished() {
+                let _ = reader.join();
+            }
         }
     }
 }
@@ -657,15 +717,43 @@ fn probe_codex_binary(program: OsString) -> Result<CodexBinary, String> {
     command
         .arg("--version")
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null());
     configure_background_command(&mut command);
-    let output = command
-        .output()
+    let (mut child, tree) = nexa_core::managed_process::spawn_standard(&mut command)
         .map_err(|_| "codex_runtime_not_found".to_string())?;
-    if !output.status.success() {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "codex_runtime_stdout_unavailable".to_string())?;
+    let (sender, received) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let result = stdout.take(4096).read_to_end(&mut bytes).map(|_| bytes);
+        let _ = sender.send(result);
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            _ => break Err("codex_runtime_version_timeout".to_string()),
+        }
+    };
+    drop(tree);
+    let _ = child.kill();
+    let _ = child.wait();
+    let output = received.recv_timeout(Duration::from_secs(1));
+    if reader.is_finished() {
+        let _ = reader.join();
+    }
+    if !status?.success() {
         return Err("codex_runtime_version_failed".to_string());
     }
-    let version = safe_detail(&String::from_utf8_lossy(&output.stdout));
+    let bytes = output
+        .map_err(|_| "codex_runtime_version_timeout".to_string())?
+        .map_err(|_| "codex_runtime_version_failed".to_string())?;
+    let version = safe_detail(&String::from_utf8_lossy(&bytes));
     if version.is_empty() {
         return Err("codex_runtime_version_failed".to_string());
     }
@@ -740,14 +828,6 @@ fn parse_rate_limits(response: &Value) -> Vec<CodexRateLimitBucket> {
         .and_then(|value| parse_rate_bucket("codex", value))
         .into_iter()
         .collect()
-}
-
-fn parse_usage(response: &Value) -> Option<CodexAccountUsage> {
-    let summary = response.get("summary")?.as_object()?;
-    Some(CodexAccountUsage {
-        lifetime_tokens: summary.get("lifetimeTokens").and_then(Value::as_u64),
-        current_streak_days: summary.get("currentStreakDays").and_then(Value::as_u64),
-    })
 }
 
 fn parse_login_descriptor(kind: &str, response: &Value) -> Result<CodexLoginDescriptor, String> {
@@ -889,47 +969,37 @@ async fn read_copilot_account_snapshot(runtime: CopilotAccountRuntime) -> Copilo
         let mut entitlement_verified = false;
         let mut error_code = None;
         if auth.is_authenticated {
-            match client.list_models().await {
-                Ok(catalog) => {
+            // A slow optional catalog must not consume the quota request's
+            // entire deadline. These independent reads share one native client.
+            let (catalog, quota) = tokio::join!(
+                tokio::time::timeout(Duration::from_secs(10), client.list_models()),
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    client
+                        .rpc()
+                        .account()
+                        .get_quota_with_params(AccountGetQuotaRequest {
+                            git_hub_token: None,
+                        })
+                        .await
+                }),
+            );
+            match catalog {
+                Ok(Ok(catalog)) => {
                     models = catalog
                         .into_iter()
                         .take(100)
-                        .map(|model| CopilotModelSummary {
-                            context_window: model
-                                .capabilities
-                                .limits
-                                .as_ref()
-                                .and_then(|limits| limits.max_context_window_tokens)
-                                .and_then(|v| u32::try_from(v).ok())
-                                .filter(|v| *v > 0),
-                            id: bounded_field(&model.id, 120),
-                            name: bounded_field(&model.name, 160),
-                            reasoning_efforts: model
-                                .supported_reasoning_efforts
-                                .unwrap_or_default()
-                                .into_iter()
-                                .take(12)
-                                .map(|effort| bounded_field(&effort, 32))
-                                .collect(),
-                        })
+                        .map(copilot_model_summary)
                         .collect();
                     entitlement_verified = !models.is_empty();
                     if !entitlement_verified {
                         error_code = Some("copilot_entitlement_unverified".to_string());
                     }
                 }
-                Err(_) => {
+                _ => {
                     error_code = Some("copilot_entitlement_unverified".to_string());
                 }
             }
-            if let Ok(quota) = client
-                .rpc()
-                .account()
-                .get_quota_with_params(AccountGetQuotaRequest {
-                    git_hub_token: None,
-                })
-                .await
-            {
+            if let Ok(Ok(quota)) = quota {
                 quotas = quota
                     .quota_snapshots
                     .into_iter()
@@ -960,7 +1030,7 @@ async fn read_copilot_account_snapshot(runtime: CopilotAccountRuntime) -> Copilo
             login_pending: login_for_snapshot.pending,
             login_error: login_for_snapshot.error,
         };
-        let _ = client.stop().await;
+        let _ = tokio::time::timeout(Duration::from_secs(2), client.stop()).await;
         Ok::<_, String>(snapshot)
     })
     .await;
@@ -1070,12 +1140,7 @@ pub async fn list_subscription_models_cmd(
                     client.list_models().await.map_err(|_| "Unable to load Copilot models. Check the connection and account, then retry.".to_string())
                 }.await;
                 let _ = client.stop().await;
-                result.map(|models| models.into_iter().take(100).map(|model| CopilotModelSummary {
-                    context_window: model.capabilities.limits.as_ref().and_then(|limits| limits.max_context_window_tokens).and_then(|v| u32::try_from(v).ok()).filter(|v| *v > 0),
-                    id: bounded_field(&model.id, 120), name: bounded_field(&model.name, 160),
-                    reasoning_efforts: model.supported_reasoning_efforts.unwrap_or_default().into_iter().take(12)
-                        .map(|effort| bounded_field(&effort, 32)).collect(),
-                }).collect())
+                result.map(|models| models.into_iter().map(copilot_model_summary).collect())
             }).await.map_err(|_| "Copilot model loading timed out. Please retry.".to_string())?
         }
         "openai_codex" => tokio::task::spawn_blocking(|| {
@@ -1110,6 +1175,7 @@ pub async fn list_subscription_models_cmd(
                         continue;
                     };
                     models.push(CopilotModelSummary {
+                        context_tiers: Vec::new(),
                         context_window: item
                             .get("contextWindow")
                             .and_then(Value::as_u64)

@@ -108,6 +108,7 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
     } catch {
       if (codexActionRevision.current === actionRevision
         && codexRefreshRevision.current === refreshRevision) {
+        setSnapshot(null);
         toast.error(t('settings.subscriptionRefreshError'));
       }
     } finally {
@@ -137,6 +138,7 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
     } catch {
       if (copilotActionRevision.current === actionRevision
         && copilotRefreshRevision.current === refreshRevision) {
+        setCopilotSnapshot(null);
         toast.error(t('settings.copilotRefreshError'));
       }
     } finally {

@@ -975,6 +975,7 @@ fn context_policy_reaches_the_executor_and_matches_the_ui_budget() {
         &ModelContextPolicy {
             context_window: Some(64_000),
             auto_compact_percent: Some(65),
+            context_tier: None,
         },
     )
     .unwrap();
