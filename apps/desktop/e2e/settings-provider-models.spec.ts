@@ -645,7 +645,7 @@ test.beforeEach(async ({ page }) => {
           return {
             ...base,
             authenticated: true,
-            entitlementVerified: true,
+            entitlementVerified: state !== "quota-only",
             authType: "user",
             login: "octocat",
             models: [
@@ -1616,6 +1616,17 @@ test("settings verifies GitHub Copilot subscription models and quota through the
   await expect(account).toContainText("GPT-5.4");
   await expect(account).toContainText("64% remaining");
   await expect(account).not.toContainText(/(?:ghu_|gho_|github_pat_)[A-Za-z0-9_]+/);
+});
+
+test("Copilot quotas remain visible when optional model entitlement discovery fails", async ({ page }) => {
+  await page.goto("/settings");
+  await page.evaluate(() => localStorage.setItem("nexa-e2e-copilot-account", "quota-only"));
+  await page.reload();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
+  await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
+  await page.locator('[data-provider-preset-id="github-copilot"]').click();
+  await expect(page.getByTestId("copilot-subscription-account")).toContainText("64% remaining");
 });
 
 test("settings starts and cancels the official Copilot CLI browser login", async ({ page }) => {

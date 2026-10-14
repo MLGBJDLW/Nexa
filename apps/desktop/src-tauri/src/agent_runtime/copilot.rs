@@ -295,7 +295,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 // The ordered spool already drained through native idle. An
                 // optional history read cannot hang or invalidate that answer;
                 // missing chunk groups still fail ensure_complete below.
-                tracing::warn!("Copilot history reconciliation unavailable; retaining ordered live events");
+                log::warn!("Copilot history reconciliation unavailable; retaining ordered live events");
             }
             if let Some(event) = completed.expect("native completion observed").map_err(protocol_error)? {
                 project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;

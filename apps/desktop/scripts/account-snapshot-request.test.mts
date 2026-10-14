@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { accountSnapshotRequest } from '../src/lib/accountSnapshotRequest.ts';
+import { accountSnapshotRequest, invalidateAccountSnapshot } from '../src/lib/accountSnapshotRequest.ts';
+
+test('account transitions reject old pending reads and allow a fresh account immediately', async () => {
+  let complete!: (value: string) => void;
+  const old = accountSnapshotRequest('transition', () => new Promise<string>(resolve => { complete = resolve; }));
+  await Promise.resolve();
+  const rejected = assert.rejects(old, /Account changed/);
+  invalidateAccountSnapshot('transition');
+  const fresh = accountSnapshotRequest('transition', async () => 'new account');
+  complete('old account');
+  await rejected;
+  assert.equal(await fresh, 'new account');
+});
 
 test('a stalled account read leaves loading, permits retry, and ignores its late result', async () => {
   let complete!: (value: string) => void;

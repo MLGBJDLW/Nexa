@@ -645,21 +645,20 @@ async fn drive(
             }
             match update["sessionUpdate"].as_str().unwrap_or_default() {
                 "compaction_update" => {
-                    if let (Some(id), Some(status)) = (update["compactionId"].as_str(), update["status"].as_str()) {
+                    if let (Some(id), Some(status)) =
+                        (update["compactionId"].as_str(), update["status"].as_str())
+                    {
                         output.compaction(&turn.events, id, status).await?;
                     }
                 }
                 // A compaction summary is runtime context, never a new answer.
                 "compaction_summary_chunk" => {}
                 "notice" => {
-                    if let Some(content) = update["message"]
-                        .as_str()
-                        .or_else(|| update["content"]["text"].as_str())
-                    {
+                    if let Some(content) = notice_content(&update) {
                         turn.events
                             .send(AgentEvent::ControllerStatus {
                                 code: "external_agent_warning".into(),
-                                content: content.chars().take(2000).collect(),
+                                content,
                                 tone: None,
                             })
                             .await
@@ -849,4 +848,18 @@ fn native_command<'a>(prompt: &'a str, advertised: &[String]) -> Option<&'a str>
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':'))))
     .then_some(name)
+}
+
+// ACP notices are presentation metadata, including severity=error. Only the
+// prompt response controls turn success/failure.
+fn notice_content(update: &serde_json::Value) -> Option<String> {
+    let title = update["title"].as_str()?;
+    let content = match update["description"]
+        .as_str()
+        .filter(|text| !text.is_empty())
+    {
+        Some(description) => format!("{title}: {description}"),
+        None => title.to_owned(),
+    };
+    Some(content.chars().take(2000).collect())
 }

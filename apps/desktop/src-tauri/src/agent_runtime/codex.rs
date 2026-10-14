@@ -734,6 +734,12 @@ async fn project_event(
                 }
             }
         }
+        "model/rerouted" => {
+            if let Some(model) = params["toModel"].as_str() {
+                projection.observe_runtime_model(model);
+                projection.publish_usage(&turn.events).await?;
+            }
+        }
         "thread/tokenUsage/updated" => {
             let usage = &params["tokenUsage"]["total"];
             let tokens = |key: &str| usage[key].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32;
@@ -789,6 +795,38 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn native_model_reroute_replaces_identity_and_invalidates_capacity() {
+        let (request, mut rx, _, _) = super::super::tests::fixture(AgentRuntimeKind::Codex, "test");
+        let turn = request.prepare(false).unwrap();
+        let mut projection = Projection::for_turn(&turn);
+        projection
+            .context_snapshot(&turn.events, 100, Some(200_000), vec![])
+            .await
+            .unwrap();
+        let mut seen = nexa_core::runtime_receipts::RuntimeReceipts::new().unwrap();
+        assert!(!project_event(
+            &mut projection,
+            &turn,
+            &mut seen,
+            "model/rerouted",
+            &json!({"fromModel":"test", "toModel":"fallback-model"})
+        )
+        .await
+        .unwrap());
+        let mut latest = None;
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::UsageUpdate {
+                context_breakdown, ..
+            } = event
+            {
+                latest = context_breakdown;
+            }
+        }
+        let context = latest.unwrap();
+        assert_eq!(context.runtime_model.as_deref(), Some("fallback-model"));
+        assert_eq!(context.context_window, None);
+    }
     #[test]
     fn mcp_dynamic_tools_have_stable_nonreserved_aliases_and_original_dispatch_names() {
         let definition = |name: &str| nexa_core::llm::ToolDefinition {

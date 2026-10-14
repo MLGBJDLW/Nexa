@@ -1706,14 +1706,18 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   // aggregated across completed turns instead of falling back to only the
   // latest run kept by the stream store.
   const isUsingLiveUsage = (shouldShowLivePreview || usageSnapshot == null) && scopedLastUsage != null;
-  const usageForView = isUsingLiveUsage ? scopedLastUsage : usageSnapshot ?? scopedLastUsage;
+  // A new turn clears live usage before its first native usage event. The
+  // previous turn's context is not evidence about this run (billing stays below).
+  const awaitingActiveUsage = activeIsStreaming && scopedLastUsage == null;
+  const usageForView = awaitingActiveUsage ? null : isUsingLiveUsage ? scopedLastUsage : usageSnapshot ?? scopedLastUsage;
   // The context ring uses the latest prompt; cache totals use the periodically
   // refreshed durable aggregate, including confirmed steps of the active run.
-  const cacheUsageForView = isUsingLiveUsage ? usageSnapshot : usageForView;
-  const runtimeProvider = usageForView?.contextBreakdown?.runtimeProvider ?? activeTaskRun?.provider ?? activeConversation?.provider ?? agentConfig?.provider;
-  const runtimeModel = usageForView?.contextBreakdown?.runtimeModel ?? activeTaskRun?.model ?? activeConversation?.model ?? agentConfig?.model;
+  const cacheUsageForView = isUsingLiveUsage || awaitingActiveUsage ? usageSnapshot : usageForView;
+  const contextRun = activeIsStreaming ? streamTaskRun : activeTaskRun;
+  const runtimeProvider = usageForView?.contextBreakdown?.runtimeProvider ?? contextRun?.provider ?? activeConversation?.provider ?? agentConfig?.provider;
+  const runtimeModel = usageForView?.contextBreakdown?.runtimeModel ?? contextRun?.model ?? activeConversation?.model ?? agentConfig?.model;
   const selectedRouteMatches = runtimeProvider === agentConfig?.provider && runtimeModel === agentConfig?.model;
-  const durableContextAuthority = !isUsingLiveUsage ? usageSnapshot?.contextAuthority : null;
+  const durableContextAuthority = !isUsingLiveUsage && !awaitingActiveUsage ? usageSnapshot?.contextAuthority : null;
   const nativeCapacity = usageForView?.contextBreakdown?.contextWindow;
   const localCapacity = usageForView?.contextBreakdown?.budget?.capacityTokens;
   const hasNativeCapacity = typeof nativeCapacity === 'number' && Number.isSafeInteger(nativeCapacity) && nativeCapacity > 0;

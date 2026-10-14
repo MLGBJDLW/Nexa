@@ -557,6 +557,10 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
                 ))}
               </div>
             </div>
+          </div>
+        )}
+        {copilotSnapshot && (
+          <div className="mt-4 border-t border-border/70 pt-4">
             <SubscriptionUsageDetails quota={copilotAccountQuota(copilotSnapshot)} />
           </div>
         )}

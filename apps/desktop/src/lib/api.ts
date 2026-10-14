@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { accountSnapshotRequest } from './accountSnapshotRequest';
+import { accountSnapshotRequest, invalidateAccountSnapshot } from './accountSnapshotRequest';
 import { createTerminalInputWriter } from './terminalInput';
 export interface FontAsset {
   id: string;
@@ -1006,6 +1006,7 @@ export const getCodexAccountSnapshot = async () => {
 };
 
 export const startCodexAccountLogin = (kind: 'browser' | 'deviceCode') => {
+  invalidateAccountSnapshot('openai_codex');
   invalidateSubscriptionModels('openai_codex');
   return invoke<CodexLoginDescriptor>('start_codex_account_login_cmd', { kind });
 };
@@ -1014,7 +1015,9 @@ export const cancelCodexAccountLogin = (loginId: string) =>
   invoke<void>('cancel_codex_account_login_cmd', { loginId });
 
 export const logoutCodexAccount = async () => {
+  invalidateAccountSnapshot('openai_codex');
   const snapshot = await invoke<CodexAccountSnapshot>('logout_codex_account_cmd');
+  invalidateAccountSnapshot('openai_codex');
   invalidateSubscriptionModels('openai_codex');
   return snapshot;
 };
@@ -1058,6 +1061,7 @@ export const getCopilotAccountSnapshot = async () => {
 export const listSubscriptionModels = loadSubscriptionModels;
 
 export const startCopilotAccountLogin = () => {
+  invalidateAccountSnapshot('github_copilot');
   invalidateSubscriptionModels('github_copilot');
   return invoke<void>('start_copilot_account_login_cmd');
 };

@@ -1,4 +1,14 @@
 use super::*;
+
+#[test]
+fn acp_notice_uses_protocol_title_and_optional_description() {
+    assert_eq!(notice_content(&serde_json::json!({"sessionUpdate":"notice", "severity":"error", "title":"Retrying", "description":"Waiting for capacity"})).as_deref(), Some("Retrying: Waiting for capacity"));
+    assert_eq!(
+        notice_content(&serde_json::json!({"title":"Connected", "severity":"info"})).as_deref(),
+        Some("Connected")
+    );
+    assert!(notice_content(&serde_json::json!({"message":"invalid legacy field"})).is_none());
+}
 mod live_matrix;
 use nexa_core::{
     agent::{AgentEvent, ToolRunStatus},

@@ -833,6 +833,19 @@ test('context occupancy keeps the recorded runtime after selecting another model
   await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
 });
 
+test('a new turn does not inherit the completed turn context before native usage arrives', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('e2e-runtime-usage', '1'));
+  await page.goto('/chat/conv-model-switch');
+  await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
+  await page.locator('textarea').fill('Start the next turn');
+  await page.locator('textarea').press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs?.message)).toBe('Start the next turn');
+  await expect(page.getByRole('button', { name: /5% context used/ })).toHaveCount(0);
+});
+
 test('Copilot context policy exposes only native tiers and saves for the next turn', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
   await page.getByTestId('agent-model-picker-trigger').click();
