@@ -289,6 +289,8 @@ test.beforeEach(async ({ page }) => {
           }
 
           streamedReplyCount += 1;
+          const runId = `run-${conversationId}-${streamedReplyCount}`;
+          const turnId = `turn-${conversationId}-${streamedReplyCount}`;
           const currentMessages = messagesByConversation[conversationId] ?? [];
           const userText = String(args.message ?? '');
           const assistantText = `Streamed answer #${streamedReplyCount}`;
@@ -334,6 +336,7 @@ test.beforeEach(async ({ page }) => {
             emitEvent('agent://run-event', {
               conversationId,
               type: 'textDelta',
+              runId, turnId,
               delta: assistantText,
             });
           }, 40);
@@ -342,6 +345,7 @@ test.beforeEach(async ({ page }) => {
             emitEvent('agent://run-event', {
               conversationId,
               type: 'done',
+              runId, turnId,
               message: assistantMessage,
               usageTotal: {
                 promptTokens: 600,
