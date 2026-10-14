@@ -6,6 +6,7 @@ test.beforeEach(async ({ page }) => {
     const now = new Date().toISOString();
     const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
     const testParams = new URLSearchParams(window.location.search);
+    const preparing = testParams.get('preparing') === '1';
     let callbackId = 1;
     let listenerId = 1;
     let recoveryVisible = testParams.get('recovery') === '1';
@@ -127,7 +128,7 @@ test.beforeEach(async ({ page }) => {
       conversationId: conversation.id,
       userMessageId: 'message-user-1',
       assistantMessageId: null,
-      status: 'awaiting_user_input',
+      status: preparing ? 'running' : 'awaiting_user_input',
       routeKind: 'Agentic',
       trace: {
         kind: 'turnTrace',
@@ -138,10 +139,10 @@ test.beforeEach(async ({ page }) => {
             callId: 'call-decision-1',
             toolName: 'request_user_input',
             arguments: requestArguments,
-            status: 'done',
-            content: 'Waiting for the user.',
+            status: preparing ? 'preparing' : 'done',
+            content: preparing ? '' : 'Waiting for the user.',
             isError: false,
-            artifacts: questionArtifact,
+            artifacts: preparing ? null : questionArtifact,
           },
         }],
       },
@@ -154,8 +155,8 @@ test.beforeEach(async ({ page }) => {
       conversationId: conversation.id,
       turnId: turn.id,
       userMessageId: 'message-user-1',
-      status: 'awaiting_user_input',
-      phase: 'awaiting_user_input',
+      status: preparing ? 'running' : 'awaiting_user_input',
+      phase: preparing ? 'tooling' : 'awaiting_user_input',
       title: 'Upgrade the interaction flow',
       routeKind: 'Agentic',
       summary: 'Waiting for user input',
@@ -169,6 +170,7 @@ test.beforeEach(async ({ page }) => {
       startedAt: now,
       finishedAt: null,
     };
+    if (preparing) messages.splice(2, 1);
     const interaction = {
       schemaVersion: 1,
       interactionId: 'interaction-decision-1',
@@ -257,7 +259,7 @@ test.beforeEach(async ({ page }) => {
         case 'get_agent_task_runs_cmd': return [clone(taskRun)];
         case 'get_agent_task_run_events_cmd': return [];
         case 'list_interaction_requests_cmd':
-          return (
+          return !preparing && (
             ['pending', 'presented', 'partially_answered'].includes(interaction.status)
             || (recoveryVisible && ['submitted', 'acknowledged'].includes(interaction.status))
           )
@@ -417,8 +419,22 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test('shows an active question tool before the durable question arrives', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-decision-tray?preparing=1');
+  const card = page.getByTestId('tool-call-card').filter({ has: page.locator('svg') }).first();
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute('data-tool-tone', 'question');
+  await expect(card).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByTestId('decision-tray')).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('question-tool-preparing.png') });
+});
+
 test('restores a per-question draft, distinguishes supplements, and collapses after submit', async ({ page }) => {
   await page.goto('/chat/conv-decision-tray');
+
+  const questionTool = page.getByRole('group', { name: 'A decision is needed' });
+  await expect(questionTool).toBeVisible();
+  await expect(questionTool.getByRole('status')).toContainText('Waiting');
 
   const tray = page.getByTestId('decision-tray');
   await expect(tray).toBeVisible();

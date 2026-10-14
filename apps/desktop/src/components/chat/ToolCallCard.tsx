@@ -345,17 +345,22 @@ export function QuestionRequestTimelineRecord({
   return (
     <details
       data-testid="question-request-summary"
-      className="my-1.5 rounded-lg border border-border/70 bg-surface-1/75 px-3 py-2"
+      role="group"
+      aria-label={t('chat.questionRequestTitle')}
+      className={`my-1.5 overflow-hidden rounded-xl border px-3 py-2.5 shadow-sm ${answered
+        ? 'border-success/25 bg-success/5'
+        : 'border-accent/35 bg-accent/5 ring-1 ring-accent/10'}`}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-text-secondary marker:content-none">
         {answered
           ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
-          : <CircleHelp className="h-3.5 w-3.5 shrink-0 text-accent" />}
+          : <CircleHelp className="h-4 w-4 shrink-0 text-accent" />}
         <span className="font-medium text-text-primary">
           {t('chat.decisionTrayAskedSummary', { count: request.questions.length })}
         </span>
         <span className="text-text-tertiary">·</span>
-        <span className={answered ? 'text-success' : 'text-accent'}>
+        <span role="status" aria-live="polite" className={`ml-auto flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 ${answered ? 'bg-success/10 text-success' : 'bg-accent/10 text-accent'}`}>
+          {!answered && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current motion-safe:animate-pulse" />}
           {t(answered ? 'chat.questionAnswered' : 'chat.decisionTrayWaiting')}
         </span>
       </summary>
@@ -543,10 +548,12 @@ type ToolTone =
   | 'plan'
   | 'verification'
   | 'subagent'
+  | 'question'
   | 'default';
 
 function getToolTone(name?: string): ToolTone {
   const lower = (name || '').toLowerCase();
+  if (lower === 'request_user_input') return 'question';
   if (lower.includes('knowledge_graph') || lower.includes('related_concepts') || lower.includes('chunk_context')) {
     return 'graph';
   }
@@ -577,6 +584,7 @@ function getToolTone(name?: string): ToolTone {
 
 function getToolIcon(name?: string) {
   const lower = (name || '').toLowerCase();
+  if (lower === 'request_user_input') return CircleHelp;
   return TOOL_ICONS[lower] ?? Wrench;
 }
 
@@ -1653,7 +1661,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     }
   }, [isPending, subagentBatch, subagentJudgement, visualEvidence]);
 
-  if (questionRequest && !inline) {
+  if (questionRequest && !inline && !failedStatus && !isError && (!isPending || questionRequest.interactionId)) {
     if (questionRequest.interactionId) {
       return (
         <QuestionRequestTimelineRecord
