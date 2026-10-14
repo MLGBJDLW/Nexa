@@ -36,6 +36,16 @@
 * **usage:** settle native consumption with the actual turn outcome ([133d456](https://github.com/MLGBJDLW/Nexa/commit/133d456e4af24da38fb13b143a55d02b2535941e))
 * **usage:** settle native snapshots on privacy cancellation ([831113b](https://github.com/MLGBJDLW/Nexa/commit/831113b85521df641327ae7a28343045c0a18d1e))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 3ef96be1d2cb02deb294f3b337dccad1d56dbe7d -->
+
+### What's Changed
+* feat(runtime): unify external usage and recover long-running agents by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/474
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.2...nexa-monorepo-v0.16.3
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.1...nexa-monorepo-v0.16.2) (2026-10-14)
 
 
