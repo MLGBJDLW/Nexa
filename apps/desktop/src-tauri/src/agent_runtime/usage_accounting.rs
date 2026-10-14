@@ -13,6 +13,8 @@ pub(super) struct RuntimeUsageAccounting {
     started: Instant,
     previous: Usage,
     models: BTreeMap<String, Usage>,
+    cancellation: nexa_core::agent::CancellationToken,
+    finished: bool,
 }
 
 #[cfg(test)]
@@ -20,6 +22,60 @@ mod tests {
     use super::*;
     use crate::agent_runtime::{projection::Projection, tests::fixture, AgentRuntimeKind};
     use nexa_core::usage_analytics::UsageAnalyticsFilter;
+
+    #[tokio::test]
+    async fn privacy_revocation_settles_usage_when_native_future_is_dropped() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("usage.db");
+        let database = Arc::new(Database::new(&path).unwrap());
+        let reader = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        for kind in [
+            AgentRuntimeKind::Codex,
+            AgentRuntimeKind::Copilot,
+            AgentRuntimeKind::Acp("hermes"),
+        ] {
+            for settled in [false, true] {
+                let (request, _rx, _, _) =
+                    super::super::tests::fixture_with_database(kind, "native", database.clone());
+                let turn_id = request.turn_id.clone();
+                let lease = database.privacy_lease(&request.cancellation).unwrap();
+                let db = database.clone();
+                // The same biased revocation boundary as agent_runtime::run:
+                // the suspended future is dropped without async cleanup.
+                tokio::select! {
+                    biased;
+                    _ = lease.cancelled() => {},
+                    _ = async move {
+                        let turn = request.prepare(false).unwrap();
+                        let mut output = Projection::for_turn(&turn);
+                        output.usage_reported = true;
+                        output.usage = Usage { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12, ..Default::default() };
+                        output.publish_usage(&turn.events).await.unwrap();
+                        if settled {
+                            output.persist_partial(&turn, &CoreError::StreamIncomplete("lost connection".into())).await.unwrap();
+                        }
+                        let mut policy = db.load_privacy_config().unwrap();
+                        policy.redact_patterns.push(nexa_core::privacy::RedactRule {
+                            name: uuid::Uuid::new_v4().to_string(), pattern: "fixture-private-value".into(), replacement: "[PRIVATE]".into(),
+                        });
+                        db.save_privacy_config(&policy).unwrap();
+                        std::future::pending::<()>().await;
+                        drop((turn, output));
+                    } => unreachable!(),
+                }
+                let (status, tokens): (String, u64) = reader.query_row(
+                    "SELECT request_status, total_tokens FROM ai_usage_records WHERE turn_id=?1",
+                    [&turn_id], |row| Ok((row.get(0)?, row.get(1)?)),
+                ).unwrap();
+                assert_eq!(status, if settled { "error" } else { "cancelled" });
+                assert_eq!(tokens, 12);
+            }
+        }
+    }
 
     #[tokio::test]
     async fn cleanup_cancellation_does_not_change_the_recorded_turn_outcome() {
@@ -168,6 +224,7 @@ impl RuntimeUsageAccounting {
         conversation: String,
         turn: String,
         provider: &str,
+        cancellation: nexa_core::agent::CancellationToken,
     ) -> Result<Self, CoreError> {
         let run = db.get_agent_task_run_by_turn(&turn)?.map(|run| run.id);
         Ok(Self {
@@ -180,6 +237,8 @@ impl RuntimeUsageAccounting {
             started: Instant::now(),
             previous: Usage::default(),
             models: BTreeMap::new(),
+            cancellation,
+            finished: false,
         })
     }
 
@@ -245,13 +304,15 @@ impl RuntimeUsageAccounting {
         self.persist(model, snapshot, "in_progress", true)
     }
 
-    pub(super) fn finish(&self, model: &str, status: &str) -> Result<(), CoreError> {
+    pub(super) fn finish(&mut self, model: &str, status: &str) -> Result<(), CoreError> {
         if self.models.is_empty() {
-            return self.persist(model, Usage::default(), status, false);
+            self.persist(model, Usage::default(), status, false)?;
+        } else {
+            for (model, usage) in &self.models {
+                self.persist(model, usage.clone(), status, true)?;
+            }
         }
-        for (model, usage) in &self.models {
-            self.persist(model, usage.clone(), status, true)?;
-        }
+        self.finished = true;
         Ok(())
     }
 
@@ -296,5 +357,23 @@ impl RuntimeUsageAccounting {
             pricing_version: None,
             provider_raw: &raw,
         })
+    }
+}
+
+impl Drop for RuntimeUsageAccounting {
+    fn drop(&mut self) {
+        // Privacy revocation or task abortion may drop the native future before
+        // its async cleanup runs. Settle only observed usage; normal completion
+        // keeps its actual outcome even if child-process cleanup cancels a token.
+        if !self.finished && !self.models.is_empty() {
+            let status = if self.cancellation.is_cancelled() {
+                "cancelled"
+            } else {
+                "error"
+            };
+            if let Err(error) = self.finish("", status) {
+                log::warn!("Failed to settle dropped external runtime usage: {error}");
+            }
+        }
     }
 }

@@ -102,6 +102,7 @@ impl AgentRuntimeTurnRequest {
                 self.conversation_id.clone(),
                 self.turn_id.clone(),
                 self.kind.provider(),
+                self.cancellation.clone(),
             )?,
         ));
         let workspace = self.dependencies.tools.workspace().cloned();
