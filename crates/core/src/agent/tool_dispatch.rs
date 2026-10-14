@@ -954,7 +954,7 @@ impl ToolDispatchRuntime<'_> {
                         {
                             let blocked = crate::tools::ToolResult {
                                 call_id: tc.id.clone(),
-                                content: "Interactive input is blocked by the resumed action-reconciliation fence. Obtain a fresh computer_observe or browser_session observe result first; then re-plan from the visible state."
+                                content: "Interactive input is blocked by retained action-reconciliation receipts. Reconcile each known visual target with a matching fresh observation before further input. Browser or desktop observations do not resolve opaque provider-hosted or delegated actions; inspect their original task and action receipts without replaying them."
                                     .to_string(),
                                 is_error: true,
                                 artifacts: Some(serde_json::json!({

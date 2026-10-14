@@ -102,6 +102,8 @@ pub(super) fn awaiting_user_input_interaction_id(
 pub(super) struct ActionReconciliationFence {
     computer: bool,
     browser: bool,
+    // Opaque provider/delegated actions have no matching local visual receipt.
+    // Preserve their checkpoint pointers; a screenshot cannot reconcile them.
     unknown: bool,
 }
 
@@ -119,8 +121,14 @@ impl ActionReconciliationFence {
         Self {
             computer,
             browser,
-            unknown: !computer && !browser,
+            unknown: (!computer && !browser)
+                || receipts.contains("provider_hosted_action")
+                || receipts.contains("delegated_subtasks:"),
         }
+    }
+
+    pub(super) fn retain_unknown_action(&mut self) {
+        self.unknown = true;
     }
 
     pub(super) fn blocks_interactive_input(self) -> bool {
@@ -188,7 +196,6 @@ impl ActionReconciliationFence {
                 )
             {
                 self.computer = false;
-                self.unknown = false;
             }
             if !summary.is_error
                 && call.name == "browser_session"
@@ -199,7 +206,6 @@ impl ActionReconciliationFence {
                 )
             {
                 self.browser = false;
-                self.unknown = false;
             }
         }
     }
@@ -718,7 +724,7 @@ impl AgentExecutor {
         let mut action_reconciliation =
             ActionReconciliationFence::from_resume_prompt(&user_query_text_for_tools);
         if !checkpointed_subtask_recoveries.is_empty() {
-            action_reconciliation.unknown = true;
+            action_reconciliation.retain_unknown_action();
         }
 
         let skills = self.skills_override.clone().unwrap_or_else(|| {
@@ -3766,6 +3772,39 @@ mod action_reconciliation_tests {
             )],
         );
         assert!(!fence.blocks_interactive_input());
+    }
+
+    #[test]
+    fn visual_observations_never_clear_opaque_hosted_or_delegated_receipts() {
+        for receipt in [
+            "provider_hosted_action",
+            "delegated_subtasks:worker-shell,worker-mcp,worker-image",
+            "computer_control:turn:call:obs,provider_hosted_action",
+            "browser_action:turn:call:obs,delegated_subtasks:worker-shell",
+        ] {
+            let mut fence = ActionReconciliationFence::from_resume_prompt(&format!(
+                "Checkpoint reason: connection_interrupted_requires_action_reconciliation:{receipt}"
+            ));
+            for (name, action, artifacts) in [
+                (
+                    "computer_observe",
+                    "capture_window",
+                    serde_json::json!({"data":{"kind":"computerObservationReceipt","screenshotHash":"desktop-shot"}}),
+                ),
+                (
+                    "browser_session",
+                    "observe",
+                    serde_json::json!({"artifacts":{"kind":"browserObservation","observation":{"screenshotHash":"browser-shot"}}}),
+                ),
+            ] {
+                fence.observe_tool_results(
+                    &[call("visual", name, action)],
+                    &[summary("visual", false, artifacts)],
+                );
+                assert!(fence.unknown, "{receipt} cannot be reconciled by {name}");
+                assert!(fence.blocks_interactive_input());
+            }
+        }
     }
 }
 

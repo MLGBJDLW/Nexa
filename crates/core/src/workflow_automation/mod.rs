@@ -800,7 +800,7 @@ fn build_resume_prompt(
     let reconciliation = reconciliation_receipts(reason).or(delegated_receipts.as_deref())
         .map(|activity_ids| {
             format!(
-                "\n- SAFETY FENCE: action receipt(s) {activity_ids} may have executed while the turn was stopping. Before any further browser/computer input, obtain a fresh observation and reconcile the visible state. Inspect files, running processes and external state before continuing interrupted native-agent work. Never redispatch a prior action merely because its tool result is absent."
+                "\n- SAFETY FENCE: action receipt(s) {activity_ids} may have executed while the turn was stopping. Before any further browser/computer input, obtain a fresh observation and reconcile the matching visible target. A local visual observation cannot clear opaque provider-hosted or delegated action uncertainty. Retain those task/action receipt pointers and inspect files, running processes and external state without replaying the action; report any outcome that cannot be verified. Never redispatch a prior action merely because its tool result is absent."
             )
         })
         .unwrap_or_default();

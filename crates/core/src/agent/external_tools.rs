@@ -257,6 +257,12 @@ mod tests {
         input.next_sort_order = launch.user_message_sort_order + 1;
         let resumed = ExternalToolSession::new(input).unwrap();
         assert!(resumed.checkpointed_subtask_recoveries.contains(&worker));
+        assert!(resumed
+            .state
+            .lock()
+            .await
+            .action_reconciliation
+            .blocks_interactive_input());
         resumed.execute(call("resumed", 1)).await.unwrap();
         resumed
             .persist_answer("Reconciled completion")
@@ -1045,6 +1051,11 @@ impl ExternalToolSession {
             &desktop_profile,
             false,
         )?;
+        let mut action_reconciliation =
+            super::turn_loop::ActionReconciliationFence::from_resume_prompt(&input.user_prompt);
+        if !checkpointed_subtask_recoveries.is_empty() {
+            action_reconciliation.retain_unknown_action();
+        }
         let state = ExternalToolState {
             plan,
             recorder: TurnLoopRecorder::new(route.kind, input.config.max_iterations),
@@ -1053,9 +1064,7 @@ impl ExternalToolSession {
             next_sort_order: input.next_sort_order,
             rounds: 0,
             completed: RuntimeReceipts::new()?,
-            action_reconciliation: super::turn_loop::ActionReconciliationFence::from_resume_prompt(
-                &input.user_prompt,
-            ),
+            action_reconciliation,
             desktop_resume_workflow,
             desktop_profile,
         };
