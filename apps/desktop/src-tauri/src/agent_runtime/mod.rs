@@ -286,7 +286,7 @@ pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     result.map_err(|error| match error {
         CoreError::StreamIncomplete(message) | CoreError::TransientLlm(message) => {
             CoreError::RecoveryRequired {
-                message: nexa_core::sensitive_data::sanitize_diagnostic(&message, None),
+                message: nexa_core::external_agent::launch::redact_diagnostic(&message, &[]),
                 // External loops may have launched native tools before delivery
                 // stopped. Resume from durable evidence, never replay their prompt.
                 action_reconciliation: true,

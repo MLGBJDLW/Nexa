@@ -107,8 +107,11 @@ pub(super) struct ActionReconciliationFence {
 
 impl ActionReconciliationFence {
     pub(super) fn from_resume_prompt(prompt: &str) -> Self {
-        const MARKER: &str = "Checkpoint reason: user_stop_requires_action_reconciliation:";
-        let Some(receipts) = prompt.split_once(MARKER).map(|(_, receipts)| receipts) else {
+        let Some(receipts) = prompt
+            .lines()
+            .filter_map(|line| line.strip_prefix("Checkpoint reason: "))
+            .find_map(crate::workflow_automation::reconciliation_receipts)
+        else {
             return Self::default();
         };
         let computer = receipts.contains("computer_control:");
@@ -3483,6 +3486,61 @@ mod action_reconciliation_tests {
         assert!(!fence.computer);
         assert!(!fence.unknown);
         assert!(fence.blocks_interactive_input());
+    }
+
+    #[test]
+    fn connection_checkpoint_restores_the_dispatch_fence_from_real_resume_state() {
+        let db = Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&crate::conversation::CreateConversationInput {
+                provider: "test".into(),
+                model: "test-model".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let user = crate::conversation::ConversationMessage {
+            id: "resume-user".into(),
+            conversation_id: conversation.id.clone(),
+            role: Role::User,
+            content: "Continue the task".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 4,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&user).unwrap();
+        let turn = db
+            .create_conversation_turn(&conversation.id, &user.id, None)
+            .unwrap();
+        let run = db
+            .create_agent_task_run(
+                &conversation.id,
+                &turn.id,
+                &user.id,
+                "Resume",
+                Some("test"),
+                Some("test-model"),
+            )
+            .unwrap();
+        for reason in [
+            "connection_interrupted_requires_action_reconciliation:provider_hosted_action",
+            "connection_interrupted_requires_action_reconciliation:browser_action:turn:call:obs",
+        ] {
+            let checkpoint = db.create_task_resume_checkpoint(&run.id, reason).unwrap();
+            let fence = ActionReconciliationFence::from_resume_prompt(&checkpoint.resume_prompt);
+            assert!(fence.blocks_interactive_input());
+        }
+        assert!(!ActionReconciliationFence::from_resume_prompt(
+            "Checkpoint reason: provider_connection_interrupted"
+        )
+        .blocks_interactive_input());
     }
 
     fn summary(
