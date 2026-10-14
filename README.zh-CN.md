@@ -17,13 +17,13 @@ Nexa 将本地检索、基于证据的对话、文档处理和 Agent 工具整�
 | 领域 | 当前能力 |
 | --- | --- |
 | 知识与检索 | 中英关键词与向量检索、PDF/Office 原文定位、历史版本证据、可续编译、保存研究对照矩阵，以及可追溯原文的知识图谱 |
-| 对话 | 引用回答、项目上下文、持久历史、流式工具、检查点、公式和 Mermaid，以及[交互视图与隔离的 HTML 实时预览](docs/GENERATIVE_CHAT_UI.md) |
+| 对话 | 引用回答、项目上下文、持久历史、流式工具、检查点、公式和 Mermaid，以及[交互视图与隔离的 HTML 实时预览](docs/guides/GENERATIVE_CHAT_UI.md) |
 | 模型与 Agent | API 与本地模型连接、按端点识别能力、模型和推理档位选择、受支持的订阅 Agent、可复用 Skills 与已配置的 API 子代理 |
 | 文件与 Office | 权限范围内的文件编辑、文档分析与生成、Office 产物校验与审阅、本地预览，以及单独配对的 Office.js 加载项 |
 | 桌面与浏览器 | 对话关联终端、Browser Workspace、授权的 HTML 预览、结构化浏览器工具，以及带观察和审批边界的 Windows 电脑操作 |
 | 语音与 Live | 在可编辑输入框内听写；按实际连接能力使用麦克风、摄像头或屏幕输入；保存文字观察记录和总结 |
 | 手机连接 | 二维码配对、查看已有对话、选择模型、听写、文件预览、单次审批，以及通过加密局域网或公网通道使用 Live |
-| 重复工作 | 集合、项目记忆、工作流模板、[Agent 可直接管理的定时任务](docs/SCHEDULED_TASKS.md#agent-tool)、MCP 连接器，以及由用户维护的 Skill 和主题文件 |
+| 重复工作 | 集合、项目记忆、工作流模板、[Agent 可直接管理的定时任务](docs/guides/SCHEDULED_TASKS.md#agent-tool)、MCP 连接器，以及由用户维护的 Skill 和主题文件 |
 
 知识图谱是导航索引，关系本身不等于证据，使用结论前应查看支持它的原文。
 工具是否可用取决于运行平台、连接配置、来源范围和权限；兼容某种 API 的端点并不自动
@@ -43,11 +43,11 @@ Nexa 将本地检索、基于证据的对话、文档处理和 Agent 工具整�
 浏览器、麦克风、媒体和 Office 集成也受宿主环境与已安装运行时限制。
 
 1. 打开 Nexa，在设置中配置模型连接。API、本地模型和订阅连接的区别见
-   [模型与提供方指南](docs/PROVIDERS_AND_MODELS.md)。
+   [模型与提供方指南](docs/guides/PROVIDERS_AND_MODELS.md)。
 2. 在 Sources 中添加本地文件夹并等待索引。建议先使用一个较小的文件夹，
    添加大量资料前先检查排除规则。
 3. 搜索一份已知文档，核对结果，再限定来源进行提问。可将重要证据保存到 Collection。
-4. 处理文档时检查生成产物与校验结果；手机使用步骤见[手机连接指南](docs/remote-access.md)。
+4. 处理文档时检查生成产物与校验结果；手机使用步骤见[手机连接指南](docs/guides/remote-access.md)。
 
 支持 Markdown、纯文本、日志、PDF、DOCX、XLSX、PPTX 和图片等输入。
 OCR 和媒体处理需要对应模型及运行时，启用 Cargo feature 不等于安装了全部资源。
@@ -99,15 +99,15 @@ docs/                      用户和工程文档
 testdata/                  测试样例
 ```
 
-系统职责见[架构总览](docs/ARCHITECTURE.md)，各模块契约见[文档索引](docs/README.md)，
-产品优先级见[路线图](docs/ROADMAP.md)。实验性或规划中的扩展格式在对应文档中单独标明。
+系统职责见[架构总览](docs/runtime/ARCHITECTURE.md)，各模块契约见[文档索引](docs/README.md)，
+产品优先级见[路线图](docs/product/ROADMAP.md)。实验性或规划中的扩展格式在对应文档中单独标明。
 
 ## 语言
 
 界面支持英语、简体中文、繁体中文、日语、韩语、西班牙语、法语、德语、葡萄牙语和俄语。
 
 公开技术文档以英文为主，本中文 README 与英文版同步核心能力、使用步骤和限制。
-界面翻译维护流程见[国际化指南](docs/I18N_GUIDELINES.md)。
+界面翻译维护流程见[国际化指南](docs/development/I18N_GUIDELINES.md)。
 
 ## 贡献与许可
 

@@ -25,13 +25,13 @@ and optional public phone access use the network.
 | Area | Current capabilities |
 | --- | --- |
 | Knowledge and search | Bilingual keyword/vector retrieval, structured PDF and Office locations, historical evidence, resumable compilation, saved research comparisons, and a knowledge graph for navigating back to supporting documents |
-| Conversations | Cited answers, project context, durable history, streaming tools, checkpoints, math/Mermaid, and [interactive views with isolated HTML previews](docs/GENERATIVE_CHAT_UI.md) |
+| Conversations | Cited answers, project context, durable history, streaming tools, checkpoints, math/Mermaid, and [interactive views with isolated HTML previews](docs/guides/GENERATIVE_CHAT_UI.md) |
 | Models and agents | API and local model connections, endpoint-aware capability discovery, model/reasoning selection, supported subscription agents, reusable skills, and configured API subagents |
 | Files and Office | Scoped file edits, document analysis and generation, Office artifact validation and review, local previews, and a separately paired Office.js add-in |
 | Desktop and browser | A conversation-linked terminal, Browser Workspace, authorized HTML previews, structured browser tools, and Windows computer interaction with observation and approval boundaries |
 | Voice and Live | Dictation into the editable composer, live microphone/camera/screen input where the selected connection supports it, and saved text observations and summaries |
 | Phone access | QR pairing, existing conversations, model choices, dictation, file previews, individual approvals, and Live through encrypted LAN or configured public routes |
-| Repeatable work | Collections, project memory, workflow templates, [agent-managed scheduled tasks](docs/SCHEDULED_TASKS.md#agent-tool), MCP connectors, and user-owned skill and theme files |
+| Repeatable work | Collections, project memory, workflow templates, [agent-managed scheduled tasks](docs/guides/SCHEDULED_TASKS.md#agent-tool), MCP connectors, and user-owned skill and theme files |
 
 The graph is a navigation index, not evidence by itself. Open the underlying
 documents before relying on a relationship. Tool availability depends on the
@@ -54,14 +54,14 @@ computer-control tools are Windows-specific; browser, microphone, media, and
 Office integration support also depends on the host and installed runtimes.
 
 1. Open Nexa and configure a model connection in Settings. See
-   [Models and providers](docs/PROVIDERS_AND_MODELS.md) for API, local, and
+   [Models and providers](docs/guides/PROVIDERS_AND_MODELS.md) for API, local, and
    subscription connection boundaries.
 2. Add a local folder in Sources and wait for indexing. Start with a small
    folder and check exclusions before adding a large collection.
 3. Search for a known document, inspect the result, and ask a question with
    that source in scope. Save useful evidence into a Collection.
 4. For document work, review the generated artifact and its validation result.
-   For phone use, follow [Phone access](docs/remote-access.md).
+   For phone use, follow [Phone access](docs/guides/remote-access.md).
 
 Supported document inputs include Markdown, text, logs, PDF, DOCX, XLSX, PPTX,
 and images. OCR and media processing require their corresponding models and
@@ -123,9 +123,9 @@ docs/                      Maintained user and engineering documentation
 testdata/                  Test fixtures
 ```
 
-Start with [Architecture](docs/ARCHITECTURE.md) for system ownership and
+Start with [Architecture](docs/runtime/ARCHITECTURE.md) for system ownership and
 [the documentation index](docs/README.md) for the focused contracts. Product
-priorities are maintained in [the roadmap](docs/ROADMAP.md); experimental and
+priorities are maintained in [the roadmap](docs/product/ROADMAP.md); experimental and
 proposed extension formats are explicitly identified in their references.
 
 ## Languages
@@ -136,7 +136,7 @@ Japanese, Korean, Spanish, French, German, Portuguese, and Russian.
 English is the canonical language for public technical documentation. The
 [Chinese README](README.zh-CN.md) covers the same core capabilities, setup,
 and limitations. UI translation maintenance follows the
-[internationalization guide](docs/I18N_GUIDELINES.md).
+[internationalization guide](docs/development/I18N_GUIDELINES.md).
 
 ## Contributing and license
 

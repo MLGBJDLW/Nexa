@@ -22,7 +22,7 @@ test('reports missing targets, headings, undefined references, and orphan docume
   assert.ok(errors.some((error) => error.includes('missing repository target: missing.md')));
   assert.ok(errors.some((error) => error.includes('missing heading: docs/guide.md#absent')));
   assert.ok(errors.some((error) => error.includes('undefined reference [missing]')));
-  assert.ok(errors.some((error) => error.includes('not linked from docs/README.md')));
+  assert.ok(errors.some((error) => error.includes('not reachable from docs/README.md')));
 });
 
 test('ignores links and headings in fenced/inline code and skips external URLs', () => {
@@ -31,6 +31,19 @@ test('ignores links and headings in fenced/inline code and skips external URLs',
   assert.deepEqual([...parsed.headings], ['real']);
   assert.equal(parsed.links.length, 2);
   assert.deepEqual(validateDocumentation(new Map([['README.md', markdown]]), new Set(['README.md'])), []);
+});
+
+test('category navigation reaches nested documents and rejects disconnected cycles', () => {
+  const documents = new Map([
+    ['docs/README.md', '[guides](guides/README.md)'],
+    ['docs/guides/README.md', '[setup](SETUP.md)'],
+    ['docs/guides/SETUP.md', '# Setup\n[home](../README.md)'],
+    ['docs/runtime/A.md', '[b](B.md)'],
+    ['docs/runtime/B.md', '[a](A.md)'],
+  ]);
+  const errors = validateDocumentation(documents, new Set(documents.keys()));
+  assert.equal(errors.length, 2);
+  assert.ok(errors.every(error => error.includes('docs/runtime/') && error.includes('not reachable')));
 });
 
 test('accepts directory links only for repository content and rejects escaped/root paths', () => {
@@ -46,6 +59,7 @@ test('generates deterministic schema links and preserves surrounding authored pr
     ['crates/core/prompts/tools/a.json', { description: 'First | tool', parameters: {} }],
   ]);
   const catalog = renderToolCatalog(schemas);
+  assert.ok(catalog.includes('(../../crates/core/prompts/tools/a.json)'));
   assert.ok(catalog.indexOf('[`a`]') < catalog.indexOf('[`z`]'));
   assert.ok(catalog.includes('First \\| tool'));
   const input = `# Tools\n${CATALOG_START}\nold\n${CATALOG_END}\n## Usage\n`;
