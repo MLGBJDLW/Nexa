@@ -22,6 +22,16 @@
 * **subscriptions:** keep login polling alive after transient read errors ([2740129](https://github.com/MLGBJDLW/Nexa/commit/2740129333b212d3e7cf7b0634f524a1444d1f65))
 * **subscriptions:** scope usage to active runs and accept native notices ([8d2a771](https://github.com/MLGBJDLW/Nexa/commit/8d2a771e617622a22a6186efe5cbdb136f53e49e))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 20f01fbfed43c828ce2877133b039ba7b5e042c7 -->
+
+### What's Changed
+* feat: improve runtime continuity, model context and Computer Use by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/472
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.1...nexa-monorepo-v0.16.2
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.0...nexa-monorepo-v0.16.1) (2026-10-13)
 
 
