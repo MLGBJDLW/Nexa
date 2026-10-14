@@ -1,5 +1,5 @@
 //! A non-activating desktop indicator projected from committed tool events.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use nexa_core::agent_run::{AgentRunEvent, AgentRunEventKind};
@@ -17,6 +17,7 @@ const EVENT_NAME: &str = "desktop-control:status";
 pub struct DesktopControlActivity {
     conversation_id: String,
     run_id: String,
+    turn_id: Option<String>,
     call_id: String,
     tool_name: String,
     window_id: Option<u64>,
@@ -34,6 +35,7 @@ enum DesktopControlPhase {
 #[derive(Default)]
 struct Projection {
     active: BTreeMap<String, DesktopControlActivity>,
+    stopped: BTreeSet<String>,
 }
 
 impl Projection {
@@ -42,9 +44,13 @@ impl Projection {
             event.kind,
             AgentRunEventKind::Done | AgentRunEventKind::Error
         ) {
+            self.stopped.remove(&event.run_id);
             let previous = self.active.len();
             self.active.remove(&event.run_id);
             return self.active.len() != previous;
+        }
+        if self.stopped.contains(&event.run_id) {
+            return false;
         }
         if !matches!(
             event.kind,
@@ -82,6 +88,7 @@ impl Projection {
         let activity = DesktopControlActivity {
             conversation_id: conversation_id.into(),
             run_id: event.run_id.clone(),
+            turn_id: (!event.turn_id.is_empty()).then(|| event.turn_id.clone()),
             call_id: call_id.into(),
             tool_name: tool_name.into(),
             phase: if tool_name == "computer_control" {
@@ -180,6 +187,7 @@ pub fn initialize(app: &mut tauri::App) {
     .resizable(false)
     .decorations(false)
     .shadow(false)
+    .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .focused(false)
@@ -202,6 +210,17 @@ pub fn initialize(app: &mut tauri::App) {
 }
 
 pub fn observe_committed_event(app: &AppHandle, conversation_id: &str, event: &AgentRunEvent) {
+    if matches!(
+        event.kind,
+        AgentRunEventKind::Done | AgentRunEventKind::Error
+    ) {
+        if !event.turn_id.is_empty() {
+            nexa_core::tools::computer_use_tool::release_desktop_session(
+                conversation_id,
+                &event.turn_id,
+            );
+        }
+    }
     if !matches!(
         event.kind,
         AgentRunEventKind::ToolStarted
@@ -222,6 +241,10 @@ pub fn observe_committed_event(app: &AppHandle, conversation_id: &str, event: &A
     if !changed {
         return;
     }
+    publish_status(app);
+}
+
+fn publish_status(app: &AppHandle) {
     let handle = app.clone();
     // Never create/show native windows or wait on the main thread from the
     // durable outbox writer. Read the newest projection when the UI runs.
@@ -275,19 +298,56 @@ pub fn set_desktop_control_appearance_cmd(
 
 #[tauri::command]
 pub async fn stop_desktop_control_cmd(
-    state: tauri::State<'_, crate::commands::AppState>,
-    agents: tauri::State<'_, crate::commands::AgentState>,
-    approvals: tauri::State<'_, crate::commands::ApprovalState>,
     app: AppHandle,
+    approvals: tauri::State<'_, crate::commands::ApprovalState>,
     conversation_id: String,
+    run_id: String,
 ) -> Result<(), String> {
-    if !snapshot(&app)
-        .iter()
-        .any(|activity| activity.conversation_id == conversation_id)
+    let state = app.state::<DesktopControlStatusState>();
     {
-        return Ok(());
+        let mut projection = state
+            .0
+            .lock()
+            .map_err(|_| "Computer Use status is unavailable")?;
+        let Some(activity) = projection
+            .active
+            .get(&run_id)
+            .filter(|activity| activity.conversation_id == conversation_id)
+        else {
+            return Ok(());
+        };
+        let turn_id = activity
+            .turn_id
+            .as_deref()
+            .ok_or("Computer Use turn identity is unavailable")?;
+        nexa_core::tools::computer_use_tool::stop_desktop_session(&conversation_id, turn_id);
+        projection.active.remove(&run_id);
+        projection.stopped.insert(run_id.clone());
     }
-    crate::commands::agent_stop_cmd(state, agents, approvals, app, conversation_id).await
+    // A pending desktop permission belongs to the same stopped scope. Resolve
+    // only those requests; shell/file approvals and the chat stay alive.
+    let mut pending = approvals.pending.lock().await;
+    let ids = pending
+        .iter()
+        .filter(|(_, approval)| {
+            approval.task_run_id == run_id
+                && matches!(
+                    approval.request.tool_name.as_str(),
+                    "computer_control" | "computer_observe"
+                )
+        })
+        .map(|(id, _)| id.clone())
+        .collect::<Vec<_>>();
+    for id in ids {
+        if let Some(approval) = pending.remove(&id) {
+            let _ = approval
+                .sender
+                .send(nexa_core::approval::ApprovalDecision::Deny);
+        }
+    }
+    drop(pending);
+    publish_status(&app);
+    Ok(())
 }
 
 #[cfg(test)]

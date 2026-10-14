@@ -36,8 +36,16 @@ capturing the same window again.
 The status window appears at the top center of the target monitor's work area,
 including negative monitor origins and mixed scaling. It identifies observation,
 control and the interval between actions; Stop remains available until the owning
-run finishes. Run identities prevent another task's terminal event from clearing
+run finishes or its desktop session is stopped. Stop closes only that turn's
+Computer Use scope: it cancels pending observations/input, denies pending desktop
+permissions and blocks later desktop calls in the same turn. The model receives a
+tool receipt and can continue chatting or using other tools. A new user turn gets
+a fresh desktop scope. Run identities prevent a stale Stop click or another task's terminal event from clearing
 the current activity.
+
+The banner enters with a short eased slide/scale and uses the shared Nexa logo
+with a flowing orbit and soft accent light. Reduced motion removes those effects.
+The window stays non-activating, with transparency around its rounded surface.
 
 The native action worker owns a compact triangular Nexa pointer, without a tail or idle halo.
 Its color comes from the current theme's resolved accent, including theme resource

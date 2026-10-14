@@ -1,5 +1,13 @@
+html.nexa-control-surface, .nexa-control-surface body, .nexa-control-surface #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
 .nexa-control-status {
   position: relative;
+  border-radius: 18px;
+  transform-origin: center top;
+  animation: nexa-control-arrive 480ms cubic-bezier(.16,1,.3,1) both;
   isolation: isolate;
   overflow: hidden;
   background:
@@ -9,21 +17,22 @@
 }
 
 .nexa-control-bond {
+  position: relative;
+  display: grid;
+  place-items: center;
   width: 42px;
   height: 42px;
   flex: none;
   color: var(--color-accent);
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-accent) 23%, transparent));
 }
-
-.nexa-control-bond .bond-orbit {
-  transform-origin: 21px 21px;
-  animation: nexa-bond-breathe 3.6s ease-in-out infinite;
-}
-
-.nexa-control-bond .bond-pulse {
-  stroke-dasharray: 9 84;
-  animation: nexa-bond-connect 3s linear infinite;
+.nexa-control-bond .nexa-logo-mark { z-index: 1; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--color-accent) 28%, transparent)); }
+.nexa-control-bond .nexa-logo-orbit { stroke-dasharray: 14 8; animation: nexa-logo-flow 6s linear infinite; }
+.nexa-control-aura { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent, color-mix(in srgb, var(--color-accent) 24%, transparent), transparent 65%); filter: blur(5px); animation: nexa-logo-orbit 5s linear infinite; }
+@keyframes nexa-logo-flow { to { stroke-dashoffset: -88; } }
+@keyframes nexa-logo-orbit { to { transform: rotate(360deg); } }
+@keyframes nexa-control-arrive {
+  from { opacity: 0; transform: translateY(-12px) scale(.92); filter: blur(3px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 
 .nexa-control-thread {
@@ -46,19 +55,17 @@
   animation: nexa-bond-travel 3.8s ease-in-out infinite;
 }
 
-.nexa-control-status[data-observing='true'] .bond-pulse,
+.nexa-control-status[data-observing='true'] .nexa-logo-orbit,
 .nexa-control-status[data-observing='true'] .nexa-control-thread::after {
   animation-duration: 6s;
 }
 
-.nexa-control-status[data-waiting='true'] .bond-pulse,
+.nexa-control-status[data-waiting='true'] .nexa-logo-orbit,
 .nexa-control-status[data-waiting='true'] .nexa-control-thread::after {
   animation-play-state: paused;
   opacity: .4;
 }
 
-@keyframes nexa-bond-connect { to { stroke-dashoffset: -93; } }
-@keyframes nexa-bond-breathe { 50% { opacity: .5; transform: scale(.91); } }
 @keyframes nexa-bond-travel {
   0% { transform: translateX(0); opacity: 0; }
   20%, 75% { opacity: .75; }
@@ -66,8 +73,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nexa-control-bond .bond-orbit,
-  .nexa-control-bond .bond-pulse,
+  .nexa-control-status,
+  .nexa-control-aura,
+  .nexa-control-bond .nexa-logo-orbit,
   .nexa-control-thread::after { animation: none; }
   .nexa-control-thread::after { left: 48%; opacity: .5; }
 }
