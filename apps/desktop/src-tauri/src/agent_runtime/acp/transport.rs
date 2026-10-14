@@ -21,6 +21,67 @@ use tokio::{
 pub(super) const RPC_TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
+async fn read_messages(source: impl tokio::io::AsyncRead + Unpin, tx: mpsc::Sender<Result<Value>>) {
+    let mut reader = BufReader::new(source);
+    let mut frame = Vec::new();
+    loop {
+        let chunk = match reader.fill_buf().await {
+            Ok([]) => {
+                if !frame.is_empty() {
+                    let _ = tx
+                        .send(Err(nexa_core::error::CoreError::StreamIncomplete(
+                            "Truncated ACP frame".into(),
+                        )))
+                        .await;
+                }
+                break;
+            }
+            Ok(chunk) => chunk,
+            Err(cause) => {
+                let _ = tx
+                    .send(Err(nexa_core::error::CoreError::StreamIncomplete(
+                        cause.to_string(),
+                    )))
+                    .await;
+                break;
+            }
+        };
+        let length = chunk
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(chunk.len(), |index| index + 1);
+        if frame.len() + length > MAX_FRAME {
+            let _ = tx.send(Err(error("ACP frame too large"))).await;
+            break;
+        }
+        let complete = chunk[length - 1] == b'\n';
+        frame.extend_from_slice(&chunk[..length]);
+        reader.consume(length);
+        if complete {
+            // Empty lines are harmless transport whitespace, commonly
+            // emitted by Windows package runners before initialization.
+            if frame.iter().all(u8::is_ascii_whitespace) {
+                frame.clear();
+                continue;
+            }
+            let parsed = serde_json::from_slice::<Value>(&frame)
+                .map_err(|_| error("Invalid ACP UTF-8 JSON"))
+                .and_then(|value| {
+                    if value["jsonrpc"] == "2.0" {
+                        Ok(value)
+                    } else {
+                        Err(error("Invalid ACP JSON-RPC version"))
+                    }
+                });
+            let invalid = parsed.is_err();
+            if tx.send(parsed).await.is_err() || invalid {
+                break;
+            }
+            frame.clear();
+        }
+    }
+}
+
 fn inherited_diagnostic_secrets(
     environment: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
 ) -> Vec<String> {
@@ -235,62 +296,7 @@ impl Wire {
             .take()
             .ok_or_else(|| error("ACP stdout unavailable"))?;
         let (tx, messages) = mpsc::channel(16);
-        let reader = tokio::spawn(async move {
-            let mut reader = BufReader::new(stdout);
-            let mut frame = Vec::new();
-            loop {
-                let chunk = match reader.fill_buf().await {
-                    Ok([]) => {
-                        if !frame.is_empty() {
-                            let _ = tx.send(Err(error("Truncated ACP frame"))).await;
-                        }
-                        break;
-                    }
-                    Ok(chunk) => chunk,
-                    Err(cause) => {
-                        let _ = tx
-                            .send(Err(nexa_core::error::CoreError::StreamIncomplete(
-                                cause.to_string(),
-                            )))
-                            .await;
-                        break;
-                    }
-                };
-                let length = chunk
-                    .iter()
-                    .position(|byte| *byte == b'\n')
-                    .map_or(chunk.len(), |index| index + 1);
-                if frame.len() + length > MAX_FRAME {
-                    let _ = tx.send(Err(error("ACP frame too large"))).await;
-                    break;
-                }
-                let complete = chunk[length - 1] == b'\n';
-                frame.extend_from_slice(&chunk[..length]);
-                reader.consume(length);
-                if complete {
-                    // Empty lines are harmless transport whitespace, commonly
-                    // emitted by Windows package runners before initialization.
-                    if frame.iter().all(u8::is_ascii_whitespace) {
-                        frame.clear();
-                        continue;
-                    }
-                    let parsed = serde_json::from_slice::<Value>(&frame)
-                        .map_err(|_| error("Invalid ACP UTF-8 JSON"))
-                        .and_then(|value| {
-                            if value["jsonrpc"] == "2.0" {
-                                Ok(value)
-                            } else {
-                                Err(error("Invalid ACP JSON-RPC version"))
-                            }
-                        });
-                    let invalid = parsed.is_err();
-                    if tx.send(parsed).await.is_err() || invalid {
-                        break;
-                    }
-                    frame.clear();
-                }
-            }
-        });
+        let reader = tokio::spawn(read_messages(stdout, tx));
         Ok(Self {
             child,
             _tree: tree,
@@ -475,6 +481,28 @@ fn rpc_result(message: Value, method: &str, secrets: &[String]) -> Result<Value>
 #[cfg(test)]
 mod launch_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn eof_mid_frame_is_recoverable_but_malformed_complete_json_is_not() {
+        for (bytes, interrupted) in [
+            (b"{\"jsonrpc\":\"2.0\",\"result\":".as_slice(), true),
+            (b"{\"jsonrpc\":\"2.0\",\"result\":\n".as_slice(), false),
+        ] {
+            let (tx, mut rx) = mpsc::channel(2);
+            read_messages(bytes, tx).await;
+            let error = rx.recv().await.unwrap().unwrap_err();
+            assert_eq!(
+                matches!(
+                    super::super::super::recover_interrupted_runtime(error),
+                    nexa_core::error::CoreError::RecoveryRequired {
+                        action_reconciliation: true,
+                        ..
+                    }
+                ),
+                interrupted
+            );
+        }
+    }
 
     #[test]
     fn rpc_failures_preserve_setup_diagnostics_without_disclosing_credentials_or_payloads() {

@@ -20,6 +20,20 @@ struct ToolBridge {
     fatal: mpsc::Sender<CoreError>,
 }
 
+fn sdk_error(error: github_copilot_sdk::Error) -> CoreError {
+    use github_copilot_sdk::{ErrorKind, SessionErrorKind};
+    if error.is_transport_failure()
+        || matches!(
+            error.kind(),
+            ErrorKind::Session(SessionErrorKind::EventLoopClosed | SessionErrorKind::Timeout(_))
+        )
+    {
+        CoreError::StreamIncomplete(format!("Copilot connection interrupted: {error}"))
+    } else {
+        protocol_error(error)
+    }
+}
+
 fn client_options(binary: std::path::PathBuf) -> Result<ClientOptions, CoreError> {
     // Empty mode requires an explicit persistence owner. Use the same official
     // home as Copilot login; never copy credentials into Nexa or a temp home.
@@ -132,14 +146,14 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .map_err(protocol_error)?;
         let client = Client::start(client_options(binary)?)
             .await
-            .map_err(protocol_error)?;
-        let models = client.list_models().await.map_err(protocol_error)?;
+            .map_err(sdk_error)?;
+        let models = client.list_models().await.map_err(sdk_error)?;
         let model = models.into_iter().find(|model| model.id == model_id).ok_or_else(|| protocol_error("the selected model is not available to this Copilot account; refresh its model list"))?;
         Ok::<_, CoreError>((client, model))
     };
     let (client, model) = tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot connection".into())),
-        result = tokio::time::timeout(Duration::from_secs(45), connect) => result.map_err(|_| protocol_error("Copilot connection timed out"))??,
+        result = tokio::time::timeout(Duration::from_secs(45), connect) => result.map_err(|_| CoreError::TransientLlm("Copilot connection timed out".into()))??,
     };
     let native_vision = model
         .capabilities
@@ -219,7 +233,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     }
     let session = tokio::select! {
         _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot session creation".into())),
-        result = tokio::time::timeout(Duration::from_secs(30), client.create_session(config)) => result.map_err(|_| protocol_error("Copilot session creation timed out"))?.map_err(protocol_error)?,
+        result = tokio::time::timeout(Duration::from_secs(30), client.create_session(config)) => result.map_err(|_| CoreError::TransientLlm("Copilot session creation timed out".into()))?.map_err(sdk_error)?,
     };
     let mut events = EventStream::start(session.subscribe())?;
     let initial = MessageOptions::new(&turn.prompt).with_attachments(
@@ -297,7 +311,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 // missing chunk groups still fail ensure_complete below.
                 log::warn!("Copilot history reconciliation unavailable; retaining ordered live events");
             }
-            if let Some(event) = completed.expect("native completion observed").map_err(protocol_error)? {
+            if let Some(event) = completed.expect("native completion observed").map_err(sdk_error)? {
                 project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
                 projection.persist_settled(&turn, response.take_settled()).await?;
             }
@@ -629,6 +643,33 @@ async fn discard_reasoning(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sdk_connection_loss_is_recoverable_without_retrying_agent_or_configuration_errors() {
+        use github_copilot_sdk::{ErrorKind, ProtocolErrorKind, SessionErrorKind};
+        for kind in [
+            ErrorKind::Io,
+            ErrorKind::Protocol(ProtocolErrorKind::RequestCancelled),
+            ErrorKind::Session(SessionErrorKind::EventLoopClosed),
+            ErrorKind::Session(SessionErrorKind::Timeout(Duration::from_secs(1))),
+        ] {
+            assert!(matches!(
+                recover_interrupted_runtime(sdk_error(kind.into())),
+                CoreError::RecoveryRequired {
+                    action_reconciliation: true,
+                    ..
+                }
+            ));
+        }
+        for kind in [
+            ErrorKind::Json,
+            ErrorKind::InvalidConfig,
+            ErrorKind::Session(SessionErrorKind::AgentError),
+            ErrorKind::Rpc { code: 401 },
+        ] {
+            assert!(matches!(sdk_error(kind.into()), CoreError::Agent(_)));
+        }
+    }
 
     #[tokio::test]
     async fn reasoning_offsets_survive_empty_settlement_between_live_events() {
