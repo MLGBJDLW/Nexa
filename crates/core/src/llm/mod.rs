@@ -311,6 +311,16 @@ impl Usage {
         &self,
         api_style: reasoning_profile::ReasoningApiStyle,
     ) -> u32 {
+        if api_style == reasoning_profile::ReasoningApiStyle::GeminiGenerateContent {
+            if let Some(tokens) = self
+                .provider_raw
+                .as_ref()
+                .and_then(|raw| raw["geminiContextTokens"].as_u64())
+                .and_then(|tokens| u32::try_from(tokens).ok())
+            {
+                return tokens;
+            }
+        }
         if api_style == reasoning_profile::ReasoningApiStyle::AnthropicMessages {
             self.prompt_tokens
                 .saturating_add(self.cache_read_tokens.unwrap_or_default())

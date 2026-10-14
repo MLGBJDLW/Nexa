@@ -1,5 +1,23 @@
 # Models and providers
 
+The October 14 catalog refresh adds Gemini 4 Argon and the reviewed Ark and
+OpenRouter routes, removes router entries confirmed to have no endpoints, and
+keeps announced future retirements selectable with deprecation metadata. The
+[source audit](research/2026-10-14-context-liveness-quota-upstream.md) records
+provider-specific dates and verification boundaries. Anthropic discovery now
+reads authenticated `/v1/models` pages; failure uses the existing curated fallback
+without claiming live discovery succeeded.
+
+Gemini Argon uses native thinking levels and preserves the exact request across
+`CONTINUATION` hops through the top-level `continuationToken`. A hop can contain
+only thinking. Usage snapshots are cumulative inside a hop and additive across
+hops; context occupancy is kept separate from repeated billed input. The adapter
+does not replay checkpoint tokens after an uncertain transport failure or raise
+the caller's output budget on `MAX_TOKENS`. Synchronous GenerateContent requests
+are capped at the documented 32,768-token initial-request limit; streaming keeps
+the supported 65,536-token limit. Sampling controls unsupported by Argon are
+omitted, and cancellation drops the current hop and prevents the next one.
+
 Nexa separates a saved connection, a selected model, and the capabilities of the
 exact endpoint behind that connection. Model names alone do not authorize a
 protocol, context limit, reasoning control, or credential route.
