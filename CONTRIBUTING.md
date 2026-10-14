@@ -1,7 +1,7 @@
 # Contributing to Nexa
 
 Start with the [documentation index](docs/README.md) and
-[architecture](docs/ARCHITECTURE.md). Changes should preserve source scope,
+[architecture](docs/runtime/ARCHITECTURE.md). Changes should preserve source scope,
 provider identity, durable task state, and user control at the runtime boundary
 that owns the behavior.
 
@@ -181,7 +181,7 @@ node scripts/check-cargo-boundaries.mjs
 Use `cargo test -p nexa-core --no-default-features --features host-tools` when
 testing all ordinary host tools without the optional local OCR/embedding models.
 The lightweight `nexa-model-catalog` crate can be checked independently of core.
-The [task evaluation guide](docs/AGENT_TASK_EVALUATION.md) documents reproducible
+The [task evaluation guide](docs/development/AGENT_TASK_EVALUATION.md) documents reproducible
 runtime tasks, opt-in model calls and version comparisons.
 
 ## Documentation and translations
@@ -191,12 +191,13 @@ runtime tasks, opt-in model calls and version comparisons.
   capabilities, setup, and limitations.
 - Update the smallest relevant contract when behavior changes. Distinguish
   implemented behavior, deployment requirements, and proposed formats.
-- Link maintained documents from [docs/README.md](docs/README.md). Link code,
+- Put maintained documents in the appropriate category under [docs/README.md](docs/README.md)
+  and link them from that category's README. Link code,
   schemas, manifests, and focused tests instead of copying volatile inventories.
 - Keep dated investigations, source dumps, and temporary plans in Issues/PRs or
   the ignored `docs/local/` and `docs/research/` work areas.
 - UI translations use namespace JSON files and generated TypeScript. Follow
-  [I18N_GUIDELINES.md](docs/I18N_GUIDELINES.md), including all shipped locales.
+  [I18N_GUIDELINES.md](docs/development/I18N_GUIDELINES.md), including all shipped locales.
 - Run `npm run docs:check` after changing links, headings, or the documentation
   index. This checks local references and navigation, not external service uptime
   or the truth of a technical claim.

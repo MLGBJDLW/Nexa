@@ -147,6 +147,17 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .as_ref()
         .and_then(|supports| supports.vision)
         .unwrap_or(false);
+    let context_policy = request
+        .db
+        .load_model_context_policy("github_copilot", None, &model_id)?
+        .unwrap_or_default();
+    let context_tier = context_policy.context_tier.as_deref().unwrap_or("default");
+    if !crate::commands::subscription_accounts::copilot_context_tiers(&model)
+        .iter()
+        .any(|tier| tier.id == context_tier)
+    {
+        return Err(protocol_error("The saved context tier is not available for this Copilot model. Open Context policy and select an available tier."));
+    }
     let mut turn = request.prepare(native_vision)?;
     let (fatal_tx, mut fatal_rx) = mpsc::channel(1);
     let bridge = Arc::new(ToolBridge {
@@ -173,6 +184,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .collect::<Vec<_>>();
     let mut config = SessionConfig::default()
         .with_model(&model_id)
+        .with_context_tier(context_tier)
         .with_streaming(true)
         .with_tools(tools)
         .with_tool_search(ToolSearchConfig::new().with_enabled(false))
@@ -268,9 +280,22 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             };
             // Full durable records repair any dropped deltas, and the cursor
             // prevents re-counting or resurrecting already-checkpointed output.
-            for event in seen.backfill(session.get_events().await.map_err(protocol_error)?)? {
-                project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
-                projection.persist_settled(&turn, response.take_settled()).await?;
+            let history = tokio::select! {
+                _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot history reconciliation".into())),
+                result = tokio::time::timeout(Duration::from_secs(15), session.get_events()) => result,
+            };
+            if let Ok(Ok(history)) = history {
+                // Native compaction can retire the upstream cursor. Never
+                // replay that unanchored history or fail a complete live turn.
+                for event in seen.backfill(history).unwrap_or_default() {
+                    project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
+                    projection.persist_settled(&turn, response.take_settled()).await?;
+                }
+            } else {
+                // The ordered spool already drained through native idle. An
+                // optional history read cannot hang or invalidate that answer;
+                // missing chunk groups still fail ensure_complete below.
+                log::warn!("Copilot history reconciliation unavailable; retaining ordered live events");
             }
             if let Some(event) = completed.expect("native completion observed").map_err(protocol_error)? {
                 project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
@@ -321,6 +346,7 @@ async fn project_event(
     }
     let data = &event.data;
     match event.event_type.as_str() {
+        "assistant.streaming_delta" => projection.network_progress(tx).await?,
         "assistant.message_delta" => {
             let id = data
                 .get("messageId")
@@ -464,6 +490,15 @@ async fn project_event(
             }
         }
         "assistant.usage" => {
+            if data
+                .get("initiator")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(str::is_empty)
+            {
+                if let Some(model) = data["model"].as_str() {
+                    projection.observe_runtime_model(model);
+                }
+            }
             let tokens = |key: &str| {
                 data.get(key)
                     .and_then(serde_json::Value::as_u64)
@@ -555,16 +590,20 @@ async fn project_event(
             return Err(protocol_error(format!("Copilot: {message} [{details}]")));
         }
         "session.compaction_start" => {
-            tx.send(AgentEvent::ControllerStatus {
-                code: "external_agent_compacting".into(),
-                content: "Copilot is compacting its context".into(),
-                tone: None,
-            })
-            .await
-            .map_err(protocol_error)?;
+            projection.compaction(tx, "copilot", "in_progress").await?;
         }
         "session.compaction_complete" => {
-            tx.send(AgentEvent::ControllerStatus { code: "external_agent_active".into(), content: if data["success"] == false { "Copilot context compaction did not complete; waiting for the runtime's next event" } else { "Copilot context compacted" }.into(), tone: None }).await.map_err(protocol_error)?;
+            projection
+                .compaction(
+                    tx,
+                    "copilot",
+                    if data["success"] == false {
+                        "failed"
+                    } else {
+                        "completed"
+                    },
+                )
+                .await?;
         }
         _ => {}
     }

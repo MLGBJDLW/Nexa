@@ -39,6 +39,7 @@ import {
 } from '../src/lib/useElapsedTime';
 import { armStreamWatchdog, clearStreamWatchdog } from '../src/lib/streaming/watchdog';
 import { streamStore } from '../src/lib/streamStore';
+import { durableRunReconciler } from '../src/lib/streaming/runReconciliationRuntime';
 import { ConversationFrameBatcher } from '../src/lib/streaming/frameBatcher';
 import { parseAgentFrontendEvent } from '../src/lib/streaming/runEventWire';
 import { applyStreamBlockDelta } from '../src/lib/streaming/blockProjection';
@@ -3768,6 +3769,29 @@ test('bounded replay retains an old tool that is still waiting for approval', as
     'completed tool retention cannot discard a pending interaction');
   assert(state.streamRounds.length <= 128 && state.traceEvents.length <= 512, 'completed history stays bounded');
   streamStore.clearStream(id);
+});
+
+test('a temporarily unavailable event journal preserves the running turn and buffered output', async () => {
+  const id = 'recoverable-event-journal-outage';
+  const original = durableRunReconciler.recoverGap;
+  durableRunReconciler.recoverGap = async () => ({ kind: 'exhausted' });
+  try {
+    streamStore.startStream(id);
+    const event = (eventSeq: number, offset: number, delta: string) => frontendEvent(runEvent({
+      eventSeq, kind: 'outputDelta', payload: { blockId: 'answer', channel: 'answer', offset, delta },
+    }));
+    streamStore.dispatch(id, event(1, 0, 'A'));
+    streamStore.dispatch(id, event(3, 2, 'C'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const state = streamStore.getStream(id)!;
+    assertEqual(state.isStreaming, true, 'journal unavailability is not a terminal runtime failure');
+    assertEqual(state.error, null, 'no fabricated agent error');
+    streamStore.dispatch(id, event(2, 1, 'B'));
+    assertEqual(streamStore.getStream(id)?.streamText, 'ABC', 'late missing event drains preserved successors');
+  } finally {
+    durableRunReconciler.recoverGap = original;
+    streamStore.clearStream(id);
+  }
 });
 
 async function main(): Promise<void> {

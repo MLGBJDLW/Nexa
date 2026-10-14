@@ -17,7 +17,7 @@ test('rejects the existing local research and investigation locations', () => {
 });
 
 test('keeps maintained documentation, product prompts, packaged skills and test fixtures', () => {
-  for (const file of ['docs/ARCHITECTURE.md', 'docs/SUBSCRIPTION_AGENTS.md',
+  for (const file of ['docs/runtime/ARCHITECTURE.md', 'docs/guides/SUBSCRIPTION_AGENTS.md',
     'crates/core/prompts/system.md', 'crates/core/assets/skills/skill-creator/SKILL.md',
     'crates/core/assets/skills/research-synthesis/references/research-patterns.md',
     'testdata/sample_vault/notes/project-ideas.md', '.github/workflows/ci.yml']) {

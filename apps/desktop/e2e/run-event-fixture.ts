@@ -6,6 +6,7 @@ export const RUN_EVENT_FIXTURE_INIT_SCRIPT = String.raw`
   const answerOffsets = new Map();
   const thinkingOffsets = new Map();
   const blockGenerations = new Map();
+  const runIdentities = new Map();
   const toolRuns = new Map();
   const bytes = value => new TextEncoder().encode(value).byteLength;
   const owner = { id: 'e2e', name: 'E2E fixture', capability: 'test', description: 'Playwright fixture' };
@@ -43,6 +44,9 @@ export const RUN_EVENT_FIXTURE_INIT_SCRIPT = String.raw`
     const conversationId = String(input.conversationId || 'conversation-e2e');
     const runId = String(input.runId || 'run-' + conversationId);
     const turnId = String(input.turnId || 'turn-' + conversationId);
+    const previousRun = runIdentities.get(conversationId);
+    if (previousRun && previousRun !== runId) rotateBlocks(conversationId);
+    runIdentities.set(conversationId, runId);
     const type = String(input.type || 'status');
     if (type === 'thinking' && !String(input.content || '')) {
       return {

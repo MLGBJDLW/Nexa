@@ -377,6 +377,7 @@ pub(crate) struct DesktopApprovalCallbackInput {
     task_run_id: String,
     approval_runtime: DesktopAgentApprovalRuntime,
     cancellation: CancellationToken,
+    desktop_stop: CancellationToken,
 }
 
 mod content;

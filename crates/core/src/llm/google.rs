@@ -202,6 +202,8 @@ struct GeminiCandidate {
     content: Option<GeminiResponseContent>,
     finish_reason: Option<String>,
     #[serde(default)]
+    continuation_token: Option<String>,
+    #[serde(default)]
     grounding_metadata: Option<GeminiGroundingMetadata>,
 }
 
@@ -744,7 +746,7 @@ fn supports_thinking(model: &str) -> bool {
 
     // Forward-compat: any gemini-<major>. where major >= 3
     if let Some(rest) = name.strip_prefix("gemini-") {
-        if let Some(major_str) = rest.split('.').next() {
+        if let Some(major_str) = rest.split(['.', '-']).next() {
             if let Ok(major) = major_str.parse::<u32>() {
                 return major >= 3;
             }
@@ -761,7 +763,7 @@ fn uses_thinking_levels(model: &str) -> bool {
         .to_ascii_lowercase();
 
     name.strip_prefix("gemini-")
-        .and_then(|rest| rest.split('.').next())
+        .and_then(|rest| rest.split(['.', '-']).next())
         .and_then(|major| major.parse::<u32>().ok())
         .is_some_and(|major| major >= 3)
 }
@@ -779,7 +781,7 @@ fn uses_latest_generation_contract(model: &str) -> bool {
     let Some(version) = name.strip_prefix("gemini-") else {
         return false;
     };
-    let mut parts = version.split('.');
+    let mut parts = version.split(['.', '-']);
     let major = parts.next().and_then(|part| part.parse::<u32>().ok());
     let minor = parts.next().and_then(|part| {
         part.split(|character: char| !character.is_ascii_digit())
@@ -795,6 +797,7 @@ fn normalize_thinking_level(model: &str, level: &ReasoningEffort) -> String {
     let normalized = normalized_model_name(model).to_ascii_lowercase();
     let minimum = if normalized.starts_with("gemini-3.7-flash")
         || normalized.starts_with("gemini-3.8-flash")
+        || normalized == "gemini-4-argon"
     {
         "low"
     } else {
@@ -819,6 +822,7 @@ fn thinking_budget_to_level(model: &str, budget: u32) -> String {
                 let normalized = normalized_model_name(model).to_ascii_lowercase();
                 normalized.starts_with("gemini-3.7-flash")
                     || normalized.starts_with("gemini-3.8-flash")
+                    || normalized == "gemini-4-argon"
             } =>
         {
             "low"
@@ -1294,9 +1298,41 @@ struct GeminiToolCallStreamState {
     provider_parts: Vec<serde_json::Value>,
     provider_part_indices: HashMap<String, usize>,
     next_synthetic_id: u64,
+    continuation_token: Option<String>,
+    completed_hop_usage: Usage,
+    last_hop_usage: Usage,
+    first_prompt_tokens: Option<u32>,
 }
 
 impl GeminiToolCallStreamState {
+    fn cumulative_usage(&mut self, usage: Usage) -> Usage {
+        if usage.total_tokens > 0 {
+            self.first_prompt_tokens.get_or_insert(usage.prompt_tokens);
+            self.last_hop_usage = usage;
+        }
+        let mut total = self.completed_hop_usage.clone();
+        let hop = &self.last_hop_usage;
+        total.prompt_tokens = total.prompt_tokens.saturating_add(hop.prompt_tokens);
+        total.completion_tokens = total
+            .completion_tokens
+            .saturating_add(hop.completion_tokens);
+        total.total_tokens = total.total_tokens.saturating_add(hop.total_tokens);
+        for (target, source) in [
+            (&mut total.thinking_tokens, hop.thinking_tokens),
+            (&mut total.tool_prompt_tokens, hop.tool_prompt_tokens),
+            (&mut total.cache_read_tokens, hop.cache_read_tokens),
+        ] {
+            if let Some(value) = source {
+                *target = Some(target.unwrap_or(0).saturating_add(value));
+            }
+        }
+        if self.completed_hop_usage.total_tokens > 0 {
+            total.provider_raw = Some(
+                serde_json::json!({"geminiContextTokens": self.first_prompt_tokens.unwrap_or(0).saturating_add(total.completion_tokens).saturating_add(total.thinking_tokens.unwrap_or(0))}),
+            );
+        }
+        total
+    }
     fn record_provider_parts(&mut self, response: &GeminiResponse) -> Result<(), CoreError> {
         let Some(parts) = response
             .candidates
@@ -1485,6 +1521,23 @@ async fn emit_gemini_response_chunk(
     tool_call_state: &mut GeminiToolCallStreamState,
     saw_finish_reason: &mut bool,
 ) -> Result<bool, CoreError> {
+    let continuation = resp
+        .candidates
+        .as_ref()
+        .and_then(|items| items.first())
+        .filter(|candidate| candidate.finish_reason.as_deref() == Some("CONTINUATION"));
+    if let Some(candidate) = continuation {
+        tool_call_state.continuation_token = Some(
+            candidate
+                .continuation_token
+                .as_deref()
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| {
+                    CoreError::StreamIncomplete("Gemini continuation omitted its token".into())
+                })?
+                .to_string(),
+        );
+    }
     let citation_appendix = extract_search_evidence(&resp)
         .as_ref()
         .map(super::native_search::render_citation_appendix)
@@ -1498,6 +1551,7 @@ async fn emit_gemini_response_chunk(
     tool_call_state.record_provider_parts(&resp)?;
     let (mut text_delta, tool_calls, finish_reason, usage, thinking_delta) =
         extract_response(&resp)?;
+    let usage = tool_call_state.cumulative_usage(usage);
     text_delta.push_str(&citation_appendix);
     if has_finish {
         *saw_finish_reason = true;
@@ -1505,6 +1559,19 @@ async fn emit_gemini_response_chunk(
 
     for tool_call in tool_calls {
         tool_call_state.record_snapshot(tool_call)?;
+    }
+
+    if continuation.is_some() {
+        // A hop can contain only thought tokens. Keep the model sample open;
+        // no tool effect or final answer is committed at this boundary.
+        return Ok(send_gemini_content_chunks(
+            tx,
+            text_delta,
+            thinking_delta,
+            None,
+            (usage.total_tokens > 0).then_some(usage),
+        )
+        .await);
     }
 
     if has_finish && tool_call_state.pending.is_empty() {
@@ -1567,16 +1634,17 @@ async fn process_gemini_sse_event(
 /// Parse Gemini's SSE streaming response.
 ///
 /// Gemini streams the same JSON response shape as non-streaming, one chunk per SSE event.
-async fn parse_gemini_stream(
+async fn parse_gemini_hop(
     response: reqwest::Response,
     tx: mpsc::Sender<Result<StreamChunk, CoreError>>,
     stream_idle_timeout: Duration,
-) -> Result<(), CoreError> {
+    tool_call_state: &mut GeminiToolCallStreamState,
+) -> Result<Option<String>, CoreError> {
     let mut byte_stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut pending_utf8: Vec<u8> = Vec::new();
     let mut event_data_lines: Vec<String> = Vec::new();
-    let mut tool_call_state = GeminiToolCallStreamState::default();
+    tool_call_state.continuation_token = None;
     let mut saw_finish_reason = false;
 
     'stream: while let Some(chunk_result) = next_stream_item_with_idle_timeout(
@@ -1607,13 +1675,8 @@ async fn parse_gemini_stream(
 
                 let data = event_data_lines.join("\n");
                 event_data_lines.clear();
-                if !process_gemini_sse_event(
-                    &data,
-                    &tx,
-                    &mut tool_call_state,
-                    &mut saw_finish_reason,
-                )
-                .await?
+                if !process_gemini_sse_event(&data, &tx, tool_call_state, &mut saw_finish_reason)
+                    .await?
                 {
                     break 'stream;
                 }
@@ -1639,12 +1702,12 @@ async fn parse_gemini_stream(
     // Flush a trailing event if the stream ended without a blank line.
     if !event_data_lines.is_empty() {
         let data = event_data_lines.join("\n");
-        let _ = process_gemini_sse_event(&data, &tx, &mut tool_call_state, &mut saw_finish_reason)
-            .await?;
+        let _ =
+            process_gemini_sse_event(&data, &tx, tool_call_state, &mut saw_finish_reason).await?;
     }
 
     if saw_finish_reason {
-        Ok(())
+        Ok(tool_call_state.continuation_token.take())
     } else {
         // Stream ended without a finishReason — server likely crashed or disconnected.
         Err(CoreError::StreamIncomplete(
@@ -1658,6 +1721,7 @@ async fn parse_gemini_stream(
 // ---------------------------------------------------------------------------
 
 /// Google Gemini LLM provider.
+#[derive(Clone)]
 pub struct GeminiProvider {
     transport: Arc<HttpTransport>,
     config: ProviderConfig,
@@ -1901,74 +1965,122 @@ impl LlmProvider for GeminiProvider {
         );
         let request = projected.as_ref();
         let (system_instruction, contents) = convert_messages(&request.messages);
-        let body = build_request_body(request, system_instruction, contents);
-        let body_bytes = serialized_json_body(&body, "Gemini completion request")?;
-
-        let response = with_request_timeout(
-            with_google_api_key(transport.client().post(&url), api_key)
-                .header("Content-Type", "application/json")
-                .body(body_bytes),
-            self.request_timeout,
-        )
-        .send()
-        .await
-        .inspect_err(|error| {
-            transport.record_transport_failure(error);
-        })
-        .map_err(|e| {
-            CoreError::Llm(format!(
-                "Request failed: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
-
-        let status = response.status().as_u16();
-        let response = match self.check_response(response).await {
-            Ok(response) => response,
-            Err(error) => {
-                if let Some(fallback) =
-                    super::document::rejected_document_fallback(request, status, &error)
-                {
-                    tracing::info!(
-                        "Provider rejected native document input; retrying local extraction once"
-                    );
-                    return Box::pin(self.complete(&fallback)).await;
-                }
-                return Err(error);
+        let mut body =
+            serde_json::to_value(build_request_body(request, system_instruction, contents))?;
+        if normalized_model_name(&request.model) == "gemini-4-argon" {
+            if let Some(limit) = body["generationConfig"]["maxOutputTokens"].as_u64() {
+                body["generationConfig"]["maxOutputTokens"] = serde_json::json!(limit.min(32_768));
             }
-        };
+        }
+        let mut hop_state = GeminiToolCallStreamState::default();
+        let mut tokens = HashSet::new();
+        let mut full_content = String::new();
+        let mut full_thinking = String::new();
+        loop {
+            let body_bytes = serialized_json_body(&body, "Gemini completion request")?;
 
-        let resp: GeminiResponse = response
-            .json()
+            let response = with_request_timeout(
+                with_google_api_key(transport.client().post(&url), api_key)
+                    .header("Content-Type", "application/json")
+                    .body(body_bytes),
+                self.request_timeout,
+            )
+            .send()
             .await
             .inspect_err(|error| {
                 transport.record_transport_failure(error);
             })
             .map_err(|e| {
                 CoreError::Llm(format!(
-                    "Failed to parse response: {}",
+                    "Request failed: {}",
                     super::transport::describe_http_error(&e)
                 ))
             })?;
-        transport.record_transport_success();
 
-        let (mut content, tool_calls, finish_reason, usage, thinking) = extract_response(&resp)?;
-        if let Some(evidence) = extract_search_evidence(&resp) {
-            content.push_str(&super::native_search::render_citation_appendix(&evidence));
+            let status = response.status().as_u16();
+            let response = match self.check_response(response).await {
+                Ok(response) => response,
+                Err(error) => {
+                    if let Some(fallback) = body
+                        .get("continuationToken")
+                        .is_none()
+                        .then(|| {
+                            super::document::rejected_document_fallback(request, status, &error)
+                        })
+                        .flatten()
+                    {
+                        tracing::info!(
+                        "Provider rejected native document input; retrying local extraction once"
+                    );
+                        return Box::pin(self.complete(&fallback)).await;
+                    }
+                    return Err(error);
+                }
+            };
+
+            let resp: GeminiResponse = response
+                .json()
+                .await
+                .inspect_err(|error| {
+                    transport.record_transport_failure(error);
+                })
+                .map_err(|e| {
+                    CoreError::Llm(format!(
+                        "Failed to parse response: {}",
+                        super::transport::describe_http_error(&e)
+                    ))
+                })?;
+            transport.record_transport_success();
+
+            let (mut content, tool_calls, finish_reason, usage, thinking) =
+                extract_response(&resp)?;
+            if let Some(evidence) = extract_search_evidence(&resp) {
+                content.push_str(&super::native_search::render_citation_appendix(&evidence));
+            }
+
+            full_content.push_str(&content);
+            if let Some(thought) = thinking {
+                full_thinking.push_str(&thought);
+            }
+            for call in tool_calls {
+                hop_state.record_snapshot(call)?;
+            }
+            let usage = hop_state.cumulative_usage(usage);
+            if resp
+                .candidates
+                .as_ref()
+                .and_then(|items| items.first())
+                .is_some_and(|candidate| candidate.finish_reason.as_deref() == Some("CONTINUATION"))
+            {
+                let token = resp
+                    .candidates
+                    .as_ref()
+                    .and_then(|items| items.first())
+                    .and_then(|candidate| candidate.continuation_token.as_deref())
+                    .filter(|token| !token.is_empty())
+                    .ok_or_else(|| {
+                        CoreError::StreamIncomplete("Gemini continuation omitted its token".into())
+                    })?;
+                if !tokens.insert(blake3::hash(token.as_bytes())) {
+                    return Err(CoreError::StreamIncomplete(
+                        "Gemini repeated a continuation token".into(),
+                    ));
+                }
+                body["continuationToken"] = serde_json::Value::String(token.into());
+                hop_state.completed_hop_usage = usage;
+                hop_state.last_hop_usage = Usage::default();
+                continue;
+            }
+            let tool_calls = hop_state.take_pending();
+            return Ok(CompletionResponse {
+                content: full_content,
+                tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
+                finish_reason,
+                usage,
+                thinking: (!full_thinking.is_empty()).then_some(full_thinking),
+                provider_replay: None,
+            });
         }
-
-        Ok(CompletionResponse {
-            content,
-            tool_calls: if tool_calls.is_empty() {
-                None
-            } else {
-                Some(tool_calls)
-            },
-            finish_reason,
-            usage,
-            thinking,
-            provider_replay: None,
-        })
     }
 
     async fn stream_events(
@@ -2031,12 +2143,53 @@ impl LlmProvider for GeminiProvider {
         info!("Gemini SSE stream started");
 
         let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
+        let provider = self.clone();
+        let api_key = api_key.to_string();
+        // streamGenerateContent supports 65,536-token hops, unlike the direct
+        // non-streaming REST 32,768 cap. maxOutputTokens is the total across
+        // hops, so keep it unchanged when adding a continuationToken.
+        // https://ai.google.dev/gemini-api/docs/generate-content/long-decode
+        let mut continuation_body = serde_json::to_value(&body)?;
         tokio::spawn(async move {
-            let parser_tx = tx.clone();
+            let operation = async {
+                let mut response = response;
+                let mut hop_state = GeminiToolCallStreamState::default();
+                let mut tokens = HashSet::new();
+                loop {
+                    let Some(token) =
+                        parse_gemini_hop(response, tx.clone(), stream_idle_timeout, &mut hop_state)
+                            .await?
+                    else {
+                        return Ok::<_, CoreError>(());
+                    };
+                    if !tokens.insert(blake3::hash(token.as_bytes())) {
+                        return Err(CoreError::StreamIncomplete(
+                            "Gemini repeated a continuation token".into(),
+                        ));
+                    }
+                    hop_state.completed_hop_usage = hop_state.cumulative_usage(Usage::default());
+                    hop_state.last_hop_usage = Usage::default();
+                    continuation_body["continuationToken"] = serde_json::Value::String(token);
+                    // Continue the exact native request. Partial text and thought
+                    // signatures are never appended to its original contents.
+                    response = send_stream_start_request(
+                        with_google_api_key(transport.client().post(&url), &api_key)
+                            .header("Content-Type", "application/json")
+                            .body(serialized_json_body(
+                                &continuation_body,
+                                "Gemini continuation",
+                            )?),
+                        provider.request_timeout,
+                        "Gemini continuation",
+                    )
+                    .await?;
+                    response = provider.check_response(response).await?;
+                }
+            };
             let result = tokio::select! {
                 biased;
                 _ = tx.closed() => return,
-                result = parse_gemini_stream(response, parser_tx, stream_idle_timeout) => result,
+                result = operation => result,
             };
             if let Err(e) = result {
                 transport.record_transport_failure(&e);
@@ -2068,6 +2221,125 @@ impl LlmProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn argon_continuation_keeps_original_request_and_counts_each_hop_once() {
+        use futures::StreamExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let mut original: Option<serde_json::Value> = None;
+            for hop in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let (head, length) = loop {
+                    let mut buffer = [0; 4096];
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&buffer[..count]);
+                    if let Some(head) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&bytes[..head]).to_lowercase();
+                        let length = headers
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length:"))
+                            .unwrap()
+                            .trim()
+                            .parse::<usize>()
+                            .unwrap();
+                        break (head + 4, length);
+                    }
+                };
+                while bytes.len() < head + length {
+                    let mut buffer = [0; 4096];
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&buffer[..count]);
+                }
+                let mut body: serde_json::Value =
+                    serde_json::from_slice(&bytes[head..head + length]).unwrap();
+                assert_eq!(body["generationConfig"]["maxOutputTokens"], 65_536);
+                if hop == 0 {
+                    original = Some(body);
+                } else {
+                    assert_eq!(
+                        body.as_object_mut()
+                            .unwrap()
+                            .remove("continuationToken")
+                            .unwrap(),
+                        "opaque-hop"
+                    );
+                    assert_eq!(Some(body), original);
+                }
+                let response = if hop == 0 {
+                    serde_json::json!({"candidates":[{"content":{"parts":[{"text":"reasoning", "thought":true}]},"finishReason":"CONTINUATION","continuationToken":"opaque-hop"}],"usageMetadata":{"promptTokenCount":10,"thoughtsTokenCount":2,"totalTokenCount":12}})
+                } else {
+                    serde_json::json!({"candidates":[{"content":{"parts":[{"text":"Answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":3,"totalTokenCount":15}})
+                };
+                // Duplicate cumulative usage snapshots within one hop must not
+                // be billed twice, even when the first hop has no visible text.
+                let usage = if hop == 0 {
+                    "data: {\"usageMetadata\":{\"promptTokenCount\":10,\"thoughtsTokenCount\":2,\"totalTokenCount\":12}}\n\n"
+                } else {
+                    ""
+                };
+                let body = format!("{usage}data: {response}\n\n");
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let provider = GeminiProvider::new(ProviderConfig {
+            provider_type: super::super::ProviderType::Google,
+            base_url: Some(format!("http://{address}")),
+            api_key: Some("fixture".into()),
+            org_id: None,
+            timeout_secs: Some(5),
+            streaming: Default::default(),
+        })
+        .unwrap();
+        let request = CompletionRequest {
+            model: "gemini-4-argon".into(),
+            messages: vec![Message::text(Role::User, "Continue reasoning")],
+            max_tokens: Some(65_536),
+            ..Default::default()
+        };
+        let mut events = provider.stream_events(&request).await.unwrap();
+        let mut answer = String::new();
+        let mut finishes = Vec::new();
+        let mut usage = Usage::default();
+        while let Some(event) = events.next().await {
+            match event {
+                ProviderStreamEvent::Chunk { chunk } => {
+                    answer.push_str(&chunk.delta);
+                    if let Some(value) = chunk.finish_reason {
+                        finishes.push(value);
+                    }
+                    if let Some(value) = chunk.usage {
+                        usage = value;
+                    }
+                }
+                ProviderStreamEvent::TerminalError { failure } => panic!("{failure:?}"),
+                _ => {}
+            }
+        }
+        server.await.unwrap();
+        assert_eq!(answer, "Answer");
+        assert_eq!(finishes, [FinishReason::Stop]);
+        assert_eq!(usage.total_tokens, 27);
+        assert_eq!(
+            usage.context_input_tokens(ReasoningApiStyle::GeminiGenerateContent),
+            15
+        );
+    }
+
+    #[test]
+    fn argon_uses_levels_and_omits_unsupported_sampling_controls() {
+        assert!(uses_thinking_levels("gemini-4-argon"));
+        assert!(uses_latest_generation_contract("models/gemini-4-argon"));
+        assert_eq!(
+            normalize_thinking_level("gemini-4-argon", &ReasoningEffort::Minimal),
+            "low"
+        );
+    }
 
     #[test]
     fn gemini_auth_uses_the_documented_header_without_leaking_keys_into_urls() {

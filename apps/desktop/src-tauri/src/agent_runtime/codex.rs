@@ -555,6 +555,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                                 let tool = required_string(params,"tool")?;
                                 let name = aliases.get(&tool).ok_or_else(|| protocol_error("Codex requested an unregistered dynamic tool"))?.clone();
                                 let call = ToolCallRequest {id:required_string(params,"callId")?,name,arguments:params["arguments"].to_string(),thought_signature:None};
+                                projection.resume_after_retry(&turn.events).await?;
                                 let tools = turn.transcript.nexa_tools().clone(); let id = message["id"].clone();
                                 projection.clear_answer();
                                 pending.push(async move { (id,tools.execute(call).await) });
@@ -619,7 +620,41 @@ async fn project_event(
     method: &str,
     params: &Value,
 ) -> Result<bool, CoreError> {
+    let resumed_delta = matches!(
+        method,
+        "item/agentMessage/delta" | "item/reasoning/summaryTextDelta"
+    ) && params["delta"]
+        .as_str()
+        .is_some_and(|delta| !delta.is_empty());
+    let resumed_item = matches!(method, "item/started" | "item/completed")
+        && matches!(
+            params["item"]["type"].as_str(),
+            Some("agentMessage" | "reasoning")
+        );
+    if resumed_delta || resumed_item {
+        projection.resume_after_retry(&turn.events).await?;
+    }
     match method {
+        "item/started" if params["item"]["type"] == "contextCompaction" => {
+            projection
+                .compaction(
+                    &turn.events,
+                    params["item"]["id"].as_str().unwrap_or("codex"),
+                    "in_progress",
+                )
+                .await?;
+        }
+        "error" if params["willRetry"] == true => {
+            projection.retrying = true;
+            turn.events
+                .send(AgentEvent::ControllerStatus {
+                    code: "external_agent_retrying".into(),
+                    content: "Codex is retrying a recoverable provider error".into(),
+                    tone: None,
+                })
+                .await
+                .map_err(protocol_error)?;
+        }
         "warning" => {
             turn.events
                 .send(AgentEvent::ControllerStatus {
@@ -661,6 +696,15 @@ async fn project_event(
         }
         "item/completed" => {
             let item = &params["item"];
+            if item["type"] == "contextCompaction" {
+                projection
+                    .compaction(
+                        &turn.events,
+                        item["id"].as_str().unwrap_or("codex"),
+                        "completed",
+                    )
+                    .await?;
+            }
             if item["type"] == "reasoning" {
                 projection.finish_reasoning(&required_string(item, "id")?);
             }
@@ -704,6 +748,12 @@ async fn project_event(
                 } else {
                     projection.complete(&turn.events, &id, text).await?;
                 }
+            }
+        }
+        "model/rerouted" => {
+            if let Some(model) = params["toModel"].as_str() {
+                projection.observe_runtime_model(model);
+                projection.publish_usage(&turn.events).await?;
             }
         }
         "thread/tokenUsage/updated" => {
@@ -761,6 +811,86 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn recoverable_error_clears_on_same_block_progress_without_finishing_compaction() {
+        let (request, mut rx, _, _) = super::super::tests::fixture(AgentRuntimeKind::Codex, "test");
+        let turn = request.prepare(false).unwrap();
+        let mut projection = Projection::for_turn(&turn);
+        let mut seen = nexa_core::runtime_receipts::RuntimeReceipts::new().unwrap();
+        for (method, params) in [
+            (
+                "item/agentMessage/delta",
+                json!({"itemId":"same", "delta":"Before"}),
+            ),
+            ("error", json!({"willRetry":true})),
+            (
+                "item/started",
+                json!({"item":{"type":"contextCompaction", "id":"compact"}}),
+            ),
+            (
+                "item/agentMessage/delta",
+                json!({"itemId":"same", "delta":"After"}),
+            ),
+        ] {
+            assert!(
+                !project_event(&mut projection, &turn, &mut seen, method, &params)
+                    .await
+                    .unwrap()
+            );
+        }
+        let mut codes = Vec::new();
+        let mut output = String::new();
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                AgentEvent::ControllerStatus { code, .. } => codes.push(code),
+                AgentEvent::StreamBlockDelta { delta, .. } => output.push_str(&delta),
+                _ => {}
+            }
+        }
+        assert_eq!(
+            codes,
+            [
+                "external_agent_retrying",
+                "external_agent_compacting",
+                "external_agent_active"
+            ]
+        );
+        assert!(!projection.retrying);
+        assert_eq!(output, "BeforeAfter");
+    }
+
+    #[tokio::test]
+    async fn native_model_reroute_replaces_identity_and_invalidates_capacity() {
+        let (request, mut rx, _, _) = super::super::tests::fixture(AgentRuntimeKind::Codex, "test");
+        let turn = request.prepare(false).unwrap();
+        let mut projection = Projection::for_turn(&turn);
+        projection
+            .context_snapshot(&turn.events, 100, Some(200_000), vec![])
+            .await
+            .unwrap();
+        let mut seen = nexa_core::runtime_receipts::RuntimeReceipts::new().unwrap();
+        assert!(!project_event(
+            &mut projection,
+            &turn,
+            &mut seen,
+            "model/rerouted",
+            &json!({"fromModel":"test", "toModel":"fallback-model"})
+        )
+        .await
+        .unwrap());
+        let mut latest = None;
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::UsageUpdate {
+                context_breakdown, ..
+            } = event
+            {
+                latest = context_breakdown;
+            }
+        }
+        let context = latest.unwrap();
+        assert_eq!(context.runtime_model.as_deref(), Some("fallback-model"));
+        assert_eq!(context.context_window, None);
+    }
     #[test]
     fn mcp_dynamic_tools_have_stable_nonreserved_aliases_and_original_dispatch_names() {
         let definition = |name: &str| nexa_core::llm::ToolDefinition {

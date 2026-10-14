@@ -1532,7 +1532,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"gemini-3.8-flash"));
+        assert_eq!(ids.first(), Some(&"gemini-4-argon"));
         assert!(ids.contains(&"gemini-3.7-flash"));
         assert!(ids.contains(&"gemini-3.6-flash"));
         assert!(ids.contains(&"gemini-3.5-flash-lite"));

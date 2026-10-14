@@ -645,7 +645,7 @@ test.beforeEach(async ({ page }) => {
           return {
             ...base,
             authenticated: true,
-            entitlementVerified: true,
+            entitlementVerified: state !== "quota-only",
             authType: "user",
             login: "octocat",
             models: [
@@ -1541,6 +1541,74 @@ test("settings projects the Codex subscription account and usage without an API 
   await expect(account).not.toContainText("API key");
 });
 
+for (const runtime of ['codex', 'copilot'] as const) {
+  test(`${runtime} cancelled login cannot be restored by a shared stale refresh`, async ({ page }) => {
+    await page.goto('/settings');
+    await page.evaluate(name => localStorage.setItem(`nexa-e2e-${name}-account`, 'pending'), runtime);
+    await page.reload();
+    await page.getByRole('tab', { name: 'AI Providers' }).click();
+    await page.getByRole('button', { name: 'Add Provider' }).click();
+    await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+    await page.locator(`[data-provider-preset-id="${runtime === 'codex' ? 'openai-codex' : 'github-copilot'}"]`).click();
+    const account = page.getByTestId(`${runtime}-subscription-account`);
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toBeVisible();
+    await page.evaluate(name => {
+      const state = window as any;
+      const invoke = state.__TAURI_INTERNALS__.invoke;
+      let hold = true;
+      state.__TAURI_INTERNALS__.invoke = async (command: string, args: unknown) => {
+        const result = await invoke(command, args);
+        if (command === `get_${name}_account_snapshot_cmd` && hold) {
+          hold = false;
+          await new Promise(resolve => { state.__releaseStaleLoginRead = resolve; });
+        }
+        return result;
+      };
+    }, runtime);
+    await account.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => Boolean((window as any).__releaseStaleLoginRead))).toBe(true);
+    await account.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toHaveCount(0);
+    await account.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.evaluate(() => (window as any).__releaseStaleLoginRead());
+    await expect(account.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toHaveCount(0);
+    await expect(account).toContainText('Signed out');
+  });
+
+  test(`${runtime} login polling recovers after a failed account read`, async ({ page }) => {
+    await page.goto('/settings');
+    await page.evaluate(name => localStorage.setItem(`nexa-e2e-${name}-account`, 'pending'), runtime);
+    await page.reload();
+    await page.getByRole('tab', { name: 'AI Providers' }).click();
+    await page.getByRole('button', { name: 'Add Provider' }).click();
+    await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+    await page.locator(`[data-provider-preset-id="${runtime === 'codex' ? 'openai-codex' : 'github-copilot'}"]`).click();
+    const account = page.getByTestId(`${runtime}-subscription-account`);
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toBeVisible();
+    await page.evaluate(name => {
+      const host = (window as any).__TAURI_INTERNALS__;
+      const invoke = host.invoke;
+      let fail = true;
+      host.invoke = (command: string, args: unknown) => {
+        if (command === `get_${name}_account_snapshot_cmd`) {
+          if (fail) {
+            fail = false;
+            localStorage.setItem('nexa-e2e-login-read-failed', '1');
+            return Promise.reject(new Error('transient account read failure'));
+          }
+          localStorage.setItem(`nexa-e2e-${name}-account`, name === 'codex' ? 'signed-in' : 'verified');
+        }
+        return invoke(command, args);
+      };
+    }, runtime);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('nexa-e2e-login-read-failed'))).toBe('1');
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toBeVisible();
+    await expect(account).toContainText(runtime === 'codex' ? 'reader@example.com' : 'octocat');
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toHaveCount(0);
+  });
+}
+
 test("settings completes the official Codex device-code launch and cancellation flow", async ({ page }) => {
   await page.goto("/settings");
   await page.evaluate(() => {
@@ -1616,6 +1684,17 @@ test("settings verifies GitHub Copilot subscription models and quota through the
   await expect(account).toContainText("GPT-5.4");
   await expect(account).toContainText("64% remaining");
   await expect(account).not.toContainText(/(?:ghu_|gho_|github_pat_)[A-Za-z0-9_]+/);
+});
+
+test("Copilot quotas remain visible when optional model entitlement discovery fails", async ({ page }) => {
+  await page.goto("/settings");
+  await page.evaluate(() => localStorage.setItem("nexa-e2e-copilot-account", "quota-only"));
+  await page.reload();
+  await page.getByRole("tab", { name: "AI Providers" }).click();
+  await page.getByRole("button", { name: "Add Provider" }).click();
+  await page.getByRole("tab", { name: "External agents", exact: true }).click();
+  await page.locator('[data-provider-preset-id="github-copilot"]').click();
+  await expect(page.getByTestId("copilot-subscription-account")).toContainText("64% remaining");
 });
 
 test("settings starts and cancels the official Copilot CLI browser login", async ({ page }) => {

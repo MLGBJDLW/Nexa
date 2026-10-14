@@ -434,6 +434,7 @@ pub(crate) fn build_desktop_approval_callback(
         task_run_id,
         approval_runtime,
         cancellation,
+        desktop_stop,
     } = input;
     let pending = approval_runtime.pending;
     let session_store = approval_runtime.session_store;
@@ -445,7 +446,15 @@ pub(crate) fn build_desktop_approval_callback(
         let store = session_store.clone();
         let task_run_id = task_run_id.clone();
         let cancellation = cancellation.clone();
+        let desktop_stop = desktop_stop.clone();
         Box::pin(async move {
+            let desktop = matches!(
+                req.tool_name.as_str(),
+                "computer_control" | "computer_observe"
+            );
+            if desktop && desktop_stop.is_cancelled() {
+                return ApprovalDecision::Deny;
+            }
             if let Some(decision) = approval_mode
                 .short_circuit()
                 .filter(|decision| req.choices.is_empty() || !decision.is_allowed())
@@ -476,7 +485,11 @@ pub(crate) fn build_desktop_approval_callback(
             }
 
             let (tx, rx) = tokio::sync::oneshot::channel();
-            pending.lock().await.insert(
+            let mut guard = pending.lock().await;
+            if desktop && desktop_stop.is_cancelled() {
+                return ApprovalDecision::Deny;
+            }
+            guard.insert(
                 req.id.clone(),
                 PendingToolApproval {
                     request: req.clone(),
@@ -484,13 +497,18 @@ pub(crate) fn build_desktop_approval_callback(
                     sender: tx,
                 },
             );
+            drop(guard);
             let decision = tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => ApprovalDecision::Deny,
+                _ = desktop_stop.cancelled(), if desktop => ApprovalDecision::Deny,
                 decision = rx => decision.unwrap_or(ApprovalDecision::Deny),
                 _ = tokio::time::sleep(req.remaining_timeout()), if req.choices.is_empty() => ApprovalDecision::Deny,
             };
             pending.lock().await.remove(&req.id);
+            if desktop && desktop_stop.is_cancelled() {
+                return ApprovalDecision::Deny;
+            }
             if !req.choices.is_empty() {
                 return match decision {
                     ApprovalDecision::SelectOption(index)

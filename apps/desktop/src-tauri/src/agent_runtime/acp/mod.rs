@@ -472,6 +472,9 @@ async fn drive(
 ) -> Result<bool> {
     stage(&turn.events, "waiting").await?;
     session.sync(wire)?;
+    if let Some(model) = session.current_model() {
+        output.observe_runtime_model(model);
+    }
     let mut command = native_command(&turn.prompt, &session.commands).map(str::to_owned);
     let mut context_delivered = command.is_none();
     if command.is_some() && !turn.images.is_empty() {
@@ -621,6 +624,10 @@ async fn drive(
             }
             let update = &params["update"];
             if session.update(update)? {
+                if let Some(model) = session.current_model() {
+                    output.observe_runtime_model(model);
+                    output.publish_usage(&turn.events).await?;
+                }
                 continue;
             }
             if waiting
@@ -638,6 +645,27 @@ async fn drive(
                 waiting = false;
             }
             match update["sessionUpdate"].as_str().unwrap_or_default() {
+                "compaction_update" => {
+                    if let (Some(id), Some(status)) =
+                        (update["compactionId"].as_str(), update["status"].as_str())
+                    {
+                        output.compaction(&turn.events, id, status).await?;
+                    }
+                }
+                // A compaction summary is runtime context, never a new answer.
+                "compaction_summary_chunk" => {}
+                "notice" => {
+                    if let Some(content) = notice_content(&update) {
+                        turn.events
+                            .send(AgentEvent::ControllerStatus {
+                                code: "external_agent_warning".into(),
+                                content,
+                                tone: None,
+                            })
+                            .await
+                            .map_err(error)?;
+                    }
+                }
                 "agent_message_chunk" | "agent_thought_chunk" => {
                     if update["content"]["type"] != "text" {
                         return Err(error(
@@ -821,4 +849,18 @@ fn native_command<'a>(prompt: &'a str, advertised: &[String]) -> Option<&'a str>
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':'))))
     .then_some(name)
+}
+
+// ACP notices are presentation metadata, including severity=error. Only the
+// prompt response controls turn success/failure.
+fn notice_content(update: &serde_json::Value) -> Option<String> {
+    let title = update["title"].as_str()?;
+    let content = match update["description"]
+        .as_str()
+        .filter(|text| !text.is_empty())
+    {
+        Some(description) => format!("{title}: {description}"),
+        None => title.to_owned(),
+    };
+    Some(content.chars().take(2000).collect())
 }

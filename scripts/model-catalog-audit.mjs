@@ -47,7 +47,7 @@ const publicRequiredModelIds = new Map([
     'openai/gpt-6-sol', 'openai/gpt-6-luna',
     'openai/gpt-6-sol-pro', 'openai/gpt-6-luna-pro',
     'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed',
-    'meta/muse-wonder', 'stepfun/step-5-preview', 'inclusionai/ling-3.0-flash-sante',
+    'meta/muse-wonder', 'stepfun/step-5-preview', 'google/gemini-4-argon',
   ]],
 ]);
 

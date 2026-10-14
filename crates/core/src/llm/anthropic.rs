@@ -1620,6 +1620,52 @@ impl AnthropicProvider {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn model_discovery_reads_account_pages_and_filters_explicit_retirement() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for page in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                while !bytes.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let mut buffer = [0; 1024];
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(bytes).unwrap();
+                assert!(request.starts_with("GET /v1/models?limit=100"));
+                assert!(request.contains("x-api-key: fixture"));
+                if page == 1 {
+                    assert!(request.contains("after_id=page-one"));
+                }
+                let value = if page == 0 {
+                    serde_json::json!({"data":[{"id":"future-model","lifecycle":"active"},{"id":"retired-model","lifecycle":"retired"}],"has_more":true,"last_id":"page-one"})
+                } else {
+                    serde_json::json!({"data":[{"id":"still-supported","lifecycle":"deprecated"}],"has_more":false})
+                };
+                let body = value.to_string();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let provider = AnthropicProvider::new(ProviderConfig {
+            provider_type: super::super::ProviderType::Anthropic,
+            base_url: Some(format!("http://{address}/v1")),
+            api_key: Some("fixture".into()),
+            org_id: None,
+            timeout_secs: Some(5),
+            streaming: Default::default(),
+        })
+        .unwrap();
+        assert_eq!(
+            provider.list_models().await.unwrap(),
+            ["future-model", "still-supported"]
+        );
+        server.await.unwrap();
+    }
+
     #[test]
     fn deepseek_anthropic_base_uses_the_sdk_v1_messages_path() {
         let provider = AnthropicProvider::new(ProviderConfig {
@@ -2007,7 +2053,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fallback_model_list_uses_active_shared_catalog() {
+    async fn absent_credentials_do_not_claim_static_models_are_live_discovery() {
         let provider = AnthropicProvider::new(ProviderConfig {
             provider_type: super::super::ProviderType::Anthropic,
             base_url: None,
@@ -2017,9 +2063,7 @@ mod tests {
             streaming: Default::default(),
         })
         .unwrap();
-        let models = provider.list_models().await.unwrap();
-        assert!(models.contains(&"claude-fable-5-1".into()));
-        assert!(!models.contains(&"claude-haiku-3-5-20241022".into()));
+        assert!(provider.list_models().await.is_err());
     }
 
     #[test]
@@ -2516,10 +2560,72 @@ impl LlmProvider for AnthropicProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
-        Ok(crate::provider_catalog::preset_model_ids(
-            "anthropic",
-            self.config.base_url.as_deref(),
-        ))
+        let transport = self.transport.for_request()?;
+        let api_key = self.api_key()?;
+        let url = self
+            .messages_url()
+            .strip_suffix("/messages")
+            .unwrap_or(self.base_url())
+            .to_owned()
+            + "/models";
+        let mut after: Option<String> = None;
+        let mut cursors = HashSet::new();
+        let mut models = Vec::new();
+        loop {
+            let mut request = transport
+                .client()
+                .get(&url)
+                .header("x-api-key", api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .query(&[("limit", "100")]);
+            if let Some(cursor) = &after {
+                request = request.query(&[("after_id", cursor)]);
+            }
+            let response = with_request_timeout(request, self.request_timeout)
+                .send()
+                .await
+                .map_err(|error| {
+                    CoreError::Llm(format!(
+                        "Model discovery failed: {}",
+                        super::transport::describe_http_error(&error)
+                    ))
+                })?;
+            let response = self.check_response(response).await?;
+            let value: serde_json::Value = response.json().await.map_err(|error| {
+                CoreError::Llm(format!(
+                    "Invalid model catalog: {}",
+                    super::transport::describe_http_error(&error)
+                ))
+            })?;
+            let data = value["data"].as_array().ok_or_else(|| {
+                CoreError::Llm("Anthropic model catalog has no data array".into())
+            })?;
+            models.extend(
+                data.iter()
+                    .filter(|item| item["lifecycle"] != "retired")
+                    .filter_map(|item| item["id"].as_str())
+                    .filter(|id| !id.trim().is_empty())
+                    .map(str::to_owned),
+            );
+            if value["has_more"] != true {
+                break;
+            }
+            let cursor = value["last_id"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| {
+                    CoreError::Llm("Anthropic model catalog omitted its continuation cursor".into())
+                })?;
+            if !cursors.insert(cursor.to_string()) {
+                return Err(CoreError::Llm(
+                    "Anthropic model catalog repeated a pagination cursor".into(),
+                ));
+            }
+            after = Some(cursor.into());
+        }
+        models.sort();
+        models.dedup();
+        Ok(models)
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {

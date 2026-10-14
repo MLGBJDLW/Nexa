@@ -920,5 +920,11 @@
   "connectionReconnecting": "Reconnexion",
   "connectionAttempt": "Tentative {attempt} sur {total}",
   "connectionRetryIn": "Nouvelle tentative dans {seconds}s",
-  "connectionTryingNow": "Connexion en cours"
+  "connectionTryingNow": "Connexion en cours",
+  "contextTierDefault": "Standard",
+  "contextTierLong": "Étendu",
+  "contextTierPromptLimit": "Jusqu’à {tokens} jetons d’entrée",
+  "contextTierScope": "Applicable au prochain tour. Copilot gère la compression et indique la capacité réelle. Le contexte étendu peut coûter plus cher.",
+  "agentCompactingBackground": "Compression du contexte en arrière-plan",
+  "computerUseStop": "Arrêter le contrôle"
 }

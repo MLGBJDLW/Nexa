@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolveContextUsage } from '../src/lib/contextUsage.ts';
 
+test('runtime-reported capacity survives a different next-turn model selection', () => {
+  const view = resolveContextUsage({ promptTokens: 50_000, contextWindow: 1_000_000, contextBreakdown: {
+    totalTokens: 50_000, segments: [], contextWindow: 200_000,
+    runtimeProvider: 'github_copilot', runtimeModel: 'running-model',
+  } });
+  assert.equal(view.capacity, 200_000);
+  assert.equal(view.percent, 25);
+});
+
 test('context percent and remaining headroom use the runtime input budget', () => {
   const view = resolveContextUsage({ promptTokens: 50_000, contextWindow: 100_000, contextBreakdown: {
     totalTokens: 50_000, segments: [], measurement: 'provider',

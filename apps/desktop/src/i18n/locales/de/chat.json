@@ -920,5 +920,11 @@
   "connectionReconnecting": "Verbindung wird wiederhergestellt",
   "connectionAttempt": "Versuch {attempt} von {total}",
   "connectionRetryIn": "Neuer Versuch in {seconds}s",
-  "connectionTryingNow": "Verbindung wird hergestellt"
+  "connectionTryingNow": "Verbindung wird hergestellt",
+  "contextTierDefault": "Standard",
+  "contextTierLong": "Erweitert",
+  "contextTierPromptLimit": "Bis zu {tokens} Eingabetoken",
+  "contextTierScope": "Gilt ab dem nächsten Durchlauf. Copilot verwaltet die Komprimierung und meldet die tatsächliche Kapazität. Erweiterter Kontext kann mehr kosten.",
+  "agentCompactingBackground": "Kontext wird im Hintergrund komprimiert",
+  "computerUseStop": "Computersteuerung stoppen"
 }

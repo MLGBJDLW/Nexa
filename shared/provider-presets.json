@@ -526,11 +526,21 @@
       },
       {
         "id": "gpt-4.1",
-        "name": "GPT-4.1 (1M Context)"
+        "name": "GPT-4.1 (1M Context)",
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2027-01-14",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
       },
       {
         "id": "gpt-4.1-mini",
-        "name": "GPT-4.1 Mini"
+        "name": "GPT-4.1 Mini",
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2027-01-14",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
       },
       {
         "id": "gpt-4.1-nano",
@@ -542,11 +552,21 @@
       },
       {
         "id": "gpt-4o",
-        "name": "GPT-4o"
+        "name": "GPT-4o",
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2027-01-14",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
       },
       {
         "id": "gpt-4o-mini",
-        "name": "GPT-4o Mini"
+        "name": "GPT-4o Mini",
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2027-01-14",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations#2026-10-14-gpt-4-series-model-deprecations"
       },
       {
         "id": "o3-pro",
@@ -17897,7 +17917,7 @@
       {
         "id": "apodex/apodex-1.1-mini:free",
         "name": "Apodex: Apodex 1.1 Mini (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -17928,8 +17948,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/apodex/apodex-1.1-mini:free",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://openrouter.ai/api/v1/models/apodex/apodex-1.1-mini:free/endpoints",
         "maxOutputTokens": 235929,
         "capabilities": {
           "vision": false,
@@ -17941,7 +17961,8 @@
             },
             "effortBudgetExclusive": true
           }
-        }
+        },
+        "deprecationDate": "2026-10-14"
       },
       {
         "id": "unbiased/pareto-26.10-preview",
@@ -18123,7 +18144,7 @@
       {
         "id": "inclusionai/ling-3.0-flash-fin",
         "name": "inclusionAI: Ling 3.0 Flash Fin",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -18157,8 +18178,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/inclusionai/ling-3.0-flash-fin",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://openrouter.ai/api/v1/models/inclusionai/ling-3.0-flash-fin/endpoints",
         "maxOutputTokens": 32768,
         "capabilities": {
           "vision": false,
@@ -18171,7 +18192,8 @@
             "effortBudgetExclusive": true,
             "defaultEnabled": true
           }
-        }
+        },
+        "deprecationDate": "2026-10-14"
       },
       {
         "id": "~z-ai/glm-flash-latest",
@@ -20357,12 +20379,12 @@
         "id": "inclusionai/ling-3.0-flash-sante",
         "name": "inclusionAI: Ling 3.0 Flash Sante",
         "source": "official",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "recommended": false,
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-13",
-        "documentationRef": "https://openrouter.ai/inclusionai/ling-3.0-flash-sante",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://openrouter.ai/api/v1/models/inclusionai/ling-3.0-flash-sante/endpoints",
         "contextTokens": 262144,
         "maxOutputTokens": 32768,
         "inputModalities": [
@@ -20384,7 +20406,238 @@
             },
             "defaultEnabled": true
           }
-        }
+        },
+        "deprecationDate": "2026-10-14"
+      },
+      {
+        "id": "~unbiased/pareto-latest",
+        "name": "Pareto Latest",
+        "contextTokens": 262144,
+        "maxOutputTokens": 131072,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "max_tokens",
+          "response_format",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true
+        },
+        "documentationRef": "https://openrouter.ai/~unbiased/pareto-latest"
+      },
+      {
+        "id": "unbiased/pareto-26.9",
+        "name": "Pareto 26.9",
+        "contextTokens": 262144,
+        "maxOutputTokens": 131072,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "max_tokens",
+          "response_format",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true
+        },
+        "documentationRef": "https://openrouter.ai/unbiased/pareto-26.9"
+      },
+      {
+        "id": "liquid/lfm-2.5-24b-a2b",
+        "name": "LiquidAI: LFM2.5-24B-A2B",
+        "contextTokens": 128000,
+        "maxOutputTokens": 8192,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_completion_tokens",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs"
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        },
+        "documentationRef": "https://openrouter.ai/liquid/lfm-2.5-24b-a2b"
+      },
+      {
+        "id": "google/gemini-4-argon",
+        "name": "Google: Gemini 4 Argon",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "inputModalities": [
+          "audio",
+          "file",
+          "image",
+          "text",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://openrouter.ai/google/gemini-4-argon"
+      },
+      {
+        "id": "scaledown/summarize",
+        "name": "ScaleDown: Summarize",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 4000,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "inputModalities": [
+          "text",
+          "image",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": false,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "max_tokens"
+        ],
+        "capabilities": {
+          "vision": true
+        },
+        "documentationRef": "https://openrouter.ai/scaledown/summarize"
+      },
+      {
+        "id": "scaledown/extract",
+        "name": "ScaleDown: Extract",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 900000,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "inputModalities": [
+          "text",
+          "image",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": false,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "max_tokens"
+        ],
+        "capabilities": {
+          "vision": true
+        },
+        "documentationRef": "https://openrouter.ai/scaledown/extract"
       }
     ]
   },
@@ -21112,6 +21365,65 @@
       "vision": true
     },
     "models": [
+      {
+        "id": "gemini-4-argon",
+        "name": "Gemini 4 Argon",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "lastVerifiedAt": "2026-10-14",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/latest-model"
+      },
       {
         "id": "gemini-3.8-flash",
         "name": "Gemini 3.8 Flash",
@@ -26478,7 +26790,7 @@
         },
         "status": "deprecated",
         "lastVerifiedAt": "2026-09-30",
-        "replacementModelId": "doubao-seed-2-1-pro-260915",
+        "replacementModelId": "doubao-seed-2-1-lite-260915",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh"
       },
       {
@@ -26631,6 +26943,233 @@
               "enabled": false
             },
             "defaultEnabled": true
+          }
+        }
+      },
+      {
+        "id": "doubao-seed-2-1-pro-260628",
+        "name": "doubao-seed-2-1-pro-260628",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "contextTokens": 256000,
+        "maxOutputTokens": 256000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-list?lang=en",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "doubao-seed-2-0-mini-260428",
+        "name": "doubao-seed-2-0-mini-260428",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "contextTokens": 256000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-list?lang=en",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "doubao-seed-character-260628",
+        "name": "doubao-seed-character-260628",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "contextTokens": 128000,
+        "maxOutputTokens": 32000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-list?lang=en",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "glm-5-2-260617",
+        "name": "glm-5-2-260617",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "contextTokens": 1024000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-list?lang=en",
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "deepseek-v4-pro-ga-260813",
+        "name": "deepseek-v4-pro-ga-260813",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "contextTokens": 1024000,
+        "maxOutputTokens": 384000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-list?lang=en",
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "deepseek-v4-flash-ga-260731",
+        "name": "deepseek-v4-flash-ga-260731",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "contextTokens": 1024000,
+        "maxOutputTokens": 384000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-list?lang=en",
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
           }
         }
       }

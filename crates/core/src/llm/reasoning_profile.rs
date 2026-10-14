@@ -68,6 +68,8 @@ pub enum ReasoningEffortMapping {
     ArkSeed,
     ArkGlm,
     ArkDeepSeek,
+    ArkGlm52,
+    ArkDeepSeekV4,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -231,8 +233,12 @@ impl ReasoningProfile {
         if effort == Some(&ReasoningEffort::None) {
             return Some(false);
         }
-        if self.effort_mapping == ReasoningEffortMapping::ArkSeed
-            && effort == Some(&ReasoningEffort::Minimal)
+        if matches!(
+            self.effort_mapping,
+            ReasoningEffortMapping::ArkSeed
+                | ReasoningEffortMapping::ArkGlm52
+                | ReasoningEffortMapping::ArkDeepSeekV4
+        ) && effort == Some(&ReasoningEffort::Minimal)
         {
             return Some(false);
         }
@@ -279,6 +285,17 @@ impl ReasoningProfile {
                     ReasoningEffort::High
                 }
                 _ => ReasoningEffort::Max,
+            },
+            ReasoningEffortMapping::ArkGlm52 => match effort {
+                ReasoningEffort::XHigh | ReasoningEffort::Max | ReasoningEffort::Ultra => {
+                    ReasoningEffort::Max
+                }
+                _ => ReasoningEffort::High,
+            },
+            ReasoningEffortMapping::ArkDeepSeekV4 => match effort {
+                ReasoningEffort::Low | ReasoningEffort::Medium => ReasoningEffort::Low,
+                ReasoningEffort::Max | ReasoningEffort::Ultra => ReasoningEffort::Max,
+                _ => ReasoningEffort::High,
             },
         };
         self.accepted_efforts
@@ -654,6 +671,7 @@ pub fn resolve_reasoning_profile(
         && matches!(
             model.as_str(),
             "doubao-seed-2-1-pro-260915"
+                | "doubao-seed-2-1-pro-260628"
                 | "doubao-seed-2-1-lite-260915"
                 | "doubao-seed-2-1-turbo-260628"
                 | "doubao-seed-evolving"
@@ -685,13 +703,54 @@ pub fn resolve_reasoning_profile(
     if is_doubao_public_endpoint(provider, base_url)
         && matches!(
             model.as_str(),
-            "glm-5-3-flash-260828" | "deepseek-v4-1-flash-260910"
+            "doubao-seed-2-0-mini-260428" | "doubao-seed-character-260628"
+        )
+    {
+        let mut value = profile(
+            key,
+            "ark-seed-mini-character-v1",
+            ThinkingModeControl::ThinkingType,
+            ReasoningEffortField::TopLevel,
+            ReasoningEffortMapping::ArkSeed,
+            (
+                &[
+                    ReasoningEffort::Minimal,
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                ],
+                Some(ReasoningEffort::Medium),
+            ),
+            ReasoningBudgetField::None,
+        );
+        value.default_enabled = Some(true);
+        value.preserve_reasoning_history = true;
+        return value;
+    }
+
+    if is_doubao_public_endpoint(provider, base_url)
+        && matches!(
+            model.as_str(),
+            "glm-5-3-flash-260828"
+                | "deepseek-v4-1-flash-260910"
+                | "glm-5-2-260617"
+                | "deepseek-v4-pro-ga-260813"
+                | "deepseek-v4-flash-ga-260731"
         )
     {
         let glm = model == "glm-5-3-flash-260828";
+        let glm52 = model == "glm-5-2-260617";
+        let deepseek4 = matches!(
+            model.as_str(),
+            "deepseek-v4-pro-ga-260813" | "deepseek-v4-flash-ga-260731"
+        );
         let mut value = profile(
             key,
-            if glm {
+            if glm52 {
+                "ark-glm52-v1"
+            } else if deepseek4 {
+                "ark-deepseek-v4-v1"
+            } else if glm {
                 "ark-glm53-flash-v1"
             } else {
                 "ark-deepseek-v41-flash-v1"
@@ -702,17 +761,25 @@ pub fn resolve_reasoning_profile(
                 ThinkingModeControl::ThinkingType
             },
             ReasoningEffortField::TopLevel,
-            if glm {
+            if glm52 {
+                ReasoningEffortMapping::ArkGlm52
+            } else if deepseek4 {
+                ReasoningEffortMapping::ArkDeepSeekV4
+            } else if glm {
                 ReasoningEffortMapping::ArkGlm
             } else {
                 ReasoningEffortMapping::ArkDeepSeek
             },
             (
-                &[
-                    ReasoningEffort::Low,
-                    ReasoningEffort::High,
-                    ReasoningEffort::Max,
-                ],
+                if glm52 {
+                    &[ReasoningEffort::High, ReasoningEffort::Max]
+                } else {
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::High,
+                        ReasoningEffort::Max,
+                    ]
+                },
                 Some(if glm {
                     ReasoningEffort::Max
                 } else {
@@ -1504,6 +1571,50 @@ pub fn resolve_reasoning_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ark_native_additions_keep_endpoint_specific_effort_and_replay() {
+        let resolve = |model| {
+            resolve_reasoning_profile(
+                ProviderType::Doubao,
+                Some("https://ark.cn-beijing.volces.com/api/v3"),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            )
+        };
+        let glm = resolve("glm-5-2-260617");
+        assert_eq!(
+            glm.wire_effort(Some(&ReasoningEffort::Low)).as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            glm.wire_effort(Some(&ReasoningEffort::XHigh)).as_deref(),
+            Some("max")
+        );
+        let deepseek = resolve("deepseek-v4-pro-ga-260813");
+        assert_eq!(
+            deepseek
+                .wire_effort(Some(&ReasoningEffort::Medium))
+                .as_deref(),
+            Some("low")
+        );
+        assert_eq!(
+            deepseek
+                .wire_effort(Some(&ReasoningEffort::XHigh))
+                .as_deref(),
+            Some("high")
+        );
+        let pro = resolve("doubao-seed-2-1-pro-260628");
+        assert_eq!(
+            pro.reasoning_history_encoding,
+            ReasoningHistoryEncoding::ArkEncryptedContent
+        );
+        let mini = resolve("doubao-seed-2-0-mini-260428");
+        assert_ne!(
+            mini.reasoning_history_encoding,
+            ReasoningHistoryEncoding::ArkEncryptedContent
+        );
+    }
 
     #[test]
     fn endpoint_model_matrix_does_not_leak_reasoning_encoders() {

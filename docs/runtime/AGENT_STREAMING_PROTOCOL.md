@@ -1,0 +1,385 @@
+# Agent Streaming Protocol
+
+[Documentation](../README.md) / [Category overview](README.md)
+
+Status: normative runtime contract.
+
+## Ownership
+
+Each Agent Run has exactly one core **Run Event outbox**, keyed by `runId` and
+reused for the lifetime of that run. Runtime producers may submit only durable,
+unsequenced `AgentRunEvent` values. The outbox alone assigns the monotonic
+`eventSeq`, validates protocol version 2, commits the ordered ledger, and
+arbitrates terminal acceptance. Desktop code is a delivery adapter, not another
+sequence or terminal owner.
+
+One narrow exception exists for replaceable live tool-input snapshots. The
+desktop bridge may call the outbox's explicit ephemeral publication interface;
+the outbox still sequences and orders the event, but deliberately omits it from
+SQLite. Lifecycle, approval, resumable, result, error, and terminal events must
+remain durable and use the normal submission interface.
+
+`flush()` is a processed-through barrier: when an ephemeral publication has
+been delivered or intentionally dropped, its sequence advances that barrier
+after every earlier durable event is committed. It must not wait for a row that
+the protocol deliberately never writes.
+
+The first accepted true terminal event closes the outbox permanently; later
+submissions are rejected as already closed. `paused` and `awaiting_user_input`
+are durable, resumable phases rather than terminal outcomes, so they leave the
+same outbox open. Completion, failure, timeout, and cancellation close it.
+Opening an existing run resumes at `MAX(eventSeq) + 1`; historical gaps are
+neither filled nor renumbered. The registry stores only a weak reference while
+the actor retains its open outbox through suspension. A true terminal or
+fail-closed outcome ends that actor lifetime; reopening then reconstructs the
+closed state from durable storage.
+
+If durable persistence fails or a durable event saturates the bounded producer queue, the
+outbox fails closed: it cancels the run cancellation domain, rejects later
+events, preserves the contiguous accepted prefix that can still be committed,
+and emits exactly one internally generated ephemeral failure terminal for live
+presentation. A replaceable preview is instead dropped under queue pressure; a
+diagnostic snapshot must never poison the authoritative run. A continuing
+executor cannot invoke more tools after the durable ledger becomes unsafe.
+The failure terminal uses `max(durableHead, actorLiveHighWater) + 1`; deriving
+it from SQLite alone could reuse a sequence already assigned to an ephemeral
+preview or to the durable batch whose commit failed.
+
+Provider-native replay envelopes remain backend-only durable state. They are
+never compacted into the public stream payload and are not replaced by this
+presentation protocol.
+
+Provider prompt history is also a projection, not the durable ledger itself.
+Runtime and controller messages marked volatile exist only for the current
+sampling step and are never persisted as conversation transcript. When a
+legacy assistant/tool unit cannot be replayed on the selected provider route,
+the prompt projection drops its calls, results, reasoning, and diagnostics. It
+may retain only a separate non-empty assistant answer that closed that unit; if
+none exists, the unit is omitted. The projection must not manufacture a
+natural-language assistant summary or replay-boundary system message.
+
+Final-answer samples keep only the newest current-step controller directive;
+superseded volatile directives are excluded. If a visible answer nevertheless
+starts a line with a reserved internal replay/controller header that the current
+user did not quote, the sample is contaminated: reset its public stream, retry
+once with tools suppressed, and never persist the discarded text. A second
+contaminated sample fails closed instead of becoming conversation history.
+
+## Delivery channels
+
+- `agent://run-event` carries only `{ conversationId, runEvent }` to the main
+  window. The runtime schema rejects unknown envelope or RunEvent fields.
+- `agent://heartbeat` carries liveness and a `durableHighWater` hint. It does
+  not consume an event sequence or create a trace entry/durable row, and must
+  not postpone recovery merely because the process is still alive.
+- `agent://task-snapshot` carries the materialized task projection at lifecycle
+  boundaries, not for each output block.
+- `companion://projection-changed` invalidates the Companion's low-frequency
+  projection without exposing chat content.
+
+For durable events, the desktop delivery adapter is invoked only after the Run
+Event rows and any semantic task projection have completed on the database
+writer lane. An ephemeral preview first flushes any earlier durable batch, then
+is delivered directly in sequence. Delivery is best effort: an unavailable
+main window does not roll back durable state or hold the run's completion
+barrier open.
+
+Tool execution is projected through the typed `ToolRun` lifecycle. Provider
+assembly fragments such as partial `ToolCall` arguments are not a public UI
+protocol.
+
+### Phone delivery
+
+The [remote bridge](../../apps/desktop/src-tauri/src/remote.rs) projects the same
+committed run state to authenticated phone clients. Its transport envelope is
+not another Agent Run ledger. A phone resume request binds a conversation/run
+and reads a bounded event page after its last accepted sequence. A changed run
+resets that cursor; another conversation's run is rejected.
+
+Phone replay pages are bounded separately from the desktop's frozen 2,048-row
+reconciliation API. Do not assume that transport RPC IDs or WebSocket liveness
+are Agent Run `eventSeq` values. See [Phone access](../guides/remote-access.md) for
+connection recovery and [Voice and Live](../guides/LIVE.md) for separate capture sessions.
+
+## Ordering and blocks
+
+Live delivery advances a run only when the exact next `eventSeq` is available.
+Future events remain buffered and trigger durable recovery; duplicates and
+post-terminal events are ignored. A complete authoritative database replay may
+advance across a missing sequence because historical ledgers can contain gaps
+for events that were intentionally not retained. It never renumbers committed
+events. Answer and thinking block deltas also require the exact UTF-8 byte
+offset. Tool and reset boundaries rotate block identities.
+
+Gap recovery uses the same authority for a bounded durable suffix. It merges
+that suffix with live events buffered while the query was in flight only after
+every page is consumed, then may advance across sequence numbers absent from
+SQLite. The first page freezes a durable high-water mark and each continuation
+is bounded to 2,048 rows, so a busy producer cannot move the recovery target or
+hide a later durable page behind an already-buffered live event. Live events
+that arrive after the query's captured high-water remain buffered for another
+authoritative pass. Strict live dispatch alone never guesses that a gap was
+ephemeral.
+
+Ordering is also bound to `runId`. A different run may replace only a settled,
+unbound retained projection; an event from another run cannot enter a bound
+projection. The launch handshake is authoritative: if a stopped run races into
+a freshly reset state before the new handle arrives, binding the handle
+discards that claim and recovers the new run ledger. After binding, events from
+any other run are rejected before they can enter the ordering buffer, including
+after the bound run settles.
+
+Only `outputDelta`, `thinking`, and `usageUpdated` are eligible for deferred
+outbox batching. The outbox commits those events after at most 100 ms or when
+the pending batch reaches 32 events. Any other semantic event immediately
+flushes the pending deferred events and itself, preserving their assigned
+order. This keeps token-volume traffic off the synchronous SQLite path without
+weakening lifecycle ordering. Every durable batch is written on the dedicated
+database writer lane before main-window delivery.
+
+Provider tool arguments are assembled losslessly, but the Tool input session
+builds semantic previews only on the first observation and each 2 KiB
+cumulative-input bucket. Preparing parsing and raw display are bounded to a
+32 KiB prefix. The desktop Tool preview journal then keeps only the latest
+snapshot per `callId`, publishing after another 2 KiB of growth or a two-second
+slow-stream heartbeat. Only `ToolRunUpdated(status=preparing)` may enter this
+journal. Approval-pending, running, and execution-progress updates bypass it and
+remain durable lifecycle events. The completed `ToolRun` remains the final
+durable authority. Provider argument fragments therefore cannot create one
+parse, full diff, frontend event, or SQLite row per transport chunk.
+
+Argument assembly also preserves the provider wire shape: string values are
+opaque fragments, while object-valued OpenAI-compatible arguments are typed
+complete snapshots and replace the prior snapshot. The runtime never infers
+that distinction by reparsing every growing string.
+
+The exposed JSON schema plus host validation is the executable tool contract.
+Provider deltas and repaired historical envelopes never authorize execution,
+and the system prompt does not duplicate a global "return valid tool JSON"
+contract. A malformed or truncated draft is discarded and receives one short,
+call-specific retry instruction; only the newly completed, schema-valid call
+may cross the dispatch boundary.
+
+## Completion and recovery
+
+Provider terminal rules are dialect-specific. A Chat Completions stream with a
+parsed terminal `finish_reason` is complete even when a compatible server closes
+immediately without a trailing `[DONE]`; EOF without either terminal evidence
+remains an interruption. DeepSeek Responses instead requires
+`response.completed`, `response.incomplete`, or `response.failed` and does not
+use `[DONE]`. OpenAI Responses and DeepSeek Responses retain separate request,
+replay, usage, and terminal capability profiles.
+
+Context planning always keeps a concrete response reserve, but that estimate
+is not automatically a provider limit. `max_tokens` / `max_output_tokens` is
+sent only for an explicit worker override, a verified endpoint/model catalog
+capability, or a caller-authorized cumulative worker budget. Unknown and custom
+routes remain provider-managed instead of inheriting Nexa's fallback reserve.
+Legacy saved agent caps are retired for Chat and Plan. Auxiliary completion
+requests also avoid fixed output caps, since provider output allowances include
+reasoning as well as the requested short artifact. Anthropic's required native
+output value is resolved from the exact endpoint/model catalog. Explicit manual
+thinking and output budgets must be mutually valid; they are not silently enlarged.
+
+Attempt resets are control-plane events. They may clear an abandoned answer,
+thinking block, or preparing tool card, but their retry reason is developer
+telemetry and never becomes a chat status row. Reconnecting, degraded, and
+recovered states remain silent when recovery succeeds; only a final
+failed/offline connection state is user-facing.
+
+A terminal submission is not completion by itself. The terminal completion
+barrier resolves only after the terminal Run Event and its task projection are
+durable; run finalization waits for that barrier before exposing dependent
+completion state. A resumable pause or user-input wait may flush its accepted
+prefix, but it does not satisfy the terminal barrier. Main-window availability
+is not part of this durability contract.
+
+Requesting a checkpoint pause first cancels and awaits the run's current
+executor, establishing an execution fence before any checkpoint persistence can
+block. Pending approvals owned by that run are then denied and recorded as
+`approvalResolved`; no dead receiver may survive into replay. Finally, the
+outbox drains the accepted prefix and commits the checkpoint under the same gate
+used for terminal acceptance. Later submissions receive the explicit
+`Suspended` result and cannot overtake the checkpoint. The outbox remains alive
+but producer-gated while paused. A checkpoint continuation may reopen producer
+submission only after the task and original turn are atomically re-queued and
+before the replacement executor is spawned.
+
+Launch, pause, stop, and same-run continuation decisions are serialized by the
+run's lifecycle barrier. A new launch acquires that barrier after its durable
+run ID exists and re-reads the task projection before spawning; checkpoint and
+interaction continuations acquire it before claiming their durable response.
+This closes both the database-to-session registration gap and duplicate
+executor retries. A checkpoint continuation appends one idempotent,
+presentation-hidden control message and reuses the original turn, run, and open
+outbox. The checkpoint state carries bounded durable assistant output already
+shown before the pause so the replacement executor continues after it instead
+of repeating it.
+If a committed launch cannot open its Run Event outbox before executor
+registration, it fails closed through the same terminal-arbitration transaction;
+it must not remain queued without an executor or block a later reply retry.
+Reply retries and edits of persisted user messages use the same durable suffix
+replacement transaction. Both preserve the original user-message ID, replace
+the selected message content in place, and remove later turns before launching
+the replacement executor.
+Creating a resumable pause is also one outbox-owned transaction: its checkpoint
+row, paused Run Event, task projection, and turn projection commit together
+before the checkpoint is returned or delivered.
+
+Stopping a running turn creates a resumable checkpoint. Stopping while the run
+is awaiting user input instead cancels the pending interaction and terminalizes
+the run; an already paused run remains resumable and is not silently cancelled.
+
+Before accepting launches after process restart, recovery compares active task
+projections with their durable Run Event boundaries. A paused or
+awaiting-user-input boundary is restored only when no later `Agent started` or
+`cancelling` marker invalidates it. Other interrupted active runs receive one
+durable cancelled terminal through the outbox and cross its completion barrier;
+an existing true terminal repairs a stale projection without appending another
+terminal. The historical `done(status=paused)` encoding remains readable as a
+non-closing suspension, but new producers must use a `status` event.
+
+`done.payload.message` is the immediate authoritative assistant answer and may
+replace an incomplete streamed preview. When the native payload must be bounded,
+`done.payload.messageTruncated` is `true`; only then may the frontend retain a
+non-empty, fully ordered streamed preview instead of replacing it with the
+bounded message. A recovery pass requests the unseen durable suffix after the
+frontend's `eventSeq` high-water mark in frozen, 2,048-row pages, exhausts that
+snapshot, replays the ordered ledger, and confirms completion with the final
+assistant message joined through the conversation turn. A completed task
+without that message is not allowed to settle to a blank answer; recovery
+remains armed until the durable message is available.
+
+The ordered trace remains the chat preview authority across `done` until durable
+messages replace it. Round summaries must not reorder thinking or steering
+boundaries after the final answer. `done.payload.message` replaces only the
+active answer block; if that sample has no answer block, it appends a final
+reply after the preceding trace instead of rewriting an earlier sample.
+
+The chat surface hydrates an active conversation once. Live events and recovery
+patch that projection; completion reconciles the bounded tail suffix. React
+stream projection is scheduled as interruptible transition work; stable sidebar
+state is memoized, and incomplete Mermaid programs are rendered only after the
+stream completes so navigation and stop controls retain the urgent UI lane.
+When a suspended run is replayed after restart, elapsed-time presentation freezes
+at the latest durable suspension event timestamp (falling back to the task
+projection update time for legacy rows), not at the time the UI happens to load.
+
+## Desktop history and attention projections
+
+Desktop history reads use `conversation_timeline_page` and
+`conversation_timeline_details`, independently of the Run Event recovery cursor.
+Pages seek `(sort_order, message_id)` user anchors through the partial root index;
+steering, question-response and checkpoint-continuation rows are controls inside
+their original entry. The default tail contains 20 entries (maximum 50), their
+user messages and final replies, and turn metadata without decoding trace JSON.
+Legacy artifact kinds are derived on writes so root-index and summary reads do
+not parse hidden legacy trace payloads just to classify or discard them.
+A very long entry previews its latest 32 controls; expanding it reads the complete
+entry. Assistant-only legacy imports retain full details within a bounded message
+page. A deep link resolves the owning entry before paging, and an older page has an
+exclusive end cursor so prepending cannot erase the already-loaded tail.
+
+`ConversationTimeline` owns display pages, lazy detail requests, optimistic
+messages and cancellation generations. Completion refreshes from the current
+tail anchor, preserving earlier entries and unchanged loaded details. A scalar
+database turn revision distinguishes same-second trace writes without reading
+their payloads. A page that races a newer explicit detail commit rereads its same
+bounded range at most once; continued competition keeps the committed detail.
+Retry, deletion and navigation fence outstanding requests; no
+response may resurrect a removed entry. The page cache is bounded by conversation
+count and bytes, and file-change summaries are scoped to visible turn IDs. Scroll
+restoration uses the visible row identity and its pixel offset after prepending.
+These display projections never rewrite provider context or the durable ledger.
+
+The live projection owns each tool payload once in `StreamToolEntities.byId`.
+Active tool order, round membership and trace membership retain occurrence IDs; their
+compatibility arrays are derived, structurally shared views. Tool progress and
+terminal transitions update the entity once, and cards can subscribe to one call
+ID through the current occurrence. A new provider sample may reuse a call ID
+without changing its retired round or trace. Unrelated tools keep their entity and view references. Reset and eviction
+release unreferenced entities while retaining committed trace entries.
+
+`AttentionInbox` joins live pending approvals and durable interactions for global
+discovery. It owns no responder and does not submit decisions. `InteractionSync`
+refreshes that projection outside the chat route and fences host snapshots against
+newer live approval changes. The inbox can navigate to the owning conversation;
+only the active request surface submits its decision. Request deadlines come from
+the host; countdowns are display-only. Submission failures remain visible and
+retryable, and expired requests disable decisions while awaiting host resolution.
+
+MCP typed result artifacts remain visible in both live and persisted tool cards.
+The UI displays supported inline media, text, embedded text resources and structured
+content, routes explicit HTTP(S) resource clicks to Browser Workspace without
+fetching them automatically,
+and retains notices for unsupported content. Model-facing aliases remain stable
+identities; display labels prefer the artifact's exact tool name.
+
+## Implementation and verification
+
+A failed bounded event-gap recovery batch marks delivery as reconnecting; it
+does not fabricate an agent terminal event or erase buffered successors. Only
+the authoritative host run can settle that turn. The watchdog retries journal
+reads while late live events may fill the gap. Copilot byte-only progress renews
+delivery liveness without inventing answer text. Its post-idle history repair is
+bounded and cancellable; a cursor retired by native compaction is never replayed
+and cannot invalidate a complete ordered live response.
+
+### Copilot readable reasoning
+
+The subscription adapter requests native streaming and forwards each answer or
+reasoning delta immediately. Thinking offsets survive ordinary event checkpoints;
+only a real inference boundary retires them. `assistant.reasoning.content` and
+`assistant.message.reasoningText` repair the same thinking block, including the
+observed message-before-reasoning order and full snapshots without deltas.
+Opaque/encrypted replay fields never become visible text or answer history.
+Retries clear abandoned thinking, and child-agent events stay outside the parent
+response. Byte-only `assistant.streaming_delta` progress is not text content.
+
+Offline regressions cover continuous byte offsets, snapshot replacement, retry,
+turn retirement and delivery before completion. The ignored native test
+`native_copilot_streams_readable_reasoning_and_answer_before_done` requires an
+explicit `NEXA_COPILOT_STREAM_PROBE_MODEL` and a logged-in subscription; it makes
+one synthetic inference and reports event counts without printing model text.
+
+### Context occupancy and billing
+
+`usageUpdated` may publish a context snapshot before a request, including newly
+appended tool results, and again after compaction/preparation. These snapshots
+leave cumulative billed usage unchanged. Provider usage replaces the prompt
+measurement after a completed sample. A matching provider observation plus
+estimated new messages calibrates the next input even when a local full-prompt
+estimate is higher; a changed prefix, tools, model or route invalidates it.
+
+`contextBreakdown.measurement` distinguishes `provider`,
+`provider_plus_estimate` and `estimated`. Local runs also include `budget`:
+physical `capacityTokens`, effective `inputBudget`, `responseReserve`,
+`safetyReserve`, `compactThreshold` and `compactPercent`. The UI displays input
+occupancy against that same input budget and explains the reserves and trigger.
+Segment attribution remains estimated even with a provider-measured total.
+External runtimes keep their reported capacity without inventing a local
+compaction policy. Older persisted snapshots remain readable without new fields.
+
+- [Core outbox](../../crates/core/src/run_event_outbox.rs) and
+  [Agent Run schema](../../crates/core/src/agent_run.rs) own publication and storage.
+- [Desktop delivery](../../apps/desktop/src-tauri/src/agent_run_outbox.rs) adapts
+  committed events to host surfaces.
+- [Wire validation](../../apps/desktop/src/lib/streaming/runEventWire.ts),
+  [ordering](../../apps/desktop/src/lib/streaming/ordering.ts), and
+  [reconciliation](../../apps/desktop/src/lib/streaming/runReconciliation.ts)
+  own frontend admission and recovery.
+
+Run focused core/outbox tests and desktop `npm run test:streaming` when changing
+these contracts. Include missing-window, terminal race, event-gap, duplicate,
+pause/restart, and absent-final-message cases. Native and phone delivery need
+their own host-level verification in addition to reducer tests.
+
+## Delegated workspace history
+
+The task capsule opens a resizable child panel alongside the parent chat. It reads the delegated worker's durable activity journal; opening or refreshing the panel never invokes a model. Closing the panel leaves the worker running. Additional instructions and cooperative cancellation use the same lifecycle registry as the model tools, with exact parent-conversation ownership checks. Queued input and applied-at-model-boundary input are separate receipts.
+
+`observe_subagent` reads incremental progress, optionally long-polling up to 2.5 seconds. `wait_subagent` waits for a terminal result, for 30 seconds by default and up to 60 seconds. A wait timeout means the worker is still active, not that its task failed. The GUI provides one automatically refreshed progress view.
+
+Worker history stays on disk beyond the 2,048-event in-memory ring. Reads are paginated by sequence and byte budget. Old truncated histories are labeled; a worker without a live registry handle after restart is shown as disconnected, with no stale input/cancel controls. Deleting its parent chat deletes the journal, and late writes cannot recreate it.
+
+The event pump retains visible typed answer/thinking blocks, stream resets, tools, approvals and plans. Typed producers are authoritative over compatibility text. It coalesces full block snapshots before persistence, including legacy token producers, so privacy rules apply across token boundaries. Opaque provider reasoning and hidden prompts never enter the workspace journal. The UI reads the database privacy projection and rejects old reads after policy revocation. It drains accepted worker events before publishing completion.

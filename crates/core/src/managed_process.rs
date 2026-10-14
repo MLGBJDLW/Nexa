@@ -27,13 +27,54 @@ pub fn spawn(command: &mut Command) -> Result<(Child, ProcessTree), std::io::Err
 
 #[cfg(windows)]
 fn attach(child: &mut Child) -> Result<ProcessTree, std::io::Error> {
+    attach_handle(
+        child
+            .raw_handle()
+            .ok_or_else(|| std::io::Error::other("Missing child handle"))?,
+    )
+}
+
+/// Synchronous account/version probes use the same process-tree ownership as
+/// async adapters. Dropping the owner closes inherited stdout in descendants.
+pub fn spawn_standard(
+    command: &mut std::process::Command,
+) -> Result<(std::process::Child, ProcessTree), std::io::Error> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = command.spawn()?;
+    #[cfg(windows)]
+    let result = {
+        use std::os::windows::io::AsRawHandle;
+        attach_handle(child.as_raw_handle())
+    };
+    #[cfg(unix)]
+    let result: Result<ProcessTree, std::io::Error> = Ok(ProcessTree {
+        group: child.id() as i32,
+    });
+    match result {
+        Ok(tree) => Ok((child, tree)),
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(error)
+        }
+    }
+}
+
+#[cfg(windows)]
+fn attach_handle(process: std::os::windows::io::RawHandle) -> Result<ProcessTree, std::io::Error> {
     use windows::Win32::{
         Foundation::{CloseHandle, HANDLE},
         System::JobObjects::*,
     };
-    let process = child
-        .raw_handle()
-        .ok_or_else(|| std::io::Error::other("Missing child handle"))?;
     unsafe {
         let job = CreateJobObjectW(None, None).map_err(std::io::Error::other)?;
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();

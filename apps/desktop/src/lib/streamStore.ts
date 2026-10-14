@@ -521,21 +521,11 @@ class StreamStoreImpl {
       if (outcome.kind !== 'exhausted' || !isCurrent()) return;
       const state = this._streams[conversationId];
       if (!state) return;
-      state._pendingRunEvents.clear();
-      clearStreamWatchdog(state);
-      clearToolPreparingTimers(state);
-      const message = 'The response stream could not recover a missing event. Reload this conversation.';
-      applyTerminalProjection(state, {
-        toolStatus: 'error',
-        message,
-        toolFallbackMessage: 'Interrupted',
-        traceTone: 'error',
-        errorMessage: message,
-      });
-      this.finishTurnTiming(state);
-      this.touch(conversationId);
-      this.evictCompletedStreams(conversationId);
-      this.notifyImmediately(conversationId);
+      // A bounded recovery batch is not evidence that the host run stopped.
+      // Keep its cursor, buffered successors and tool ownership; the durable
+      // watchdog will retry, and live delivery can fill the gap meanwhile.
+      this.rearmWatchdogRecovery(conversationId, state,
+        'Waiting to reconnect to the run event journal. The current turn is preserved.');
     }).finally(() => {
       if (this._gapRecoveries.get(conversationId) === runId) {
         this._gapRecoveries.delete(conversationId);

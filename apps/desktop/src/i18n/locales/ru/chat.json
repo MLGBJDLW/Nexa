@@ -920,5 +920,11 @@
   "connectionReconnecting": "Повторное подключение",
   "connectionAttempt": "Попытка {attempt} из {total}",
   "connectionRetryIn": "Повтор через {seconds}с",
-  "connectionTryingNow": "Подключение"
+  "connectionTryingNow": "Подключение",
+  "contextTierDefault": "Стандартный",
+  "contextTierLong": "Расширенный",
+  "contextTierPromptLimit": "До {tokens} входных токенов",
+  "contextTierScope": "Применяется со следующего хода. Copilot управляет сжатием и сообщает фактическую ёмкость. Расширенный контекст может стоить дороже.",
+  "agentCompactingBackground": "Сжатие контекста в фоновом режиме",
+  "computerUseStop": "Остановить управление"
 }

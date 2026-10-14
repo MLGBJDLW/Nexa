@@ -24,9 +24,107 @@ pub(super) struct Projection {
     pub(super) completed_command: bool,
     runtime_identity: Option<(String, String)>,
     cancellation: Option<nexa_core::agent::CancellationToken>,
+    compactions: HashSet<String>,
+    last_network_progress: Option<std::time::Instant>,
+    pub(super) retrying: bool,
 }
 
 impl Projection {
+    pub(super) async fn resume_after_retry(
+        &mut self,
+        tx: &mpsc::Sender<AgentEvent>,
+    ) -> Result<(), CoreError> {
+        if self.retrying {
+            tx.send(AgentEvent::ControllerStatus {
+                code: "external_agent_active".into(),
+                content: "The external runtime resumed model or tool progress".into(),
+                tone: None,
+            })
+            .await
+            .map_err(protocol_error)?;
+            self.retrying = false;
+        }
+        Ok(())
+    }
+
+    pub(super) async fn network_progress(
+        &mut self,
+        tx: &mpsc::Sender<AgentEvent>,
+    ) -> Result<(), CoreError> {
+        let now = std::time::Instant::now();
+        if self
+            .last_network_progress
+            .is_some_and(|last| now.duration_since(last).as_secs() < 15)
+        {
+            return Ok(());
+        }
+        self.last_network_progress = Some(now);
+        tx.send(AgentEvent::ControllerStatus {
+            code: "external_agent_network_progress".into(),
+            content: "The external runtime is receiving model data".into(),
+            tone: None,
+        })
+        .await
+        .map_err(protocol_error)
+    }
+
+    pub(super) fn observe_runtime_model(&mut self, model: &str) {
+        if model.is_empty() || model.len() > 1024 {
+            return;
+        }
+        if let Some((_, current)) = self.runtime_identity.as_mut() {
+            if current != model {
+                *current = model.into();
+                // A capacity from the previous model is not transferable.
+                self.context_breakdown = None;
+            }
+        }
+    }
+
+    pub(super) async fn compaction(
+        &mut self,
+        tx: &mpsc::Sender<AgentEvent>,
+        id: &str,
+        status: &str,
+    ) -> Result<(), CoreError> {
+        if id.is_empty() || id.len() > 1024 {
+            return Ok(());
+        }
+        match status {
+            "in_progress" => {
+                self.compactions.insert(id.into());
+            }
+            "completed" | "failed" | "cancelled" => {
+                self.compactions.remove(id);
+            }
+            _ => return Ok(()), // Future presentation metadata cannot fail a prompt.
+        }
+        let active = !self.compactions.is_empty();
+        tx.send(AgentEvent::ControllerStatus {
+            code: if active {
+                "external_agent_compacting"
+            } else {
+                "external_agent_compaction_complete"
+            }
+            .into(),
+            content: if active {
+                "The external runtime is compacting context in the background"
+            } else if status == "failed" {
+                "Native context compaction failed; the runtime controls recovery"
+            } else {
+                "Native context compaction finished"
+            }
+            .into(),
+            tone: if status == "failed" {
+                Some("error".into())
+            } else {
+                None
+            },
+        })
+        .await
+        .map_err(protocol_error)
+    }
+
     fn ensure_active(&self) -> Result<(), CoreError> {
         if self
             .cancellation
@@ -87,6 +185,22 @@ impl Projection {
         self.publish_usage(tx).await
     }
 
+    fn context_for_publication(&self) -> Option<nexa_core::agent::context::ContextUsageBreakdown> {
+        self.context_breakdown.clone().or_else(|| {
+            self.runtime_identity.as_ref().map(|(provider, model)| {
+                nexa_core::agent::context::ContextUsageBreakdown {
+                    total_tokens: self.last_prompt_tokens,
+                    segments: vec![],
+                    budget: None,
+                    measurement: Some(nexa_core::agent::context::ContextMeasurement::Provider),
+                    context_window: None,
+                    runtime_provider: Some(provider.clone()),
+                    runtime_model: Some(model.clone()),
+                }
+            })
+        })
+    }
+
     pub(super) async fn publish_usage(
         &self,
         tx: &mpsc::Sender<AgentEvent>,
@@ -94,7 +208,7 @@ impl Projection {
         tx.send(AgentEvent::UsageUpdate {
             usage_total: self.usage.clone(),
             last_prompt_tokens: self.last_prompt_tokens,
-            context_breakdown: self.context_breakdown.clone(),
+            context_breakdown: self.context_for_publication(),
         })
         .await
         .map_err(protocol_error)
@@ -430,12 +544,13 @@ impl Projection {
             ),
             None => return Err(protocol_error("upstream completed without a final answer")),
         };
+        let context_breakdown = self.context_for_publication();
         turn.events
             .send(AgentEvent::Done {
                 message: message.clone(),
                 last_prompt_tokens: self.last_prompt_tokens,
                 usage_total: self.usage,
-                context_breakdown: self.context_breakdown,
+                context_breakdown,
                 assistant_message_id,
                 cached: false,
                 finish_reason: Some("stop".into()),
@@ -449,6 +564,52 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn compaction_identity_is_independent_of_answer_and_parallel_compactions() {
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut projection = Projection::default();
+        projection
+            .compaction(&tx, "first", "in_progress")
+            .await
+            .unwrap();
+        projection
+            .delta(&tx, "answer", StreamBlockChannel::Answer, "Still streaming")
+            .await
+            .unwrap();
+        projection
+            .compaction(&tx, "second", "in_progress")
+            .await
+            .unwrap();
+        projection
+            .compaction(&tx, "first", "completed")
+            .await
+            .unwrap();
+        projection
+            .compaction(&tx, "second", "failed")
+            .await
+            .unwrap();
+        let mut statuses = Vec::new();
+        let mut saw_answer = false;
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                AgentEvent::ControllerStatus { code, .. } => statuses.push(code),
+                AgentEvent::StreamBlockDelta { delta, .. } => {
+                    saw_answer |= delta == "Still streaming"
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_answer);
+        assert_eq!(
+            statuses,
+            [
+                "external_agent_compacting",
+                "external_agent_compacting",
+                "external_agent_compacting",
+                "external_agent_compaction_complete"
+            ]
+        );
+    }
     #[tokio::test]
     async fn completed_response_precedes_steering_and_is_not_duplicated_on_failure() {
         let (request, mut rx, _, _) =

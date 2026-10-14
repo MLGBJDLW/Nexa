@@ -28,7 +28,7 @@ test('October additions retain native endpoint identity and exact reasoning poli
   const step = find({ provider: 'openrouter', model: 'stepfun/step-5-preview' });
   assert.deepEqual(step.capabilities.reasoning.effortLevels, ['low', 'medium', 'high']);
   assert.equal(step.descriptor.limits.maxOutputTokens, 64000);
-  assert.ok(find({ provider: 'openrouter', model: 'inclusionai/ling-3.0-flash-sante' }));
+  assert.equal(isRemovedProviderModel('openrouter', 'inclusionai/ling-3.0-flash-sante'), true);
   assert.equal(isRemovedProviderModel('openrouter', 'inclusionai/ling-3.0-flash-sante:free'), true);
   assert.equal(isRemovedProviderModel('openrouter', 'google/gemini-2.5-pro-preview-05-06'), false);
 });

@@ -352,7 +352,7 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
   });
   const gemini38 = googleModels.find(candidate => candidate.id === 'gemini-3.8-flash');
   assert(gemini38, 'Gemini 3.8 Flash should be listed by the direct API');
-  assertEqual(selectImplicitDefault(googleModels)?.id, 'gemini-3.8-flash', 'latest Gemini default');
+  assertEqual(selectImplicitDefault(googleModels)?.id, 'gemini-4-argon', 'latest Gemini default');
   assertEqual(gemini38.descriptor.limits.contextTokens, 1_048_576, 'Gemini 3.8 context');
   assertEqual(gemini38.descriptor.limits.maxOutputTokens, 65_536, 'Gemini 3.8 output');
   assertEqual(gemini38.descriptor.capabilities.promptCache, true, 'Gemini 3.8 cache');

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { accountSnapshotRequest, invalidateAccountSnapshot } from './accountSnapshotRequest';
 import { createTerminalInputWriter } from './terminalInput';
 export interface FontAsset {
   id: string;
@@ -999,26 +1000,33 @@ export interface CodexAccountSnapshot {
 }
 
 export const getCodexAccountSnapshot = async () => {
-  const snapshot = await invoke<CodexAccountSnapshot>('get_codex_account_snapshot_cmd');
+  const snapshot = await accountSnapshotRequest('openai_codex', () => invoke<CodexAccountSnapshot>('get_codex_account_snapshot_cmd'));
   reconcileSubscriptionAccount('openai_codex', snapshot.account ? `${snapshot.account.accountType}:${snapshot.account.email}` : null);
   return snapshot;
 };
 
 export const startCodexAccountLogin = (kind: 'browser' | 'deviceCode') => {
+  invalidateAccountSnapshot('openai_codex');
   invalidateSubscriptionModels('openai_codex');
   return invoke<CodexLoginDescriptor>('start_codex_account_login_cmd', { kind });
 };
 
-export const cancelCodexAccountLogin = (loginId: string) =>
-  invoke<void>('cancel_codex_account_login_cmd', { loginId });
+export const cancelCodexAccountLogin = async (loginId: string) => {
+  invalidateAccountSnapshot('openai_codex');
+  try { await invoke<void>('cancel_codex_account_login_cmd', { loginId }); }
+  finally { invalidateAccountSnapshot('openai_codex'); }
+};
 
 export const logoutCodexAccount = async () => {
+  invalidateAccountSnapshot('openai_codex');
   const snapshot = await invoke<CodexAccountSnapshot>('logout_codex_account_cmd');
+  invalidateAccountSnapshot('openai_codex');
   invalidateSubscriptionModels('openai_codex');
   return snapshot;
 };
 
 export interface CopilotModelSummary {
+  contextTiers?: { id: 'default' | 'long_context'; promptTokenLimit: number | null }[];
   contextWindow?: number;
   id: string;
   name: string;
@@ -1048,7 +1056,7 @@ export interface CopilotAccountSnapshot {
 }
 
 export const getCopilotAccountSnapshot = async () => {
-  const snapshot = await invoke<CopilotAccountSnapshot>('get_copilot_account_snapshot_cmd');
+  const snapshot = await accountSnapshotRequest('github_copilot', () => invoke<CopilotAccountSnapshot>('get_copilot_account_snapshot_cmd'));
   reconcileSubscriptionAccount('github_copilot', snapshot.authenticated ? `${snapshot.host}:${snapshot.login}` : null);
   return snapshot;
 };
@@ -1056,12 +1064,16 @@ export const getCopilotAccountSnapshot = async () => {
 export const listSubscriptionModels = loadSubscriptionModels;
 
 export const startCopilotAccountLogin = () => {
+  invalidateAccountSnapshot('github_copilot');
   invalidateSubscriptionModels('github_copilot');
   return invoke<void>('start_copilot_account_login_cmd');
 };
 
-export const cancelCopilotAccountLogin = () =>
-  invoke<void>('cancel_copilot_account_login_cmd');
+export const cancelCopilotAccountLogin = async () => {
+  invalidateAccountSnapshot('github_copilot');
+  try { await invoke<void>('cancel_copilot_account_login_cmd'); }
+  finally { invalidateAccountSnapshot('github_copilot'); }
+};
 
 export const listAgentConfigs = () => invoke<AgentConfig[]>('list_agent_configs_cmd');
 
@@ -1970,6 +1982,7 @@ export interface ModelContextWindowResolution {
 export interface ModelContextPolicy {
   contextWindow: number | null;
   autoCompactPercent: number | null;
+  contextTier?: 'default' | 'long_context';
 }
 
 export interface ModelContextPolicySnapshot {
@@ -1987,6 +2000,7 @@ export interface ModelContextPolicySnapshot {
   promptBudget: number | null;
   triggerTokens: number | null;
   managedByProvider: boolean;
+  contextTiers?: NonNullable<CopilotModelSummary['contextTiers']>;
 }
 
 export const getModelContextPolicy = (agentConfigId: string, model: string) =>

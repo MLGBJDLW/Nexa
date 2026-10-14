@@ -68,7 +68,7 @@ export function parseMarkdown(markdown) {
 export function validateDocumentation(documents, repositoryPaths) {
   const parsed = new Map([...documents].map(([file, content]) => [file, parseMarkdown(content)]));
   const errors = [];
-  const indexed = new Set();
+  const navigation = new Map();
   const exists = (target) => target === '.' || repositoryPaths.has(target)
     || [...repositoryPaths].some((file) => file.startsWith(`${target}/`));
   for (const [file, document] of parsed) {
@@ -100,21 +100,32 @@ export function validateDocumentation(documents, repositoryPaths) {
         fail(`missing repository target: ${link.target}`);
         continue;
       }
-      if (file === 'docs/README.md') indexed.add(target);
+      if (parsed.has(target)) {
+        if (!navigation.has(file)) navigation.set(file, new Set());
+        navigation.get(file).add(target);
+      }
       if (anchor && parsed.has(target) && !parsed.get(target).headings.has(anchor)) {
         fail(`missing heading: ${link.target}`);
       }
     }
   }
+  const indexed = new Set();
+  const queue = ['docs/README.md'];
+  while (queue.length) {
+    const file = queue.pop();
+    if (indexed.has(file)) continue;
+    indexed.add(file);
+    for (const target of navigation.get(file) ?? []) queue.push(target);
+  }
   for (const file of documents.keys()) {
-    if (/^docs\/[^/]+\.md$/u.test(file) && file !== 'docs/README.md' && !indexed.has(file)) {
-      errors.push(`${file}: not linked from docs/README.md`);
+    if (/^docs\/.+\.md$/u.test(file) && !indexed.has(file)) {
+      errors.push(`${file}: not reachable from docs/README.md`);
     }
   }
   return errors;
 }
 
-export function renderToolCatalog(schemas) {
+export function renderToolCatalog(schemas, document = 'docs/reference/TOOLS.md') {
   const rows = [...schemas].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([file, schema]) => {
     const name = schema.name ?? path.posix.basename(file, '.json');
     if (!/^[a-z][a-z\d_]*$/u.test(name) || typeof schema.description !== 'string' || !schema.parameters) {
@@ -122,7 +133,7 @@ export function renderToolCatalog(schemas) {
     }
     const sentence = schema.description.split(/\n|\.\s/u)[0].replace(/\|/gu, '\\|');
     const description = sentence.length > 180 ? `${sentence.slice(0, 177)}...` : sentence;
-    return `| [\`${name}\`](../${file}) | ${description} |`;
+    return `| [\`${name}\`](${path.posix.relative(path.posix.dirname(document), file)}) | ${description} |`;
   });
   return `${CATALOG_START}\n\n| Core schema | Purpose (abridged; follow the schema for full rules) |\n| --- | --- |\n${rows.join('\n')}\n\n${CATALOG_END}`;
 }
@@ -132,14 +143,14 @@ export function replaceToolCatalog(markdown, catalog) {
   const end = markdown.indexOf(CATALOG_END);
   if (start < 0 || end < start || markdown.indexOf(CATALOG_START, start + 1) >= 0
     || markdown.indexOf(CATALOG_END, end + 1) >= 0) {
-    throw new Error('docs/TOOLS.md must contain one ordered generated-schema marker pair');
+    throw new Error('docs/reference/TOOLS.md must contain one ordered generated-schema marker pair');
   }
   return markdown.slice(0, start) + catalog + markdown.slice(end + CATALOG_END.length);
 }
 
 function maintainedDocument(file) {
   return /^(?:README(?:\.zh-CN)?|CONTRIBUTING)\.md$/u.test(file)
-    || /^docs\/[^/]+\.md$/u.test(file)
+    || /^docs\/(?!local\/|research\/|architecture\/).+\.md$/u.test(file)
     || file === 'integrations/office-addin/README.md'
     || /^apps\/desktop\/(?:public\/provider-icons\/README|src-tauri\/resources\/[^/]+\/README)\.md$/u.test(file);
 }
@@ -155,16 +166,16 @@ function main() {
   const read = (file) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/gu, '\n');
   const schemas = new Map(files.filter((file) => /^crates\/core\/prompts\/tools\/[^/]+\.json$/u.test(file))
     .map((file) => [file, JSON.parse(read(file))]));
-  const tools = read('docs/TOOLS.md');
+  const tools = read('docs/reference/TOOLS.md');
   const generated = replaceToolCatalog(tools, renderToolCatalog(schemas));
   if (mode === 'generate') {
-    fs.writeFileSync(path.join(root, 'docs/TOOLS.md'), generated);
+    fs.writeFileSync(path.join(root, 'docs/reference/TOOLS.md'), generated);
     console.log(`Updated tool schema index (${schemas.size} definitions).`);
     return;
   }
   const documents = new Map(files.filter(maintainedDocument).map((file) => [file, read(file)]));
   const errors = validateDocumentation(documents, paths);
-  if (tools !== generated) errors.push('docs/TOOLS.md: stale schema index; run npm run docs:generate');
+  if (tools !== generated) errors.push('docs/reference/TOOLS.md: stale schema index; run npm run docs:generate');
   if (errors.length) {
     console.error(errors.join('\n'));
     process.exitCode = 1;

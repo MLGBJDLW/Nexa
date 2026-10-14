@@ -27,6 +27,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
   const [automatic, setAutomatic] = useState(true);
   const [capacityText, setCapacityText] = useState('');
   const [compactPercent, setCompactPercent] = useState<number | null>(null);
+  const [contextTier, setContextTier] = useState<'default' | 'long_context'>('default');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -50,6 +51,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
       setAutomatic(value.policy.contextWindow == null);
       setCapacityText(String(value.policy.contextWindow ?? value.modelLimit ?? 128_000));
       setCompactPercent(value.policy.autoCompactPercent);
+      setContextTier(value.policy.contextTier ?? 'default');
     }).catch(() => {
       if (ticket === generation.current) setError(t('chat.contextPolicyLoadFailed'));
     }).finally(() => {
@@ -67,10 +69,13 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
   const safetyReserve = capacity ? capacity <= 8192 ? 256 : Math.min(8192, Math.max(1024, Math.floor(capacity / 25))) : 0;
   const promptBudget = capacity ? Math.max(0, capacity - responseReserve - safetyReserve) : 0;
   const trigger = Math.floor(promptBudget * percent / 100);
-  const policy: api.ModelContextPolicy = { contextWindow: automatic ? null : Number(capacityText), autoCompactPercent: compactPercent };
-  const dirty = snapshot && JSON.stringify(policy) !== JSON.stringify(snapshot.policy);
   const managed = snapshot?.managedByProvider ?? Boolean(findProviderPreset(config)?.runtime);
-  const canSave = Boolean(snapshot && !managed && !invalid && !saving && !loading);
+  const tiers = snapshot?.contextTiers ?? [];
+  const policy: api.ModelContextPolicy = managed
+    ? { contextWindow: null, autoCompactPercent: null, contextTier }
+    : { contextWindow: automatic ? null : Number(capacityText), autoCompactPercent: compactPercent };
+  const dirty = snapshot && (managed ? contextTier !== (snapshot.policy.contextTier ?? 'default') : JSON.stringify(policy) !== JSON.stringify(snapshot.policy));
+  const canSave = Boolean(snapshot && (managed ? tiers.some(tier => tier.id === contextTier) : !invalid) && !saving && !loading);
   const progress = capacity ? Math.min(100, Math.max(0, usedTokens / capacity * 100)) : 0;
   const triggerPosition = capacity ? trigger / capacity * 100 : 0;
   const reservePercent = capacity ? (responseReserve + safetyReserve) / capacity * 100 : 0;
@@ -116,7 +121,19 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
         <button type="button" onClick={() => setOpen(false)} aria-label={t('common.close')} className="rounded-md p-1 text-text-tertiary hover:bg-surface-2"><X className="h-4 w-4" /></button>
       </div>
       {loading ? <div role="status" className="flex items-center justify-center gap-2 p-10 text-sm text-text-tertiary"><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</div> : snapshot ? <>
-        {managed ? <div className="space-y-3 p-5"><Sparkles className="h-6 w-6 text-accent" /><h3 className="text-sm font-medium">{t('chat.contextPolicyManagedTitle')}</h3><p className="text-xs leading-6 text-text-secondary">{t('chat.contextPolicyManaged')}</p></div> : <>
+        {managed ? <div className="space-y-3 overflow-y-auto p-5"><Sparkles className="h-6 w-6 text-accent" /><h3 className="text-sm font-medium">{t('chat.contextPolicyManagedTitle')}</h3><p className="text-xs leading-6 text-text-secondary">{t(tiers.length ? 'chat.contextTierScope' : 'chat.contextPolicyManaged')}</p>
+          {tiers.length > 0 && <>
+            <div className="grid grid-cols-2 gap-2" aria-label={t('chat.contextPolicyCapacity')}>
+              {tiers.map(tier => <button type="button" key={tier.id} data-testid={`context-tier-${tier.id}`} aria-pressed={contextTier === tier.id} className={optionClass(contextTier === tier.id)} onClick={() => { setContextTier(tier.id); touch(); }}>
+                {t(tier.id === 'long_context' ? 'chat.contextTierLong' : 'chat.contextTierDefault')}
+                {tier.promptTokenLimit && <span className="mt-1 block text-[10px] opacity-70">{t('chat.contextTierPromptLimit', { tokens: numberLabel(tier.promptTokenLimit) })}</span>}
+              </button>)}
+            </div>
+            {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+            {saved && <p role="status" className="text-xs text-accent">{t('chat.contextPolicySaved')}</p>}
+            <button type="button" data-testid="context-policy-save" disabled={!canSave || !dirty} onClick={() => void save()} className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">{t('chat.contextPolicyApply')}</button>
+          </>}
+        </div> : <>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
             <section className="rounded-xl border border-border/50 bg-surface-1/65 p-3.5" aria-label={t('chat.contextPolicyPreview')}>
               <div className="flex items-baseline justify-between gap-2">

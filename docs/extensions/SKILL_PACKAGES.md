@@ -1,0 +1,189 @@
+# Skill Packages
+
+[Documentation](../README.md) / [Category overview](README.md)
+
+Skill packages are Nexa's lightweight external contribution lane. A skill
+package teaches the agent a reusable method, domain procedure, style, or tool
+usage pattern without adding new host code.
+
+Skills are not native plugins. They may include instructions, references,
+metadata, scripts, and assets, but they must run through existing Nexa tools and
+approval policy.
+
+## Package Shape
+
+The portable shape is:
+
+```text
+<canonical-name>/
+  SKILL.md
+  agents/
+    openai.yaml
+  references/
+  scripts/
+  assets/
+```
+
+`SKILL.md` is the entry point. It should include YAML frontmatter:
+
+```yaml
+---
+name: research-synthesis
+description: Use when synthesizing evidence from multiple local or web sources.
+---
+```
+
+Installed personal skills use `~/.nexa/skills/<canonical-name>/`. The canonical
+name is the portable invocation identity: 1-64 lowercase ASCII letters, digits,
+or single hyphens, with no leading, trailing, or consecutive hyphen. It must
+match both the parent folder and `SKILL.md` frontmatter. Nexa keeps its immutable
+database UUID and localized/human display name separately, so neither appears
+as the portable folder identity and changing display text does not move files.
+
+Startup and the explicit Reload skill files action synchronize valid edits for
+already-registered canonical names. Legacy UUID folders are recognized only for
+a guarded, same-filesystem rename; the database id remains unchanged and all
+unknown files move with the package. An existing target, symlink/reparse point,
+or invalid canonical name fails closed and leaves the source untouched. Unknown
+folders remain unregistered until the user chooses the normal import flow,
+including security-warning acknowledgement. A disabled skill keeps its files;
+only an explicit Delete removes its folder. Nexa preserves unmodeled files such
+as `README.md`, `LICENSE`, and repository metadata. When an approved update
+removes or renames a previously modeled resource, Nexa deletes only that exact
+former resource path.
+
+The optional `agents/openai.yaml` file describes agent-facing metadata and
+dependencies:
+
+```yaml
+interface:
+  displayName: Research Synthesis
+  shortDescription: Turns retrieved evidence into a grounded synthesis.
+dependencies:
+  tools:
+    - type: builtin
+      value: search_knowledge_base
+      description: Finds local evidence.
+    - type: mcp
+      value: github.search_issues
+      transport: streamable_http
+      description: Optional connector-provided issue search.
+policy:
+  allowImplicitInvocation: true
+```
+
+## Resource Policy
+
+Resources are classified by path:
+
+| Directory | Resource kind | Purpose |
+| --- | --- | --- |
+| `scripts/` | `script` | Helper scripts invoked through approved tools |
+| `references/` | `reference` | Longer examples, checklists, schemas, or playbooks |
+| `agents/` | `metadata` | Agent interface and dependency metadata |
+| `assets/` | `asset` | Images, templates, examples, or binary resources |
+
+The frontend receives resource metadata only. Full resource contents stay on the
+core side until a tool or skill explicitly needs them.
+
+Additional directories such as `templates/` and `examples/`, and root files
+such as `README.md` and `LICENSE`, are retained too. Nested example `SKILL.md`
+files inside an accepted skill are resources of that skill. Version-control
+metadata and dependency caches are excluded. Import limits reject oversized or
+overdeep packages explicitly; the importer never silently drops their tails.
+
+## Import and installation
+
+Skills settings accepts multiple Markdown files, packages, or directories in a
+single picker selection. ZIP/`.skill` collections can contain multiple skill
+directories. The preview lets the user select individual skills, inspect their
+resource counts and warnings, and acknowledge updates only for that selection.
+Changing the selection clears previous warning/update acknowledgements.
+
+Every selected body and resource bundle has a content digest. Installation
+rereads the source and rejects drift before any database or destination change.
+The common installer stages complete directories, saves the selected records in
+one database transaction, and rolls back published directories if publication or
+database commit fails. Existing IDs, disabled state and unmodeled user files are
+preserved on explicit replacement. This rollback covers reported operation
+failures; it is not a crash-recovery journal for process or power loss.
+
+The agent uses the same owner through `manage_skill`:
+
+1. `inspect_install_sources` accepts local scoped paths, public GitHub
+   repository/directory/`SKILL.md` URLs, or direct archive/Markdown URLs. It
+   returns metadata, warnings, and exact `skillFile`/`contentDigest` selections.
+2. `install_sources` accepts the same sources and the chosen selections. It
+   follows the host approval policy and returns the saved IDs and materialized
+   paths. `replace_existing` and `accept_blocked_warnings` default to false.
+3. `activate_skill` loads an installed skill; `view_resource` reads its bundled
+   files. Installing does not execute bundled scripts.
+
+GitHub file URLs retrieve the complete surrounding skill directory, including
+its resources. Use `github_ref` for an explicit revision or a branch containing
+`/`, and keep that value unchanged between inspection and installation. Private
+repositories use an authenticated local checkout; the downloader does not
+borrow account credentials. Public downloads retain the host's URL/redirect
+network checks, cancellation and bounded package reads. A direct standalone
+Markdown download is explicitly identified as having no neighboring resources.
+
+## Safety Model
+
+Skill package scanning is advisory but strict enough to surface dangerous
+imports before activation. The scanner checks for:
+
+- missing `name` or `description` frontmatter
+- unusually large `SKILL.md`
+- wildcard `allowed-tools`
+- shell tool grants
+- recursive force deletion patterns
+- remote script execution patterns such as `curl ... | sh`
+- dynamic code execution or obfuscated payload indicators
+
+Blocked findings should require explicit user review before import or proposal
+apply. Skills still cannot bypass tool approvals or source scope.
+
+## Dependency Model
+
+A skill can depend on:
+
+- built-in tools by stable tool name
+- MCP connector tools by connector/tool identity
+- optional runtime capabilities described in its references
+
+A skill does not own those tools. If a skill needs a new external tool, the
+right path is to add or enable a connector. If a skill needs a new host ability,
+that request should become a capability package or adapter discussion.
+
+## Built-In Status
+
+Nexa's bundled skills are represented by the `builtin-skills` package manifest
+with surface `skill_package`. Each built-in skill also appears as a component
+entry under:
+
+```text
+.nexa/capabilities/builtin-skills/skills/<skill-id>/SKILL.md
+```
+
+These component paths are metadata for the package catalog. The actual bundled
+sources are [core skill assets](../../crates/core/assets/skills); the desktop
+materializes them under `<app-data>/runtimes/builtin-skills/<slug>/` and resolves
+`<SKILL_DIR>` to that runtime location. Personal skills use the user-owned root
+described above. Neither is installed by creating the catalog path manually.
+
+Project-local skill package manifests can use the same
+`.nexa/capabilities/*/capability.yaml` discovery path as other capability
+packages.
+
+## Implementation and verification
+
+[skills.rs](../../crates/core/src/skills.rs) exposes the module boundaries:
+registry, importer, storage, scanner, selector, prompt projection, and trust
+policy. [package.rs](../../crates/core/src/skills/package.rs) owns built-in package
+metadata, and [storage.rs](../../crates/core/src/skills/storage.rs) owns actual
+materialization paths.
+
+When changing imports or reloads, verify canonical-name validation, retained
+database identity, disabled-state preservation, rejected files, removed modeled
+resources, and unknown user files. A valid `SKILL.md` does not by itself grant
+permission to execute a bundled script or access a connector.

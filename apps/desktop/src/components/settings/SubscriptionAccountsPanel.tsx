@@ -108,6 +108,10 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
     } catch {
       if (codexActionRevision.current === actionRevision
         && codexRefreshRevision.current === refreshRevision) {
+        // Failed quota reads must not end an independent native login flow.
+        // Clear stale usage while retaining its cancellation/retry handle.
+        setSnapshot(current => current?.pendingLogin
+          ? { ...current, rateLimits: [], usage: null } : null);
         toast.error(t('settings.subscriptionRefreshError'));
       }
     } finally {
@@ -137,6 +141,8 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
     } catch {
       if (copilotActionRevision.current === actionRevision
         && copilotRefreshRevision.current === refreshRevision) {
+        setCopilotSnapshot(current => current?.loginPending
+          ? { ...current, quotas: [] } : null);
         toast.error(t('settings.copilotRefreshError'));
       }
     } finally {
@@ -555,6 +561,10 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
                 ))}
               </div>
             </div>
+          </div>
+        )}
+        {copilotSnapshot && (
+          <div className="mt-4 border-t border-border/70 pt-4">
             <SubscriptionUsageDetails quota={copilotAccountQuota(copilotSnapshot)} />
           </div>
         )}

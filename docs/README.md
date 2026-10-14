@@ -1,97 +1,57 @@
 # Nexa documentation
 
 Start with the [project README](../README.md) for installation and first use,
-or [Contributing](../CONTRIBUTING.md) for local development and verification.
-These documents describe the current repository; a release tag's documents and
-assets describe that release.
+or [Contributing](../CONTRIBUTING.md) for local setup and verification.
+English is canonical for maintained technical documentation; the
+[Chinese README](../README.zh-CN.md) is the Chinese product entry point.
 
-English is the canonical language for maintained technical documentation.
-[README.zh-CN.md](../README.zh-CN.md) is the Chinese product entry point.
+## Browse by purpose
 
-## Use Nexa
-
-| Guide | Read it when you need to... |
+| Category | What belongs here |
 | --- | --- |
-| [Knowledge and retrieval](KNOWLEDGE_AND_RETRIEVAL.md) | Add sources, retrieve evidence, use collections, or interpret the knowledge graph |
-| [Models and providers](PROVIDERS_AND_MODELS.md) | Configure API/local connections, select models, or understand capability and credential boundaries |
-| [Native document input](NATIVE_DOCUMENT_INPUT.md) | Read PDF/Office attachments and authorized files with verified native routes or local extraction |
-| [Embedding providers and vector spaces](EMBEDDING_PROVIDERS.md) | Choose cloud/local embeddings, dimensions, and rebuild the matching local vector index |
-| [Optional cloud vector storage](VECTOR_STORES.md) | Configure Qdrant, Pinecone, DashVector, Milvus/Zilliz or Tencent, synchronization and local/cloud fusion |
-| [Subscription agents](SUBSCRIPTION_AGENTS.md) | Sign in to supported Copilot/Codex runtimes or understand their execution limits |
-| [Phone access](remote-access.md) | Pair a phone, select LAN/public routes, use remote chat, or diagnose a connection |
-| [Voice and Live](LIVE.md) | Use dictation, live audio/video input, records, and summaries |
-| [Computer Use and local images](COMPUTER_USE.md) | Native input, physical coordinates, control feedback, recovery, and direct image inspection |
-| [Local HTML preview](local-html-preview.md) | Open interactive local HTML with an explicit asset list |
-| [Generative chat UI](GENERATIVE_CHAT_UI.md) | Create structured views, live HTML previews, and isolated local interactions in chat |
-| [Scheduled tasks](SCHEDULED_TASKS.md) | Configure recurrence, approvals, unattended tools, or isolated repository work |
-| [Workspace file rules](WORKSPACE_RULES.md) | Load project and directory instructions, inspect their scope, and understand changes between turns |
-| [Local storage](LOCAL_STORAGE.md) | Inspect declaration/model locations and consolidate existing model downloads |
-| [Project lifecycle checks](PROJECT_HOOKS.md) | Enable version-bound commands, inspect their receipts, and enforce completion checks |
-| [MCP resources and prompt templates](MCP_CONTENT.md) | Browse connector content, validate template arguments, and add reviewed text to drafts |
-| [MCP OAuth sign-in](MCP_OAUTH.md) | Sign in, renew or disconnect remote connector accounts with system credential storage |
-| [Chat worktrees](CHAT_WORKTREES.md) | Keep parallel chat checkouts, archive work safely, and restore local snapshots |
-| [Code review and GitHub PRs](CODE_REVIEW.md) | Record version-bound findings, hand selected fixes to the Agent, and inspect PR checks and threads |
-| [Office add-in](../integrations/office-addin/README.md) | Pair or deploy the separate Word/Excel/PowerPoint live adapter |
-| [Tool reference](TOOLS.md) | Choose an agent tool and inspect its schema, scope, and result contract |
+| [Use and configure Nexa](guides/README.md) | Models, knowledge, chat, Computer Use, scheduled tasks, voice, phone access, and local storage |
+| [Runtime and architecture](runtime/README.md) | Subsystem ownership, streaming, orchestration, terminal and extension boundaries |
+| [Extend Nexa](extensions/README.md) | Capability packages, MCP, skills, workflows, and explicitly labelled proposed extension surfaces |
+| [Development and validation](development/README.md) | UX acceptance, localization, and reproducible agent evaluation |
+| [Product direction](product/README.md) | Audience, product boundaries, and roadmap |
+| [Tool reference](reference/README.md) | Tool behavior, scope, result contracts, and generated schema links |
 
-## Understand the system
+## Common starting points
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the canonical architecture entry point.
-
-| Contract | Authority covered |
+| Task | Start here |
 | --- | --- |
-| [Agent streaming protocol](AGENT_STREAMING_PROTOCOL.md) | Ordered Run Events, the outbox, durable completion, replay, and recovery |
-| [Orchestration runtime](ORCHESTRATION_RUNTIME.md) | MoA, Nexus, budgets, prompt caching, delegation, verification, and evaluation |
-| [Live file-tool streaming](LIVE_FILE_TOOL_STREAMING.md) | Partial previews, complete-argument execution, and resumable text writes |
-| [Terminal and agent bridge](TERMINAL_AGENT_BRIDGE.md) | User-owned PTYs, conversation binding, approvals, and stop semantics |
-| [Ecosystem architecture](ECOSYSTEM_ARCHITECTURE.md) | Extension ownership, user files, trust boundaries, and maturity |
+| Connect a model or subscription | [Models and providers](guides/PROVIDERS_AND_MODELS.md), [subscription agents](guides/SUBSCRIPTION_AGENTS.md) |
+| Add files and retrieve evidence | [Knowledge and retrieval](guides/KNOWLEDGE_AND_RETRIEVAL.md), [document input](guides/NATIVE_DOCUMENT_INPUT.md) |
+| Understand desktop automation | [Computer Use](guides/COMPUTER_USE.md) |
+| Configure recurring work | [Scheduled tasks](guides/SCHEDULED_TASKS.md) |
+| Diagnose a long-running turn | [Streaming protocol](runtime/AGENT_STREAMING_PROTOCOL.md), [orchestration](runtime/ORCHESTRATION_RUNTIME.md) |
+| Change runtime behavior | [Architecture](runtime/ARCHITECTURE.md), [Contributing](../CONTRIBUTING.md) |
+| Validate or release a change | [Development guides](development/README.md), [contribution checks](../CONTRIBUTING.md) |
 
-## Extend Nexa
+## Maintain the documentation
 
-| Surface | Status and reference |
-| --- | --- |
-| Capability packages | [Manifest validation and discovery](CAPABILITY_PACKAGES.md); discovery does not install executable code |
-| MCP connectors | [Supported connector lifecycle](MCP_CONNECTORS.md) and versioned file declarations |
-| Skill packages | [Import, resources, dependencies, and reload](SKILL_PACKAGES.md) through existing tools |
-| Workflow packages | [Built-in catalog and proposed portable format](WORKFLOW_PACKAGES.md) |
-| Protocol exits | [Candidate/design metadata](PROTOCOL_EXITS.md); not a shipped standalone server |
-| Native plugins | [Future runtime requirements](NATIVE_PLUGIN_RUNTIME.md); not a general third-party code loader |
+Place stable guides in the category matching their primary purpose and link
+them from that category's README. Keep one authoritative document for each
+contract; link related material instead of copying it. Every guide links back
+to its category and this index. The root of `docs/` contains only this entry
+point; add a category only when an existing one cannot hold the material.
 
-## Product and contribution standards
+Update the relevant guide when a command, schema, permission, workflow, or
+platform requirement changes. Link implementation and tests for verification.
+Label proposed behavior explicitly. Current repository documents describe the
+current source; a release tag's documents and assets describe that release.
 
-- [Product direction](PRODUCT_DIRECTION.md): audience, pillars, and product boundaries.
-- [Roadmap](ROADMAP.md): shipped foundations and ongoing priorities.
-- [UX quality bar](UX_QUALITY_BAR.md): interaction, presentation, and acceptance.
-- [Internationalization](I18N_GUIDELINES.md): namespace JSON, generated files, and locale review.
-- [Contributing](../CONTRIBUTING.md): environment setup, checks, and PR expectations.
-- [Agent task evaluation](AGENT_TASK_EVALUATION.md): contract, replay, scripted and opt-in live task evidence.
-- [Changelog](../CHANGELOG.md): generated release history.
-- [Third-party notices](../apps/desktop/THIRD_PARTY_NOTICES.md): bundled attributions.
-
-## Documentation lifecycle
-
-Stable guides and contracts belong directly under `docs/` and are linked from
-this index. Normative runtime details are also reachable from
-[Architecture](ARCHITECTURE.md). Keep one owner for each contract and link
-related material instead of copying whole sections.
-
-Update the relevant guide when a command, schema, permission, user workflow,
-or platform requirement changes. Link implementation and tests for verification.
-A design example must be labelled as proposed when the runtime does not parse
-or execute it. A recent edit date alone does not establish correctness.
-
-Run `npm run docs:check` from the repository root to validate maintained local
-links and index coverage. Inspect technical claims against the implementation
-and check external references separately.
+Run `npm run docs:check` to validate local links, headings, generated schema
+links, and reachability through category indexes. After moving a guide, update
+its incoming links, relative source links, and the category index together.
 
 Dated investigations, source dumps, implementation research, and temporary
 plans belong in Issues/PRs or the ignored `docs/local/` and `docs/research/`
-work areas. The former `docs/architecture/` tree and research-style Markdown
-filenames remain ignored. Generated release history, legal notices, and
-domain-specific bundled skill assets have their own purpose and are not
-rewritten as current architecture.
+work areas. The legacy `docs/architecture/` scratch tree remains ignored;
+maintained architecture now lives in `docs/runtime/`.
 
-Local agent instructions (`AGENTS.md`, `CLAUDE.md`, `CONTEXT.md`, `GEMINI.md`),
-agent workspace directories, and temporary patch payloads are ignored and must
-not be committed. `npm run repository:check` enforces this even for force-added
-files. Product prompts and bundled skills remain maintained source assets.
+Local agent instruction files and temporary patch payloads remain ignored and
+must not be committed. `npm run repository:check` enforces this. Product prompts
+and bundled skills remain maintained source assets. Release history and legal
+notices keep their existing locations: [changelog](../CHANGELOG.md) and
+[third-party notices](../apps/desktop/THIRD_PARTY_NOTICES.md).
