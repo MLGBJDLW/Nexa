@@ -301,8 +301,10 @@ request count is not an inferred count of hidden native model calls.
 ACP adapters that supply `session/prompt` response `usage` are supported. Gemini
 CLI reports per-prompt totals; Hermes currently reports cumulative session totals,
 so Nexa retains a baseline with the pooled ACP session and records only the new
-consumption. Counter resets start a new accounting epoch. An unreported interval
-is not charged to a later turn. Cache and reasoning details never get added to a
+consumption. Counter resets start a new accounting epoch. Missing snapshots keep
+the last valid baseline; later catch-up usage includes the intervening consumption
+and is explicitly marked as a session interval observed on that turn, not an
+exact per-turn measurement. Cache and reasoning details never get added to a
 provider's already reported total. Adapters such as pi ACP that only expose
 context occupancy retain an unknown usage record. Subscription price and account
 quota are not fabricated from these token totals.

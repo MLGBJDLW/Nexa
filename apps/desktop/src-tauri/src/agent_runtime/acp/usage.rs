@@ -11,7 +11,7 @@ const MAX_USAGE_BYTES: u64 = 256 * 1024;
 #[derive(Default)]
 pub(super) struct SessionUsage {
     previous: Option<nexa_core::llm::Usage>,
-    prompted: bool,
+    unreported_prompts: u64,
 }
 
 impl SessionUsage {
@@ -21,23 +21,32 @@ impl SessionUsage {
         response: &Value,
     ) -> Option<nexa_core::llm::Usage> {
         let current = prompt_usage(response);
-        let already_prompted = std::mem::replace(&mut self.prompted, true);
         if provider != "hermes" {
             return current;
         }
         // Hermes exports session counters in PromptResponse, unlike Gemini
         // CLI's per-prompt usage. This baseline belongs to the pooled session.
-        let previous = std::mem::replace(&mut self.previous, current.clone());
-        let current = current?;
-        let Some(previous) = previous else {
-            return (!already_prompted).then_some(current);
+        let Some(current) = current else {
+            self.unreported_prompts = self.unreported_prompts.saturating_add(1);
+            return None;
         };
+        let previous = self.previous.replace(current.clone()).unwrap_or_default();
+        let unreported = std::mem::take(&mut self.unreported_prompts);
+        let provenance = (unreported > 0).then(|| {
+            serde_json::json!({
+                "scope":"session_interval", "unreportedPrompts":unreported,
+                "attribution":"observed_on_this_turn"
+            })
+        });
         if current.total_tokens < previous.total_tokens
             || current.prompt_tokens < previous.prompt_tokens
             || current.completion_tokens < previous.completion_tokens
         {
             // The runtime rebuilt its agent/reset its native session counters.
-            return Some(current);
+            return Some(nexa_core::llm::Usage {
+                provider_raw: provenance,
+                ..current
+            });
         }
         Some(nexa_core::llm::Usage {
             prompt_tokens: current.prompt_tokens - previous.prompt_tokens,
@@ -52,6 +61,7 @@ impl SessionUsage {
             cache_creation_tokens: current
                 .cache_creation_tokens
                 .map(|v| v.saturating_sub(previous.cache_creation_tokens.unwrap_or(0))),
+            provider_raw: provenance,
             ..Default::default()
         })
     }
@@ -313,7 +323,9 @@ mod tests {
             12
         );
         assert!(session.observe("hermes", &json!({})).is_none());
-        assert!(session.observe("hermes", &snapshot(200, 40)).is_none());
+        let recovered = session.observe("hermes", &snapshot(200, 40)).unwrap();
+        assert_eq!(recovered.total_tokens, 228);
+        assert_eq!(recovered.provider_raw.unwrap()["scope"], "session_interval");
         assert_eq!(
             session
                 .observe("hermes", &snapshot(210, 45))
@@ -325,6 +337,15 @@ mod tests {
         assert_eq!(
             gemini
                 .observe("gemini_cli", &snapshot(100, 20))
+                .unwrap()
+                .total_tokens,
+            120
+        );
+        let mut new_session = SessionUsage::default();
+        assert!(new_session.observe("hermes", &json!({})).is_none());
+        assert_eq!(
+            new_session
+                .observe("hermes", &snapshot(100, 20))
                 .unwrap()
                 .total_tokens,
             120

@@ -152,6 +152,9 @@ impl RuntimeUsageAccounting {
             return Ok(());
         }
         let accumulated = self.models.entry(model.into()).or_default();
+        if usage.provider_raw.is_some() {
+            accumulated.provider_raw = usage.provider_raw.clone();
+        }
         accumulated.prompt_tokens = accumulated
             .prompt_tokens
             .saturating_add(delta.prompt_tokens);
@@ -193,7 +196,7 @@ impl RuntimeUsageAccounting {
         reported: bool,
     ) -> Result<(), CoreError> {
         let invocation = format!("external:{}:{}:{}", self.turn, self.scope, model);
-        let raw = serde_json::json!({"runtime":self.provider,"aggregation":"external_turn","usageReported":reported});
+        let raw = serde_json::json!({"runtime":self.provider,"aggregation":"external_turn","usageReported":reported,"nativeUsageScope":usage.provider_raw});
         self.db.record_ai_usage_snapshot(&AiUsageRecordInput {
             invocation_id: &invocation,
             occurred_at: None,

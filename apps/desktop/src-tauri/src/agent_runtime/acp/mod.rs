@@ -783,6 +783,9 @@ async fn drive(
                 }
             }
             output.usage_reported = true;
+            if usage.provider_raw.is_some() {
+                output.usage.provider_raw = usage.provider_raw;
+            }
             output.publish_usage(&turn.events).await?;
         }
         if !pending_services.is_empty() {
