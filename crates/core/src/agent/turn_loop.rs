@@ -641,6 +641,10 @@ impl AgentExecutor {
         let mut turn_budget = TurnBudget::new(self.config.max_iterations);
         let mut resumed_execution =
             super::desktop_resume::load_execution_resume_state(db, conversation_id, turn_id)?;
+        let checkpointed_subtask_recoveries = resumed_execution
+            .as_ref()
+            .map(|state| state.checkpointed_subtask_recoveries.clone())
+            .unwrap_or_default();
         if let Some(saved) = resumed_execution.as_ref() {
             turn_budget.restore(saved.completed_tool_rounds, saved.max_iterations);
         }
@@ -696,6 +700,9 @@ impl AgentExecutor {
             .join(" ");
         let mut action_reconciliation =
             ActionReconciliationFence::from_resume_prompt(&user_query_text_for_tools);
+        if !checkpointed_subtask_recoveries.is_empty() {
+            action_reconciliation.unknown = true;
+        }
 
         let skills = self.skills_override.clone().unwrap_or_else(|| {
             crate::skills::get_available_skills_for_query(db, &user_query_text_for_tools)
@@ -1142,6 +1149,25 @@ impl AgentExecutor {
         let mut last_iteration_content = String::new();
         let mut last_finish_reason: Option<String> = None;
         let mut persisted_trace_items: Vec<PersistedTraceItem> = Vec::new();
+        let recovery_parent_run = turn_id
+            .map(|id| db.get_agent_task_run_by_turn(id))
+            .transpose()?
+            .flatten()
+            .map(|run| run.id);
+        macro_rules! check_delegated_action_recovery {
+            () => {
+                if let Some(run_id) = recovery_parent_run.as_deref() {
+                    let pending: Vec<_> = db.agent_subtask_action_reconciliations(run_id)?
+                        .into_keys().filter(|id| !checkpointed_subtask_recoveries.contains(id)).collect();
+                    if !pending.is_empty() {
+                        return Err(emit_recovery_required(
+                            &tx, db, turn_id, route_plan.kind, &mut persisted_trace_items,
+                            format!("Delegated task(s) {} stopped after a provider-hosted action. Inspect their retained action receipts before continuing; do not replay their requests.", pending.join(", ")), true,
+                        ).await);
+                    }
+                }
+            };
+        }
         append_developer_persisted_trace_status(
             &mut persisted_trace_items,
             &output_budget_plan.diagnostic(),
@@ -1155,6 +1181,7 @@ impl AgentExecutor {
         // --- 3c. Extract user query text -----------------
         let user_query_text = &user_query_text_for_tools;
 
+        check_delegated_action_recovery!();
         // --- 3c'. Try direct dispatch (skip LLM for simple commands) ---------
         if !self.config.execution_mode.is_plan()
             && turn_budget.tool_rounds_used() == 0
@@ -1299,6 +1326,7 @@ impl AgentExecutor {
                 .as_mut()
                 .expect("Nexus or Ultra reconnaissance requires compiled Workflow IR");
             while turn_budget.can_dispatch_tool_round() {
+                check_delegated_action_recovery!();
                 let Some(arguments) =
                     workflow_ir.reconnaissance_batch_arguments(&task_plan.objective)
                 else {
@@ -1801,6 +1829,7 @@ impl AgentExecutor {
                     output_budget_plan.wire_max_tokens_for_prompt(estimated_prompt)
                 };
             let accumulated_content_before_model_step = accumulated_content.len();
+            check_delegated_action_recovery!();
             let model_step_result = self
                 .run_model_step(model_step::ModelStepContext {
                     db,
@@ -1843,6 +1872,9 @@ impl AgentExecutor {
                         iteration,
                         &error,
                     );
+                    if matches!(error, CoreError::RecoveryRequired { .. }) {
+                        check_delegated_action_recovery!();
+                    }
                     return Err(error);
                 }
             };
@@ -2011,6 +2043,9 @@ impl AgentExecutor {
                 return Err(CoreError::Agent(trace_message));
             }
 
+            // Keep billing and visibility admission above this boundary, but
+            // accept no next action/final completion over an uncertain worker.
+            check_delegated_action_recovery!();
             let provider_state_fingerprint = provider_replay
                 .as_ref()
                 .filter(|replay| replay.resumes_provider_pause())

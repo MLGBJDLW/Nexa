@@ -1179,6 +1179,77 @@ fn register_test_worker(
 }
 
 #[tokio::test]
+async fn delegated_recovery_requirement_survives_lifecycle_wait_observe_and_batch_results() {
+    let runtime = test_runtime();
+    let registration = register_test_worker(&runtime, "uncertain-worker");
+    registration.events.start().await.unwrap();
+    let error = CoreError::RecoveryRequired {
+        message: "Provider stopped after a hosted action".into(),
+        action_reconciliation: true,
+    };
+    settle_worker_lifecycle(
+        &runtime.lifecycle,
+        &registration.agent_id,
+        &registration.cancel_token,
+        Err(&error),
+    )
+    .await
+    .unwrap();
+    let snapshot = runtime.lifecycle.snapshot(&registration.agent_id).unwrap();
+    assert_eq!(snapshot.status, SubagentLifecycleStatus::Failed);
+    assert_eq!(
+        snapshot.result.as_ref().unwrap()["recoveryRequired"]["actionReconciliation"],
+        true
+    );
+    let db = Database::open_memory().unwrap();
+    let arguments = serde_json::json!({"agentId":registration.agent_id,"waitMs":0}).to_string();
+    for action in [
+        SubagentLifecycleAction::Observe,
+        SubagentLifecycleAction::Wait,
+    ] {
+        let tool = SubagentLifecycleTool {
+            runtime: runtime.clone(),
+            action,
+        };
+        let result = tool
+            .execute(nexa_core::tools::ToolExecutionContext::new(
+                "inspect-worker",
+                &arguments,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(result
+            .content
+            .to_ascii_lowercase()
+            .contains("reconciliation"));
+        assert!(result
+            .artifacts
+            .unwrap()
+            .to_string()
+            .contains("actionReconciliation"));
+    }
+    let run = failed_subagent_run_artifact(
+        "uncertain-worker".into(),
+        serde_json::from_value(serde_json::json!({"task":"Inspect"})).unwrap(),
+        None,
+        &error,
+    );
+    runtime.register_batch("uncertain-batch", 1);
+    runtime.record_batch_result("uncertain-batch", 0, run);
+    let snapshot = runtime.batch_snapshot("uncertain-batch", None).unwrap();
+    assert!(
+        snapshot.runs[0]
+            .recovery_required
+            .as_ref()
+            .unwrap()
+            .action_reconciliation
+    );
+    assert!(snapshot.runs[0].is_error);
+}
+
+#[tokio::test]
 async fn queued_worker_cancel_and_collector_abort_settle_without_spawning_or_spending() {
     for abort_collector in [false, true] {
         let mut runtime = test_runtime();

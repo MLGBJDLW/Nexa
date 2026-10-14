@@ -16,6 +16,7 @@ pub(super) struct ExecutionResumeState {
     pub(super) plan: Option<crate::intelligence::AgentTaskPlan>,
     pub(super) completed_tool_rounds: u32,
     pub(super) max_iterations: Option<u32>,
+    pub(super) checkpointed_subtask_recoveries: std::collections::HashSet<String>,
 }
 
 fn saved_plan(value: Option<&Value>) -> Option<crate::intelligence::AgentTaskPlan> {
@@ -107,6 +108,7 @@ pub(super) fn load_execution_resume_state(
     }
     let mut selected = workflow(run.plan.as_ref().and_then(|plan| plan.get("workflowIr")))?;
     let mut selected_plan = saved_plan(run.plan.as_ref());
+    let mut checkpointed_subtask_recoveries = std::collections::HashSet::new();
     let mut completed_tool_rounds = run
         .plan
         .as_ref()
@@ -174,6 +176,12 @@ pub(super) fn load_execution_resume_state(
         {
             return Err(invalid("checkpoint state belongs to another task turn"));
         }
+        if let Some(requirements) = state
+            .get("subtaskActionReconciliations")
+            .and_then(Value::as_object)
+        {
+            checkpointed_subtask_recoveries.extend(requirements.keys().cloned());
+        }
         if let Some(count) = state
             .pointer("/liveTurnState/completedToolRounds")
             .and_then(Value::as_u64)
@@ -224,6 +232,7 @@ pub(super) fn load_execution_resume_state(
             plan: selected_plan,
             completed_tool_rounds,
             max_iterations,
+            checkpointed_subtask_recoveries,
         }),
     )
 }

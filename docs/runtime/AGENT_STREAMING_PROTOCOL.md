@@ -221,6 +221,14 @@ legacy text deltas when typed answer blocks are absent; typed blocks take
 precedence in mixed streams, and only a sample-discarding reset removes them.
 An atomically re-queued core session reopens its existing outbox before execution.
 
+Delegated workers preserve typed recovery requirements in their subtask record,
+lifecycle result, and batch result. A parent checks compact, parent-scoped
+reconciliation receipts at model boundaries before accepting another action or
+final answer, accounting for the completed sample first. Uncertain hosted actions
+pause the parent through the same outbox. Its checkpoint records the covered
+subtask IDs: Resume keeps the reconciliation fence without repeatedly pausing on
+the same historical receipt, while newly interrupted workers still require a pause.
+
 Deferred tool count/token targets optimize the prompt, not tool authorization.
 Discovery unloads unrelated definitions and admits the requested tools, including
 file and shell capabilities, even when their schemas exceed those soft targets.

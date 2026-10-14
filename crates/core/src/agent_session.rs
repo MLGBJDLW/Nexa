@@ -469,6 +469,7 @@ mod tests {
     struct ScriptedSessionProvider {
         events: Vec<crate::llm::ProviderStreamEvent>,
         calls: Arc<AtomicUsize>,
+        settle_subtask: Option<(Database, String)>,
     }
 
     #[async_trait]
@@ -491,6 +492,18 @@ mod tests {
         ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
         {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some((db, id)) = &self.settle_subtask {
+                let error = CoreError::RecoveryRequired {
+                    message: "Hosted action outcome is uncertain".into(),
+                    action_reconciliation: true,
+                };
+                db.finish_agent_subtask_run(
+                    id,
+                    "failed",
+                    Some(&serde_json::json!({"recoveryRequired":error.recovery_requirement()})),
+                    Some("connection lost"),
+                )?;
+            }
             Ok(stream::iter(self.events.clone()).boxed())
         }
         async fn health_check(&self) -> Result<(), CoreError> {
@@ -514,6 +527,7 @@ mod tests {
             Box::new(ScriptedSessionProvider {
                 events,
                 calls: calls.clone(),
+                settle_subtask: None,
             }),
             tools,
             AgentConfig {
@@ -659,6 +673,131 @@ mod tests {
             assert_eq!(db.get_agent_task_run(&run_id).unwrap().status, "completed");
             validate_runtime_turn_events(&session.read_events(&run_id).await.unwrap()).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn delegated_action_loss_pauses_parent_and_is_not_replayed_on_resume() {
+        use crate::llm::ProviderStreamEvent;
+        let db = Database::open_memory().unwrap();
+        let (mut session, turn_id, run_id, calls) =
+            scripted_session(&db, vec![], ToolRegistry::new());
+        let worker = db
+            .create_agent_subtask_run(&run_id, "worker-1", "worker", None, None)
+            .unwrap();
+        let safe_failure = db
+            .create_agent_subtask_run(&run_id, "worker-2", "worker", None, None)
+            .unwrap();
+        db.finish_agent_subtask_run(&safe_failure.id, "failed", Some(&serde_json::json!({"recoveryRequired":{"actionReconciliation":false,"message":"safe transient error"}})), None).unwrap();
+        assert!(db
+            .agent_subtask_action_reconciliations(&run_id)
+            .unwrap()
+            .is_empty());
+        session.executor = AgentExecutor::new(
+            Box::new(ScriptedSessionProvider {
+                calls: calls.clone(),
+                settle_subtask: Some((db.clone(), worker.id.clone())),
+                events: vec![ProviderStreamEvent::Chunk {
+                    chunk: Box::new(StreamChunk {
+                        delta: "Retained draft".into(),
+                        tool_call_delta: None,
+                        finish_reason: Some(FinishReason::Stop),
+                        thinking_delta: None,
+                        usage: Some(crate::llm::Usage {
+                            prompt_tokens: 10,
+                            completion_tokens: 2,
+                            total_tokens: 12,
+                            ..Default::default()
+                        }),
+                    }),
+                }],
+            }),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("static-model".into()),
+                ..Default::default()
+            },
+        );
+        let handle = session
+            .start_turn(AgentTurnInput::text("Continue the task"))
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(handle.state, AgentTurnState::Paused);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+        assert_eq!(
+            db.get_usage_analytics(&crate::usage_analytics::UsageAnalyticsFilter::default())
+                .unwrap()
+                .totals
+                .total_tokens,
+            12
+        );
+        let checkpoint = db
+            .list_task_resume_checkpoints(&run_id)
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(
+            checkpoint.state["subtaskActionReconciliations"][&worker.id]["actionReconciliation"],
+            true
+        );
+        assert!(checkpoint.resume_prompt.contains("Never redispatch"));
+        let response = ConversationMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            conversation_id: db.get_agent_task_run(&run_id).unwrap().conversation_id,
+            role: Role::User,
+            content: checkpoint.resume_prompt.clone(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 1,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.resume_agent_turn_from_checkpoint(
+            &response,
+            None,
+            None,
+            "delegated-resume",
+            &checkpoint.id,
+        )
+        .unwrap();
+        session.executor = AgentExecutor::new(
+            Box::new(StaticProvider),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("static-model".into()),
+                ..Default::default()
+            },
+        );
+        session.next_sort_order = 10;
+        let resumed = session
+            .start_turn(AgentTurnInput::text(response.content))
+            .await
+            .unwrap();
+        assert_eq!(resumed.turn_id, turn_id);
+        assert_eq!(
+            resumed.state,
+            AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed)
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "resumption must not replay the failed worker"
+        );
+        assert!(
+            db.agent_subtask_action_reconciliations(&run_id)
+                .unwrap()
+                .contains_key(&worker.id),
+            "checkpoint coverage does not fabricate a resolved worker outcome"
+        );
     }
 
     #[tokio::test]

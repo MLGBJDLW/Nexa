@@ -787,7 +787,17 @@ fn build_resume_prompt(
             )
         })
         .unwrap_or_default();
-    let reconciliation = reconciliation_receipts(reason)
+    let delegated_receipts = state
+        .get("subtaskActionReconciliations")
+        .and_then(Value::as_object)
+        .filter(|requirements| !requirements.is_empty())
+        .map(|requirements| {
+            format!(
+                "delegated_subtasks:{}",
+                requirements.keys().cloned().collect::<Vec<_>>().join(",")
+            )
+        });
+    let reconciliation = reconciliation_receipts(reason).or(delegated_receipts.as_deref())
         .map(|activity_ids| {
             format!(
                 "\n- SAFETY FENCE: action receipt(s) {activity_ids} may have executed while the turn was stopping. Before any further browser/computer input, obtain a fresh observation and reconcile the visible state. Inspect files, running processes and external state before continuing interrupted native-agent work. Never redispatch a prior action merely because its tool result is absent."
