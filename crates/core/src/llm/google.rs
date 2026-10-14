@@ -2145,6 +2145,10 @@ impl LlmProvider for GeminiProvider {
         let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
         let provider = self.clone();
         let api_key = api_key.to_string();
+        // streamGenerateContent supports 65,536-token hops, unlike the direct
+        // non-streaming REST 32,768 cap. maxOutputTokens is the total across
+        // hops, so keep it unchanged when adding a continuationToken.
+        // https://ai.google.dev/gemini-api/docs/generate-content/long-decode
         let mut continuation_body = serde_json::to_value(&body)?;
         tokio::spawn(async move {
             let operation = async {
@@ -2254,6 +2258,7 @@ mod tests {
                 }
                 let mut body: serde_json::Value =
                     serde_json::from_slice(&bytes[head..head + length]).unwrap();
+                assert_eq!(body["generationConfig"]["maxOutputTokens"], 65_536);
                 if hop == 0 {
                     original = Some(body);
                 } else {
