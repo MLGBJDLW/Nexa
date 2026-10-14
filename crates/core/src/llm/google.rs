@@ -1647,6 +1647,7 @@ async fn parse_gemini_hop(
     tool_call_state.continuation_token = None;
     let mut saw_finish_reason = false;
     let mut terminal_deadline = None;
+    let mut clean_eof = false;
 
     'stream: loop {
         let idle_timeout = if saw_finish_reason {
@@ -1666,7 +1667,10 @@ async fn parse_gemini_hop(
                 .await;
         let chunk = match next {
             Ok(Some(Ok(chunk))) => chunk,
-            Ok(None) => break,
+            Ok(None) => {
+                clean_eof = true;
+                break;
+            }
             Ok(Some(Err(_))) | Err(_) if saw_finish_reason => break,
             Ok(Some(Err(error))) => {
                 return Err(CoreError::TransientLlm(format!(
@@ -1709,10 +1713,39 @@ async fn parse_gemini_hop(
         }
     }
 
+    if clean_eof && pending_utf8.is_empty() {
+        if let Some(data) = buffer.trim_end_matches('\r').strip_prefix("data:") {
+            // Compatible servers may omit the separator before the final
+            // usage event or sentinel, as well as its last newline.
+            if saw_finish_reason {
+                if let Ok(response) =
+                    serde_json::from_str::<GeminiResponse>(&event_data_lines.join("\n"))
+                {
+                    emit_gemini_response_chunk(
+                        response,
+                        &tx,
+                        tool_call_state,
+                        &mut saw_finish_reason,
+                    )
+                    .await?;
+                    event_data_lines.clear();
+                }
+            }
+            event_data_lines.push(data.trim_start().to_string());
+        }
+    }
     if saw_finish_reason {
-        // Complete tail events have already been dispatched. EOF, a timeout,
-        // or the terminal grace deadline can leave partial JSON/UTF-8 behind;
-        // those unfinished bytes cannot invalidate a committed response/hop.
+        // At clean EOF, a complete usage event still counts without the last
+        // SSE separator. Broken JSON/UTF-8 and interrupted transport tails
+        // cannot invalidate the committed response/hop.
+        if clean_eof {
+            if let Ok(response) =
+                serde_json::from_str::<GeminiResponse>(&event_data_lines.join("\n"))
+            {
+                emit_gemini_response_chunk(response, &tx, tool_call_state, &mut saw_finish_reason)
+                    .await?;
+            }
+        }
         pending_utf8.clear();
         event_data_lines.clear();
     }
@@ -2248,6 +2281,55 @@ impl LlmProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn completed_gemini_hop_retains_complete_usage_at_clean_eof() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for continuation in [false, true] {
+            for ending in ["", "\n", "\ndata: [DONE]"] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 2048];
+                    socket.read(&mut request).await.unwrap();
+                    let candidate = if continuation {
+                        serde_json::json!({"content":{"parts":[{"text":"Reasoning","thought":true}]},"finishReason":"CONTINUATION","continuationToken":"saved-hop"})
+                    } else {
+                        serde_json::json!({"content":{"parts":[{"text":"Finished"}]},"finishReason":"STOP"})
+                    };
+                    let body = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {}\n\ndata: {{\"usageMetadata\":{{\"promptTokenCount\":10,\"candidatesTokenCount\":2,\"totalTokenCount\":12}}}}{ending}", serde_json::json!({"candidates":[candidate]}));
+                    socket.write_all(body.as_bytes()).await.unwrap();
+                });
+                let response = reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let (tx, mut rx) = mpsc::channel(16);
+                let mut state = GeminiToolCallStreamState::default();
+                let token = parse_gemini_hop(response, tx, Duration::from_secs(2), &mut state)
+                    .await
+                    .unwrap();
+                server.await.unwrap();
+                assert_eq!(token.as_deref(), continuation.then_some("saved-hop"));
+                let mut tokens = Vec::new();
+                while let Some(chunk) = rx.recv().await {
+                    if let Some(usage) = chunk.unwrap().usage {
+                        tokens.push(usage.total_tokens);
+                    }
+                }
+                assert_eq!(
+                    tokens,
+                    vec![12],
+                    "continuation={continuation}, ending={ending:?}"
+                );
+            }
+        }
+    }
 
     #[tokio::test]
     async fn completed_gemini_response_discards_partial_json_and_utf8_tail() {
