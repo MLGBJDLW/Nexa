@@ -108,6 +108,50 @@
     "description": "Multilingual long-context embeddings served through an OpenAI-compatible API.",
     "models": [
       {
+        "id": "jina-embeddings-v5-omni-small",
+        "name": "Jina Embeddings v5 Omni Small",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "minDimensions": 32,
+        "maxDimensions": 1024,
+        "contextTokens": 32768,
+        "documentationRef": "https://jina.ai/embeddings/",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "jina-embeddings-v5-omni-nano",
+        "name": "Jina Embeddings v5 Omni Nano",
+        "dimensions": 768,
+        "supportsDimensionOverride": true,
+        "minDimensions": 32,
+        "maxDimensions": 768,
+        "contextTokens": 8192,
+        "documentationRef": "https://jina.ai/embeddings/",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
         "id": "jina-embeddings-v5-text-small",
         "name": "Jina Embeddings v5 Text Small",
         "dimensions": 1024,
@@ -598,6 +642,146 @@
     "maxBatchSize": 16,
     "requiresApiKey": true,
     "models": [
+      {
+        "id": "voyageai/voyage-4",
+        "name": "Voyage 4",
+        "dimensions": 1024,
+        "contextTokens": 32000,
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "voyageai/voyage-4-large",
+        "name": "Voyage 4 Large",
+        "dimensions": 1024,
+        "contextTokens": 32000,
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "voyageai/voyage-4-lite",
+        "name": "Voyage 4 Lite",
+        "dimensions": 1024,
+        "contextTokens": 32000,
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "voyageai/voyage-code-4",
+        "name": "Voyage Code 4",
+        "dimensions": 1024,
+        "contextTokens": 32000,
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "qwen/qwen3-embedding-4b",
+        "name": "Qwen3 Embedding 4B",
+        "dimensions": 2560,
+        "contextTokens": 32768,
+        "documentationRef": "https://deepinfra.com/Qwen/Qwen3-Embedding-4B",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "mistralai/mistral-embed-2312",
+        "name": "Mistral Embed 2312",
+        "dimensions": 1024,
+        "contextTokens": 8192,
+        "documentationRef": "https://docs.mistral.ai/studio/knowledge-rag/embeddings/text_embeddings",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "mistralai/codestral-embed-2505",
+        "name": "Codestral Embed 2505",
+        "dimensions": 1536,
+        "contextTokens": 8192,
+        "documentationRef": "https://docs.mistral.ai/studio/knowledge-rag/embeddings/code_embeddings",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-14",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
       {
         "id": "openai/text-embedding-3-small",
         "name": "openai/text-embedding-3-small",

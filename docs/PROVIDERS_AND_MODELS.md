@@ -2,9 +2,8 @@
 
 The October 14 catalog refresh adds Gemini 4 Argon and the reviewed Ark and
 OpenRouter routes, removes router entries confirmed to have no endpoints, and
-keeps announced future retirements selectable with deprecation metadata. The
-[source audit](research/2026-10-14-context-liveness-quota-upstream.md) records
-provider-specific dates and verification boundaries. Anthropic discovery now
+keeps announced future retirements selectable with deprecation metadata.
+Anthropic discovery now
 reads authenticated `/v1/models` pages; failure uses the existing curated fallback
 without claiming live discovery succeeded.
 
