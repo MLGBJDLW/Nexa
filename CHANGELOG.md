@@ -8,6 +8,16 @@
 * **deps:** upgrade rustls for October security advisories ([5354a30](https://github.com/MLGBJDLW/Nexa/commit/5354a302535b9486a9f426f70c6d66946ab30ebf))
 * **deps:** upgrade rustls for October security advisories ([240292b](https://github.com/MLGBJDLW/Nexa/commit/240292b931581e0af5063dec8f0e581a168baa9d))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 5354a302535b9486a9f426f70c6d66946ab30ebf -->
+
+### What's Changed
+* fix(deps): upgrade rustls for October security advisories by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/476
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.3...nexa-monorepo-v0.16.4
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.2...nexa-monorepo-v0.16.3) (2026-10-14)
 
 
