@@ -750,7 +750,9 @@ async fn workflow_dependency_failure_is_published_after_parent_drops_the_join_ob
     let (release, released) = oneshot::channel();
     let worker = tokio::spawn(async move {
         released.await.unwrap();
-        panic!("fixture worker panic after parent release");
+        // Exercise JoinError::is_panic without spending the fixture's liveness
+        // window formatting an expected Windows backtrace in the panic hook.
+        std::panic::resume_unwind(Box::new("fixture worker panic after parent release"));
     });
     let monitor = BatchWorkerSettlement {
         runtime: runtime.clone(),
