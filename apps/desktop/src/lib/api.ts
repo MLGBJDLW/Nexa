@@ -1011,8 +1011,11 @@ export const startCodexAccountLogin = (kind: 'browser' | 'deviceCode') => {
   return invoke<CodexLoginDescriptor>('start_codex_account_login_cmd', { kind });
 };
 
-export const cancelCodexAccountLogin = (loginId: string) =>
-  invoke<void>('cancel_codex_account_login_cmd', { loginId });
+export const cancelCodexAccountLogin = async (loginId: string) => {
+  invalidateAccountSnapshot('openai_codex');
+  try { await invoke<void>('cancel_codex_account_login_cmd', { loginId }); }
+  finally { invalidateAccountSnapshot('openai_codex'); }
+};
 
 export const logoutCodexAccount = async () => {
   invalidateAccountSnapshot('openai_codex');
@@ -1066,8 +1069,11 @@ export const startCopilotAccountLogin = () => {
   return invoke<void>('start_copilot_account_login_cmd');
 };
 
-export const cancelCopilotAccountLogin = () =>
-  invoke<void>('cancel_copilot_account_login_cmd');
+export const cancelCopilotAccountLogin = async () => {
+  invalidateAccountSnapshot('github_copilot');
+  try { await invoke<void>('cancel_copilot_account_login_cmd'); }
+  finally { invalidateAccountSnapshot('github_copilot'); }
+};
 
 export const listAgentConfigs = () => invoke<AgentConfig[]>('list_agent_configs_cmd');
 

@@ -1542,6 +1542,40 @@ test("settings projects the Codex subscription account and usage without an API 
 });
 
 for (const runtime of ['codex', 'copilot'] as const) {
+  test(`${runtime} cancelled login cannot be restored by a shared stale refresh`, async ({ page }) => {
+    await page.goto('/settings');
+    await page.evaluate(name => localStorage.setItem(`nexa-e2e-${name}-account`, 'pending'), runtime);
+    await page.reload();
+    await page.getByRole('tab', { name: 'AI Providers' }).click();
+    await page.getByRole('button', { name: 'Add Provider' }).click();
+    await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+    await page.locator(`[data-provider-preset-id="${runtime === 'codex' ? 'openai-codex' : 'github-copilot'}"]`).click();
+    const account = page.getByTestId(`${runtime}-subscription-account`);
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toBeVisible();
+    await page.evaluate(name => {
+      const state = window as any;
+      const invoke = state.__TAURI_INTERNALS__.invoke;
+      let hold = true;
+      state.__TAURI_INTERNALS__.invoke = async (command: string, args: unknown) => {
+        const result = await invoke(command, args);
+        if (command === `get_${name}_account_snapshot_cmd` && hold) {
+          hold = false;
+          await new Promise(resolve => { state.__releaseStaleLoginRead = resolve; });
+        }
+        return result;
+      };
+    }, runtime);
+    await account.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => Boolean((window as any).__releaseStaleLoginRead))).toBe(true);
+    await account.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toHaveCount(0);
+    await account.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.evaluate(() => (window as any).__releaseStaleLoginRead());
+    await expect(account.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+    await expect(account.getByTestId(`${runtime}-login-pending`)).toHaveCount(0);
+    await expect(account).toContainText('Signed out');
+  });
+
   test(`${runtime} login polling recovers after a failed account read`, async ({ page }) => {
     await page.goto('/settings');
     await page.evaluate(name => localStorage.setItem(`nexa-e2e-${name}-account`, 'pending'), runtime);
