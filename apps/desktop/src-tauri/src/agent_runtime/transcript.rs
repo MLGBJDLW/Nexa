@@ -21,6 +21,13 @@ pub(super) enum Transcript {
 }
 
 impl Transcript {
+    pub(super) fn ensure_delegated_recovery_clear(&self) -> Result<(), CoreError> {
+        match self {
+            Self::NexaTools(tools) => tools.ensure_delegated_recovery_clear(),
+            Self::Native { .. } => Ok(()),
+        }
+    }
+
     pub(super) async fn persist_intermediate(
         &self,
         text: &str,

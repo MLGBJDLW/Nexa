@@ -143,6 +143,203 @@ mod tests {
         }
     }
 
+    fn uncertain_worker(session: &ExternalToolSession, name: &str) -> String {
+        let worker = session
+            .input
+            .db
+            .create_agent_subtask_run(
+                session.parent_run_id.as_deref().unwrap(),
+                name,
+                name,
+                None,
+                None,
+            )
+            .unwrap();
+        settle_uncertain_worker(&session.input.db, &worker.id);
+        worker.id
+    }
+
+    fn settle_uncertain_worker(db: &Database, id: &str) {
+        db.finish_agent_subtask_run(id, "failed", Some(&serde_json::json!({
+            "recoveryRequired": {"actionReconciliation": true, "message": "Hosted action outcome is uncertain"}
+        })), None).unwrap();
+    }
+
+    #[tokio::test]
+    async fn external_delegated_recovery_blocks_tools_and_answers_until_formal_resume() {
+        let (session, effects, _rx) = session(6);
+        let worker = uncertain_worker(&session, "worker-1");
+        assert!(matches!(
+            session.execute(call("blocked", 1)).await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        assert_eq!(effects.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            session.persist_answer("Unsafe completion").await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        session
+            .persist_intermediate("Retained progress")
+            .await
+            .unwrap();
+        create_task_checkpoint_for_turn_with_state(
+            &session.input.db,
+            Some(&session.input.turn_id),
+            "delegated action recovery",
+            None,
+        )
+        .unwrap();
+        let checkpoint = session
+            .input
+            .db
+            .latest_task_resume_checkpoint(session.parent_run_id.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            checkpoint.state["subtaskActionReconciliations"][&worker]["actionReconciliation"],
+            true
+        );
+        assert!(session.checkpointed_subtask_recoveries.is_empty());
+        let session = ExternalToolSession::new(session.input).unwrap();
+        assert!(matches!(
+            session.ensure_delegated_recovery_clear(),
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        session
+            .input
+            .db
+            .update_agent_task_run_progress(
+                session.parent_run_id.as_deref().unwrap(),
+                Some("paused"),
+                Some("paused"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let response = ConversationMessage {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: session.input.conversation_id.clone(),
+            role: Role::User,
+            content: checkpoint.resume_prompt.clone(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 1,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        let launch = session
+            .input
+            .db
+            .resume_agent_turn_from_checkpoint(
+                &response,
+                None,
+                None,
+                "external-delegated-resume",
+                &checkpoint.id,
+            )
+            .unwrap();
+        let mut input = session.input;
+        input.user_prompt = checkpoint.resume_prompt;
+        input.next_sort_order = launch.user_message_sort_order + 1;
+        let resumed = ExternalToolSession::new(input).unwrap();
+        assert!(resumed.checkpointed_subtask_recoveries.contains(&worker));
+        assert!(resumed
+            .state
+            .lock()
+            .await
+            .action_reconciliation
+            .blocks_interactive_input());
+        resumed.execute(call("resumed", 1)).await.unwrap();
+        resumed
+            .persist_answer("Reconciled completion")
+            .await
+            .unwrap();
+        assert_eq!(effects.load(Ordering::SeqCst), 1);
+        uncertain_worker(&resumed, "worker-2");
+        assert!(matches!(
+            resumed.persist_answer("New uncertainty").await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        assert!(resumed
+            .input
+            .db
+            .agent_subtask_action_reconciliations(resumed.parent_run_id.as_deref().unwrap(),)
+            .unwrap()
+            .contains_key(&worker));
+    }
+
+    #[tokio::test]
+    async fn external_delegated_recovery_during_approval_blocks_the_effect() {
+        let (mut session, effects, _rx) = session(6);
+        let worker = session
+            .input
+            .db
+            .create_agent_subtask_run(
+                session.parent_run_id.as_deref().unwrap(),
+                "worker",
+                "worker",
+                None,
+                None,
+            )
+            .unwrap();
+        let db = session.input.db.clone();
+        session.input.config.tool_approval_mode = crate::approval::ToolApprovalMode::Ask;
+        session.input.approval = Arc::new(move |_| {
+            settle_uncertain_worker(&db, &worker.id);
+            Box::pin(async { crate::approval::ApprovalDecision::AllowOnce })
+        });
+        assert!(matches!(
+            session.execute(call("approval-race", 1)).await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        assert_eq!(effects.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn external_delegated_recovery_after_answer_wait_prevents_commit() {
+        let (session, _, _rx) = session(6);
+        let state = session.state.lock().await;
+        let answer = session.persist_answer("Must not commit");
+        tokio::pin!(answer);
+        assert!(futures::poll!(&mut answer).is_pending());
+        uncertain_worker(&session, "late-worker");
+        drop(state);
+        assert!(matches!(
+            answer.await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        assert!(!session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap()
+            .iter()
+            .any(|message| message.content == "Must not commit"));
+    }
+
     #[tokio::test]
     async fn privacy_revocation_invalidates_external_tool_receipts_before_replay() {
         let (session, effects, _events) = session(5);
@@ -780,6 +977,8 @@ pub struct ExternalToolSession {
     activity: crate::activity::ActivityRuntime,
     state: TokioMutex<ExternalToolState>,
     routing_prompt: String,
+    parent_run_id: Option<String>,
+    checkpointed_subtask_recoveries: HashSet<String>,
 }
 
 struct ExternalToolState {
@@ -798,6 +997,17 @@ struct ExternalToolState {
 impl ExternalToolSession {
     pub fn new(input: ExternalToolSessionInput) -> Result<Self, CoreError> {
         let privacy_lease = input.db.privacy_lease(&input.cancellation)?;
+        let parent_run_id = input
+            .db
+            .get_agent_task_run_by_turn(&input.turn_id)?
+            .map(|run| run.id);
+        let checkpointed_subtask_recoveries = super::desktop_resume::load_execution_resume_state(
+            &input.db,
+            Some(&input.conversation_id),
+            Some(&input.turn_id),
+        )?
+        .map(|state| state.checkpointed_subtask_recoveries)
+        .unwrap_or_default();
         let source_scope = input
             .db
             .get_effective_conversation_source_scope(&input.conversation_id)?;
@@ -841,6 +1051,11 @@ impl ExternalToolSession {
             &desktop_profile,
             false,
         )?;
+        let mut action_reconciliation =
+            super::turn_loop::ActionReconciliationFence::from_resume_prompt(&input.user_prompt);
+        if !checkpointed_subtask_recoveries.is_empty() {
+            action_reconciliation.retain_unknown_action();
+        }
         let state = ExternalToolState {
             plan,
             recorder: TurnLoopRecorder::new(route.kind, input.config.max_iterations),
@@ -849,9 +1064,7 @@ impl ExternalToolSession {
             next_sort_order: input.next_sort_order,
             rounds: 0,
             completed: RuntimeReceipts::new()?,
-            action_reconciliation: super::turn_loop::ActionReconciliationFence::from_resume_prompt(
-                &input.user_prompt,
-            ),
+            action_reconciliation,
             desktop_resume_workflow,
             desktop_profile,
         };
@@ -863,7 +1076,27 @@ impl ExternalToolSession {
             activity,
             state: TokioMutex::new(state),
             routing_prompt: route.prompt_section,
+            parent_run_id,
+            checkpointed_subtask_recoveries,
         })
+    }
+
+    fn delegated_recovery(&self) -> Option<super::model_recovery::DelegatedRecoveryGuard<'_>> {
+        self.parent_run_id
+            .as_deref()
+            .map(|run_id| super::model_recovery::DelegatedRecoveryGuard {
+                db: &self.input.db,
+                run_id,
+                checkpointed: &self.checkpointed_subtask_recoveries,
+            })
+    }
+
+    /// Recheck durable worker receipts at external-runtime action and answer boundaries.
+    pub fn ensure_delegated_recovery_clear(&self) -> Result<(), CoreError> {
+        if let Some(guard) = self.delegated_recovery() {
+            guard.check()?;
+        }
+        Ok(())
     }
 
     pub fn routing_prompt(&self) -> &str {
@@ -895,6 +1128,7 @@ impl ExternalToolSession {
         if self.input.cancellation.is_cancelled() {
             return Err(CoreError::Cancelled("Stopped by user".into()));
         }
+        self.ensure_delegated_recovery_clear()?;
         let signature =
             blake3::hash(format!("{}:{}", call.name, call.arguments).as_bytes()).to_string();
         if let Some((previous, result)) = state.completed.get::<ToolResult>(&call.id)? {
@@ -980,6 +1214,7 @@ impl ExternalToolSession {
         }
         .dispatch_tool_calls(
             ToolDispatchContext {
+                delegated_recovery: self.delegated_recovery(),
                 db: &self.input.db,
                 tx: &self.input.events,
                 conversation_id: Some(&self.input.conversation_id),
@@ -1182,6 +1417,7 @@ impl ExternalToolSession {
     ) -> Result<PersistedAssistantMessage, CoreError> {
         self.privacy_lease.ensure_current()?;
         if !intermediate {
+            self.ensure_delegated_recovery_clear()?;
             let source_scope = self
                 .input
                 .db
@@ -1206,6 +1442,9 @@ impl ExternalToolSession {
         }
         let mut state = self.state.lock().await;
         self.privacy_lease.ensure_current()?;
+        if !intermediate {
+            self.ensure_delegated_recovery_clear()?;
+        }
         if !intermediate
             && state
                 .desktop_resume_workflow

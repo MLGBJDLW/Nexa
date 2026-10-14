@@ -664,10 +664,35 @@ fn compact_json(value: &Value, max_chars: usize) -> String {
 fn partial_assistant_output(events: &[AgentRunEvent]) -> Option<Value> {
     let mut order = Vec::<String>::new();
     let mut blocks = HashMap::<String, String>::new();
+    let mut legacy_output = String::new();
+    let mut has_structured_answer = false;
     for event in events {
-        if event.kind == AgentRunEventKind::StreamReset {
-            order.clear();
-            blocks.clear();
+        if event.kind == AgentRunEventKind::StreamReset
+            || event.payload.get("type").and_then(Value::as_str) == Some("streamReset")
+        {
+            if event
+                .payload
+                .get("discard_sample")
+                .or_else(|| event.payload.get("discardSample"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+            {
+                order.clear();
+                blocks.clear();
+                legacy_output.clear();
+                has_structured_answer = false;
+            }
+            continue;
+        }
+        // Core AgentSession can publish the executor's legacy text deltas.
+        // Prefer authoritative block events when both projections are present
+        // so a mixed host never duplicates already-shown output on resume.
+        if event.kind == AgentRunEventKind::OutputDelta
+            && event.payload.get("type").and_then(Value::as_str) == Some("textDelta")
+        {
+            if let Some(delta) = event.payload.get("delta").and_then(Value::as_str) {
+                legacy_output.push_str(delta);
+            }
             continue;
         }
         if !matches!(
@@ -680,6 +705,7 @@ fn partial_assistant_output(events: &[AgentRunEvent]) -> Option<Value> {
         let Some(block_id) = event.payload.get("blockId").and_then(Value::as_str) else {
             continue;
         };
+        has_structured_answer = true;
         if event.kind == AgentRunEventKind::OutputSnapshot {
             if let Some(text) = event.payload.get("text").and_then(Value::as_str) {
                 if !blocks.contains_key(block_id) {
@@ -712,12 +738,16 @@ fn partial_assistant_output(events: &[AgentRunEvent]) -> Option<Value> {
         block.push_str(delta);
     }
 
-    let output = order
-        .into_iter()
-        .filter_map(|block_id| blocks.remove(&block_id))
-        .filter(|block| !block.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let output = if has_structured_answer {
+        order
+            .into_iter()
+            .filter_map(|block_id| blocks.remove(&block_id))
+            .filter(|block| !block.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    } else {
+        legacy_output
+    };
     if output.trim().is_empty() {
         return None;
     }
@@ -732,6 +762,12 @@ fn partial_assistant_output(events: &[AgentRunEvent]) -> Option<Value> {
         "text": text,
         "truncatedPrefixChars": truncated_prefix_chars,
     }))
+}
+
+pub(crate) fn reconciliation_receipts(reason: &str) -> Option<&str> {
+    reason
+        .strip_prefix("user_stop_requires_action_reconciliation:")
+        .or_else(|| reason.strip_prefix("connection_interrupted_requires_action_reconciliation:"))
 }
 
 fn build_resume_prompt(
@@ -751,11 +787,20 @@ fn build_resume_prompt(
             )
         })
         .unwrap_or_default();
-    let reconciliation = reason
-        .strip_prefix("user_stop_requires_action_reconciliation:")
+    let delegated_receipts = state
+        .get("subtaskActionReconciliations")
+        .and_then(Value::as_object)
+        .filter(|requirements| !requirements.is_empty())
+        .map(|requirements| {
+            format!(
+                "delegated_subtasks:{}",
+                requirements.keys().cloned().collect::<Vec<_>>().join(",")
+            )
+        });
+    let reconciliation = reconciliation_receipts(reason).or(delegated_receipts.as_deref())
         .map(|activity_ids| {
             format!(
-                "\n- SAFETY FENCE: action receipt(s) {activity_ids} may have executed while the turn was stopping. Before any further browser/computer input, obtain a fresh observation and reconcile the visible state. Inspect files, running processes and external state before continuing interrupted native-agent work. Never redispatch a prior action merely because its tool result is absent."
+                "\n- SAFETY FENCE: action receipt(s) {activity_ids} may have executed while the turn was stopping. Before any further browser/computer input, obtain a fresh observation and reconcile the matching visible target. A local visual observation cannot clear opaque provider-hosted or delegated action uncertainty. Retain those task/action receipt pointers and inspect files, running processes and external state without replaying the action; report any outcome that cannot be verified. Never redispatch a prior action merely because its tool result is absent."
             )
         })
         .unwrap_or_default();

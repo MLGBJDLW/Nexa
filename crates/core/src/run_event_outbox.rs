@@ -2411,4 +2411,41 @@ mod tests {
         );
         assert_ne!(delivered[0].phase, AgentRunPhase::Paused);
     }
+
+    #[tokio::test]
+    async fn provider_connection_pause_is_resumable_and_preserves_action_reconciliation() {
+        let database = Database::open_memory().unwrap();
+        let (conversation_id, turn_id, run_id) = create_started_run(&database);
+        let executor = DatabaseExecutor::new(database.clone(), 8).unwrap();
+        let delivery = Arc::new(CaptureDelivery::default());
+        let outboxes = AgentRunEventOutboxes::new(executor, delivery);
+        let outbox = outboxes.open(&conversation_id, &run_id).await.unwrap();
+        let checkpoint = outbox
+            .pause_with_checkpoint(
+                &turn_id,
+                "connection_interrupted_requires_action_reconciliation:provider_hosted_action",
+            )
+            .await
+            .unwrap();
+        assert!(checkpoint.resume_prompt.contains("provider_hosted_action"));
+        assert!(checkpoint.resume_prompt.contains("Never redispatch"));
+        assert_eq!(
+            database.get_agent_task_run(&run_id).unwrap().status,
+            "paused"
+        );
+        assert_eq!(
+            database.get_conversation_turn(&turn_id).unwrap().status,
+            "paused"
+        );
+        let events = database.list_agent_run_events(&run_id).unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(!events[0].is_terminal());
+        assert_eq!(
+            database
+                .list_task_resume_checkpoints(&run_id)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
 }

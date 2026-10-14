@@ -347,7 +347,15 @@ pub(super) async fn settle_worker_lifecycle(
             } else {
                 SubagentLifecycleStatus::Failed
             },
-            None,
+            error.recovery_requirement().map(|requirement| {
+                serde_json::json!({
+                    "kind": "subagent_result", "id": agent_id, "status": "error",
+                    "result": if requirement.action_reconciliation {
+                        format!("Subagent requires action reconciliation before retry: {error}")
+                    } else { format!("Subagent interrupted: {error}") },
+                    "recoveryRequired": requirement,
+                })
+            }),
             Some(error.to_string()),
         ),
     };
@@ -494,6 +502,7 @@ pub(super) fn failed_subagent_run_artifact(
     error: &CoreError,
 ) -> SubagentRunArtifact {
     SubagentRunArtifact {
+        recovery_required: error.recovery_requirement(),
         verification_source: None,
         name: fallback.name.clone(),
         id: label.clone(),
@@ -525,7 +534,14 @@ pub(super) fn failed_subagent_run_artifact(
         parallel_group,
         deliverable_style: fallback.deliverable_style,
         return_sections: fallback.return_sections,
-        result: format!("Subagent failed: {error}"),
+        result: if error
+            .recovery_requirement()
+            .is_some_and(|requirement| requirement.action_reconciliation)
+        {
+            format!("Subagent requires action reconciliation before retry: {error}")
+        } else {
+            format!("Subagent failed: {error}")
+        },
         finish_reason: None,
         usage_total: Usage::default(),
         tool_events: Vec::new(),

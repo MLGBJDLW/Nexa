@@ -316,6 +316,7 @@ impl Database {
             "recentEvents": events,
             "artifacts": artifacts,
             "checkpointedAt": Utc::now().to_rfc3339(),
+            "subtaskActionReconciliations": self.agent_subtask_action_reconciliations(run_id)?,
         });
         if let Some(partial_output) = partial_assistant_output(&self.list_agent_run_events(run_id)?)
         {

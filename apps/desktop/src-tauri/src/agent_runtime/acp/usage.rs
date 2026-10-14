@@ -1,5 +1,4 @@
-//! Account quotas are separate from ACP context occupancy and per-turn token cost.
-//! Hermes exposes a read-only CLI contract; ordinary ACP has no account quota RPC.
+//! ACP per-turn usage is optional and distinct from context occupancy/account quota.
 use super::{error, transport, Result};
 use nexa_core::external_agent::{preset, ExternalAgentLaunch};
 use serde::Serialize;
@@ -8,6 +7,91 @@ use std::{process::Stdio, time::Duration};
 use tokio::io::AsyncReadExt;
 
 const MAX_USAGE_BYTES: u64 = 256 * 1024;
+
+#[derive(Default)]
+pub(super) struct SessionUsage {
+    previous: Option<nexa_core::llm::Usage>,
+    unreported_prompts: u64,
+}
+
+impl SessionUsage {
+    pub(super) fn observe(
+        &mut self,
+        provider: &str,
+        response: &Value,
+    ) -> Option<nexa_core::llm::Usage> {
+        let current = prompt_usage(response);
+        if provider != "hermes" {
+            return current;
+        }
+        // Hermes exports session counters in PromptResponse, unlike Gemini
+        // CLI's per-prompt usage. This baseline belongs to the pooled session.
+        let Some(current) = current else {
+            self.unreported_prompts = self.unreported_prompts.saturating_add(1);
+            return None;
+        };
+        let previous = self.previous.replace(current.clone()).unwrap_or_default();
+        let unreported = std::mem::take(&mut self.unreported_prompts);
+        let provenance = (unreported > 0).then(|| {
+            serde_json::json!({
+                "scope":"session_interval", "unreportedPrompts":unreported,
+                "attribution":"observed_on_this_turn"
+            })
+        });
+        if current.total_tokens < previous.total_tokens
+            || current.prompt_tokens < previous.prompt_tokens
+            || current.completion_tokens < previous.completion_tokens
+        {
+            // The runtime rebuilt its agent/reset its native session counters.
+            return Some(nexa_core::llm::Usage {
+                provider_raw: provenance,
+                ..current
+            });
+        }
+        Some(nexa_core::llm::Usage {
+            prompt_tokens: current.prompt_tokens - previous.prompt_tokens,
+            completion_tokens: current.completion_tokens - previous.completion_tokens,
+            total_tokens: current.total_tokens - previous.total_tokens,
+            thinking_tokens: current
+                .thinking_tokens
+                .map(|v| v.saturating_sub(previous.thinking_tokens.unwrap_or(0))),
+            cache_read_tokens: current
+                .cache_read_tokens
+                .map(|v| v.saturating_sub(previous.cache_read_tokens.unwrap_or(0))),
+            cache_creation_tokens: current
+                .cache_creation_tokens
+                .map(|v| v.saturating_sub(previous.cache_creation_tokens.unwrap_or(0))),
+            provider_raw: provenance,
+            ..Default::default()
+        })
+    }
+}
+
+/// End-turn usage is implemented by some ACP adapters before it is universally
+/// available. Accept both JSON wire casing and existing adapter casing; absent
+/// or malformed counters remain unknown. Never read `used`, `size`, or `cost`.
+pub(super) fn prompt_usage(value: &Value) -> Option<nexa_core::llm::Usage> {
+    let usage = value.get("usage")?;
+    let tokens = |camel: &str, snake: &str| {
+        usage
+            .get(camel)
+            .or_else(|| usage.get(snake))
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
+    };
+    let prompt = tokens("inputTokens", "input_tokens")?;
+    let completion = tokens("outputTokens", "output_tokens")?;
+    let total = tokens("totalTokens", "total_tokens")?;
+    Some(nexa_core::llm::Usage {
+        prompt_tokens: prompt,
+        completion_tokens: completion,
+        total_tokens: total,
+        thinking_tokens: tokens("thoughtTokens", "thought_tokens"),
+        cache_read_tokens: tokens("cachedReadTokens", "cached_read_tokens"),
+        cache_creation_tokens: tokens("cachedWriteTokens", "cached_write_tokens"),
+        ..Default::default()
+    })
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,6 +289,97 @@ pub(crate) async fn read_account_usage(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn warm_hermes_sessions_bill_only_new_usage_and_recognize_counter_resets() {
+        let snapshot = |input, output| json!({"usage":{"inputTokens":input,"outputTokens":output,"totalTokens":input+output}});
+        let mut session = SessionUsage::default();
+        assert_eq!(
+            session
+                .observe("hermes", &snapshot(100, 20))
+                .unwrap()
+                .total_tokens,
+            120
+        );
+        assert_eq!(
+            session
+                .observe("hermes", &snapshot(160, 30))
+                .unwrap()
+                .total_tokens,
+            70
+        );
+        assert_eq!(
+            session
+                .observe("hermes", &snapshot(160, 30))
+                .unwrap()
+                .total_tokens,
+            0
+        );
+        assert_eq!(
+            session
+                .observe("hermes", &snapshot(10, 2))
+                .unwrap()
+                .total_tokens,
+            12
+        );
+        assert!(session.observe("hermes", &json!({})).is_none());
+        let recovered = session.observe("hermes", &snapshot(200, 40)).unwrap();
+        assert_eq!(recovered.total_tokens, 228);
+        assert_eq!(recovered.provider_raw.unwrap()["scope"], "session_interval");
+        assert_eq!(
+            session
+                .observe("hermes", &snapshot(210, 45))
+                .unwrap()
+                .total_tokens,
+            15
+        );
+        let mut gemini = SessionUsage::default();
+        assert_eq!(
+            gemini
+                .observe("gemini_cli", &snapshot(100, 20))
+                .unwrap()
+                .total_tokens,
+            120
+        );
+        let mut new_session = SessionUsage::default();
+        assert!(new_session.observe("hermes", &json!({})).is_none());
+        assert_eq!(
+            new_session
+                .observe("hermes", &snapshot(100, 20))
+                .unwrap()
+                .total_tokens,
+            120
+        );
+        assert_eq!(
+            gemini
+                .observe("gemini_cli", &snapshot(100, 20))
+                .unwrap()
+                .total_tokens,
+            120
+        );
+    }
+
+    #[test]
+    fn acp_prompt_usage_is_optional_and_does_not_double_count_reasoning_or_cache() {
+        let value = json!({"usage":{"inputTokens":100,"outputTokens":20,"totalTokens":120,"thoughtTokens":10,"cachedReadTokens":80}});
+        let usage = prompt_usage(&value).unwrap();
+        assert_eq!(usage.total_tokens, 120);
+        assert_eq!(usage.thinking_tokens, Some(10));
+        assert_eq!(usage.cache_read_tokens, Some(80));
+        assert_eq!(
+            prompt_usage(&json!({"usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}))
+                .unwrap()
+                .total_tokens,
+            7
+        );
+        for value in [
+            json!({}),
+            json!({"usage":{"used":100,"size":200,"cost":{"amount":1}}}),
+            json!({"usage":{"inputTokens":-1,"outputTokens":2,"totalTokens":1}}),
+        ] {
+            assert!(prompt_usage(&value).is_none());
+        }
+    }
 
     #[test]
     fn hermes_account_quota_preserves_unknowns_fractional_percentages_and_identity() {

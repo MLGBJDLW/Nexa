@@ -16,7 +16,6 @@ pub(super) struct ToolSearchActivation {
     pub(super) activated: Vec<String>,
     pub(super) already_available: Vec<String>,
     pub(super) unknown: Vec<String>,
-    pub(super) capacity_limited: Vec<String>,
     pub(super) evicted: Vec<String>,
 }
 
@@ -31,7 +30,7 @@ pub(super) fn activate_tool_search_matches(
     tool_defs: &mut Vec<ToolDefinition>,
     artifacts: Option<&serde_json::Value>,
 ) -> ToolSearchActivation {
-    activate_tool_search_matches_bounded(
+    activate_tool_search_matches_with_targets(
         registry,
         tool_defs,
         artifacts,
@@ -41,7 +40,7 @@ pub(super) fn activate_tool_search_matches(
     )
 }
 
-pub(super) fn activate_tool_search_matches_bounded(
+pub(super) fn activate_tool_search_matches_with_targets(
     registry: &ToolRegistry,
     tool_defs: &mut Vec<ToolDefinition>,
     artifacts: Option<&serde_json::Value>,
@@ -85,8 +84,11 @@ pub(super) fn activate_tool_search_matches_bounded(
             if selected_count >= max_definitions
                 || selected_tokens.saturating_add(definition_tokens) > max_tool_tokens
             {
-                // Rotate stale deferred definitions out of a full surface.
-                // Resident tools and every match in this result stay pinned.
+                // These are prompt-size targets, not capability limits. Rotate
+                // unrelated definitions (including resident core tools) before
+                // growing the surface for an explicitly requested capability.
+                // Discovery and every requested match stay pinned. The model's
+                // actual context limit is enforced by request preparation.
                 let mut retained = tool_defs.clone();
                 let mut count = selected_count;
                 let mut tokens = selected_tokens;
@@ -97,11 +99,7 @@ pub(super) fn activate_tool_search_matches_bounded(
                     let candidate = retained.iter().rposition(|definition| {
                         definition.name != "tool_search"
                             && !requested.contains(definition.name.as_str())
-                            && registry.get(&definition.name).is_some_and(|tool| {
-                                !tool
-                                    .categories()
-                                    .contains(&crate::tools::ToolCategory::Core)
-                            })
+                            && registry.contains(&definition.name)
                     });
                     let Some(index) = candidate else {
                         break;
@@ -113,12 +111,6 @@ pub(super) fn activate_tool_search_matches_bounded(
                         std::slice::from_ref(&removed),
                     ));
                     evicted.push(removed.name);
-                }
-                if count >= max_definitions
-                    || tokens.saturating_add(definition_tokens) > max_tool_tokens
-                {
-                    activation.capacity_limited.push(name.to_string());
-                    continue;
                 }
                 *tool_defs = retained;
                 selected_count = count;
@@ -245,6 +237,28 @@ mod tests {
         assert_eq!(tool_defs[0].name, "mcp__fake_server__search_docs");
     }
 
+    #[test]
+    fn requested_tools_outgrow_soft_prompt_targets_without_becoming_unavailable() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(crate::tools::edit_file_tool::EditFileTool));
+        registry.register(Box::new(crate::tools::create_file_tool::CreateFileTool));
+        registry.register(Box::new(crate::tools::run_shell_tool::RunShellTool));
+        registry.register(Box::new(crate::tools::tool_search_tool::ToolSearchTool));
+        let mut definitions = vec![registry.get("tool_search").unwrap().definition()];
+        let result = activate_tool_search_matches_with_targets(
+            &registry,
+            &mut definitions,
+            Some(&serde_json::json!({"kind":"toolSearchResults", "matches":[
+                {"name":"edit_file"}, {"name":"create_file"}, {"name":"run_shell"}
+            ]})),
+            "deepseek-v4-pro",
+            2,
+            1,
+        );
+        assert_eq!(result.activated, ["edit_file", "create_file", "run_shell"]);
+        assert_eq!(definitions.len(), 4);
+    }
+
     #[tokio::test]
     async fn privacy_projection_keeps_real_tool_search_matches_activatable() {
         let db = crate::db::Database::open_memory().unwrap();
@@ -340,7 +354,7 @@ mod tests {
         resident.name = "tool_search".into();
         let mut definitions = vec![resident, old];
         let artifacts = serde_json::json!({"kind":"toolSearchResults", "matches":[{"name":"mcp__fake_server__search_docs"}]});
-        let result = activate_tool_search_matches_bounded(
+        let result = activate_tool_search_matches_with_targets(
             &registry,
             &mut definitions,
             Some(&artifacts),
@@ -354,10 +368,10 @@ mod tests {
         assert!(definitions
             .iter()
             .any(|definition| definition.name == "tool_search"));
-        // An oversized definition must not evict unrelated tools pointlessly.
-        let before = definitions.clone();
+        // Even a schema larger than the soft target stays callable; only
+        // discovery and the requested capabilities need to remain resident.
         let reverse = serde_json::json!({"kind":"toolSearchResults", "matches":[{"name":"old_deferred_tool"}]});
-        let blocked = activate_tool_search_matches_bounded(
+        let activated = activate_tool_search_matches_with_targets(
             &registry,
             &mut definitions,
             Some(&reverse),
@@ -365,8 +379,8 @@ mod tests {
             2,
             1,
         );
-        assert_eq!(blocked.capacity_limited, vec!["old_deferred_tool"]);
-        assert_eq!(definitions.len(), before.len());
-        assert!(blocked.evicted.is_empty());
+        assert_eq!(activated.activated, vec!["old_deferred_tool"]);
+        assert_eq!(definitions.len(), 2);
+        assert_eq!(activated.evicted, vec!["mcp__fake_server__search_docs"]);
     }
 }

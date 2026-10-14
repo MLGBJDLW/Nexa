@@ -757,6 +757,7 @@ pub(super) async fn execute_subagent_worker(
                 "kind": "subagent_run_error",
                 "callLabel": call_label,
                 "error": &error_text,
+                "recoveryRequired": err.recovery_requirement(),
                 "emittedError": capture.error_message,
                 "usageTotal": capture.usage_total,
                 "usageIncomplete": capture.usage_total.total_tokens == 0,
@@ -788,6 +789,7 @@ pub(super) fn settle_subagent_artifact(
     };
     let args = input.args;
     let run = SubagentRunArtifact {
+        recovery_required: None,
         verification_source: input.verification_source,
         name: args.name.clone(),
         id: input.worker_id.unwrap_or_else(|| input.call_label.clone()),

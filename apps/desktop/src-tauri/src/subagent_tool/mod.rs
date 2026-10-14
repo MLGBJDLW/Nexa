@@ -824,6 +824,8 @@ struct SubagentSessionSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubagentRunArtifact {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recovery_required: Option<nexa_core::error::AgentRecoveryRequirement>,
     verification_source: Option<nexa_core::workflow_verification::VerificationSourceState>,
     name: Option<String>,
     id: String,

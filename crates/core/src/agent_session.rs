@@ -169,6 +169,12 @@ impl AgentSession for ExecutorAgentSession {
 
         let conversation_id = task_run.conversation_id;
         let turn_id = task_run.turn_id;
+        // Checkpoint and interaction continuations append their user response
+        // outside this cached session. Reload the durable append position before
+        // each producer starts, retaining any higher caller-reserved position.
+        self.next_sort_order = self
+            .next_sort_order
+            .max(self.db.next_message_sort_order(&conversation_id)?);
         let session_id = self.config.session_id.clone();
         let outbox = self.outboxes()?.open(&conversation_id, &run_id).await?;
         if outbox.is_closed_for_submission() {
@@ -176,6 +182,12 @@ impl AgentSession for ExecutorAgentSession {
                 "Agent Run {run_id} is already closed"
             )));
         }
+        // The durable task state above is authoritative. A checkpoint resume
+        // can reuse this session's cached outbox after atomically re-queuing
+        // the run; reopen its publication boundary before starting a producer.
+        outbox.resume_submissions().map_err(|error| {
+            CoreError::Agent(format!("Could not reopen Agent Run {run_id}: {error}"))
+        })?;
         let (tx, rx) = mpsc::channel::<AgentEvent>(64);
         let collector_run_id = run_id.clone();
         let collector_turn_id = turn_id.clone();
@@ -202,7 +214,7 @@ impl AgentSession for ExecutorAgentSession {
                 user_parts,
                 &self.db,
                 Some(&conversation_id),
-                None,
+                Some(&turn_id),
                 self.source_scope_override.clone(),
                 tx,
                 self.next_sort_order,
@@ -223,6 +235,51 @@ impl AgentSession for ExecutorAgentSession {
                 };
             }
         };
+
+        if !collected.terminal_submitted {
+            let suspended = match &result {
+                Err(CoreError::RecoveryRequired {
+                    action_reconciliation,
+                    ..
+                }) => {
+                    let reason = if *action_reconciliation {
+                        "connection_interrupted_requires_action_reconciliation:provider_hosted_action"
+                    } else {
+                        "provider_connection_interrupted"
+                    };
+                    outbox
+                        .pause_with_checkpoint(&turn_id, reason)
+                        .await
+                        .map_err(|error| {
+                            CoreError::Agent(format!(
+                                "Could not preserve interrupted task: {error}"
+                            ))
+                        })?;
+                    Some(AgentTurnState::Paused)
+                }
+                Err(CoreError::AwaitingUserInput { .. }) => {
+                    // The executor already saved the durable question checkpoint.
+                    outbox.flush().await.map_err(|error| {
+                        CoreError::Agent(format!("Could not publish pending interaction: {error}"))
+                    })?;
+                    Some(AgentTurnState::AwaitingUserInput)
+                }
+                _ => None,
+            };
+            if let Some(state) = suspended {
+                self.events_by_run
+                    .insert(run_id.clone(), self.db.list_agent_run_events(&run_id)?);
+                self.results_by_run.remove(&run_id);
+                // A paused handle is observable now; a terminal result and its
+                // commit barrier belong to the later resumed execution.
+                return Ok(AgentTurnHandle {
+                    session_id,
+                    run_id,
+                    turn_id,
+                    state,
+                });
+            }
+        }
 
         let final_message = match result {
             Ok(message) => Some(message.text_content()),
@@ -413,6 +470,612 @@ mod tests {
 
     struct CountingProvider {
         stream_calls: Arc<AtomicUsize>,
+    }
+
+    struct ScriptedSessionProvider {
+        events: Vec<crate::llm::ProviderStreamEvent>,
+        calls: Arc<AtomicUsize>,
+        settle_subtask: Option<(Database, String)>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for ScriptedSessionProvider {
+        fn name(&self) -> &str {
+            "static"
+        }
+        fn stream_max_retries(&self) -> Option<u32> {
+            Some(0)
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec!["static-model".into()])
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            Err(CoreError::TransientLlm("fixture connection lost".into()))
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some((db, id)) = &self.settle_subtask {
+                let error = CoreError::RecoveryRequired {
+                    message: "Hosted action outcome is uncertain".into(),
+                    action_reconciliation: true,
+                };
+                db.finish_agent_subtask_run(
+                    id,
+                    "failed",
+                    Some(&serde_json::json!({"recoveryRequired":error.recovery_requirement()})),
+                    Some("connection lost"),
+                )?;
+            }
+            Ok(stream::iter(self.events.clone()).boxed())
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    fn scripted_session(
+        db: &Database,
+        events: Vec<crate::llm::ProviderStreamEvent>,
+        tools: ToolRegistry,
+    ) -> (ExecutorAgentSession, String, String, Arc<AtomicUsize>) {
+        let (conversation_id, turn_id, run_id) = create_started_run(db, "suspended");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let session = ExecutorAgentSession::new(
+            AgentSessionConfig {
+                conversation_id: Some(conversation_id),
+                task_run_id: Some(run_id.clone()),
+                ..Default::default()
+            },
+            Box::new(ScriptedSessionProvider {
+                events,
+                calls: calls.clone(),
+                settle_subtask: None,
+            }),
+            tools,
+            AgentConfig {
+                model: Some("static-model".into()),
+                tool_approval_mode: crate::approval::ToolApprovalMode::AllowAll,
+                ..Default::default()
+            },
+            db.clone(),
+        )
+        .with_history(vec![], 1);
+        (session, turn_id, run_id, calls)
+    }
+
+    fn assert_resume_transcript_order(db: &Database, conversation: &str, response_id: &str) {
+        let messages = db.get_messages(conversation).unwrap();
+        assert!(
+            messages
+                .windows(2)
+                .all(|pair| pair[0].sort_order < pair[1].sort_order),
+            "conversation message order must be unique and increasing"
+        );
+        let response_index = messages
+            .iter()
+            .position(|message| message.id == response_id)
+            .unwrap();
+        assert!(
+            messages[response_index + 1..]
+                .iter()
+                .any(|message| message.role == Role::Assistant),
+            "resumed answer must follow the durable user response"
+        );
+    }
+
+    #[tokio::test]
+    async fn interrupted_executor_session_preserves_partial_work_without_a_terminal_error() {
+        use crate::llm::{
+            ProviderHostedToolEvent, ProviderHostedToolKind, ProviderHostedToolStatus,
+            ProviderRecoveryCategory, ProviderStreamEvent,
+        };
+        for hosted_action in [false, true] {
+            let db = Database::open_memory().unwrap();
+            let mut events = vec![ProviderStreamEvent::Chunk {
+                chunk: Box::new(StreamChunk {
+                    delta: "Saved partial output".into(),
+                    tool_call_delta: None,
+                    finish_reason: None,
+                    usage: None,
+                    thinking_delta: None,
+                }),
+            }];
+            if hosted_action {
+                events.push(ProviderStreamEvent::HostedTool {
+                    tool: Box::new(ProviderHostedToolEvent {
+                        call_id: "hosted-1".into(),
+                        tool_name: "web_search".into(),
+                        kind: ProviderHostedToolKind::WebSearch,
+                        provider_id: "static".into(),
+                        status: ProviderHostedToolStatus::Running,
+                        arguments: None,
+                        content: None,
+                        artifacts: None,
+                    }),
+                });
+            }
+            events.push(ProviderStreamEvent::RecoverableError {
+                message: "fixture connection lost".into(),
+                category: ProviderRecoveryCategory::Network,
+            });
+            let (mut session, turn_id, run_id, calls) =
+                scripted_session(&db, events, ToolRegistry::new());
+            let handle = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session.start_turn(AgentTurnInput::text("Continue the task")),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(handle.state, AgentTurnState::Paused);
+            assert!(session.result_for_run(&run_id).is_none());
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert_eq!(db.get_agent_task_run(&run_id).unwrap().status, "paused");
+            let turn = db.get_conversation_turn(&turn_id).unwrap();
+            assert_eq!(turn.status, "paused");
+            assert!(turn.trace.is_some());
+            let checkpoints = db.list_task_resume_checkpoints(&run_id).unwrap();
+            assert_eq!(checkpoints.len(), 1);
+            assert!(checkpoints[0]
+                .resume_prompt
+                .contains("Saved partial output"));
+            assert_eq!(
+                checkpoints[0]
+                    .resume_prompt
+                    .contains("provider_hosted_action"),
+                hosted_action
+            );
+            let events = session.read_events(&run_id).await.unwrap();
+            assert!(events.iter().all(|event| !event.closes_run()));
+            assert_eq!(events.last().unwrap().phase, AgentRunPhase::Paused);
+            session.events_by_run.clear();
+            assert_eq!(
+                session.read_events(&run_id).await.unwrap().len(),
+                events.len()
+            );
+            let response = ConversationMessage {
+                id: uuid::Uuid::new_v4().to_string(),
+                conversation_id: db.get_agent_task_run(&run_id).unwrap().conversation_id,
+                role: Role::User,
+                content: checkpoints[0].resume_prompt.clone(),
+                tool_call_id: None,
+                tool_calls: vec![],
+                artifacts: None,
+                token_count: 1,
+                created_at: String::new(),
+                sort_order: 0,
+                thinking: None,
+                image_attachments: None,
+            };
+            db.resume_agent_turn_from_checkpoint(
+                &response,
+                None,
+                None,
+                "session-resume",
+                &checkpoints[0].id,
+            )
+            .unwrap();
+            session.executor = AgentExecutor::new(
+                Box::new(StaticProvider),
+                ToolRegistry::new(),
+                AgentConfig {
+                    model: Some("static-model".into()),
+                    ..Default::default()
+                },
+            );
+            let resumed = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session.start_turn(AgentTurnInput::text(response.content)),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(resumed.run_id, run_id);
+            assert_eq!(resumed.turn_id, turn_id);
+            assert_resume_transcript_order(&db, &response.conversation_id, &response.id);
+            assert_eq!(
+                resumed.state,
+                AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed),
+                "resume events: {:?}",
+                session
+                    .read_events(&run_id)
+                    .await
+                    .unwrap()
+                    .iter()
+                    .filter(|event| event.closes_run())
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(db.get_agent_task_run(&run_id).unwrap().status, "completed");
+            validate_runtime_turn_events(&session.read_events(&run_id).await.unwrap()).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn delegated_action_loss_pauses_parent_and_is_not_replayed_on_resume() {
+        use crate::llm::ProviderStreamEvent;
+        let db = Database::open_memory().unwrap();
+        let (mut session, turn_id, run_id, calls) =
+            scripted_session(&db, vec![], ToolRegistry::new());
+        let worker = db
+            .create_agent_subtask_run(&run_id, "worker-1", "worker", None, None)
+            .unwrap();
+        let safe_failure = db
+            .create_agent_subtask_run(&run_id, "worker-2", "worker", None, None)
+            .unwrap();
+        db.finish_agent_subtask_run(&safe_failure.id, "failed", Some(&serde_json::json!({"recoveryRequired":{"actionReconciliation":false,"message":"safe transient error"}})), None).unwrap();
+        assert!(db
+            .agent_subtask_action_reconciliations(&run_id)
+            .unwrap()
+            .is_empty());
+        session.executor = AgentExecutor::new(
+            Box::new(ScriptedSessionProvider {
+                calls: calls.clone(),
+                settle_subtask: Some((db.clone(), worker.id.clone())),
+                events: vec![ProviderStreamEvent::Chunk {
+                    chunk: Box::new(StreamChunk {
+                        delta: "Retained draft".into(),
+                        tool_call_delta: None,
+                        finish_reason: Some(FinishReason::Stop),
+                        thinking_delta: None,
+                        usage: Some(crate::llm::Usage {
+                            prompt_tokens: 10,
+                            completion_tokens: 2,
+                            total_tokens: 12,
+                            ..Default::default()
+                        }),
+                    }),
+                }],
+            }),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("static-model".into()),
+                ..Default::default()
+            },
+        );
+        let handle = session
+            .start_turn(AgentTurnInput::text("Continue the task"))
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(handle.state, AgentTurnState::Paused);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+        assert_eq!(
+            db.get_usage_analytics(&crate::usage_analytics::UsageAnalyticsFilter::default())
+                .unwrap()
+                .totals
+                .total_tokens,
+            12
+        );
+        let checkpoint = db
+            .list_task_resume_checkpoints(&run_id)
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(
+            checkpoint.state["subtaskActionReconciliations"][&worker.id]["actionReconciliation"],
+            true
+        );
+        assert!(checkpoint.resume_prompt.contains("Never redispatch"));
+        let response = ConversationMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            conversation_id: db.get_agent_task_run(&run_id).unwrap().conversation_id,
+            role: Role::User,
+            content: checkpoint.resume_prompt.clone(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 1,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.resume_agent_turn_from_checkpoint(
+            &response,
+            None,
+            None,
+            "delegated-resume",
+            &checkpoint.id,
+        )
+        .unwrap();
+        session.executor = AgentExecutor::new(
+            Box::new(StaticProvider),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("static-model".into()),
+                ..Default::default()
+            },
+        );
+        let resumed = session
+            .start_turn(AgentTurnInput::text(response.content))
+            .await
+            .unwrap();
+        assert_eq!(resumed.turn_id, turn_id);
+        assert_resume_transcript_order(&db, &response.conversation_id, &response.id);
+        assert_eq!(
+            resumed.state,
+            AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed)
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "resumption must not replay the failed worker"
+        );
+        assert!(
+            db.agent_subtask_action_reconciliations(&run_id)
+                .unwrap()
+                .contains_key(&worker.id),
+            "checkpoint coverage does not fabricate a resolved worker outcome"
+        );
+    }
+
+    #[tokio::test]
+    async fn executor_session_keeps_a_durable_question_non_terminal() {
+        let db = Database::open_memory().unwrap();
+        let mut tools = ToolRegistry::new();
+        tools.register(Box::new(
+            crate::tools::request_user_input_tool::RequestUserInputTool,
+        ));
+        let events = vec![crate::llm::ProviderStreamEvent::Chunk { chunk: Box::new(StreamChunk {
+            delta: String::new(),
+            tool_call_delta: Some(ToolCallDelta {
+                id: "question-1".into(), name: Some("request_user_input".into()), index: Some(0), thought_signature: None,
+                arguments_delta: serde_json::json!({"questions":[{"id":"scope","header":"Scope","question":"Which folder?","type":"short"}]}).to_string().into(),
+            }),
+            finish_reason: Some(FinishReason::ToolCalls), usage: None, thinking_delta: None,
+        }) }];
+        let (mut session, turn_id, run_id, calls) = scripted_session(&db, events, tools);
+        let handle = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            session.start_turn(AgentTurnInput::text("Ask which folder to use")),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(handle.state, AgentTurnState::AwaitingUserInput);
+        assert_eq!(
+            db.get_conversation_turn(&turn_id).unwrap().status,
+            "awaiting_user_input"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+        assert!(!db.list_task_resume_checkpoints(&run_id).unwrap().is_empty());
+        let conversation = db.get_agent_task_run(&run_id).unwrap().conversation_id;
+        let question = db
+            .list_interaction_requests(Some(&conversation), false)
+            .unwrap()
+            .pop()
+            .unwrap();
+        db.mark_interaction_presented(&question.interaction_id)
+            .unwrap();
+        let response = ConversationMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            conversation_id: conversation.clone(),
+            role: Role::User,
+            content: "Which folder?\nRepo".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: Some(serde_json::json!({"kind":"questionResponse", "version":2,
+                "interactionId":question.interaction_id, "requestCallId":"question-1",
+                "answers":[{"id":"scope","question":"Which folder?","answers":["Repo"]}]})),
+            token_count: 4,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.resume_agent_turn_with_interaction_response(
+            &response,
+            None,
+            None,
+            "question-resume",
+            &crate::interaction::SubmitInteractionResponse {
+                interaction_id: question.interaction_id,
+                resume_token: question.resume_token,
+                answers: std::collections::BTreeMap::from([("scope".into(), vec!["Repo".into()])]),
+            },
+        )
+        .unwrap();
+        session.executor = AgentExecutor::new(
+            Box::new(StaticProvider),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("static-model".into()),
+                ..Default::default()
+            },
+        );
+        let resumed = session
+            .start_turn(AgentTurnInput::text(response.content))
+            .await
+            .unwrap();
+        assert_eq!(
+            resumed.state,
+            AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Completed)
+        );
+        assert_resume_transcript_order(&db, &conversation, &response.id);
+    }
+
+    fn settle_uncertain_worker(db: &Database, worker_id: &str) {
+        db.finish_agent_subtask_run(worker_id, "failed", Some(&serde_json::json!({
+            "recoveryRequired": {"actionReconciliation": true, "message": "Hosted action outcome is uncertain"}
+        })), Some("connection lost")).unwrap();
+    }
+
+    #[tokio::test]
+    async fn delegated_recovery_during_approval_prevents_the_file_write() {
+        let db = Database::open_memory().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("must-not-be-created.txt");
+        let workspace =
+            crate::workspace::Workspace::validate(&[directory.path().to_string_lossy().into()])
+                .unwrap();
+        let mut tools = ToolRegistry::new().with_workspace(Some(workspace));
+        tools.register(Box::new(crate::tools::create_file_tool::CreateFileTool));
+        let events = vec![crate::llm::ProviderStreamEvent::Chunk {
+            chunk: Box::new(StreamChunk {
+                delta: String::new(),
+                tool_call_delta: Some(ToolCallDelta {
+                    id: "late-write".into(),
+                    name: Some("create_file".into()),
+                    index: Some(0),
+                    thought_signature: None,
+                    arguments_delta:
+                        serde_json::json!({"path": target, "content": "must not execute"})
+                            .to_string()
+                            .into(),
+                }),
+                finish_reason: Some(FinishReason::ToolCalls),
+                usage: None,
+                thinking_delta: None,
+            }),
+        }];
+        let (mut session, _, run_id, calls) = scripted_session(&db, vec![], ToolRegistry::new());
+        let worker = db
+            .create_agent_subtask_run(&run_id, "worker", "worker", None, None)
+            .unwrap();
+        let approvals = Arc::new(AtomicUsize::new(0));
+        let callback_db = db.clone();
+        let callback_count = approvals.clone();
+        session.executor = AgentExecutor::new(
+            Box::new(ScriptedSessionProvider {
+                events,
+                calls: calls.clone(),
+                settle_subtask: None,
+            }),
+            tools,
+            AgentConfig {
+                model: Some("static-model".into()),
+                dynamic_tool_visibility: false,
+                tool_approval_mode: crate::approval::ToolApprovalMode::Ask,
+                ..Default::default()
+            },
+        )
+        .with_approval_callback(Arc::new(move |_| {
+            callback_count.fetch_add(1, Ordering::SeqCst);
+            settle_uncertain_worker(&callback_db, &worker.id);
+            Box::pin(async { ApprovalDecision::AllowOnce })
+        }));
+        let handle = session
+            .start_turn(AgentTurnInput::text("Create the requested file"))
+            .await
+            .unwrap();
+        assert_eq!(approvals.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(
+            !target.exists(),
+            "approval must not admit a new write over an uncertain worker"
+        );
+        assert_eq!(handle.state, AgentTurnState::Paused);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+    }
+
+    #[tokio::test]
+    async fn delegated_recovery_during_completion_hook_prevents_final_answer_commit() {
+        let db = Database::open_memory().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join(".nexa/tools")).unwrap();
+        #[cfg(windows)]
+        let command = serde_json::json!({"program":"powershell.exe","args":["-NoProfile","-NonInteractive","-Command","Set-Content -LiteralPath hook-started.txt -Value entered; while (-not (Test-Path -LiteralPath hook-release.txt)) { Start-Sleep -Milliseconds 50 }; exit 0"],"timeoutSecs":20});
+        #[cfg(not(windows))]
+        let command = serde_json::json!({"program":"sh","args":["-c","touch hook-started.txt; while [ ! -f hook-release.txt ]; do sleep 0.05; done"],"timeoutSecs":20});
+        std::fs::write(directory.path().join(".nexa/tools/check.json"), serde_json::to_vec(&serde_json::json!({"name":"check","description":"Completion barrier","command":command,"access":{"read":true,"write":true,"execute":true}})).unwrap()).unwrap();
+        let workspace =
+            crate::workspace::Workspace::validate(&[directory.path().to_string_lossy().into()])
+                .unwrap();
+        let mut tools = ToolRegistry::new().with_workspace(Some(workspace.clone()));
+        tools.register(Box::new(crate::tools::project_tool::ProjectTool));
+        let (mut session, _, run_id, _) = scripted_session(&db, vec![], ToolRegistry::new());
+        let conversation_id = db.get_agent_task_run(&run_id).unwrap().conversation_id;
+        db.execute_batch_for_test(
+            "INSERT INTO projects(id,name) VALUES('recovery-hooks','Recovery hooks')",
+        )
+        .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE projects SET workspace_roots_json=?1 WHERE id='recovery-hooks'",
+                [serde_json::to_string(&workspace.roots).unwrap()],
+            )
+            .unwrap();
+        db.move_conversation_to_project(&conversation_id, "recovery-hooks")
+            .unwrap();
+        let catalog =
+            crate::tools::project_tool::workspace_project_tool_catalog(&db, &workspace).unwrap();
+        db.save_project_hook(
+            "recovery-hooks",
+            crate::project_hooks::ProjectHook {
+                id: String::new(),
+                name: "check".into(),
+                manifest_hash: catalog.tools[0].manifest_hash.clone(),
+                event: crate::project_hooks::HookEvent::BeforeComplete,
+                arguments: serde_json::json!({}),
+                enabled: true,
+            },
+        )
+        .unwrap();
+        session.executor = AgentExecutor::new(
+            Box::new(StaticProvider),
+            tools,
+            AgentConfig {
+                model: Some("static-model".into()),
+                tool_approval_mode: crate::approval::ToolApprovalMode::AllowAll,
+                ..Default::default()
+            },
+        );
+        let worker = db
+            .create_agent_subtask_run(&run_id, "worker", "worker", None, None)
+            .unwrap();
+        let during_hook = async {
+            tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                while !directory.path().join("hook-started.txt").exists() {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("completion hook reached its execution barrier");
+            settle_uncertain_worker(&db, &worker.id);
+            std::fs::write(directory.path().join("hook-release.txt"), "continue").unwrap();
+        };
+        let (result, ()) = tokio::join!(
+            session.start_turn(AgentTurnInput::text("Answer the original question")),
+            during_hook,
+        );
+        let hook_runs = db.project_hook_runs("recovery-hooks").unwrap();
+        assert_eq!(hook_runs[0].status, "passed", "{}", hook_runs[0].detail);
+        assert_eq!(result.unwrap().state, AgentTurnState::Paused);
+        assert!(session.result_for_run(&run_id).is_none());
+        assert!(session
+            .read_events(&run_id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|event| !event.closes_run()));
+        assert!(!db
+            .get_messages(&conversation_id)
+            .unwrap()
+            .iter()
+            .any(|message| message.role == Role::Assistant && message.content == "session answer"));
     }
 
     fn create_started_run(db: &Database, suffix: &str) -> (String, String, String) {

@@ -2081,10 +2081,10 @@
         "id": "unbiased/pareto",
         "name": "Pareto",
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/unbiased/pareto",
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://openrouter.ai/api/v1/models/unbiased/pareto/endpoints",
         "contextTokens": 262144,
         "maxOutputTokens": 131072,
         "inputModalities": [
@@ -2107,7 +2107,9 @@
           "tool_choice",
           "tools",
           "top_p"
-        ]
+        ],
+        "replacementModelId": "~unbiased/pareto-latest",
+        "recommended": false
       },
       {
         "id": "~deepseek/deepseek-pro-latest",
@@ -21494,8 +21496,8 @@
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
         "source": "official",
-        "status": "active",
-        "lastVerifiedAt": "2026-09-03",
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-10-14",
         "modalities": [
           "text",
           "image",
@@ -21519,7 +21521,9 @@
               "enabled": false
             }
           }
-        }
+        },
+        "replacementModelId": "gemini-3.8-flash",
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
       },
       {
         "id": "gemini-3.6-flash",
@@ -21624,7 +21628,12 @@
               "enabled": false
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "replacementModelId": "gemini-3.6-flash",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-14",
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
       },
       {
         "id": "gemini-3.1-pro-preview",

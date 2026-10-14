@@ -536,6 +536,7 @@ jobs:
         run: >-
           cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
           desktop_agent_session::stop::
+          recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
           desktop_stop_rejects_queued_and_future_approvals_without_cancelling_chat
           completed_agent_appearance_reaches_native_change_notification
           browser::
@@ -614,7 +615,9 @@ jobs:
     needs: classify
     if: needs.classify.outputs.release_metadata_only != 'true'
     runs-on: windows-latest
-    timeout-minutes: 20
+    # Cold default-feature checking plus the separate test profile can consume
+    # twenty minutes before the final native PowerShell smoke even starts.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
         with:
@@ -652,6 +655,7 @@ jobs:
         run: >-
           cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
           desktop_stop_rejects_queued_and_future_approvals_without_cancelling_chat
+          recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
           command_dispatch::tests::
           commands::terminal::tests::
           browser::agent_tool::tests::

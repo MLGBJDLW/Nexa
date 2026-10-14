@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
     process::{Child, ChildStdin},
 };
 
@@ -124,7 +124,9 @@ impl Wire {
                     Ok(chunk) if chunk.is_empty() => break,
                     Ok(chunk) => chunk,
                     Err(error) => {
-                        let _ = tx.send(Err(protocol_error(error))).await;
+                        let _ = tx
+                            .send(Err(CoreError::StreamIncomplete(error.to_string())))
+                            .await;
                         break;
                     }
                 };
@@ -172,10 +174,7 @@ impl Wire {
     async fn write(&mut self, message: Value) -> Result<(), CoreError> {
         let mut bytes = serde_json::to_vec(&message).map_err(protocol_error)?;
         bytes.push(b'\n');
-        tokio::time::timeout(RPC_TIMEOUT, self.stdin.write_all(&bytes))
-            .await
-            .map_err(|_| protocol_error("Codex write timed out"))?
-            .map_err(protocol_error)
+        write_runtime_message(&mut self.stdin, &bytes, RPC_TIMEOUT, "Codex").await
     }
 
     async fn send(&mut self, method: &str, params: Value) -> Result<u64, CoreError> {
@@ -229,10 +228,9 @@ impl Wire {
         if let Some(message) = self.queued.pop_front() {
             return Ok(message);
         }
-        self.messages
-            .recv()
-            .await
-            .ok_or_else(|| protocol_error("Codex process exited before turn completion"))?
+        self.messages.recv().await.ok_or_else(|| {
+            CoreError::StreamIncomplete("Codex process exited before turn completion".into())
+        })?
     }
 }
 
@@ -583,8 +581,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     // Dropping cancelled dispatch futures releases their timeline locks and
     // runs receipt guards before persisting pending user/assistant messages.
     pending.clear();
-    if result.is_err() {
-        projection.persist_partial(&turn).await?;
+    if let Err(cause) = &result {
+        projection.persist_partial(&turn, cause).await?;
         for message in steering_queue {
             turn.transcript.persist_steering(&message).await?;
         }
@@ -758,6 +756,9 @@ async fn project_event(
         }
         "thread/tokenUsage/updated" => {
             let usage = &params["tokenUsage"]["total"];
+            projection.usage_reported |= usage["totalTokens"].as_u64().is_some()
+                || usage["inputTokens"].as_u64().is_some()
+                || usage["outputTokens"].as_u64().is_some();
             let tokens = |key: &str| usage[key].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32;
             projection.usage.prompt_tokens = tokens("inputTokens");
             projection.last_prompt_tokens = params["tokenUsage"]["last"]["inputTokens"]

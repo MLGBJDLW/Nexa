@@ -519,6 +519,10 @@ impl OllamaProvider {
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
+    fn manages_request_timeout(&self) -> bool {
+        true
+    }
+
     fn name(&self) -> &str {
         "ollama"
     }
@@ -570,25 +574,18 @@ impl LlmProvider for OllamaProvider {
                 .post(&url)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
-        .map_err(|e| {
-            CoreError::Llm(format!(
-                "Request failed: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
+        .map_err(|e| super::transport::classify_http_error(&e, "Request failed"))?;
 
         let response = self.check_response(response).await?;
 
-        let resp: OllamaResponse = response.json().await.map_err(|e| {
-            CoreError::Llm(format!(
-                "Failed to parse response: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
+        let resp: OllamaResponse = response
+            .json()
+            .await
+            .map_err(|e| super::transport::classify_http_error(&e, "Failed to parse response"))?;
 
         let raw_content = resp
             .message
@@ -656,7 +653,7 @@ impl LlmProvider for OllamaProvider {
                 .post(&url)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Ollama stream request",
         )
         .await

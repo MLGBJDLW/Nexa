@@ -29,6 +29,92 @@ const DESKTOP_DELEGATION_TOOL_NAMES: &[&str] = &[
     "close_subagent",
 ];
 
+#[test]
+fn recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs() {
+    let db = Database::open_memory().expect("open database");
+    let conversation = db
+        .create_conversation(&CreateConversationInput {
+            provider: "test".into(),
+            model: "test".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .expect("create conversation");
+    for status in [
+        "paused",
+        "awaiting_user_input",
+        "queued",
+        "running",
+        "cancelled",
+    ] {
+        let message = ConversationMessage {
+            id: format!("recovery-{status}"),
+            conversation_id: conversation.id.clone(),
+            role: Role::User,
+            content: "Continue the original task".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 4,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&message).unwrap();
+        let turn = db
+            .create_conversation_turn(&conversation.id, &message.id, None)
+            .unwrap();
+        let run = db
+            .create_agent_task_run(
+                &conversation.id,
+                &turn.id,
+                &message.id,
+                "Recovery artifacts",
+                Some("test"),
+                Some("test"),
+            )
+            .unwrap();
+        let checkpoint = serde_json::json!({"resumeCheckpoint": {"id": "saved-checkpoint"}});
+        db.update_agent_task_run_progress(
+            &run.id,
+            Some(status),
+            Some(status),
+            None,
+            None,
+            None,
+            Some(&checkpoint),
+        )
+        .unwrap();
+        let mut artifacts = build_final_task_artifacts(
+            Some(checkpoint.clone()),
+            serde_json::json!({"turnId": turn.id, "trace": {"completedSteps": 2}}),
+            &[],
+        );
+        artifacts["verification"] = serde_json::json!({"overallStatus": "pending"});
+        let outcome = Some(Err(CoreError::RecoveryRequired {
+            message: "native response interrupted".into(),
+            action_reconciliation: true,
+        }));
+        assert!(finalize_suspended_task_artifacts(
+            &db,
+            &run.id,
+            Some(status),
+            &outcome,
+            &artifacts,
+        ));
+        let snapshot = db.get_agent_task_run(&run.id).unwrap();
+        assert_eq!(snapshot.status, status);
+        if matches!(status, "paused" | "awaiting_user_input") {
+            assert_eq!(snapshot.artifacts, Some(artifacts));
+        } else {
+            assert_eq!(snapshot.artifacts, Some(checkpoint));
+        }
+    }
+}
+
 fn desktop_delegation_tool_registry() -> ToolRegistry {
     let runtime = DelegationRuntime::new(
         ProviderConfig {

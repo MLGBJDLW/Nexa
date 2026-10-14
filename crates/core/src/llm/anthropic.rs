@@ -2479,6 +2479,10 @@ mod tests {
 
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
+    fn manages_request_timeout(&self) -> bool {
+        true
+    }
+
     fn supports_document_input(
         &self,
         request: &CompletionRequest,
@@ -2654,19 +2658,14 @@ impl LlmProvider for AnthropicProvider {
                 .header("anthropic-beta", anthropic_beta_headers(&request.model))
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
         .inspect_err(|error| {
             transport.record_transport_failure(error);
         })
-        .map_err(|e| {
-            CoreError::Llm(format!(
-                "Request failed: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
+        .map_err(|e| super::transport::classify_http_error(&e, "Request failed"))?;
 
         let status = response.status().as_u16();
         let response = match self.check_response(response).await {
@@ -2690,12 +2689,7 @@ impl LlmProvider for AnthropicProvider {
             .inspect_err(|error| {
                 transport.record_transport_failure(error);
             })
-            .map_err(|e| {
-                CoreError::Llm(format!(
-                    "Failed to parse response: {}",
-                    super::transport::describe_http_error(&e)
-                ))
-            })?;
+            .map_err(|e| super::transport::classify_http_error(&e, "Failed to parse response"))?;
         let raw_content_blocks = raw_response
             .get("content")
             .and_then(serde_json::Value::as_array)
@@ -2898,7 +2892,7 @@ impl LlmProvider for AnthropicProvider {
                 .header("anthropic-beta", anthropic_beta_headers(&request.model))
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Anthropic stream request",
         )
         .await

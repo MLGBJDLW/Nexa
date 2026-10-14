@@ -687,12 +687,22 @@ impl Tool for SubagentLifecycleTool {
                         Duration::from_millis(args.wait_ms.unwrap_or(0).min(2_500)),
                     )
                     .await?;
-                let content = format!(
+                let mut content = format!(
                     "Subagent {agent_id} is {:?}; received {} lifecycle event(s), cursor {}.",
                     observation.worker.status,
                     observation.events.len(),
                     observation.cursor,
                 );
+                if observation
+                    .worker
+                    .result
+                    .as_ref()
+                    .and_then(|result| result.pointer("/recoveryRequired/actionReconciliation"))
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                {
+                    content.push_str("\nAction reconciliation is required before retry: inspect the worker's retained receipts and external state; do not replay its request blindly.");
+                }
                 (
                     content,
                     serde_json::json!({

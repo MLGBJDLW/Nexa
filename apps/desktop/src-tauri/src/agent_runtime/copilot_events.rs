@@ -21,7 +21,11 @@ pub(super) struct EventStream {
 struct EventBuffer {
     receipts: RuntimeReceipts,
     count: u64,
-    closed: Option<String>,
+    closed: Option<EventStreamFailure>,
+}
+enum EventStreamFailure {
+    Transport(String),
+    Storage(String),
 }
 impl Drop for EventStream {
     fn drop(&mut self) {
@@ -59,13 +63,14 @@ impl EventStream {
                                     false
                                 }
                                 Err(error) => {
-                                    state.closed = Some(error.to_string());
+                                    state.closed =
+                                        Some(EventStreamFailure::Storage(error.to_string()));
                                     true
                                 }
                             }
                         }
                         Err(error) => {
-                            state.closed = Some(error);
+                            state.closed = Some(EventStreamFailure::Transport(error));
                             true
                         }
                     }
@@ -76,8 +81,9 @@ impl EventStream {
                 }
                 tokio::task::yield_now().await;
             }
-            producer.lock().unwrap_or_else(|e| e.into_inner()).closed =
-                Some("Copilot event stream closed".into());
+            producer.lock().unwrap_or_else(|e| e.into_inner()).closed = Some(
+                EventStreamFailure::Transport("Copilot event stream closed".into()),
+            );
             notify.notify_one();
         });
         Ok(Self {
@@ -103,7 +109,12 @@ impl EventStream {
                     return Ok(event);
                 }
                 if let Some(error) = &state.closed {
-                    return Err(protocol_error(error));
+                    return Err(match error {
+                        EventStreamFailure::Transport(message) => {
+                            CoreError::StreamIncomplete(message.clone())
+                        }
+                        EventStreamFailure::Storage(message) => protocol_error(message),
+                    });
                 }
             }
             notified.await;
@@ -153,6 +164,21 @@ impl EventLedger {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn subscription_loss_becomes_reconcilable_recovery() {
+        for events in [vec![], vec![Err("subscription lagged".to_string())]] {
+            let mut stream = EventStream::from_stream(futures::stream::iter(events)).unwrap();
+            let error = stream.recv().await.unwrap_err();
+            assert!(matches!(
+                super::super::recover_interrupted_runtime(error),
+                CoreError::RecoveryRequired {
+                    action_reconciliation: true,
+                    ..
+                }
+            ));
+        }
+    }
     #[tokio::test]
     async fn slow_consumer_retains_ephemeral_filter_usage_and_idle_in_order() {
         let mut events = (0..2000).map(|index| Ok(serde_json::from_value(serde_json::json!({"id":index.to_string(),"timestamp":"2026-09-30T00:00:00Z","type":"assistant.message_delta","ephemeral":true,"data":{"messageId":"answer","deltaContent":"x"}})).unwrap())).collect::<Vec<_>>();

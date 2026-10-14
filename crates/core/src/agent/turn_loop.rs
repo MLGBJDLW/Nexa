@@ -102,13 +102,18 @@ pub(super) fn awaiting_user_input_interaction_id(
 pub(super) struct ActionReconciliationFence {
     computer: bool,
     browser: bool,
+    // Opaque provider/delegated actions have no matching local visual receipt.
+    // Preserve their checkpoint pointers; a screenshot cannot reconcile them.
     unknown: bool,
 }
 
 impl ActionReconciliationFence {
     pub(super) fn from_resume_prompt(prompt: &str) -> Self {
-        const MARKER: &str = "Checkpoint reason: user_stop_requires_action_reconciliation:";
-        let Some(receipts) = prompt.split_once(MARKER).map(|(_, receipts)| receipts) else {
+        let Some(receipts) = prompt
+            .lines()
+            .filter_map(|line| line.strip_prefix("Checkpoint reason: "))
+            .find_map(crate::workflow_automation::reconciliation_receipts)
+        else {
             return Self::default();
         };
         let computer = receipts.contains("computer_control:");
@@ -116,8 +121,14 @@ impl ActionReconciliationFence {
         Self {
             computer,
             browser,
-            unknown: !computer && !browser,
+            unknown: (!computer && !browser)
+                || receipts.contains("provider_hosted_action")
+                || receipts.contains("delegated_subtasks:"),
         }
+    }
+
+    pub(super) fn retain_unknown_action(&mut self) {
+        self.unknown = true;
     }
 
     pub(super) fn blocks_interactive_input(self) -> bool {
@@ -185,7 +196,6 @@ impl ActionReconciliationFence {
                 )
             {
                 self.computer = false;
-                self.unknown = false;
             }
             if !summary.is_error
                 && call.name == "browser_session"
@@ -196,23 +206,9 @@ impl ActionReconciliationFence {
                 )
             {
                 self.browser = false;
-                self.unknown = false;
             }
         }
     }
-}
-
-fn successful_executable_action(
-    calls: &[ToolCallRequest],
-    summaries: &[tool_dispatch::ToolDispatchSummary],
-) -> bool {
-    calls.iter().any(|call| {
-        loop_guard::tool_call_is_action_progress(&call.name)
-            && summaries
-                .iter()
-                .find(|summary| summary.call_id == call.id)
-                .is_some_and(|summary| !summary.is_error)
-    })
 }
 
 fn cumulative_run_step_output_budget(
@@ -401,6 +397,23 @@ async fn emit_tool_dispatch_failure(
     persisted_trace_items: &mut Vec<PersistedTraceItem>,
     error: &CoreError,
 ) {
+    if let CoreError::RecoveryRequired {
+        message,
+        action_reconciliation,
+    } = error
+    {
+        emit_recovery_required(
+            tx,
+            db,
+            turn_id,
+            route_kind,
+            persisted_trace_items,
+            message.clone(),
+            *action_reconciliation,
+        )
+        .await;
+        return;
+    }
     let frontend_message = "Nexa stopped the turn because a tool result could not be saved. No follow-up model request was sent.";
     let trace_message = format!("tool_result_persistence_failed: {error}");
     append_persisted_trace_status(persisted_trace_items, frontend_message, "error");
@@ -651,6 +664,10 @@ impl AgentExecutor {
         let mut turn_budget = TurnBudget::new(self.config.max_iterations);
         let mut resumed_execution =
             super::desktop_resume::load_execution_resume_state(db, conversation_id, turn_id)?;
+        let checkpointed_subtask_recoveries = resumed_execution
+            .as_ref()
+            .map(|state| state.checkpointed_subtask_recoveries.clone())
+            .unwrap_or_default();
         if let Some(saved) = resumed_execution.as_ref() {
             turn_budget.restore(saved.completed_tool_rounds, saved.max_iterations);
         }
@@ -706,6 +723,9 @@ impl AgentExecutor {
             .join(" ");
         let mut action_reconciliation =
             ActionReconciliationFence::from_resume_prompt(&user_query_text_for_tools);
+        if !checkpointed_subtask_recoveries.is_empty() {
+            action_reconciliation.retain_unknown_action();
+        }
 
         let skills = self.skills_override.clone().unwrap_or_else(|| {
             crate::skills::get_available_skills_for_query(db, &user_query_text_for_tools)
@@ -757,12 +777,17 @@ impl AgentExecutor {
             has_sources,
         );
         let mut loop_recorder = TurnLoopRecorder::new(route_plan.kind, self.config.max_iterations);
-        let mut task_plan = build_task_plan(TaskPlanningInput::for_requirements(
-            &user_query_text_for_tools,
-            &route_plan.requirements,
-            has_sources,
-            source_scope.len(),
-        ));
+        let mut task_plan = resumed_execution
+            .as_ref()
+            .and_then(|saved| saved.plan.clone())
+            .unwrap_or_else(|| {
+                build_task_plan(TaskPlanningInput::for_requirements(
+                    &user_query_text_for_tools,
+                    &route_plan.requirements,
+                    has_sources,
+                    source_scope.len(),
+                ))
+            });
         let orchestration_policy = resolve_orchestration_profile(OrchestrationProfileInput {
             profile: self.config.orchestration_profile,
             custom: self.config.custom_orchestration.clone(),
@@ -786,22 +811,26 @@ impl AgentExecutor {
                 task_plan = plan;
             } else if saved
                 .workflow
-                .completion_contract
-                .require_all_nodes_succeeded
+                .as_ref()
+                .is_some_and(|workflow| workflow.completion_contract.require_all_nodes_succeeded)
             {
                 return Err(CoreError::InvalidInput("Saved execution checkpoint is missing its task plan; reconcile the checkpoint before resuming this workflow".into()));
             }
-            let available = self.tools.tool_names();
-            for node in &mut saved.workflow.nodes {
-                node.allowed_tools.retain(|tool| available.contains(tool));
+            if let Some(workflow) = saved.workflow.as_mut() {
+                let available = self.tools.tool_names();
+                for node in &mut workflow.nodes {
+                    node.allowed_tools.retain(|tool| available.contains(tool));
+                }
+                workflow.max_parallel = workflow
+                    .max_parallel
+                    .min(orchestration_policy.max_parallel)
+                    .max(1);
+                workflow.apply_checkpoint_to_task_plan(&mut task_plan);
             }
-            saved.workflow.max_parallel = saved
-                .workflow
-                .max_parallel
-                .min(orchestration_policy.max_parallel)
-                .max(1);
-            saved.workflow.apply_checkpoint_to_task_plan(&mut task_plan);
-            workflow_ir = Some(saved.workflow);
+            // A plain-chat checkpoint may only have a plan. The workflow
+            // compiled from that authoritative plan still honors current host
+            // requirements; a saved graph additionally preserves node state.
+            workflow_ir = saved.workflow.or(workflow_ir);
         }
         if self.config.execution_mode.is_plan() {
             if let Some(workflow) = workflow_ir.as_mut() {
@@ -1143,6 +1172,44 @@ impl AgentExecutor {
         let mut last_iteration_content = String::new();
         let mut last_finish_reason: Option<String> = None;
         let mut persisted_trace_items: Vec<PersistedTraceItem> = Vec::new();
+        let recovery_parent_run = turn_id
+            .map(|id| db.get_agent_task_run_by_turn(id))
+            .transpose()?
+            .flatten()
+            .map(|run| run.id);
+        let delegated_recovery =
+            recovery_parent_run
+                .as_deref()
+                .map(|run_id| model_recovery::DelegatedRecoveryGuard {
+                    db,
+                    run_id,
+                    checkpointed: &checkpointed_subtask_recoveries,
+                });
+        macro_rules! check_delegated_action_recovery {
+            () => {
+                if let Some(guard) = delegated_recovery {
+                    if let Err(error) = guard.check() {
+                        let CoreError::RecoveryRequired {
+                            message,
+                            action_reconciliation,
+                        } = error
+                        else {
+                            return Err(error);
+                        };
+                        return Err(emit_recovery_required(
+                            &tx,
+                            db,
+                            turn_id,
+                            route_plan.kind,
+                            &mut persisted_trace_items,
+                            message,
+                            action_reconciliation,
+                        )
+                        .await);
+                    }
+                }
+            };
+        }
         append_developer_persisted_trace_status(
             &mut persisted_trace_items,
             &output_budget_plan.diagnostic(),
@@ -1156,6 +1223,7 @@ impl AgentExecutor {
         // --- 3c. Extract user query text -----------------
         let user_query_text = &user_query_text_for_tools;
 
+        check_delegated_action_recovery!();
         // --- 3c'. Try direct dispatch (skip LLM for simple commands) ---------
         if !self.config.execution_mode.is_plan()
             && turn_budget.tool_rounds_used() == 0
@@ -1240,32 +1308,28 @@ impl AgentExecutor {
             && route_plan.kind == AgentRouteKind::KnowledgeRetrieval
             && !user_query_text.is_empty()
             && turn_budget.can_dispatch_tool_round();
-        let prefetch_observed = if prefetch_enters_dispatch {
+        if prefetch_enters_dispatch {
             turn_budget.persist_admission(db, turn_id)?;
-            let observed = self
-                .prefetch_knowledge_results(
-                    route_plan.kind,
-                    user_query_text,
-                    db,
-                    &source_scope,
-                    &tx,
-                    conversation_id,
-                    turn_id,
-                    model,
-                    &mut sort_order,
-                    &mut messages,
-                    &mut persisted_trace_items,
-                    &mut task_plan,
-                )
-                .await;
+            self.prefetch_knowledge_results(
+                route_plan.kind,
+                user_query_text,
+                db,
+                &source_scope,
+                &tx,
+                conversation_id,
+                turn_id,
+                model,
+                &mut sort_order,
+                &mut messages,
+                &mut persisted_trace_items,
+                &mut task_plan,
+            )
+            .await;
             // Graph-guided retrieval is one controller-owned logical batch.
             // Count the dispatch even if the provider returns no evidence or
             // the local search tool reports an error.
             turn_budget.record_verified_tool_round();
-            observed
-        } else {
-            false
-        };
+        }
 
         // --- 4. ReAct loop ----------------------------------------------------
         let mut last_tool_calls: Option<Vec<ToolCallRequest>> = None;
@@ -1284,7 +1348,6 @@ impl AgentExecutor {
                 crate::llm::provider_uses_non_streaming_fallback(provider, model)
             });
         let mut reasoning_disabled_for_tool_loop = false;
-        let mut model_action_observed = prefetch_observed;
         let mut prompt_was_compacted = history_was_compacted;
 
         // Nexus owns reconnaissance waves at runtime. This is a deterministic
@@ -1305,6 +1368,7 @@ impl AgentExecutor {
                 .as_mut()
                 .expect("Nexus or Ultra reconnaissance requires compiled Workflow IR");
             while turn_budget.can_dispatch_tool_round() {
+                check_delegated_action_recovery!();
                 let Some(arguments) =
                     workflow_ir.reconnaissance_batch_arguments(&task_plan.objective)
                 else {
@@ -1422,9 +1486,11 @@ impl AgentExecutor {
 
                 turn_budget.persist_admission(db, turn_id)?;
                 let mut tool_run_started_ids = HashSet::new();
+                check_delegated_action_recovery!();
                 let dispatch_outcome = match self
                     .dispatch_tool_calls(
                         tool_dispatch::ToolDispatchContext {
+                            delegated_recovery,
                             workspace_isolation: workspace_isolation.is_some(),
                             db,
                             tx: &tx,
@@ -1491,9 +1557,6 @@ impl AgentExecutor {
                 }
                 let summaries = dispatch_outcome.summaries;
                 let summary = summaries.iter().find(|summary| summary.call_id == call.id);
-                if summary.is_some_and(|summary| !summary.is_error) {
-                    model_action_observed = true;
-                }
                 let read_source = verification_capture
                     .capture(
                         db,
@@ -1810,6 +1873,7 @@ impl AgentExecutor {
                     output_budget_plan.wire_max_tokens_for_prompt(estimated_prompt)
                 };
             let accumulated_content_before_model_step = accumulated_content.len();
+            check_delegated_action_recovery!();
             let model_step_result = self
                 .run_model_step(model_step::ModelStepContext {
                     db,
@@ -1838,7 +1902,6 @@ impl AgentExecutor {
                     suppress_tools: suppress_tools_for_step,
                     buffer_answer_projection,
                     output_recovery: &output_recovery,
-                    requires_first_action: !model_action_observed,
                     total_usage: &mut total_usage,
                 })
                 .await;
@@ -1853,6 +1916,9 @@ impl AgentExecutor {
                         iteration,
                         &error,
                     );
+                    if matches!(error, CoreError::RecoveryRequired { .. }) {
+                        check_delegated_action_recovery!();
+                    }
                     return Err(error);
                 }
             };
@@ -1885,7 +1951,6 @@ impl AgentExecutor {
                     continue 'react_loop;
                 }
             };
-            model_action_observed |= !tool_run_started_ids.is_empty();
             if let Some(isolation) = workspace_isolation.as_mut() {
                 isolation.rewrite_tool_calls(&mut tool_calls)?;
             }
@@ -2022,6 +2087,9 @@ impl AgentExecutor {
                 return Err(CoreError::Agent(trace_message));
             }
 
+            // Keep billing and visibility admission above this boundary, but
+            // accept no next action/final completion over an uncertain worker.
+            check_delegated_action_recovery!();
             let provider_state_fingerprint = provider_replay
                 .as_ref()
                 .filter(|replay| replay.resumes_provider_pause())
@@ -2722,6 +2790,7 @@ impl AgentExecutor {
                     next_step_purpose = TurnStepPurpose::Recovery;
                     continue 'react_loop;
                 }
+                check_delegated_action_recovery!();
                 let hook_feedback =
                     crate::project_hooks::completion_feedback(&crate::project_hooks::HookContext {
                         db,
@@ -2735,7 +2804,9 @@ impl AgentExecutor {
                         isolated: workspace_isolation.is_some(),
                         approval_mode: self.config.tool_approval_mode,
                     })
-                    .await?;
+                    .await;
+                check_delegated_action_recovery!();
+                let hook_feedback = hook_feedback?;
                 if let Some(blocker) = hook_feedback.blocker {
                     append_persisted_trace_status(&mut persisted_trace_items, &blocker, "warning");
                     let _ = tx
@@ -2835,6 +2906,7 @@ impl AgentExecutor {
                         || self.config.request_kind.requires_workspace_isolation())
                         && workflow_ir.ready_to_promote_isolated_writes()
                     {
+                        check_delegated_action_recovery!();
                         let promotion = workspace_isolation
                             .as_mut()
                             .ok_or_else(|| {
@@ -2953,6 +3025,7 @@ impl AgentExecutor {
                     continue;
                 }
                 append_persisted_trace_thinking(&mut persisted_trace_items, &iteration_thinking);
+                check_delegated_action_recovery!();
                 let finalized = self
                     .finish_successful_turn(
                         finalization::TurnFinalizationContext {
@@ -2975,6 +3048,7 @@ impl AgentExecutor {
                         last_prompt_tokens,
                         last_context_breakdown,
                         last_finish_reason,
+                        delegated_recovery,
                     )
                     .await;
                 let assistant_msg = match finalized {
@@ -3086,9 +3160,11 @@ impl AgentExecutor {
                 turn_budget.persist_admission(db, turn_id)?;
             }
             // -- 4e. Execute tool calls in parallel ------------------------------
+            check_delegated_action_recovery!();
             let dispatch_outcome = match self
                 .dispatch_tool_calls(
                     tool_dispatch::ToolDispatchContext {
+                        delegated_recovery,
                         workspace_isolation: workspace_isolation.is_some(),
                         db,
                         tx: &tx,
@@ -3152,7 +3228,6 @@ impl AgentExecutor {
                 .await;
                 return Err(CoreError::Agent(trace_message));
             }
-            model_action_observed |= successful_executable_action(&tool_calls, &dispatch_summaries);
             let reconciliation_was_pending = action_reconciliation.blocks_interactive_input();
             action_reconciliation.observe_tool_results(&tool_calls, &dispatch_summaries);
             if reconciliation_was_pending && !action_reconciliation.blocks_interactive_input() {
@@ -3379,7 +3454,8 @@ impl AgentExecutor {
             Err(err) => warn!("Failed to create max-iterations resume checkpoint: {err}"),
         }
 
-        if let Some(blocker) =
+        check_delegated_action_recovery!();
+        let completion_blocker =
             crate::project_hooks::completion_blocker(&crate::project_hooks::HookContext {
                 db,
                 tools: &self.tools,
@@ -3392,8 +3468,9 @@ impl AgentExecutor {
                 isolated: workspace_isolation.is_some(),
                 approval_mode: self.config.tool_approval_mode,
             })
-            .await?
-        {
+            .await;
+        check_delegated_action_recovery!();
+        if let Some(blocker) = completion_blocker? {
             return Err(CoreError::Agent(blocker));
         }
         let final_content = if !last_iteration_content.trim().is_empty() {
@@ -3421,8 +3498,9 @@ impl AgentExecutor {
                 last_prompt_tokens,
                 last_context_breakdown,
                 last_finish_reason,
+                delegated_recovery,
             )
-            .await;
+            .await?;
         Ok(final_msg)
     }
 }
@@ -3507,6 +3585,61 @@ mod action_reconciliation_tests {
         assert!(!fence.computer);
         assert!(!fence.unknown);
         assert!(fence.blocks_interactive_input());
+    }
+
+    #[test]
+    fn connection_checkpoint_restores_the_dispatch_fence_from_real_resume_state() {
+        let db = Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&crate::conversation::CreateConversationInput {
+                provider: "test".into(),
+                model: "test-model".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let user = crate::conversation::ConversationMessage {
+            id: "resume-user".into(),
+            conversation_id: conversation.id.clone(),
+            role: Role::User,
+            content: "Continue the task".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 4,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&user).unwrap();
+        let turn = db
+            .create_conversation_turn(&conversation.id, &user.id, None)
+            .unwrap();
+        let run = db
+            .create_agent_task_run(
+                &conversation.id,
+                &turn.id,
+                &user.id,
+                "Resume",
+                Some("test"),
+                Some("test-model"),
+            )
+            .unwrap();
+        for reason in [
+            "connection_interrupted_requires_action_reconciliation:provider_hosted_action",
+            "connection_interrupted_requires_action_reconciliation:browser_action:turn:call:obs",
+        ] {
+            let checkpoint = db.create_task_resume_checkpoint(&run.id, reason).unwrap();
+            let fence = ActionReconciliationFence::from_resume_prompt(&checkpoint.resume_prompt);
+            assert!(fence.blocks_interactive_input());
+        }
+        assert!(!ActionReconciliationFence::from_resume_prompt(
+            "Checkpoint reason: provider_connection_interrupted"
+        )
+        .blocks_interactive_input());
     }
 
     fn summary(
@@ -3639,6 +3772,39 @@ mod action_reconciliation_tests {
             )],
         );
         assert!(!fence.blocks_interactive_input());
+    }
+
+    #[test]
+    fn visual_observations_never_clear_opaque_hosted_or_delegated_receipts() {
+        for receipt in [
+            "provider_hosted_action",
+            "delegated_subtasks:worker-shell,worker-mcp,worker-image",
+            "computer_control:turn:call:obs,provider_hosted_action",
+            "browser_action:turn:call:obs,delegated_subtasks:worker-shell",
+        ] {
+            let mut fence = ActionReconciliationFence::from_resume_prompt(&format!(
+                "Checkpoint reason: connection_interrupted_requires_action_reconciliation:{receipt}"
+            ));
+            for (name, action, artifacts) in [
+                (
+                    "computer_observe",
+                    "capture_window",
+                    serde_json::json!({"data":{"kind":"computerObservationReceipt","screenshotHash":"desktop-shot"}}),
+                ),
+                (
+                    "browser_session",
+                    "observe",
+                    serde_json::json!({"artifacts":{"kind":"browserObservation","observation":{"screenshotHash":"browser-shot"}}}),
+                ),
+            ] {
+                fence.observe_tool_results(
+                    &[call("visual", name, action)],
+                    &[summary("visual", false, artifacts)],
+                );
+                assert!(fence.unknown, "{receipt} cannot be reconciled by {name}");
+                assert!(fence.blocks_interactive_input());
+            }
+        }
     }
 }
 

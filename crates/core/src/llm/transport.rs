@@ -439,6 +439,35 @@ pub(crate) fn describe_http_error(error: &reqwest::Error) -> String {
     crate::sensitive_data::sanitize_diagnostic(&scrubbed, None)
 }
 
+/// Share the same retry classification across native and compatible adapters.
+/// Header/HTTP2 resets are often wrapped as request errors, not `is_connect`.
+pub(crate) fn classify_http_error(error: &reqwest::Error, context: &str) -> CoreError {
+    let message = format!("{context}: {}", describe_http_error(error));
+    if is_retriable_http_error(error) {
+        CoreError::TransientLlm(message)
+    } else {
+        CoreError::Llm(message)
+    }
+}
+
+pub(crate) fn is_retriable_http_error(error: &reqwest::Error) -> bool {
+    let message = describe_http_error(error).to_ascii_lowercase();
+    error.is_timeout()
+        || error.is_connect()
+        || error.is_body()
+        || has_h2_reset(error)
+        || [
+            "connection",
+            "closed",
+            "reset",
+            "broken pipe",
+            "incomplete",
+            "unexpected eof",
+        ]
+        .iter()
+        .any(|fragment| message.contains(fragment))
+}
+
 fn is_h2_stream_reset(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
     normalized.contains("rst_stream")

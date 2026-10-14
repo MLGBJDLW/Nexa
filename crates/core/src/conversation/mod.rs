@@ -3579,6 +3579,30 @@ impl Database {
         Ok(results)
     }
 
+    /// Read only the recovery receipts, not each worker's potentially large
+    /// transcript. Parent model boundaries and checkpoints share this owner.
+    pub fn agent_subtask_action_reconciliations(
+        &self,
+        parent_run_id: &str,
+    ) -> Result<std::collections::BTreeMap<String, crate::error::AgentRecoveryRequirement>, CoreError>
+    {
+        let conn = self.conn();
+        let mut statement = conn.prepare(
+            "SELECT id, json_extract(output_json, '$.recoveryRequired')
+             FROM agent_subtask_runs WHERE parent_run_id=?1
+             AND json_extract(output_json, '$.recoveryRequired.actionReconciliation')=1",
+        )?;
+        let rows = statement.query_map([parent_run_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut requirements = std::collections::BTreeMap::new();
+        for row in rows {
+            let (id, value) = row?;
+            requirements.insert(id, serde_json::from_str(&value)?);
+        }
+        Ok(requirements)
+    }
+
     pub fn get_agent_execution_graph(
         &self,
         run_id: &str,
@@ -4280,6 +4304,15 @@ impl Database {
         invalidate_context_projection(&transaction, &conversation_id)?;
         transaction.commit()?;
         Ok(())
+    }
+
+    /// Current append position for a conversation's serialized message producer.
+    pub(crate) fn next_message_sort_order(&self, conversation_id: &str) -> Result<i64, CoreError> {
+        Ok(self.conn().query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM messages WHERE conversation_id = ?1",
+            [conversation_id],
+            |row| row.get(0),
+        )?)
     }
 
     /// Get all messages for a conversation, ordered by `sort_order` ASC.

@@ -9,8 +9,6 @@ use super::{
 };
 use crate::error::CoreError;
 
-const TERMINAL_SSE_TAIL_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
-
 enum SseChannel {
     Chunks(mpsc::Sender<Result<StreamChunk, CoreError>>),
     Events(mpsc::Sender<super::ProviderStreamEvent>),
@@ -901,6 +899,28 @@ async fn collect_or_dispatch_sse_line(
     Ok(false)
 }
 
+async fn process_complete_sse_tail(
+    event_data_lines: &mut Vec<String>,
+    tx: &mut SseOutput,
+    in_think_block: &mut bool,
+    think_tag_buffer: &mut String,
+    terminal_finish_seen: &mut bool,
+) -> Result<bool, CoreError> {
+    let pending = event_data_lines.join("\n");
+    if pending.trim() != "[DONE]" && serde_json::from_str::<SseChunk>(&pending).is_err() {
+        event_data_lines.clear();
+        return Ok(false);
+    }
+    process_sse_event_data_lines(
+        event_data_lines,
+        tx,
+        in_think_block,
+        think_tag_buffer,
+        terminal_finish_seen,
+    )
+    .await
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -980,10 +1000,19 @@ async fn parse_sse_with_output(
     let mut event_data_lines: Vec<String> = Vec::new();
     let mut first_chunk = true;
     let mut terminal_finish_seen = false;
+    let mut terminal_deadline = None;
+    let mut clean_eof = false;
 
     loop {
         let idle_timeout = if terminal_finish_seen {
-            stream_idle_timeout.min(TERMINAL_SSE_TAIL_GRACE)
+            let deadline = terminal_deadline.get_or_insert_with(|| {
+                tokio::time::Instant::now() + super::TERMINAL_STREAM_TAIL_GRACE
+            });
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            stream_idle_timeout.min(remaining)
         } else {
             stream_idle_timeout
         };
@@ -1007,6 +1036,7 @@ async fn parse_sse_with_output(
             }
             Err(error) => return Err(error),
         }) else {
+            clean_eof = true;
             break;
         };
         let chunk = match chunk_result {
@@ -1054,6 +1084,50 @@ async fn parse_sse_with_output(
                 return Ok(());
             }
         }
+    }
+
+    if terminal_finish_seen {
+        // A clean EOF may omit only the final SSE separator. Retain complete
+        // JSON (especially usage) while never parsing a damaged tail as a new
+        // sample or letting it invalidate the completed answer.
+        if clean_eof {
+            let trailing_line = std::str::from_utf8(&buffer)
+                .ok()
+                .map(|_| decode_sse_line(&buffer));
+            if let Some(data) = trailing_line
+                .as_deref()
+                .and_then(|line| line.strip_prefix("data:"))
+                .map(str::trim_start)
+            {
+                if !event_data_lines.is_empty()
+                    && (data.starts_with('{') || data == "[DONE]")
+                    && process_complete_sse_tail(
+                        &mut event_data_lines,
+                        tx,
+                        &mut in_think_block,
+                        &mut think_tag_buffer,
+                        &mut terminal_finish_seen,
+                    )
+                    .await?
+                {
+                    return Ok(());
+                }
+                event_data_lines.push(data.to_string());
+            }
+            if process_complete_sse_tail(
+                &mut event_data_lines,
+                tx,
+                &mut in_think_block,
+                &mut think_tag_buffer,
+                &mut terminal_finish_seen,
+            )
+            .await?
+            {
+                return Ok(());
+            }
+        }
+        buffer.clear();
+        event_data_lines.clear();
     }
 
     if !buffer.is_empty() {
@@ -1124,6 +1198,141 @@ async fn parse_sse_with_output(
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn terminal_answer_retains_complete_usage_at_clean_eof_without_separator() {
+        for ending in ["", "\n", "\ndata: [DONE]"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 2048];
+                socket.read(&mut request).await.unwrap();
+                socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"Finished\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12}}").await.unwrap();
+                socket.write_all(ending.as_bytes()).await.unwrap();
+            });
+            let response = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}"))
+                .send()
+                .await
+                .unwrap();
+            let (tx, mut rx) = mpsc::channel(16);
+            parse_sse_stream_with_idle_timeout(response, tx, std::time::Duration::from_secs(2))
+                .await
+                .unwrap();
+            server.await.unwrap();
+            let mut tokens = Vec::new();
+            let mut answer = String::new();
+            while let Some(chunk) = rx.recv().await {
+                let chunk = chunk.unwrap();
+                answer.push_str(&chunk.delta);
+                if let Some(usage) = chunk.usage {
+                    tokens.push(usage.total_tokens);
+                }
+            }
+            assert_eq!(answer, "Finished");
+            assert_eq!(tokens, vec![12], "clean EOF ending {ending:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_answer_survives_incomplete_usage_tail_at_timeout_and_eof() {
+        for tail_mode in 0..3 {
+            for tail in [b"data: {\"usage\":".as_slice(), b"data: {\"usage\":\n"] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 2048];
+                    socket.read(&mut request).await.unwrap();
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"Finished\"},\"finish_reason\":\"stop\"}]}\n\n").await.unwrap();
+                    socket.write_all(tail).await.unwrap();
+                    if tail_mode == 1 {
+                        std::future::pending::<()>().await;
+                    } else if tail_mode == 2 {
+                        loop {
+                            if socket.write_all(b" ").await.is_err() {
+                                break;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        }
+                    }
+                });
+                let response = reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let (tx, mut rx) = mpsc::channel(16);
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(4),
+                    parse_sse_stream_with_idle_timeout(
+                        response,
+                        tx,
+                        std::time::Duration::from_millis(50),
+                    ),
+                )
+                .await;
+                server.abort();
+                result
+                    .expect("a partial tail cannot extend the terminal deadline")
+                    .expect("an unfinished usage tail cannot invalidate a terminal answer");
+                let answer = rx.recv().await.unwrap().unwrap();
+                assert_eq!(answer.delta, "Finished");
+                assert_eq!(answer.finish_reason, Some(FinishReason::Stop));
+                while let Some(chunk) = rx.recv().await {
+                    chunk.expect("an incomplete tail must not emit a downstream protocol failure");
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_tail_heartbeats_cannot_delay_the_completed_answer() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 2048];
+            socket.read(&mut request).await.unwrap();
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"Finished\"},\"finish_reason\":\"stop\"}]}\n\n").await.unwrap();
+            socket.write_all(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12}}\n\n").await.unwrap();
+            loop {
+                if socket.write_all(b": keep-alive\n\n").await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        });
+        let response = reqwest::get(format!("http://{address}")).await.unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            parse_sse_stream_with_idle_timeout(response, tx, std::time::Duration::from_secs(10)),
+        )
+        .await;
+        server.abort();
+        result
+            .expect("heartbeats after finish must not keep the task running")
+            .unwrap();
+        let mut usage = None;
+        let mut answer = String::new();
+        while let Some(chunk) = rx.recv().await {
+            let chunk = chunk.unwrap();
+            answer.push_str(&chunk.delta);
+            if chunk.usage.is_some() {
+                usage = chunk.usage;
+            }
+        }
+        assert_eq!(answer, "Finished");
+        assert_eq!(usage.unwrap().total_tokens, 12);
+    }
 
     #[tokio::test]
     async fn ark_encrypted_only_frame_is_opaque_replay_after_a_complete_sse_sample() {

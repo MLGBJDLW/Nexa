@@ -635,9 +635,14 @@ impl AgentRunEvent {
                     crate::agent::ConnectionStateKind::Offline => {
                         ("Provider is offline", "offline")
                     }
-                    crate::agent::ConnectionStateKind::Failed => {
-                        ("Provider connection failed", "failed")
-                    }
+                    crate::agent::ConnectionStateKind::Failed => (
+                        if state.recoverable {
+                            "Provider connection interrupted; task can be resumed"
+                        } else {
+                            "Provider connection failed"
+                        },
+                        "failed",
+                    ),
                 };
                 (
                     AgentRunEventKind::RecoveryAttempt,

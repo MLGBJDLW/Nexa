@@ -55,7 +55,7 @@ export function applyConnectionStateEvent(
     appendStatusTraceEvent(
       state,
       label,
-      'error',
+      connectionState.recoverable ? 'muted' : 'error',
       'user',
       'recovery',
     );

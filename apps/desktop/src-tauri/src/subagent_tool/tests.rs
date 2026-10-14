@@ -750,7 +750,9 @@ async fn workflow_dependency_failure_is_published_after_parent_drops_the_join_ob
     let (release, released) = oneshot::channel();
     let worker = tokio::spawn(async move {
         released.await.unwrap();
-        panic!("fixture worker panic after parent release");
+        // Exercise JoinError::is_panic without spending the fixture's liveness
+        // window formatting an expected Windows backtrace in the panic hook.
+        std::panic::resume_unwind(Box::new("fixture worker panic after parent release"));
     });
     let monitor = BatchWorkerSettlement {
         runtime: runtime.clone(),
@@ -1174,6 +1176,77 @@ fn register_test_worker(
             activity_runtime: nexa_core::activity::ActivityRuntime::new(),
         })
         .unwrap()
+}
+
+#[tokio::test]
+async fn delegated_recovery_requirement_survives_lifecycle_wait_observe_and_batch_results() {
+    let runtime = test_runtime();
+    let registration = register_test_worker(&runtime, "uncertain-worker");
+    registration.events.start().await.unwrap();
+    let error = CoreError::RecoveryRequired {
+        message: "Provider stopped after a hosted action".into(),
+        action_reconciliation: true,
+    };
+    settle_worker_lifecycle(
+        &runtime.lifecycle,
+        &registration.agent_id,
+        &registration.cancel_token,
+        Err(&error),
+    )
+    .await
+    .unwrap();
+    let snapshot = runtime.lifecycle.snapshot(&registration.agent_id).unwrap();
+    assert_eq!(snapshot.status, SubagentLifecycleStatus::Failed);
+    assert_eq!(
+        snapshot.result.as_ref().unwrap()["recoveryRequired"]["actionReconciliation"],
+        true
+    );
+    let db = Database::open_memory().unwrap();
+    let arguments = serde_json::json!({"agentId":registration.agent_id,"waitMs":0}).to_string();
+    for action in [
+        SubagentLifecycleAction::Observe,
+        SubagentLifecycleAction::Wait,
+    ] {
+        let tool = SubagentLifecycleTool {
+            runtime: runtime.clone(),
+            action,
+        };
+        let result = tool
+            .execute(nexa_core::tools::ToolExecutionContext::new(
+                "inspect-worker",
+                &arguments,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(result
+            .content
+            .to_ascii_lowercase()
+            .contains("reconciliation"));
+        assert!(result
+            .artifacts
+            .unwrap()
+            .to_string()
+            .contains("actionReconciliation"));
+    }
+    let run = failed_subagent_run_artifact(
+        "uncertain-worker".into(),
+        serde_json::from_value(serde_json::json!({"task":"Inspect"})).unwrap(),
+        None,
+        &error,
+    );
+    runtime.register_batch("uncertain-batch", 1);
+    runtime.record_batch_result("uncertain-batch", 0, run);
+    let snapshot = runtime.batch_snapshot("uncertain-batch", None).unwrap();
+    assert!(
+        snapshot.runs[0]
+            .recovery_required
+            .as_ref()
+            .unwrap()
+            .action_reconciliation
+    );
+    assert!(snapshot.runs[0].is_error);
 }
 
 #[tokio::test]

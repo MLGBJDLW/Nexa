@@ -1646,20 +1646,40 @@ async fn parse_gemini_hop(
     let mut event_data_lines: Vec<String> = Vec::new();
     tool_call_state.continuation_token = None;
     let mut saw_finish_reason = false;
+    let mut terminal_deadline = None;
+    let mut clean_eof = false;
 
-    'stream: while let Some(chunk_result) = next_stream_item_with_idle_timeout(
-        &mut byte_stream,
-        stream_idle_timeout,
-        "Gemini SSE stream",
-    )
-    .await?
-    {
-        let chunk = chunk_result.map_err(|e| {
-            CoreError::TransientLlm(format!(
-                "Stream read error: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
+    'stream: loop {
+        let idle_timeout = if saw_finish_reason {
+            let deadline = terminal_deadline.get_or_insert_with(|| {
+                tokio::time::Instant::now() + super::TERMINAL_STREAM_TAIL_GRACE
+            });
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            stream_idle_timeout.min(remaining)
+        } else {
+            stream_idle_timeout
+        };
+        let next =
+            next_stream_item_with_idle_timeout(&mut byte_stream, idle_timeout, "Gemini SSE stream")
+                .await;
+        let chunk = match next {
+            Ok(Some(Ok(chunk))) => chunk,
+            Ok(None) => {
+                clean_eof = true;
+                break;
+            }
+            Ok(Some(Err(_))) | Err(_) if saw_finish_reason => break,
+            Ok(Some(Err(error))) => {
+                return Err(CoreError::TransientLlm(format!(
+                    "Stream read error: {}",
+                    super::transport::describe_http_error(&error)
+                )))
+            }
+            Err(error) => return Err(error),
+        };
         push_utf8_stream_chunk(&mut buffer, &mut pending_utf8, &chunk)?;
 
         // Process complete lines.
@@ -1691,6 +1711,43 @@ async fn parse_gemini_hop(
                 event_data_lines.push(data.to_string());
             }
         }
+    }
+
+    if clean_eof && pending_utf8.is_empty() {
+        if let Some(data) = buffer.trim_end_matches('\r').strip_prefix("data:") {
+            // Compatible servers may omit the separator before the final
+            // usage event or sentinel, as well as its last newline.
+            if saw_finish_reason {
+                if let Ok(response) =
+                    serde_json::from_str::<GeminiResponse>(&event_data_lines.join("\n"))
+                {
+                    emit_gemini_response_chunk(
+                        response,
+                        &tx,
+                        tool_call_state,
+                        &mut saw_finish_reason,
+                    )
+                    .await?;
+                    event_data_lines.clear();
+                }
+            }
+            event_data_lines.push(data.trim_start().to_string());
+        }
+    }
+    if saw_finish_reason {
+        // At clean EOF, a complete usage event still counts without the last
+        // SSE separator. Broken JSON/UTF-8 and interrupted transport tails
+        // cannot invalidate the committed response/hop.
+        if clean_eof {
+            if let Ok(response) =
+                serde_json::from_str::<GeminiResponse>(&event_data_lines.join("\n"))
+            {
+                emit_gemini_response_chunk(response, &tx, tool_call_state, &mut saw_finish_reason)
+                    .await?;
+            }
+        }
+        pending_utf8.clear();
+        event_data_lines.clear();
     }
 
     if !pending_utf8.is_empty() {
@@ -1813,6 +1870,10 @@ fn with_google_api_key(request: reqwest::RequestBuilder, api_key: &str) -> reqwe
 
 #[async_trait]
 impl LlmProvider for GeminiProvider {
+    fn manages_request_timeout(&self) -> bool {
+        true
+    }
+
     fn supports_document_input(
         &self,
         request: &CompletionRequest,
@@ -1983,19 +2044,18 @@ impl LlmProvider for GeminiProvider {
                 with_google_api_key(transport.client().post(&url), api_key)
                     .header("Content-Type", "application/json")
                     .body(body_bytes),
-                self.request_timeout,
+                super::request_timeout::for_model(
+                    &self.config,
+                    &request.model,
+                    DEFAULT_TIMEOUT_SECS,
+                ),
             )
             .send()
             .await
             .inspect_err(|error| {
                 transport.record_transport_failure(error);
             })
-            .map_err(|e| {
-                CoreError::Llm(format!(
-                    "Request failed: {}",
-                    super::transport::describe_http_error(&e)
-                ))
-            })?;
+            .map_err(|e| super::transport::classify_http_error(&e, "Request failed"))?;
 
             let status = response.status().as_u16();
             let response = match self.check_response(response).await {
@@ -2025,10 +2085,7 @@ impl LlmProvider for GeminiProvider {
                     transport.record_transport_failure(error);
                 })
                 .map_err(|e| {
-                    CoreError::Llm(format!(
-                        "Failed to parse response: {}",
-                        super::transport::describe_http_error(&e)
-                    ))
+                    super::transport::classify_http_error(&e, "Failed to parse response")
                 })?;
             transport.record_transport_success();
 
@@ -2113,7 +2170,7 @@ impl LlmProvider for GeminiProvider {
             with_google_api_key(transport.client().post(&url), api_key)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Gemini stream request",
         )
         .await
@@ -2142,7 +2199,12 @@ impl LlmProvider for GeminiProvider {
         let (tx, rx) = mpsc::channel(64);
         info!("Gemini SSE stream started");
 
-        let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
+        let stream_idle_timeout = self
+            .config
+            .streaming
+            .stream_idle_timeout_for_model(&request.model);
+        let request_timeout =
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS);
         let provider = self.clone();
         let api_key = api_key.to_string();
         // streamGenerateContent supports 65,536-token hops, unlike the direct
@@ -2179,7 +2241,7 @@ impl LlmProvider for GeminiProvider {
                                 &continuation_body,
                                 "Gemini continuation",
                             )?),
-                        provider.request_timeout,
+                        request_timeout,
                         "Gemini continuation",
                     )
                     .await?;
@@ -2221,6 +2283,233 @@ impl LlmProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn argon_http_startup_uses_model_default_and_preserves_explicit_timeouts() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for streaming in [false, true] {
+            for timeout_secs in [None, Some(0), Some(300), Some(1200)] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let (accepted, ready) = tokio::sync::oneshot::channel();
+                let (release, wait) = tokio::sync::oneshot::channel();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 8192];
+                    socket.read(&mut request).await.unwrap();
+                    accepted.send(()).unwrap();
+                    if wait.await.is_err() {
+                        return;
+                    }
+                    let json = r#"{"candidates":[{"content":{"parts":[{"text":"Ready"}]},"finishReason":"STOP"}]}"#;
+                    let body = if streaming {
+                        format!("data: {json}\n\n")
+                    } else {
+                        json.into()
+                    };
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                });
+                let provider = GeminiProvider::new(ProviderConfig {
+                    provider_type: ProviderType::Google,
+                    base_url: Some(format!("http://{address}")),
+                    api_key: Some("fixture".into()),
+                    org_id: None,
+                    timeout_secs,
+                    streaming: Default::default(),
+                })
+                .unwrap();
+                let request = CompletionRequest {
+                    model: "gemini-4-argon".into(),
+                    messages: vec![Message::text(Role::User, "Think")],
+                    ..Default::default()
+                };
+                let call = tokio::spawn(async move {
+                    if streaming {
+                        provider.stream_events(&request).await.map(|_| ())
+                    } else {
+                        provider.complete(&request).await.map(|_| ())
+                    }
+                });
+                ready.await.unwrap();
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(600)).await;
+                for _ in 0..5 {
+                    tokio::task::yield_now().await;
+                }
+                if timeout_secs == Some(300) {
+                    assert!(
+                        call.is_finished(),
+                        "explicit deadline must remain authoritative"
+                    );
+                    assert!(matches!(
+                        call.await.unwrap(),
+                        Err(CoreError::TransientLlm(_))
+                    ));
+                    drop(release);
+                } else {
+                    assert!(
+                        !call.is_finished(),
+                        "{streaming}/{timeout_secs:?} timed out before Argon headers"
+                    );
+                    tokio::time::resume();
+                    release.send(()).unwrap();
+                    call.await.unwrap().unwrap();
+                    server.await.unwrap();
+                    continue;
+                }
+                tokio::time::resume();
+                server.await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_gemini_hop_retains_complete_usage_at_clean_eof() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for continuation in [false, true] {
+            for ending in ["", "\n", "\ndata: [DONE]"] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 2048];
+                    socket.read(&mut request).await.unwrap();
+                    let candidate = if continuation {
+                        serde_json::json!({"content":{"parts":[{"text":"Reasoning","thought":true}]},"finishReason":"CONTINUATION","continuationToken":"saved-hop"})
+                    } else {
+                        serde_json::json!({"content":{"parts":[{"text":"Finished"}]},"finishReason":"STOP"})
+                    };
+                    let body = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {}\n\ndata: {{\"usageMetadata\":{{\"promptTokenCount\":10,\"candidatesTokenCount\":2,\"totalTokenCount\":12}}}}{ending}", serde_json::json!({"candidates":[candidate]}));
+                    socket.write_all(body.as_bytes()).await.unwrap();
+                });
+                let response = reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let (tx, mut rx) = mpsc::channel(16);
+                let mut state = GeminiToolCallStreamState::default();
+                let token = parse_gemini_hop(response, tx, Duration::from_secs(2), &mut state)
+                    .await
+                    .unwrap();
+                server.await.unwrap();
+                assert_eq!(token.as_deref(), continuation.then_some("saved-hop"));
+                let mut tokens = Vec::new();
+                while let Some(chunk) = rx.recv().await {
+                    if let Some(usage) = chunk.unwrap().usage {
+                        tokens.push(usage.total_tokens);
+                    }
+                }
+                assert_eq!(
+                    tokens,
+                    vec![12],
+                    "continuation={continuation}, ending={ending:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_gemini_response_discards_partial_json_and_utf8_tail() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for mode in 0..3 {
+            for tail in [b"data: {\"usageMetadata\":\n".as_slice(), b"\xe4"] {
+                if mode == 2 && tail == b"\xe4" {
+                    continue;
+                }
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 2048];
+                    socket.read(&mut request).await.unwrap();
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Finished\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":2,\"totalTokenCount\":6}}\n\n").await.unwrap();
+                    socket.write_all(tail).await.unwrap();
+                    if mode == 1 {
+                        std::future::pending::<()>().await;
+                    }
+                    if mode == 2 {
+                        loop {
+                            if socket.write_all(b" ").await.is_err() {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                        }
+                    }
+                });
+                let response = reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{address}"))
+                    .send()
+                    .await
+                    .unwrap();
+                let (tx, mut rx) = mpsc::channel(16);
+                let result = tokio::time::timeout(
+                    Duration::from_secs(4),
+                    parse_gemini_hop(
+                        response,
+                        tx,
+                        Duration::from_millis(50),
+                        &mut GeminiToolCallStreamState::default(),
+                    ),
+                )
+                .await;
+                server.abort();
+                assert!(result
+                    .expect("tail cannot extend completion")
+                    .expect("partial tail cannot invalidate completion")
+                    .is_none());
+                let mut answer = String::new();
+                let mut tokens = 0;
+                while let Some(chunk) = rx.recv().await {
+                    let chunk = chunk.unwrap();
+                    answer.push_str(&chunk.delta);
+                    if let Some(usage) = chunk.usage {
+                        tokens = usage.total_tokens;
+                    }
+                }
+                assert_eq!(answer, "Finished");
+                assert_eq!(tokens, 6);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_gemini_response_survives_missing_transport_tail() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 2048];
+            socket.read(&mut request).await.unwrap();
+            let body = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Already finished\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":4,\"candidatesTokenCount\":2,\"totalTokenCount\":6}}\n\n";
+            // A proxy closes without delivering its promised transport tail,
+            // after Gemini has already committed its complete response.
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n{body}", body.len() + 100).as_bytes()).await.unwrap();
+        });
+        let response = reqwest::get(format!("http://{address}")).await.unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let result = parse_gemini_hop(
+            response,
+            tx,
+            Duration::from_secs(1),
+            &mut GeminiToolCallStreamState::default(),
+        )
+        .await;
+        server.await.unwrap();
+        result.expect("semantic completion must survive a broken HTTP tail");
+        let mut answer = String::new();
+        while let Some(chunk) = rx.recv().await {
+            answer.push_str(&chunk.unwrap().delta);
+        }
+        assert_eq!(answer, "Already finished");
+    }
 
     #[tokio::test]
     async fn argon_continuation_keeps_original_request_and_counts_each_hop_once() {

@@ -301,7 +301,7 @@ async fn run_initialized(
             let _ = reports
                 .close_pending(&turn.events, turn.cancellation.is_cancelled())
                 .await;
-            output.persist_partial(&turn).await?;
+            output.persist_partial(&turn, &cause).await?;
             Err(cause)
         }
     }
@@ -759,6 +759,35 @@ async fn drive(
             return Err(error("Uncorrelated ACP response"));
         }
         let completed = wire.rpc_result(message, "session/prompt")?;
+        if let Some(usage) = session.usage.observe(provider, &completed) {
+            output.usage.prompt_tokens = output
+                .usage
+                .prompt_tokens
+                .saturating_add(usage.prompt_tokens);
+            output.usage.completion_tokens = output
+                .usage
+                .completion_tokens
+                .saturating_add(usage.completion_tokens);
+            output.usage.total_tokens =
+                output.usage.total_tokens.saturating_add(usage.total_tokens);
+            for (target, delta) in [
+                (&mut output.usage.thinking_tokens, usage.thinking_tokens),
+                (&mut output.usage.cache_read_tokens, usage.cache_read_tokens),
+                (
+                    &mut output.usage.cache_creation_tokens,
+                    usage.cache_creation_tokens,
+                ),
+            ] {
+                if let Some(delta) = delta {
+                    *target = Some(target.unwrap_or(0).saturating_add(delta));
+                }
+            }
+            output.usage_reported = true;
+            if usage.provider_raw.is_some() {
+                output.usage.provider_raw = usage.provider_raw;
+            }
+            output.publish_usage(&turn.events).await?;
+        }
         if !pending_services.is_empty() {
             return Err(error(
                 "External agent completed with pending client service requests",

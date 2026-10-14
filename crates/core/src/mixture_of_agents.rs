@@ -517,6 +517,12 @@ impl MoaProvider {
 
 #[async_trait]
 impl LlmProvider for MoaProvider {
+    fn manages_request_timeout(&self) -> bool {
+        // Advisor policy and the aggregator's configured transport own their
+        // deadlines; neither is capped by a second whole-fanout timer.
+        true
+    }
+
     fn name(&self) -> &str {
         "Mixture of Agents"
     }

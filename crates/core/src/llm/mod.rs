@@ -25,6 +25,7 @@ pub(crate) mod provider_boundary;
 pub mod provider_turn;
 pub mod reasoning_profile;
 pub mod reasoning_replay;
+pub(crate) mod request_timeout;
 pub use message::{Message, MessageData};
 #[cfg(test)]
 mod message_snapshot_tests;
@@ -671,6 +672,17 @@ pub struct ProviderStreamingConfig {
 }
 
 impl ProviderStreamingConfig {
+    pub fn stream_idle_timeout_for_model(self, model: &str) -> std::time::Duration {
+        // Argon's complex requests may legitimately be quiet for fifteen
+        // minutes. An explicit user timeout remains authoritative, including
+        // on compatible endpoints routing the same model family.
+        if self.stream_idle_timeout_ms.is_none() && model.to_ascii_lowercase().contains("gemini-4")
+        {
+            std::time::Duration::from_secs(900)
+        } else {
+            self.stream_idle_timeout()
+        }
+    }
     pub fn stream_idle_timeout(self) -> std::time::Duration {
         std::time::Duration::from_millis(
             self.stream_idle_timeout_ms
@@ -718,6 +730,9 @@ pub(crate) fn configured_request_timeout(timeout_secs: u64) -> Option<std::time:
 pub(crate) const DEFAULT_STREAM_IDLE_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(300);
 
+pub(crate) const TERMINAL_STREAM_TAIL_GRACE: std::time::Duration =
+    std::time::Duration::from_secs(2);
+
 pub(crate) fn with_request_timeout(
     builder: reqwest::RequestBuilder,
     timeout: Option<std::time::Duration>,
@@ -761,7 +776,7 @@ pub(crate) async fn send_stream_start_request(
 
     result.map_err(|e| {
         let message = format!("{context} failed: {}", transport::describe_http_error(&e));
-        if e.is_connect() || e.is_timeout() {
+        if transport::is_retriable_http_error(&e) {
             CoreError::TransientLlm(message)
         } else {
             CoreError::Llm(message)
@@ -839,6 +854,13 @@ pub trait LlmProvider: Send + Sync {
     /// replay-safe disconnect recovery. `None` keeps the runtime defaults.
     fn stream_max_retries(&self) -> Option<u32> {
         None
+    }
+
+    /// Whether this adapter already owns request/startup deadlines, including
+    /// an explicitly disabled timeout. The model loop must not impose a
+    /// second, shorter deadline over configured endpoints or route sequences.
+    fn manages_request_timeout(&self) -> bool {
+        false
     }
 
     /// Resolved cache capability for this concrete provider endpoint. Agent
@@ -993,6 +1015,10 @@ impl MessageValidatingProvider {
 
 #[async_trait]
 impl LlmProvider for MessageValidatingProvider {
+    fn manages_request_timeout(&self) -> bool {
+        self.inner.manages_request_timeout()
+    }
+
     fn name(&self) -> &str {
         self.inner.name()
     }
@@ -1212,6 +1238,95 @@ pub fn model_declares_vision_support(provider_type: &ProviderType, model: &str) 
 mod tests {
     use super::*;
     use futures::{stream, StreamExt};
+
+    #[test]
+    fn configured_http_deadlines_survive_the_message_validation_adapter() {
+        for provider_type in [
+            ProviderType::OpenAi,
+            ProviderType::Anthropic,
+            ProviderType::Google,
+            ProviderType::Ollama,
+            ProviderType::Custom,
+        ] {
+            for timeout_secs in [0, 1200] {
+                let provider = create_provider(ProviderConfig {
+                    provider_type,
+                    base_url: Some("http://127.0.0.1:12345".into()),
+                    api_key: Some("fixture".into()),
+                    org_id: None,
+                    timeout_secs: Some(timeout_secs),
+                    streaming: Default::default(),
+                })
+                .unwrap();
+                assert!(
+                    provider.manages_request_timeout(),
+                    "{provider_type:?}/{timeout_secs}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn native_completion_transport_failures_stay_recoverable_but_invalid_json_does_not() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for provider_type in [
+            ProviderType::OpenAi,
+            ProviderType::Anthropic,
+            ProviderType::Google,
+            ProviderType::Ollama,
+        ] {
+            for failure in ["headers", "body", "timeout", "json"] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 8192];
+                    socket.read(&mut request).await.unwrap();
+                    match failure {
+                        "headers" => {}
+                        "timeout" => std::future::pending::<()>().await,
+                        "body" => socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 999\r\nConnection: close\r\n\r\n{\"id\":\"fixture\"}").await.unwrap(),
+                        "json" => socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1\r\nConnection: close\r\n\r\n{").await.unwrap(),
+                        _ => unreachable!(),
+                    }
+                });
+                let provider = create_provider(ProviderConfig {
+                    provider_type,
+                    base_url: Some(format!("http://{address}")),
+                    api_key: Some("fixture".into()),
+                    org_id: None,
+                    timeout_secs: Some(1),
+                    streaming: Default::default(),
+                })
+                .unwrap();
+                let request = CompletionRequest {
+                    model: "fixture-model".into(),
+                    provider_type: Some(provider_type),
+                    messages: vec![Message::text(Role::User, "Reply briefly")],
+                    ..Default::default()
+                };
+                let error = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    provider.complete(&request),
+                )
+                .await
+                .unwrap()
+                .unwrap_err();
+                server.abort();
+                if failure == "json" {
+                    assert!(
+                        matches!(error, CoreError::Llm(_)),
+                        "{provider_type:?}/{failure}: {error}"
+                    );
+                } else {
+                    assert!(
+                        matches!(error, CoreError::TransientLlm(_)),
+                        "{provider_type:?}/{failure}: {error}"
+                    );
+                }
+            }
+        }
+    }
 
     struct NoRetiredRequests;
     #[async_trait]
@@ -1556,6 +1671,52 @@ mod tests {
             Err(CoreError::TransientLlm(message))
                 if message.contains("test stream") && message.contains("idle")
         ));
+    }
+
+    #[test]
+    fn argon_silence_budget_preserves_explicit_provider_overrides() {
+        let default = ProviderStreamingConfig::default();
+        assert_eq!(
+            default.stream_idle_timeout_for_model("google/gemini-4-argon"),
+            std::time::Duration::from_secs(900)
+        );
+        assert_eq!(
+            default.stream_idle_timeout_for_model("deepseek-v4-pro"),
+            std::time::Duration::from_secs(300)
+        );
+        let explicit = ProviderStreamingConfig {
+            stream_idle_timeout_ms: Some(60_000),
+            ..Default::default()
+        };
+        assert_eq!(
+            explicit.stream_idle_timeout_for_model("gemini-4-argon"),
+            std::time::Duration::from_secs(60)
+        );
+    }
+
+    #[tokio::test]
+    async fn response_header_disconnects_are_retried_by_every_native_adapter() {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 2048];
+            socket.read(&mut bytes).await.unwrap();
+        });
+        let error = send_stream_start_request(
+            reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .post(format!("http://{address}")),
+            Some(std::time::Duration::from_secs(2)),
+            "fixture",
+        )
+        .await
+        .unwrap_err();
+        server.await.unwrap();
+        assert!(matches!(error, CoreError::TransientLlm(_)));
     }
 
     #[tokio::test]

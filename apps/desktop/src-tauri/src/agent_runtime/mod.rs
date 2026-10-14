@@ -10,6 +10,7 @@ mod projection;
 #[cfg(test)]
 mod tests;
 mod transcript;
+mod usage_accounting;
 
 use crate::desktop_agent_session::DesktopAgentSessionDependencies;
 use nexa_core::agent::{
@@ -31,6 +32,13 @@ pub enum AgentRuntimeKind {
 }
 
 impl AgentRuntimeKind {
+    fn provider(self) -> &'static str {
+        match self {
+            Self::Copilot => "github_copilot",
+            Self::Codex => "openai_codex",
+            Self::Acp(provider) => provider,
+        }
+    }
     pub(crate) fn from_provider(provider: &str) -> Option<Self> {
         match provider {
             "github_copilot" => Some(Self::Copilot),
@@ -82,11 +90,21 @@ struct PreparedTurn {
     approval: ApprovalCallback,
     permission_scope: String,
     files: acp::client::FileContext,
+    usage_accounting: Arc<std::sync::Mutex<usage_accounting::RuntimeUsageAccounting>>,
 }
 
 impl AgentRuntimeTurnRequest {
     fn prepare(self, native_vision: bool) -> Result<PreparedTurn, CoreError> {
         let privacy_lease = self.db.privacy_lease(&self.cancellation)?;
+        let usage_accounting = Arc::new(std::sync::Mutex::new(
+            usage_accounting::RuntimeUsageAccounting::new(
+                self.db.clone(),
+                self.conversation_id.clone(),
+                self.turn_id.clone(),
+                self.kind.provider(),
+                self.cancellation.clone(),
+            )?,
+        ));
         let workspace = self.dependencies.tools.workspace().cloned();
         let permission_scope = self
             .external
@@ -226,6 +244,7 @@ impl AgentRuntimeTurnRequest {
             system_prompt.push_str(section);
         }
         Ok(PreparedTurn {
+            usage_accounting,
             runtime: self.kind,
             transcript,
             config: self.config,
@@ -254,7 +273,7 @@ fn redact_user_text(text: &str, privacy: &nexa_core::privacy::PrivacyConfig) -> 
 
 pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
     let lease = request.db.privacy_lease(&request.cancellation)?;
-    tokio::select! {
+    let result = tokio::select! {
         biased;
         _ = lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed; start a new turn".into())),
         result = async {
@@ -264,7 +283,37 @@ pub(crate) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 AgentRuntimeKind::Acp(provider) => acp::run(provider, request).await,
             }
         } => result,
+    };
+    result.map_err(recover_interrupted_runtime)
+}
+
+fn recover_interrupted_runtime(error: CoreError) -> CoreError {
+    match error {
+        CoreError::StreamIncomplete(message) | CoreError::TransientLlm(message) => {
+            CoreError::RecoveryRequired {
+                message: nexa_core::external_agent::launch::redact_diagnostic(&message, &[]),
+                // External loops may have launched native tools before delivery
+                // stopped. Resume from durable evidence, never replay their prompt.
+                action_reconciliation: true,
+            }
+        }
+        error => error,
     }
+}
+
+async fn write_runtime_message(
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+    bytes: &[u8],
+    timeout: std::time::Duration,
+    runtime: &str,
+) -> Result<(), CoreError> {
+    use tokio::io::AsyncWriteExt;
+    // A partial write may follow completed native tool effects. Preserve the
+    // checkpoint boundary and never retry the message on an uncertain stream.
+    tokio::time::timeout(timeout, writer.write_all(bytes))
+        .await
+        .map_err(|_| CoreError::StreamIncomplete(format!("{runtime} write timed out")))?
+        .map_err(|error| CoreError::StreamIncomplete(format!("{runtime} write failed: {error}")))
 }
 
 fn protocol_error(error: impl std::fmt::Display) -> CoreError {

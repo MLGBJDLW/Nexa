@@ -18,6 +18,9 @@ pub(super) struct Projection {
     pub(super) answer: String,
     answer_block_ids: Vec<String>,
     pub(super) usage: Usage,
+    pub(super) usage_reported: bool,
+    usage_accounting:
+        Option<std::sync::Arc<std::sync::Mutex<super::usage_accounting::RuntimeUsageAccounting>>>,
     pub(super) last_prompt_tokens: u32,
     pub(super) context_breakdown: Option<nexa_core::agent::context::ContextUsageBreakdown>,
     pub(super) native_final_fallback: Option<nexa_core::agent::PersistedAssistantMessage>,
@@ -139,12 +142,9 @@ impl Projection {
         }
     }
     pub(super) fn for_turn(turn: &PreparedTurn) -> Self {
-        let provider = match turn.runtime {
-            super::AgentRuntimeKind::Copilot => "github_copilot",
-            super::AgentRuntimeKind::Codex => "openai_codex",
-            super::AgentRuntimeKind::Acp(provider) => provider,
-        };
+        let provider = turn.runtime.provider();
         Self {
+            usage_accounting: Some(turn.usage_accounting.clone()),
             runtime_identity: Some((
                 provider.into(),
                 turn.config.model.clone().unwrap_or_default(),
@@ -205,6 +205,27 @@ impl Projection {
         &self,
         tx: &mpsc::Sender<AgentEvent>,
     ) -> Result<(), CoreError> {
+        self.publish_usage_for_model(tx, None).await
+    }
+
+    pub(super) async fn publish_usage_for_model(
+        &self,
+        tx: &mpsc::Sender<AgentEvent>,
+        reported_model: Option<&str>,
+    ) -> Result<(), CoreError> {
+        if self.usage_reported {
+            if let (Some(accounting), Some((_, model))) =
+                (&self.usage_accounting, &self.runtime_identity)
+            {
+                if let Err(error) = accounting
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .observe(reported_model.unwrap_or(model), &self.usage)
+                {
+                    log::warn!("Failed to persist external runtime usage: {error}");
+                }
+            }
+        }
         tx.send(AgentEvent::UsageUpdate {
             usage_total: self.usage.clone(),
             last_prompt_tokens: self.last_prompt_tokens,
@@ -507,7 +528,18 @@ impl Projection {
         Ok(())
     }
 
-    pub(super) async fn persist_partial(&mut self, turn: &PreparedTurn) -> Result<(), CoreError> {
+    pub(super) async fn persist_partial(
+        &mut self,
+        turn: &PreparedTurn,
+        cause: &CoreError,
+    ) -> Result<(), CoreError> {
+        // Native runtimes cancel child work during error cleanup too. Only
+        // the actual turn outcome distinguishes user cancellation from failure.
+        self.finish_usage(if matches!(cause, CoreError::Cancelled(_)) {
+            "cancelled"
+        } else {
+            "error"
+        });
         turn.privacy_lease.ensure_current()?;
         self.flush_async_messages(turn).await?;
         let text = self
@@ -524,11 +556,40 @@ impl Projection {
         Ok(())
     }
 
+    fn finish_usage(&self, status: &str) {
+        if let (Some(accounting), Some((_, model))) =
+            (&self.usage_accounting, &self.runtime_identity)
+        {
+            let mut accounting = accounting.lock().unwrap_or_else(|e| e.into_inner());
+            let result = if self.usage_reported {
+                accounting.observe(model, &self.usage)
+            } else {
+                Ok(())
+            }
+            .and_then(|_| accounting.finish(model, status));
+            if let Err(error) = result {
+                log::warn!("Failed to finalize external runtime usage: {error}");
+            }
+        }
+    }
+
     pub(super) async fn finish(
         mut self,
         turn: &PreparedTurn,
     ) -> Result<nexa_core::llm::Message, CoreError> {
+        let result = self.finish_current(turn).await;
+        if let Err(error) = &result {
+            self.persist_partial(turn, error).await?;
+        }
+        result
+    }
+
+    async fn finish_current(
+        &mut self,
+        turn: &PreparedTurn,
+    ) -> Result<nexa_core::llm::Message, CoreError> {
         turn.privacy_lease.ensure_current()?;
+        turn.transcript.ensure_delegated_recovery_clear()?;
         let saved = self.persist_completed_answer(turn).await?;
         let (message, assistant_message_id) = match saved.or_else(|| {
             if self.completed_command {
@@ -542,14 +603,19 @@ impl Projection {
                 nexa_core::llm::Message::text(nexa_core::llm::Role::Assistant, ""),
                 None,
             ),
-            None => return Err(protocol_error("upstream completed without a final answer")),
+            None => {
+                self.finish_usage("error");
+                return Err(protocol_error("upstream completed without a final answer"));
+            }
         };
+        turn.transcript.ensure_delegated_recovery_clear()?;
+        self.finish_usage("success");
         let context_breakdown = self.context_for_publication();
         turn.events
             .send(AgentEvent::Done {
                 message: message.clone(),
                 last_prompt_tokens: self.last_prompt_tokens,
-                usage_total: self.usage,
+                usage_total: self.usage.clone(),
                 context_breakdown,
                 assistant_message_id,
                 cached: false,
@@ -564,6 +630,80 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn delegated_recovery_prevents_external_finalization_and_retains_usage() {
+        for kind in [
+            super::super::AgentRuntimeKind::Codex,
+            super::super::AgentRuntimeKind::Copilot,
+        ] {
+            for completed_command in [false, true] {
+                let (request, mut rx, _, _) = super::super::tests::fixture(kind, "test");
+                let db = request.db.clone();
+                let conversation = request.conversation_id.clone();
+                let saved_turn = db.get_conversation_turn(&request.turn_id).unwrap();
+                let run = db
+                    .create_agent_task_run(
+                        &conversation,
+                        &request.turn_id,
+                        &saved_turn.user_message_id,
+                        "Delegated recovery fixture",
+                        Some(kind.provider()),
+                        Some("test"),
+                    )
+                    .unwrap();
+                let turn = request.prepare(false).unwrap();
+                let mut projection = Projection::for_turn(&turn);
+                projection.usage = Usage {
+                    prompt_tokens: 10,
+                    completion_tokens: 2,
+                    total_tokens: 12,
+                    ..Default::default()
+                };
+                projection.usage_reported = true;
+                projection.completed_command = completed_command;
+                if !completed_command {
+                    projection
+                        .complete(&turn.events, "answer", "Retained partial reply")
+                        .await
+                        .unwrap();
+                }
+                let worker = db
+                    .create_agent_subtask_run(&run.id, "worker", "worker", None, None)
+                    .unwrap();
+                db.finish_agent_subtask_run(&worker.id, "failed", Some(&serde_json::json!({
+                    "recoveryRequired": {"actionReconciliation": true, "message": "Hosted action outcome is uncertain"}
+                })), None).unwrap();
+                assert!(matches!(
+                    projection.finish(&turn).await,
+                    Err(CoreError::RecoveryRequired {
+                        action_reconciliation: true,
+                        ..
+                    })
+                ));
+                assert_eq!(
+                    db.get_usage_analytics(
+                        &nexa_core::usage_analytics::UsageAnalyticsFilter::default()
+                    )
+                    .unwrap()
+                    .totals
+                    .total_tokens,
+                    12
+                );
+                let history = db.get_messages(&conversation).unwrap();
+                assert!(history.iter().all(|message| message
+                    .artifacts
+                    .as_ref()
+                    .is_none_or(|value| value["phase"] != "final_answer")));
+                if !completed_command {
+                    assert_eq!(history.last().unwrap().content, "Retained partial reply");
+                }
+                while let Ok(event) = rx.try_recv() {
+                    assert!(!matches!(event, AgentEvent::Done { .. }));
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     async fn compaction_identity_is_independent_of_answer_and_parallel_compactions() {
         let (tx, mut rx) = mpsc::channel(16);
@@ -645,7 +785,13 @@ mod tests {
             )
             .await
             .unwrap();
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         let history = db.get_messages(&conversation).unwrap();
         assert_eq!(
             history[1..]
@@ -685,7 +831,13 @@ mod tests {
             .discard_answer_blocks(&turn.events, vec!["a".into(), "b".into()])
             .await
             .is_err());
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         assert_eq!(db.get_messages(&conversation).unwrap().len(), 1);
         assert_eq!(projection.draft_bytes, 0);
     }
@@ -780,7 +932,13 @@ mod tests {
             projection.answer.is_empty(),
             "there was no full-message event"
         );
-        projection.persist_partial(&turn).await.unwrap();
+        projection
+            .persist_partial(
+                &turn,
+                &nexa_core::error::CoreError::StreamIncomplete("fixture interruption".into()),
+            )
+            .await
+            .unwrap();
         assert_eq!(
             db.get_messages(&conversation)
                 .unwrap()

@@ -50,3 +50,24 @@ test('confirmed route removals remain tombstones while future retirements remain
   }
   assert.equal(read('image-provider-presets').flatMap(item => item.models).find(item => item.id === 'inclusionai/ming-image-0.1-design').status, 'removed');
 });
+
+test('routed aliases retain compatibility and new embedding routes use supported text contracts', () => {
+  for (const [id, replacement] of [['gemini-3.7-flash', 'gemini-3.8-flash'], ['gemini-3.5-flash', 'gemini-3.6-flash']]) {
+    assert.equal(model('google', id).status, 'deprecated');
+    assert.equal(model('google', id).replacementModelId, replacement);
+  }
+  assert.equal(model('openrouter', 'unbiased/pareto').replacementModelId, '~unbiased/pareto-latest');
+  const embeddings = read('embedding-provider-presets').find(row => row.id === 'openrouter').models;
+  for (const [id, dimensions, context] of [
+    ['liquid/lfm-2.5-embedding-350m:free', 1024, 512],
+    ['nvidia/nemotron-3-embed-1b:free', 2048, 32768],
+    ['google/gemini-embedding-2', 3072, 8192],
+    ['voyageai/voyage-multimodal-3.5', 1024, 32000],
+  ]) {
+    const row = embeddings.find(row => row.id === id);
+    assert.equal(row.dimensions, dimensions);
+    assert.equal(row.contextTokens, context);
+    assert.deepEqual(row.inputModalities, ['text']);
+    assert.equal(row.supportsDimensionOverride, false);
+  }
+});

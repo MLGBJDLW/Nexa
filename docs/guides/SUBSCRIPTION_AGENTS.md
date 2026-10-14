@@ -291,6 +291,24 @@ and questions are checkpointed during a turn instead of consuming a lifetime
 block limit. Copilot's event queue is drained into a temporary spool so a slow
 renderer/database does not lose ephemeral usage, filter or completion events.
 
+AI Usage also records external-runtime consumption in the same invocation ledger
+as API calls. Codex cumulative token snapshots and Copilot usage events are
+persisted while the turn runs and settled on success, cancellation, or failure.
+Repeated snapshots do not add consumption again; model changes retain separate
+model attribution. External records aggregate a runtime turn per model, so their
+request count is not an inferred count of hidden native model calls.
+
+ACP adapters that supply `session/prompt` response `usage` are supported. Gemini
+CLI reports per-prompt totals; Hermes currently reports cumulative session totals,
+so Nexa retains a baseline with the pooled ACP session and records only the new
+consumption. Counter resets start a new accounting epoch. Missing snapshots keep
+the last valid baseline; later catch-up usage includes the intervening consumption
+and is explicitly marked as a session interval observed on that turn, not an
+exact per-turn measurement. Cache and reasoning details never get added to a
+provider's already reported total. Adapters such as pi ACP that only expose
+context occupancy retain an unknown usage record. Subscription price and account
+quota are not fabricated from these token totals.
+
 Nexa's tools, subagent scheduler, screen sharing, MoA and strict read-only Plan
 policy are not exposed by this ACP adapter. The composer hides controls it cannot
 honor. Native agent tool/configuration capabilities remain owned by that agent.

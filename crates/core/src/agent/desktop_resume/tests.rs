@@ -601,20 +601,29 @@ fn nexus_resume_keeps_successful_reconnaissance_and_recovers_late_owned_receipts
         load_execution_resume_state(&db, Some(&run.conversation_id), Some(&run.turn_id))
             .unwrap()
             .unwrap();
-    assert_eq!(restored.workflow.id, saved.id);
+    assert_eq!(restored.workflow.as_ref().unwrap().id, saved.id);
     assert_eq!(restored.completed_tool_rounds, 1);
     assert_eq!(restored.max_iterations, Some(2));
     assert_eq!(restored.plan.as_ref().unwrap().objective, task.objective);
-    reconcile_resumed_reconnaissance(&db, Some(&run.turn_id), &mut restored.workflow, &source)
-        .unwrap();
+    reconcile_resumed_reconnaissance(
+        &db,
+        Some(&run.turn_id),
+        restored.workflow.as_mut().unwrap(),
+        &source,
+    )
+    .unwrap();
     assert!(restored
         .workflow
+        .as_ref()
+        .unwrap()
         .nodes
         .iter()
         .filter(|node| ids.contains(&node.id))
         .all(|node| node.status == WorkflowNodeStatus::Succeeded && node.attempts == 1));
     assert!(restored
         .workflow
+        .as_ref()
+        .unwrap()
         .reconnaissance_batch_arguments(&task.objective)
         .is_none());
 }

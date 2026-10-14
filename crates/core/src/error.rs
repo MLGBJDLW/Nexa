@@ -2,6 +2,28 @@
 
 use thiserror::Error;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRecoveryRequirement {
+    pub action_reconciliation: bool,
+    pub message: String,
+}
+
+impl CoreError {
+    pub fn recovery_requirement(&self) -> Option<AgentRecoveryRequirement> {
+        match self {
+            Self::RecoveryRequired {
+                message,
+                action_reconciliation,
+            } => Some(AgentRecoveryRequirement {
+                action_reconciliation: *action_reconciliation,
+                message: crate::sensitive_data::sanitize_diagnostic(message, None),
+            }),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum CoreError {
     #[error("Database error: {0}")]
@@ -69,6 +91,14 @@ pub enum CoreError {
     /// failure or synthesizing an assistant answer.
     #[error("Agent is awaiting user input for interaction {interaction_id}")]
     AwaitingUserInput { interaction_id: String },
+
+    /// Transient execution cannot safely continue automatically. The host must
+    /// commit a resumable checkpoint through its existing Run Event outbox.
+    #[error("Agent connection interrupted; resume is available: {message}")]
+    RecoveryRequired {
+        message: String,
+        action_reconciliation: bool,
+    },
 
     #[error("MCP error: {0}")]
     Mcp(String),

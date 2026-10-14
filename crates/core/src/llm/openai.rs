@@ -516,21 +516,6 @@ pub(crate) fn requires_non_streaming_fallback(model: &str) -> bool {
     model.to_lowercase().starts_with("gpt-5.5-pro")
 }
 
-fn is_retriable_reqwest_error(error: &reqwest::Error) -> bool {
-    let msg = error.to_string().to_ascii_lowercase();
-    error.is_timeout()
-        || error.is_connect()
-        || error.is_body()
-        || msg.contains("connection")
-        || msg.contains("closed")
-        || msg.contains("reset")
-        || msg.contains("broken pipe")
-        || msg.contains("incomplete")
-        || msg.contains("incompleted")
-        || msg.contains("unexpected eof")
-        || msg.trim() == "error decoding response body"
-}
-
 fn completion_response_to_stream_chunks(
     response: CompletionResponse,
 ) -> Vec<Result<StreamChunk, CoreError>> {
@@ -2744,7 +2729,7 @@ async fn parse_responses_sse_stream(
     {
         let chunk = chunk_result.map_err(|error| {
             let message = super::transport::describe_http_error(&error);
-            if is_retriable_reqwest_error(&error) {
+            if super::transport::is_retriable_http_error(&error) {
                 CoreError::TransientLlm(format!("Responses stream interrupted: {message}"))
             } else {
                 CoreError::Llm(format!("Responses stream read error: {message}"))
@@ -2916,7 +2901,7 @@ impl OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
@@ -2926,7 +2911,7 @@ impl OpenAiProvider {
                 "Responses request failed: {}",
                 super::transport::describe_http_error(&error)
             );
-            if is_retriable_reqwest_error(&error) {
+            if super::transport::is_retriable_http_error(&error) {
                 CoreError::TransientLlm(message)
             } else {
                 CoreError::Llm(message)
@@ -2956,7 +2941,7 @@ impl OpenAiProvider {
                     "Failed to parse Responses payload: {}",
                     super::transport::describe_http_error(&error)
                 );
-                if is_retriable_reqwest_error(&error) {
+                if super::transport::is_retriable_http_error(&error) {
                     CoreError::TransientLlm(message)
                 } else {
                     CoreError::Llm(message)
@@ -3005,7 +2990,7 @@ impl OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Responses streaming request",
         )
         .await
@@ -3026,7 +3011,10 @@ impl OpenAiProvider {
             }
         };
         let (tx, rx) = mpsc::channel(64);
-        let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
+        let stream_idle_timeout = self
+            .config
+            .streaming
+            .stream_idle_timeout_for_model(&request.model);
         tokio::spawn(async move {
             let parser_tx = tx.clone();
             let result = tokio::select! {
@@ -3050,6 +3038,10 @@ impl OpenAiProvider {
 
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
+    fn manages_request_timeout(&self) -> bool {
+        true
+    }
+
     fn supports_document_input(
         &self,
         request: &CompletionRequest,
@@ -3291,7 +3283,7 @@ impl LlmProvider for OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
         .send()
         .await
@@ -3303,7 +3295,7 @@ impl LlmProvider for OpenAiProvider {
                 "Request failed: {}",
                 super::transport::describe_http_error(&error)
             );
-            if is_retriable_reqwest_error(&error) {
+            if super::transport::is_retriable_http_error(&error) {
                 CoreError::TransientLlm(message)
             } else {
                 CoreError::Llm(message)
@@ -3335,7 +3327,7 @@ impl LlmProvider for OpenAiProvider {
                     "Failed to parse completion response: {}",
                     super::transport::describe_http_error(&error)
                 );
-                if is_retriable_reqwest_error(&error) {
+                if super::transport::is_retriable_http_error(&error) {
                     CoreError::TransientLlm(message)
                 } else {
                     CoreError::Llm(message)
@@ -3553,7 +3545,7 @@ impl LlmProvider for OpenAiProvider {
                     .body(body_bytes),
                 &self.config,
             ),
-            self.request_timeout,
+            super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "OpenAI stream request",
         )
         .await
@@ -3582,7 +3574,10 @@ impl LlmProvider for OpenAiProvider {
         let (tx, rx) = mpsc::channel(64);
         info!("SSE stream started");
 
-        let stream_idle_timeout = self.config.streaming.stream_idle_timeout();
+        let stream_idle_timeout = self
+            .config
+            .streaming
+            .stream_idle_timeout_for_model(&request.model);
         let capture_ark = resolve_reasoning_profile(
             self.config.provider_type,
             self.config.base_url.as_deref(),
