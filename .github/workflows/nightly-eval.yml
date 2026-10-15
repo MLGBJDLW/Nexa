@@ -43,6 +43,9 @@ jobs:
       - name: Nightly agent eval
         run: cargo test -p nexa-core developer_eval_nightly_workflow
 
+      - name: Large-history timeline stress regressions
+        run: cargo test -p nexa-core --lib timeline_stress_ -- --ignored
+
       - name: Task oracle and live-wire contracts
         run: cargo test -p nexa-agent-eval
 

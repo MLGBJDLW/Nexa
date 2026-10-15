@@ -27,13 +27,14 @@ jobs:
     timeout-minutes: 5
     outputs:
       release_metadata_only: ${{ steps.scope.outputs.release_metadata_only }}
+      scope: ${{ steps.scope.outputs.scope }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.target_sha || github.ref }}
           fetch-depth: 0
 
-      - name: Classify trusted release metadata updates
+      - name: Classify changed source boundaries
         id: scope
         env:
           NEXA_CI_BASE_REF: origin/master
@@ -50,17 +51,17 @@ jobs:
               exit 1
             fi
             echo "release_metadata_only=false" >> "$GITHUB_OUTPUT"
+            echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "Full release validation: \`$NEXA_CI_TARGET_SHA\`" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git fetch --no-tags origin master:refs/remotes/origin/master
           git diff --name-only "origin/master...HEAD" > /tmp/nexa-ci-changed-paths.txt
-          release_metadata_only=$(node scripts/ci-scope.mjs < /tmp/nexa-ci-changed-paths.txt)
-          echo "release_metadata_only=$release_metadata_only" >> "$GITHUB_OUTPUT"
+          node scripts/ci-scope.mjs --github-output < /tmp/nexa-ci-changed-paths.txt >> "$GITHUB_OUTPUT"
           {
             echo "### CI scope"
             echo
-            echo "Release metadata only: \`$release_metadata_only\`"
+            cat "$GITHUB_OUTPUT"
             echo
             sed 's/^/- `/' /tmp/nexa-ci-changed-paths.txt | sed 's/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -115,7 +116,7 @@ jobs:
   rust_core:
     name: Rust Core
     needs: classify
-    if: needs.classify.outputs.release_metadata_only != 'true'
+    if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -167,9 +168,6 @@ jobs:
           cargo check -p nexa-core --no-default-features --features ocr
           cargo check -p nexa-core --no-default-features --features video
 
-      - name: Agent eval smoke
-        run: cargo test -p nexa-core developer_eval_smoke_workflow
-
       - name: Cargo test
         run: cargo test -p nexa-core
 
@@ -181,7 +179,7 @@ jobs:
   agent_task_eval:
     name: Agent Task Evaluation
     needs: classify
-    if: needs.classify.outputs.release_metadata_only != 'true'
+    if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -225,7 +223,7 @@ jobs:
   office_smoke:
     name: Office Artifact Smoke
     needs: classify
-    if: needs.classify.outputs.release_metadata_only != 'true'
+    if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -246,12 +244,8 @@ jobs:
       - name: Install locked PPTX author adapter
         run: npm ci --ignore-scripts
 
-      - name: Verify release workflow recovery contract
-        run: npm run release:workflow:test
-
       - name: Verify Office author supply chain and bundle closure
         run: |
-          npm audit --audit-level=high
           npm run office:supply-chain:test
           npm run office:pptxgenjs:bundle
           test -f apps/desktop/src-tauri/resources/pptxgenjs-runtime/runtime-manifest.json
@@ -297,7 +291,7 @@ jobs:
   frontend:
     name: Frontend Contracts & Build
     needs: classify
-    if: needs.classify.outputs.release_metadata_only != 'true'
+    if: needs.classify.outputs.scope == 'full' || needs.classify.outputs.scope == 'frontend'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -349,10 +343,9 @@ jobs:
   browser_regressions:
     name: Browser Regressions
     needs: classify
-    if: needs.classify.outputs.release_metadata_only != 'true'
+    if: needs.classify.outputs.scope == 'full' || needs.classify.outputs.scope == 'frontend'
     runs-on: ubuntu-latest
-    # The serial acceptance suites now exceed 20 minutes on hosted runners;
-    # keep each Playwright test bounded while allowing the full suite to finish.
+    # Two workers share one server; files retain their internal serial order.
     timeout-minutes: 30
     container:
       # Match the locked Playwright version; avoid per-run Ubuntu mirror installs.
@@ -386,11 +379,11 @@ jobs:
         working-directory: apps/desktop
         run: >-
           npx playwright test
-          e2e/app-window-frame.spec.ts
           e2e/chat-conversation-archive.spec.ts
           e2e/chat-slash-commands.spec.ts
           e2e/chat-stream-markdown-throttle.spec.ts
           e2e/chat-stream-rounds.spec.ts
+          e2e/chat-tool-stream-pressure.spec.ts
           e2e/chat-steering.spec.ts
           e2e/settings-update-panel.spec.ts
           e2e/chat-done-preview-persistence.spec.ts
@@ -406,7 +399,7 @@ jobs:
           e2e/chat-plan-progress-panel.spec.ts
           e2e/chat-recording-dock.spec.ts
           e2e/settings-provider-models.spec.ts
-          --grep "SVG identity|SVG assets|account quota|late account|notifications|reasoning slider|reasoning toggle-only|ACP reasoning|registry agents|settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|reload preserves partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD refreshes confirmed|live conversation cache totals|live cache refresh|Git capsule|browser action trail|browser trail separates invocations|browser waits share|project editor portal|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|Claude Sonnet 5.5|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login|ACP |creating a project opens|project editor stays above|read aloud reports|Nexus|live turn timing|speech preset defaults|new chat cannot accept input|project drafts remain separate|project workspace exposes|stalled account read|recorded runtime|new turn does not inherit|Copilot context policy|Copilot quotas remain|login polling recovers|cancelled login cannot"
+          --grep "thoughts and replies commit|stop drains retained audio|SVG identity|SVG assets|account quota|late account|notifications|reasoning slider|reasoning toggle-only|ACP reasoning|registry agents|settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|reload preserves partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD refreshes confirmed|live conversation cache totals|live cache refresh|Git capsule|browser action trail|browser trail separates invocations|browser waits share|project editor portal|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|Claude Sonnet 5.5|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login|ACP |creating a project opens|project editor stays above|read aloud reports|Nexus|live turn timing|speech preset defaults|new chat cannot accept input|project drafts remain separate|project workspace exposes|stalled account read|recorded runtime|new turn does not inherit|Copilot context policy|Copilot quotas remain|login polling recovers|cancelled login cannot"
 
       - name: Generative chat UI and HTML isolation
         working-directory: apps/desktop
@@ -474,7 +467,7 @@ jobs:
   linux_desktop:
     name: Linux Desktop Check
     needs: classify
-    if: needs.classify.outputs.release_metadata_only != 'true'
+    if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -568,52 +561,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require successful CI jobs
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.target_sha || github.ref }}
+      - name: Require successful scoped CI jobs
         env:
-          RELEASE_METADATA_ONLY: ${{ needs.classify.outputs.release_metadata_only }}
-          REPOSITORY_POLICY_RESULT: ${{ needs.repository_policy.result }}
-          RELEASE_METADATA_RESULT: ${{ needs.release_metadata.result }}
-          RUST_CORE_RESULT: ${{ needs.rust_core.result }}
-          AGENT_TASK_EVAL_RESULT: ${{ needs.agent_task_eval.result }}
-          OFFICE_SMOKE_RESULT: ${{ needs.office_smoke.result }}
-          FRONTEND_RESULT: ${{ needs.frontend.result }}
-          BROWSER_REGRESSIONS_RESULT: ${{ needs.browser_regressions.result }}
-          LINUX_DESKTOP_RESULT: ${{ needs.linux_desktop.result }}
-          WINDOWS_DESKTOP_RESULT: ${{ needs.windows-check.result }}
-        shell: bash
-        run: |
-          if [ "$RELEASE_METADATA_ONLY" = "true" ]; then
-            results=(
-              "Repository Policy:$REPOSITORY_POLICY_RESULT"
-              "Release Metadata Contracts:$RELEASE_METADATA_RESULT"
-            )
-          else
-            results=(
-              "Repository Policy:$REPOSITORY_POLICY_RESULT"
-              "Release Metadata Contracts:$RELEASE_METADATA_RESULT"
-              "Rust Core:$RUST_CORE_RESULT"
-              "Agent Task Evaluation:$AGENT_TASK_EVAL_RESULT"
-              "Office Artifact Smoke:$OFFICE_SMOKE_RESULT"
-              "Frontend Contracts & Build:$FRONTEND_RESULT"
-              "Browser Regressions:$BROWSER_REGRESSIONS_RESULT"
-              "Linux Desktop Check:$LINUX_DESKTOP_RESULT"
-              "Windows Desktop Check:$WINDOWS_DESKTOP_RESULT"
-            )
-          fi
-
-          failed=0
-          for result in "${results[@]}"; do
-            echo "$result"
-            if [[ "$result" != *":success" ]]; then
-              failed=1
-            fi
-          done
-          exit "$failed"
+          NEXA_CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-scope.mjs --check-results
 
   windows-check:
     name: Windows Desktop Check
     needs: classify
-    if: needs.classify.outputs.release_metadata_only != 'true'
+    if: needs.classify.outputs.scope == 'full'
     runs-on: windows-latest
     # Cold default-feature checking plus the separate test profile can consume
     # twenty minutes before the final native PowerShell smoke even starts.

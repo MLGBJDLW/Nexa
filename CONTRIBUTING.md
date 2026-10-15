@@ -97,7 +97,6 @@ For frontend changes, from `apps/desktop`:
 
 ```bash
 npm test
-npm run typecheck
 npm run build
 ```
 
@@ -127,6 +126,21 @@ with preinstalled browsers and system dependencies. Its version and digest are
 pinned; update the image together with the locked Playwright dependency.
 The release-workflow contract check rejects a version mismatch. Local browser
 installation commands above remain applicable outside that container.
+
+CI runs documentation-only changes through repository and release metadata
+checks. Frontend source, asset, and test changes additionally run frontend and
+browser checks; native sources, shared contracts, manifests, workflow changes,
+and unknown paths run the complete suite. Release candidates always receive
+full CI for their immutable tag. The final gate rejects failed or unexpectedly
+skipped required jobs.
+
+Browser CI uses two workers while preserving serial order within each spec;
+local runs use one worker by default. Routine timeline tests compare 100 and
+512 turns. The existing nightly workflow runs the two 10,000-turn stress tests,
+which can also be selected with
+`cargo test -p nexa-core --lib timeline_stress_ -- --ignored`.
+`npm run build` already checks TypeScript, so a separate typecheck is optional
+when a full build is being run.
 
 For Rust changes, from the repository root:
 

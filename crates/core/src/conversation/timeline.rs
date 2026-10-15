@@ -774,6 +774,16 @@ mod tests {
 
     #[test]
     fn timeline_early_entry_queries_seek_both_bounds_independently_of_history_size() {
+        assert_timeline_early_entry_query_cost(512);
+    }
+
+    #[test]
+    #[ignore = "10k history stress coverage runs in nightly CI"]
+    fn timeline_stress_early_entry_queries_at_10k_turns() {
+        assert_timeline_early_entry_query_cost(10_000);
+    }
+
+    fn assert_timeline_early_entry_query_cost(large_count: usize) {
         use rusqlite::{types::Value, StatementStatus};
         let queries = [
             controls_query(true),
@@ -783,7 +793,7 @@ mod tests {
             compaction_markers_query(true, true),
         ];
         let mut costs = Vec::new();
-        for count in [100, 10_000] {
+        for count in [100, large_count] {
             let (db, id) = fixture(count);
             let connection = db.conn();
             let mut measurements = Vec::new();
@@ -833,23 +843,34 @@ mod tests {
             assert_eq!(small.0, large.0);
             assert!(
                 large.1 <= small.1 + 32,
-                "100 vs 10k turns: {small:?} -> {large:?}"
+                "100 vs {large_count} turns: {small:?} -> {large:?}"
             );
         }
         println!(
-            "timeline early-entry query (rows, VM steps), 100 turns: {:?}; 10k turns: {:?}",
+            "timeline early-entry query (rows, VM steps), 100 turns: {:?}; {large_count} turns: {:?}",
             costs[0], costs[1]
         );
     }
 
     #[test]
-    fn timeline_tail_cost_is_bounded_and_trace_is_lazy_at_10k_turns() {
+    fn timeline_tail_cost_is_bounded_and_trace_is_lazy() {
+        assert_timeline_tail_cost(512);
+    }
+
+    #[test]
+    #[ignore = "10k history stress coverage runs in nightly CI"]
+    fn timeline_stress_tail_cost_and_lazy_trace_at_10k_turns() {
+        assert_timeline_tail_cost(10_000);
+    }
+
+    fn assert_timeline_tail_cost(large_count: usize) {
         let (small, id) = fixture(100);
         let first = small
             .conversation_timeline_page(&id, None, None, None, None)
             .unwrap();
         let first_bytes = serde_json::to_vec(&first).unwrap().len();
-        let (large, id) = fixture(10_000);
+        let (large, id) = fixture(large_count);
+        let last_user_id = format!("u{:05}", large_count - 1);
         let tail = large
             .conversation_timeline_page(&id, None, None, None, None)
             .unwrap();
@@ -861,7 +882,7 @@ mod tests {
             .all(|message| message.thinking.is_none()));
         assert!(tail.turns.iter().all(|turn| turn.trace.is_none()));
         assert!(tail.entries.iter().all(|entry| entry.has_details));
-        assert_eq!(tail.task_runs.last().unwrap().user_message_id, "u09999");
+        assert_eq!(tail.task_runs.last().unwrap().user_message_id, last_user_id);
         assert!(
             serde_json::to_vec(&tail)
                 .unwrap()
@@ -869,7 +890,9 @@ mod tests {
                 .abs_diff(first_bytes)
                 < 128
         );
-        assert!(large.conversation_timeline_details(&id, "u09999").is_err());
+        assert!(large
+            .conversation_timeline_details(&id, &last_user_id)
+            .is_err());
         let connection = large.conn();
         let plan = connection.prepare(&format!("EXPLAIN QUERY PLAN SELECT sort_order,id FROM messages INDEXED BY idx_messages_timeline_roots WHERE conversation_id=?1 AND {ROOT_PREDICATE} ORDER BY sort_order DESC,id DESC LIMIT 20")).unwrap().query_map([&id],|row|row.get::<_,String>(3)).unwrap().collect::<Result<Vec<_>,_>>().unwrap().join(" ");
         assert!(plan.contains("idx_messages_timeline_roots"), "{plan}");
