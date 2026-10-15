@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.16.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.4...nexa-monorepo-v0.16.5) (2026-10-15)
+
+
+### Features
+
+* **models:** adapt current audio video and embedding protocols ([5b1829b](https://github.com/MLGBJDLW/Nexa/commit/5b1829b8620958adb405e2269a3427019fb7a76c))
+
+
+### Bug Fixes
+
+* **acp:** retain selected versions and preserve explicit authentication ([80f7870](https://github.com/MLGBJDLW/Nexa/commit/80f7870eea8f10ed6145be2f17c8f3ef0aecba61))
+* **acp:** use portable adapter cache directory identities ([c230ae6](https://github.com/MLGBJDLW/Nexa/commit/c230ae6c991497eba825aa0846e5f5fcab114f3d))
+* **chat:** discard legacy transient screen context on replay ([26de534](https://github.com/MLGBJDLW/Nexa/commit/26de5346452ea4419285201e0a7e62e8f0215467))
+* **chat:** retain chronological text segments across tools ([d32ed83](https://github.com/MLGBJDLW/Nexa/commit/d32ed83308d21d1eab55a3fe72b8b9ae3547e39e))
+* honor replay progress and optional video prompt contracts ([055ae4a](https://github.com/MLGBJDLW/Nexa/commit/055ae4ab527b53e5bbe71c2e8afe8eb9da5664d3))
+* preserve chat streams and recordings with refreshable ACP adapters ([6fab881](https://github.com/MLGBJDLW/Nexa/commit/6fab88190addc7e59ade71df679b8b19a97681ff))
+* **release:** synchronize desktop lockfile metadata ([4a237bd](https://github.com/MLGBJDLW/Nexa/commit/4a237bd9811900571b725ba3b6c5960fddc6f662))
+* restore chat and dictation, refresh ACP, and streamline CI ([d752ebf](https://github.com/MLGBJDLW/Nexa/commit/d752ebf7f11e843e6b4b28c1ab0a69b7a7e57f30))
+* **stt:** bound stalled storage and preserve authoritative final transcripts ([c695928](https://github.com/MLGBJDLW/Nexa/commit/c69592838bfe64dfefa1b9ac708bf50460298d07))
+* **voice:** bound stalled capture and drain accepted audio ([28df8e4](https://github.com/MLGBJDLW/Nexa/commit/28df8e4ced0285f697a8b4ef47f2ad3c3ca8915e))
+
 ## [0.16.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.3...nexa-monorepo-v0.16.4) (2026-10-14)
 
 ### Included in this public release
