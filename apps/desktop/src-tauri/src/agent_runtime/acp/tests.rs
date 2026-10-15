@@ -281,7 +281,7 @@ async fn terminal_login_reuses_the_advertised_invocation_without_protocol_authen
 async fn opaque_chat_reasoning_reaches_native_prompt_and_unadvertised_values_fail_closed() {
     for effort in ["deep", "invented"] {
         let (mut request, mut rx, _, _) = super::super::tests::fixture(
-            super::super::AgentRuntimeKind::Acp("opencode"),
+            super::super::AgentRuntimeKind::Acp("opencode".into()),
             "vendor/模型",
         );
         request.config.reasoning_effort = Some(nexa_core::llm::ReasoningEffort::High);
@@ -465,7 +465,7 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
     let path = directory.path().join("native-acp-edit.txt");
     std::fs::write(&path, "old value\n").unwrap();
     let (mut request, mut rx, effects, nonce) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp".into()),
         "@nexa/agent-default",
     );
     let launch = ExternalAgentLaunch {
@@ -532,8 +532,10 @@ fn client_wire(root: &std::path::Path, mode: &str) -> Wire {
 #[tokio::test]
 async fn user_permission_does_not_block_concurrent_filesystem_requests() {
     let directory = tempfile::tempdir().unwrap();
-    let (mut request, mut rx, _, _) =
-        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("gemini_cli"), "native");
+    let (mut request, mut rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("gemini_cli".into()),
+        "native",
+    );
     request.dependencies.tools =
         request
             .dependencies
@@ -567,8 +569,10 @@ async fn user_permission_does_not_block_concurrent_filesystem_requests() {
 #[tokio::test]
 async fn model_change_without_later_usage_reaches_live_and_terminal_context() {
     let directory = tempfile::tempdir().unwrap();
-    let (request, mut rx, _, _) =
-        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("gemini_cli"), "native");
+    let (request, mut rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("gemini_cli".into()),
+        "native",
+    );
     let drain = tokio::spawn(async move {
         let mut events = Vec::new();
         while let Some(event) = rx.recv().await {
@@ -615,8 +619,10 @@ async fn model_change_without_later_usage_reaches_live_and_terminal_context() {
 #[tokio::test]
 async fn native_services_create_missing_files_render_released_terminals_and_survive_long_polling() {
     let directory = tempfile::tempdir().unwrap();
-    let (mut request, mut rx, effects, _) =
-        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("gemini_cli"), "native");
+    let (mut request, mut rx, effects, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("gemini_cli".into()),
+        "native",
+    );
     request.dependencies.tools =
         request
             .dependencies
@@ -676,7 +682,7 @@ async fn native_services_create_missing_files_render_released_terminals_and_surv
 async fn queued_commands_keep_the_following_input_and_first_project_context() {
     let directory = tempfile::tempdir().unwrap();
     let (mut request, mut rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp".into()),
         "native",
     );
     request.user_parts = vec![nexa_core::llm::ContentPart::Text {
@@ -723,7 +729,7 @@ async fn cold_native_command_preserves_raw_input_and_does_not_mark_project_conte
         context: String::new(),
     };
     let (mut request, mut rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp".into()),
         "native",
     );
     request.user_parts = vec![nexa_core::llm::ContentPart::Text {
@@ -753,7 +759,7 @@ async fn cold_native_command_preserves_raw_input_and_does_not_mark_project_conte
     assert!(connection.context.is_empty());
     connection.history = "cached-completed-command".into();
     let (mut request, _rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("github_copilot_acp"),
+        super::super::AgentRuntimeKind::Acp("github_copilot_acp".into()),
         "native",
     );
     request.config.system_prompt = "PROJECT_CONTEXT_MUST_REACH_AGENT".into();
@@ -769,8 +775,10 @@ async fn native_questions_require_the_selected_option_and_never_infer_the_first_
         (ApprovalDecision::SelectOption(1), "choice-b"),
         (ApprovalDecision::AllowOnce, "deny"),
     ] {
-        let (mut request, _rx, _, _) =
-            super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("opencode"), "native");
+        let (mut request, _rx, _, _) = super::super::tests::fixture(
+            super::super::AgentRuntimeKind::Acp("opencode".into()),
+            "native",
+        );
         request.approval = Arc::new(move |request| {
             assert_eq!(request.choices, vec!["First answer", "Second answer"]);
             Box::pin(async move { decision })
@@ -870,7 +878,7 @@ async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
         reasoning_effort: Some("deep".into()),
     };
     let (mut first, _rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("opencode"),
+        super::super::AgentRuntimeKind::Acp("opencode".into()),
         "vendor/模型",
     );
     let db = first.db.clone();
@@ -879,7 +887,7 @@ async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
     run("opencode", first).await.unwrap();
 
     let (mut next, _next_rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("opencode"),
+        super::super::AgentRuntimeKind::Acp("opencode".into()),
         "vendor/模型",
     );
     let mut user = db.get_messages(&conversation).unwrap()[0].clone();
@@ -932,7 +940,7 @@ async fn completed_session_reuses_connection_without_resending_history_or_model_
         context: String::new(),
     };
     let (mut first, _rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("gemini_cli"),
+        super::super::AgentRuntimeKind::Acp("gemini_cli".into()),
         "vendor/模型",
     );
     first
@@ -951,7 +959,7 @@ async fn completed_session_reuses_connection_without_resending_history_or_model_
     let mut connection =
         pool::take(&key, &fingerprint).expect("completed connection remains reusable");
     let (mut next, _next_rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("gemini_cli"),
+        super::super::AgentRuntimeKind::Acp("gemini_cli".into()),
         "vendor/模型",
     );
     let mut user = db.get_messages(&conversation).unwrap()[0].clone();
@@ -1008,7 +1016,7 @@ async fn external_protocol_supports_config_only_and_legacy_catalogs_without_dupl
 {
     for mode in ["config", "legacy"] {
         let (mut request, mut rx, effects, _) = super::super::tests::fixture(
-            super::super::AgentRuntimeKind::Acp("gemini_cli"),
+            super::super::AgentRuntimeKind::Acp("gemini_cli".into()),
             "vendor/模型",
         );
         let db = request.db.clone();
@@ -1071,7 +1079,7 @@ async fn external_protocol_rejects_false_success_and_unconfirmed_model_changes()
         "unfinished",
     ] {
         let (request, mut rx, effects, _) = super::super::tests::fixture(
-            super::super::AgentRuntimeKind::Acp("opencode"),
+            super::super::AgentRuntimeKind::Acp("opencode".into()),
             "vendor/模型",
         );
         let result = tokio::time::timeout(
@@ -1094,8 +1102,10 @@ async fn external_protocol_rejects_false_success_and_unconfirmed_model_changes()
 
 #[tokio::test]
 async fn external_protocol_cancellation_terminates_a_pending_prompt() {
-    let (request, mut rx, _, _) =
-        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("hermes"), "vendor/模型");
+    let (request, mut rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("hermes".into()),
+        "vendor/模型",
+    );
     let cancellation = request.cancellation.clone();
     let run = tokio::spawn(run_connected("hermes", request, wire("hang"), "C:/test"));
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1117,8 +1127,10 @@ async fn external_protocol_stop_kills_native_descendants_and_retains_partial_tex
         .tempdir()
         .unwrap();
     let marker = directory.path().join("orphan.txt");
-    let (request, mut rx, _, _) =
-        super::super::tests::fixture(super::super::AgentRuntimeKind::Acp("hermes"), "vendor/模型");
+    let (request, mut rx, _, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("hermes".into()),
+        "vendor/模型",
+    );
     let db = request.db.clone();
     let conversation = request.conversation_id.clone();
     let cancellation = request.cancellation.clone();
@@ -1155,7 +1167,7 @@ async fn external_protocol_stop_kills_native_descendants_and_retains_partial_tex
 #[tokio::test]
 async fn external_protocol_permission_denial_is_not_promoted_to_an_allow_option() {
     let (mut request, mut rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("opencode"),
+        super::super::AgentRuntimeKind::Acp("opencode".into()),
         "vendor/模型",
     );
     request.approval = Arc::new(|_| Box::pin(async { ApprovalDecision::Deny }));
@@ -1174,7 +1186,7 @@ async fn external_protocol_permission_denial_is_not_promoted_to_an_allow_option(
 #[tokio::test]
 async fn external_protocol_prompt_does_not_borrow_nexa_desktop_workflow_gates() {
     let (mut request, _rx, _, _) = super::super::tests::fixture(
-        super::super::AgentRuntimeKind::Acp("opencode"),
+        super::super::AgentRuntimeKind::Acp("opencode".into()),
         "vendor/模型",
     );
     request.user_parts = vec![nexa_core::llm::ContentPart::Text {
@@ -1261,7 +1273,7 @@ async fn official_antigravity_initializes_through_nexa_without_user_credentials(
     };
     let preset = nexa_core::external_agent::preset("acp_antigravity_acp").unwrap();
     let cache = root.path().join("adapters");
-    let plan = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+    let plan = nexa_core::external_agent::launch::prepare(&preset, &launch, Some(&cache))
         .await
         .unwrap();
     if managed {
@@ -1270,7 +1282,7 @@ async fn official_antigravity_initializes_through_nexa_without_user_credentials(
             "managed acceptance requires an absent adapter"
         );
         assert!(plan.executable.starts_with(&cache));
-        let reused = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+        let reused = nexa_core::external_agent::launch::prepare(&preset, &launch, Some(&cache))
             .await
             .unwrap();
         assert_eq!(reused.executable, plan.executable);
@@ -1295,7 +1307,7 @@ async fn official_antigravity_initializes_through_nexa_without_user_credentials(
     println!("Official Antigravity initialized through Nexa in {}ms; advertised methods: {:?}; no authentication or inference requested", started.elapsed().as_millis(), methods);
     drop(wire);
     if let Some(receipt) = receipt {
-        let reused = nexa_core::external_agent::launch::prepare(preset, &launch, Some(&cache))
+        let reused = nexa_core::external_agent::launch::prepare(&preset, &launch, Some(&cache))
             .await
             .unwrap();
         assert_eq!(reused.executable, plan.executable);

@@ -704,16 +704,9 @@
   "turnChangesNoStats": "Строки неизвестны",
   "turnChangesContentUnavailable": "Двоичный или слишком большой файл либо сохранённая разница недоступна.",
   "turnChangesLoadError": "Не удалось загрузить сохранённые изменения.",
-  "shareScreen": "Поделиться экраном",
-  "stopScreenShare": "Остановить показ",
-  "screenShareActive": "Экран доступен",
   "screenShareNeedsConversation": "Начните разговор, прежде чем делиться экраном",
   "screenShareUnavailable": "Показ экрана недоступен в этой среде",
-  "screenSharePreview": "Предпросмотр экрана",
-  "screenShareHint": "Агент получает актуальное изображение при продолжении работы. Остановите показ, чтобы отозвать доступ.",
   "shareWindow": "Окно / системный выбор…",
-  "screenSharePreparingConversation": "Подготовка демонстрации экрана…",
-  "screenShareConversationChanged": "Разговор изменился. Начните демонстрацию экрана в текущем чате.",
   "computerUseOperating": "Управление компьютером",
   "computerUseObserving": "Чтение выбранного окна",
   "processLive": "В реальном времени",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "До {tokens} входных токенов",
   "contextTierScope": "Применяется со следующего хода. Copilot управляет сжатием и сообщает фактическую ёмкость. Расширенный контекст может стоить дороже.",
   "agentCompactingBackground": "Сжатие контекста в фоновом режиме",
-  "computerUseStop": "Остановить управление"
+  "computerUseStop": "Остановить управление",
+  "captureScreen": "Сделать снимок экрана",
+  "captureScreenHint": "Прикрепите один снимок, проверьте и отправьте. Захват сразу прекращается.",
+  "captureScreenLive": "Для непрерывной записи откройте Live",
+  "attachmentsNextMessage": "Вложения сохранены для следующего сообщения после завершения ответа."
 }

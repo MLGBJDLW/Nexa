@@ -103,7 +103,7 @@ pub async fn build_desktop_agent_session_dependencies(
         terminal_state,
         browser_state,
     } = request;
-    let image_subscription = agent_runtime;
+    let image_subscription = agent_runtime.clone();
     let native_tools = matches!(
         agent_runtime,
         Some(crate::agent_runtime::AgentRuntimeKind::Acp(_))

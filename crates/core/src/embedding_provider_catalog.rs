@@ -56,6 +56,9 @@ pub struct EmbeddingModelPreset {
     pub max_dimensions: Option<usize>,
     #[serde(default)]
     pub dimension_parameter: Option<String>,
+    /// Conservative serving capacity when it differs from advertised metadata.
+    #[serde(default)]
+    pub effective_input_tokens: Option<usize>,
 }
 
 const EMBEDDING_PROVIDER_PRESETS_JSON: &str =

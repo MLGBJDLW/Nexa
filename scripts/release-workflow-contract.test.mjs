@@ -167,7 +167,7 @@ test('CI and release builds fail closed unless native TypeScript 7 owns tsc', ()
   assert.match(releaseWorkflow, /name: Verify native TypeScript 7 runtime[\s\S]*?run: npm run typescript:check/);
 });
 
-test('only the trusted release metadata classifier can select lightweight CI', () => {
+test('CI scopes source boundaries and always validates release metadata and aggregation', () => {
   const releaseMetadataAt = ciWorkflow.indexOf('  release_metadata:');
   const rustCoreAt = ciWorkflow.indexOf('  rust_core:');
   const releaseMetadataJob = ciWorkflow.slice(releaseMetadataAt, rustCoreAt);
@@ -180,10 +180,16 @@ test('only the trusted release metadata classifier can select lightweight CI', (
     releaseMetadataJob,
     /if: needs\.classify\.outputs\.release_metadata_only == 'true'/,
   );
-  assert.match(ciWorkflow, /"Release Metadata Contracts:\$RELEASE_METADATA_RESULT"/);
-  assert.match(
-    ciWorkflow,
-    /if: needs\.classify\.outputs\.release_metadata_only != 'true'/,
-  );
-  assert.match(ciWorkflow, /WINDOWS_DESKTOP_RESULT/);
+  assert.match(ciWorkflow, /scope: \$\{\{ steps\.scope\.outputs\.scope \}\}/);
+  assert.match(ciWorkflow, /if: needs\.classify\.outputs\.scope == 'full'/);
+  assert.match(ciWorkflow, /NEXA_CI_NEEDS: \$\{\{ toJSON\(needs\) \}\}/);
+  assert.match(ciWorkflow, /node scripts\/ci-scope\.mjs --check-results/);
+  assert.match(ciWorkflow, /echo "scope=full"/);
+});
+
+test('CI avoids duplicate checks and retains large-history stress in nightly coverage', () => {
+  const nightly = fs.readFileSync(path.join(repositoryRoot, '.github/workflows/nightly-eval.yml'), 'utf8');
+  assert.doesNotMatch(ciWorkflow, /name: Agent eval smoke|name: Verify release workflow recovery contract/);
+  assert.match(nightly, /cargo test -p nexa-core --lib timeline_stress_ -- --ignored/);
+  assert.match(ciWorkflow, /e2e\/chat-tool-stream-pressure\.spec\.ts/);
 });

@@ -1130,5 +1130,11 @@
   "subscriptionQuotaScope": "提供元が返すアカウントの利用枠はクライアント間で共有されます。このチャットのトークン使用量とは別です。",
   "subscriptionQuotaUpdated": "取得時刻 {time}",
   "externalAgentAuthRequired": "このエージェントのログイン方法を選択してください。アカウントはエージェントが管理します。",
-  "externalAgentPreparing": "エージェントを準備し、セッションを作成しています。初回接続には数分かかる場合があります。"
+  "externalAgentPreparing": "エージェントを準備し、セッションを作成しています。初回接続には数分かかる場合があります。",
+  "externalAgentRegistryVersion": "レジストリ版 · {version}",
+  "externalAgentCheckUpdates": "エージェントの更新を確認",
+  "externalAgentUseUpdate": "{version} を使用",
+  "externalAgentCustomUpdate": "カスタム実行ファイルは、そのインストーラーで更新してください。",
+  "externalAgentGoogleProfile": "Google ログインは Nexa 専用プロファイルに保存され、チャットでも使用されます。",
+  "externalAgentRegistryChecked": "確認日時 {time}"
 }

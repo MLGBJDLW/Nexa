@@ -1130,5 +1130,11 @@
   "subscriptionQuotaScope": "Квота аккаунта от провайдера общая для всех клиентов. Она не связана со счётчиком токенов этого чата.",
   "subscriptionQuotaUpdated": "Получено в {time}",
   "externalAgentAuthRequired": "Выберите способ входа, предоставленный агентом. Учётная запись остаётся под управлением агента.",
-  "externalAgentPreparing": "Подготовка агента и создание сеанса. Первое подключение может занять несколько минут."
+  "externalAgentPreparing": "Подготовка агента и создание сеанса. Первое подключение может занять несколько минут.",
+  "externalAgentRegistryVersion": "Версия реестра · {version}",
+  "externalAgentCheckUpdates": "Проверить обновления",
+  "externalAgentUseUpdate": "Использовать {version}",
+  "externalAgentCustomUpdate": "Свой исполняемый файл: обновите через его установщик.",
+  "externalAgentGoogleProfile": "Вход в Google хранится в отдельном профиле Nexa и используется в чате.",
+  "externalAgentRegistryChecked": "Каталог проверен: {time}"
 }

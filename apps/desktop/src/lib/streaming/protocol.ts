@@ -55,6 +55,7 @@ export interface TraceThinkingEvent {
   kind: 'thinking';
   text: string;
   blockId?: string;
+  startOffset?: number;
   nextOffset?: number;
 }
 
@@ -63,6 +64,7 @@ export interface TraceReplyEvent {
   kind: 'reply';
   text: string;
   blockId?: string;
+  startOffset?: number;
   nextOffset?: number;
 }
 

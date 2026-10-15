@@ -1,5 +1,5 @@
-import type { TraceReplyEvent, TraceThinkingEvent } from './protocol';
 import type { StreamTerminalProjectionState } from './terminalProjection';
+import { appendBlockTraceDelta, blockTraceText, replaceBlockTraceText } from './blockTrace';
 
 export function appendThinkingTraceEvent(state: StreamTerminalProjectionState, delta: string): void {
   if (!delta) return;
@@ -78,74 +78,15 @@ function takeBufferedBlockDelta(
   return delta;
 }
 
-function upsertThinkingBlockTraceEvent(
+function upsertBlockTraceEvent(
   state: StreamTerminalProjectionState,
+  kind: 'reply' | 'thinking',
   blockId: string,
   offset: number,
   delta: string,
-): boolean {
-  if (!delta) return false;
-  const deltaBytes = utf8ByteLength(delta);
-  const idx = state.traceEvents.findIndex(
-    event => event.kind === 'thinking' && event.blockId === blockId,
-  );
-  if (idx >= 0) {
-    const prev = state.traceEvents[idx] as TraceThinkingEvent;
-    const nextOffset = prev.nextOffset ?? 0;
-    if (offset < nextOffset) return false;
-    const next = [...state.traceEvents];
-    next[idx] = {
-      ...prev,
-      text: prev.text + delta,
-      nextOffset: offset + deltaBytes,
-    };
-    state.traceEvents = next;
-    return true;
-  }
-
-  state.traceEvents = [...state.traceEvents, {
-    id: `trace-thinking-${Date.now()}-${state._traceSeq++}`,
-    kind: 'thinking',
-    text: delta,
-    blockId,
-    nextOffset: offset + deltaBytes,
-  }];
-  return true;
-}
-
-function upsertReplyBlockTraceEvent(
-  state: StreamTerminalProjectionState,
-  blockId: string,
-  offset: number,
-  delta: string,
-): boolean {
-  if (!delta) return false;
-  const deltaBytes = utf8ByteLength(delta);
-  const idx = state.traceEvents.findIndex(
-    event => event.kind === 'reply' && event.blockId === blockId,
-  );
-  if (idx >= 0) {
-    const prev = state.traceEvents[idx] as TraceReplyEvent;
-    const nextOffset = prev.nextOffset ?? 0;
-    if (offset < nextOffset) return false;
-    const next = [...state.traceEvents];
-    next[idx] = {
-      ...prev,
-      text: prev.text + delta,
-      nextOffset: offset + deltaBytes,
-    };
-    state.traceEvents = next;
-    return true;
-  }
-
-  state.traceEvents = [...state.traceEvents, {
-    id: `trace-reply-${Date.now()}-${state._traceSeq++}`,
-    kind: 'reply',
-    text: delta,
-    blockId,
-    nextOffset: offset + deltaBytes,
-  }];
-  return true;
+): void {
+  state.traceEvents = appendBlockTraceDelta(state.traceEvents, kind, blockId, offset, delta,
+    () => `trace-${kind}-${Date.now()}-${state._traceSeq++}`);
 }
 
 export function applyStreamBlockDelta(
@@ -178,13 +119,19 @@ export function applyStreamBlockDelta(
       bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
       return;
     }
+    // A tool can move the visible prefix into a round without ending the
+    // provider's block. Resume that prefix instead of buffering forever or
+    // displaying only the suffix when thought/tool events interleave.
+    if (!state.streamText && state._activeAnswerOffset > 0) {
+      state.streamText = blockTraceText(state.traceEvents, 'reply', blockId);
+    }
     state.thinkingText = '';
     let nextDelta: string | null = delta;
     while (nextDelta !== null) {
       const nextOffset = state._activeAnswerOffset;
       state.streamText += nextDelta;
       state._activeAnswerOffset = nextOffset + utf8ByteLength(nextDelta);
-      upsertReplyBlockTraceEvent(state, blockId, nextOffset, nextDelta);
+      upsertBlockTraceEvent(state, 'reply', blockId, nextOffset, nextDelta);
       nextDelta = takeBufferedBlockDelta(
         state,
         channel,
@@ -210,12 +157,15 @@ export function applyStreamBlockDelta(
     bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
     return;
   }
+  if (!state.thinkingText && state._activeThinkingOffset > 0) {
+    state.thinkingText = blockTraceText(state.traceEvents, 'thinking', blockId);
+  }
   let nextDelta: string | null = delta;
   while (nextDelta !== null) {
     const nextOffset = state._activeThinkingOffset;
     state.thinkingText += nextDelta;
     state._activeThinkingOffset = nextOffset + utf8ByteLength(nextDelta);
-    upsertThinkingBlockTraceEvent(state, blockId, nextOffset, nextDelta);
+    upsertBlockTraceEvent(state, 'thinking', blockId, nextOffset, nextDelta);
     nextDelta = takeBufferedBlockDelta(
       state,
       channel,
@@ -238,14 +188,11 @@ export function applyStreamBlockSnapshot(
   const nextOffset = utf8ByteLength(text);
   pendingBlocks(state, channel).delete(blockId);
   if (index >= 0) {
-    const previous = state.traceEvents[index] as TraceReplyEvent | TraceThinkingEvent;
-    const next = [...state.traceEvents];
-    next[index] = { ...previous, text, nextOffset };
-    state.traceEvents = next;
+    state.traceEvents = replaceBlockTraceText(state.traceEvents, kind, blockId, text);
   } else {
     state.traceEvents = [...state.traceEvents, {
       id: `trace-${kind}-${Date.now()}-${state._traceSeq++}`,
-      kind, blockId, text, nextOffset,
+      kind, blockId, text, startOffset: 0, nextOffset,
     }];
   }
   // Historical corrections must not steal the currently streaming block.

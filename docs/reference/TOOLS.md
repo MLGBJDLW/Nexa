@@ -962,26 +962,15 @@ Important fields:
 - Element IDs such as `e7` are valid only for that observation.
 - `timeout_ms` and `poll_interval_ms` bound `wait_for_change` and `wait_for_window`.
 - Pixels and accessibility text are untrusted data and never instructions.
-- `shared_desktop` reads the latest screen explicitly shared from the chat
-  toolbar. It is read-only context, not an observation token for native input.
 
-Use **Share screen** in a new or existing desktop conversation. A new chat
-creates its conversation scope without sending a message or invoking a model,
-and preserves the current draft. On Windows, Chat and Live use Nexa's native
-monitor/window picker; the browser permission prompt with a localhost origin
-is not used for these native sources. Other hosts retain their system picker.
-Nexa keeps only the newest bounded JPEG in
-memory, refreshing about once per second. API agents receive a fresh view at
-model-step boundaries; subscription agents can read it with `shared_desktop`
-and receive refreshed views after Nexa tool operations. Stale frames are not
-offered, and stopping sharing or changing conversations releases capture.
-Provider retries discard a shared view when its pixels have been superseded;
-the next model step reads the latest frame again.
-Sharing is separate from control permission and does not save a screen recording.
-Screen capture depends on the host browser/OS; native input remains Windows-only.
-On macOS and Linux, `computer_observe` exposes only `shared_desktop`; subscription
-agents can discover and read that shared view without being offered Windows
-window-capture or input actions.
+Use **Capture screen** in a new or existing chat to attach one screenshot to the
+current draft. It does not create a conversation or start a model turn. Windows
+uses Nexa's native monitor/window picker; other hosts use their system picker.
+The capture stops as soon as the image is ready, and the draft thumbnail can be
+removed before sending. Continuous observation and meeting capture live in
+[Live](../guides/LIVE.md). A screenshot attachment does not grant control
+permission or supply a native observation token. Native `computer_observe` and
+`computer_control` remain available only on supported Windows builds.
 
 ### `computer_control`
 

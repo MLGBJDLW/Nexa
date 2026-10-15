@@ -31,6 +31,8 @@ test('release metadata declares one version across every shipped manifest', () =
     ['package-lock.json', rootLock.version],
     ['package-lock.json root package', rootLock.packages[''].version],
     ['apps/desktop/package.json', json('apps/desktop/package.json').version],
+    ['apps/desktop/package-lock.json', json('apps/desktop/package-lock.json').version],
+    ['apps/desktop/package-lock.json root package', json('apps/desktop/package-lock.json').packages[''].version],
     ['apps/desktop/src-tauri/tauri.conf.json', json('apps/desktop/src-tauri/tauri.conf.json').version],
     ['apps/desktop/src-tauri/Cargo.toml', cargoVersion('apps/desktop/src-tauri/Cargo.toml')],
     ['crates/core/Cargo.toml', cargoVersion('crates/core/Cargo.toml')],

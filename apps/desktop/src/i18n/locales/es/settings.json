@@ -1130,5 +1130,11 @@
   "subscriptionQuotaScope": "Cuota de cuenta informada por el proveedor y compartida entre clientes. Es independiente de los tokens de este chat.",
   "subscriptionQuotaUpdated": "Consultado a las {time}",
   "externalAgentAuthRequired": "Elige un método de inicio de sesión del agente. El agente sigue gestionando tu cuenta.",
-  "externalAgentPreparing": "Preparando el agente y creando una sesión. La primera conexión puede tardar unos minutos."
+  "externalAgentPreparing": "Preparando el agente y creando una sesión. La primera conexión puede tardar unos minutos.",
+  "externalAgentRegistryVersion": "Versión del registro · {version}",
+  "externalAgentCheckUpdates": "Buscar actualizaciones",
+  "externalAgentUseUpdate": "Usar {version}",
+  "externalAgentCustomUpdate": "Ejecutable personalizado: actualiza con su instalador.",
+  "externalAgentGoogleProfile": "El acceso a Google se guarda en un perfil independiente de Nexa y se reutiliza en el chat.",
+  "externalAgentRegistryChecked": "Directorio revisado: {time}"
 }

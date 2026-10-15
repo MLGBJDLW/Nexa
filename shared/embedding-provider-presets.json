@@ -891,6 +891,90 @@
         "outputModalities": [
           "embedding"
         ]
+      },
+      {
+        "id": "perplexity/pplx-embed-v1-0.6b",
+        "name": "Perplexity Embed V1 0.6B",
+        "dimensions": 1024,
+        "contextTokens": 32000,
+        "effectiveInputTokens": 32000,
+        "documentationRef": "https://huggingface.co/perplexity-ai/pplx-embed-v1-0.6B",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-15",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "perplexity/pplx-embed-v1-4b",
+        "name": "Perplexity Embed V1 4B",
+        "dimensions": 2560,
+        "contextTokens": 32000,
+        "effectiveInputTokens": 32000,
+        "documentationRef": "https://huggingface.co/perplexity-ai/pplx-embed-v1-4B",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-15",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+        "name": "NVIDIA Llama Nemotron Embed VL V2 (Free)",
+        "dimensions": 2048,
+        "contextTokens": 131072,
+        "effectiveInputTokens": 4096,
+        "documentationRef": "https://docs.api.nvidia.com/nim/reference/nvidia-llama-nemotron-embed-vl-1b-v2-infer",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-15",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "google/gemini-embedding-2-preview",
+        "name": "Gemini Embedding 2 Preview",
+        "dimensions": 3072,
+        "contextTokens": 8192,
+        "effectiveInputTokens": 8192,
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/embeddings",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "preview",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-15",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
       }
     ],
     "documentationUrl": "https://openrouter.ai/docs/guides/overview/multimodal/embeddings"

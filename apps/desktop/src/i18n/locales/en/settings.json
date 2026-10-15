@@ -1130,5 +1130,11 @@
   "subscriptionQuotaScope": "Provider-reported account quota, shared across clients. Separate from this chat’s token usage.",
   "subscriptionQuotaUpdated": "Fetched {time}",
   "externalAgentAuthRequired": "Choose a sign-in method provided by this agent. Your account stays with the agent.",
-  "externalAgentPreparing": "Preparing the agent and creating a session… First-time setup may take a few minutes."
+  "externalAgentPreparing": "Preparing the agent and creating a session… First-time setup may take a few minutes.",
+  "externalAgentRegistryVersion": "Registry release · {version}",
+  "externalAgentCheckUpdates": "Check agent updates",
+  "externalAgentUseUpdate": "Use {version}",
+  "externalAgentCustomUpdate": "Custom executable: update through its installer.",
+  "externalAgentGoogleProfile": "Google sign-in is stored in a separate Nexa profile and reused for chat.",
+  "externalAgentRegistryChecked": "Directory checked {time}"
 }

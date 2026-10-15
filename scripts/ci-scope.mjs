@@ -13,6 +13,7 @@ export const RELEASE_METADATA_PATHS = new Set([
   'CHANGELOG.md',
   'Cargo.lock',
   'apps/desktop/package.json',
+  'apps/desktop/package-lock.json',
   'apps/desktop/src-tauri/Cargo.toml',
   'apps/desktop/src-tauri/tauri.conf.json',
   'crates/core/Cargo.toml',
@@ -25,6 +26,7 @@ const VERSION_SENTINEL = '0.0.0-nexa-release-metadata';
 const JSON_VERSION_PATHS = new Map([
   ['.release-please-manifest.json', [['.']]],
   ['apps/desktop/package.json', [['version']]],
+  ['apps/desktop/package-lock.json', [['version'], ['packages', '', 'version']]],
   ['apps/desktop/src-tauri/tauri.conf.json', [['version']]],
   ['package-lock.json', [['version'], ['packages', '', 'version']]],
   ['package.json', [['version']]],
@@ -145,7 +147,48 @@ const isCli =
   process.argv[1] &&
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-if (isCli) {
+const DOCUMENTATION_PATH = /^(?:docs\/|(?:README|CONTRIBUTING|CHANGELOG|SECURITY)\.md$)/u;
+const FRONTEND_PATH = /^apps\/desktop\/(?:src\/|public\/|e2e\/|tests\/)/u;
+
+export function classifyCiScope(changedPaths, releaseMetadataOnly = false) {
+  if (releaseMetadataOnly) return 'lightweight';
+  if (changedPaths.length === 0) return 'full';
+  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath))) return 'lightweight';
+  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || FRONTEND_PATH.test(changedPath))) {
+    return 'frontend';
+  }
+  // Manifests, shared contracts, workflows, unknown paths and native sources
+  // retain the complete suite. A release candidate always forces full scope.
+  return 'full';
+}
+
+export function ciResultFailures(needs) {
+  const scope = needs.classify?.outputs?.scope;
+  const failures = [];
+  if (needs.classify?.result !== 'success' || !['full', 'frontend', 'lightweight'].includes(scope)) {
+    return ['CI scope classification did not succeed'];
+  }
+  const required = new Set(['repository_policy', 'release_metadata']);
+  if (scope !== 'lightweight') {
+    required.add('frontend');
+    required.add('browser_regressions');
+  }
+  if (scope === 'full') {
+    for (const job of ['rust_core', 'agent_task_eval', 'office_smoke', 'linux_desktop', 'windows-check']) required.add(job);
+  }
+  for (const job of ['repository_policy', 'release_metadata', 'frontend', 'browser_regressions',
+    'rust_core', 'agent_task_eval', 'office_smoke', 'linux_desktop', 'windows-check']) {
+    const expected = required.has(job) ? 'success' : 'skipped';
+    if (needs[job]?.result !== expected) failures.push(`${job}: ${needs[job]?.result ?? 'missing'} (expected ${expected})`);
+  }
+  return failures;
+}
+
+if (isCli && process.argv.includes('--check-results')) {
+  const failures = ciResultFailures(JSON.parse(process.env.NEXA_CI_NEEDS ?? '{}'));
+  for (const failure of failures) console.error(failure);
+  process.exitCode = failures.length > 0 ? 1 : 0;
+} else if (isCli) {
   const changedPaths = fs
     .readFileSync(0, 'utf8')
     .split(/\r?\n/u)
@@ -165,5 +208,7 @@ if (isCli) {
     readBaseFile: (changedPath) => readGitFile(baseRef, changedPath),
     readHeadFile: (changedPath) => readGitFile(headRef, changedPath),
   });
-  process.stdout.write(result ? 'true' : 'false');
+  process.stdout.write(process.argv.includes('--github-output')
+    ? `release_metadata_only=${result}\nscope=${classifyCiScope(changedPaths, result)}\n`
+    : result ? 'true' : 'false');
 }

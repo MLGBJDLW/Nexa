@@ -71,6 +71,10 @@ test.beforeEach(async ({ page }) => {
       defaultRequestCalls: 0,
       stopCalls: 0,
       contextCloseCalls: 0,
+      flushChunkSizes: [] as number[],
+      spoolAudioBytes: 0,
+      realtimeAudioBytes: 0,
+      realtimeFinishCalls: 0,
       grant: () => {},
       rejectExact: () => {},
       grantWorkletModule: () => {},
@@ -101,9 +105,12 @@ test.beforeEach(async ({ page }) => {
         close: () => {},
         postMessage: (message: { type?: string; requestId?: number }) => {
           if (message.type === 'flush') {
-            queueMicrotask(() => this.port.onmessage?.({
-              data: { type: 'flushed', requestId: message.requestId },
-            }));
+            queueMicrotask(() => {
+              for (const bytes of microphoneControl.flushChunkSizes.splice(0)) {
+                this.port.onmessage?.({ data: { type: 'pcm', buffer: new ArrayBuffer(bytes) } });
+              }
+              this.port.onmessage?.({ data: { type: 'flushed', requestId: message.requestId } });
+            });
           }
         },
       };
@@ -283,6 +290,7 @@ test.beforeEach(async ({ page }) => {
           };
         }
         case 'append_voice_audio_spool_cmd':
+          microphoneControl.spoolAudioBytes += (args as unknown as Uint8Array).byteLength;
           return { sequence: 0, audioBytes: 0, durationMs: 0 };
         case 'finish_voice_audio_spool_cmd':
           voiceFinishCalls.push(String(args.sessionId ?? ''));
@@ -321,6 +329,7 @@ test.beforeEach(async ({ page }) => {
           }
           return 'realtime-voice-test';
         case 'append_realtime_transcription_audio_cmd':
+          microphoneControl.realtimeAudioBytes += (args as unknown as Uint8Array).byteLength;
           return null;
         case 'cancel_realtime_transcription_cmd':
           realtimeCancelCalls.push(String(args.sessionId ?? ''));
@@ -329,6 +338,7 @@ test.beforeEach(async ({ page }) => {
           if (microphoneControl.failSpoolTranscription) throw new Error('Realtime replay closed while uploading audio. Managed audio test is retained for retry until expiry or cancellation');
           return { transcript: 'fallback voice transcript', cleanupPending: false };
         case 'finish_realtime_transcription_cmd':
+          microphoneControl.realtimeFinishCalls += 1;
           if (microphoneControl.failRealtimeFinish) {
             throw new Error('realtime finalization failed');
           }
@@ -390,6 +400,31 @@ test('dictation and next-turn Nexus controls remain usable during an active resp
   });
   await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Here is my next instruction');
 });
+
+for (const overloaded of [false, true]) {
+  test(`stop drains retained audio into ${overloaded ? 'canonical replay' : 'realtime transcription'}`, async ({ page }) => {
+    await page.goto('/chat/conv-voice-dock');
+    await page.getByRole('button', { name: 'Start voice input' }).click();
+    await expect(page.getByTestId('voice-recording-dock')).toBeVisible();
+    await page.evaluate((large) => {
+      (window as unknown as { __VOICE_MICROPHONE_CONTROL__: { flushChunkSizes: number[] } })
+        .__VOICE_MICROPHONE_CONTROL__.flushChunkSizes = large ? [48_000, 48_000, 48_000] : [960, 960];
+    }, overloaded);
+    await page.getByRole('button', { name: 'Stop & Transcribe' }).click();
+    await expect(page.getByTestId('chat-input-textarea')).toHaveValue(
+      overloaded ? 'fallback voice transcript' : 'final voice transcript',
+    );
+    const received = await page.evaluate(() => {
+      const control = (window as unknown as {
+        __VOICE_MICROPHONE_CONTROL__: { spoolAudioBytes: number; realtimeAudioBytes: number; realtimeFinishCalls: number };
+      }).__VOICE_MICROPHONE_CONTROL__;
+      return { spool: control.spoolAudioBytes, realtime: control.realtimeAudioBytes, finishes: control.realtimeFinishCalls };
+    });
+    expect(received.spool).toBe(overloaded ? 144_000 : 1_920);
+    expect(received.finishes).toBe(overloaded ? 0 : 1);
+    if (!overloaded) expect(received.realtime).toBe(received.spool);
+  });
+}
 
 test('recording dock retracts through intermediate layout heights', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });

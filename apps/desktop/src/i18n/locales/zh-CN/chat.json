@@ -704,16 +704,9 @@
   "turnChangesNoStats": "行数未知",
   "turnChangesContentUnavailable": "此文件为二进制、体积过大，或保存的差异不可用。",
   "turnChangesLoadError": "无法加载已保存的变更。",
-  "shareScreen": "共享屏幕",
-  "stopScreenShare": "停止屏幕共享",
-  "screenShareActive": "屏幕共享中",
   "screenShareNeedsConversation": "开始对话后即可共享屏幕",
   "screenShareUnavailable": "当前环境不支持屏幕共享",
-  "screenSharePreview": "共享屏幕预览",
-  "screenShareHint": "Agent 继续处理时会获取最新画面；停止共享即可撤回访问。",
   "shareWindow": "窗口 / 系统选择器…",
-  "screenSharePreparingConversation": "正在准备屏幕共享…",
-  "screenShareConversationChanged": "对话已切换，请在当前对话重新开启屏幕共享。",
   "computerUseOperating": "正在操作电脑",
   "computerUseObserving": "正在读取选定窗口",
   "processLive": "实时",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "最多 {tokens} 输入 tokens",
   "contextTierScope": "下轮生效。Copilot 负责压缩并报告实际容量；扩展上下文可能增加用量费用。",
   "agentCompactingBackground": "正在后台压缩上下文",
-  "computerUseStop": "停止电脑操作"
+  "computerUseStop": "停止电脑操作",
+  "captureScreen": "截取屏幕",
+  "captureScreenHint": "只截取一张图片，预览后发送。截图完成即停止采集。",
+  "captureScreenLive": "持续录制请前往 Live",
+  "attachmentsNextMessage": "附件已保存在草稿中，可在本次回复结束后发送。"
 }

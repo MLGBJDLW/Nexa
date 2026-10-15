@@ -308,6 +308,14 @@ impl SpeechToTextConfig {
                         .as_deref()
                         .is_some_and(|value| !value.trim().is_empty())
             }
+            "gemini_realtime_asr" => {
+                self.model.trim() == "gemini-3.5-transcribe-live"
+                    && !self.api_key.trim().is_empty()
+                    && self
+                        .base_url
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+            }
             "dashscope_realtime_asr" => {
                 crate::dashscope_speech::is_realtime_asr_model(&self.model)
                     && !self.api_key.trim().is_empty()
@@ -324,7 +332,11 @@ impl SpeechToTextConfig {
                         .as_deref()
                         .is_some_and(|v| !v.trim().is_empty())
             }
-            "openai_transcription" | "dashscope_asr" | "dashscope_audio_asr" => {
+            "openai_transcription"
+            | "dashscope_asr"
+            | "dashscope_audio_asr"
+            | "gemini_interactions_asr"
+            | "meta_asr" => {
                 !self.api_key.trim().is_empty()
                     && !self.model.trim().is_empty()
                     && self

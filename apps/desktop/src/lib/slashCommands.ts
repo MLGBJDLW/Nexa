@@ -59,7 +59,7 @@ const COMMON_COMMANDS: Array<Omit<SlashCommandOption, "id" | "kind" | "sourceLab
   { name: "quality", title: "Quality profile", description: "Choose quality, or use /quality balanced|deep|code-ultra|research-ultra|custom.", action: "composer" },
   { name: "normal", title: "Normal Mode", description: "Leave Plan Mode and allow execution for the next turn.", action: "composer" },
   { name: "voice", title: "Voice input", description: "Start or stop voice dictation in the current draft.", action: "composer" },
-  { name: "screen", title: "Share screen", description: "Open the screen sharing picker, or stop the current share.", action: "composer" },
+  { name: "screen", title: "Take screenshot", description: "Capture a screen or window into the message draft.", action: "composer" },
   { name: "emoji", title: "Insert emoji", description: "Open the emoji picker for the current draft.", action: "composer" },
   { name: "checkpoints", title: "Checkpoints", description: "Open conversation checkpoints.", action: "composer" },
   { name: "stop", title: "Stop response", description: "Stop the running response and keep your draft.", action: "composer" },

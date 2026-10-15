@@ -12,12 +12,6 @@ fn isolated_environment(root: &Path, cache: &Path) -> BTreeMap<String, String> {
         }
     }
     for name in [
-        "HOME",
-        "USERPROFILE",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "TEMP",
-        "TMP",
         "XDG_CONFIG_HOME",
         "XDG_CACHE_HOME",
         "XDG_DATA_HOME",
@@ -31,6 +25,28 @@ fn isolated_environment(root: &Path, cache: &Path) -> BTreeMap<String, String> {
         "HERMES_HOME",
     ] {
         let directory = root.join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        env.insert(name.into(), directory.to_string_lossy().into_owned());
+    }
+    // Windows known-folder APIs expand USERPROFILE independently of APPDATA.
+    // A coherent empty profile avoids falsely diagnosing a publisher failure.
+    let profile = root.join("profile");
+    // PyInstaller embeds long member paths and still encounters MAX_PATH in
+    // its native extractor. Keep this owned temp root short like Windows TEMP,
+    // rather than nesting it inside the per-provider UUID profile fixture.
+    let temporary = cache
+        .parent()
+        .unwrap()
+        .join("tmp")
+        .join(&uuid::Uuid::new_v4().simple().to_string()[..8]);
+    for (name, directory) in [
+        ("HOME", profile.clone()),
+        ("USERPROFILE", profile.clone()),
+        ("APPDATA", profile.join("AppData/Roaming")),
+        ("LOCALAPPDATA", profile.join("AppData/Local")),
+        ("TEMP", temporary.clone()),
+        ("TMP", temporary),
+    ] {
         std::fs::create_dir_all(&directory).unwrap();
         env.insert(name.into(), directory.to_string_lossy().into_owned());
     }
@@ -80,7 +96,7 @@ async fn probe(provider: String, root: std::path::PathBuf) -> Value {
     let started = std::time::Instant::now();
     let result = tokio::time::timeout(Duration::from_secs(900), async {
         let plan =
-            super::super::transport::prepare_plan(preset, &launch, Some(&root.join("adapters")))
+            super::super::transport::prepare_plan(&preset, &launch, Some(&root.join("adapters")))
                 .await?;
         report["prepared"] = json!(plan.prepared);
         report["executable"] = json!(plan.executable.file_name().unwrap().to_string_lossy());

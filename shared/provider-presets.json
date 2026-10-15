@@ -22992,6 +22992,26 @@
     },
     "models": [
       {
+        "id": "qwen3.8:latest",
+        "name": "Qwen 3.8 27B",
+        "source": "official",
+        "status": "active",
+        "lastVerifiedAt": "2026-10-15",
+        "documentationRef": "https://ollama.com/library/qwen3.8",
+        "recommended": false,
+        "inputModalities": ["text", "image"],
+        "outputModalities": ["text"],
+        "supportsTools": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": { "enabled": false }
+          }
+        }
+      },
+      {
         "id": "qwen3.6:latest",
         "name": "Qwen 3.6",
         "tagKey": "providers.tagRecommended",

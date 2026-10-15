@@ -216,6 +216,9 @@ pub(crate) fn start_external_login(
     }
     let mut command = CommandBuilder::new(&plan.executable);
     command.args(&plan.args);
+    for key in &plan.env_remove {
+        command.env_remove(key);
+    }
     for (key, value) in plan.env {
         command.env(key, value);
     }

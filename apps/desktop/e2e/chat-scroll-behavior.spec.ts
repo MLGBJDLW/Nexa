@@ -517,135 +517,100 @@ test('follows delayed layout growth without mistaking it for user scrolling', as
   await page.evaluate(() => (window as any).__SCROLL_BOX_AUDIT__.observers.forEach((observer: ResizeObserver) => observer.disconnect()));
 });
 
-test('explicit monitor selection shares the whole selected display and stops native capture', async ({ page }) => {
+test('a monitor screenshot is captured once, stays in the draft and produces a reply', async ({ page }) => {
   await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
   await page.goto('/chat/conv-auto-follow');
-  const captures = () => page.evaluate(() => (window as unknown as { __sharedScreen: { nativeCaptures: string[] } }).__sharedScreen.nativeCaptures);
-  await page.getByTestId('desktop-share-toggle').click();
-  await expect(page.getByRole('button', { name: /Screen 2.*2560/ })).toBeVisible();
-  expect(await captures()).toEqual([]);
+  const state = () => page.evaluate(() => {
+    const shared = (window as any).__sharedScreen;
+    return { captures: shared.nativeCaptures, frames: shared.frames, shares: shared.shareConversations, calls: shared.agentCalls };
+  });
+  await page.getByTestId('screen-capture-toggle').click();
+  await expect(page.getByRole('link', { name: 'For continuous recording, open Live' })).toHaveAttribute('href', '/live');
   await page.getByRole('button', { name: /Screen 2.*2560/ }).click();
-  await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(async () => (await captures()).length).toBeGreaterThan(1);
-  expect((await captures()).every(id => id === 'monitor-right')).toBe(true);
-  await page.getByTestId('desktop-share-toggle').click();
-  const count = (await captures()).length;
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
+  expect((await state()).captures).toEqual(['monitor-right']);
+  expect((await state()).shares).toEqual([]);
+  expect((await state()).frames).toBe(0);
   await page.waitForTimeout(1200);
-  expect(await captures()).toHaveLength(count);
+  expect((await state()).captures).toEqual(['monitor-right']);
+  await page.getByTestId('chat-input-textarea').fill('Please describe this screenshot');
+  await page.getByTestId('chat-send').click();
+  await expect.poll(async () => (await state()).calls).toBe(1);
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(0);
+  await expect(page.locator('.chat-assistant-reply').last()).toContainText('Streamed answer #1');
 });
 
-test('a new chat can start screen sharing directly without sending a message', async ({ page }) => {
+test('a new chat captures into its draft without creating a conversation or starting a run', async ({ page }) => {
   await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
   await page.goto('/chat');
   await page.getByPlaceholder('Type a message...').fill('Please check this screen');
-  const share = page.getByTestId('desktop-share-toggle');
-  await expect(share).toBeEnabled();
-  await share.click();
+  await page.getByTestId('screen-capture-toggle').click();
   await page.getByRole('button', { name: /Screen 1.*1920/ }).click();
-  await expect(share).toHaveAttribute('aria-pressed', 'true');
-  const state = await page.evaluate(() => {
-    const shared = (window as unknown as { __sharedScreen: { conversationsCreated: string[]; shareConversations: string[]; agentCalls: number; frames: number } }).__sharedScreen;
-    return { created: shared.conversationsCreated, shared: shared.shareConversations, agentCalls: shared.agentCalls, frames: shared.frames };
-  });
-  expect(state.created).toHaveLength(1);
-  expect(state.shared).toEqual(state.created);
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
+  const state = await page.evaluate(() => (window as any).__sharedScreen);
+  expect(state.conversationsCreated).toEqual([]);
+  expect(state.shareConversations).toEqual([]);
   expect(state.agentCalls).toBe(0);
-  expect(state.frames).toBeGreaterThan(0);
   await expect(page.getByPlaceholder('Type a message...')).toHaveValue('Please check this screen');
-  await share.click();
-  await page.getByRole('button', { name: /^New chat$/i }).click();
-  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('');
-  await page.reload();
-  await expect(page.getByPlaceholder('Type a message...')).toHaveValue('');
 });
 
-test('native window sharing uses the Nexa picker without a localhost browser prompt', async ({ page }) => {
+test('native window screenshots use the selected window without a browser stream', async ({ page }) => {
   await page.addInitScript(() => { Object.assign(window, { isTauri: true }); });
   await page.goto('/chat/conv-auto-follow');
-  await page.getByTestId('desktop-share-toggle').click();
-  await expect(page.getByText('Nexa · Share screen', { exact: true })).toBeVisible();
-  await expect(page.getByTestId('desktop-share-window')).toBeVisible();
+  await page.getByTestId('screen-capture-toggle').click();
+  await expect(page.getByTestId('screen-capture-window')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Window / system picker…' })).toHaveCount(0);
-  await page.getByTestId('desktop-share-window').click();
-  await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
-  const state = await page.evaluate(() => {
-    const source = (window as unknown as { __sharedScreen: { nativeCaptures: string[]; streams: MediaStream[] } }).__sharedScreen;
-    return { captured: source.nativeCaptures, browserStreams: source.streams.length };
-  });
-  expect(state.captured.length).toBeGreaterThan(0);
-  expect(state.captured.every(id => id === 'window-editor')).toBe(true);
-  expect(state.browserStreams).toBe(0);
-  await page.getByTestId('desktop-share-toggle').click();
+  await page.getByTestId('screen-capture-window').click();
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as any).__sharedScreen.nativeCaptures)).toEqual(['window-editor']);
+  expect(await page.evaluate(() => (window as any).__sharedScreen.streams.length)).toBe(0);
 });
 
-test('disables screen sharing when neither browser nor native display capture is available', async ({ page }) => {
+test('disables capture when neither browser nor native capture is available', async ({ page }) => {
   await page.goto('/chat/conv-auto-follow');
   await page.evaluate(() => {
     Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { value: undefined });
-    const runtime = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const runtime = (window as any).__TAURI_INTERNALS__;
     const invoke = runtime.invoke;
-    runtime.invoke = (command, args) => command === 'list_desktop_monitors_cmd' ? Promise.resolve([]) : command === 'list_desktop_windows_cmd' ? Promise.resolve({ supported: false, windows: [] }) : invoke(command, args);
+    runtime.invoke = (command: string, args: unknown) => command === 'list_desktop_monitors_cmd' ? Promise.resolve([]) : command === 'list_desktop_windows_cmd' ? Promise.resolve({ supported: false, windows: [] }) : invoke(command, args);
     Object.assign(window, { isTauri: true });
   });
   await page.getByText('Footnote Scroll', { exact: true }).click();
-  await expect(page.getByTestId('desktop-share-toggle')).toBeDisabled();
+  await expect(page.getByTestId('screen-capture-toggle')).toBeDisabled();
 });
 
-test('screen sharing sends fresh frames and stops on revocation or conversation change', async ({ page }) => {
+test('browser screenshot releases every media track immediately after capture', async ({ page }) => {
   await page.goto('/chat/conv-auto-follow');
-  const share = page.getByTestId('desktop-share-toggle');
-  const state = () => page.evaluate(() => {
-    const shared = (window as unknown as { __sharedScreen: { frames: number; stopped: number; streams: MediaStream[] } }).__sharedScreen;
-    return { frames: shared.frames, stopped: shared.stopped, tracks: shared.streams.flatMap(stream => stream.getTracks().map(track => track.readyState)) };
-  });
-  await share.click();
+  await page.getByTestId('screen-capture-toggle').click();
   await page.getByRole('button', { name: 'Window / system picker…' }).click();
-  await expect(share).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(async () => (await state()).frames).toBeGreaterThan(1);
-  await share.click();
-  await expect.poll(async () => (await state()).tracks.every(status => status === 'ended')).toBe(true);
-  await expect.poll(async () => (await state()).stopped).toBe(1);
-  const stoppedFrames = (await state()).frames;
-  await page.waitForTimeout(1100);
-  expect((await state()).frames).toBe(stoppedFrames);
-  await share.click();
-  await page.getByRole('button', { name: 'Window / system picker…' }).click();
-  await expect(share).toHaveAttribute('aria-pressed', 'true');
-  // A client-side navigation must release capture without relying on a page unload.
-  await page.getByText('Footnote Scroll', { exact: true }).click();
-  await expect.poll(async () => (await state()).tracks.every(status => status === 'ended')).toBe(true);
-  await expect(share).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as any).__sharedScreen.streams.every((stream: MediaStream) => stream.getTracks().every(track => track.readyState === 'ended')))).toBe(true);
+  expect(await page.evaluate(() => (window as any).__sharedScreen.frames)).toBe(0);
 });
 
-test('stopping a pending screen share releases media before its lease arrives', async ({ page }) => {
+test('a late system picker result is released and cannot attach to another conversation', async ({ page }) => {
   await page.goto('/chat/conv-auto-follow');
   await page.evaluate(() => {
-    const runtime = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
-    const invoke = runtime.invoke;
-    runtime.invoke = (command, args) => command === 'begin_desktop_share_cmd'
-      ? new Promise(resolve => { Object.assign(window, { __finishScreenLease: () => resolve('late-lease') }); })
-      : invoke(command, args);
+    const capture = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { configurable: true, value: () => new Promise(resolve => {
+      Object.assign(window, { __finishCapture: async () => resolve(await capture()) });
+    }) });
   });
-  const share = page.getByTestId('desktop-share-toggle');
-  await share.click();
+  await page.getByTestId('screen-capture-toggle').click();
   await page.getByRole('button', { name: 'Window / system picker…' }).click();
-  await expect.poll(() => page.evaluate(() => '__finishScreenLease' in window)).toBe(true);
-  await share.click();
-  await expect.poll(() => page.evaluate(() => {
-    const shared = (window as unknown as { __sharedScreen: { streams: MediaStream[] } }).__sharedScreen;
-    return shared.streams.length > 0 && shared.streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended'));
-  })).toBe(true);
-  await page.evaluate(() => (window as unknown as { __finishScreenLease: () => void }).__finishScreenLease());
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __sharedScreen: { stopped: number } }).__sharedScreen.stopped)).toBe(1);
-  expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBe(0);
-  await expect(share).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => page.evaluate(() => '__finishCapture' in window)).toBe(true);
+  await page.getByText('Footnote Scroll', { exact: true }).click();
+  await page.evaluate(() => (window as any).__finishCapture());
+  await expect.poll(() => page.evaluate(() => (window as any).__sharedScreen.streams.length)).toBe(1);
+  expect(await page.evaluate(() => (window as any).__sharedScreen.streams[0].getTracks().every((track: MediaStreamTrack) => track.readyState === 'ended'))).toBe(true);
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(0);
 });
 
 test('bounds a high-entropy screen frame and keeps its JPEG decodable', async ({ page }) => {
   await page.goto('/chat/conv-auto-follow');
   const result = await page.evaluate(async () => {
-    const modulePath = '/src/lib/sharedScreenFrame.ts';
-    const { encodeSharedScreenFrame, MAX_SHARED_SCREEN_BASE64 } = await import(/* @vite-ignore */ modulePath);
+    const modulePath = '/src/lib/screenCaptureFrame.ts';
+    const { encodeScreenCaptureFrame, MAX_SCREEN_CAPTURE_BASE64 } = await import(/* @vite-ignore */ modulePath);
     const source = document.createElement('canvas');
     source.width = source.height = 1568;
     const context = source.getContext('2d')!;
@@ -660,28 +625,12 @@ test('bounds a high-entropy screen frame and keeps its JPEG decodable', async ({
     }
     context.putImageData(pixels, 0, 0);
     const originalLength = source.toDataURL('image/jpeg', 0.65).split(',')[1].length;
-    const frame = encodeSharedScreenFrame(source, source.width, source.height, document.createElement('canvas'))!;
+    const frame = encodeScreenCaptureFrame(source, source.width, source.height, document.createElement('canvas'))!;
     const image = new Image(); image.src = frame.url; await image.decode();
-    return { originalLength, length: frame.base64.length, limit: MAX_SHARED_SCREEN_BASE64, width: image.naturalWidth, height: image.naturalHeight };
+    return { originalLength, length: frame.base64.length, limit: MAX_SCREEN_CAPTURE_BASE64, width: image.naturalWidth, height: image.naturalHeight };
   });
   expect(result.originalLength).toBeGreaterThan(result.limit);
   expect(result.length).toBeLessThanOrEqual(result.limit);
   expect(result.length).toBeGreaterThan(0);
   expect(Math.max(result.width, result.height)).toBeLessThanOrEqual(1568);
-});
-
-test('a frame that cannot fit does not stop screen sharing', async ({ page }) => {
-  await page.goto('/chat/conv-auto-follow');
-  await page.evaluate(() => {
-    const encode = HTMLCanvasElement.prototype.toDataURL;
-    let attempts = 0;
-    HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
-      return attempts++ < 9 ? `data:image/jpeg;base64,${'A'.repeat(1_400_004)}` : encode.call(this, type, quality);
-    };
-  });
-  await page.getByTestId('desktop-share-toggle').click();
-  await page.getByRole('button', { name: 'Window / system picker…' }).click();
-  await expect(page.getByTestId('desktop-share-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __sharedScreen: { frames: number } }).__sharedScreen.frames)).toBeGreaterThan(1);
-  expect(await page.evaluate(() => (window as unknown as { __sharedScreen: { stopped: number } }).__sharedScreen.stopped)).toBe(0);
 });

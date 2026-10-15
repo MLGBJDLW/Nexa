@@ -6,6 +6,8 @@ import {
   RELEASE_PLEASE_BRANCH,
   isReleaseMetadataOnly,
   releaseMetadataContentsMatch,
+  classifyCiScope,
+  ciResultFailures,
 } from './ci-scope.mjs';
 
 const repository = 'MLGBJDLW/Nexa';
@@ -28,6 +30,8 @@ version = "1.0.0"
 `,
   'apps/desktop/package.json':
     '{"name":"nexa-desktop","version":"0.13.2","dependencies":{"react":"19.0.0"}}\n',
+  'apps/desktop/package-lock.json':
+    '{"name":"nexa-desktop","version":"0.13.2","lockfileVersion":3,"packages":{"":{"version":"0.13.2"},"node_modules/react":{"version":"19.0.0"}}}\n',
   'apps/desktop/src-tauri/Cargo.toml': `[package]
 name = "nexa-desktop"
 version = "0.13.2"
@@ -161,4 +165,30 @@ test('fails closed when an allowlisted file cannot be read from either revision'
     }),
     false,
   );
+});
+
+test('small changes omit unrelated runtime jobs while shared or unknown changes keep full CI', () => {
+  assert.equal(classifyCiScope(['docs/runtime/LIVE.md', 'CONTRIBUTING.md']), 'lightweight');
+  assert.equal(classifyCiScope(['apps/desktop/src/features/chat/ChatInput.tsx', 'docs/README.md']), 'frontend');
+  for (const changedPath of ['apps/desktop/src-tauri/src/main.rs', 'crates/core/src/lib.rs',
+    'apps/desktop/package-lock.json', 'shared/external-agent-presets.json', '.github/workflows/ci.yml',
+    'crates/core/assets/skills/chat/SKILL.md', 'scripts/ci-scope.mjs', 'unknown.txt']) {
+    assert.equal(classifyCiScope([changedPath]), 'full', changedPath);
+  }
+  assert.equal(classifyCiScope([]), 'full');
+  assert.equal(classifyCiScope(['package.json'], true), 'lightweight');
+});
+
+test('CI aggregation rejects failed classification, skipped required jobs and cancelled jobs', () => {
+  const needs = Object.fromEntries(['repository_policy', 'release_metadata', 'frontend', 'browser_regressions',
+    'rust_core', 'agent_task_eval', 'office_smoke', 'linux_desktop', 'windows-check']
+    .map(job => [job, { result: ['repository_policy', 'release_metadata', 'frontend', 'browser_regressions'].includes(job)
+      ? 'success' : 'skipped' }]));
+  needs.classify = { result: 'success', outputs: { scope: 'frontend' } };
+  assert.deepEqual(ciResultFailures(needs), []);
+  assert.notDeepEqual(ciResultFailures({ ...needs, frontend: { result: 'skipped' } }), []);
+  assert.notDeepEqual(ciResultFailures({ ...needs, browser_regressions: { result: 'cancelled' } }), []);
+  assert.notDeepEqual(ciResultFailures({ ...needs, classify: { result: 'failure' } }), []);
+  assert.notDeepEqual(ciResultFailures({ ...needs, classify: { result: 'success', outputs: { scope: 'unknown' } } }), []);
+  assert.notDeepEqual(ciResultFailures({ ...needs, classify: { result: 'success', outputs: { scope: 'full' } } }), []);
 });

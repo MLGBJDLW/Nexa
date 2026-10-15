@@ -44,10 +44,11 @@ impl Default for VoiceSpoolLimits {
         Self {
             max_sessions: 8,
             max_chunk_bytes: 256 * 1024,
-            // More than four hours of mono 16 kHz PCM16 and comfortably above
-            // the required 60-minute soak duration.
-            max_audio_bytes_per_session: 512 * 1024 * 1024,
-            max_total_audio_bytes: 1024 * 1024 * 1024,
+            // Storage pressure must not masquerade as a recording timer.
+            // Retain only the actual RIFF container boundary; native I/O
+            // errors remain recoverable through the checkpoint manifest.
+            max_audio_bytes_per_session: u64::from(u32::MAX - 36),
+            max_total_audio_bytes: u64::MAX,
             retention: Duration::from_secs(24 * 60 * 60),
         }
     }

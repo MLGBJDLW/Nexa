@@ -84,7 +84,6 @@ mod prompt_layout;
 pub mod route;
 mod sampling;
 pub mod scratchpad;
-mod shared_desktop;
 mod steering;
 mod stream_recovery;
 mod tool_discovery;

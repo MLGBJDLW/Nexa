@@ -203,6 +203,7 @@ pub async fn start(
                 || !matches!(
                     stt.api_style.as_str(),
                     "openai_realtime_transcription"
+                        | "gemini_realtime_asr"
                         | "dashscope_realtime_asr"
                         | "dashscope_streaming_asr"
                 )
@@ -211,7 +212,7 @@ pub async fn start(
             }
             if matches!(
                 stt.api_style.as_str(),
-                "dashscope_realtime_asr" | "dashscope_streaming_asr"
+                "dashscope_realtime_asr" | "dashscope_streaming_asr" | "gemini_realtime_asr"
             ) {
                 rate = 16_000;
             }

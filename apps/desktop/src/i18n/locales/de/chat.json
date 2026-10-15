@@ -704,16 +704,9 @@
   "turnChangesNoStats": "Zeilen unbekannt",
   "turnChangesContentUnavailable": "Binärdatei, zu groß oder gespeicherter Vergleich nicht verfügbar.",
   "turnChangesLoadError": "Gespeicherte Änderungen konnten nicht geladen werden.",
-  "shareScreen": "Bildschirm teilen",
-  "stopScreenShare": "Freigabe beenden",
-  "screenShareActive": "Bildschirm geteilt",
   "screenShareNeedsConversation": "Starten Sie zuerst ein Gespräch",
   "screenShareUnavailable": "Bildschirmfreigabe ist hier nicht verfügbar",
-  "screenSharePreview": "Bildschirmvorschau",
-  "screenShareHint": "Der Agent erhält beim Fortsetzen die aktuelle Ansicht. Beenden Sie die Freigabe, um den Zugriff zu widerrufen.",
   "shareWindow": "Fenster / Systemauswahl…",
-  "screenSharePreparingConversation": "Bildschirmfreigabe wird vorbereitet…",
-  "screenShareConversationChanged": "Der Chat wurde gewechselt. Starte die Bildschirmfreigabe im aktuellen Chat.",
   "computerUseOperating": "Computer wird gesteuert",
   "computerUseObserving": "Ausgewähltes Fenster wird gelesen",
   "processLive": "Live",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "Bis zu {tokens} Eingabetoken",
   "contextTierScope": "Gilt ab dem nächsten Durchlauf. Copilot verwaltet die Komprimierung und meldet die tatsächliche Kapazität. Erweiterter Kontext kann mehr kosten.",
   "agentCompactingBackground": "Kontext wird im Hintergrund komprimiert",
-  "computerUseStop": "Computersteuerung stoppen"
+  "computerUseStop": "Computersteuerung stoppen",
+  "captureScreen": "Screenshot aufnehmen",
+  "captureScreenHint": "Ein Bild aufnehmen, prüfen und senden. Die Aufnahme endet sofort.",
+  "captureScreenLive": "Für fortlaufende Aufnahmen Live öffnen",
+  "attachmentsNextMessage": "Die Anhänge sind für die nächste Nachricht nach dieser Antwort bereit."
 }

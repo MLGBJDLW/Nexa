@@ -5,6 +5,7 @@ import type {
 } from '../../types/conversation';
 import type { UsageTotal } from './protocol';
 import type { InternalStreamState } from './state';
+import { replaceBlockTraceText } from './blockTrace';
 import {
   appendStatusTraceEvent,
   applyTerminalProjection,
@@ -138,6 +139,10 @@ function replaceTerminalReplyTrace(state: InternalStreamState, finalReply: strin
     return;
   }
   const existing = state.traceEvents[index];
+  if (existing.kind === 'reply' && existing.blockId) {
+    state.traceEvents = replaceBlockTraceText(state.traceEvents, 'reply', existing.blockId, finalReply);
+    return;
+  }
   if (existing.kind !== 'reply' || existing.text === finalReply) return;
   const next = [...state.traceEvents];
   next[index] = { ...existing, text: finalReply };

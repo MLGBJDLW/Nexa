@@ -8,10 +8,6 @@ import { sttRuntimeCapabilities } from '../../lib/sttProviderPresets';
 import type { VideoConfig, WhisperModel } from '../../types/video';
 import { useMicrophoneDevices } from './useMicrophoneDevices';
 import { useVoiceRecorder } from './useVoiceRecorder';
-import {
-  appendBoundedVoicePartial,
-  replaceBoundedVoicePartial,
-} from './boundedVoicePartial';
 import { BoundedAudioUploadQueue } from './boundedAudioQueue';
 import { NativeVoiceSpoolUpload } from './nativeVoiceSpool';
 
@@ -44,7 +40,7 @@ export interface VoiceRecordingContext {
 export interface RealtimeTranscriptEvent {
   sessionId: string;
   sequence: number;
-  kind: 'interim' | 'final' | 'error' | 'closed';
+  kind: 'interim' | 'final' | 'error' | 'closed' | 'reconnecting' | 'connected';
   update?: 'appendDelta' | 'replaceSnapshot';
   text?: string;
   utteranceId?: string;
@@ -81,13 +77,13 @@ export function projectRealtimeTranscriptText(
   event: RealtimeTranscriptEvent,
 ): string {
   if (event.kind === 'final') {
-    return replaceBoundedVoicePartial(event.text ?? '');
+    return event.text ?? '';
   }
   if (event.kind !== 'interim') return current;
   if (event.update === 'replaceSnapshot' && typeof event.text === 'string') {
-    return replaceBoundedVoicePartial(event.text);
+    return event.text;
   }
-  return event.text ? appendBoundedVoicePartial(current, event.text) : current;
+  return event.text ? current + event.text : current;
 }
 
 export function isRealtimeTranscriptionConfig(
@@ -101,12 +97,13 @@ export function isRealtimeTranscriptionConfig(
 export function isSpeechToTextConfigured(config?: SpeechToTextConfig | null): boolean {
   if (!config || config.apiStyle === 'local_whisper') return true;
   if (config.apiStyle === 'openai_realtime_transcription'
+    || config.apiStyle === 'gemini_realtime_asr'
     || config.apiStyle === 'dashscope_realtime_asr'
     || config.apiStyle === 'dashscope_streaming_asr') {
     return isRealtimeTranscriptionConfig(config)
       && Boolean(config.apiKey.trim() && config.baseUrl?.trim() && config.model.trim());
   }
-  if (config.apiStyle === 'openai_transcription' || config.apiStyle === 'dashscope_asr' || config.apiStyle === 'dashscope_audio_asr') {
+  if (['openai_transcription', 'dashscope_asr', 'dashscope_audio_asr', 'gemini_interactions_asr', 'meta_asr'].includes(config.apiStyle)) {
     return Boolean(config.apiKey.trim() && config.baseUrl?.trim() && config.model.trim());
   }
   if (config.apiStyle === 'sherpa_onnx') {
@@ -216,6 +213,10 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
       } else if (event.payload.kind === 'error') {
         realtimeUploadErrorRef.current = event.payload.text ?? 'Realtime transcription failed';
         realtimeSafeStopHandlerRef.current();
+      } else if (event.payload.kind === 'reconnecting') {
+        setTransportState('buffering');
+      } else if (event.payload.kind === 'connected') {
+        setTransportState('online');
       }
     }).then((dispose) => {
       if (disposed) dispose();
@@ -403,7 +404,6 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
     const sessionId = realtimeSessionIdRef.current;
     const uploadQueue = realtimeUploadQueueRef.current;
     const voiceSpool = voiceSpoolUploadRef.current;
-    realtimeAcceptingAudioRef.current = false;
     const detachRealtimeProjection = (reason: string) => {
       uploadQueue?.cancel(reason);
       if (realtimeSessionIdRef.current === sessionId) {
@@ -429,6 +429,10 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
           code: 'recording_failed',
           message: String(error),
         };
+      } finally {
+        // stopRecording drains worklet PCM before resolving. Keep the live
+        // sink open for that tail; overload still falls back to the full spool.
+        realtimeAcceptingAudioRef.current = false;
       }
       if (!voiceSpool) {
         detachRealtimeProjection('Realtime recording ended without a managed spool');
@@ -728,6 +732,9 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
           realtimeUploadQueueRef.current = new BoundedAudioUploadQueue(
             (chunk) => api.appendRealtimeTranscriptionAudio(sessionId!, chunk),
             {
+              // This is a replaceable live preview. The native spool already
+              // retains every frame; a stalled preview falls back to that file
+              // without stopping the microphone or duplicating unlimited PCM.
               bytesPerSecond: sampleRate * 2,
               maxBufferedDurationMs: 2_000,
               onRejected: () => degradeRealtimeToSpool(true),

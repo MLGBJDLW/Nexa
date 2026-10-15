@@ -486,6 +486,21 @@ test.beforeEach(async ({ page }) => {
             ? [{ id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", reasoningEfforts: ["low", "high"] }, { id: "gpt-5.4", name: "GPT-5.4", reasoningEfforts: [] }]
             : [{ id: "gpt-6", name: "GPT-6", reasoningEfforts: ["low", "high", "ultra"] }];
         }
+        case 'get_external_agent_registry_cmd':
+          return JSON.parse(localStorage.getItem('nexa-e2e-acp-directory') ?? 'null');
+        case 'check_external_agent_updates_cmd':
+          if (localStorage.getItem('nexa-e2e-acp-directory-offline') === '1') throw new Error('Directory is offline; cached agents remain available');
+          return JSON.parse(localStorage.getItem('nexa-e2e-acp-directory') ?? 'null');
+        case 'update_external_agent_cmd': {
+          if (localStorage.getItem('nexa-e2e-acp-update-fails') === '1') throw new Error('Candidate ACP handshake failed; current release retained');
+          const snapshot = JSON.parse(localStorage.getItem('nexa-e2e-acp-directory') ?? 'null');
+          const entry = snapshot.entries.find((entry: any) => entry.preset.provider === _args.provider && entry.fingerprint === _args.fingerprint);
+          if (!entry) throw new Error('Directory changed');
+          entry.preset.registryVersion = entry.availableVersion;
+          entry.updateAvailable = false;
+          localStorage.setItem('nexa-e2e-acp-directory', JSON.stringify(snapshot));
+          return snapshot;
+        }
         case 'get_external_agent_launch_cmd':
           if (localStorage.getItem('nexa-e2e-legacy-acp-reasoning')) return { executable: null, workingDirectory: '', configOptions: { effort: 'high' } };
           return { executable: null, workingDirectory: '' };
@@ -2740,6 +2755,36 @@ for (const [name, provider, presetId] of [
   });
 }
 
+test('ACP directory updates preserve the current release on failure and load new agents without a rebuild', async ({ page }) => {
+  const presets = JSON.parse(readFileSync(new URL('../../../shared/external-agent-presets.json', import.meta.url), 'utf8'));
+  const google = presets.find((preset: any) => preset.registryId === 'antigravity-acp');
+  const future = { ...google, id: 'acp-future-agent', provider: 'acp_future_agent', name: 'Future directory agent', registryId: 'future-agent', registryVersion: '2.0.0', icon: '/provider-icons/agents/custom.svg' };
+  const entries = [...presets, future].map((preset: any) => ({ preset: preset === google ? { ...preset, registryVersion: '1.3.0' } : preset, availableVersion: preset === google ? '1.4.0' : preset.registryVersion ?? null, updateAvailable: preset === google, fingerprint: preset.provider }));
+  await page.addInitScript(snapshot => localStorage.setItem('nexa-e2e-acp-directory', JSON.stringify(snapshot)), { source: 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json', checkedAt: 1792000000, entries });
+  await page.goto('/settings');
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await expect(page.locator('[data-provider-preset-id="acp-future-agent"]')).toBeVisible();
+  await page.locator('[data-provider-preset-id="acp-antigravity-acp"]').click();
+  const form = page.getByTestId('external-agent-form');
+  await expect(form).toContainText('Registry release · 1.3.0');
+  await expect(form).toContainText('separate Nexa profile');
+  await page.evaluate(() => localStorage.setItem('nexa-e2e-acp-update-fails', '1'));
+  await form.getByRole('button', { name: 'Use 1.4.0', exact: true }).click();
+  await expect(form.getByRole('alert')).toContainText('current release retained');
+  await expect(form).toContainText('Registry release · 1.3.0');
+  await page.evaluate(() => localStorage.removeItem('nexa-e2e-acp-update-fails'));
+  await form.getByRole('button', { name: 'Use 1.4.0', exact: true }).click();
+  await expect(form).toContainText('Registry release · 1.4.0');
+  await expect(form.getByRole('button', { name: 'Use 1.4.0', exact: true })).toHaveCount(0);
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await page.evaluate(() => localStorage.setItem('nexa-e2e-acp-directory-offline', '1'));
+  await form.getByRole('button', { name: 'Check agent updates', exact: true }).click();
+  await expect(form).toContainText('cached agents remain available');
+  await expect(form).toContainText('Registry release · 1.4.0');
+});
+
 test('ACP profiles can connect and save without a manual working directory', async ({ page }) => {
   await page.goto('/settings');
   await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
@@ -2764,7 +2809,7 @@ test('registry agents and custom ACP profiles expose validated literal launch co
   }
   await page.locator('[data-provider-preset-id="acp-pi-acp"]').click();
   const form=page.getByTestId('external-agent-form');
-  await expect(form).toContainText('ACP Registry · 0.0.34');
+  await expect(form).toContainText('Registry release · 0.0.34');
   await expect(form).toContainText('prepares the pinned package or official binary');
   await form.locator('summary').click();
   const args=form.getByRole('textbox',{name:/Arguments \(JSON/});

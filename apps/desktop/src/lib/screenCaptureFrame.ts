@@ -1,9 +1,9 @@
-// Keep this transport envelope in sync with core/shared_desktop.rs.
-export const MAX_SHARED_SCREEN_BASE64 = 1_400_000;
+// Encode a legible image for a one-shot chat attachment.
+export const MAX_SCREEN_CAPTURE_BASE64 = 1_400_000;
 const MAX_EDGE = 1568;
 
 /** Preserve legibility first, then reduce resolution for high-entropy frames. */
-export function encodeSharedScreenFrame(
+export function encodeScreenCaptureFrame(
   source: CanvasImageSource,
   width: number,
   height: number,
@@ -22,7 +22,7 @@ export function encodeSharedScreenFrame(
       const prefix = 'data:image/jpeg;base64,';
       if (!url.startsWith(prefix)) continue;
       const base64 = url.slice(prefix.length);
-      if (base64.length > 0 && base64.length <= MAX_SHARED_SCREEN_BASE64) return { url, base64 };
+      if (base64.length > 0 && base64.length <= MAX_SCREEN_CAPTURE_BASE64) return { url, base64 };
     }
   }
   return null;

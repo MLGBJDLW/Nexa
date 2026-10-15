@@ -1,9 +1,57 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
+import { encodeScreenCaptureFrame } from './screenCaptureFrame';
 
 export interface DesktopMonitor { id: string; width: number; height: number; primary: boolean }
 export interface DesktopWindow { id: string; title: string; appName: string; width: number; height: number }
 export interface ScreenCapture { stream: MediaStream; stop(): void }
+
+/** One screenshot, returned through the same image attachment path as paste. */
+export async function captureScreenSnapshot(signal: AbortSignal, monitorId?: string, windowId?: string): Promise<string> {
+  signal.throwIfAborted();
+  if (monitorId || windowId) {
+    const base64 = windowId
+      ? await invoke<string>('capture_desktop_window_cmd', { windowId })
+      : await invoke<string>('capture_desktop_monitor_cmd', { monitorId });
+    signal.throwIfAborted();
+    return `data:image/jpeg;base64,${base64}`;
+  }
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  const stop = () => stream.getTracks().forEach(track => track.stop());
+  const video = document.createElement('video');
+  signal.addEventListener('abort', stop, { once: true });
+  try {
+    signal.throwIfAborted();
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    const ready = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => finish(new Error('Screen capture did not produce an image')), 5000);
+      const finish = (error?: unknown) => {
+        clearTimeout(timeout);
+        video.onloadeddata = null;
+        video.onerror = null;
+        signal.removeEventListener('abort', aborted);
+        if (error) reject(error); else resolve();
+      };
+      const aborted = () => finish(signal.reason);
+      video.onloadeddata = () => finish();
+      video.onerror = () => finish(new Error('Screen capture is unavailable'));
+      signal.addEventListener('abort', aborted, { once: true });
+      void video.play().catch(finish);
+    });
+    await ready;
+    signal.throwIfAborted();
+    const frame = encodeScreenCaptureFrame(video, video.videoWidth, video.videoHeight, document.createElement('canvas'));
+    if (!frame) throw new Error('Screen capture did not produce a usable image');
+    return frame.url;
+  } finally {
+    signal.removeEventListener('abort', stop);
+    stop();
+    video.pause();
+    video.srcObject = null;
+  }
+}
 
 export function useDesktopMonitors(enabled = true) {
   const [monitors, setMonitors] = useState<DesktopMonitor[]>([]);

@@ -103,9 +103,15 @@ pub(crate) async fn authenticate(
 ) -> Result<Authentication> {
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let mut resolved = preferences.resolve(db, None, None)?;
-    let mut plan =
-        super::transport::prepare_plan(preset, &resolved, super::adapter_cache_root(db).as_deref())
-            .await?;
+    // Prepare the requested mode before spawning the runtime. A stale saved
+    // API-key mode must not govern a newly selected Google OAuth flow.
+    resolved.authentication_method = Some(method_id.to_owned());
+    let mut plan = super::transport::prepare_plan(
+        &preset,
+        &resolved,
+        super::adapter_cache_root(db).as_deref(),
+    )
+    .await?;
     let mut wire = Wire::spawn(super::transport::command_from_plan(&plan, &resolved)?)?;
     let initialized = Session::initialize(&mut wire).await?;
     let method = initialized

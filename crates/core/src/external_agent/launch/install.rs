@@ -231,17 +231,15 @@ fn publish(root: &Path, directory: &Path, previous: &Path) -> Result<(), CoreErr
 pub(super) async fn binary(
     binary: &BinaryDistribution,
     cache_root: &Path,
+    official_registry: bool,
 ) -> Result<PathBuf, CoreError> {
     // Validate before consulting the cache as well as before downloading. A
     // previous unverified installation must not bypass the pinned registry.
-    let expected_digest = binary
-        .sha256
-        .as_deref()
-        .filter(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .ok_or_else(|| {
-            invalid("This ACP archive has no valid pinned SHA-256 checksum. Install the publisher's ACP adapter yourself and choose its executable in Settings.")
-        })?
-        .to_ascii_lowercase();
+    let expected_digest = match binary.sha256.as_deref() {
+        Some(digest) if digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()) => Some(digest.to_ascii_lowercase()),
+        None if official_registry => None,
+        _ => return Err(invalid("This ACP archive has no valid pinned SHA-256 checksum or official registry provenance.")),
+    };
     let url = url::Url::parse(&binary.archive)
         .map_err(|_| invalid("Invalid ACP registry archive URL"))?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
@@ -250,10 +248,17 @@ pub(super) async fn binary(
         ));
     }
     let relative = relative_path(&binary.cmd)?;
-    let key =
-        blake3::hash(format!("{}\0{}\0{}", binary.archive, binary.cmd, expected_digest).as_bytes())
-            .to_hex()
-            .to_string();
+    let key = blake3::hash(
+        format!(
+            "{}\0{}\0{}",
+            binary.archive,
+            binary.cmd,
+            expected_digest.as_deref().unwrap_or("official-registry")
+        )
+        .as_bytes(),
+    )
+    .to_hex()
+    .to_string();
     let directory = cache_root.join(&key);
     let lock = install_lock(&directory);
     let guard = lock.lock_owned().await;
@@ -261,15 +266,16 @@ pub(super) async fn binary(
     let check_binary = binary.clone();
     let check_digest = expected_digest.clone();
     let check_relative = relative.clone();
-    let (guard, cached) = tokio::task::spawn_blocking(move || {
-        let cached = integrity::verify(
-            &check_directory,
-            &check_binary,
-            &check_digest,
-            &check_relative,
-        )
-        .ok();
-        (guard, cached)
+    let (guard, cached, expected_digest) = tokio::task::spawn_blocking(move || {
+        // Some official publishers omit archive hashes. The first HTTPS
+        // download records its observed digest; later launches and repairs
+        // retain that identity. This is not a publisher signature.
+        let digest = check_digest
+            .or_else(|| integrity::recorded_digest(&check_directory, &check_binary).ok());
+        let cached = digest.as_deref().and_then(|digest| {
+            integrity::verify(&check_directory, &check_binary, digest, &check_relative).ok()
+        });
+        (guard, cached, digest)
     })
     .await
     .map_err(|error| invalid(format!("ACP cache verification failed: {error}")))?;
@@ -323,7 +329,10 @@ pub(super) async fn binary(
     file.flush().await?;
     drop(file);
     let digest = format!("{:x}", digest.finalize());
-    if expected_digest != digest {
+    if expected_digest
+        .as_ref()
+        .is_some_and(|expected| expected != &digest)
+    {
         return Err(invalid(
             "ACP archive checksum mismatch; the downloaded adapter was not installed",
         ));
@@ -391,7 +400,7 @@ mod tests {
         verify_target(&root, Path::new("agent")).unwrap();
         integrity::write(&root, &binary, digest).unwrap();
         assert_eq!(
-            super::binary(&binary, cache.path()).await.unwrap(),
+            super::binary(&binary, cache.path(), false).await.unwrap(),
             root.join("agent")
         );
     }
@@ -430,7 +439,7 @@ mod tests {
         .unwrap();
         std::fs::remove_file(cache.join("helper")).unwrap();
         assert!(
-            super::binary(&binary, scratch.path()).await.is_err(),
+            super::binary(&binary, scratch.path(), false).await.is_err(),
             "a stale marker must not authorize an incomplete cached installation"
         );
     }
@@ -460,7 +469,9 @@ mod tests {
             std::fs::create_dir_all(&cache).unwrap();
             std::fs::write(cache.join(".nexa-install.json"), "{}").unwrap();
             std::fs::write(cache.join("agent"), "unverified fixture").unwrap();
-            let error = super::binary(&binary, scratch.path()).await.unwrap_err();
+            let error = super::binary(&binary, scratch.path(), false)
+                .await
+                .unwrap_err();
             assert!(error.to_string().contains("pinned SHA-256"), "{error}");
         }
     }

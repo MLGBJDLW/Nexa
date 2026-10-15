@@ -47,6 +47,23 @@ impl Default for EmbedderConfig {
 }
 
 impl EmbedderConfig {
+    pub(crate) fn max_chunk_chars(&self) -> Option<usize> {
+        let existing = self.local_embedding_model().max_chunk_chars().max(1500);
+        match self.provider.as_str() {
+            "local" => Some(existing),
+            "api" => crate::embedding_provider_catalog::find_embedding_model(
+                &self.api_base_url,
+                &self.api_model,
+            )
+            .and_then(|model| model.effective_input_tokens)
+            // UTF-8 byte capacity is conservative across tokenizer families;
+            // reserve serving-template tokens and preserve every split chunk.
+            .map(|tokens| (tokens.saturating_sub(64) / 4).clamp(1, 2000))
+            .or(Some(existing)),
+            _ => Some(existing),
+        }
+    }
+
     /// Parse the `local_model` field into a [`LocalEmbeddingModel`].
     pub fn local_embedding_model(&self) -> LocalEmbeddingModel {
         LocalEmbeddingModel::from_config_str(&self.local_model)

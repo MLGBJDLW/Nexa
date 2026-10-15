@@ -83,6 +83,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = ([...providerPresets, ...subsc
   }) as ProviderModelPreset[],
 }));
 
+/** The backend owns ACP versions and new directory entries. Keep the shared
+ * fallback for offline/browser startup, then replace that slice atomically. */
+export function applyExternalAgentPresets(presets: ProviderPreset[]): void {
+  const retained = PROVIDER_PRESETS.filter(preset => preset.runtime !== 'acp');
+  PROVIDER_PRESETS.splice(0, PROVIDER_PRESETS.length, ...retained, ...presets);
+}
+
 function normalizePresetBaseUrl(baseUrl: string | null | undefined): string {
   return normalizeModelEndpointUrl(baseUrl);
 }

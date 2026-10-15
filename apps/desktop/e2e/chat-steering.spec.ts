@@ -660,6 +660,26 @@ test('does not send stale restored running chats as steering messages', async ({
   expect(diagnostics.steerCalls).toEqual([]);
 });
 
+test('keeps pasted images in the draft while the current reply is streaming', async ({ page }) => {
+  await page.goto('/chat/conv-steering');
+  const input = page.locator('textarea').first();
+  await input.fill('Work on the first request');
+  await input.press('Enter');
+  await expect(page.getByText('Working on the first request.')).toBeVisible();
+  await input.fill('Use this screenshot next');
+  await input.evaluate(element => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 8; canvas.height = 8;
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/html', `<img src="${canvas.toDataURL('image/png')}">`);
+    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }));
+  });
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
+  await expect(input).toHaveValue('Use this screenshot next');
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Steering message', exact: true })).toBeDisabled();
+});
+
 test('retries a persisted user message after reopening a conversation', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('e2e-steering-retry', '1');

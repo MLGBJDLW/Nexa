@@ -50,6 +50,11 @@ const publicRequiredModelIds = new Map([
     'meta/muse-wonder', 'stepfun/step-5-preview', 'google/gemini-4-argon',
   ]],
 ]);
+const publicCatalogPaths = new Map([
+  ['text:openrouter', '/models'],
+  ['image:openrouter-images', '/models'],
+  ['embedding:openrouter', '/embeddings/models'],
+]);
 
 const readJson = async (relativePath) => JSON.parse(
   await readFile(path.join(repoRoot, relativePath), 'utf8'),
@@ -141,8 +146,9 @@ async function buildStaticCatalog() {
 async function probeEndpoint(endpoint) {
   const credentialEnv = discoveryCredentials.get(endpoint.endpointId);
   const credential = credentialEnv ? process.env[credentialEnv]?.trim() : '';
-  const requiredIds = livePublicCatalogs
-    ? publicRequiredModelIds.get(endpoint.endpointId) ?? []
+  const publicPath = livePublicCatalogs ? publicCatalogPaths.get(endpoint.endpointId) : null;
+  const requiredIds = publicPath
+    ? publicRequiredModelIds.get(endpoint.endpointId) ?? endpoint.models.filter(model => model.lifecycle !== 'removed').map(model => model.id)
     : [];
   const anonymousRequiredIdsOnly = !credential && requiredIds.length > 0;
   if ((!credentialEnv || !credential) && !anonymousRequiredIdsOnly) {
@@ -153,7 +159,7 @@ async function probeEndpoint(endpoint) {
   }
 
   try {
-    const response = await fetch(`${endpoint.baseUrl}/models`, {
+    const response = await fetch(`${endpoint.baseUrl}${publicPath ?? '/models'}`, {
       headers: credential ? { Authorization: `Bearer ${credential}` } : undefined,
       signal: AbortSignal.timeout(15_000),
     });
@@ -174,6 +180,14 @@ async function probeEndpoint(endpoint) {
       status: 'ok',
       ...(anonymousRequiredIdsOnly ? { probeMode: 'required_ids', requiredIds } : {}),
       discoveredCount: liveModels.length,
+      discoveryScope: credential ? 'credential_catalog' : 'public_catalog',
+      // Inventory differences are candidates for protocol review. A missing
+      // listing is not a retirement notice or authority to change saved models.
+      inventory: compareEndpointModels(endpoint, liveModels.filter(model => {
+        if (endpoint.endpointId.startsWith('image:')) return model.architecture?.output_modalities?.includes('image');
+        if (endpoint.endpointId.startsWith('text:')) return !model.id?.endsWith(':batch') && model.architecture?.output_modalities?.includes('text');
+        return true;
+      })),
       ...comparison,
     };
   } catch (error) {
@@ -210,10 +224,12 @@ function markdownReport(report) {
         `Lifecycle changes: ${probe.lifecycleChanged.length ? probe.lifecycleChanged.map((item) => `${item.id} (${item.curated} → ${item.discovered})`).join('; ') : 'none'}`,
         `Region changes: ${probe.regionChanged.length ? probe.regionChanged.map((item) => `${item.id} (${item.curated.join('+')} → ${item.discovered.join('+')})`).join('; ') : 'none'}`,
       );
+      if (probe.inventory) lines.push(`Inventory candidates (not verified integration support): ${probe.inventory.newIds.join(', ') || 'none'}`);
     }
     lines.push('');
   }
-  lines.push('No credentials, request headers, or provider response bodies are stored in this report.', '');
+  lines.push(`Discovery coverage: ${report.coverage.probedEndpoints} of ${report.staticValidation.endpointCount} endpoints returned a catalog. Unprobed endpoints are not verified by this report.`, '',
+    'No authenticated inference was requested. No credentials, request headers, or provider response bodies are stored in this report.', '');
   return lines.join('\n');
 }
 
@@ -222,7 +238,7 @@ const probes = [];
 for (const endpoint of staticCatalog.endpoints) {
   if (
     discoveryCredentials.has(endpoint.endpointId)
-    || (livePublicCatalogs && publicRequiredModelIds.has(endpoint.endpointId))
+    || (livePublicCatalogs && publicCatalogPaths.has(endpoint.endpointId))
   ) {
     probes.push(await probeEndpoint(endpoint));
   }
@@ -243,6 +259,11 @@ const report = {
   attemptedProbeCount,
   failedProbeCount,
   allAttemptedProbesSucceeded,
+  coverage: {
+    probedEndpoints: completedProbeCount,
+    unprobedEndpoints: staticCatalog.endpoints.filter(endpoint => !probes.some(probe => probe.endpointId === endpoint.endpointId && probe.status === 'ok')).map(endpoint => endpoint.endpointId),
+    authenticatedInference: false,
+  },
   staticValidation: {
     endpointCount: staticCatalog.endpoints.length,
     modelCount,

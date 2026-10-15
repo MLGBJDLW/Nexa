@@ -517,12 +517,12 @@ fn scan_source_inner(
     };
 
     // Derive max chunk size from the configured embedding model.
-    // Floor at 1500 chars — the embedder truncates its own input, but
-    // chunks must be large enough for good FTS recall.
+    // Known API serving capacities split input before embedding, preserving
+    // all content rather than letting a smaller model truncate each chunk.
     let max_chunk_chars = db
         .get_embedder_config()
         .ok()
-        .map(|cfg| cfg.local_embedding_model().max_chunk_chars().max(1500));
+        .and_then(|cfg| cfg.max_chunk_chars());
 
     let ingestion_profile = ingestion_fingerprint(
         privacy_cfg,
@@ -1583,12 +1583,12 @@ fn ingest_file(
     let speech_config = app_cfg.speech_to_text.clone();
 
     // Derive max chunk size from the configured embedding model.
-    // Floor at 1500 chars — the embedder truncates its own input, but
-    // chunks must be large enough for good FTS recall.
+    // Known API serving capacities split input before embedding, preserving
+    // all content rather than letting a smaller model truncate each chunk.
     let max_chunk_chars = db
         .get_embedder_config()
         .ok()
-        .map(|cfg| cfg.local_embedding_model().max_chunk_chars().max(1500));
+        .and_then(|cfg| cfg.max_chunk_chars());
 
     let existing_document = db.get_document_in_source(source_id, &path_str)?;
     let services = db.knowledge_services_config()?;

@@ -93,45 +93,39 @@
     "env": {},
     "docsUrl": "https://antigravity.google/docs/ide/extensions",
     "registryId": "antigravity-acp",
-    "registryVersion": "1.3.0",
+    "registryVersion": "1.4.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-arm64.zip",
-          "cmd": "./agy_acp_server.par",
-          "sha256": "7cd97045f7b4fe81175a107cdf16f9c51484e3c78a5162cae415338bb6aa5b88"
+          "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-arm64.zip",
+          "cmd": "./agy_acp_server.par"
         },
         "darwin-x86_64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-x86_64.zip",
-          "cmd": "./agy_acp_server.par",
-          "sha256": "bb23956b89984bf5d354af2c3725e6c57f0cc1b7228e77a0e91c9c2bc1d47646"
+          "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-x86_64.zip",
+          "cmd": "./agy_acp_server.par"
         },
         "linux-x86_64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-x86_64.zip",
+          "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-x86_64.zip",
           "cmd": "./agy_acp_server.par",
           "args": [
             "--uid="
-          ],
-          "sha256": "9fb60956af0a9d76220a4db91ca9ac88e2a2372ad68f985ab5fceace6b825b96"
+          ]
         },
         "linux-aarch64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-arm64.zip",
+          "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-arm64.zip",
           "cmd": "./agy_acp_server.par",
           "args": [
             "--uid="
-          ],
-          "sha256": "500b0bc0fb858e88f4df404d4cedf80bf9298c178291e39e383d6c50b111cbdf"
+          ]
         },
         "windows-x86_64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip",
-          "cmd": "./agy_acp_server.exe",
-          "sha256": "65215e0688681fa3116e048a9eab27ef53af1bbd6f3da3f1c52bd4911d8b17f9"
+          "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-x86_64.zip",
+          "cmd": "./agy_acp_server.exe"
         },
         "windows-aarch64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-arm64.zip",
-          "cmd": "./agy_acp_server.exe",
-          "sha256": "4a0f469720e9beb9438a979f543fdbfad5022ebe0992c052c590bd78b3144ca3"
+          "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-arm64.zip",
+          "cmd": "./agy_acp_server.exe"
         }
       }
     }
@@ -196,6 +190,36 @@
     }
   },
   {
+    "id": "acp-bob",
+    "name": "Bob",
+    "provider": "acp_bob",
+    "runtime": "acp",
+    "baseUrl": "",
+    "requiresApiKey": false,
+    "models": [],
+    "icon": "/provider-icons/agents/custom.svg",
+    "description": "IBM Bob is your AI-Powered Development Partner",
+    "command": "npx",
+    "args": [
+      "--yes",
+      "@ibm/bob@2.0.7",
+      "acp"
+    ],
+    "env": {},
+    "docsUrl": "https://bob.ibm.com",
+    "registryId": "bob",
+    "registryVersion": "2.0.7",
+    "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
+    "distribution": {
+      "npx": {
+        "package": "@ibm/bob@2.0.7",
+        "args": [
+          "acp"
+        ]
+      }
+    }
+  },
+  {
     "id": "claude-code-acp",
     "name": "Claude Code (ACP)",
     "provider": "claude_code_acp",
@@ -210,11 +234,11 @@
     "env": {},
     "docsUrl": "https://github.com/agentclientprotocol/claude-agent-acp",
     "registryId": "claude-acp",
-    "registryVersion": "0.89.1",
+    "registryVersion": "0.90.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@agentclientprotocol/claude-agent-acp@0.89.1"
+        "package": "@agentclientprotocol/claude-agent-acp@0.90.0"
       }
     }
   },
@@ -231,17 +255,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "cline@3.0.70",
+      "cline@3.0.71",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://cline.bot/cli",
     "registryId": "cline",
-    "registryVersion": "3.0.70",
+    "registryVersion": "3.0.71",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "cline@3.0.70",
+        "package": "cline@3.0.71",
         "args": [
           "--acp"
         ]
@@ -261,17 +285,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@tencent-ai/codebuddy-code@2.164.0",
+      "@tencent-ai/codebuddy-code@2.167.0",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://www.codebuddy.cn/cli/",
     "registryId": "codebuddy-code",
-    "registryVersion": "2.164.0",
+    "registryVersion": "2.167.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@tencent-ai/codebuddy-code@2.164.0",
+        "package": "@tencent-ai/codebuddy-code@2.167.0",
         "args": [
           "--acp"
         ]
@@ -503,57 +527,51 @@
     "env": {},
     "docsUrl": "https://cursor.com/docs/cli/acp",
     "registryId": "cursor",
-    "registryVersion": "2026.10.01",
+    "registryVersion": "2026.10.14",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/darwin/arm64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.10.14-0f9edde/darwin/arm64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ],
-          "sha256": "778d04e542adc5c8b6760fda3ebe0757f903b1764f2792c232ef9a35e6e2151b"
+          ]
         },
         "darwin-x86_64": {
-          "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/darwin/x64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.10.14-0f9edde/darwin/x64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ],
-          "sha256": "8930008f9902a4d02d3185c0d34071e0536bac3426439b55bcfd48b78765a3dd"
+          ]
         },
         "linux-aarch64": {
-          "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/linux/arm64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.10.14-0f9edde/linux/arm64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ],
-          "sha256": "c31ef0ba6b827fdf8053919de57abae4a7bd71afefdf2cab061e276faac42b3a"
+          ]
         },
         "linux-x86_64": {
-          "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/linux/x64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.10.14-0f9edde/linux/x64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
-          ],
-          "sha256": "ba9a855f8f813c91b9f2707127572d2dc9ae5a62818e1c36719625d0fb8bd452"
+          ]
         },
         "windows-aarch64": {
-          "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/windows/arm64/agent-cli-package.zip",
+          "archive": "https://downloads.cursor.com/lab/2026.10.14-0f9edde/windows/arm64/agent-cli-package.zip",
           "cmd": "./dist-package\\cursor-agent.cmd",
           "args": [
             "acp"
-          ],
-          "sha256": "eda025bf9cc7632e48d290fa52468104916f0db261e2fa44306ad184cd1274c9"
+          ]
         },
         "windows-x86_64": {
-          "archive": "https://downloads.cursor.com/lab/2026.10.01-14929f9/windows/x64/agent-cli-package.zip",
+          "archive": "https://downloads.cursor.com/lab/2026.10.14-0f9edde/windows/x64/agent-cli-package.zip",
           "cmd": "./dist-package\\cursor-agent.cmd",
           "args": [
             "acp"
-          ],
-          "sha256": "2558ae1ddc155f43791e8eed145afa0366c5ad6a266b0e40c0b5c9490a945a5f"
+          ]
         }
       }
     }
@@ -602,57 +620,51 @@
     "env": {},
     "docsUrl": "https://docs.devin.ai/cli",
     "registryId": "devin",
-    "registryVersion": "3000.11.3",
+    "registryVersion": "3000.11.92",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-aarch64-apple-darwin.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.11.92/devin-3000.11.92-aarch64-apple-darwin.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ],
-          "sha256": "c08cc3f3507d103246b8c601a584fcc719fd77f6cc10f26cc90e9f4186640df2"
+          ]
         },
         "darwin-x86_64": {
-          "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-x86_64-apple-darwin.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.11.92/devin-3000.11.92-x86_64-apple-darwin.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ],
-          "sha256": "594f89b6b0d03dffec4eabc754104e4471cc43a014a2164e2fdd7d0d752d0100"
+          ]
         },
         "linux-aarch64": {
-          "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-aarch64-unknown-linux.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.11.92/devin-3000.11.92-aarch64-unknown-linux.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ],
-          "sha256": "21a2d7a8dea67987067cde7eb3fe7193a48daa8f8c3d50d414c603c4a2b67f15"
+          ]
         },
         "linux-x86_64": {
-          "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-x86_64-unknown-linux.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.11.92/devin-3000.11.92-x86_64-unknown-linux.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
-          ],
-          "sha256": "83b3b113c01bf2a3e9e100db08d77e6b086806a7754f091e20831bdfe215157e"
+          ]
         },
         "windows-aarch64": {
-          "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-aarch64-pc-windows.zip",
+          "archive": "https://static.devin.ai/cli/3000.11.92/devin-3000.11.92-aarch64-pc-windows.zip",
           "cmd": "./bin\\devin.exe",
           "args": [
             "acp"
-          ],
-          "sha256": "923843438df5956fc7222d5644e3dc995fdb8b347f2dc19c51d1c78c6331d830"
+          ]
         },
         "windows-x86_64": {
-          "archive": "https://static.devin.ai/cli/3000.11.3/devin-3000.11.3-x86_64-pc-windows.zip",
+          "archive": "https://static.devin.ai/cli/3000.11.92/devin-3000.11.92-x86_64-pc-windows.zip",
           "cmd": "./bin\\devin.exe",
           "args": [
             "acp"
-          ],
-          "sha256": "dded69a40dc54012612eda47e0935f2fb394b97cd38cb4d7d84b1e1d71c5f7ea"
+          ]
         }
       }
     }
@@ -670,17 +682,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "dimcode@0.5.17",
+      "dimcode@0.5.18",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://dimcode.dev/docs/acp.html",
     "registryId": "dimcode",
-    "registryVersion": "0.5.17",
+    "registryVersion": "0.5.18",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "dimcode@0.5.17",
+        "package": "dimcode@0.5.18",
         "args": [
           "acp"
         ]
@@ -700,17 +712,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "dirac-cli@0.5.20",
+      "dirac-cli@0.5.21",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://dirac.run",
     "registryId": "dirac",
-    "registryVersion": "0.5.20",
+    "registryVersion": "0.5.21",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "dirac-cli@0.5.20",
+        "package": "dirac-cli@0.5.21",
         "args": [
           "--acp"
         ]
@@ -730,7 +742,7 @@
     "command": "npx",
     "args": [
       "--yes",
-      "droid@0.239.1",
+      "droid@0.242.0",
       "exec",
       "--output-format",
       "acp-daemon"
@@ -741,11 +753,11 @@
     },
     "docsUrl": "https://factory.ai/product/cli",
     "registryId": "factory-droid",
-    "registryVersion": "0.239.1",
+    "registryVersion": "0.242.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "droid@0.239.1",
+        "package": "droid@0.242.0",
         "args": [
           "exec",
           "--output-format",
@@ -809,11 +821,11 @@
     "env": {},
     "docsUrl": "https://geminicli.com",
     "registryId": "gemini",
-    "registryVersion": "0.63.0",
+    "registryVersion": "0.64.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@google/gemini-cli@0.63.0",
+        "package": "@google/gemini-cli@0.64.0",
         "args": [
           "--acp"
         ]
@@ -837,11 +849,11 @@
     "env": {},
     "docsUrl": "https://github.com/features/copilot/cli/",
     "registryId": "github-copilot-cli",
-    "registryVersion": "1.0.96",
+    "registryVersion": "1.0.98",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@github/copilot@1.0.96",
+        "package": "@github/copilot@1.0.98",
         "args": [
           "--acp"
         ]
@@ -861,16 +873,16 @@
     "command": "npx",
     "args": [
       "--yes",
-      "glm-acp-agent@1.14.0"
+      "glm-acp-agent@1.15.0"
     ],
     "env": {},
     "docsUrl": "https://github.com/stefandevo/glm-acp-agent",
     "registryId": "glm-acp-agent",
-    "registryVersion": "1.14.0",
+    "registryVersion": "1.15.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "glm-acp-agent@1.14.0"
+        "package": "glm-acp-agent@1.15.0"
       }
     }
   },
@@ -951,18 +963,18 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@xai-official/grok@1.0.54",
+      "@xai-official/grok@1.0.60",
       "agent",
       "stdio"
     ],
     "env": {},
     "docsUrl": "https://x.ai/cli",
     "registryId": "grok-build",
-    "registryVersion": "1.0.54",
+    "registryVersion": "1.0.60",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@xai-official/grok@1.0.54",
+        "package": "@xai-official/grok@1.0.60",
         "args": [
           "agent",
           "stdio"
@@ -1057,57 +1069,51 @@
     "env": {},
     "docsUrl": "https://junie.jetbrains.com",
     "registryId": "junie",
-    "registryVersion": "3579.7.0",
+    "registryVersion": "3659.4.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-macos-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3659.4/junie-release-3659.4-macos-aarch64.zip",
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
-          ],
-          "sha256": "1e1d62527916ad815a83115ba68bb4af60e322b92ab428f5b1e3bb314d634e6f"
+          ]
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-macos-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3659.4/junie-release-3659.4-macos-amd64.zip",
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
-          ],
-          "sha256": "fa2db84e7b780e51ff1c83e6e82916a309e29239be0fd07631a16bf6abbd8533"
+          ]
         },
         "linux-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-linux-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3659.4/junie-release-3659.4-linux-aarch64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
-          ],
-          "sha256": "0d29bef6c610caad8cda2877e15bb64e8e9403028548e7b4ce36f8c27fd51e9f"
+          ]
         },
         "linux-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-linux-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3659.4/junie-release-3659.4-linux-amd64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
-          ],
-          "sha256": "ebdf36c61e24f634b05dc8c41b4f4f4f7ef1e1026e6162907105bdc47da2412f"
+          ]
         },
         "windows-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-windows-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3659.4/junie-release-3659.4-windows-amd64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
-          ],
-          "sha256": "db1a44912ff87b915c7085f91676c8b940c5c105e022a63ec86069f1e5b61218"
+          ]
         },
         "windows-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3579.7/junie-release-3579.7-windows-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/3659.4/junie-release-3659.4-windows-aarch64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
-          ],
-          "sha256": "a2219a15806b0c305d92a63dbde801d35963fb3406b21e0c6e6b133edd1a196c"
+          ]
         }
       }
     }
@@ -1202,13 +1208,13 @@
     "env": {},
     "docsUrl": "https://kimchi.dev",
     "registryId": "kimchi",
-    "registryVersion": "1.9.2",
+    "registryVersion": "1.13.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.9.2/kimchi_darwin_arm64.tar.gz",
-          "sha256": "d2ebc8122ac3669509988effe152084f0d0291988dd4c9348bec0893db634033",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.13.0/kimchi_darwin_arm64.tar.gz",
+          "sha256": "33985683787aa542f9d23ff82c6bbbf178762c2cee6a41fdf27e6df57e3c9fcb",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1216,8 +1222,8 @@
           ]
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.9.2/kimchi_darwin_amd64.tar.gz",
-          "sha256": "34bf7a3602d9a7ad711c7a825c86828a287e1eefb2810a6b0d07b0edf59b8127",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.13.0/kimchi_darwin_amd64.tar.gz",
+          "sha256": "5739d86ebb380f6b48f46d96638b3ace3d9d56395af27c0b0d546b4628d774f0",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1225,8 +1231,8 @@
           ]
         },
         "linux-aarch64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.9.2/kimchi_linux_arm64.tar.gz",
-          "sha256": "bb438783e28f5ef447edca116901035b2cb0cc471d0cf17bf83b75ab24250874",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.13.0/kimchi_linux_arm64.tar.gz",
+          "sha256": "69cac0653a54ff9b0844bcbee4e1179087dbf6036f81ab98bdd042e5f1f12eec",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1234,8 +1240,8 @@
           ]
         },
         "linux-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.9.2/kimchi_linux_amd64.tar.gz",
-          "sha256": "9371b00a21c7449897ed144d5d2cde38bd4d95a78d44e48a3711edada1df02fb",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.13.0/kimchi_linux_amd64.tar.gz",
+          "sha256": "cbbe9aa3289fe8285e531519d70f10488b48b2a30c231fe39ff788217823d207",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1243,8 +1249,8 @@
           ]
         },
         "windows-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.9.2/kimchi_windows_amd64.zip",
-          "sha256": "0bee6fee5b0f7a2903a79ae96c50f0a2563248778e5a2be43f1843b0dadf61c6",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.13.0/kimchi_windows_amd64.zip",
+          "sha256": "1a79cec13b0b88eaeb4d0a68857aeaf33f92ff97d6893321c7036767d7facc1e",
           "cmd": "./bin/kimchi.exe",
           "args": [
             "--mode",
@@ -1443,17 +1449,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@compass-ai/nova@1.1.52",
+      "@compass-ai/nova@1.1.53",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://www.compassap.ai/portfolio/nova.html",
     "registryId": "nova",
-    "registryVersion": "1.1.52",
+    "registryVersion": "1.1.53",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@compass-ai/nova@1.1.52",
+        "package": "@compass-ai/nova@1.1.53",
         "args": [
           "acp"
         ]
@@ -1703,48 +1709,48 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@smbcloud/sigit@1.6.8"
+      "@smbcloud/sigit@1.6.9"
     ],
     "env": {},
     "docsUrl": "https://github.com/getsigit/sigit",
     "registryId": "sigit",
-    "registryVersion": "1.6.8",
+    "registryVersion": "1.6.9",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.8/sigit-macos-arm64.tar.gz",
+          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.9/sigit-macos-arm64.tar.gz",
           "cmd": "./sigit",
-          "sha256": "70a8a47d16202ea41f01a3c77e1bd0e9438e3ea84dc308b8a1a25f3f59e6db6f"
+          "sha256": "fb6f026f79bca359be502cea1ad6b83f03bee93731894b9b56337da3af50f892"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.8/sigit-macos-amd64.tar.gz",
+          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.9/sigit-macos-amd64.tar.gz",
           "cmd": "./sigit",
-          "sha256": "cc6fb6777be10ed0a1f2bb8867dea8c8417866e225aebe0e9059500bf02ab97f"
+          "sha256": "451ef7dcd7935ecc658a3235c5c06711656b9caf20292ba8fca808ed3e53a373"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.8/sigit-linux-arm64",
+          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.9/sigit-linux-arm64",
           "cmd": "./sigit-linux-arm64",
-          "sha256": "f3fe8768dd248d6db8ad1764b5b6d2e1fff7a1ac80367667294370c66db7a3b4"
+          "sha256": "c0eec45a86c76c4a43173efe2ebb13b078fd797d9c37a2768f3e2799c43ecac5"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.8/sigit-linux-amd64",
+          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.9/sigit-linux-amd64",
           "cmd": "./sigit-linux-amd64",
-          "sha256": "f45b921f97bbb45552cda278dd1c1cf5cfbf9d1954cdf049ef229f558a0d71e2"
+          "sha256": "1a38fd6bfeb4f1f7512b25fcc8db0ea1befce75a4f5f6ef729a7b1c94174a85d"
         },
         "windows-aarch64": {
-          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.8/sigit-win-arm64.exe",
+          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.9/sigit-win-arm64.exe",
           "cmd": "./sigit-win-arm64.exe",
-          "sha256": "642280b0a4ee1fee0d3d6f3245f10408a2fa0134eee0c45efa0756aebdad98d0"
+          "sha256": "2cb59e65f27a25270801461bd01856fa9bc14d377d14fd1acd4ef4ab70835cd3"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.8/sigit-win-amd64.exe",
+          "archive": "https://github.com/getsigit/sigit/releases/download/v1.6.9/sigit-win-amd64.exe",
           "cmd": "./sigit-win-amd64.exe",
-          "sha256": "f024803c95bfb46b21aaf77d758cbcaa9c7ec0bcaecc9e5ea3a0b9a5b9cdb6d1"
+          "sha256": "e29277196cf105685782ed950a3e22e69f7651a3e1f918cb6c6fc4aea77cc35f"
         }
       },
       "npx": {
-        "package": "@smbcloud/sigit@1.6.8"
+        "package": "@smbcloud/sigit@1.6.9"
       }
     }
   },

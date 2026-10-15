@@ -16,6 +16,9 @@ use super::{
 use crate::media_generation::MediaOperation;
 use crate::video_provider_catalog::VideoModelManifest;
 
+#[path = "runway_contract.rs"]
+mod contracts;
+
 const PROVIDER_ID: &str = "runway";
 const OFFICIAL_BASE_URL: &str = "https://api.dev.runwayml.com";
 const API_VERSION: &str = "2024-11-06";
@@ -95,46 +98,16 @@ impl RunwayVideoAdapter {
     fn submit_path(operation: MediaOperation) -> Option<&'static str> {
         match operation {
             MediaOperation::TextToVideo => Some("/v1/text_to_video"),
-            MediaOperation::ImageToVideo => Some("/v1/image_to_video"),
+            MediaOperation::ImageToVideo | MediaOperation::FirstLastFrame => {
+                Some("/v1/image_to_video")
+            }
             MediaOperation::VideoToVideo => Some("/v1/video_to_video"),
             _ => None,
         }
     }
 
     fn payload(request: &NormalizedVideoRequest) -> Result<Value, NormalizedProviderError> {
-        let ratio = dimensions_for(request).ok_or_else(|| {
-            configuration_error("Resolution and aspect ratio do not map to a Runway ratio")
-        })?;
-        let mut payload = Map::new();
-        payload.insert("model".to_string(), json!(request.model_id));
-        payload.insert("promptText".to_string(), json!(request.prompt));
-        payload.insert("ratio".to_string(), json!(ratio));
-        payload.insert("duration".to_string(), json!(request.duration_seconds));
-        if let Some(seed) = request.seed {
-            payload.insert("seed".to_string(), json!(seed));
-        }
-        if let Some(audio) = request.generate_audio {
-            payload.insert("audio".to_string(), json!(audio));
-        }
-        match request.operation {
-            MediaOperation::ImageToVideo => {
-                let first = find_role(request, VideoInputRole::FirstFrame)
-                    .ok_or_else(|| configuration_error("Missing first-frame input"))?;
-                payload.insert("promptImage".to_string(), json!(first.uri));
-            }
-            MediaOperation::VideoToVideo => {
-                let input = find_role(request, VideoInputRole::InputVideo)
-                    .ok_or_else(|| configuration_error("Missing input video"))?;
-                payload.insert("promptVideo".to_string(), json!(input.uri));
-                payload.insert("mode".to_string(), json!("reference"));
-            }
-            MediaOperation::TextToVideo => {}
-            _ => return Err(configuration_error("Unsupported Runway operation")),
-        }
-        if request.model_id == "seedance2_5" {
-            insert_references(&mut payload, request);
-        }
-        Ok(Value::Object(payload))
+        contracts::payload(request)
     }
 }
 
@@ -154,217 +127,7 @@ impl VideoGenerationAdapter for RunwayVideoAdapter {
 
     fn validate(&self, request: &NormalizedVideoRequest) -> ValidationResult {
         let mut issues = common_validation(request);
-        let model_supported = matches!(
-            request.model_id.as_str(),
-            "gen4.5" | "gen4_turbo" | "seedance2_5"
-        );
-        if !model_supported {
-            issues.push(issue(
-                "modelId",
-                "unsupported_model",
-                "Runway adapter supports gen4.5, gen4_turbo, and seedance2_5",
-            ));
-        }
-        let operation_supported = match request.model_id.as_str() {
-            "gen4.5" => matches!(
-                request.operation,
-                MediaOperation::TextToVideo | MediaOperation::ImageToVideo
-            ),
-            "gen4_turbo" => request.operation == MediaOperation::ImageToVideo,
-            "seedance2_5" => matches!(
-                request.operation,
-                MediaOperation::TextToVideo
-                    | MediaOperation::ImageToVideo
-                    | MediaOperation::VideoToVideo
-            ),
-            _ => false,
-        };
-        if !operation_supported {
-            issues.push(issue(
-                "operation",
-                "unsupported_operation",
-                "Model does not support this operation in the live Runway contract",
-            ));
-        }
-        let prompt_utf16 = request.prompt.encode_utf16().count();
-        let max_prompt = if request.model_id == "seedance2_5" {
-            15_000
-        } else {
-            1_000
-        };
-        if prompt_utf16 == 0 || prompt_utf16 > max_prompt {
-            issues.push(issue(
-                "prompt",
-                "unsupported_prompt_length",
-                &format!("Runway model permits at most {max_prompt} UTF-16 code units"),
-            ));
-        }
-        let duration_range = if request.model_id == "seedance2_5" {
-            4..=30
-        } else {
-            2..=10
-        };
-        if !duration_range.contains(&request.duration_seconds) {
-            issues.push(issue(
-                "durationSeconds",
-                "unsupported_duration",
-                "Duration falls outside this Runway model's contract",
-            ));
-        }
-        let allowed_resolutions: &[&str] = if request.model_id == "seedance2_5" {
-            &["480P", "720P", "1080P"]
-        } else {
-            &["720P"]
-        };
-        if !allowed_resolutions.contains(&request.resolution.as_str()) {
-            issues.push(issue(
-                "resolution",
-                "unsupported_resolution",
-                "Resolution is not supported by this Runway model",
-            ));
-        }
-        if dimensions_for(request).is_none() {
-            issues.push(issue(
-                "aspectRatio",
-                "unsupported_aspect_ratio",
-                "Resolution and aspect ratio do not map to a provider ratio",
-            ));
-        }
-        if request.model_id == "gen4.5"
-            && request.operation == MediaOperation::TextToVideo
-            && !matches!(request.aspect_ratio.as_str(), "16:9" | "9:16")
-        {
-            issues.push(issue(
-                "aspectRatio",
-                "unsupported_text_to_video_ratio",
-                "Runway Gen-4.5 text-to-video supports only 16:9 or 9:16",
-            ));
-        }
-        if request.model_id != "seedance2_5" && request.generate_audio.is_some() {
-            issues.push(issue(
-                "generateAudio",
-                "unsupported_audio",
-                "This Runway model does not publish an audio-generation parameter",
-            ));
-        }
-        if request.callback_url.is_some() {
-            issues.push(issue(
-                "callbackUrl",
-                "unsupported_webhook",
-                "Runway task API does not publish a webhook parameter",
-            ));
-        }
-
-        let first_frames = count_role(request, VideoInputRole::FirstFrame);
-        let input_videos = count_role(request, VideoInputRole::InputVideo);
-        match request.operation {
-            MediaOperation::TextToVideo
-                if request.input_assets.iter().any(|asset| {
-                    matches!(
-                        asset.role,
-                        VideoInputRole::FirstFrame | VideoInputRole::InputVideo
-                    )
-                }) =>
-            {
-                issues.push(issue(
-                    "inputAssets",
-                    "unexpected_primary_input",
-                    "Text-to-video cannot include a first frame or primary input video",
-                ));
-            }
-            MediaOperation::ImageToVideo if first_frames != 1 => issues.push(issue(
-                "inputAssets",
-                "first_frame_required",
-                "Image-to-video requires exactly one first-frame image",
-            )),
-            MediaOperation::VideoToVideo if input_videos != 1 => issues.push(issue(
-                "inputAssets",
-                "input_video_required",
-                "Video-to-video requires exactly one primary input video",
-            )),
-            _ => {}
-        }
-        if request
-            .input_assets
-            .iter()
-            .any(|asset| asset.role == VideoInputRole::LastFrame)
-        {
-            issues.push(issue(
-                "inputAssets",
-                "unsupported_last_frame",
-                "The enabled Runway adapter paths do not accept a last-frame input",
-            ));
-        }
-        let reference_images = count_role(request, VideoInputRole::ReferenceImage);
-        let reference_videos = count_role(request, VideoInputRole::ReferenceVideo);
-        let reference_audio = count_role(request, VideoInputRole::ReferenceAudio);
-        if request.model_id != "seedance2_5"
-            && reference_images + reference_videos + reference_audio > 0
-        {
-            issues.push(issue(
-                "inputAssets",
-                "unsupported_references",
-                "This Runway model does not accept reference media on the enabled endpoint",
-            ));
-        }
-        if reference_images > 30 || reference_videos > 10 || reference_audio > 10 {
-            issues.push(issue(
-                "inputAssets",
-                "too_many_references",
-                "Runway Seedance 2.5 reference counts exceed the live contract",
-            ));
-        }
-        if request.model_id == "seedance2_5"
-            && request.operation == MediaOperation::ImageToVideo
-            && reference_images + reference_videos > 0
-        {
-            issues.push(issue(
-                "inputAssets",
-                "unsupported_image_to_video_references",
-                "Runway Seedance 2.5 image-to-video accepts reference audio but not additional reference images or videos",
-            ));
-        }
-        if request.model_id == "seedance2_5"
-            && request.operation == MediaOperation::VideoToVideo
-            && reference_videos > 9
-        {
-            issues.push(issue(
-                "inputAssets",
-                "too_many_reference_videos",
-                "Runway Seedance 2.5 video-to-video accepts at most nine reference videos",
-            ));
-        }
-        let total_video_ms = request
-            .input_assets
-            .iter()
-            .filter(|asset| {
-                matches!(
-                    asset.role,
-                    VideoInputRole::InputVideo | VideoInputRole::ReferenceVideo
-                )
-            })
-            .filter_map(|asset| asset.duration_ms)
-            .sum::<u64>();
-        if request.model_id == "seedance2_5" && total_video_ms > 30_000 {
-            issues.push(issue(
-                "inputAssets",
-                "video_duration_exceeded",
-                "Runway Seedance 2.5 input and reference videos may total at most 30 seconds",
-            ));
-        }
-        let total_audio_ms = request
-            .input_assets
-            .iter()
-            .filter(|asset| asset.role == VideoInputRole::ReferenceAudio)
-            .filter_map(|asset| asset.duration_ms)
-            .sum::<u64>();
-        if request.model_id == "seedance2_5" && total_audio_ms > 30_000 {
-            issues.push(issue(
-                "inputAssets",
-                "audio_duration_exceeded",
-                "Runway Seedance 2.5 reference audio may total at most 30 seconds",
-            ));
-        }
+        contracts::validate(request, &mut issues);
         for (index, asset) in request.input_assets.iter().enumerate() {
             if !asset.uri.starts_with("https://") && !asset.uri.starts_with("runway://") {
                 issues.push(issue(
@@ -456,20 +219,10 @@ impl VideoGenerationAdapter for RunwayVideoAdapter {
                             "Runway videos require verified dimensions and duration",
                         ));
                     }
-                    if request.model_id == "seedance2_5"
-                        && asset
-                            .width
-                            .zip(asset.height)
-                            .is_some_and(|(width, height)| width.min(height) < 480)
-                    {
-                        issues.push(issue(
-                            &format!("inputAssets[{index}]"),
-                            "video_resolution_too_small",
-                            "Runway Seedance 2.5 videos must be at least 480p",
-                        ));
-                    }
                 }
-                VideoInputRole::FirstFrame | VideoInputRole::ReferenceImage => {
+                VideoInputRole::FirstFrame
+                | VideoInputRole::LastFrame
+                | VideoInputRole::ReferenceImage => {
                     if asset.width.is_none() || asset.height.is_none() {
                         issues.push(issue(
                             &format!("inputAssets[{index}]"),
@@ -735,45 +488,6 @@ impl VideoGenerationAdapter for RunwayVideoAdapter {
     }
 }
 
-fn dimensions_for(request: &NormalizedVideoRequest) -> Option<&'static str> {
-    let ratio = request.aspect_ratio.as_str();
-    if request.model_id == "seedance2_5" {
-        return match (request.resolution.as_str(), ratio) {
-            ("480P", "21:9") => Some("992:432"),
-            ("480P", "16:9") => Some("854:480"),
-            ("480P", "4:3") => Some("752:560"),
-            ("480P", "1:1") => Some("640:640"),
-            ("480P", "3:4") => Some("560:752"),
-            ("480P", "9:16") => Some("480:854"),
-            ("720P", "21:9") => Some("1470:630"),
-            ("720P", "16:9") => Some("1280:720"),
-            ("720P", "4:3") => Some("1112:834"),
-            ("720P", "1:1") => Some("960:960"),
-            ("720P", "3:4") => Some("834:1112"),
-            ("720P", "9:16") => Some("720:1280"),
-            ("1080P", "21:9") => Some("2206:946"),
-            ("1080P", "16:9") => Some("1920:1080"),
-            ("1080P", "4:3") => Some("1664:1248"),
-            ("1080P", "1:1") => Some("1440:1440"),
-            ("1080P", "3:4") => Some("1248:1664"),
-            ("1080P", "9:16") => Some("1080:1920"),
-            _ => None,
-        };
-    }
-    if request.resolution != "720P" {
-        return None;
-    }
-    match ratio {
-        "21:9" => Some("1584:672"),
-        "16:9" => Some("1280:720"),
-        "4:3" => Some("1104:832"),
-        "1:1" => Some("960:960"),
-        "3:4" => Some("832:1104"),
-        "9:16" => Some("720:1280"),
-        _ => None,
-    }
-}
-
 fn runway_video_codec_supported(asset: &VideoInputAsset) -> bool {
     let Some(codec) = asset
         .video_codec
@@ -1000,7 +714,10 @@ mod tests {
 
         let seedance = request("seedance2_5", MediaOperation::TextToVideo);
         assert!(adapter.validate(&seedance).valid);
-        assert_eq!(dimensions_for(&seedance), Some("1280:720"));
+        assert_eq!(
+            RunwayVideoAdapter::payload(&seedance).unwrap()["ratio"],
+            "1280:720"
+        );
         let mut seedance = seedance;
         seedance.seed = Some(42);
         for (resolution, ratio) in [("480P", "854:480"), ("1080P", "1920:1080")] {

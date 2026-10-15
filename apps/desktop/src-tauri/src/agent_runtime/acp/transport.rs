@@ -106,6 +106,7 @@ fn with_bundled_runtime(
     resolve_copilot: impl FnOnce() -> std::result::Result<std::path::PathBuf, String>,
 ) -> Result<Option<nexa_core::external_agent::launch::LaunchPlan>> {
     if preset.provider != "github_copilot_acp"
+        || preset.managed_distribution
         || launch.executable.is_some()
         || launch
             .env
@@ -144,10 +145,20 @@ pub(super) async fn prepare_plan(
     })
     .await
     .map_err(error)??;
-    if let Some(plan) = installed {
-        return Ok(plan);
-    }
-    nexa_core::external_agent::launch::prepare(preset, launch, cache_root).await
+    let mut plan = if let Some(plan) = installed {
+        plan
+    } else {
+        nexa_core::external_agent::launch::prepare(preset, launch, cache_root).await?
+    };
+    let preset = preset.clone();
+    let launch = launch.clone();
+    let cache = cache_root.map(Path::to_owned);
+    tokio::task::spawn_blocking(move || {
+        super::auth_profile::prepare(&preset, &launch, cache.as_deref(), &mut plan)?;
+        Ok(plan)
+    })
+    .await
+    .map_err(error)?
 }
 
 pub(super) struct Wire {
@@ -210,6 +221,9 @@ pub(super) fn command_from_plan(
         return Err(error("These arguments require a native executable, not a Windows command shim. Select the agent's executable (or Node/Python executable) directly."));
     }
     let mut command = tokio::process::Command::new(executable);
+    for key in &plan.env_remove {
+        command.env_remove(key);
+    }
     command
         .args(args)
         .envs(&plan.env)
@@ -441,9 +455,6 @@ impl Wire {
 
 fn rpc_result(message: Value, method: &str, secrets: &[String]) -> Result<Value> {
     if let Some(failure) = message.get("error") {
-        if failure["code"] == -32000 {
-            return Err(error("The external agent requires authentication. Sign in through its official CLI, then check the connection again."));
-        }
         // Preserve actionable setup failures (missing runtimes, configuration)
         // under the same bounded credential redaction as stderr. Never dump
         // arbitrary RPC data, which may include prompts or credential objects.
@@ -465,7 +476,9 @@ fn rpc_result(message: Value, method: &str, secrets: &[String]) -> Result<Value>
                 .as_i64()
                 .map(|code| code.to_string())
                 .unwrap_or_else(|| "invalid".into()),
-            if detail.is_empty() {
+            if detail.is_empty() && failure["code"] == -32000 {
+                "Authentication is required. Open this agent's Settings profile and choose one of its advertised sign-in methods."
+            } else if detail.is_empty() {
                 "Check the agent's local configuration."
             } else {
                 &detail
@@ -518,6 +531,18 @@ mod launch_tests {
         assert!(!error.contains("private-prompt"));
     }
 
+    #[test]
+    fn authentication_failure_keeps_onboarding_reason_and_native_recovery() {
+        let failure = rpc_result(json!({"error": {
+            "code": -32000, "message": "Google onboarding failed: account is not eligible",
+            "data": {"message":"Use the account selected in the browser", "token":"private-token"}
+        }}), "authenticate", &[]).unwrap_err().to_string();
+        assert!(failure.contains("account is not eligible"));
+        assert!(failure.contains("Use the account selected"));
+        assert!(!failure.contains("official CLI"));
+        assert!(!failure.contains("private-token"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn non_unicode_environment_remains_redacted_without_panicking() {
@@ -536,30 +561,39 @@ mod launch_tests {
         assert!(redacted.contains("[REDACTED]"));
     }
     #[test]
-    fn bundled_copilot_fills_a_missing_default_runtime_without_overriding_preferences() {
+    fn bundled_copilot_fills_a_legacy_runtime_without_overriding_selected_versions() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("copilot.exe");
         std::fs::write(&executable, "fixture").unwrap();
-        let preset = nexa_core::external_agent::preset("github_copilot_acp").unwrap();
+        let mut preset = nexa_core::external_agent::preset("github_copilot_acp").unwrap();
         let mut launch = ExternalAgentLaunch {
             working_directory: directory.path().to_string_lossy().into_owned(),
             ..Default::default()
         };
-        let plan = with_bundled_runtime(preset, &launch, None, || Ok(executable.clone()))
+        assert!(preset.managed_distribution);
+        assert!(with_bundled_runtime(&preset, &launch, None, || panic!(
+            "a selected ACP version must not fall back to an older bundled runtime"
+        ))
+        .unwrap()
+        .is_none());
+        // Only pre-registry launch descriptors may use the historical fallback.
+        // The native Copilot provider owns its separate bundled runtime path.
+        preset.managed_distribution = false;
+        let plan = with_bundled_runtime(&preset, &launch, None, || Ok(executable.clone()))
             .unwrap()
             .unwrap();
         assert_eq!(plan.executable, executable);
         assert_eq!(plan.args, vec!["--acp"]);
         launch.env.insert("PATH".into(), String::new());
-        assert!(with_bundled_runtime(preset, &launch, None, || panic!(
+        assert!(with_bundled_runtime(&preset, &launch, None, || panic!(
             "explicit PATH must be authoritative"
         ))
         .unwrap()
         .is_none());
         launch.env.clear();
         launch.executable = Some(executable.to_string_lossy().into_owned());
-        let custom = nexa_core::external_agent::launch::installed(preset, &launch).unwrap();
-        assert!(with_bundled_runtime(preset, &launch, custom, || panic!(
+        let custom = nexa_core::external_agent::launch::installed(&preset, &launch).unwrap();
+        assert!(with_bundled_runtime(&preset, &launch, custom, || panic!(
             "explicit executable must be authoritative"
         ))
         .unwrap()

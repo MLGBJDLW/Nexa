@@ -704,16 +704,9 @@
   "turnChangesNoStats": "Lignes inconnues",
   "turnChangesContentUnavailable": "Fichier binaire, trop volumineux ou différence enregistrée indisponible.",
   "turnChangesLoadError": "Impossible de charger les modifications enregistrées.",
-  "shareScreen": "Partager l’écran",
-  "stopScreenShare": "Arrêter le partage",
-  "screenShareActive": "Écran partagé",
   "screenShareNeedsConversation": "Commencez une conversation avant de partager",
   "screenShareUnavailable": "Le partage d’écran est indisponible ici",
-  "screenSharePreview": "Aperçu de l’écran partagé",
-  "screenShareHint": "L’agent reçoit la vue actuelle lorsqu’il continue. Arrêtez le partage pour révoquer l’accès.",
   "shareWindow": "Fenêtre / sélecteur système…",
-  "screenSharePreparingConversation": "Préparation du partage d’écran…",
-  "screenShareConversationChanged": "La conversation a changé. Relancez le partage d’écran dans la conversation actuelle.",
   "computerUseOperating": "Contrôle de l’ordinateur en cours",
   "computerUseObserving": "Lecture de la fenêtre sélectionnée",
   "processLive": "En direct",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "Jusqu’à {tokens} jetons d’entrée",
   "contextTierScope": "Applicable au prochain tour. Copilot gère la compression et indique la capacité réelle. Le contexte étendu peut coûter plus cher.",
   "agentCompactingBackground": "Compression du contexte en arrière-plan",
-  "computerUseStop": "Arrêter le contrôle"
+  "computerUseStop": "Arrêter le contrôle",
+  "captureScreen": "Prendre une capture",
+  "captureScreenHint": "Joignez une image, vérifiez-la, puis envoyez. La capture s’arrête immédiatement.",
+  "captureScreenLive": "Pour un enregistrement continu, ouvrez Live",
+  "attachmentsNextMessage": "Les pièces jointes sont prêtes pour le prochain message après cette réponse."
 }

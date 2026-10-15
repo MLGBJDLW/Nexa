@@ -1130,5 +1130,11 @@
   "subscriptionQuotaScope": "服務方回傳的帳戶額度由各用戶端共用，與本次聊天的 token 消耗分開統計。",
   "subscriptionQuotaUpdated": "讀取於 {time}",
   "externalAgentAuthRequired": "請選擇此 Agent 提供的登入方式，帳戶仍由該 Agent 管理。",
-  "externalAgentPreparing": "正在準備 Agent 並建立工作階段……首次連線可能需要幾分鐘。"
+  "externalAgentPreparing": "正在準備 Agent 並建立工作階段……首次連線可能需要幾分鐘。",
+  "externalAgentRegistryVersion": "目錄版本 · {version}",
+  "externalAgentCheckUpdates": "檢查 Agent 更新",
+  "externalAgentUseUpdate": "使用 {version}",
+  "externalAgentCustomUpdate": "自訂執行檔：請透過其安裝程式更新。",
+  "externalAgentGoogleProfile": "Google 登入保存在 Nexa 獨立設定中，並供聊天共用。",
+  "externalAgentRegistryChecked": "目錄檢查時間：{time}"
 }
