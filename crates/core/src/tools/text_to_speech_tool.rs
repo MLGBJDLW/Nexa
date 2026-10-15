@@ -30,6 +30,8 @@ pub struct SynthesizeSpeechTool;
 
 #[path = "text_to_speech_elevenlabs.rs"]
 mod elevenlabs;
+#[path = "text_to_speech_google.rs"]
+mod google;
 
 #[derive(Debug, Deserialize)]
 struct SynthesizeSpeechArgs {
@@ -96,6 +98,9 @@ pub async fn synthesize_speech_preview(
             CoreError::InvalidInput(format!("Failed to build HTTP client: {error}"))
         })?;
     let generated = match config.api_style.as_str() {
+        "gemini_interactions_speech" => {
+            google::synthesize(&client, config, text, &model, &voice).await?
+        }
         "elevenlabs_speech" => {
             synthesize_elevenlabs(&client, config, text, &model, &voice, speed).await?
         }

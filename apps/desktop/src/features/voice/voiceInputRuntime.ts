@@ -97,12 +97,13 @@ export function isRealtimeTranscriptionConfig(
 export function isSpeechToTextConfigured(config?: SpeechToTextConfig | null): boolean {
   if (!config || config.apiStyle === 'local_whisper') return true;
   if (config.apiStyle === 'openai_realtime_transcription'
+    || config.apiStyle === 'gemini_realtime_asr'
     || config.apiStyle === 'dashscope_realtime_asr'
     || config.apiStyle === 'dashscope_streaming_asr') {
     return isRealtimeTranscriptionConfig(config)
       && Boolean(config.apiKey.trim() && config.baseUrl?.trim() && config.model.trim());
   }
-  if (config.apiStyle === 'openai_transcription' || config.apiStyle === 'dashscope_asr' || config.apiStyle === 'dashscope_audio_asr') {
+  if (['openai_transcription', 'dashscope_asr', 'dashscope_audio_asr', 'gemini_interactions_asr', 'meta_asr'].includes(config.apiStyle)) {
     return Boolean(config.apiKey.trim() && config.baseUrl?.trim() && config.model.trim());
   }
   if (config.apiStyle === 'sherpa_onnx') {
@@ -728,7 +729,9 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
           realtimeUploadQueueRef.current = new BoundedAudioUploadQueue(
             (chunk) => api.appendRealtimeTranscriptionAudio(sessionId!, chunk),
             {
-              preserveAudio: true,
+              // This is a replaceable live preview. The native spool already
+              // retains every frame; a stalled preview falls back to that file
+              // without stopping the microphone or duplicating unlimited PCM.
               bytesPerSecond: sampleRate * 2,
               maxBufferedDurationMs: 2_000,
               onRejected: () => degradeRealtimeToSpool(true),

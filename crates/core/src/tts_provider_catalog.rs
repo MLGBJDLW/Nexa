@@ -117,6 +117,9 @@ pub fn tts_api_base_url(config: &TextToSpeechConfig) -> String {
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| match config.api_style.as_str() {
             "elevenlabs_speech" => "https://api.elevenlabs.io/v1".to_string(),
+            "gemini_interactions_speech" => {
+                "https://generativelanguage.googleapis.com/v1beta".to_string()
+            }
             "minimax_speech" => "https://api.minimax.io/v1".to_string(),
             "azure_speech" => {
                 "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1".to_string()

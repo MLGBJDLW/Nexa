@@ -19,6 +19,23 @@ Changing a model name cannot turn a batch HTTP adapter into a realtime stream.
 Phone dictation uses the desktop speech configuration and preserves recognized
 text if the microphone transport is interrupted.
 
+Recording duration is independent of a provider socket. PCM accepted by the
+microphone is retained in the native recording spool; temporary upload pressure
+does not end capture. A stalled renderer preview can fall back to that saved
+recording without retaining a second unlimited PCM copy. The realtime owner
+retains unconfirmed audio on disk, reconnects, and replays only the unconfirmed
+tail. OpenAI sockets rotate before their provider lifetime expires. Finalized
+recording recovery uses this same segmented session owner and preserves the
+original file when an outage requires retry. No transcript character cutoff is
+applied. Disk failures and the WAV container's actual format boundary remain
+actionable storage failures.
+
+OpenAI live transcription uses client commits. Gemini Transcribe Live uses its
+native text-only setup with manual activity boundaries; Qwen retains its native
+VAD/task protocols. A completed utterance advances the transcript checkpoint and
+does not stop the recording. Native Google and Meta file-ASR presets use the
+existing segmented-file path; their final-only delivery is shown in Settings.
+
 ## Start a Live session
 
 1. Open Live on the desktop or a [paired phone](remote-access.md).
@@ -64,15 +81,15 @@ clients share this layout. Copy buttons export the summary as Markdown, an
 individual entry as text, or a whole transcript/observation panel with timestamps
 and in-progress markers. The expanded summary window has the same copy action.
 
-### Share the desktop in Chat
+### Capture a screenshot in Chat
 
-The composer screen button opens a source picker, including before the first
-message. It prepares an empty conversation and preserves the draft without
-starting a model turn. Windows offers each connected monitor and application
-window through Nexa's own picker. Capture starts only after selecting
-a source, shows a sharing indicator and preview, and stops when explicitly
-stopped or when leaving the conversation. Losing the selected monitor ends the
-share instead of silently switching to another display. Frames remain in memory.
+The composer screen button captures one image and adds it to the current draft,
+including before the first message and while another reply streams. Windows
+offers connected monitors and application windows through Nexa's native picker;
+other hosts use their system picker. The thumbnail can be removed before sending.
+Capture releases its tracks immediately after the image is ready, or on cancel
+or navigation. It does not create a conversation or start a model turn. The
+same menu links to Live for continuous screen observation and meeting capture.
 
 ### Speaker attribution (verified 2026-09-13)
 
@@ -80,7 +97,7 @@ The current Nexa speech adapters do **not** provide live speaker diarization.
 Utterance IDs identify transcript segments, not people. Nexa does not infer
 speaker numbers or identities from wording or AI observations.
 
-This audit covers all ten presets in
+This distinction applies to the current presets in
 [the speech catalog](../../shared/stt-provider-presets.json), plus native Live.
 A text-model integration does not imply access to a company's separate speech
 products.

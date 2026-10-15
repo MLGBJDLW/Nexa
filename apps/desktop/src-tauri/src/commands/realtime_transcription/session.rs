@@ -11,12 +11,51 @@ const OPENAI_ROTATE_AFTER: Duration = Duration::from_secs(55 * 60);
 const JOURNAL_CHECKPOINT_BYTES: u64 = 1024 * 1024;
 const WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 
+fn provider_diagnostic(
+    config: &nexa_core::app_settings::SpeechToTextConfig,
+    message: String,
+) -> String {
+    let key = config.api_key.trim();
+    if key.is_empty() {
+        return message;
+    }
+    let encoded = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("key", key)
+        .finish();
+    message
+        .replace(encoded.trim_start_matches("key="), "[redacted]")
+        .replace(key, "[redacted]")
+}
+
+fn gemini_endpoint(config: &nexa_core::app_settings::SpeechToTextConfig) -> Result<String, String> {
+    let mut url = Url::parse(config.base_url.as_deref().unwrap_or_default())
+        .map_err(|_| "Invalid Gemini transcription endpoint")?;
+    let scheme = match url.scheme() {
+        "https" | "wss" => "wss",
+        "http" | "ws" => "ws",
+        _ => return Err("Invalid Gemini transcription endpoint scheme".into()),
+    };
+    url.set_scheme(scheme)
+        .map_err(|_| "Invalid Gemini transcription endpoint")?;
+    if !url.path().ends_with(".BidiGenerateContent") {
+        url.set_path(
+            "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+        );
+    }
+    url.set_query(None);
+    url.query_pairs_mut()
+        .append_pair("key", config.api_key.trim());
+    Ok(url.to_string())
+}
+
 pub(super) async fn connect(
     config: &nexa_core::app_settings::SpeechToTextConfig,
     dialect: RealtimeDialect,
     task_id: &str,
 ) -> Result<Socket, String> {
-    let endpoint = if dialect == RealtimeDialect::DashScopeTask {
+    let endpoint = if dialect == RealtimeDialect::Gemini {
+        gemini_endpoint(config)?
+    } else if dialect == RealtimeDialect::DashScopeTask {
         nexa_core::dashscope_speech::task_endpoint(config.base_url.as_deref().unwrap_or_default())?
     } else {
         build_realtime_endpoint(
@@ -27,12 +66,14 @@ pub(super) async fn connect(
     let mut request = endpoint
         .into_client_request()
         .map_err(|error| format!("Invalid Realtime WebSocket request: {error}"))?;
-    request.headers_mut().insert(
-        "Authorization",
-        format!("Bearer {}", config.api_key.trim())
-            .parse()
-            .map_err(|_| "Invalid realtime authorization header")?,
-    );
+    if dialect != RealtimeDialect::Gemini {
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", config.api_key.trim())
+                .parse()
+                .map_err(|_| "Invalid realtime authorization header")?,
+        );
+    }
     request.headers_mut().insert(
         "User-Agent",
         nexa_core::USER_AGENT
@@ -45,7 +86,12 @@ pub(super) async fn connect(
     )
     .await
     .map_err(|_| "Timed out connecting to realtime transcription")?
-    .map_err(|error| format!("Unable to connect to realtime transcription: {error}"))?;
+    .map_err(|error| {
+        provider_diagnostic(
+            config,
+            format!("Unable to connect to realtime transcription: {error}"),
+        )
+    })?;
     // gpt-live-transcribe requires client commits; server/semantic VAD is not
     // supported even when this session belongs to a Live meeting.
     socket
@@ -56,7 +102,9 @@ pub(super) async fn connect(
         ))
         .await
         .map_err(|error| format!("Unable to configure realtime transcription: {error}"))?;
-    wait_for_session_ready(&mut socket, dialect, task_id).await?;
+    wait_for_session_ready(&mut socket, dialect, task_id)
+        .await
+        .map_err(|error| provider_diagnostic(config, error))?;
     Ok(socket)
 }
 
@@ -66,6 +114,8 @@ struct AudioJournal {
     confirmed: u64,
     end: u64,
     sent: u64,
+    // A finalized spool is read in place; its owner retains deletion authority.
+    source_header_bytes: u64,
 }
 impl AudioJournal {
     fn new() -> Result<Self, String> {
@@ -77,9 +127,13 @@ impl AudioJournal {
             confirmed: 0,
             end: 0,
             sent: 0,
+            source_header_bytes: 0,
         })
     }
     async fn append(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if self.source_header_bytes != 0 {
+            return Err("Cannot append to a finalized recording".into());
+        }
         self.file
             .seek(SeekFrom::Start(self.end - self.origin))
             .await
@@ -95,7 +149,9 @@ impl AudioJournal {
         let length = (self.end - self.sent).min(maximum as u64) as usize;
         let mut bytes = vec![0; length];
         self.file
-            .seek(SeekFrom::Start(self.sent - self.origin))
+            .seek(SeekFrom::Start(
+                self.source_header_bytes + self.sent - self.origin,
+            ))
             .await
             .map_err(|e| e.to_string())?;
         self.file
@@ -106,6 +162,9 @@ impl AudioJournal {
     }
     async fn confirm(&mut self, end: u64) -> Result<(), String> {
         self.confirmed = end.min(self.sent);
+        if self.source_header_bytes != 0 {
+            return Ok(());
+        }
         if self.confirmed == self.end {
             self.file.set_len(0).await.map_err(|e| e.to_string())?;
             self.origin = self.end;
@@ -136,10 +195,12 @@ struct UtteranceBoundary {
     frames: u64,
     silent_frames: u64,
     speech: bool,
+    nonzero: bool,
 }
 impl UtteranceBoundary {
     fn append(&mut self, pcm: &[u8], sample_rate: u32) -> bool {
         let frames = pcm.len() as u64 / 2;
+        self.nonzero |= pcm.iter().any(|byte| *byte != 0);
         let speech = pcm
             .chunks_exact(2)
             .any(|sample| i16::from_le_bytes([sample[0], sample[1]]).unsigned_abs() >= 400);
@@ -188,25 +249,110 @@ fn should_rotate(dialect: RealtimeDialect, elapsed: Duration) -> bool {
 pub(super) async fn run(
     config: nexa_core::app_settings::SpeechToTextConfig,
     dialect: RealtimeDialect,
+    task_id: String,
+    socket: Socket,
+    commands: mpsc::Receiver<RealtimeCommand>,
+    events: &RealtimeEventSink,
+    session_id: &str,
+) -> Result<(), String> {
+    run_with_audio(
+        config,
+        dialect,
+        task_id,
+        socket,
+        commands,
+        events,
+        session_id,
+        AudioJournal::new()?,
+    )
+    .await
+}
+
+pub(super) async fn replay(
+    wav_path: &Path,
+    config: &nexa_core::app_settings::SpeechToTextConfig,
+) -> Result<String, String> {
+    let dialect = RealtimeDialect::from_config(config)?;
+    let mut file = tokio::fs::File::open(wav_path)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut header = [0; 44];
+    file.read_exact(&mut header)
+        .await
+        .map_err(|error| error.to_string())?;
+    let end = u64::from(replay_wav_data_bytes(&header, dialect.sample_rate())?);
+    if file
+        .metadata()
+        .await
+        .map_err(|error| error.to_string())?
+        .len()
+        != end + 44
+    {
+        return Err("Managed realtime WAV length does not match its header".into());
+    }
+    let audio = AudioJournal {
+        file,
+        origin: 0,
+        confirmed: 0,
+        end,
+        sent: 0,
+        source_header_bytes: 44,
+    };
+    let task_id = Uuid::new_v4().simple().to_string();
+    let socket = connect(config, dialect, &task_id).await?;
+    let (sender, commands) = mpsc::channel(1);
+    let (response, result) = oneshot::channel();
+    sender
+        .send(RealtimeCommand::Finish(response))
+        .await
+        .map_err(|error| error.to_string())?;
+    let events = RealtimeEventSink {
+        frontend: Arc::new(|_| {}),
+        live: None,
+    };
+    run_with_audio(
+        config.clone(),
+        dialect,
+        task_id,
+        socket,
+        commands,
+        &events,
+        "replay",
+        audio,
+    )
+    .await?;
+    drop(sender);
+    result
+        .await
+        .map_err(|_| "Realtime replay ended without a transcript".to_string())?
+}
+
+async fn run_with_audio(
+    config: nexa_core::app_settings::SpeechToTextConfig,
+    dialect: RealtimeDialect,
     mut task_id: String,
     mut socket: Socket,
     mut commands: mpsc::Receiver<RealtimeCommand>,
     events: &RealtimeEventSink,
     session_id: &str,
+    mut audio: AudioJournal,
 ) -> Result<(), String> {
-    let mut audio = AudioJournal::new()?;
     let mut prefix = String::new();
     let mut transcript = RealtimeTranscript::default();
     let mut sequence = 0;
     let mut pending_final = None;
+    let mut final_progress_at: Option<Instant> = None;
     let mut pending_commit: Option<u64> = None;
     let mut expected_item: Option<String> = None;
     let mut committed_at: Option<Instant> = None;
     let mut acknowledged_items = std::collections::HashSet::new();
     let mut boundary = UtteranceBoundary::default();
+    let mut input_started = false;
     let mut connected_at = Instant::now();
     let mut retry_delay = Duration::from_millis(250);
-    let mut tick = tokio::time::interval(Duration::from_millis(20));
+    // Qwen documents 100 ms PCM packets paced at their audio duration. A
+    // recovered backlog stays on disk and does not flood a realtime endpoint.
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let work: Result<(), String> = async {
         loop {
@@ -217,19 +363,26 @@ pub(super) async fn run(
                     Some(RealtimeCommand::Append(bytes)) => audio.append(&bytes).await?,
                     Some(RealtimeCommand::Finish(response)) => {
                         if pending_final.is_some() { let _ = response.send(Err("Realtime transcription is already finishing".into())); }
-                        else { pending_final = Some(response); }
+                        else { pending_final = Some(response); final_progress_at = Some(Instant::now()); }
                     }
                     None => return Ok(()),
                 },
                 _ = tick.tick() => {
+                    if final_progress_at.is_some_and(|at| at.elapsed() >= REPLAY_FINAL_TRANSCRIPT_TIMEOUT) {
+                        return Err("Realtime service made no transcription progress; the recording remains saved for retry".into());
+                    }
                     if pending_commit.is_none() && audio.sent < audio.end {
                         let bytes = audio.next(dialect.sample_rate() as usize / 5).await?; // <= 100 ms PCM16
                         let commit = boundary.append(&bytes, dialect.sample_rate());
-                        match tokio::time::timeout(WRITE_TIMEOUT, socket.send(audio_message(dialect, &bytes))).await {
+                        if dialect == RealtimeDialect::Gemini && !input_started {
+                            input_started = matches!(tokio::time::timeout(WRITE_TIMEOUT, socket.send(Message::Text(serde_json::json!({"realtimeInput":{"activityStart":{}}}).to_string().into()))).await, Ok(Ok(())));
+                            reconnect = !input_started;
+                        }
+                        if !reconnect { match tokio::time::timeout(WRITE_TIMEOUT, socket.send(audio_message(dialect, &bytes))).await {
                             Ok(Ok(())) => { audio.sent += bytes.len() as u64; retry_delay = Duration::from_millis(250); }
                             _ => reconnect = true,
-                        }
-                        if !reconnect && dialect == RealtimeDialect::OpenAi && commit { pending_commit = Some(audio.sent); }
+                        } }
+                        if !reconnect && matches!(dialect, RealtimeDialect::OpenAi | RealtimeDialect::Gemini) && commit { pending_commit = Some(audio.sent); }
                     }
                     if !reconnect && pending_commit.is_none() && pending_final.is_some() && audio.sent == audio.end {
                         if audio.sent == audio.confirmed {
@@ -258,8 +411,13 @@ pub(super) async fn run(
                 incoming = socket.next() => match incoming {
                     Some(Ok(Message::Text(text))) => {
                         let Ok(event) = serde_json::from_str::<Value>(&text) else { continue; };
+                        if dialect == RealtimeDialect::Gemini && pending_commit.is_some() && !boundary.nonzero
+                            && event.pointer("/serverContent/turnComplete").and_then(Value::as_bool) == Some(true) {
+                            checkpoint = true;
+                        }
                         if dialect == RealtimeDialect::DashScopeTask && event.pointer("/header/task_id").and_then(Value::as_str) != Some(task_id.as_str()) { continue; }
-                        if event["type"] == "input_audio_buffer.committed" {
+                        if dialect == RealtimeDialect::OpenAi && pending_commit.is_some()
+                            && event["type"] == "input_audio_buffer.committed" {
                             expected_item = event["item_id"].as_str().map(str::to_owned).or(expected_item);
                         }
                         match parse_server_event(dialect, &event) {
@@ -274,7 +432,7 @@ pub(super) async fn run(
                             ParsedRealtimeServerEvent::Final { utterance_id, text } => {
                                 if utterance_id.as_ref().is_some_and(|id| acknowledged_items.contains(id)) { continue; }
                                 transcript.update(utterance_id.as_deref(), &text, false, true);
-                                if dialect == RealtimeDialect::OpenAi {
+                                if matches!(dialect, RealtimeDialect::OpenAi | RealtimeDialect::Gemini) {
                                     checkpoint = pending_commit.is_some() && expected_item.as_deref().is_none_or(|id| id.is_empty() || Some(id) == utterance_id.as_deref());
                                     if checkpoint { if let Some(id) = utterance_id { acknowledged_items.insert(id); } }
                                 } else if pending_commit.is_none() && audio.sent - audio.confirmed >= JOURNAL_CHECKPOINT_BYTES {
@@ -290,9 +448,9 @@ pub(super) async fn run(
                                     emit_realtime_event(events, session_id, &mut sequence, "interim", Some(&join_transcript(&prefix, &current)), Some(TranscriptUpdate::ReplaceSnapshot), Some(&logical_id));
                                 }
                             }
-                            ParsedRealtimeServerEvent::SessionFinished => { checkpoint = true; }
+                            ParsedRealtimeServerEvent::SessionFinished => { checkpoint = pending_commit.is_some(); if !checkpoint { reconnect = true; } }
                             ParsedRealtimeServerEvent::Error(message) => {
-                                if permanent_provider_error(&message) || pending_final.is_some() { return Err(message); }
+                                if permanent_provider_error(&message) { return Err(message); }
                                 reconnect = true;
                             }
                             ParsedRealtimeServerEvent::Other => {}
@@ -311,12 +469,14 @@ pub(super) async fn run(
                 let end = pending_commit.take().unwrap_or(audio.sent);
                 prefix = join_transcript(&prefix, &text);
                 audio.confirm(end).await?;
+                if pending_final.is_some() { final_progress_at = Some(Instant::now()); }
                 emit_live_transcript(events, "final", Some(&text), Some("replaceSnapshot"), Some(&logical_id));
                 emit_realtime_event(events, session_id, &mut sequence, "final", Some(&prefix), Some(TranscriptUpdate::ReplaceSnapshot), Some(&logical_id));
                 transcript = RealtimeTranscript::default();
                 expected_item = None;
                 committed_at = None;
                 boundary = UtteranceBoundary::default();
+                input_started = false;
                 if pending_final.is_some() && audio.confirmed == audio.end {
                     resolve_pending_final(&mut pending_final, Ok(prefix.clone()));
                     return Ok(());
@@ -330,9 +490,13 @@ pub(super) async fn run(
                 committed_at = None;
                 acknowledged_items.clear();
                 boundary = UtteranceBoundary::default();
+                input_started = false;
                 transcript = RealtimeTranscript::default();
                 emit_realtime_event(events, session_id, &mut sequence, "reconnecting", None, None, None);
                 loop {
+                    if final_progress_at.is_some_and(|at| at.elapsed() >= REPLAY_FINAL_TRANSCRIPT_TIMEOUT) {
+                        return Err("Realtime service is still unavailable; the recording remains saved for retry".into());
+                    }
                     task_id = Uuid::new_v4().simple().to_string();
                     let delay = retry_delay;
                     let reconnect = async {
@@ -346,7 +510,7 @@ pub(super) async fn run(
                             command = commands.recv() => match command {
                                 Some(RealtimeCommand::Append(bytes)) => audio.append(&bytes).await?,
                                 Some(RealtimeCommand::Finish(response)) => {
-                                    if pending_final.is_none() { pending_final = Some(response); }
+                                    if pending_final.is_none() { pending_final = Some(response); final_progress_at = Some(Instant::now()); }
                                     else { let _ = response.send(Err("Realtime transcription is already finishing".into())); }
                                 }
                                 None => return Ok(()),
@@ -366,7 +530,7 @@ pub(super) async fn run(
                 }
             }
         }
-    }.await;
+    }.await.map_err(|message| provider_diagnostic(&config, message));
     if let Err(message) = &work {
         resolve_pending_final(&mut pending_final, Err(message.clone()));
         emit_realtime_event(
@@ -386,6 +550,105 @@ pub(super) async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn websocket_query_credentials_are_redacted_from_provider_diagnostics() {
+        let config = nexa_core::app_settings::SpeechToTextConfig {
+            api_key: "secret +value".into(),
+            base_url: Some("https://generativelanguage.googleapis.com".into()),
+            ..Default::default()
+        };
+        let url = gemini_endpoint(&config).unwrap();
+        let error = provider_diagnostic(&config, format!("{url} {}", config.api_key));
+        assert!(!error.contains("secret"));
+        assert!(error.contains("[redacted]"));
+    }
+    #[tokio::test]
+    async fn qwen_automatic_commit_does_not_block_explicit_session_finish() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let event: Value = serde_json::from_str(&text).unwrap();
+                let responses = match event["type"].as_str().unwrap() {
+                    "session.update" => vec![serde_json::json!({"type":"session.updated"})],
+                    "input_audio_buffer.append" => vec![
+                        serde_json::json!({"type":"input_audio_buffer.committed", "item_id":"sentence"}),
+                        serde_json::json!({"type":"conversation.item.input_audio_transcription.completed", "item_id":"sentence", "transcript":"Complete sentence."}),
+                    ],
+                    "session.finish" => vec![serde_json::json!({"type":"session.finished"})],
+                    _ => vec![],
+                };
+                for response in responses {
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+                if event["type"] == "session.finish" {
+                    break;
+                }
+            }
+        });
+        let config = nexa_core::app_settings::SpeechToTextConfig {
+            provider: "alibaba-qwen-realtime".into(),
+            api_style: "dashscope_realtime_asr".into(),
+            api_key: "fixture".into(),
+            base_url: Some(format!("http://{address}/v1")),
+            model: "qwen3-asr-flash-realtime".into(),
+            ..Default::default()
+        };
+        let socket = connect(&config, RealtimeDialect::DashScope, "fixture")
+            .await
+            .unwrap();
+        let (sender, receiver) = mpsc::channel(8);
+        let seen = Arc::new(tokio::sync::Notify::new());
+        let received = seen.clone();
+        let events = RealtimeEventSink {
+            frontend: Arc::new(move |event| {
+                if event.kind == "interim" {
+                    received.notify_one();
+                }
+            }),
+            live: None,
+        };
+        let task = tokio::spawn(async move {
+            run(
+                config,
+                RealtimeDialect::DashScope,
+                "fixture".into(),
+                socket,
+                receiver,
+                &events,
+                "logical",
+            )
+            .await
+        });
+        sender
+            .send(RealtimeCommand::Append(vec![0; 3_200]))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), seen.notified())
+            .await
+            .unwrap();
+        let (response, result) = oneshot::channel();
+        sender
+            .send(RealtimeCommand::Finish(response))
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), result)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            "Complete sentence."
+        );
+        task.await.unwrap().unwrap();
+        server.await.unwrap();
+    }
+
     #[tokio::test]
     async fn audio_checkpoint_replays_only_unconfirmed_pcm_after_reconnect() {
         let mut journal = AudioJournal::new().unwrap();

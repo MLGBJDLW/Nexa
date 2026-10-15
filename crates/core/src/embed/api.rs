@@ -11,6 +11,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
+fn gateway_task_profile(base_url: &str, model: &str) -> &'static str {
+    if base_url.trim_end_matches('/') != "https://openrouter.ai/api/v1" {
+        return "plain";
+    }
+    match model {
+        "google/gemini-embedding-2" | "google/gemini-embedding-2-preview" => {
+            "gemini-2-retrieval-v1"
+        }
+        "nvidia/llama-nemotron-embed-vl-1b-v2:free" => "nvidia-query-passage-v1",
+        _ => "plain",
+    }
+}
+
 pub struct ApiEmbedder {
     client: reqwest::blocking::Client,
     api_key: String,
@@ -49,7 +62,11 @@ impl ApiEmbedder {
         dimensions: usize,
         style: EmbeddingApiStyle,
     ) -> String {
-        let identity = json!(["api-v2", base_url, model, dimensions, style]);
+        let mut identity = json!(["api-v2", base_url, model, dimensions, style]);
+        let profile = gateway_task_profile(base_url, model);
+        if profile != "plain" {
+            identity.as_array_mut().unwrap().push(json!(profile));
+        }
         format!(
             "api-v2:{model}:{}",
             blake3::hash(identity.to_string().as_bytes()).to_hex()
@@ -240,6 +257,25 @@ impl ApiEmbedder {
                 });
             }
             _ => {}
+        }
+        if self.base_url == "https://openrouter.ai/api/v1" {
+            body["encoding_format"] = json!("float");
+            match gateway_task_profile(&self.base_url, &self.model) {
+                "gemini-2-retrieval-v1" => {
+                    body["input"] = json!(texts
+                        .iter()
+                        .map(|text| if query {
+                            format!("task: search result | query: {text}")
+                        } else {
+                            format!("title: none | text: {text}")
+                        })
+                        .collect::<Vec<_>>());
+                }
+                "nvidia-query-passage-v1" => {
+                    body["input_type"] = json!(if query { "query" } else { "passage" });
+                }
+                _ => {}
+            }
         }
         if self.request_dimensions && self.style != EmbeddingApiStyle::Gemini {
             let parameter = self.dimension_parameter.as_deref().unwrap_or(
@@ -441,6 +477,69 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::net::TcpListener;
+
+    #[test]
+    fn router_retrieval_semantics_and_numeric_transport_are_endpoint_scoped() {
+        let router = "https://openrouter.ai/api/v1";
+        let google = client(router, "google/gemini-embedding-2", 3072);
+        assert_eq!(
+            google.request(&["question"], true).1["input"][0],
+            "task: search result | query: question"
+        );
+        assert_eq!(
+            google.request(&["document"], false).1["input"][0],
+            "title: none | text: document"
+        );
+        assert_eq!(
+            google.request(&["document"], false).1["encoding_format"],
+            "float"
+        );
+        let old_identity = json!([
+            "api-v2",
+            router,
+            "google/gemini-embedding-2",
+            3072,
+            EmbeddingApiStyle::Openai
+        ]);
+        assert!(!google.vector_space_id().ends_with(
+            &blake3::hash(old_identity.to_string().as_bytes())
+                .to_hex()
+                .to_string()
+        ));
+        let nvidia = client(router, "nvidia/llama-nemotron-embed-vl-1b-v2:free", 2048);
+        assert_eq!(nvidia.request(&["question"], true).1["input_type"], "query");
+        assert_eq!(
+            nvidia.request(&["document"], false).1["input_type"],
+            "passage"
+        );
+        let private = client(
+            "https://private.example/v1",
+            "google/gemini-embedding-2",
+            3072,
+        );
+        assert_eq!(
+            private.request(&["document"], false).1["input"][0],
+            "document"
+        );
+        assert!(private
+            .request(&["document"], false)
+            .1
+            .get("encoding_format")
+            .is_none());
+        let config = super::super::EmbedderConfig {
+            provider: "api".into(),
+            api_base_url: router.into(),
+            api_model: "nvidia/llama-nemotron-embed-vl-1b-v2:free".into(),
+            ..Default::default()
+        };
+        assert_eq!(config.max_chunk_chars(), Some(1008));
+        let perplexity = client(router, "perplexity/pplx-embed-v1-4b", 2560);
+        let response = json!({"data":[{"index":0,"embedding":vec![127;2560]}]});
+        assert_eq!(perplexity.decode(response, 1).unwrap()[0].len(), 2560);
+        assert!(perplexity
+            .decode(json!({"data":[{"index":0,"embedding":"binary"}]}), 1)
+            .is_err());
+    }
 
     fn client(base: &str, model: &str, dimensions: usize) -> ApiEmbedder {
         ApiEmbedder::new(

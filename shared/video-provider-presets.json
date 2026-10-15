@@ -745,7 +745,7 @@
     "baseUrl": "https://api.dev.runwayml.com",
     "requiresApiKey": true,
     "apiVersion": "2024-11-06",
-    "description": "Runway's official asynchronous task API, including native and aggregated video models.",
+    "description": "Official Runway task API with model-specific generation and video-editing contracts.",
     "dataRegions": [
       "provider_managed"
     ],
@@ -775,7 +775,22 @@
             ],
             "inputRoles": [],
             "supportsAudio": false,
-            "supportsSeed": true
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
           },
           {
             "operation": "image_to_video",
@@ -799,7 +814,26 @@
               "first_frame"
             ],
             "supportsAudio": false,
-            "supportsSeed": true
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "21:9": "1584:672",
+                  "16:9": "1280:720",
+                  "4:3": "1104:832",
+                  "1:1": "960:960",
+                  "3:4": "832:1104",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
           }
         ],
         "supportsNegativePrompt": false,
@@ -826,39 +860,149 @@
         "outputUrlTtl": "24_to_48_hours",
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
-        "lastVerifiedAt": "2026-08-07"
+        "lastVerifiedAt": "2026-10-15"
       },
       {
         "providerId": "runway",
-        "modelId": "gen4_turbo",
-        "displayName": "Runway Gen-4 Turbo",
+        "modelId": "veo3.1",
+        "displayName": "Veo 3.1",
         "apiVersion": "2024-11-06",
         "releaseStatus": "ga",
         "selectable": true,
         "operationCapabilities": [
           {
-            "operation": "image_to_video",
+            "operation": "text_to_video",
             "durationOptions": [
               {
                 "resolution": "720P",
-                "minDurationSeconds": 2,
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
                 "maxDurationSeconds": 10,
                 "durationsSeconds": []
               }
             ],
             "aspectRatios": [
-              "21:9",
               "16:9",
-              "4:3",
-              "1:1",
-              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 1,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
               "9:16"
             ],
             "inputRoles": [
               "first_frame"
             ],
-            "supportsAudio": false,
-            "supportsSeed": true
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 0,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 0,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
           }
         ],
         "supportsNegativePrompt": false,
@@ -872,20 +1016,3784 @@
         "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
         "pricing": {
           "currency": "USD",
-          "kind": "per_second",
-          "creditsPerSecond": 5,
-          "microsPerSecond": 50000,
-          "minimumAmountMicros": null,
-          "freeReferenceImages": null,
-          "additionalReferenceImageMicros": null,
-          "tiers": [],
-          "inputVideoTiers": [],
-          "note": "Five credits per second at USD 0.01 per credit."
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
         },
         "outputUrlTtl": "24_to_48_hours",
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
-        "lastVerifiedAt": "2026-08-07"
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "veo3.1_fast",
+        "displayName": "Veo 3.1 Fast",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 1,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 0,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 0,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "klingO3_4k",
+        "displayName": "Kling O3 4K",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840",
+                  "1:1": "2880:2880"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_image"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840",
+                  "1:1": "2880:2880"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 7,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840",
+                  "1:1": "2880:2880"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "SOURCE",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "SOURCE": {
+                  "adaptive": ""
+                }
+              },
+              "durationField": false,
+              "videoField": "promptVideo",
+              "promptMin": 2,
+              "promptMax": 2500,
+              "maxReferenceImages": 4,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "hailuo3",
+        "displayName": "Hailuo 3",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "2K",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "768P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16"
+                },
+                "2K": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16"
+                }
+              },
+              "ratioField": "ratio",
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 6000,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 3,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "2K",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "768P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16",
+                  "adaptive": "adaptive"
+                },
+                "2K": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16",
+                  "adaptive": "adaptive"
+                }
+              },
+              "ratioField": "ratio",
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 6000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "2K",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio",
+              "last_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "768P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16",
+                  "adaptive": "adaptive"
+                },
+                "2K": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16",
+                  "adaptive": "adaptive"
+                }
+              },
+              "ratioField": "ratio",
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 6000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "2K",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16",
+              "adaptive"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "768P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16",
+                  "adaptive": "adaptive"
+                },
+                "2K": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16",
+                  "adaptive": "adaptive"
+                }
+              },
+              "ratioField": "ratio",
+              "resolutionField": "resolution",
+              "durationField": true,
+              "videoField": "promptVideo",
+              "promptMin": 1,
+              "promptMax": 6000,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 2,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "kling3.0_4k",
+        "displayName": "Kling 3.0 4K",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840",
+                  "1:1": "2880:2880"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840",
+                  "1:1": "2880:2880"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840",
+                  "1:1": "2880:2880"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "happyhorse_1_0",
+        "displayName": "HappyHorse 1.0",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "4:3": "1108:832",
+                  "1:1": "960:960",
+                  "3:4": "832:1108",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "4:3": "1662:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1662",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 2,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "adaptive": ""
+                },
+                "1080P": {
+                  "adaptive": ""
+                }
+              },
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "kling2.5_turbo_pro",
+        "displayName": "Kling 2.5 Turbo Pro",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "720:720"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 2,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "SOURCE",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "SOURCE": {
+                  "adaptive": ""
+                }
+              },
+              "durationField": false,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "SOURCE",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "SOURCE": {
+                  "adaptive": ""
+                }
+              },
+              "durationField": false,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "kling3.0_pro",
+        "displayName": "Kling 3.0 Pro",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "kling3.0_standard",
+        "displayName": "Kling 3.0 Standard",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "960:960"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "960:960"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "960:960"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "klingO3_pro",
+        "displayName": "Kling O3 Pro",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_image"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 7,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "SOURCE",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "SOURCE": {
+                  "adaptive": ""
+                }
+              },
+              "durationField": false,
+              "videoField": "promptVideo",
+              "promptMin": 2,
+              "promptMax": 2500,
+              "maxReferenceImages": 4,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "klingO3_standard",
+        "displayName": "Kling O3 Standard",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "960:960"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_image"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "960:960"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 7,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "960:960"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "SOURCE",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "SOURCE": {
+                  "adaptive": ""
+                }
+              },
+              "durationField": false,
+              "videoField": "promptVideo",
+              "promptMin": 2,
+              "promptMax": 2500,
+              "maxReferenceImages": 4,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000,
+              "minVideoEdge": 720,
+              "maxVideoEdge": 3840
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "seedance2",
+        "displayName": "Seedance 2",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "21:9": "3840:1646",
+                  "16:9": "3840:2160",
+                  "4:3": "3840:2880",
+                  "1:1": "3840:3840",
+                  "3:4": "2880:3840",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 3500,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 3,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "21:9": "3840:1646",
+                  "16:9": "3840:2160",
+                  "4:3": "3840:2880",
+                  "1:1": "3840:3840",
+                  "3:4": "2880:3840",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "21:9": "3840:1646",
+                  "16:9": "3840:2160",
+                  "4:3": "3840:2880",
+                  "1:1": "3840:3840",
+                  "3:4": "2880:3840",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "21:9": "3840:1646",
+                  "16:9": "3840:2160",
+                  "4:3": "3840:2880",
+                  "1:1": "3840:3840",
+                  "3:4": "2880:3840",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "videoField": "promptVideo",
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 2,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "seedance2_fast",
+        "displayName": "Seedance 2 Fast",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 3500,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 3,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "videoField": "promptVideo",
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 2,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "seedance2_mini",
+        "displayName": "Seedance 2 Mini",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 3500,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 3,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "864:496",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "496:864"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "videoField": "promptVideo",
+              "promptMin": 0,
+              "promptMax": 3500,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 2,
+              "maxReferenceAudio": 3,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "gemini_omni_flash",
+        "displayName": "Gemini Omni Flash",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 4000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 4000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "SOURCE",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "SOURCE": {
+                  "adaptive": ""
+                }
+              },
+              "durationField": false,
+              "videoField": "videoUri",
+              "promptMin": 1,
+              "promptMax": 4000,
+              "maxReferenceImages": 5,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "grok_imagine_1_5",
+        "displayName": "Grok Imagine 1.5",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "1:1",
+              "16:9",
+              "9:16",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_audio"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "1:1": "1:1",
+                  "16:9": "16:9",
+                  "9:16": "9:16",
+                  "4:3": "4:3",
+                  "3:4": "3:4",
+                  "3:2": "3:2",
+                  "2:3": "2:3"
+                },
+                "720P": {
+                  "1:1": "1:1",
+                  "16:9": "16:9",
+                  "9:16": "9:16",
+                  "4:3": "4:3",
+                  "3:4": "3:4",
+                  "3:2": "3:2",
+                  "2:3": "2:3"
+                },
+                "1080P": {
+                  "1:1": "1:1",
+                  "16:9": "16:9",
+                  "9:16": "9:16",
+                  "4:3": "4:3",
+                  "3:4": "3:4",
+                  "3:2": "3:2",
+                  "2:3": "2:3"
+                }
+              },
+              "ratioField": "ratio",
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 2500,
+              "maxReferenceImages": 7,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 3
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": ""
+                },
+                "720P": {
+                  "adaptive": ""
+                },
+                "1080P": {
+                  "adaptive": ""
+                }
+              },
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "wan3",
+        "displayName": "WAN 3",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "16:9": "832:480",
+                  "4:3": "720:544",
+                  "1:1": "624:624",
+                  "3:4": "544:720",
+                  "9:16": "480:832"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "4:3": "1104:832",
+                  "1:1": "960:960",
+                  "3:4": "832:1104",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "4:3": "1648:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1648",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 20000,
+              "maxReferenceImages": 10,
+              "maxReferenceVideos": 5,
+              "maxReferenceAudio": 5,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": "auto_480p"
+                },
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 20000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 5,
+              "maxReferenceAudio": 5,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_video",
+              "reference_audio",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": "auto_480p"
+                },
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 20000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 5,
+              "maxReferenceAudio": 5,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "gemini_omni_flash_1.1",
+        "displayName": "Gemini Omni Flash 1.1",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "360P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "360P": {
+                  "16:9": "640:360",
+                  "9:16": "360:640"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 4000,
+              "maxReferenceImages": 5,
+              "maxReferenceVideos": 3,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "360P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "360P": {
+                  "16:9": "640:360",
+                  "9:16": "360:640"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 4000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "360P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "360P": {
+                  "16:9": "640:360",
+                  "9:16": "360:640"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 4000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "360P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "360P": {
+                  "16:9": "640:360",
+                  "9:16": "360:640"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "videoField": "videoUri",
+              "videoMode": "reference",
+              "promptMin": 1,
+              "promptMax": 4000,
+              "maxReferenceImages": 5,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 10000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "wan3_prime",
+        "displayName": "WAN 3 Prime",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "16:9": "832:480",
+                  "4:3": "720:544",
+                  "1:1": "624:624",
+                  "3:4": "544:720",
+                  "9:16": "480:832"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "4:3": "1104:832",
+                  "1:1": "960:960",
+                  "3:4": "832:1104",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "4:3": "1648:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1648",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 20000,
+              "maxReferenceImages": 10,
+              "maxReferenceVideos": 5,
+              "maxReferenceAudio": 5,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": "auto_480p"
+                },
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 20000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 5,
+              "maxReferenceAudio": 5,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_video",
+              "reference_audio",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": "auto_480p"
+                },
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 20000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 5,
+              "maxReferenceAudio": 5,
+              "maxTotalVideoMs": 15000,
+              "maxTotalAudioMs": 15000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "h3_max",
+        "displayName": "MiniMax H3 Max",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": ""
+                },
+                "768P": {
+                  "adaptive": ""
+                }
+              },
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 6000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "minImageEdge": 256
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": ""
+                },
+                "768P": {
+                  "adaptive": ""
+                }
+              },
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 6000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "minImageEdge": 256
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 5,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": ""
+                },
+                "768P": {
+                  "adaptive": ""
+                }
+              },
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 6000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "minImageEdge": 256
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
       },
       {
         "providerId": "runway",
@@ -931,7 +4839,45 @@
               "reference_audio"
             ],
             "supportsAudio": true,
-            "supportsSeed": true
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "854:480",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "480:854"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 15000,
+              "maxReferenceImages": 30,
+              "maxReferenceVideos": 10,
+              "maxReferenceAudio": 10,
+              "maxTotalVideoMs": 30000,
+              "maxTotalAudioMs": 30000,
+              "minVideoEdge": 480
+            }
           },
           {
             "operation": "image_to_video",
@@ -968,7 +4914,121 @@
               "reference_audio"
             ],
             "supportsAudio": true,
-            "supportsSeed": true
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "854:480",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "480:854"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 15000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 10,
+              "maxTotalVideoMs": 30000,
+              "maxTotalAudioMs": 30000,
+              "minVideoEdge": 480
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_audio",
+              "last_frame"
+            ],
+            "supportsAudio": true,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "854:480",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "480:854"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 15000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 10,
+              "maxTotalVideoMs": 30000,
+              "maxTotalAudioMs": 30000,
+              "minVideoEdge": 480
+            }
           },
           {
             "operation": "video_to_video",
@@ -1007,7 +5067,47 @@
               "reference_audio"
             ],
             "supportsAudio": true,
-            "supportsSeed": true
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "992:432",
+                  "16:9": "854:480",
+                  "4:3": "752:560",
+                  "1:1": "640:640",
+                  "3:4": "560:752",
+                  "9:16": "480:854"
+                },
+                "720P": {
+                  "21:9": "1470:630",
+                  "16:9": "1280:720",
+                  "4:3": "1112:834",
+                  "1:1": "960:960",
+                  "3:4": "834:1112",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "21:9": "2206:946",
+                  "16:9": "1920:1080",
+                  "4:3": "1664:1248",
+                  "1:1": "1440:1440",
+                  "3:4": "1248:1664",
+                  "9:16": "1080:1920"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "videoField": "promptVideo",
+              "videoMode": "reference",
+              "promptMin": 0,
+              "promptMax": 15000,
+              "maxReferenceImages": 30,
+              "maxReferenceVideos": 9,
+              "maxReferenceAudio": 10,
+              "maxTotalVideoMs": 30000,
+              "maxTotalAudioMs": 30000,
+              "minVideoEdge": 480
+            }
           }
         ],
         "supportsNegativePrompt": false,
@@ -1072,7 +5172,299 @@
         "outputUrlTtl": "24_to_48_hours",
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
-        "lastVerifiedAt": "2026-10-08"
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "grok_imagine_1_5_lite",
+        "displayName": "Grok Imagine 1.5 Lite",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "3:2",
+              "2:3"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "16:9": "848:480",
+                  "9:16": "480:848",
+                  "1:1": "480:480",
+                  "4:3": "640:480",
+                  "3:4": "480:640",
+                  "3:2": "720:480",
+                  "2:3": "480:720"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "720:720",
+                  "4:3": "960:720",
+                  "3:4": "720:960",
+                  "3:2": "1088:720",
+                  "2:3": "720:1088"
+                },
+                "1080P": {
+                  "16:9": "1904:1072",
+                  "9:16": "1072:1904",
+                  "1:1": "1424:1424",
+                  "4:3": "1648:1232",
+                  "3:4": "1232:1648",
+                  "3:2": "1744:1152",
+                  "2:3": "1152:1744"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "adaptive": "auto_480p"
+                },
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 2500,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "gen4_turbo",
+        "displayName": "Runway Gen-4 Turbo",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 2,
+                "maxDurationSeconds": 10,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "21:9": "1584:672",
+                  "16:9": "1280:720",
+                  "4:3": "1104:832",
+                  "1:1": "960:960",
+                  "3:4": "832:1104",
+                  "9:16": "720:1280"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 0,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "per_second",
+          "creditsPerSecond": 5,
+          "microsPerSecond": 50000,
+          "minimumAmountMicros": null,
+          "freeReferenceImages": null,
+          "additionalReferenceImageMicros": null,
+          "tiers": [],
+          "inputVideoTiers": [],
+          "note": "Five credits per second at USD 0.01 per credit."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "aleph2",
+        "displayName": "Aleph 2",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "SOURCE",
+                "minDurationSeconds": 1,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "input_video"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": true,
+            "wireContract": {
+              "ratios": {
+                "SOURCE": {
+                  "adaptive": ""
+                }
+              },
+              "durationField": false,
+              "videoField": "videoUri",
+              "promptMin": 0,
+              "promptMax": 1000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "maxTotalVideoMs": 30000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-15"
       }
     ]
   },

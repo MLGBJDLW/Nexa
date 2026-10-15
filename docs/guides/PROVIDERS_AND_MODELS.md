@@ -330,6 +330,35 @@ route mid-sample. A failed or unavailable route should report its actual failure
 
 ## Implementation and checks
 
+The October 15, 2026 catalog audit covers 81 API/local presets and 1,068 model
+projections. Public discovery probes cover OpenRouter text, images and its
+separate embedding endpoint; the report lists unprobed endpoints explicitly.
+Public catalog presence, implemented request contracts and account entitlement
+are separate evidence levels. Missing listings never remove a model by themselves.
+
+This update adds Ollama Qwen 3.8, pinned Alibaba decision-model choices, four
+current OpenRouter embedding routes, native Gemini TTS/ASR and Meta file ASR.
+The existing Runway task runtime now serves 25 models with 76 explicit operation
+contracts, including 22 additional models. Per-operation ratios, duration,
+reference media, audio, seed and video field names come from the
+[Runway OpenAPI](https://docs.dev.runwayml.com/openapi.json). Unsupported optional
+features such as automatic duration, multishot and timed Aleph keyframes are not
+advertised. Unknown prices remain unknown instead of inheriting another model's
+tariff. Local fixture tests do not establish paid-generation quality or access.
+
+OpenRouter Gemini Embedding 2 uses distinct query/document text preparation.
+Changing those semantics changes its vector-space identity and requires reindexing;
+existing vectors are never silently reinterpreted. NVIDIA Nemotron VL retains the
+router's advertised capacity separately from its conservative serving capacity,
+which controls document splitting. Other missing router embedding candidates
+include older compatibility models: a dot-product model is not advertised through
+Nexa's cosine retrieval, and an undocumented Gemini 001 gateway task mapping is
+not guessed. Existing selections and defaults are preserved.
+
+OpenAI `tts-1-hd` retains availability until its documented January 6, 2027
+shutdown. The audit found no additional confirmed immediate retirements beyond
+the existing endpoint-scoped tombstones.
+
 - [Model choices](../../apps/desktop/src/features/models/modelChoices.ts) and
   [desktop model resolution](../../apps/desktop/src-tauri/src/commands/model_choices.rs).
 - [External agent execution](../../apps/desktop/src-tauri/src/agent_runtime): official

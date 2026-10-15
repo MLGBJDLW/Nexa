@@ -630,8 +630,10 @@ test('voice runtime no longer builds an unbounded Promise chain or JSON byte arr
     path.join(root, 'src-tauri', 'src', 'commands', 'realtime_transcription.rs'),
     'utf8',
   );
-  assert.match(realtimeNativeSource, /REPLAY_CHUNK_MILLIS: u64 = 100/);
-  assert.match(realtimeNativeSource, /wait_for_session_ready\(&mut socket, dialect, &task_id\)/);
+  const realtimeSessionSource = fs.readFileSync(path.join(root, 'src-tauri', 'src', 'commands', 'realtime_transcription', 'session.rs'), 'utf8');
+  assert.match(realtimeNativeSource, /session::replay\(wav_path, config\)/);
+  assert.match(realtimeSessionSource, /interval\(Duration::from_millis\(100\)\)/);
+  assert.match(realtimeSessionSource, /wait_for_session_ready\(&mut socket, dialect, task_id\)/);
   assert.match(realtimeNativeSource, /transcribe_realtime_spool/);
   assert.doesNotMatch(realtimeNativeSource, /std::fs::read\(wav_path\)/);
 });

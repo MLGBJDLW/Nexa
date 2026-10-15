@@ -1,3 +1,6 @@
+#[cfg(test)]
+#[path = "realtime_transcription_gemini_tests.rs"]
+mod gemini_tests;
 mod session;
 use std::collections::HashMap;
 use std::io::SeekFrom;
@@ -27,7 +30,6 @@ const SESSION_ID_HEADER: &str = "x-nexa-session-id";
 const FINAL_TRANSCRIPT_TIMEOUT: Duration = Duration::from_secs(30);
 const REPLAY_FINAL_TRANSCRIPT_TIMEOUT: Duration = Duration::from_secs(180);
 const SESSION_READY_TIMEOUT: Duration = Duration::from_secs(15);
-const REPLAY_CHUNK_MILLIS: u64 = 100;
 
 type RealtimeSessions = Arc<Mutex<HashMap<String, mpsc::Sender<RealtimeCommand>>>>;
 pub(super) type LiveTranscriptCallback =
@@ -47,6 +49,7 @@ enum RealtimeCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RealtimeDialect {
     OpenAi,
+    Gemini,
     DashScope,
     DashScopeTask,
 }
@@ -60,6 +63,9 @@ impl RealtimeDialect {
             "openai_realtime_transcription" if config.model.trim() == "gpt-live-transcribe" => {
                 Ok(Self::OpenAi)
             }
+            "gemini_realtime_asr" if config.model.trim() == "gemini-3.5-transcribe-live" => {
+                Ok(Self::Gemini)
+            }
             "dashscope_realtime_asr"
                 if nexa_core::dashscope_speech::is_realtime_asr_model(&config.model) =>
             {
@@ -71,6 +77,7 @@ impl RealtimeDialect {
                 Ok(Self::DashScopeTask)
             }
             "openai_realtime_transcription"
+            | "gemini_realtime_asr"
             | "dashscope_realtime_asr"
             | "dashscope_streaming_asr" => Err(format!(
                 "Unsupported realtime transcription model for {}: {}",
@@ -86,12 +93,12 @@ impl RealtimeDialect {
     fn sample_rate(self) -> u32 {
         match self {
             Self::OpenAi => 24_000,
-            Self::DashScope | Self::DashScopeTask => 16_000,
+            Self::Gemini | Self::DashScope | Self::DashScopeTask => 16_000,
         }
     }
 
     fn waits_for_session_finished(self) -> bool {
-        self != Self::OpenAi
+        matches!(self, Self::DashScope | Self::DashScopeTask)
     }
 }
 
@@ -182,6 +189,14 @@ fn build_session_update(
     task_id: &str,
 ) -> Value {
     match dialect {
+        RealtimeDialect::Gemini => serde_json::json!({
+            "setup": {
+                "model": format!("models/{}", model.trim_start_matches("models/")),
+                "generationConfig": {"responseModalities":["TEXT"]},
+                "inputAudioTranscription": {"languageCodes": language_hints(language)},
+                "realtimeInputConfig": {"automaticActivityDetection":{"disabled":true}}
+            }
+        }),
         RealtimeDialect::OpenAi => {
             let mut transcription = serde_json::json!({
                 "model": model.trim(),
@@ -245,6 +260,36 @@ fn build_session_update(
 }
 
 fn parse_server_event(dialect: RealtimeDialect, event: &Value) -> ParsedRealtimeServerEvent {
+    if dialect == RealtimeDialect::Gemini {
+        if let Some(message) = event.pointer("/error/message").and_then(Value::as_str) {
+            return ParsedRealtimeServerEvent::Error(message.into());
+        }
+        if event.get("goAway").is_some() {
+            return ParsedRealtimeServerEvent::Error(
+                "Provider requested a fresh transcription connection".into(),
+            );
+        }
+        if let Some(text) = event
+            .pointer("/serverContent/inputTranscription/text")
+            .and_then(Value::as_str)
+        {
+            return ParsedRealtimeServerEvent::Final {
+                utterance_id: None,
+                text: text.into(),
+            };
+        }
+        if let Some(text) = event
+            .pointer("/serverContent/interimInputTranscription/text")
+            .and_then(Value::as_str)
+        {
+            return ParsedRealtimeServerEvent::Interim {
+                utterance_id: None,
+                text: text.into(),
+                update: TranscriptUpdate::ReplaceSnapshot,
+            };
+        }
+        return ParsedRealtimeServerEvent::Other;
+    }
     if dialect == RealtimeDialect::DashScopeTask {
         return match event.pointer("/header/event").and_then(Value::as_str) {
             Some("task-finished") => ParsedRealtimeServerEvent::SessionFinished,
@@ -386,6 +431,9 @@ fn emit_live_transcript(
 }
 
 fn finish_messages(dialect: RealtimeDialect, task_id: &str) -> Vec<Value> {
+    if dialect == RealtimeDialect::Gemini {
+        return vec![serde_json::json!({"realtimeInput":{"activityEnd":{}}})];
+    }
     if dialect == RealtimeDialect::DashScopeTask {
         return vec![nexa_core::dashscope_speech::task_message(
             "finish-task",
@@ -400,7 +448,9 @@ fn finish_messages(dialect: RealtimeDialect, task_id: &str) -> Vec<Value> {
 }
 
 fn audio_message(dialect: RealtimeDialect, audio_data: &[u8]) -> Message {
-    if dialect == RealtimeDialect::DashScopeTask {
+    if dialect == RealtimeDialect::Gemini {
+        Message::Text(serde_json::json!({"realtimeInput":{"audio":{"data":BASE64.encode(audio_data),"mimeType":"audio/pcm;rate=16000"}}}).to_string().into())
+    } else if dialect == RealtimeDialect::DashScopeTask {
         Message::Binary(audio_data.to_vec().into())
     } else {
         Message::Text(append_message(audio_data).to_string().into())
@@ -463,6 +513,7 @@ where
             match incoming.map_err(|error| format!("Realtime configuration connection failed: {error}"))? {
                 Message::Text(text) => {
                     let Ok(event) = serde_json::from_str::<Value>(&text) else { continue; };
+                    if dialect == RealtimeDialect::Gemini && event.get("setupComplete").is_some() { return Ok(()); }
                     if dialect == RealtimeDialect::DashScopeTask {
                         if event.pointer("/header/task_id").and_then(Value::as_str) != Some(task_id) { continue; }
                         match event.pointer("/header/event").and_then(Value::as_str) {
@@ -487,225 +538,13 @@ where
     }).await.map_err(|_| "Timed out waiting for realtime session configuration".to_string())?
 }
 
-fn replay_failure_is_transient(error: &str) -> bool {
-    [
-        "Unable to reconnect",
-        "Unable to replay audio",
-        "Realtime replay closed",
-        "Realtime transcription replay failed",
-        "Realtime replay heartbeat failed",
-        "Realtime connection closed",
-        "Realtime connection ended",
-        "Realtime configuration connection failed",
-        "Timed out waiting for",
-        "Timed out connecting",
-    ]
-    .iter()
-    .any(|prefix| error.starts_with(prefix))
-}
-
-/// Retry a transport interruption once using the same private audio source.
-/// Each attempt has a fresh transcript accumulator, so prefixes are not joined
-/// across sessions. Provider/configuration rejections remain immediate errors.
+/// Finalized recordings use the same segmented provider session and reconnect
+/// logic as live dictation, reading the original file without copying or deleting it.
 pub(super) async fn transcribe_realtime_spool(
     wav_path: &Path,
     config: &nexa_core::app_settings::SpeechToTextConfig,
 ) -> Result<String, String> {
-    match transcribe_realtime_spool_attempt(wav_path, config).await {
-        Err(error) if replay_failure_is_transient(&error) => {
-            tokio::time::sleep(Duration::from_millis(250)).await;
-            transcribe_realtime_spool_attempt(wav_path, config).await
-        }
-        result => result,
-    }
-}
-
-/// Replay a finalized native spool through a fresh Realtime transcription
-/// session. The file path never crosses IPC and only one bounded PCM chunk is
-/// base64-encoded at a time.
-async fn transcribe_realtime_spool_attempt(
-    wav_path: &Path,
-    config: &nexa_core::app_settings::SpeechToTextConfig,
-) -> Result<String, String> {
-    let dialect = RealtimeDialect::from_config(config)?;
-    let task_id = Uuid::new_v4().simple().to_string();
-    let endpoint = if dialect == RealtimeDialect::DashScopeTask {
-        nexa_core::dashscope_speech::task_endpoint(config.base_url.as_deref().unwrap_or_default())?
-    } else {
-        build_realtime_endpoint(
-            config.base_url.as_deref().unwrap_or_default(),
-            &config.model,
-        )?
-    };
-    let mut request = endpoint
-        .into_client_request()
-        .map_err(|error| format!("Invalid Realtime WebSocket request: {error}"))?;
-    request.headers_mut().insert(
-        "Authorization",
-        format!("Bearer {}", config.api_key.trim())
-            .parse()
-            .map_err(|error| format!("Invalid realtime authorization header: {error}"))?,
-    );
-    request.headers_mut().insert(
-        "User-Agent",
-        nexa_core::USER_AGENT
-            .parse()
-            .map_err(|error| format!("Invalid User-Agent header: {error}"))?,
-    );
-
-    let (mut socket, _) = tokio::time::timeout(
-        SESSION_READY_TIMEOUT,
-        tokio_tungstenite::connect_async(request),
-    )
-    .await
-    .map_err(|_| "Timed out connecting to realtime transcription replay".to_string())?
-    .map_err(|error| format!("Unable to reconnect to realtime transcription: {error}"))?;
-    socket
-        .send(Message::Text(
-            build_session_update(dialect, &config.model, config.language.as_deref(), &task_id)
-                .to_string()
-                .into(),
-        ))
-        .await
-        .map_err(|error| format!("Unable to configure realtime transcription replay: {error}"))?;
-    wait_for_session_ready(&mut socket, dialect, &task_id).await?;
-
-    let mut file = tokio::fs::File::open(wav_path)
-        .await
-        .map_err(|error| format!("Unable to open managed Realtime audio: {error}"))?;
-    let mut header = [0_u8; 44];
-    file.read_exact(&mut header)
-        .await
-        .map_err(|error| format!("Unable to read managed Realtime WAV header: {error}"))?;
-    let mut remaining = replay_wav_data_bytes(&header, dialect.sample_rate())? as usize;
-    file.seek(SeekFrom::Start(44))
-        .await
-        .map_err(|error| format!("Unable to seek managed Realtime audio: {error}"))?;
-    // Realtime VAD consumes audio in time order, not as an unbounded file
-    // upload. Bound each packet to 100 ms and drain server events throughout
-    // pacing, including errors and pings queued during a slow send.
-    let mut buffer =
-        vec![0_u8; (u64::from(dialect.sample_rate()) * 2 * REPLAY_CHUNK_MILLIS / 1000) as usize];
-    let mut transcript = RealtimeTranscript::default();
-    while remaining > 0 {
-        let chunk_len = remaining.min(buffer.len());
-        file.read_exact(&mut buffer[..chunk_len])
-            .await
-            .map_err(|error| format!("Unable to read managed Realtime audio: {error}"))?;
-        let payload = audio_message(dialect, &buffer[..chunk_len]);
-        socket.send(payload).await.map_err(|error| {
-            format!("Unable to replay audio to realtime transcription: {error}")
-        })?;
-        remaining -= chunk_len;
-
-        let next_chunk_at = tokio::time::Instant::now()
-            + Duration::from_secs_f64(chunk_len as f64 / (f64::from(dialect.sample_rate()) * 2.0));
-        loop {
-            let incoming = tokio::select! {
-                biased;
-                incoming = socket.next() => incoming.ok_or_else(|| "Realtime replay closed while uploading audio".to_string())?,
-                _ = tokio::time::sleep_until(next_chunk_at) => break,
-            };
-            match incoming {
-                Ok(Message::Text(text)) => {
-                    if let Ok(event) = serde_json::from_str::<Value>(&text) {
-                        if dialect == RealtimeDialect::DashScopeTask
-                            && event.pointer("/header/task_id").and_then(Value::as_str)
-                                != Some(task_id.as_str())
-                        {
-                            continue;
-                        }
-                        match parse_server_event(dialect, &event) {
-                            ParsedRealtimeServerEvent::Error(message) => return Err(message),
-                            ParsedRealtimeServerEvent::Interim {
-                                utterance_id,
-                                text,
-                                update,
-                            } => transcript.update(
-                                utterance_id.as_deref(),
-                                &text,
-                                update == TranscriptUpdate::AppendDelta,
-                                false,
-                            ),
-                            ParsedRealtimeServerEvent::Final { utterance_id, text } => {
-                                transcript.update(utterance_id.as_deref(), &text, false, true)
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                Ok(Message::Ping(payload)) => socket
-                    .send(Message::Pong(payload))
-                    .await
-                    .map_err(|error| format!("Realtime replay heartbeat failed: {error}"))?,
-                Ok(Message::Close(frame)) => {
-                    return Err(format!(
-                        "Realtime replay closed while uploading audio: {frame:?}"
-                    ))
-                }
-                Err(error) => return Err(format!("Realtime transcription replay failed: {error}")),
-                Ok(_) => {}
-            }
-        }
-    }
-    for message in finish_messages(dialect, &task_id) {
-        socket
-            .send(Message::Text(message.to_string().into()))
-            .await
-            .map_err(|error| format!("Unable to finish realtime transcription replay: {error}"))?;
-    }
-
-    tokio::time::timeout(REPLAY_FINAL_TRANSCRIPT_TIMEOUT, async {
-        while let Some(incoming) = socket.next().await {
-            match incoming {
-                Ok(Message::Text(text)) => {
-                    let Ok(event) = serde_json::from_str::<Value>(&text) else {
-                        continue;
-                    };
-                    if dialect == RealtimeDialect::DashScopeTask
-                        && event.pointer("/header/task_id").and_then(Value::as_str)
-                            != Some(task_id.as_str())
-                    {
-                        continue;
-                    }
-                    match parse_server_event(dialect, &event) {
-                        ParsedRealtimeServerEvent::Interim {
-                            utterance_id,
-                            text,
-                            update,
-                        } => {
-                            transcript.update(
-                                utterance_id.as_deref(),
-                                &text,
-                                update == TranscriptUpdate::AppendDelta,
-                                false,
-                            );
-                        }
-                        ParsedRealtimeServerEvent::Final { utterance_id, text } => {
-                            transcript.update(utterance_id.as_deref(), &text, false, true);
-                            if !dialect.waits_for_session_finished() {
-                                return transcript.finish();
-                            }
-                        }
-                        ParsedRealtimeServerEvent::SessionFinished => return transcript.finish(),
-                        ParsedRealtimeServerEvent::Error(message) => return Err(message),
-                        _ => {}
-                    }
-                }
-                Ok(Message::Ping(payload)) => socket
-                    .send(Message::Pong(payload))
-                    .await
-                    .map_err(|error| format!("Realtime replay heartbeat failed: {error}"))?,
-                Ok(Message::Close(_)) | Err(_) => {
-                    return Err("Realtime replay closed before returning a transcript".to_string())
-                }
-                Ok(_) => {}
-            }
-        }
-        Err("Realtime replay ended before returning a transcript".to_string())
-    })
-    .await
-    .map_err(|_| "Timed out waiting for the replayed Realtime transcript".to_string())?
+    session::replay(wav_path, config).await
 }
 
 #[tauri::command]
@@ -865,14 +704,11 @@ pub async fn finish_realtime_transcription_cmd(
         .send(RealtimeCommand::Finish(response_tx))
         .await
         .map_err(|_| "Realtime transcription session has closed".to_string())?;
-    match tokio::time::timeout(FINAL_TRANSCRIPT_TIMEOUT, response_rx).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => Err("Realtime transcription session ended unexpectedly".to_string()),
-        Err(_) => {
-            let _ = cancel_realtime_transcription_cmd(session_id, state).await;
-            Err("Timed out waiting for the final Realtime transcript".to_string())
-        }
-    }
+    // Backlog duration is not a timeout. The session owner separately bounds
+    // a provider operation or an outage without ending a progressing recording.
+    response_rx
+        .await
+        .map_err(|_| "Realtime transcription session ended unexpectedly".to_string())?
 }
 
 #[tauri::command]

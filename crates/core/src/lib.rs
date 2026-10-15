@@ -58,6 +58,7 @@ pub mod file_checkpoint;
 pub mod file_mutation;
 pub mod font_assets;
 pub mod git_workspace;
+mod google_audio;
 pub mod graph_retrieval;
 pub mod image_provider_catalog;
 pub mod index;

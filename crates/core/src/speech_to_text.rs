@@ -13,6 +13,8 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::app_settings::SpeechToTextConfig;
 use crate::error::CoreError;
+#[path = "speech_to_text_native_audio.rs"]
+mod native_audio;
 
 #[derive(Deserialize)]
 struct CloudTranscript {
@@ -76,6 +78,9 @@ pub async fn transcribe_cloud_wav(
     }
     match config.api_style.as_str() {
         "openai_transcription" => transcribe_openai_compatible_wav(audio_data, config).await,
+        "gemini_interactions_asr" | "meta_asr" => {
+            native_audio::transcribe(audio_data, config).await
+        }
         "dashscope_asr" | "dashscope_audio_asr" => {
             transcribe_dashscope_wav(audio_data, config).await
         }
@@ -139,6 +144,9 @@ pub async fn transcribe_cloud_wav_path(
         file.read_exact(&mut segment[44..]).await?;
         let segment_transcript = match config.api_style.as_str() {
             "openai_transcription" => transcribe_openai_compatible_wav(segment, config).await?,
+            "gemini_interactions_asr" | "meta_asr" => {
+                native_audio::transcribe(segment, config).await?
+            }
             "dashscope_asr" | "dashscope_audio_asr" => {
                 transcribe_dashscope_wav(segment, config).await?
             }
@@ -517,6 +525,9 @@ pub fn transcribe_cloud_wav_blocking(
     let mut last_error = None;
     for attempt in 0..3 {
         let result = match config.api_style.as_str() {
+            "gemini_interactions_asr" | "meta_asr" => {
+                native_audio::transcribe_blocking(&audio_data, config)
+            }
             "openai_transcription" => {
                 transcribe_openai_compatible_wav_blocking(&audio_data, config)
             }

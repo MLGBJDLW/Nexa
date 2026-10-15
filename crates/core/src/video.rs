@@ -1696,9 +1696,11 @@ fn transcribe_media_wav(
                 inherited.language = speech.language.clone().or_else(|| video.language.clone());
                 transcribe_audio(wav_path, &inherited)
             }
-            "openai_transcription" | "dashscope_asr" | "dashscope_audio_asr" => {
-                transcribe_cloud_wav_chunks(wav_path, speech)
-            }
+            "openai_transcription"
+            | "dashscope_asr"
+            | "dashscope_audio_asr"
+            | "gemini_interactions_asr"
+            | "meta_asr" => transcribe_cloud_wav_chunks(wav_path, speech),
             "sherpa_onnx" => {
                 let text = crate::speech_to_text::transcribe_sherpa_wav(wav_path, speech)?;
                 Ok(vec![TranscriptSegment {

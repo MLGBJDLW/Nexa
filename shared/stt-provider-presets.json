@@ -193,5 +193,104 @@
     ],
     "lastVerifiedAt": "2026-09-29",
     "documentationUrls": ["https://developers.openai.com/api/docs/guides/speech-to-text"]
+  },
+  {
+    "id": "google-transcribe",
+    "name": "Google Gemini Transcription",
+    "provider": "google",
+    "apiStyle": "gemini_interactions_asr",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "description": "Native verbatim Gemini ASR for completed recordings, with automatic segmentation for long audio.",
+    "transcription": {
+      "transport": "httpJson",
+      "audioInput": "completeFile",
+      "transcriptDelivery": "finalOnly",
+      "interimSemantics": "none",
+      "finalization": "endOfFile",
+      "sampleRateHz": 16000,
+      "engineStreamingCapable": false
+    },
+    "models": [
+      {
+        "id": "gemini-3.5-transcribe",
+        "name": "Gemini 3.5 Transcribe",
+        "recommended": true,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-15"
+      }
+    ],
+    "documentationUrls": [
+      "https://ai.google.dev/gemini-api/docs/transcribe"
+    ],
+    "requiresApiKey": true,
+    "lastVerifiedAt": "2026-10-15"
+  },
+  {
+    "id": "meta-transcribe",
+    "name": "Meta Muse Transcription",
+    "provider": "meta",
+    "apiStyle": "meta_asr",
+    "baseUrl": "https://api.meta.ai/v1",
+    "description": "Native Muse ASR for completed PCM WAV recordings, with automatic segmentation for long audio.",
+    "transcription": {
+      "transport": "httpMultipart",
+      "audioInput": "completeFile",
+      "transcriptDelivery": "finalOnly",
+      "interimSemantics": "none",
+      "finalization": "endOfFile",
+      "sampleRateHz": 16000,
+      "engineStreamingCapable": false
+    },
+    "models": [
+      {
+        "id": "muse-voice-transcribe-1.0",
+        "name": "Muse Voice Transcribe 1.0",
+        "recommended": true,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-15"
+      }
+    ],
+    "documentationUrls": [
+      "https://dev.meta.ai/docs/api-reference/voice/transcribe"
+    ],
+    "requiresApiKey": true,
+    "lastVerifiedAt": "2026-10-15"
+  },
+  {
+    "id": "google-transcribe-live",
+    "name": "Google Gemini Live Transcription",
+    "provider": "google",
+    "apiStyle": "gemini_realtime_asr",
+    "requiresApiKey": true,
+    "baseUrl": "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent",
+    "description": "Native Gemini live transcription with continuous microphone capture and client-controlled utterance finalization.",
+    "transcription": {
+      "audioInput": "chunkStream",
+      "transcriptDelivery": "interimAndFinal",
+      "interimSemantics": "replaceSnapshot",
+      "finalization": "clientCommit",
+      "transport": "websocket",
+      "sampleRateHz": 16000,
+      "engineStreamingCapable": true
+    },
+    "models": [
+      {
+        "id": "gemini-3.5-transcribe-live",
+        "name": "Gemini 3.5 Transcribe Live",
+        "recommended": true,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-15"
+      }
+    ],
+    "lastVerifiedAt": "2026-10-15",
+    "documentationUrls": [
+      "https://ai.google.dev/gemini-api/docs/live-api/live-transcribe"
+    ]
   }
 ]
