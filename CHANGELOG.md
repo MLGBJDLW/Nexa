@@ -21,6 +21,16 @@
 * **stt:** bound stalled storage and preserve authoritative final transcripts ([c695928](https://github.com/MLGBJDLW/Nexa/commit/c69592838bfe64dfefa1b9ac708bf50460298d07))
 * **voice:** bound stalled capture and drain accepted audio ([28df8e4](https://github.com/MLGBJDLW/Nexa/commit/28df8e4ced0285f697a8b4ef47f2ad3c3ca8915e))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at d752ebf7f11e843e6b4b28c1ab0a69b7a7e57f30 -->
+
+### What's Changed
+* fix: restore chat and dictation, refresh ACP, and streamline CI by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/478
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.4...nexa-monorepo-v0.16.5
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.3...nexa-monorepo-v0.16.4) (2026-10-14)
 
 ### Included in this public release
