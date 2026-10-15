@@ -31,13 +31,21 @@ fn isolated_environment(root: &Path, cache: &Path) -> BTreeMap<String, String> {
     // Windows known-folder APIs expand USERPROFILE independently of APPDATA.
     // A coherent empty profile avoids falsely diagnosing a publisher failure.
     let profile = root.join("profile");
+    // PyInstaller embeds long member paths and still encounters MAX_PATH in
+    // its native extractor. Keep this owned temp root short like Windows TEMP,
+    // rather than nesting it inside the per-provider UUID profile fixture.
+    let temporary = cache
+        .parent()
+        .unwrap()
+        .join("tmp")
+        .join(&uuid::Uuid::new_v4().simple().to_string()[..8]);
     for (name, directory) in [
         ("HOME", profile.clone()),
         ("USERPROFILE", profile.clone()),
         ("APPDATA", profile.join("AppData/Roaming")),
         ("LOCALAPPDATA", profile.join("AppData/Local")),
-        ("TEMP", profile.join("AppData/Local/Temp")),
-        ("TMP", profile.join("AppData/Local/Temp")),
+        ("TEMP", temporary.clone()),
+        ("TMP", temporary),
     ] {
         std::fs::create_dir_all(&directory).unwrap();
         env.insert(name.into(), directory.to_string_lossy().into_owned());
