@@ -8,6 +8,7 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
     this.chunkFrames = processorOptions.chunkFrames;
     this.maxCredits = processorOptions.maxCredits ?? 4;
     this.batchAfterChunks = processorOptions.batchAfterChunks ?? 8;
+    this.maxPendingBytes = processorOptions.maxPendingBytes ?? 32 * 1024 * 1024;
     this.batchFrames = Math.min(128 * 1024, Math.max(this.chunkFrames, Math.round(this.targetSampleRate)));
     if (!Number.isFinite(this.targetSampleRate) || this.targetSampleRate <= 0) {
       throw new Error('targetSampleRate must be positive');
@@ -21,6 +22,9 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
     if (!Number.isInteger(this.batchAfterChunks) || this.batchAfterChunks <= 0) {
       throw new Error('batchAfterChunks must be a positive integer');
     }
+    if (!Number.isInteger(this.maxPendingBytes) || this.maxPendingBytes < this.chunkFrames * 2) {
+      throw new Error('maxPendingBytes must hold at least one PCM chunk');
+    }
 
     this.sourceStep = sampleRate / this.targetSampleRate;
     this.nextSourcePosition = 0;
@@ -29,6 +33,7 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
     this.currentChunkOffset = 0;
     this.credits = this.maxCredits;
     this.pendingChunks = [];
+    this.pendingCapacityBytes = 0;
     this.paused = false;
     this.stopped = false;
     this.flushRequestId = null;
@@ -70,7 +75,7 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
       return samples[index];
     };
 
-    while (this.nextSourcePosition < inputLength - 1) {
+    while (!this.stopped && this.nextSourcePosition < inputLength - 1) {
       const leftIndex = Math.floor(this.nextSourcePosition);
       const fraction = this.nextSourcePosition - leftIndex;
       const left = sampleAt(leftIndex);
@@ -120,18 +125,29 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
       // The threshold controls batching, never recording duration. Allocate a
       // page once during congestion instead of copying the growing backlog
       // for every audio quantum. Credits still bound posted IPC messages.
-      const capacity = this.pendingChunks.length >= this.batchAfterChunks
+      const desiredCapacity = this.pendingChunks.length >= this.batchAfterChunks
         ? Math.max(samples.length, this.batchFrames) : samples.length;
+      const capacity = Math.min(desiredCapacity,
+        Math.floor((this.maxPendingBytes - this.pendingCapacityBytes) / 2));
       tail = { samples: new Int16Array(capacity), length: 0 };
       this.pendingChunks.push(tail);
+      this.pendingCapacityBytes += tail.samples.byteLength;
     }
     tail.samples.set(samples, tail.length);
     tail.length += samples.length;
+    if (this.maxPendingBytes - this.pendingCapacityBytes < this.chunkFrames * 2) {
+      // Stop taking new samples if the renderer has stopped acknowledging for
+      // an extended period. Keep every queued sample for a later safe drain.
+      // This bounds resident storage, not healthy recording duration.
+      this.stopped = true;
+      this.port.postMessage({ type: 'capture-stalled' });
+    }
   }
 
   flushPendingChunks() {
     while (this.credits > 0 && this.pendingChunks.length > 0) {
       const chunk = this.pendingChunks.shift();
+      this.pendingCapacityBytes -= chunk.samples.byteLength;
       const buffer = chunk.length === chunk.samples.length
         ? chunk.samples.buffer : chunk.samples.slice(0, chunk.length).buffer;
       this.credits -= 1;

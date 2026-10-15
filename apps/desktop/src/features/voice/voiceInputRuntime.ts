@@ -404,7 +404,6 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
     const sessionId = realtimeSessionIdRef.current;
     const uploadQueue = realtimeUploadQueueRef.current;
     const voiceSpool = voiceSpoolUploadRef.current;
-    realtimeAcceptingAudioRef.current = false;
     const detachRealtimeProjection = (reason: string) => {
       uploadQueue?.cancel(reason);
       if (realtimeSessionIdRef.current === sessionId) {
@@ -430,6 +429,10 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
           code: 'recording_failed',
           message: String(error),
         };
+      } finally {
+        // stopRecording drains worklet PCM before resolving. Keep the live
+        // sink open for that tail; overload still falls back to the full spool.
+        realtimeAcceptingAudioRef.current = false;
       }
       if (!voiceSpool) {
         detachRealtimeProjection('Realtime recording ended without a managed spool');

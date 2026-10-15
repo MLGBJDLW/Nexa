@@ -732,6 +732,31 @@ test('audio worklet keeps every sample through a main-thread stall and resumes a
   assert.ok(processor.port.messages.filter(({ message }) => message.type === 'pcm').length > delivered.length);
 });
 
+test('audio worklet safely stops a stalled renderer and drains its bounded contiguous prefix', () => {
+  const VoicePcmProcessor = loadVoicePcmProcessor();
+  const processor = new VoicePcmProcessor({ processorOptions: {
+    targetSampleRate: 48_000, chunkFrames: 4, maxCredits: 1,
+    batchAfterChunks: 1, maxPendingBytes: 32,
+  } });
+  processor.process([[Float32Array.from({ length: 1_000 }, (_, index) => (index % 4) / 4)]]);
+  assert.equal(processor.stopped, true);
+  assert.ok(processor.pendingCapacityBytes <= 32);
+  assert.equal(processor.port.messages.filter(({ message }) => message.type === 'capture-stalled').length, 1);
+  const pendingBefore = processor.pendingCapacityBytes;
+  processor.process([[new Float32Array(48_000)]]);
+  assert.equal(processor.pendingCapacityBytes, pendingBefore);
+  processor.port.onmessage({ data: { type: 'flush', requestId: 41, stopAfter: true } });
+  while (processor.pendingChunks.length || processor.credits < processor.maxCredits) {
+    processor.port.onmessage({ data: { type: 'ack' } });
+  }
+  assert.equal(processor.pendingCapacityBytes, 0);
+  const delivered = processor.port.messages.filter(({ message }) => message.type === 'pcm')
+    .flatMap(({ message }) => Array.from(new Int16Array(message.buffer)));
+  assert.deepEqual(delivered, Array.from({ length: delivered.length }, (_, index) => (index % 4) * 8_192));
+  assert.ok(delivered.length > 4);
+  assert.equal(processor.port.messages.filter(({ message }) => message.type === 'flushed' && message.requestId === 41).length, 1);
+});
+
 test('audio worklet pause flushes its partial chunk before suspending capture', () => {
   const VoicePcmProcessor = loadVoicePcmProcessor();
   const processor = new VoicePcmProcessor({

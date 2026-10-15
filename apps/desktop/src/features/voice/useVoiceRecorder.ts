@@ -7,7 +7,7 @@ const VOICE_PCM_PROCESSOR_NAME = 'nexa-voice-pcm-processor';
 const WORKLET_CHUNK_DURATION_MS = 20;
 const WORKLET_MAX_CREDITS = 4;
 const WORKLET_BATCH_AFTER_CHUNKS = 8;
-const WORKLET_FLUSH_TIMEOUT_MS = 250;
+const WORKLET_FLUSH_TIMEOUT_MS = 2_000;
 const CAPTURE_START_CANCELLED_MESSAGE = 'Voice capture start was cancelled';
 
 export type VoiceCaptureState =
@@ -51,7 +51,15 @@ type FlushWaiter = {
 
 type VoiceWorkletMessage =
   | { type: 'pcm'; buffer: ArrayBuffer }
+  | { type: 'capture-stalled' }
   | { type: 'flushed'; requestId: number };
+
+function armFlushTimeout(waiters: Map<number, FlushWaiter>, requestId: number, resolve: () => void) {
+  return setTimeout(() => {
+    waiters.delete(requestId);
+    resolve();
+  }, WORKLET_FLUSH_TIMEOUT_MS);
+}
 
 /**
  * Captures microphone audio through an AudioWorklet into fixed PCM16 chunks.
@@ -187,10 +195,7 @@ export function useVoiceRecorder(deviceId?: string | null): UseVoiceRecorderRetu
     const requestId = nextFlushRequestIdRef.current;
     nextFlushRequestIdRef.current += 1;
     return new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        flushWaitersRef.current.delete(requestId);
-        resolve();
-      }, WORKLET_FLUSH_TIMEOUT_MS);
+      const timeout = armFlushTimeout(flushWaitersRef.current, requestId, resolve);
       flushWaitersRef.current.set(requestId, { timeout, resolve });
       worklet.port.postMessage({ type: 'flush', requestId, ...options });
     });
@@ -277,6 +282,12 @@ export function useVoiceRecorder(deviceId?: string | null): UseVoiceRecorderRetu
       worklet.port.onmessage = (event: MessageEvent<VoiceWorkletMessage>) => {
         const message = event.data;
         if (message.type === 'pcm') {
+          // A large retained backlog can take multiple event-loop turns to
+          // drain. Only an inactive worklet should expire the flush wait.
+          for (const [requestId, waiter] of flushWaitersRef.current) {
+            clearTimeout(waiter.timeout);
+            waiter.timeout = armFlushTimeout(flushWaitersRef.current, requestId, waiter.resolve);
+          }
           try {
             const result = pcmDeliveryRef.current?.deliver(
               new Uint8Array(message.buffer),
@@ -285,6 +296,10 @@ export function useVoiceRecorder(deviceId?: string | null): UseVoiceRecorderRetu
           } finally {
             worklet.port.postMessage({ type: 'ack' });
           }
+        } else if (message.type === 'capture-stalled') {
+          // Capture is already stopped in the worklet. Preserve delivery of
+          // its accepted backlog while the owner finalizes the native spool.
+          publishCaptureIssue('interrupted');
         } else if (message.type === 'flushed') {
           const waiter = flushWaitersRef.current.get(message.requestId);
           if (waiter) {
