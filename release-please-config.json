@@ -24,6 +24,16 @@
           "jsonpath": "$.version"
         },
         {
+          "type": "json",
+          "path": "apps/desktop/package-lock.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "apps/desktop/package-lock.json",
+          "jsonpath": "$.packages[''].version"
+        },
+        {
           "type": "toml",
           "path": "crates/core/Cargo.toml",
           "jsonpath": "$.package.version"
