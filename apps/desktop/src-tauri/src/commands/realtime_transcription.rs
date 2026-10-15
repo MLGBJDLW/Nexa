@@ -1202,6 +1202,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn long_silent_replay_reaches_speech_without_a_recording_duration_timeout() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let silence_bytes = 181 * 16_000 * 2;
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let mut received = 0;
+            let mut heard_speech = false;
+            while let Some(Ok(Message::Text(text))) = socket.next().await {
+                let event: Value = serde_json::from_str(&text).unwrap();
+                let response = match event["type"].as_str().unwrap() {
+                    "session.update" => Some(serde_json::json!({"type":"session.updated"})),
+                    "input_audio_buffer.append" => {
+                        let bytes = BASE64.decode(event["audio"].as_str().unwrap()).unwrap();
+                        received += bytes.len();
+                        if bytes.iter().any(|byte| *byte != 0) {
+                            assert!(received > silence_bytes);
+                            heard_speech = true;
+                            Some(
+                                serde_json::json!({"type":"conversation.item.input_audio_transcription.completed", "item_id":"late-speech", "transcript":"Speech after silence."}),
+                            )
+                        } else {
+                            None
+                        }
+                    }
+                    "session.finish" => {
+                        assert!(heard_speech);
+                        Some(serde_json::json!({"type":"session.finished"}))
+                    }
+                    _ => None,
+                };
+                if let Some(response) = response {
+                    socket
+                        .send(Message::Text(response.to_string().into()))
+                        .await
+                        .unwrap();
+                }
+                if event["type"] == "session.finish" {
+                    break;
+                }
+            }
+            assert_eq!(received, silence_bytes + 3_200);
+        });
+        let mut wav = canonical_pcm_wav(16_000);
+        wav.resize(44 + silence_bytes, 0);
+        wav.extend((0..1_600).flat_map(|_| 1_000_i16.to_le_bytes()));
+        let data_bytes = (wav.len() - 44) as u32;
+        wav[4..8].copy_from_slice(&(36 + data_bytes).to_le_bytes());
+        wav[40..44].copy_from_slice(&data_bytes.to_le_bytes());
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), &wav).unwrap();
+        let config = nexa_core::app_settings::SpeechToTextConfig {
+            provider: "alibaba-qwen-realtime".into(),
+            api_style: "dashscope_realtime_asr".into(),
+            api_key: "fixture".into(),
+            base_url: Some(format!("http://{address}/v1")),
+            model: "qwen3-asr-flash-realtime".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            tokio::time::timeout(
+                Duration::from_secs(220),
+                transcribe_realtime_spool(file.path(), &config)
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+            "Speech after silence."
+        );
+        assert_eq!(std::fs::read(file.path()).unwrap(), wav);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn dashscope_realtime_spool_uses_snapshot_and_session_finish_contract() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

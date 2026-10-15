@@ -789,7 +789,8 @@
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": true
             }
           },
           {
@@ -832,7 +833,8 @@
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": true
             }
           }
         ],
@@ -910,7 +912,8 @@
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": true
             }
           },
           {
@@ -951,11 +954,12 @@
               },
               "ratioField": "ratio",
               "durationField": false,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -997,11 +1001,12 @@
               },
               "ratioField": "ratio",
               "durationField": false,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -1072,7 +1077,8 @@
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": true
             }
           },
           {
@@ -1113,11 +1119,12 @@
               },
               "ratioField": "ratio",
               "durationField": false,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -1159,11 +1166,12 @@
               },
               "ratioField": "ratio",
               "durationField": false,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -1222,14 +1230,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -1263,14 +1272,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 7,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -1304,14 +1314,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -1348,7 +1359,8 @@
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": true
             }
           }
         ],
@@ -1438,7 +1450,8 @@
               "maxReferenceVideos": 3,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -1502,7 +1515,8 @@
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -1567,7 +1581,8 @@
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -1634,7 +1649,8 @@
               "maxReferenceVideos": 2,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           }
         ],
@@ -1693,11 +1709,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -1730,11 +1747,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -1768,11 +1786,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -1852,7 +1871,8 @@
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": true
             }
           },
           {
@@ -1890,11 +1910,12 @@
               },
               "resolutionField": "resolution",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -1968,7 +1989,8 @@
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": true
             }
           },
           {
@@ -1996,11 +2018,12 @@
                 }
               },
               "durationField": false,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -2029,11 +2052,12 @@
                 }
               },
               "durationField": false,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -2092,11 +2116,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -2129,11 +2154,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -2167,11 +2193,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -2230,11 +2257,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -2267,11 +2295,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           },
           {
@@ -2305,11 +2334,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -2368,14 +2398,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -2409,14 +2440,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 7,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -2450,14 +2482,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -2494,7 +2527,8 @@
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": true
             }
           }
         ],
@@ -2553,14 +2587,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -2594,14 +2629,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 7,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -2635,14 +2671,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 2,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": false
             }
           },
           {
@@ -2679,7 +2716,8 @@
               "maxReferenceAudio": 0,
               "maxTotalVideoMs": 10000,
               "minVideoEdge": 720,
-              "maxVideoEdge": 3840
+              "maxVideoEdge": 3840,
+              "promptRequired": true
             }
           }
         ],
@@ -2796,7 +2834,8 @@
               "maxReferenceVideos": 3,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -2878,13 +2917,14 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           },
           {
@@ -2967,13 +3007,14 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           },
           {
@@ -3058,13 +3099,14 @@
               "ratioField": "ratio",
               "durationField": true,
               "videoField": "promptVideo",
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 9,
               "maxReferenceVideos": 2,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           }
         ],
@@ -3153,7 +3195,8 @@
               "maxReferenceVideos": 3,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -3207,13 +3250,14 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           },
           {
@@ -3268,13 +3312,14 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           },
           {
@@ -3331,13 +3376,14 @@
               "ratioField": "ratio",
               "durationField": true,
               "videoField": "promptVideo",
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 9,
               "maxReferenceVideos": 2,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           }
         ],
@@ -3426,7 +3472,8 @@
               "maxReferenceVideos": 3,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -3480,13 +3527,14 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           },
           {
@@ -3541,13 +3589,14 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           },
           {
@@ -3604,13 +3653,14 @@
               "ratioField": "ratio",
               "durationField": true,
               "videoField": "promptVideo",
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 3500,
               "maxReferenceImages": 9,
               "maxReferenceVideos": 2,
               "maxReferenceAudio": 3,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": false
             }
           }
         ],
@@ -3672,7 +3722,8 @@
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 10000
+              "maxTotalVideoMs": 10000,
+              "promptRequired": true
             }
           },
           {
@@ -3703,12 +3754,13 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 4000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 10000
+              "maxTotalVideoMs": 10000,
+              "promptRequired": false
             }
           },
           {
@@ -3743,7 +3795,8 @@
               "maxReferenceImages": 5,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 10000
+              "maxTotalVideoMs": 10000,
+              "promptRequired": true
             }
           }
         ],
@@ -3848,7 +3901,8 @@
               "promptMax": 2500,
               "maxReferenceImages": 7,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 3
+              "maxReferenceAudio": 3,
+              "promptRequired": true
             }
           },
           {
@@ -3895,11 +3949,12 @@
               },
               "resolutionField": "resolution",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -3998,7 +4053,8 @@
               "maxReferenceVideos": 5,
               "maxReferenceAudio": 5,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -4053,7 +4109,8 @@
               "maxReferenceVideos": 5,
               "maxReferenceAudio": 5,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -4109,7 +4166,8 @@
               "maxReferenceVideos": 5,
               "maxReferenceAudio": 5,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           }
         ],
@@ -4204,7 +4262,8 @@
               "maxReferenceImages": 5,
               "maxReferenceVideos": 3,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 10000
+              "maxTotalVideoMs": 10000,
+              "promptRequired": true
             }
           },
           {
@@ -4270,7 +4329,8 @@
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 10000
+              "maxTotalVideoMs": 10000,
+              "promptRequired": true
             }
           },
           {
@@ -4337,7 +4397,8 @@
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 10000
+              "maxTotalVideoMs": 10000,
+              "promptRequired": true
             }
           },
           {
@@ -4406,7 +4467,8 @@
               "maxReferenceImages": 5,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 10000
+              "maxTotalVideoMs": 10000,
+              "promptRequired": true
             }
           }
         ],
@@ -4505,7 +4567,8 @@
               "maxReferenceVideos": 5,
               "maxReferenceAudio": 5,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -4560,7 +4623,8 @@
               "maxReferenceVideos": 5,
               "maxReferenceAudio": 5,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           },
           {
@@ -4616,7 +4680,8 @@
               "maxReferenceVideos": 5,
               "maxReferenceAudio": 5,
               "maxTotalVideoMs": 15000,
-              "maxTotalAudioMs": 15000
+              "maxTotalAudioMs": 15000,
+              "promptRequired": true
             }
           }
         ],
@@ -4685,7 +4750,8 @@
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "minImageEdge": 256
+              "minImageEdge": 256,
+              "promptRequired": true
             }
           },
           {
@@ -4728,7 +4794,8 @@
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "minImageEdge": 256
+              "minImageEdge": 256,
+              "promptRequired": true
             }
           },
           {
@@ -4772,7 +4839,8 @@
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "minImageEdge": 256
+              "minImageEdge": 256,
+              "promptRequired": true
             }
           }
         ],
@@ -4869,14 +4937,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 15000,
               "maxReferenceImages": 30,
               "maxReferenceVideos": 10,
               "maxReferenceAudio": 10,
               "maxTotalVideoMs": 30000,
               "maxTotalAudioMs": 30000,
-              "minVideoEdge": 480
+              "minVideoEdge": 480,
+              "promptRequired": false
             }
           },
           {
@@ -4944,14 +5013,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 15000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 10,
               "maxTotalVideoMs": 30000,
               "maxTotalAudioMs": 30000,
-              "minVideoEdge": 480
+              "minVideoEdge": 480,
+              "promptRequired": false
             }
           },
           {
@@ -5020,14 +5090,15 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 15000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 10,
               "maxTotalVideoMs": 30000,
               "maxTotalAudioMs": 30000,
-              "minVideoEdge": 480
+              "minVideoEdge": 480,
+              "promptRequired": false
             }
           },
           {
@@ -5099,14 +5170,15 @@
               "durationField": true,
               "videoField": "promptVideo",
               "videoMode": "reference",
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 15000,
               "maxReferenceImages": 30,
               "maxReferenceVideos": 9,
               "maxReferenceAudio": 10,
               "maxTotalVideoMs": 30000,
               "maxTotalAudioMs": 30000,
-              "minVideoEdge": 480
+              "minVideoEdge": 480,
+              "promptRequired": false
             }
           }
         ],
@@ -5252,7 +5324,8 @@
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": true
             }
           },
           {
@@ -5299,11 +5372,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 2500,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -5370,11 +5444,12 @@
               },
               "ratioField": "ratio",
               "durationField": true,
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
-              "maxReferenceAudio": 0
+              "maxReferenceAudio": 0,
+              "promptRequired": false
             }
           }
         ],
@@ -5438,12 +5513,13 @@
               },
               "durationField": false,
               "videoField": "videoUri",
-              "promptMin": 0,
+              "promptMin": 1,
               "promptMax": 1000,
               "maxReferenceImages": 0,
               "maxReferenceVideos": 0,
               "maxReferenceAudio": 0,
-              "maxTotalVideoMs": 30000
+              "maxTotalVideoMs": 30000,
+              "promptRequired": false
             }
           }
         ],

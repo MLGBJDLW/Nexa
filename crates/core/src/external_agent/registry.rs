@@ -339,7 +339,11 @@ fn normalize(bytes: &[u8]) -> Result<Vec<ExternalAgentPreset>, CoreError> {
             } else if let Some(package) = distribution.uvx.as_ref() {
                 (
                     "uvx".into(),
-                    [&[package.package.clone()], package.args.as_slice()].concat(),
+                    [
+                        std::slice::from_ref(&package.package),
+                        package.args.as_slice(),
+                    ]
+                    .concat(),
                     package.env.clone(),
                 )
             } else if let Some(binary) = distribution.binary.values().next() {

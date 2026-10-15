@@ -379,7 +379,13 @@ async fn run_with_audio(
                             reconnect = !input_started;
                         }
                         if !reconnect { match tokio::time::timeout(WRITE_TIMEOUT, socket.send(audio_message(dialect, &bytes))).await {
-                            Ok(Ok(())) => { audio.sent += bytes.len() as u64; retry_delay = Duration::from_millis(250); }
+                            Ok(Ok(())) => {
+                                audio.sent += bytes.len() as u64;
+                                retry_delay = Duration::from_millis(250);
+                                // Draining a long saved recording is progress,
+                                // including silence before its first utterance.
+                                if pending_final.is_some() { final_progress_at = Some(Instant::now()); }
+                            }
                             _ => reconnect = true,
                         } }
                         if !reconnect && matches!(dialect, RealtimeDialect::OpenAi | RealtimeDialect::Gemini) && commit { pending_commit = Some(audio.sent); }

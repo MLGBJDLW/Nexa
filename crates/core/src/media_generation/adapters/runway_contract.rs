@@ -150,6 +150,25 @@ mod tests {
                             request.model_id
                         );
                     }
+                    let required_prompt = contract["required"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|field| field == "promptText");
+                    for prompt in ["", "x", "ab"] {
+                        request.prompt = prompt.into();
+                        let expected = if prompt.is_empty() {
+                            !required_prompt
+                        } else {
+                            conforms(&json!(prompt), &contract["fields"]["promptText"])
+                        };
+                        assert_eq!(
+                            adapter.validate(&request).valid,
+                            expected,
+                            "{} {path}: optional/required prompt {prompt:?}",
+                            request.model_id
+                        );
+                    }
                     request.aspect_ratio = "unsupported".into();
                     assert!(!adapter.validate(&request).valid);
                 }
@@ -210,6 +229,7 @@ pub(super) struct WireContract {
     pub video_mode: Option<String>,
     pub prompt_min: usize,
     pub prompt_max: usize,
+    pub prompt_required: bool,
     pub max_reference_images: usize,
     pub max_reference_videos: usize,
     pub max_reference_audio: usize,
@@ -330,7 +350,10 @@ pub(super) fn validate(
     // contract, including image-only inputs and WAN's longer prompt field.
     issues.retain(|issue| issue.code != "invalid_prompt");
     let length = request.prompt.encode_utf16().count();
-    if length < wire.prompt_min || length > wire.prompt_max {
+    if (length == 0 && wire.prompt_required)
+        || (length > 0 && length < wire.prompt_min)
+        || length > wire.prompt_max
+    {
         issues.push(issue(
             "prompt",
             "unsupported_prompt_length",
