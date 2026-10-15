@@ -2101,7 +2101,6 @@ export function ChatPage() {
               conversationId={chat.activeId ?? undefined}
               projectId={initialProjectId}
               agentId={selectedAgentConfig?.id ?? chat.agentConfig?.id}
-              onEnsureConversation={chat.ensureConversation}
               inputHistory={chatInputHistory}
               sessionControls={sessionControls}
               prefillText={prefillText}

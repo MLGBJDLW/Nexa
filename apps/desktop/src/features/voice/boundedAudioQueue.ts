@@ -11,6 +11,9 @@ export interface AudioQueueTelemetry {
 }
 
 export interface BoundedAudioQueueOptions {
+  /** Durable recording sinks retain and batch a backlog; preview transports
+   * may instead reject it and recover from the canonical audio spool. */
+  preserveAudio?: boolean;
   maxChunks?: number;
   maxBytes?: number;
   maxChunkBytes?: number;
@@ -38,6 +41,7 @@ const DEFAULT_MAX_CHUNK_BYTES = 256 * 1024;
 export class BoundedAudioUploadQueue {
   private readonly chunks: Uint8Array[] = [];
   private readonly maxChunks: number;
+  private readonly preserveAudio: boolean;
   private readonly maxBytes: number;
   private readonly maxChunkBytes: number;
   private readonly bytesPerSecond?: number;
@@ -66,6 +70,7 @@ export class BoundedAudioUploadQueue {
     options: BoundedAudioQueueOptions = {},
   ) {
     this.maxChunks = options.maxChunks ?? DEFAULT_MAX_CHUNKS;
+    this.preserveAudio = options.preserveAudio === true;
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.maxChunkBytes = options.maxChunkBytes ?? DEFAULT_MAX_CHUNK_BYTES;
     this.bytesPerSecond = options.bytesPerSecond;
@@ -90,10 +95,10 @@ export class BoundedAudioUploadQueue {
     if (
       this.terminalError
       || chunk.byteLength > this.maxChunkBytes
-      || bufferedChunks >= this.maxChunks
-      || bufferedBytes + chunk.byteLength > this.maxBytes
-      || this.bufferedDurationMs(bufferedBytes + chunk.byteLength)
-        > (this.maxBufferedDurationMs ?? Number.POSITIVE_INFINITY)
+      || (!this.preserveAudio && (bufferedChunks >= this.maxChunks
+        || bufferedBytes + chunk.byteLength > this.maxBytes
+        || this.bufferedDurationMs(bufferedBytes + chunk.byteLength)
+          > (this.maxBufferedDurationMs ?? Number.POSITIVE_INFINITY)))
     ) {
       this.telemetry.rejectedChunks += 1;
       this.onRejected?.(this.snapshot());
@@ -158,7 +163,23 @@ export class BoundedAudioUploadQueue {
     this.draining = true;
     try {
       while (this.chunks.length > 0 && !this.terminalError) {
-        const chunk = this.chunks.shift()!;
+        let chunk = this.chunks.shift()!;
+        if (this.preserveAudio && this.chunks.length > 0) {
+          // One copy per batch avoids both repeated concatenation and an IPC
+          // call for every 20 ms frame after a slow disk checkpoint.
+          let length = chunk.byteLength;
+          let count = 0;
+          while (count < this.chunks.length && length + this.chunks[count].byteLength <= this.maxChunkBytes) {
+            length += this.chunks[count++].byteLength;
+          }
+          if (count > 0) {
+            const batch = new Uint8Array(length);
+            batch.set(chunk);
+            let offset = chunk.byteLength;
+            for (const next of this.chunks.splice(0, count)) { batch.set(next, offset); offset += next.byteLength; }
+            chunk = batch;
+          }
+        }
         this.queuedBytes -= chunk.byteLength;
         this.inFlightBytes = chunk.byteLength;
         this.updateTelemetry();

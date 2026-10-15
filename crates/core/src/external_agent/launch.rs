@@ -15,6 +15,7 @@ pub struct LaunchPlan {
     pub executable: PathBuf,
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
+    pub env_remove: Vec<String>,
     pub prepared: bool,
 }
 
@@ -128,7 +129,7 @@ fn env_value<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str
         .map(|(_, value)| value.as_str())
 }
 
-pub(super) fn set_env(env: &mut BTreeMap<String, String>, key: &str, value: String) {
+pub fn set_env(env: &mut BTreeMap<String, String>, key: &str, value: String) {
     if cfg!(windows) {
         env.retain(|name, _| !name.eq_ignore_ascii_case(key));
     }
@@ -343,6 +344,7 @@ fn package_plan(
         executable,
         args,
         env,
+        env_remove: Vec::new(),
         prepared: true,
     })
 }
@@ -360,6 +362,7 @@ fn binary_plan(
         executable,
         args: adapter_args(preset, launch, &binary.args).to_vec(),
         env: process_environment(&preset.launch_env(launch)),
+        env_remove: Vec::new(),
         prepared,
     }
 }
@@ -379,8 +382,27 @@ pub fn installed(
             executable: executable.into(),
             args: preset.launch_args(launch).to_vec(),
             env,
+            env_remove: Vec::new(),
             prepared: false,
         }));
+    }
+    if preset.managed_distribution {
+        // A selected release must not silently fall back to an older CLI on
+        // PATH. An explicit executable above remains user-owned.
+        if preset.platform_launch().is_some() {
+            return Ok(None);
+        }
+        if let Some(distribution) = &preset.distribution {
+            for (runner, package) in [("npx", &distribution.npx), ("uvx", &distribution.uvx)] {
+                if let Some(plan) = package
+                    .as_ref()
+                    .and_then(|package| package_plan(preset, runner, package, launch, &env))
+                {
+                    return Ok(Some(native_npm_plan(plan, preset)));
+                }
+            }
+        }
+        return Ok(None);
     }
     if let Some(binary) = preset.platform_launch() {
         let command = binary.cmd.replace('\\', "/");
@@ -406,6 +428,7 @@ pub fn installed(
                 executable,
                 args: preset.launch_args(launch).to_vec(),
                 env,
+                env_remove: Vec::new(),
                 prepared: matches!(preset.command.as_str(), "npx" | "uvx"),
             },
             preset,
@@ -439,7 +462,7 @@ pub async fn prepare(
         let cache_root = cache_root.ok_or_else(|| {
             invalid("The managed external-agent adapter directory is unavailable")
         })?;
-        let executable = install::binary(binary, cache_root).await?;
+        let executable = install::binary(binary, cache_root, preset.official_registry).await?;
         return Ok(binary_plan(preset, launch, executable, true));
     }
     let hint = if preset
@@ -551,7 +574,7 @@ mod tests {
         };
         for provider in ["claude_code_acp", "codex_acp", "gemini_cli", "qwen_code"] {
             let preset = super::super::preset(provider).unwrap();
-            let plan = installed(preset, &launch).unwrap().unwrap();
+            let plan = installed(&preset, &launch).unwrap().unwrap();
             assert_eq!(plan.executable, runner);
             let package = preset.distribution.as_ref().unwrap().npx.as_ref().unwrap();
             assert_eq!(&plan.args[..2], &["--yes", package.package.as_str()]);
@@ -570,7 +593,7 @@ mod tests {
             ..Default::default()
         };
         let preset = super::super::preset("acp_minion_code").unwrap();
-        let plan = installed(preset, &launch).unwrap().unwrap();
+        let plan = installed(&preset, &launch).unwrap().unwrap();
         assert_eq!(
             plan.args,
             vec![
@@ -586,7 +609,10 @@ mod tests {
             "acp".into(),
             "--verbose".into(),
         ]);
-        assert_eq!(installed(preset, &launch).unwrap().unwrap().args, plan.args);
+        assert_eq!(
+            installed(&preset, &launch).unwrap().unwrap().args,
+            plan.args
+        );
     }
 
     #[test]
@@ -601,7 +627,7 @@ mod tests {
         };
         for provider in ["acp_kilo", "acp_sigit"] {
             let preset = super::super::preset(provider).unwrap();
-            let plan = installed(preset, &launch).unwrap().unwrap();
+            let plan = installed(&preset, &launch).unwrap().unwrap();
             let package = preset.distribution.as_ref().unwrap().npx.as_ref().unwrap();
             assert_eq!(plan.executable, runner);
             assert_eq!(
@@ -610,12 +636,18 @@ mod tests {
             );
             let original = launch.args.take().unwrap();
             launch.args = Some(plan.args.clone());
-            assert_eq!(installed(preset, &launch).unwrap().unwrap().args, plan.args);
+            assert_eq!(
+                installed(&preset, &launch).unwrap().unwrap().args,
+                plan.args
+            );
             launch.args.as_mut().unwrap()[1] =
                 format!("{}@0.0.1", npm_package_name(&package.package));
-            assert_eq!(installed(preset, &launch).unwrap().unwrap().args, plan.args);
             assert_eq!(
-                binary_plan(preset, &launch, dir.path().join("native"), true).args,
+                installed(&preset, &launch).unwrap().unwrap().args,
+                plan.args
+            );
+            assert_eq!(
+                binary_plan(&preset, &launch, dir.path().join("native"), true).args,
                 original
             );
             launch.args = Some(original);
@@ -644,16 +676,16 @@ mod tests {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
             }
-            let installed = installed(preset, &launch).unwrap().unwrap();
+            let installed = installed(&preset, &launch).unwrap().unwrap();
             assert_eq!(installed.executable, path);
             assert_eq!(installed.args, binary.args);
             assert_eq!(
-                binary_plan(preset, &launch, path.clone(), true).args,
+                binary_plan(&preset, &launch, path.clone(), true).args,
                 binary.args
             );
             launch.args = Some(vec!["custom".into()]);
             assert_eq!(
-                binary_plan(preset, &launch, path, true).args,
+                binary_plan(&preset, &launch, path, true).args,
                 vec!["custom"]
             );
             launch.args = None;
@@ -670,7 +702,7 @@ mod tests {
             args: Some(vec![]),
             ..Default::default()
         };
-        let plan = installed(super::super::preset("codex_acp").unwrap(), &launch)
+        let plan = installed(&super::super::preset("codex_acp").unwrap(), &launch)
             .unwrap()
             .unwrap();
         assert_eq!(plan.executable, path);

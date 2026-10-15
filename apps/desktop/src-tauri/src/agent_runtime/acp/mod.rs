@@ -1,6 +1,7 @@
 //! Native ACP agents own their tools and authentication. No API key is borrowed,
 //! no reported tool is executed twice, and uncertain prompts are never replayed.
 mod auth;
+mod auth_profile;
 mod catalog;
 pub(crate) use auth::{authenticate, Authentication};
 pub(super) mod client;
@@ -45,7 +46,7 @@ pub(crate) async fn probe(
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let launch = launch.resolve(db, None, None)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
-    let mut wire = Wire::prepare(preset, &launch, adapter_cache_root(db).as_deref()).await?;
+    let mut wire = Wire::prepare(&preset, &launch, adapter_cache_root(db).as_deref()).await?;
     // Each protocol stage has its own timeout. An outer deadline must not
     // truncate a cold package installation before initialize can respond.
     let initialized = Session::initialize(&mut wire).await?;
@@ -57,6 +58,21 @@ fn adapter_cache_root(db: &nexa_core::db::Database) -> Option<std::path::PathBuf
         .and_then(std::path::Path::parent)
         .filter(|path| path.is_absolute())
         .map(|path| path.join("runtime").join("external-agents"))
+}
+
+pub(crate) async fn update_adapter(
+    provider: &str,
+    fingerprint: &str,
+    db: &nexa_core::db::Database,
+) -> Result<nexa_core::external_agent::registry::RegistrySnapshot> {
+    let candidate = nexa_core::external_agent::registry::update_candidate(provider, fingerprint)?;
+    let launch = ExternalAgentLaunch::default().resolve(db, None, None)?;
+    let mut wire = Wire::prepare(&candidate, &launch, adapter_cache_root(db).as_deref()).await?;
+    // Initialize only: updating never starts browser authentication, sends a
+    // prompt, or borrows an account. An incompatible adapter stays unselected.
+    Session::initialize(&mut wire).await?;
+    drop(wire);
+    nexa_core::external_agent::registry::activate(candidate).await
 }
 
 #[derive(serde::Serialize)]
@@ -100,9 +116,11 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
                 }));
     }
     let servers = mcp::selected(&request.db, &binding.launch.mcp_server_ids)?;
+    let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let key = blake3::hash(
         json!([
             provider,
+            nexa_core::external_agent::registry::launch_identity(&preset),
             binding.profile_id,
             binding.launch,
             request.config.model,
@@ -134,7 +152,7 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
             let cache_root = adapter_cache_root(&request.db);
             let mut wire = tokio::select! {
                 _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while preparing the external agent".into())),
-                result = Wire::prepare(preset(provider).ok_or_else(|| error("Unknown external agent"))?, &binding.launch, cache_root.as_deref()) => result?,
+                result = Wire::prepare(&preset, &binding.launch, cache_root.as_deref()) => result?,
             };
             stage(&request.events, "connecting").await?;
             let session = tokio::select! {

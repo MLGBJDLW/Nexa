@@ -3,10 +3,7 @@ import type { ToolCallEvent, TraceToolEvent } from './protocol';
 import type { InternalStreamState } from './state';
 import { mergeToolArtifacts } from '../toolVisualEvidence';
 import { mergeToolActivityEvents } from '../processArtifacts';
-import {
-  resetActiveStreamBlocks,
-  type StreamTerminalProjectionState,
-} from './terminalProjection';
+import type { StreamTerminalProjectionState } from './terminalProjection';
 import {
   argsStatusForToolRun,
   isPendingToolCallStatus,
@@ -219,7 +216,9 @@ export function applyToolRunEvent(state: StreamToolProjectionState, run: ToolRun
     });
     const nextCall = patchToolCallFromRun(base, run);
     insertPendingToolCall(state, nextCall, roundThinking);
-    resetActiveStreamBlocks(state);
+    // Tools do not own text cursors. The bridge supplies a new block ID at
+    // its boundaries; native providers may continue an existing block while
+    // tools run. Only an explicit stream reset retires those cursors.
     if (!isPendingToolCallStatus(nextCall.status)) state._activeRoundAcceptingStarts = false;
     return;
   }

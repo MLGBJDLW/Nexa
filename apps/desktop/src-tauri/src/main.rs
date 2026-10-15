@@ -566,6 +566,9 @@ fn main() {
 
             let db_path = data_dir.join("nexa.db");
             let db = Database::new(&db_path).expect("failed to initialize database");
+            if let Err(error) = nexa_core::external_agent::registry::initialize(&data_dir.join("runtime").join("external-agents")) {
+                log::warn!("ACP directory cache could not be loaded; bundled agents remain available: {error}");
+            }
             if let Err(error) = db.recover_knowledge_jobs() {
                 log::warn!("Could not recover interrupted indexing jobs: {error}");
             }
@@ -1212,6 +1215,9 @@ fn main() {
             commands::live_connections_cmd,
             commands::model_choices::model_choices_cmd,
             commands::external_agents::get_external_agent_launch_cmd,
+            commands::external_agents::get_external_agent_registry_cmd,
+            commands::external_agents::check_external_agent_updates_cmd,
+            commands::external_agents::update_external_agent_cmd,
             commands::external_agents::get_external_agent_usage_cmd,
             commands::external_agents::save_external_agent_profile_cmd,
             commands::external_agents::probe_external_agent_cmd,
@@ -1219,7 +1225,6 @@ fn main() {
             commands::external_agents::authenticate_external_agent_cmd,
             commands::external_agents::cancel_external_agent_setup_cmd,
             commands::start_live_cmd,
-            commands::begin_desktop_share_cmd,
             commands::list_desktop_monitors_cmd,
             commands::capture_desktop_monitor_cmd,
             commands::list_desktop_windows_cmd,
@@ -1227,8 +1232,6 @@ fn main() {
             desktop_control_status::desktop_control_status_cmd,
             desktop_control_status::set_desktop_control_appearance_cmd,
             desktop_control_status::stop_desktop_control_cmd,
-            commands::update_desktop_share_cmd,
-            commands::end_desktop_share_cmd,
             commands::live_snapshot_cmd,
             commands::live_frame_cmd,
             commands::live_audio_cmd,

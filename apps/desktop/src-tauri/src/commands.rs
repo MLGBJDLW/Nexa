@@ -130,8 +130,6 @@ pub use file_changes::*;
 mod knowledge;
 pub(crate) mod live;
 pub use live::*;
-mod shared_desktop;
-pub use shared_desktop::*;
 mod monitor_capture;
 pub use monitor_capture::*;
 pub(crate) mod external_agents;

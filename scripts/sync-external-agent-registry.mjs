@@ -22,10 +22,11 @@ const presets = registry.agents.map(agent => {
   }
   const provider = legacy[agent.id] ?? `acp_${agent.id.replaceAll('-', '_')}`;
   const existing = previous.find(preset => preset.provider === provider);
-  const icon = `/provider-icons/agents/${agent.id}.svg`;
-  if (!fs.existsSync(path.join(root, 'apps/desktop/public', icon))) {
-    throw new Error(`Bundle and review the registry SVG before importing ${agent.id}: ${agent.icon}`);
-  }
+  const bundledIcon = `/provider-icons/agents/${agent.id}.svg`;
+  // New directory entries use the same inert bundled fallback as live
+  // discovery. Remote SVG documents are never executed or fetched by the UI.
+  const icon = fs.existsSync(path.join(root, 'apps/desktop/public', bundledIcon))
+    ? bundledIcon : '/provider-icons/agents/custom.svg';
   const distribution = agent.distribution;
   if (!distribution || !['npx','uvx','binary'].some(kind => distribution[kind])) throw new Error(`No launch contract for ${agent.id}`);
   // Some publishers omit hashes in the ACP feed. Keep Nexa's reviewed pins

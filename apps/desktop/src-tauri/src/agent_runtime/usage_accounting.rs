@@ -36,11 +36,14 @@ mod tests {
         for kind in [
             AgentRuntimeKind::Codex,
             AgentRuntimeKind::Copilot,
-            AgentRuntimeKind::Acp("hermes"),
+            AgentRuntimeKind::Acp("hermes".into()),
         ] {
             for settled in [false, true] {
-                let (request, _rx, _, _) =
-                    super::super::tests::fixture_with_database(kind, "native", database.clone());
+                let (request, _rx, _, _) = super::super::tests::fixture_with_database(
+                    kind.clone(),
+                    "native",
+                    database.clone(),
+                );
                 let turn_id = request.turn_id.clone();
                 let lease = database.privacy_lease(&request.cancellation).unwrap();
                 let db = database.clone();
@@ -90,11 +93,14 @@ mod tests {
         for kind in [
             AgentRuntimeKind::Codex,
             AgentRuntimeKind::Copilot,
-            AgentRuntimeKind::Acp("hermes"),
+            AgentRuntimeKind::Acp("hermes".into()),
         ] {
             for user_cancelled in [false, true] {
-                let (request, _rx, _, _) =
-                    super::super::tests::fixture_with_database(kind, "native", database.clone());
+                let (request, _rx, _, _) = super::super::tests::fixture_with_database(
+                    kind.clone(),
+                    "native",
+                    database.clone(),
+                );
                 let turn_id = request.turn_id.clone();
                 let turn = request.prepare(false).unwrap();
                 let mut output = Projection::for_turn(&turn);
@@ -193,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn context_only_external_runtime_usage_stays_unknown() {
-        let (request, _rx, _, _) = fixture(AgentRuntimeKind::Acp("gemini_cli"), "native");
+        let (request, _rx, _, _) = fixture(AgentRuntimeKind::Acp("gemini_cli".into()), "native");
         let db = request.db.clone();
         let turn = request.prepare(false).unwrap();
         let mut output = Projection::for_turn(&turn);

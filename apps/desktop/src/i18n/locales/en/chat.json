@@ -704,16 +704,9 @@
   "turnChangesNoStats": "No line counts",
   "turnChangesContentUnavailable": "This file is binary, too large, or its saved diff is unavailable.",
   "turnChangesLoadError": "Could not load saved changes.",
-  "shareScreen": "Share screen",
-  "stopScreenShare": "Stop screen sharing",
-  "screenShareActive": "Screen shared",
   "screenShareNeedsConversation": "Start a conversation before sharing a screen",
   "screenShareUnavailable": "Screen sharing is unavailable in this environment",
-  "screenSharePreview": "Shared screen preview",
-  "screenShareHint": "The latest view is supplied when the agent continues. Stop sharing to revoke access.",
   "shareWindow": "Window / system picker…",
-  "screenSharePreparingConversation": "Preparing screen sharing…",
-  "screenShareConversationChanged": "The conversation changed. Start screen sharing in the current chat.",
   "computerUseOperating": "Controlling the computer",
   "computerUseObserving": "Reading the selected window",
   "processLive": "Live",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "Up to {tokens} prompt tokens",
   "contextTierScope": "Applies to the next turn. Copilot manages compaction and reports the actual capacity. Extended context may cost more.",
   "agentCompactingBackground": "Compacting context in background",
-  "computerUseStop": "Stop Computer Use"
+  "computerUseStop": "Stop Computer Use",
+  "captureScreen": "Take screenshot",
+  "captureScreenHint": "Attach one image, preview it, then send. Capture stops immediately.",
+  "captureScreenLive": "For continuous recording, open Live",
+  "attachmentsNextMessage": "Attachments are ready for your next message after this reply finishes."
 }

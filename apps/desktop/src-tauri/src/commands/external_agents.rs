@@ -115,6 +115,37 @@ fn usage_launch(
 }
 
 #[tauri::command]
+pub fn get_external_agent_registry_cmd() -> nexa_core::external_agent::registry::RegistrySnapshot {
+    nexa_core::external_agent::registry::snapshot()
+}
+
+#[tauri::command]
+pub async fn check_external_agent_updates_cmd(
+    force: bool,
+) -> Result<nexa_core::external_agent::registry::RegistrySnapshot, String> {
+    nexa_core::external_agent::registry::refresh(force)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn update_external_agent_cmd(
+    state: tauri::State<'_, AppState>,
+    provider: String,
+    fingerprint: String,
+    request_id: Option<String>,
+) -> Result<nexa_core::external_agent::registry::RegistrySnapshot, String> {
+    let operation = SetupOperation::new(request_id)?;
+    operation
+        .run(crate::agent_runtime::acp::update_adapter(
+            &provider,
+            &fingerprint,
+            &state.db,
+        ))
+        .await
+}
+
+#[tauri::command]
 pub async fn get_external_agent_usage_cmd(
     state: tauri::State<'_, AppState>,
     agent_config_id: String,

@@ -2242,7 +2242,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(manage_source_tool::ManageSourceTool));
     registry.register(Box::new(statistics_tool::GetStatisticsTool));
     registry.register(Box::new(date_search_tool::DateSearchTool));
-    // User-shared screen reads are portable; native window control is Windows-only.
+    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     registry.register(Box::new(computer_use_tool::ComputerObserveTool));
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     registry.register(Box::new(computer_use_tool::ComputerControlTool));
@@ -2499,22 +2499,10 @@ mod tests {
                 "{allowed} should remain available"
             );
         }
-        assert!(names.iter().any(|name| name == "computer_observe"));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn non_windows_registry_exposes_shared_screen_reads_without_native_controls() {
-        let registry = default_tool_registry();
-        let names = registry.tool_names();
-        let observe = registry
-            .get("computer_observe")
-            .expect("shared screen reader");
         assert_eq!(
-            observe.parameters_schema()["properties"]["action"]["enum"],
-            serde_json::json!(["shared_desktop"])
+            names.iter().any(|name| name == "computer_observe"),
+            cfg!(all(target_os = "windows", feature = "desktop-control"))
         );
-        assert!(!names.iter().any(|name| name == "computer_control"));
     }
 
     #[cfg(feature = "ocr")]
@@ -2633,7 +2621,10 @@ mod tests {
         );
         let names: Vec<String> = defs.into_iter().map(|def| def.name).collect();
 
-        assert!(names.iter().any(|name| name == "computer_observe"));
+        assert_eq!(
+            names.iter().any(|name| name == "computer_observe"),
+            cfg!(all(target_os = "windows", feature = "desktop-control"))
+        );
         assert!(names.iter().any(|name| name == "computer_control"));
     }
 

@@ -7,7 +7,8 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
     this.targetSampleRate = processorOptions.targetSampleRate;
     this.chunkFrames = processorOptions.chunkFrames;
     this.maxCredits = processorOptions.maxCredits ?? 4;
-    this.maxPendingChunks = processorOptions.maxPendingChunks ?? 8;
+    this.batchAfterChunks = processorOptions.batchAfterChunks ?? 8;
+    this.batchFrames = Math.min(128 * 1024, Math.max(this.chunkFrames, Math.round(this.targetSampleRate)));
     if (!Number.isFinite(this.targetSampleRate) || this.targetSampleRate <= 0) {
       throw new Error('targetSampleRate must be positive');
     }
@@ -17,8 +18,8 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
     if (!Number.isInteger(this.maxCredits) || this.maxCredits <= 0) {
       throw new Error('maxCredits must be a positive integer');
     }
-    if (!Number.isInteger(this.maxPendingChunks) || this.maxPendingChunks <= 0) {
-      throw new Error('maxPendingChunks must be a positive integer');
+    if (!Number.isInteger(this.batchAfterChunks) || this.batchAfterChunks <= 0) {
+      throw new Error('batchAfterChunks must be a positive integer');
     }
 
     this.sourceStep = sampleRate / this.targetSampleRate;
@@ -30,7 +31,6 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
     this.pendingChunks = [];
     this.paused = false;
     this.stopped = false;
-    this.overflowed = false;
     this.flushRequestId = null;
 
     this.port.onmessage = (event) => {
@@ -57,7 +57,7 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs) {
-    if (this.paused || this.stopped || this.overflowed) return true;
+    if (this.paused || this.stopped) return true;
     const samples = inputs[0]?.[0];
     if (!samples || samples.length === 0) return true;
 
@@ -76,7 +76,6 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
       const left = sampleAt(leftIndex);
       const right = sampleAt(leftIndex + 1);
       this.appendSample(left + (right - left) * fraction);
-      if (this.overflowed) break;
       this.nextSourcePosition += this.sourceStep;
     }
 
@@ -110,26 +109,31 @@ class VoicePcmProcessor extends AudioWorkletProcessor {
   }
 
   emitChunk(buffer) {
-    if (this.credits > 0) {
+    if (this.credits > 0 && this.pendingChunks.length === 0) {
       this.credits -= 1;
       this.port.postMessage({ type: 'pcm', buffer }, [buffer]);
       return;
     }
-    if (this.pendingChunks.length < this.maxPendingChunks) {
-      this.pendingChunks.push(buffer);
-      return;
+    const samples = new Int16Array(buffer);
+    let tail = this.pendingChunks[this.pendingChunks.length - 1];
+    if (!tail || tail.length + samples.length > tail.samples.length) {
+      // The threshold controls batching, never recording duration. Allocate a
+      // page once during congestion instead of copying the growing backlog
+      // for every audio quantum. Credits still bound posted IPC messages.
+      const capacity = this.pendingChunks.length >= this.batchAfterChunks
+        ? Math.max(samples.length, this.batchFrames) : samples.length;
+      tail = { samples: new Int16Array(capacity), length: 0 };
+      this.pendingChunks.push(tail);
     }
-    this.overflowed = true;
-    this.port.postMessage({
-      type: 'overflow',
-      pendingChunks: this.pendingChunks.length,
-      maxPendingChunks: this.maxPendingChunks,
-    });
+    tail.samples.set(samples, tail.length);
+    tail.length += samples.length;
   }
 
   flushPendingChunks() {
     while (this.credits > 0 && this.pendingChunks.length > 0) {
-      const buffer = this.pendingChunks.shift();
+      const chunk = this.pendingChunks.shift();
+      const buffer = chunk.length === chunk.samples.length
+        ? chunk.samples.buffer : chunk.samples.slice(0, chunk.length).buffer;
       this.credits -= 1;
       this.port.postMessage({ type: 'pcm', buffer }, [buffer]);
     }

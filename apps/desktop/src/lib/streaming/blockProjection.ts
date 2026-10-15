@@ -178,6 +178,13 @@ export function applyStreamBlockDelta(
       bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
       return;
     }
+    // A tool can move the visible prefix into a round without ending the
+    // provider's block. Resume that prefix instead of buffering forever or
+    // displaying only the suffix when thought/tool events interleave.
+    if (!state.streamText && state._activeAnswerOffset > 0) {
+      const previous = state.traceEvents.find(event => event.kind === 'reply' && event.blockId === blockId);
+      if (previous?.kind === 'reply') state.streamText = previous.text;
+    }
     state.thinkingText = '';
     let nextDelta: string | null = delta;
     while (nextDelta !== null) {
@@ -209,6 +216,10 @@ export function applyStreamBlockDelta(
   if (normalizedOffset > state._activeThinkingOffset) {
     bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
     return;
+  }
+  if (!state.thinkingText && state._activeThinkingOffset > 0) {
+    const previous = state.traceEvents.find(event => event.kind === 'thinking' && event.blockId === blockId);
+    if (previous?.kind === 'thinking') state.thinkingText = previous.text;
   }
   let nextDelta: string | null = delta;
   while (nextDelta !== null) {

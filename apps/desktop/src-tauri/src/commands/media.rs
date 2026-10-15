@@ -304,9 +304,10 @@ pub async fn append_voice_audio_spool_cmd(
     let permit = state
         .voice_spool_append_permits
         .clone()
-        .try_acquire_owned()
+        .acquire_owned()
+        .await
         .map_err(|_| {
-            "Voice spool append capacity is busy; recording remains checkpointed".to_string()
+            "Voice audio storage is shutting down; accepted audio remains checkpointed".to_string()
         })?;
     let audio_data = audio_data.to_vec();
     tokio::task::spawn_blocking(move || {

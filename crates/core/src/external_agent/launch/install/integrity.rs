@@ -160,6 +160,37 @@ pub(super) fn verify(
     digest: &str,
     relative: &Path,
 ) -> Result<PathBuf, CoreError> {
+    let receipt = read_receipt(root)?;
+    if receipt.version != 1
+        || receipt.url != binary.archive
+        || receipt.cmd != binary.cmd
+        || receipt.sha256 != digest
+        || receipt.entries != snapshot(root)?
+    {
+        return Err(invalid(
+            "ACP installation is incomplete or changed; it requires repair",
+        ));
+    }
+    verify_target(root, relative)
+}
+
+pub(super) fn recorded_digest(
+    root: &Path,
+    binary: &BinaryDistribution,
+) -> Result<String, CoreError> {
+    let receipt = read_receipt(root)?;
+    if receipt.version != 1
+        || receipt.url != binary.archive
+        || receipt.cmd != binary.cmd
+        || receipt.sha256.len() != 64
+        || !receipt.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(invalid("ACP installation has no matching digest receipt"));
+    }
+    Ok(receipt.sha256)
+}
+
+fn read_receipt(root: &Path) -> Result<Receipt, CoreError> {
     let marker = root.join(MARKER);
     let metadata = std::fs::symlink_metadata(&marker)?;
     if !metadata.is_file()
@@ -175,18 +206,7 @@ pub(super) fn verify(
     if bytes.len() as u64 > MAX_RECEIPT_BYTES {
         return Err(invalid("ACP installation receipt exceeds its size limit"));
     }
-    let receipt: Receipt = serde_json::from_slice(&bytes)?;
-    if receipt.version != 1
-        || receipt.url != binary.archive
-        || receipt.cmd != binary.cmd
-        || receipt.sha256 != digest
-        || receipt.entries != snapshot(root)?
-    {
-        return Err(invalid(
-            "ACP installation is incomplete or changed; it requires repair",
-        ));
-    }
-    verify_target(root, relative)
+    Ok(serde_json::from_slice(&bytes)?)
 }
 
 #[cfg(test)]

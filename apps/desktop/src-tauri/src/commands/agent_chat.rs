@@ -1125,7 +1125,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     }
                 }
             };
-            let backend = if let Some(kind) = runtime_kind {
+            let backend = if let Some(kind) = runtime_kind.clone() {
                 let external = if matches!(kind, crate::agent_runtime::AgentRuntimeKind::Acp(_)) {
                     let launch = db.external_agent_launch(&db_config.id).map_err(|error| error.to_string())?;
                     Some(crate::agent_runtime::ExternalAgentBinding {

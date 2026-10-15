@@ -82,7 +82,6 @@ impl DispatchCapacity {
             "agent_stop_cmd"
                 | "approve_tool_call_cmd"
                 | "stop_desktop_control_cmd"
-                | "end_desktop_share_cmd"
                 | "terminal_close_session_cmd"
                 | "browser_stop_cmd"
                 | "browser_acquire_control_cmd"

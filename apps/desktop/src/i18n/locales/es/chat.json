@@ -704,16 +704,9 @@
   "turnChangesNoStats": "Líneas desconocidas",
   "turnChangesContentUnavailable": "Archivo binario, demasiado grande o diferencia guardada no disponible.",
   "turnChangesLoadError": "No se pudieron cargar los cambios guardados.",
-  "shareScreen": "Compartir pantalla",
-  "stopScreenShare": "Dejar de compartir",
-  "screenShareActive": "Pantalla compartida",
   "screenShareNeedsConversation": "Inicia una conversación antes de compartir",
   "screenShareUnavailable": "No se puede compartir la pantalla en este entorno",
-  "screenSharePreview": "Vista de la pantalla compartida",
-  "screenShareHint": "El agente recibe la vista actual al continuar. Deja de compartir para revocar el acceso.",
   "shareWindow": "Ventana / selector del sistema…",
-  "screenSharePreparingConversation": "Preparando pantalla compartida…",
-  "screenShareConversationChanged": "La conversación cambió. Inicia la pantalla compartida en el chat actual.",
   "computerUseOperating": "Controlando el equipo",
   "computerUseObserving": "Leyendo la ventana seleccionada",
   "processLive": "En directo",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "Hasta {tokens} tokens de entrada",
   "contextTierScope": "Se aplica en el siguiente turno. Copilot gestiona la compresión e informa de la capacidad real. El contexto ampliado puede costar más.",
   "agentCompactingBackground": "Comprimiendo contexto en segundo plano",
-  "computerUseStop": "Detener control del equipo"
+  "computerUseStop": "Detener control del equipo",
+  "captureScreen": "Hacer una captura",
+  "captureScreenHint": "Adjunta una imagen, revísala y envíala. La captura se detiene de inmediato.",
+  "captureScreenLive": "Para grabación continua, abre Live",
+  "attachmentsNextMessage": "Los adjuntos están listos para el próximo mensaje al finalizar esta respuesta."
 }

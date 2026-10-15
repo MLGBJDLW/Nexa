@@ -22,9 +22,9 @@ export interface NativeVoiceSpoolOptions {
  * Ordered, bounded renderer adapter for one native voice spool session.
  *
  * Native Rust owns the recording file and integrity metadata. This adapter
- * retains at most the configured queue bound and assigns sequence numbers only
- * when a chunk is dispatched, so IPC failures cannot create an unbounded
- * Promise chain or silently reorder audio.
+ * coalesces delayed chunks and assigns sequence numbers only when a batch is
+ * dispatched. Slow fsync/IPC is backpressure, not permission to drop speech.
+ * A single drain promise preserves order without a promise per audio frame.
  */
 export class NativeVoiceSpoolUpload {
   readonly sessionId: string;
@@ -49,6 +49,7 @@ export class NativeVoiceSpoolUpload {
         this.nextSequence += 1;
       },
       {
+        preserveAudio: true,
         maxChunks: options.maxChunks,
         maxBytes: options.maxBufferedBytes,
         maxChunkBytes: started.maxChunkBytes,

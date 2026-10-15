@@ -6,7 +6,7 @@ const VOICE_PCM_WORKLET_URL = new URL('./voicePcmProcessor.js', import.meta.url)
 const VOICE_PCM_PROCESSOR_NAME = 'nexa-voice-pcm-processor';
 const WORKLET_CHUNK_DURATION_MS = 20;
 const WORKLET_MAX_CREDITS = 4;
-const WORKLET_MAX_PENDING_CHUNKS = 8;
+const WORKLET_BATCH_AFTER_CHUNKS = 8;
 const WORKLET_FLUSH_TIMEOUT_MS = 250;
 const CAPTURE_START_CANCELLED_MESSAGE = 'Voice capture start was cancelled';
 
@@ -51,7 +51,6 @@ type FlushWaiter = {
 
 type VoiceWorkletMessage =
   | { type: 'pcm'; buffer: ArrayBuffer }
-  | { type: 'overflow' }
   | { type: 'flushed'; requestId: number };
 
 /**
@@ -270,7 +269,7 @@ export function useVoiceRecorder(deviceId?: string | null): UseVoiceRecorderRetu
           targetSampleRate: options.targetSampleRate,
           chunkFrames,
           maxCredits: WORKLET_MAX_CREDITS,
-          maxPendingChunks: WORKLET_MAX_PENDING_CHUNKS,
+          batchAfterChunks: WORKLET_BATCH_AFTER_CHUNKS,
         },
       });
       workletRef.current = worklet;
@@ -286,8 +285,6 @@ export function useVoiceRecorder(deviceId?: string | null): UseVoiceRecorderRetu
           } finally {
             worklet.port.postMessage({ type: 'ack' });
           }
-        } else if (message.type === 'overflow') {
-          reportCaptureIssue('interrupted');
         } else if (message.type === 'flushed') {
           const waiter = flushWaitersRef.current.get(message.requestId);
           if (waiter) {

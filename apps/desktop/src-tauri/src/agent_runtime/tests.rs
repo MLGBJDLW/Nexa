@@ -191,7 +191,11 @@ pub(super) fn fixture(
     Arc<AtomicUsize>,
     String,
 ) {
-    fixture_with_database(kind, model, Arc::new(Database::open_memory().unwrap()))
+    fixture_with_database(
+        kind.clone(),
+        model,
+        Arc::new(Database::open_memory().unwrap()),
+    )
 }
 
 pub(super) fn fixture_with_database(
@@ -303,7 +307,7 @@ impl nexa_core::run_event_outbox::AgentRunEventDelivery for DurableProbeDelivery
 }
 
 pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
-    let (mut request, mut rx, calls, nonce) = fixture(kind, model);
+    let (mut request, mut rx, calls, nonce) = fixture(kind.clone(), model);
     let assembler =
         nexa_core::package_host::PackageRuntimeAssembler::database_builtin(&request.db).unwrap();
     let catalog = assembler
@@ -457,7 +461,7 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("native-edit.txt");
     std::fs::write(&path, "old value\n").unwrap();
-    let (mut request, mut rx, _, nonce) = fixture(kind, model);
+    let (mut request, mut rx, _, nonce) = fixture(kind.clone(), model);
     request.config.max_iterations = 10;
     let assembler =
         nexa_core::package_host::PackageRuntimeAssembler::database_builtin(&request.db).unwrap();
@@ -576,7 +580,7 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
 #[test]
 fn native_document_subscription_preparation_keeps_extracted_evidence_without_file_protocol() {
     for kind in [AgentRuntimeKind::Copilot, AgentRuntimeKind::Codex] {
-        let (mut request, _rx, _, _) = fixture(kind, "test");
+        let (mut request, _rx, _, _) = fixture(kind.clone(), "test");
         let document: nexa_core::llm::document::DocumentInput = serde_json::from_value(serde_json::json!({
             "name":"report.docx","mediaType":nexa_core::llm::document::DOCX,"digest":"fixture", "byteLength":100,
             "pages":null,"fallbackText":"Complete local document fallback sentinel", "estimatedTokens":1024

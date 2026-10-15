@@ -8,10 +8,6 @@ import { sttRuntimeCapabilities } from '../../lib/sttProviderPresets';
 import type { VideoConfig, WhisperModel } from '../../types/video';
 import { useMicrophoneDevices } from './useMicrophoneDevices';
 import { useVoiceRecorder } from './useVoiceRecorder';
-import {
-  appendBoundedVoicePartial,
-  replaceBoundedVoicePartial,
-} from './boundedVoicePartial';
 import { BoundedAudioUploadQueue } from './boundedAudioQueue';
 import { NativeVoiceSpoolUpload } from './nativeVoiceSpool';
 
@@ -44,7 +40,7 @@ export interface VoiceRecordingContext {
 export interface RealtimeTranscriptEvent {
   sessionId: string;
   sequence: number;
-  kind: 'interim' | 'final' | 'error' | 'closed';
+  kind: 'interim' | 'final' | 'error' | 'closed' | 'reconnecting' | 'connected';
   update?: 'appendDelta' | 'replaceSnapshot';
   text?: string;
   utteranceId?: string;
@@ -81,13 +77,13 @@ export function projectRealtimeTranscriptText(
   event: RealtimeTranscriptEvent,
 ): string {
   if (event.kind === 'final') {
-    return replaceBoundedVoicePartial(event.text ?? '');
+    return event.text ?? '';
   }
   if (event.kind !== 'interim') return current;
   if (event.update === 'replaceSnapshot' && typeof event.text === 'string') {
-    return replaceBoundedVoicePartial(event.text);
+    return event.text;
   }
-  return event.text ? appendBoundedVoicePartial(current, event.text) : current;
+  return event.text ? current + event.text : current;
 }
 
 export function isRealtimeTranscriptionConfig(
@@ -216,6 +212,10 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
       } else if (event.payload.kind === 'error') {
         realtimeUploadErrorRef.current = event.payload.text ?? 'Realtime transcription failed';
         realtimeSafeStopHandlerRef.current();
+      } else if (event.payload.kind === 'reconnecting') {
+        setTransportState('buffering');
+      } else if (event.payload.kind === 'connected') {
+        setTransportState('online');
       }
     }).then((dispose) => {
       if (disposed) dispose();
@@ -728,6 +728,7 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
           realtimeUploadQueueRef.current = new BoundedAudioUploadQueue(
             (chunk) => api.appendRealtimeTranscriptionAudio(sessionId!, chunk),
             {
+              preserveAudio: true,
               bytesPerSecond: sampleRate * 2,
               maxBufferedDurationMs: 2_000,
               onRejected: () => degradeRealtimeToSpool(true),

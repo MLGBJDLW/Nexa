@@ -55,7 +55,7 @@ impl DesktopImageGenerationTool {
         model: Option<String>,
     ) -> Self {
         Self {
-            route: image_route(source, chat),
+            route: image_route(source, chat.clone()),
             model: if chat == Some(AgentRuntimeKind::Codex) {
                 model
             } else {

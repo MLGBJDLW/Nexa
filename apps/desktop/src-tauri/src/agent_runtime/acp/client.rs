@@ -21,7 +21,7 @@ pub(crate) struct FileContext {
     pub workspace: Option<Workspace>,
     pub source_scope: Vec<String>,
     pub cancellation: CancellationToken,
-    pub native_provider: Option<&'static str>,
+    pub native_provider: Option<String>,
 }
 impl FileContext {
     fn context<'a>(&'a self, id: &'a str, args: &'a str) -> ToolExecutionContext<'a> {
@@ -148,7 +148,11 @@ impl FileContext {
             }
             "terminal/create" => {
                 let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or(cwd);
-                terminals.create(params, &self.terminal_cwd(cwd)?, self.native_provider)
+                terminals.create(
+                    params,
+                    &self.terminal_cwd(cwd)?,
+                    self.native_provider.as_deref(),
+                )
             }
             _ => {
                 let id = params["terminalId"]

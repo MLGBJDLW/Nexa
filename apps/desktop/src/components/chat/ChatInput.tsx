@@ -45,7 +45,7 @@ import {
 } from "../../lib/chatAttachments";
 import { CheckpointMenu } from "./CheckpointMenu";
 import { VoiceInputButton, type VoiceInputButtonHandle } from "./VoiceInputButton";
-import { ScreenShareButton } from './ScreenShareButton';
+import { ScreenCaptureButton } from './ScreenCaptureButton';
 import {
   applyVoiceDictationEvent,
   type VoiceDraftSession,
@@ -90,7 +90,6 @@ interface ChatInputProps {
   conversationId?: string;
   projectId?: string | null;
   agentRuntime?: 'api' | 'subscription' | 'acp';
-  onEnsureConversation?: (beforeActivate?: (id: string) => void) => Promise<string>;
   agentId?: string;
   inputHistory?: string[];
   sessionControls?: ReactNode;
@@ -376,7 +375,6 @@ export function ChatInput({
   conversationId,
   projectId,
   agentRuntime = 'api',
-  onEnsureConversation,
   agentId,
   inputHistory = [],
   sessionControls,
@@ -470,7 +468,6 @@ export function ChatInput({
   const previousDraftKeyRef = useRef(draftKey);
   const currentDraftKeyRef = useRef(draftKey);
   currentDraftKeyRef.current = draftKey;
-  const sharedDraftTransferRef = useRef<{ from: string; to: string } | null>(null);
   const sendInFlightRef = useRef(false);
   const voiceDraftSessionRef = useRef<VoiceDraftSession | null>(null);
   const voiceDraftOwnerKeyRef = useRef<string | null>(null);
@@ -481,7 +478,9 @@ export function ChatInput({
   const visionDecisionRequired = hasImageAttachments && visionPolicyMode === 'ask' && visionTurnOverride === null;
   const inputLocked = disabled || loadedDraftKey !== draftKey;
   const sendLocked = inputLocked || isCompacting || visionDecisionRequired || sendPending;
-  const attachmentLocked = inputLocked || isCompacting || isStreaming;
+  // Attachments belong to the next draft, independent of the running turn.
+  // The send boundary still rejects image steering until the turn finishes.
+  const attachmentLocked = inputLocked;
   const nativeAgent = agentRuntime === 'acp';
   const effectivePlanModeEnabled = !nativeAgent && (planModeEnabled ?? localPlanModeEnabled);
   const inputHistoryEntries = useMemo(
@@ -653,18 +652,9 @@ export function ChatInput({
   }, [draftKey]);
 
   useEffect(() => {
-    const transfer = sharedDraftTransferRef.current;
-    if (transfer?.to === draftKey) {
-      // Delete the source only after the new conversation has activated.
-      // Its durable draft already exists, so a failed creation keeps the original.
-      delete draftsRef.current[transfer.from];
-      clearChatInputDraft(transfer.from);
-      sharedDraftTransferRef.current = null;
-    }
     const previousKey = previousDraftKeyRef.current;
     if (
       sendInFlightRef.current
-      && transfer?.to !== draftKey
       && isNewConversationDraftKey(previousKey)
       && !isNewConversationDraftKey(draftKey)
     ) {
@@ -968,7 +958,7 @@ export function ChatInput({
   useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', enabled: !inputLocked, run: () => setMoreOptionsOpen(true) });
   useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
   useAppCommand({ id: 'chat.workflow', label: 'chat.workflows', keywords: '/workflow 工作流', enabled: !nativeAgent && !attachmentLocked, run: () => { setMoreOptionsOpen(true); setWorkflowCatalogOpen(true); } });
-  useAppCommand({ id: 'chat.compact', label: 'chat.compactNow', keywords: '/compact context 压缩 上下文', enabled: Boolean(conversationId && onCompact && !attachmentLocked), run: () => onCompact?.() });
+  useAppCommand({ id: 'chat.compact', label: 'chat.compactNow', keywords: '/compact context 压缩 上下文', enabled: Boolean(conversationId && onCompact && !attachmentLocked && !isStreaming && !isCompacting), run: () => onCompact?.() });
   useAppCommand({ id: 'chat.nexus', label: 'chat.nexusMode', keywords: '/nexus 协作', enabled: !nativeAgent && !inputLocked, run: () => changeNexusMode() });
   useAppCommand({ id: 'chat.moa', label: 'chat.moaMode', keywords: '/moa multi-model 多模型 协作', enabled: agentRuntime === 'api' && !inputLocked, run: () => runComposerAction('moa') });
   useAppCommand({ id: 'chat.quality', label: 'chat.qualityProfile', keywords: '/quality deep ultra 质量', enabled: !nativeAgent && !inputLocked, run: () => runComposerAction('quality') });
@@ -2103,6 +2093,7 @@ export function ChatInput({
             ))}
           </div>
         )}
+        {isStreaming && attachments.length > 0 && <p role="status" className="px-3 py-1.5 text-xs text-text-tertiary">{t('chat.attachmentsNextMessage')}</p>}
 
         <input
           ref={fileInputRef}
@@ -2281,13 +2272,7 @@ export function ChatInput({
             <button type="button" data-testid="chat-preview-toggle" aria-pressed={draftPreview} aria-label={t(draftPreview ? "chat.editDraft" : "chat.previewDraft")} title={t(draftPreview ? "chat.editDraft" : "chat.previewDraft")} onClick={() => runComposerAction("preview")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary hover:bg-surface-2">{draftPreview ? <PenLine className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
           </div>
 
-          {!nativeAgent && <ScreenShareButton conversationId={conversationId} onEnsureConversation={onEnsureConversation ? () => onEnsureConversation((id) => {
-              const draft = draftsRef.current[draftKey] ?? readChatInputDraft(draftKey);
-              draftsRef.current[id] = cloneDraftState(draft);
-              persistChatInputDraft(id, draft);
-              sharedDraftTransferRef.current = { from: draftKey, to: id };
-              if (voiceDraftOwnerKeyRef.current === draftKey) voiceDraftOwnerKeyRef.current = id;
-            }) : undefined} />}
+          <ScreenCaptureButton draftKey={draftKey} disabled={attachmentLocked} onCapture={addAttachmentFromDataUrl} />
           <VoiceInputButton
             ref={voiceInputRef}
             onDictationEvent={handleVoiceDictationEvent}

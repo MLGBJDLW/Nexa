@@ -278,7 +278,7 @@ pub(crate) async fn read_account_usage(
         return Ok(AccountUsageSnapshot::unsupported());
     };
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
-    let command = transport::command(preset, launch, &args)?;
+    let command = transport::command(&preset, launch, &args)?;
     project(
         &read_command(command, Duration::from_secs(25)).await?,
         &account_provider,

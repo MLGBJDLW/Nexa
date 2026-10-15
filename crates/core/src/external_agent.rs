@@ -6,12 +6,19 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, sync::OnceLock};
 
 pub mod launch;
+pub mod registry;
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalAgentPreset {
+    #[serde(default)]
+    pub id: String,
     pub provider: String,
     pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub icon: String,
     pub command: String,
     pub args: Vec<String>,
     #[serde(default)]
@@ -23,9 +30,15 @@ pub struct ExternalAgentPreset {
     pub registry_version: Option<String>,
     #[serde(default)]
     pub distribution: Option<AgentDistribution>,
+    /// Set only by the canonical registry loader, never deserialized from IPC.
+    #[serde(skip)]
+    pub official_registry: bool,
+    /// An explicitly selected registry release outranks an older PATH install.
+    #[serde(skip)]
+    pub managed_distribution: bool,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentDistribution {
     #[serde(default)]
     pub binary: BTreeMap<String, BinaryDistribution>,
@@ -35,7 +48,7 @@ pub struct AgentDistribution {
     pub uvx: Option<PackageDistribution>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BinaryDistribution {
     #[serde(default)]
     pub archive: String,
@@ -48,7 +61,7 @@ pub struct BinaryDistribution {
     pub sha256: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageDistribution {
     pub package: String,
     /// Reviewed runner options, kept separate from the adapter's own argv.
@@ -119,16 +132,29 @@ impl ExternalAgentPreset {
     }
 }
 
-pub fn presets() -> &'static [ExternalAgentPreset] {
+pub fn bundled_presets() -> &'static [ExternalAgentPreset] {
     static PRESETS: OnceLock<Vec<ExternalAgentPreset>> = OnceLock::new();
     PRESETS.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../shared/external-agent-presets.json"))
-            .expect("bundled external agent presets must be valid")
+        let mut presets: Vec<ExternalAgentPreset> =
+            serde_json::from_str(include_str!("../../../shared/external-agent-presets.json"))
+                .expect("bundled external agent presets must be valid");
+        for preset in &mut presets {
+            preset.official_registry = preset.registry_id.is_some();
+        }
+        presets
     })
 }
 
-pub fn preset(provider: &str) -> Option<&'static ExternalAgentPreset> {
-    presets().iter().find(|entry| entry.provider == provider)
+pub fn presets() -> Vec<ExternalAgentPreset> {
+    registry::snapshot()
+        .entries
+        .into_iter()
+        .map(|entry| entry.preset)
+        .collect()
+}
+
+pub fn preset(provider: &str) -> Option<ExternalAgentPreset> {
+    registry::resolve(provider)
 }
 
 pub fn is_agent_runtime(provider: &str) -> bool {

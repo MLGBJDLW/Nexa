@@ -49,13 +49,14 @@ test('announced future shutdowns remain selectable until their actual retirement
 test('updated ACP packages remain version-pinned and preserve companion archive metadata', () => {
   const agents = read('external-agent-presets');
   assert.equal(agents.find(p => p.id === 'qwen-code').registryVersion, '0.25.1');
-  assert.equal(agents.find(p => p.id === 'copilot-acp').registryVersion, '1.0.96');
+  assert.equal(agents.find(p => p.id === 'copilot-acp').registryVersion, '1.0.98');
   for (const agent of agents.filter(p => p.registryId)) {
     for (const distribution of [agent.distribution.npx, agent.distribution.uvx].filter(Boolean)) {
       assert.ok(distribution.package.includes(agent.registryVersion), `${agent.id} pins the audited version`);
     }
     for (const binary of Object.values(agent.distribution.binary ?? {})) {
-      assert.match(binary.sha256 ?? '', /^[a-f0-9]{64}$/i, `${agent.id} archive has a reviewed digest`);
+      if (binary.sha256) assert.match(binary.sha256, /^[a-f0-9]{64}$/i, `${agent.id} preserves its publisher digest`);
+      else assert.equal(agent.registrySource, 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json', `${agent.id} unpinned archive needs official registry provenance`);
     }
   }
   assert.ok(agents.find(p => p.id === 'acp-antigravity-acp').distribution.binary['windows-x86_64'].archive.endsWith('.zip'));

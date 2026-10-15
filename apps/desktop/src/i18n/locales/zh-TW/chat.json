@@ -704,16 +704,9 @@
   "turnChangesNoStats": "行數未知",
   "turnChangesContentUnavailable": "此檔案為二進位、過大，或儲存的差異無法使用。",
   "turnChangesLoadError": "無法載入已儲存的變更。",
-  "shareScreen": "共用螢幕",
-  "stopScreenShare": "停止共用螢幕",
-  "screenShareActive": "螢幕共用中",
   "screenShareNeedsConversation": "開始對話後即可共用螢幕",
   "screenShareUnavailable": "目前環境不支援螢幕共用",
-  "screenSharePreview": "共用螢幕預覽",
-  "screenShareHint": "Agent 繼續處理時會取得最新畫面；停止共用即可撤回存取。",
   "shareWindow": "視窗 / 系統選擇器…",
-  "screenSharePreparingConversation": "正在準備螢幕共用…",
-  "screenShareConversationChanged": "對話已切換，請在目前對話重新開啟螢幕共用。",
   "computerUseOperating": "正在操作電腦",
   "computerUseObserving": "正在讀取選定視窗",
   "processLive": "即時",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "最多 {tokens} 輸入 tokens",
   "contextTierScope": "下輪生效。Copilot 負責壓縮並回報實際容量；擴展上下文可能增加用量費用。",
   "agentCompactingBackground": "正在背景壓縮上下文",
-  "computerUseStop": "停止電腦操作"
+  "computerUseStop": "停止電腦操作",
+  "captureScreen": "擷取螢幕",
+  "captureScreenHint": "僅擷取一張圖片，預覽後傳送。截圖完成即停止擷取。",
+  "captureScreenLive": "持續錄製請前往 Live",
+  "attachmentsNextMessage": "附件已保存在草稿中，可在本次回覆結束後傳送。"
 }

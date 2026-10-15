@@ -273,7 +273,6 @@ function TurnNavigator({
                 aria-current={active ? 'step' : undefined}
                 aria-posinset={index + 1}
                 aria-setsize={items.length}
-                title={label}
                 data-turn-navigation-id={item.id}
                 data-turn-navigation-index={index}
                 className="group relative z-10 flex min-h-px w-7 flex-1 items-center justify-end pr-1 outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-accent/40"

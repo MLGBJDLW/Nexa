@@ -52,7 +52,8 @@
     "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-api",
     "lastVerifiedAt": "2026-10-08",
     "models": [
-      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" }
+      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" },
+      { "id": "decision-model-preview-2026-09-24", "name": "Decision Model Preview (2026-09-24)", "status": "preview", "access": "account_enablement", "source": "official", "lastVerifiedAt": "2026-10-15", "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide" }
     ]
   },
   {
@@ -63,7 +64,8 @@
     "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-api",
     "lastVerifiedAt": "2026-10-08",
     "models": [
-      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" }
+      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" },
+      { "id": "decision-model-preview-2026-09-24", "name": "Decision Model Preview (2026-09-24)", "status": "preview", "access": "account_enablement", "source": "official", "lastVerifiedAt": "2026-10-15", "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide" }
     ]
   }
 ]

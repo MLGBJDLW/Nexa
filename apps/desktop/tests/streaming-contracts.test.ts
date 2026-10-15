@@ -3387,6 +3387,24 @@ test('locally stopped streams consume suppressed events before the terminal', ()
   streamStore.clearStream(conversationId);
 });
 
+test('tool discovery and progress cannot strand continuing answer or thinking blocks', () => {
+  for (const channel of ['answer', 'thinking'] as const) {
+    for (const status of ['preparing', 'running', 'completed'] as const) {
+    const state = createDefaultState();
+    applyStreamBlockDelta(state, channel, 'provider-block', 0, 'Before ');
+    applyToolRunEvent(state, {
+      callId: 'long-browser', toolName: 'browser_session', status, arguments: '{}',
+    } as ToolRunItem);
+    // Preparing/progress does not rotate the backend block. Deltas keep their
+    // original offsets while browser work remains active.
+    applyStreamBlockDelta(state, channel, 'provider-block', 7, 'during tool');
+    const text = channel === 'answer' ? state.streamText : state.thinkingText;
+    assertEqual(text, 'Before during tool', `${channel} must continue before tool completion`);
+    assertEqual(state.toolCalls[0]?.status, status === 'completed' ? 'done' : status, 'tool retains its own lifecycle');
+    }
+  }
+});
+
 test('block projection buffers future UTF-8 byte offsets for answer and thinking', () => {
   const state = createDefaultState();
   const prefix = '你🙂';

@@ -20,6 +20,7 @@ import { AppWindowFrame } from "./components/AppWindowFrame";
 
 import { CommandPalette } from "./components/CommandPalette";
 import { StreamProvider, useStreamConnection } from "./lib/StreamProvider";
+import { useExternalAgentRegistry } from './lib/externalAgentRegistry';
 import type { TranslationKey } from './i18n';
 import { Button } from './components/ui/Button';
 import { FilePreviewProvider } from "./features/preview";
@@ -110,6 +111,7 @@ function RouteErrorScreen() {
 }
 
 function AppShell() {
+  useExternalAgentRegistry();
   // `null` = still loading; `true`/`false` = known state.
   const [wizardCompleted, setWizardCompleted] = useState<boolean | null>(null);
   const [startupError, setStartupError] = useState(false);

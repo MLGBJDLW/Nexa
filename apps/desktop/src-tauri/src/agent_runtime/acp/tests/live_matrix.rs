@@ -80,7 +80,7 @@ async fn probe(provider: String, root: std::path::PathBuf) -> Value {
     let started = std::time::Instant::now();
     let result = tokio::time::timeout(Duration::from_secs(900), async {
         let plan =
-            super::super::transport::prepare_plan(preset, &launch, Some(&root.join("adapters")))
+            super::super::transport::prepare_plan(&preset, &launch, Some(&root.join("adapters")))
                 .await?;
         report["prepared"] = json!(plan.prepared);
         report["executable"] = json!(plan.executable.file_name().unwrap().to_string_lossy());

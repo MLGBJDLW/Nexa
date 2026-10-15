@@ -637,7 +637,7 @@ mod tests {
             super::super::AgentRuntimeKind::Copilot,
         ] {
             for completed_command in [false, true] {
-                let (request, mut rx, _, _) = super::super::tests::fixture(kind, "test");
+                let (request, mut rx, _, _) = super::super::tests::fixture(kind.clone(), "test");
                 let db = request.db.clone();
                 let conversation = request.conversation_id.clone();
                 let saved_turn = db.get_conversation_turn(&request.turn_id).unwrap();

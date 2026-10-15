@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
+import { checkExternalAgentUpdates, useExternalAgentRegistry } from '../../lib/externalAgentRegistry';
 import * as api from '../../lib/api';
 import {
   findProviderPreset,
@@ -102,8 +103,10 @@ export function ProvidersSettingsTab({
   localSpeechRuntimeReady,
 }: ProvidersSettingsTabProps) {
   const { t } = useTranslation();
+  const agentRegistry = useExternalAgentRegistry();
   const [providerQuery, setProviderQuery] = useState('');
   const [connectionKind, setConnectionKind] = useState<'api' | 'agents'>('api');
+  useEffect(() => { if (connectionKind === 'agents') void checkExternalAgentUpdates(false); }, [connectionKind]);
   const displayConfigs = agentConfigs.filter(config => Boolean(findProviderPreset(config)?.runtime) === (connectionKind === 'agents'));
   const [registrySummary, setRegistrySummary] = useState<RegistrySummaryState>({
     loading: true,
@@ -163,7 +166,7 @@ export function ProvidersSettingsTab({
     })
     .sort((left, right) => (
       Number(configuredPresetIds.has(right.id)) - Number(configuredPresetIds.has(left.id))
-    )), [configuredPresetIds, normalizedProviderQuery, connectionKind]);
+    )), [configuredPresetIds, normalizedProviderQuery, connectionKind, agentRegistry.snapshot]);
   const showCustomProvider = connectionKind === 'api' && (!normalizedProviderQuery || normalizeProviderSearch([
     t('settings.customProvider'),
     t('settings.customProviderDesc'),
@@ -215,6 +218,11 @@ export function ProvidersSettingsTab({
           </button>)}
         </div>
         <p className="mt-2 text-xs leading-5 text-text-tertiary">{t(connectionKind === 'api' ? 'settings.apiConnectionsHint' : 'settings.externalAgentsHint')}</p>
+        {connectionKind === 'agents' && <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="secondary" disabled={agentRegistry.checking} onClick={() => void checkExternalAgentUpdates()}>{agentRegistry.checking ? <Loader2 size={14} className="animate-spin" /> : null}{t('settings.externalAgentCheckUpdates')}</Button>
+          {agentRegistry.snapshot?.checkedAt && <span className="text-xs text-text-tertiary">{t('settings.externalAgentRegistryChecked', { time: new Date(agentRegistry.snapshot.checkedAt * 1000).toLocaleString() })}</span>}
+          {agentRegistry.error && <p role="status" className="w-full text-xs text-text-tertiary">{agentRegistry.error}</p>}
+        </div>}
       </div>}
       {providerView === 'form' && (editingConfig ? findProviderPreset(editingConfig) : selectedPreset)?.runtime === 'acp' ? (
         <ExternalAgentConfigForm key={editingConfig?.id ?? selectedPreset?.id} config={editingConfig}

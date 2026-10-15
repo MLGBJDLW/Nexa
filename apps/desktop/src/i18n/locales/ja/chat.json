@@ -704,16 +704,9 @@
   "turnChangesNoStats": "行数不明",
   "turnChangesContentUnavailable": "バイナリ、大きすぎるファイル、または保存済み差分が利用できません。",
   "turnChangesLoadError": "保存済みの変更を読み込めません。",
-  "shareScreen": "画面を共有",
-  "stopScreenShare": "画面共有を停止",
-  "screenShareActive": "画面共有中",
   "screenShareNeedsConversation": "会話を開始してから画面を共有してください",
   "screenShareUnavailable": "この環境では画面を共有できません",
-  "screenSharePreview": "共有画面のプレビュー",
-  "screenShareHint": "エージェントが処理を続ける際に最新の画面を取得します。共有を停止するとアクセスを解除します。",
   "shareWindow": "ウィンドウ / システム選択…",
-  "screenSharePreparingConversation": "画面共有を準備しています…",
-  "screenShareConversationChanged": "会話が切り替わりました。現在の会話で画面共有を開始してください。",
   "computerUseOperating": "コンピューターを操作中",
   "computerUseObserving": "選択したウィンドウを読み取り中",
   "processLive": "ライブ",
@@ -926,5 +919,9 @@
   "contextTierPromptLimit": "入力トークン上限: {tokens}",
   "contextTierScope": "次のターンから適用されます。圧縮と実際の容量は Copilot が管理します。拡張コンテキストは料金が増える場合があります。",
   "agentCompactingBackground": "バックグラウンドでコンテキストを圧縮中",
-  "computerUseStop": "コンピューター操作を停止"
+  "computerUseStop": "コンピューター操作を停止",
+  "captureScreen": "スクリーンショット",
+  "captureScreenHint": "画像を1枚撮影し、確認して送信します。撮影後すぐに停止します。",
+  "captureScreenLive": "継続的な録画は Live で",
+  "attachmentsNextMessage": "添付画像は下書きに保存され、この返信の完了後に送信できます。"
 }

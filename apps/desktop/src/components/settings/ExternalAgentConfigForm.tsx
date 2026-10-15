@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, FolderOpen, Terminal } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from '../../i18n';
+import { checkExternalAgentUpdates, updateExternalAgent, useExternalAgentRegistry } from '../../lib/externalAgentRegistry';
 import { authenticateExternalAgent, cancelExternalAgentSetup, getExternalAgentLaunch, inspectExternalAgent, parseExternalLaunchFields, type ExternalAgentLaunch, type ExternalAgentConfigOption, type ExternalAgentCatalog } from '../../lib/externalAgents';
 import { runtimeAgentConfig } from '../../lib/runtimeAgentConfig';
 import { closeTerminalSession, listMcpServers, type CopilotModelSummary, type TerminalEvent, type TerminalSessionInfo } from '../../lib/api';
@@ -17,11 +18,15 @@ const isNativeReasoning = (option: ExternalAgentConfigOption) => option.category
 const isModelDependent = (option: ExternalAgentConfigOption) => option.category === 'model_config' || option.category === 'thought_level'
   || (!option.category && ['reasoning_effort', 'effort', 'thought_level'].includes(option.id));
 
-export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSaving, onDirtyChange }: {
+export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave, onCancel, isSaving, onDirtyChange }: {
   preset: ProviderPreset; config?: AgentConfig; onSave: (input: SaveAgentConfigInput, launch?: ExternalAgentLaunch) => Promise<void>;
   onCancel: () => void; isSaving: boolean; onDirtyChange: (dirty: boolean) => void;
 }) {
   const { t } = useTranslation();
+  const registry = useExternalAgentRegistry();
+  const registryEntry = registry.snapshot?.entries.find(entry => entry.preset.provider === initialPreset.provider);
+  const preset = registryEntry?.preset ?? initialPreset;
+  useEffect(() => { void checkExternalAgentUpdates(false); }, []);
   const [name, setName] = useState(config?.name ?? preset.name);
   const [launch, setLaunch] = useState<ExternalAgentLaunch>({ executable: null, workingDirectory: '' });
   const [initialLaunch, setInitialLaunch] = useState<ExternalAgentLaunch | null>(null);
@@ -145,6 +150,18 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
     finally { if (pendingSetup.current === requestId) pendingSetup.current = null; if (generation.current === current) setLoading(false); }
   };
   const unchanged = config?.model === model && JSON.stringify(initialLaunch) === JSON.stringify(launch);
+  const updateAdapter = async () => {
+    if (!registryEntry?.fingerprint || launch.executable) return;
+    cancelSetup(); setAuthTerminal(null);
+    const current = ++generation.current;
+    const requestId = crypto.randomUUID(); pendingSetup.current = requestId;
+    setLoading(true); setError(null); setVerified(false);
+    try {
+      await updateExternalAgent(preset.provider, registryEntry.fingerprint, requestId);
+      if (generation.current === current) await probe(model, launch);
+    } catch (cause) { if (generation.current === current) setError(String(cause)); }
+    finally { if (pendingSetup.current === requestId) pendingSetup.current = null; if (generation.current === current) setLoading(false); }
+  };
   const canSave = !!name.trim() && !!model && !loading && !authTerminal && !requiresAuthentication && !setupError && !saving && !isSaving
     && launchFieldsValid
     && (unchanged || (verified && models.some(item => item.id === model)));
@@ -164,7 +181,14 @@ export function ExternalAgentConfigForm({ preset, config, onSave, onCancel, isSa
   return <div className="min-w-0 space-y-4" data-testid="external-agent-form">
     <div className="rounded-xl border border-border bg-surface-2/60 p-3">
       <div className="flex items-center gap-2 text-sm font-medium"><Terminal size={16} />{preset.name}</div>
-      {preset.registryVersion && <span className="mt-1 block text-[10px] text-text-tertiary">ACP Registry · {preset.registryVersion}</span>}
+      {preset.registryVersion && <span className="mt-1 block text-xs text-text-tertiary">{t('settings.externalAgentRegistryVersion', { version: preset.registryVersion })}</span>}
+      {preset.registryId && <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={loading || registry.checking} onClick={() => void checkExternalAgentUpdates()}>{t('settings.externalAgentCheckUpdates')}</Button>
+        {registryEntry?.updateAvailable && <Button size="sm" variant="secondary" disabled={loading || !!launch.executable} onClick={() => void updateAdapter()}>{t('settings.externalAgentUseUpdate', { version: registryEntry.availableVersion ?? '' })}</Button>}
+        {launch.executable && <span className="text-xs text-text-tertiary">{t('settings.externalAgentCustomUpdate')}</span>}
+      </div>}
+      {registry.error && <p role="status" className="mt-2 text-xs text-text-tertiary">{registry.error}</p>}
+      {preset.registryId === 'antigravity-acp' && !launch.executable && !Object.keys(launch.env ?? {}).some(key => key.toUpperCase() === 'GEMINI_HOME') && <p className="mt-2 text-xs text-text-tertiary">{t('settings.externalAgentGoogleProfile')}</p>}
       <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentOwnership')}</p>
       {packageRunner && <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentPackageHint')}</p>}
       {preset.docsUrl && <a className="mt-2 inline-flex items-center gap-1 text-xs text-accent" href={preset.docsUrl} target="_blank" rel="noreferrer">
