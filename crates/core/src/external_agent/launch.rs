@@ -728,6 +728,17 @@ mod tests {
             super::super::registry::launch_identity(&preset),
             super::super::registry::launch_identity(&next)
         );
+        // The identity also names the version cache. Exercise real directory
+        // creation so Windows-invalid separators cannot break binary installs.
+        for selected in [&preset, &next] {
+            let identity = super::super::registry::launch_identity(selected);
+            assert!(identity
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-'));
+            let cache = root.path().join(identity);
+            std::fs::create_dir(&cache).unwrap();
+            std::fs::write(cache.join("install-receipt"), b"selected version").unwrap();
+        }
     }
 
     #[test]

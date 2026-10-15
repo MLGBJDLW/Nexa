@@ -80,7 +80,7 @@ fn fingerprint(preset: &ExternalAgentPreset) -> String {
     .to_string()
 }
 pub fn launch_identity(preset: &ExternalAgentPreset) -> String {
-    format!("{}:{}", fingerprint(preset), preset.managed_distribution)
+    format!("{}-{}", fingerprint(preset), preset.managed_distribution)
 }
 
 impl Cache {
