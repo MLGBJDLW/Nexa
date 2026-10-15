@@ -561,15 +561,24 @@ mod launch_tests {
         assert!(redacted.contains("[REDACTED]"));
     }
     #[test]
-    fn bundled_copilot_fills_a_missing_default_runtime_without_overriding_preferences() {
+    fn bundled_copilot_fills_a_legacy_runtime_without_overriding_selected_versions() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("copilot.exe");
         std::fs::write(&executable, "fixture").unwrap();
-        let preset = nexa_core::external_agent::preset("github_copilot_acp").unwrap();
+        let mut preset = nexa_core::external_agent::preset("github_copilot_acp").unwrap();
         let mut launch = ExternalAgentLaunch {
             working_directory: directory.path().to_string_lossy().into_owned(),
             ..Default::default()
         };
+        assert!(preset.managed_distribution);
+        assert!(with_bundled_runtime(&preset, &launch, None, || panic!(
+            "a selected ACP version must not fall back to an older bundled runtime"
+        ))
+        .unwrap()
+        .is_none());
+        // Only pre-registry launch descriptors may use the historical fallback.
+        // The native Copilot provider owns its separate bundled runtime path.
+        preset.managed_distribution = false;
         let plan = with_bundled_runtime(&preset, &launch, None, || Ok(executable.clone()))
             .unwrap()
             .unwrap();

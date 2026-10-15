@@ -712,42 +712,29 @@ mod tests {
                 .iter()
                 .map(|definition| definition.name.as_str())
                 .collect::<Vec<_>>();
-            for required in [
-                "run_shell",
-                "browser_evidence_capture",
-                "browser_session",
-                "computer_observe",
+            for (tool, available) in [
+                ("run_shell", true),
+                (
+                    "browser_evidence_capture",
+                    cfg!(feature = "headless-browser"),
+                ),
+                ("browser_session", cfg!(feature = "headless-browser")),
+                (
+                    "computer_observe",
+                    cfg!(all(target_os = "windows", feature = "desktop-control")),
+                ),
+                (
+                    "computer_control",
+                    cfg!(all(target_os = "windows", feature = "desktop-control")),
+                ),
             ] {
-                assert!(
-                    names.contains(&required),
-                    "{provider:?}/{model} is missing first-request tool {required}"
+                assert_eq!(
+                    registry.contains(tool),
+                    available,
+                    "registry availability for {tool}"
                 );
-            }
-
-            #[cfg(target_os = "windows")]
-            {
-                let required = "computer_control";
-                assert!(
-                    registry.contains(required),
-                    "the Windows default registry is missing executable tool {required}"
-                );
-                assert!(
-                    names.contains(&required),
-                    "{provider:?}/{model} is missing first-request tool {required}"
-                );
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let unavailable = "computer_control";
-                assert!(
-                    !registry.contains(unavailable),
-                    "the non-Windows default registry must not expose unavailable tool {unavailable}"
-                );
-                assert!(
-                    !names.contains(&unavailable),
-                    "{provider:?}/{model} leaked unavailable tool {unavailable} into the first-request surface"
-                );
+                assert_eq!(names.contains(&tool), available,
+                    "{provider:?}/{model} must expose only platform-available interaction tool {tool}");
             }
         }
     }
