@@ -462,7 +462,10 @@ pub async fn prepare(
         let cache_root = cache_root.ok_or_else(|| {
             invalid("The managed external-agent adapter directory is unavailable")
         })?;
-        let executable = install::binary(binary, cache_root, preset.official_registry).await?;
+        // A publisher may retain a rolling URL across versions. Installation
+        // ownership must still distinguish the exact selected descriptor.
+        let version_root = cache_root.join(super::registry::launch_identity(preset));
+        let executable = install::binary(binary, &version_root, preset.official_registry).await?;
         return Ok(binary_plan(preset, launch, executable, true));
     }
     let hint = if preset
@@ -573,7 +576,8 @@ mod tests {
             ..Default::default()
         };
         for provider in ["claude_code_acp", "codex_acp", "gemini_cli", "qwen_code"] {
-            let preset = super::super::preset(provider).unwrap();
+            let mut preset = super::super::preset(provider).unwrap();
+            preset.distribution.as_mut().unwrap().binary.clear();
             let plan = installed(&preset, &launch).unwrap().unwrap();
             assert_eq!(plan.executable, runner);
             let package = preset.distribution.as_ref().unwrap().npx.as_ref().unwrap();
@@ -627,7 +631,9 @@ mod tests {
         };
         for provider in ["acp_kilo", "acp_sigit"] {
             let preset = super::super::preset(provider).unwrap();
-            let plan = installed(&preset, &launch).unwrap().unwrap();
+            let mut package_preset = preset.clone();
+            package_preset.distribution.as_mut().unwrap().binary.clear();
+            let plan = installed(&package_preset, &launch).unwrap().unwrap();
             let package = preset.distribution.as_ref().unwrap().npx.as_ref().unwrap();
             assert_eq!(plan.executable, runner);
             assert_eq!(
@@ -637,13 +643,13 @@ mod tests {
             let original = launch.args.take().unwrap();
             launch.args = Some(plan.args.clone());
             assert_eq!(
-                installed(&preset, &launch).unwrap().unwrap().args,
+                installed(&package_preset, &launch).unwrap().unwrap().args,
                 plan.args
             );
             launch.args.as_mut().unwrap()[1] =
                 format!("{}@0.0.1", npm_package_name(&package.package));
             assert_eq!(
-                installed(&preset, &launch).unwrap().unwrap().args,
+                installed(&package_preset, &launch).unwrap().unwrap().args,
                 plan.args
             );
             assert_eq!(
@@ -663,7 +669,8 @@ mod tests {
             ..Default::default()
         };
         for provider in ["acp_kilo", "acp_sigit"] {
-            let preset = super::super::preset(provider).unwrap();
+            let mut preset = super::super::preset(provider).unwrap();
+            preset.managed_distribution = false;
             let Some(binary) = preset.platform_launch() else {
                 continue;
             };
@@ -690,6 +697,37 @@ mod tests {
             );
             launch.args = None;
         }
+    }
+
+    #[test]
+    fn selected_official_binary_never_reuses_a_different_path_install() {
+        let root = tempfile::tempdir().unwrap();
+        let preset = super::super::preset("acp_antigravity_acp").unwrap();
+        let Some(binary) = preset.platform_launch() else {
+            return;
+        };
+        let path = root
+            .path()
+            .join(Path::new(&binary.cmd).file_name().unwrap());
+        std::fs::write(&path, b"older user-installed adapter").unwrap();
+        let mut launch = ExternalAgentLaunch {
+            working_directory: root.path().to_string_lossy().into(),
+            env: BTreeMap::from([("PATH".into(), root.path().to_string_lossy().into())]),
+            ..Default::default()
+        };
+        assert!(preset.managed_distribution);
+        assert!(installed(&preset, &launch).unwrap().is_none());
+        launch.executable = Some(path.to_string_lossy().into());
+        assert_eq!(
+            installed(&preset, &launch).unwrap().unwrap().executable,
+            path
+        );
+        let mut next = preset.clone();
+        next.registry_version = Some("999.0.0".into());
+        assert_ne!(
+            super::super::registry::launch_identity(&preset),
+            super::super::registry::launch_identity(&next)
+        );
     }
 
     #[test]

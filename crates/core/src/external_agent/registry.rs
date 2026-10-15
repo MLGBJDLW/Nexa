@@ -84,6 +84,22 @@ pub fn launch_identity(preset: &ExternalAgentPreset) -> String {
 }
 
 impl Cache {
+    fn retain_first_discovered_versions(&mut self) {
+        // Bundled entries already have a stable initial selection. A newly
+        // discovered agent needs the same anchor before later directory checks;
+        // selecting a descriptor does not imply installation or authentication.
+        for preset in &self.available {
+            if !bundled_presets()
+                .iter()
+                .any(|entry| entry.provider == preset.provider)
+            {
+                self.selected
+                    .entry(preset.provider.clone())
+                    .or_insert_with(|| preset.clone());
+            }
+        }
+    }
+
     fn resolve(&self, provider: &str) -> Option<ExternalAgentPreset> {
         self.selected
             .get(provider)
@@ -436,6 +452,7 @@ pub fn initialize(directory: &Path) -> Result<(), CoreError> {
             preset.managed_distribution = true;
         }
     }
+    loaded.retain_first_discovered_versions();
     let mut state = state().write().unwrap_or_else(|e| e.into_inner());
     state.directory = Some(directory.to_owned());
     state.cache = loaded;
@@ -487,6 +504,7 @@ pub async fn refresh(force: bool) -> Result<RegistrySnapshot, CoreError> {
         bytes.extend_from_slice(&chunk);
     }
     cache.available = normalize(&bytes)?;
+    cache.retain_first_discovered_versions();
     cache.checked_at = Some(now());
     write_cache(&directory, &cache)?;
     let result = cache.snapshot();
@@ -606,5 +624,39 @@ mod tests {
                 .filter(|entry| entry.update_available)
                 .count()
         );
+    }
+
+    #[test]
+    fn newly_discovered_agents_keep_their_first_version_until_activation() {
+        let mut cache = Cache {
+            version: 1,
+            available: normalize(&directory("new-agent", "new-agent@2.0.0")).unwrap(),
+            ..Default::default()
+        };
+        cache.retain_first_discovered_versions();
+        let original = fingerprint(&cache.resolve("acp_new_agent").unwrap());
+        cache.available[0].registry_version = Some("3.0.0".into());
+        cache.available[0]
+            .distribution
+            .as_mut()
+            .unwrap()
+            .npx
+            .as_mut()
+            .unwrap()
+            .package = "new-agent@3.0.0".into();
+        cache.retain_first_discovered_versions();
+        assert_eq!(
+            fingerprint(&cache.resolve("acp_new_agent").unwrap()),
+            original
+        );
+        let snapshot = cache.snapshot();
+        let entry = snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.preset.provider == "acp_new_agent")
+            .unwrap();
+        assert!(entry.update_available);
+        assert_eq!(entry.available_version.as_deref(), Some("3.0.0"));
+        assert_eq!(entry.preset.registry_version.as_deref(), Some("2.0.0"));
     }
 }

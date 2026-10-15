@@ -12,12 +12,6 @@ fn isolated_environment(root: &Path, cache: &Path) -> BTreeMap<String, String> {
         }
     }
     for name in [
-        "HOME",
-        "USERPROFILE",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "TEMP",
-        "TMP",
         "XDG_CONFIG_HOME",
         "XDG_CACHE_HOME",
         "XDG_DATA_HOME",
@@ -31,6 +25,20 @@ fn isolated_environment(root: &Path, cache: &Path) -> BTreeMap<String, String> {
         "HERMES_HOME",
     ] {
         let directory = root.join(name);
+        std::fs::create_dir_all(&directory).unwrap();
+        env.insert(name.into(), directory.to_string_lossy().into_owned());
+    }
+    // Windows known-folder APIs expand USERPROFILE independently of APPDATA.
+    // A coherent empty profile avoids falsely diagnosing a publisher failure.
+    let profile = root.join("profile");
+    for (name, directory) in [
+        ("HOME", profile.clone()),
+        ("USERPROFILE", profile.clone()),
+        ("APPDATA", profile.join("AppData/Roaming")),
+        ("LOCALAPPDATA", profile.join("AppData/Local")),
+        ("TEMP", profile.join("AppData/Local/Temp")),
+        ("TMP", profile.join("AppData/Local/Temp")),
+    ] {
         std::fs::create_dir_all(&directory).unwrap();
         env.insert(name.into(), directory.to_string_lossy().into_owned());
     }

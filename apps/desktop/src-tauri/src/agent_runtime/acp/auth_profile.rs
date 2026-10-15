@@ -44,10 +44,11 @@ pub(super) fn prepare(
     let Some(cache) = cache else {
         return Ok(());
     };
-    let method = launch
-        .authentication_method
-        .as_deref()
-        .unwrap_or("oauth-personal");
+    // An existing profile may intentionally use API credentials without an
+    // explicit ACP method. Only a chosen authentication method owns isolation.
+    let Some(method) = launch.authentication_method.as_deref() else {
+        return Ok(());
+    };
     // Unknown future methods still use their advertised ACP handshake. Do not
     // guess a settings schema for them.
     if !matches!(
@@ -158,5 +159,16 @@ mod tests {
         prepare(&preset, &custom, Some(root.path()), &mut untouched).unwrap();
         assert!(!untouched.env.contains_key("GEMINI_HOME"));
         assert!(untouched.env_remove.is_empty());
+        let mut existing = new_plan();
+        prepare(
+            &preset,
+            &ExternalAgentLaunch::default(),
+            Some(root.path()),
+            &mut existing,
+        )
+        .unwrap();
+        assert_eq!(existing.env["google_api_key"], "fixture-secret");
+        assert!(!existing.env.contains_key("GEMINI_HOME"));
+        assert!(existing.env_remove.is_empty());
     }
 }

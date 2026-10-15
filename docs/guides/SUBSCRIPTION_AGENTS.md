@@ -98,11 +98,16 @@ an uncertain action.
 
 ## Installed ACP agents
 
-The External agents catalog includes all 41 agents in the reviewed October 13,
-2026 [ACP registry](https://github.com/agentclientprotocol/registry), plus Hermes
-and a custom ACP entry. The shared catalog preserves registry provenance,
-platform distributions and pinned package versions. Existing profiles retain
-their installed CLI commands. Common installed CLI presets include:
+The bundled External agents catalog includes the 42 official agents reviewed on
+October 15, 2026, plus Hermes and a custom ACP entry. Settings reads the
+[official ACP directory](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
+through one host-owned cache, checking at most hourly unless explicitly refreshed.
+Directory discovery and version activation are separate: each agent keeps its
+selected descriptor until **Use version** prepares the candidate and verifies its
+ACP handshake. A failed refresh or candidate keeps the previous selection; new
+agents also retain their first discovered version. Running sessions keep their
+existing process. Model/account discovery remains the agent runtime's authority.
+Common CLI entrypoints include:
 
 | Agent | Command | Preparation |
 | --- | --- | --- |
@@ -116,12 +121,14 @@ their installed CLI commands. Common installed CLI presets include:
 | Goose | `goose acp` | Install and configure a native provider |
 | Auggie | `auggie --acp` | Install and authenticate the Augment CLI |
 
-**Download / check connection** resolves an installed ACP adapter first, then
-prepares the registry's pinned `npx`/`uvx` package or official platform archive.
-Managed archives require a reviewed SHA-256 pin and must match it before
-extraction or execution. Archives without a valid pin require a user-installed
-adapter. Registry refreshes retain locally reviewed pins only while the archive
-URL and entrypoint are unchanged.
+**Download / check connection** prepares the selected directory version using
+its exact `npx`/`uvx` package or official platform archive. An explicit executable
+override remains user-managed. Publisher SHA-256 values are verified when
+present. Only descriptors obtained from the official HTTPS directory may omit
+that pin; Nexa records the observed archive digest and validates the extracted
+file tree on reuse. This receipt detects local changes but is not a publisher
+signature. Refresh retains reviewed pins only for an unchanged archive URL and
+entrypoint. Offline startup uses the last good cache and bundled fallback.
 For automatic package preparation, custom arguments belong to the adapter;
 Nexa supplies the pinned package invocation. A previously displayed complete
 runner prefix for the same package, including its older version, is normalized
@@ -172,6 +179,17 @@ If that saved attempt is rejected or its process fails, Settings keeps the
 advertised recovery choices available. An explicit attempt never retries an old
 method, and its acknowledgement counts as success only after session creation.
 Changing the selected method participates in the unsaved-settings guard.
+
+An explicitly selected Antigravity Google OAuth method uses a Nexa-owned
+`GEMINI_HOME` and matching `auth.type` for both sign-in and subsequent inference.
+Conflicting API-key/ADC variables are removed only for that OAuth process.
+Existing unselected authentication and explicit executable/home overrides retain
+their settings. Nexa never rewrites another CLI's Google profile or copies tokens.
+The October 15 isolated Windows check verified AGY 1.4.0 installation and all four
+advertised authentication methods, without requesting login or inference. Its
+published executable still bundles `python310.dll`; Nexa cannot replace that
+embedded interpreter by updating the user's Python installation. Actual upstream
+errors remain visible in redacted diagnostics.
 If session creation instead fails with a generic configuration error, Settings
 retains both the diagnostic and the advertised native setup methods. This does
 not classify the error as an authentication failure, mark the connection as
@@ -309,7 +327,7 @@ provider's already reported total. Adapters such as pi ACP that only expose
 context occupancy retain an unknown usage record. Subscription price and account
 quota are not fabricated from these token totals.
 
-Nexa's tools, subagent scheduler, screen sharing, MoA and strict read-only Plan
+Nexa's tools, subagent scheduler, MoA and strict read-only Plan
 policy are not exposed by this ACP adapter. The composer hides controls it cannot
 honor. Native agent tool/configuration capabilities remain owned by that agent.
 Image input requires the runtime's advertised capability. Upstream persisted

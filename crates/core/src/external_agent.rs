@@ -140,6 +140,7 @@ pub fn bundled_presets() -> &'static [ExternalAgentPreset] {
                 .expect("bundled external agent presets must be valid");
         for preset in &mut presets {
             preset.official_registry = preset.registry_id.is_some();
+            preset.managed_distribution = preset.official_registry;
         }
         presets
     })
@@ -415,16 +416,17 @@ mod tests {
 
     #[test]
     fn published_registry_entries_share_the_acp_route_and_preserve_platform_arguments() {
-        let published = presets()
+        let presets = presets();
+        let published = presets
             .iter()
             .filter(|preset| preset.registry_id.is_some())
             .collect::<Vec<_>>();
-        assert_eq!(published.len(), 41);
-        let providers = presets()
+        assert_eq!(published.len(), 42);
+        let providers = presets
             .iter()
             .map(|preset| &preset.provider)
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(providers.len(), presets().len());
+        assert_eq!(providers.len(), presets.len());
         for preset in published {
             assert!(is_agent_runtime(&preset.provider));
             assert!(preset
