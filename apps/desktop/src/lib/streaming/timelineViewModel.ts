@@ -3,6 +3,7 @@ import type {
   ToolRenderKind,
 } from '../../types/conversation';
 import { appTimeMs } from '../dateTime';
+import { blockTraceText } from './blockTrace';
 import type { PersistedTraceItem, PersistedTraceSkillRef } from './persistedTrace';
 import type {
   StreamRoundEvent,
@@ -623,6 +624,7 @@ export function isCurrentTraceActive(input: {
 
 export function buildLiveTraceTimeline(input: {
   visibleTraceEvents: TraceEvent[];
+  sourceTraceEvents?: TraceEvent[];
   isStreaming: boolean;
   currentTraceActive: boolean;
   streamText: string;
@@ -689,6 +691,10 @@ export function buildLiveTraceTimeline(input: {
       })()
     : -1;
   let renderedActiveStreamReply = false;
+  const activeReplyEvent = visibleTraceEvents[lastReplyEventIndex];
+  const activeBlockText = activeReplyEvent?.kind === 'reply' && activeReplyEvent.blockId
+    ? blockTraceText(input.sourceTraceEvents ?? visibleTraceEvents, 'reply', activeReplyEvent.blockId) : '';
+  const matchesActiveBlock = !!activeBlockText && activeBlockText === streamText;
 
   visibleTraceEvents.forEach((event, index) => {
     if (event.kind === 'reply') {
@@ -697,10 +703,16 @@ export function buildLiveTraceTimeline(input: {
         isStreaming &&
         index === lastReplyEventIndex &&
         activeStreamText.length > 0 &&
-        event.text === streamText;
+        (event.text === streamText || matchesActiveBlock);
+      let displayedSegment = displayedText;
+      if (isActiveStreamReply && matchesActiveBlock) {
+        const prefix = activeBlockText.slice(0, activeBlockText.length - event.text.length);
+        displayedSegment = displayedText.startsWith(prefix) ? displayedText.slice(prefix.length)
+          : prefix.startsWith(displayedText) ? '' : event.text;
+      }
       appendReply(
         event.id,
-        isActiveStreamReply ? displayedText : event.text,
+        isActiveStreamReply ? displayedSegment : event.text,
         isActiveStreamReply,
       );
       renderedActiveStreamReply = renderedActiveStreamReply || isActiveStreamReply;
@@ -712,7 +724,7 @@ export function buildLiveTraceTimeline(input: {
 
   flushThinking('trace-thinking-tail');
 
-  const hasMatchingStreamReply = items.some(
+  const hasMatchingStreamReply = matchesActiveBlock || items.some(
     (item) => item.kind === 'reply' && item.content === activeStreamText,
   );
   if (activeStreamText && !renderedActiveStreamReply && !hasMatchingStreamReply) {
@@ -774,6 +786,7 @@ export function projectLiveConversationTimeline(input: {
   });
   const liveTraceTimeline = buildLiveTraceTimeline({
     visibleTraceEvents: liveTimelineTraceEvents,
+    sourceTraceEvents: visibleTraceEvents,
     isStreaming: input.isStreaming,
     currentTraceActive,
     streamText: input.streamText,

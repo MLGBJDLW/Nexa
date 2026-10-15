@@ -42,7 +42,9 @@ import { streamStore } from '../src/lib/streamStore';
 import { durableRunReconciler } from '../src/lib/streaming/runReconciliationRuntime';
 import { ConversationFrameBatcher } from '../src/lib/streaming/frameBatcher';
 import { parseAgentFrontendEvent } from '../src/lib/streaming/runEventWire';
-import { applyStreamBlockDelta } from '../src/lib/streaming/blockProjection';
+import { applyStreamBlockDelta, applyStreamBlockSnapshot } from '../src/lib/streaming/blockProjection';
+import { applyDoneEvent } from '../src/lib/streaming/liveProjection';
+import { projectChatStreamingVisibility } from '../src/lib/streaming/chatVisibility';
 import { applyToolRunEvent } from '../src/lib/streaming/toolProjection';
 import { createDefaultState } from '../src/lib/streaming/state';
 import { takeAuthoritativeRunEventSuffix } from '../src/lib/streaming/ordering';
@@ -3403,6 +3405,61 @@ test('tool discovery and progress cannot strand continuing answer or thinking bl
     assertEqual(state.toolCalls[0]?.status, status === 'completed' ? 'done' : status, 'tool retains its own lifecycle');
     }
   }
+});
+
+test('continued wire blocks retain chronological segments in the actual chat timeline projection', () => {
+  for (const channel of ['answer', 'thinking'] as const) {
+    const state = createDefaultState();
+    state.isStreaming = true;
+    const pieces = ['Before the browser starts. ', 'During the browser work. ', 'After the second tool starts.'];
+    applyStreamBlockDelta(state, channel, 'continued', 0, pieces[0]);
+    applyToolRunEvent(state, { callId: 'browser-a', toolName: 'browser_session', status: 'running', arguments: '{}' } as ToolRunItem);
+    applyStreamBlockDelta(state, channel, 'continued', pieces[0].length, pieces[1]);
+    applyToolRunEvent(state, { callId: 'browser-b', toolName: 'browser_session', status: 'running', arguments: '{}' } as ToolRunItem);
+    applyStreamBlockDelta(state, channel, 'continued', pieces[0].length + pieces[1].length, pieces[2]);
+    const visibility = projectChatStreamingVisibility(state);
+    const timeline = projectLiveConversationTimeline({ ...state, ...visibility, displayedText: state.streamText });
+    const rendered = timeline.liveTraceTimeline.flatMap(item => item.kind === 'reply'
+      ? [`reply:${item.content}`]
+      : item.sections.map(section => section.kind === 'tool' ? `tool:${section.toolCall.callId}` : `${section.kind}:${section.text}`));
+    const kind = channel === 'answer' ? 'reply' : 'thinking';
+    assertEqual(rendered.join('|'), `${kind}:${pieces[0]}|tool:browser-a|${kind}:${pieces[1]}|tool:browser-b|${kind}:${pieces[2]}`,
+      `${channel} must remain on the correct side of each active tool without a cumulative fallback duplicate`);
+    assertEqual(channel === 'answer' ? state.streamText : state.thinkingText, pieces.join(''), 'wire state stays cumulative');
+    assert(state.toolCalls.every(tool => tool.status === 'running'), 'continuations do not finish tools');
+  }
+});
+
+test('segmented snapshots correct UTF-8 text once and preserve a different active block', () => {
+  const state = createDefaultState();
+  for (const channel of ['answer', 'thinking'] as const) {
+    applyStreamBlockDelta(state, channel, channel, 0, 'A');
+    applyToolRunEvent(state, { callId: channel, toolName: 'browser_session', status: 'running', arguments: '{}' } as ToolRunItem);
+    applyStreamBlockDelta(state, channel, channel, 1, '🙂B');
+    applyStreamBlockSnapshot(state, channel, channel, '你好🙂');
+    const segments = state.traceEvents.filter(event => event.kind === (channel === 'answer' ? 'reply' : 'thinking') && event.blockId === channel);
+    assertEqual(segments.map(event => 'text' in event ? event.text : '').join(''), '你好🙂', 'snapshot must not duplicate text or split a UTF-8 character');
+    applyStreamBlockDelta(state, channel, 'current-' + channel, 0, 'Current');
+    applyStreamBlockSnapshot(state, channel, channel, '短');
+    applyStreamBlockSnapshot(state, channel, channel, '');
+    assertEqual(channel === 'answer' ? state.streamText : state.thinkingText, 'Current', 'historical shrink/empty snapshots must not replace current output');
+    assertEqual(state.traceEvents.filter(event => event.kind === (channel === 'answer' ? 'reply' : 'thinking') && event.blockId === channel)
+      .map(event => 'text' in event ? event.text : '').join(''), '', 'empty snapshot clears every segment of its own block');
+  }
+});
+
+test('Done replaces a segmented block without duplicating its prefix or crossing tools', () => {
+  const state = createDefaultState();
+  state.isStreaming = true;
+  applyStreamBlockDelta(state, 'answer', 'terminal', 0, 'Before ');
+  applyToolRunEvent(state, { callId: 'terminal-tool', toolName: 'browser_session', status: 'running', arguments: '{}' } as ToolRunItem);
+  applyStreamBlockDelta(state, 'answer', 'terminal', 7, 'partial');
+  applyDoneEvent(state, { status: 'completed', message: { content: 'Before completed answer' } });
+  const visibility = projectChatStreamingVisibility(state);
+  const timeline = projectLiveConversationTimeline({ ...state, ...visibility, displayedText: state.streamText });
+  const replies = timeline.liveTraceTimeline.filter(item => item.kind === 'reply');
+  assertEqual(replies.map(item => item.content).join(''), 'Before completed answer', 'Done text appears exactly once');
+  assertEqual(replies.map(item => item.content).join('|'), 'Before |completed answer', 'Done retains the tool boundary');
 });
 
 test('block projection buffers future UTF-8 byte offsets for answer and thinking', () => {
