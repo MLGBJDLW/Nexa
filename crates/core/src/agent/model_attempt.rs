@@ -849,6 +849,15 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
     /// the provider's typed projection-ownership contract.
     fn request_for_invocation(&mut self) -> CompletionRequest {
         let mut request = self.original_request.clone();
+        // Legacy live-screen leases no longer exist. A restored request must
+        // never revive their transient pixels; explicit screenshot attachments
+        // are ordinary user content and remain available.
+        request.messages.retain(|message| {
+            !message
+                .name
+                .as_deref()
+                .is_some_and(|name| name.starts_with("nexa_screen_"))
+        });
         let history_policy = match self.provider.replay_history_projection(&request) {
             ReplayHistoryProjection::ProviderSelectedRoute => {
                 self.candidate_projection_omitted_units = None;
