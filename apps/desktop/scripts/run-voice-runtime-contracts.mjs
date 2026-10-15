@@ -1116,6 +1116,29 @@ await testAsync('native spool preserves a delayed checkpoint backlog instead of 
   assert.deepEqual(sent.map(chunk => chunk.sequence), sent.map((_, index) => index));
 });
 
+await testAsync('native storage stalls are byte bounded without a recording-duration limit', async () => {
+  const { NativeVoiceSpoolUpload } = loadNativeVoiceSpool();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const sent = [];
+  let stopped = 0;
+  const upload = new NativeVoiceSpoolUpload(
+    { sessionId: 'blocked-storage', sampleRate: 16_000, maxChunkBytes: 256 * 1024 },
+    { append: async (_session, _sequence, chunk) => { await gate; sent.push(...chunk); },
+      finish: async sessionId => ({ sessionId }), cancel: async () => {} },
+    { maxBufferedBytes: 8_192, maxChunks: 1, maxBufferedDurationMs: 1,
+      onBackpressure: () => { stopped++; } },
+  );
+  for (let index = 0; index < 128; index++) assert.equal(upload.enqueue(new Uint8Array(64).fill(index)), true);
+  assert.equal(upload.enqueue(new Uint8Array(64)), false);
+  assert.equal(stopped, 1);
+  assert.equal(upload.snapshot().maxBufferedBytes, 8_192);
+  release();
+  await assert.rejects(upload.finish(), /storage stopped keeping up/);
+  assert.equal(sent.length, 8_192, 'all accepted backlog drains before recovery');
+  assert.deepEqual(await upload.finishAcceptedAudio(), { sessionId: 'blocked-storage' });
+});
+
 await testAsync('native spool can finalize acknowledged chunks after a later write failure', async () => {
   const { NativeVoiceSpoolUpload } = loadNativeVoiceSpool();
   let appendCount = 0;

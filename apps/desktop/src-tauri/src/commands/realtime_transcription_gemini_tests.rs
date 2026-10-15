@@ -59,7 +59,6 @@ async fn gemini_replay_uses_manual_vad_and_drains_each_final_segment() {
                 segments += 1;
                 assert_eq!(bytes, 16_000);
                 bytes = 0;
-                socket.send(Message::Text(serde_json::json!({"serverContent":{"inputTranscription":{"text":format!("Sentence {segments}.")}}}).to_string().into())).await.unwrap();
                 socket
                     .send(Message::Text(
                         serde_json::json!({"serverContent":{"turnComplete":true}})
@@ -68,6 +67,10 @@ async fn gemini_replay_uses_manual_vad_and_drains_each_final_segment() {
                     ))
                     .await
                     .unwrap();
+                // Input transcription is independent of other server events.
+                // Turn completion must not discard a later authoritative final.
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                socket.send(Message::Text(serde_json::json!({"serverContent":{"inputTranscription":{"text":format!("Sentence {segments}.")}}}).to_string().into())).await.unwrap();
                 if segments == 2 {
                     break;
                 }
@@ -126,5 +129,71 @@ async fn gemini_replay_uses_manual_vad_and_drains_each_final_segment() {
         header,
         "replay must preserve the original recording"
     );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn gemini_quiet_noise_finishes_with_an_authoritative_empty_transcript() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        while let Some(Ok(Message::Text(text))) = socket.next().await {
+            let event: Value = serde_json::from_str(&text).unwrap();
+            if event.get("setup").is_some() {
+                socket
+                    .send(Message::Text(
+                        serde_json::json!({"setupComplete":{}}).to_string().into(),
+                    ))
+                    .await
+                    .unwrap();
+            } else if event.pointer("/realtimeInput/activityEnd").is_some() {
+                socket
+                    .send(Message::Text(
+                        serde_json::json!({"serverContent":{"turnComplete":true}})
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .unwrap();
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                socket
+                    .send(Message::Text(
+                        serde_json::json!({"serverContent":{"inputTranscription":{}}})
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .unwrap();
+                break;
+            }
+        }
+    });
+    let mut wav = super::tests::canonical_pcm_wav(16_000);
+    for sample in wav[44..].chunks_exact_mut(2) {
+        sample.copy_from_slice(&1_i16.to_le_bytes());
+    }
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), &wav).unwrap();
+    let config = nexa_core::app_settings::SpeechToTextConfig {
+        provider: "google".into(),
+        api_style: "gemini_realtime_asr".into(),
+        model: "gemini-3.5-transcribe-live".into(),
+        base_url: Some(format!("http://{address}")),
+        api_key: "fixture".into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            transcribe_realtime_spool(file.path(), &config)
+        )
+        .await
+        .unwrap()
+        .unwrap(),
+        ""
+    );
+    assert_eq!(std::fs::read(file.path()).unwrap(), wav);
     server.await.unwrap();
 }

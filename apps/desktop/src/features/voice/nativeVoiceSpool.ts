@@ -51,7 +51,9 @@ export class NativeVoiceSpoolUpload {
       {
         preserveAudio: true,
         maxChunks: options.maxChunks,
-        maxBytes: options.maxBufferedBytes,
+        // Only audio waiting for native storage occupies this budget. A
+        // healthy recording drains continuously and has no duration ceiling.
+        maxBytes: options.maxBufferedBytes ?? 32 * 1024 * 1024,
         maxChunkBytes: started.maxChunkBytes,
         bytesPerSecond: started.sampleRate * 2,
         maxBufferedDurationMs: options.maxBufferedDurationMs ?? 2_000,
@@ -75,7 +77,7 @@ export class NativeVoiceSpoolUpload {
     this.finishPromise = (async () => {
       await this.queue.flush();
       if (this.rejected) {
-        throw new Error('Voice spool renderer queue exceeded its hard bound');
+        throw new Error('Native audio storage stopped keeping up; preserving accepted audio');
       }
       return this.transport.finish(this.sessionId);
     })();

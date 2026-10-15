@@ -11,8 +11,8 @@ export interface AudioQueueTelemetry {
 }
 
 export interface BoundedAudioQueueOptions {
-  /** Durable recording sinks retain and batch a backlog; preview transports
-   * may instead reject it and recover from the canonical audio spool. */
+  /** Durable sinks batch through brief stalls without frame-count or duration
+   * limits. The resident byte budget still guards failed native storage. */
   preserveAudio?: boolean;
   maxChunks?: number;
   maxBytes?: number;
@@ -95,8 +95,8 @@ export class BoundedAudioUploadQueue {
     if (
       this.terminalError
       || chunk.byteLength > this.maxChunkBytes
+      || bufferedBytes + chunk.byteLength > this.maxBytes
       || (!this.preserveAudio && (bufferedChunks >= this.maxChunks
-        || bufferedBytes + chunk.byteLength > this.maxBytes
         || this.bufferedDurationMs(bufferedBytes + chunk.byteLength)
           > (this.maxBufferedDurationMs ?? Number.POSITIVE_INFINITY)))
     ) {

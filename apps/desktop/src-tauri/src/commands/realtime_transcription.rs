@@ -269,13 +269,19 @@ fn parse_server_event(dialect: RealtimeDialect, event: &Value) -> ParsedRealtime
                 "Provider requested a fresh transcription connection".into(),
             );
         }
-        if let Some(text) = event
-            .pointer("/serverContent/inputTranscription/text")
-            .and_then(Value::as_str)
+        if let Some(transcription) = event
+            .pointer("/serverContent/inputTranscription")
+            .and_then(Value::as_object)
         {
             return ParsedRealtimeServerEvent::Final {
                 utterance_id: None,
-                text: text.into(),
+                // Protobuf JSON may omit the default empty string. The final
+                // object itself still authoritatively acknowledges silence.
+                text: transcription
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .into(),
             };
         }
         if let Some(text) = event
@@ -1182,7 +1188,7 @@ mod tests {
         );
     }
 
-    fn canonical_pcm_wav(sample_rate: u32) -> Vec<u8> {
+    pub(super) fn canonical_pcm_wav(sample_rate: u32) -> Vec<u8> {
         let data_bytes = 640_u32;
         let mut wav = vec![0_u8; 44 + data_bytes as usize];
         wav[0..4].copy_from_slice(b"RIFF");
@@ -1203,6 +1209,8 @@ mod tests {
 
     #[tokio::test]
     async fn long_silent_replay_reaches_speech_without_a_recording_duration_timeout() {
+        use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+        use std::time::Duration;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let silence_bytes = 181 * 16_000 * 2;
