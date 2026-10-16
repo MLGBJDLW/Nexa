@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.7...nexa-monorepo-v0.16.8) (2026-10-16)
+
+
+### Features
+
+* unify observed interaction receipts and control feedback ([#484](https://github.com/MLGBJDLW/Nexa/issues/484)) ([d153877](https://github.com/MLGBJDLW/Nexa/commit/d153877783ae5b860ab1ae0075915c5ed7d67deb))
+
 ## [0.16.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.6...nexa-monorepo-v0.16.7) (2026-10-16)
 
 
