@@ -91,7 +91,7 @@ pub fn redact_diagnostic(value: &str, secrets: &[String]) -> String {
     }
     for pattern in [
         r"\x1b\[[0-?]*[ -/]*[@-~]",
-        r#"(?i)(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*["']?\s*[:=]\s*[^\r\n,]+"#,
+        r#"(?i)(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)\s*["']?\s*[:=]\s*[^\r\n,]+"#,
         r"(?i)\b(?:sk-|gh[pousr]_|eyJ)[A-Za-z0-9_./+=-]+",
         r"https?://[^\s]+[?#][^\s]+",
     ] {

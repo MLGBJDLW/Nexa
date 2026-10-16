@@ -524,9 +524,11 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             .to_string();
         Ok::<_, CoreError>((wire, turn, thread_id, turn_id, native_vision, aliases))
     };
+    // Each RPC already has a deadline. A separate total deadline would consume
+    // the recovery policy's backoff budget and interrupt its final attempts.
     let (mut wire, mut turn, thread_id, turn_id, native_vision, aliases) = tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Codex connection".into())),
-        result = tokio::time::timeout(Duration::from_secs(120), bootstrap) => result.map_err(|_| CoreError::StreamIncomplete("Codex connection timed out".into()))??,
+        result = bootstrap => result?,
     };
     let mut projection = Projection::for_turn(&turn);
     let mut pending = FuturesUnordered::new();
