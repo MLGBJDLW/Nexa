@@ -7,6 +7,16 @@
 
 * unify observed interaction receipts and control feedback ([#484](https://github.com/MLGBJDLW/Nexa/issues/484)) ([d153877](https://github.com/MLGBJDLW/Nexa/commit/d153877783ae5b860ab1ae0075915c5ed7d67deb))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at d153877783ae5b860ab1ae0075915c5ed7d67deb -->
+
+### What's Changed
+* feat: unify observed interaction receipts and control feedback by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/484
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.7...nexa-monorepo-v0.16.8
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.6...nexa-monorepo-v0.16.7) (2026-10-16)
 
 
