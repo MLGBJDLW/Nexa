@@ -540,7 +540,7 @@ impl McpClient {
             // a tools/call retry or disables a server with working POST RPCs.
             let Ok(Ok(response)) = tokio::time::timeout(
                 SSE_CONNECT_TIMEOUT,
-                send_authorized(&client, &endpoint, headers, None, auth.as_ref()),
+                send_authorized(&client, &endpoint, headers, None, auth.as_ref(), None),
             )
             .await
             else {
@@ -1295,7 +1295,7 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             SSE_CONNECT_TIMEOUT,
-            send_authorized(&client, &base_url, request_headers, None, auth),
+            send_authorized(&client, &base_url, request_headers, None, auth, None),
         )
         .await
         .map_err(|_| {
@@ -1442,7 +1442,14 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            send_authorized(&client, &endpoint_url, headers, None, self.auth.as_ref()),
+            send_authorized(
+                &client,
+                &endpoint_url,
+                headers,
+                None,
+                self.auth.as_ref(),
+                None,
+            ),
         )
         .await
         .map_err(|_| {
@@ -1524,6 +1531,7 @@ impl McpClient {
             headers,
             Some(payload),
             self.auth.as_ref(),
+            Some(self.call_timeout),
         );
         let response = if payload["method"] == "tools/call" {
             // A legacy server may finish the tool before acknowledging its POST.
@@ -1609,6 +1617,7 @@ impl McpClient {
             headers,
             Some(payload),
             self.auth.as_ref(),
+            Some(self.call_timeout),
         );
         let response = if payload["method"] == "tools/call" {
             // JSON-only tools may compute before returning response headers.
@@ -1754,6 +1763,7 @@ async fn send_authorized(
     mut headers: HeaderMap,
     payload: Option<&Value>,
     auth: Option<&super::oauth::RequestAuth>,
+    upload_timeout: Option<Duration>,
 ) -> Result<reqwest::Response, CoreError> {
     let safe_retry = payload.is_none()
         || matches!(
@@ -1775,17 +1785,25 @@ async fn send_authorized(
             auth.validate_target(url)?;
             auth.apply(&mut headers, attempt == 1).await?;
         }
-        let request = if let Some(payload) = payload {
-            client.post(url.clone()).json(payload)
-        } else {
-            client.get(url.clone())
-        };
-        let response = request.headers(headers.clone()).send().await.map_err(|_| {
-            CoreError::McpTransport(
-                "MCP HTTP request failed; its effect may be unknown. No operation was replayed."
-                    .into(),
+        let response = if let (Some(payload), Some(timeout)) = (payload, upload_timeout) {
+            send_json_with_upload_deadline(
+                client.post(url.clone()).headers(headers.clone()),
+                payload,
+                timeout,
             )
-        })?;
+            .await?
+        } else {
+            let request = if let Some(payload) = payload {
+                client.post(url.clone()).json(payload)
+            } else {
+                client.get(url.clone())
+            };
+            request
+                .headers(headers.clone())
+                .send()
+                .await
+                .map_err(|_| http_request_failed())?
+        };
         if response.status() == StatusCode::UNAUTHORIZED
             && auth.is_some()
             && safe_retry
@@ -1807,6 +1825,81 @@ async fn send_authorized(
         return Ok(response);
     }
     unreachable!("bounded authorization retry")
+}
+
+fn http_request_failed() -> CoreError {
+    CoreError::McpTransport(
+        "MCP HTTP request failed; its effect may be unknown. No operation was replayed.".into(),
+    )
+}
+
+struct FinalUploadChunk {
+    bytes: bytes::Bytes,
+    delivered: Option<oneshot::Sender<()>>,
+}
+
+impl AsRef<[u8]> for FinalUploadChunk {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Drop for FinalUploadChunk {
+    fn drop(&mut self) {
+        // Retain this receipt with the last body buffer until the HTTP stack
+        // consumes/releases it, rather than when the producer yields it.
+        if let Some(delivered) = self.delivered.take() {
+            let _ = delivered.send(());
+        }
+    }
+}
+
+async fn send_json_with_upload_deadline(
+    request: reqwest::RequestBuilder,
+    payload: &Value,
+    timeout: Duration,
+) -> Result<reqwest::Response, CoreError> {
+    let bytes = bytes::Bytes::from(serde_json::to_vec(payload)?);
+    let length = bytes.len();
+    let (delivered, uploaded) = oneshot::channel();
+    let stream = futures::stream::unfold(
+        (bytes, 0usize, Some(delivered)),
+        |(bytes, offset, mut delivered)| async move {
+            if offset == bytes.len() {
+                return None;
+            }
+            let end = (offset + 16 * 1024).min(bytes.len());
+            let chunk = bytes.slice(offset..end);
+            let chunk = if end == bytes.len() {
+                bytes::Bytes::from_owner(FinalUploadChunk {
+                    bytes: chunk,
+                    delivered: delivered.take(),
+                })
+            } else {
+                chunk
+            };
+            Some((Ok::<_, std::io::Error>(chunk), (bytes, end, delivered)))
+        },
+    );
+    let sending = request
+        .header(CONTENT_TYPE, CONTENT_TYPE_JSON)
+        .header(reqwest::header::CONTENT_LENGTH, length)
+        .body(reqwest::Body::wrap_stream(stream))
+        .send();
+    tokio::pin!(sending);
+    tokio::select! {
+        biased;
+        response = &mut sending => response.map_err(|_| http_request_failed()),
+        delivered = tokio::time::timeout(timeout, uploaded) => {
+            match delivered {
+                Ok(Ok(())) => sending.await.map_err(|_| http_request_failed()),
+                // Early HTTP rejection can discard an unconsumed body. Keep
+                // that response authoritative, while a failed upload stays bounded.
+                Ok(Err(_)) => tokio::time::timeout(timeout, sending).await.map_err(|_| CoreError::McpTransport("MCP HTTP upload did not complete; no operation was replayed.".into()))?.map_err(|_| http_request_failed()),
+                Err(_) => Err(CoreError::McpTransport("MCP HTTP upload timed out before the request body was delivered; effects may have occurred and no operation was replayed.".into())),
+            }
+        }
+    }
 }
 
 fn http_auth_error(response: &reqwest::Response) -> Option<CoreError> {
@@ -2671,6 +2764,39 @@ mod tests {
             server.abort();
             assert!(result.is_ok(), "{mode}: {result:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn tool_http_upload_stays_bounded_when_connected_peer_stops_reading() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut byte = [0];
+            stream.read_exact(&mut byte).await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let mut client = McpClient {
+            transport: Transport::StreamableHttp(
+                McpClient::build_streamable_http_transport(&url, None).unwrap(),
+            ),
+            request_id: AtomicI64::new(1),
+            server_name: "blocked-upload".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: json!({}),
+            call_timeout: Duration::from_millis(100),
+            auth: None,
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            client.call_tool("long_task", json!({"payload":"x".repeat(16 * 1024 * 1024)})),
+        )
+        .await;
+        server.abort();
+        assert!(
+            matches!(&result, Ok(Err(CoreError::McpTransport(message))) if message.contains("upload")),
+            "upload was not bounded independently: {result:?}"
+        );
     }
 
     #[test]

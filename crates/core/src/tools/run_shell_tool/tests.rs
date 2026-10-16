@@ -190,6 +190,29 @@ fn saved_shell_preference_preserves_policy_and_explicit_host_argv() {
     .contains("unavailable"));
 }
 
+#[test]
+fn selected_shell_keeps_advisory_server_readiness_classification() {
+    let parsed = parse_run_shell_args(
+        &json!({"command":"npm run dev -- --port 8765 --host 127.0.0.1"}).to_string(),
+    )
+    .unwrap();
+    for preference in ["bash", "wsl:Ubuntu"] {
+        let (program, args) =
+            policy::normalize_run_shell_with_preference(&parsed, ShellAccessMode::Open, preference)
+                .unwrap();
+        assert!(
+            tool_impl::looks_like_persistent_service(&program, &args),
+            "{preference} lost service metadata: {program} {args:?}"
+        );
+        assert_eq!(
+            tool_impl::infer_ready_url_from_invocation(&program, &args)
+                .as_ref()
+                .map(|url| url.as_str()),
+            Some("http://127.0.0.1:8765/")
+        );
+    }
+}
+
 #[cfg(windows)]
 #[tokio::test]
 #[ignore = "requires an installed WSL Bash distribution"]

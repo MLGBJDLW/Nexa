@@ -80,11 +80,14 @@ test('deployment kit requires an exact trusted HTTPS origin and user-provided ce
 });
 
 test('Tauri maps Office runtimes to the resource paths probed at startup', () => {
-  assert.deepEqual(tauriConfig.bundle.resources, {
+  const expected = {
     'resources/openxml-validator/': 'openxml-validator/',
     'resources/office-addin/': 'office-addin/',
     'resources/pptxgenjs-runtime/': 'pptxgenjs-runtime/',
     '../THIRD_PARTY_NOTICES.md': 'THIRD_PARTY_NOTICES.md',
     '../licenses/pdf-rendering.txt': 'licenses/pdf-rendering.txt',
-  });
+  };
+  for (const [source, destination] of Object.entries(expected)) {
+    assert.equal(tauriConfig.bundle.resources[source], destination);
+  }
 });

@@ -122,18 +122,20 @@ pub(super) fn normalize_run_shell_with_preference(
                 return Err(command_args_mix_error().to_string());
             }
             let explicitly_direct = parsed.shell.as_ref().is_some_and(|value| !value.is_null());
-            if !mode.is_restricted()
+            let selected_interpreter = !mode.is_restricted()
                 && !explicitly_direct
-                && !matches!(preference, "" | "auto" | "default")
-            {
-                // This script belongs to the selected interpreter. Host argv
-                // parsing cannot judge its comments, quoting or expansions.
-                // Cwd resolution later supplies the real profile invocation.
-                return shell_invocation(CommandShell::Default, command);
-            }
+                && !matches!(preference, "" | "auto" | "default");
             let parts = match split_simple_command_string(command) {
+                // Preserve useful simple-command metadata for persistent
+                // service/readiness classification. Execution still receives
+                // the original script through apply_shell_preference.
                 Ok(parts) => parts,
-                Err(_error) if !mode.is_restricted() && command_uses_shell_syntax(command) => {
+                Err(_error)
+                    if selected_interpreter
+                        || (!mode.is_restricted() && command_uses_shell_syntax(command)) =>
+                {
+                    // The selected interpreter owns script parsing. An advisory
+                    // argv parse cannot reject its comments or quoting.
                     return shell_invocation(CommandShell::Default, command);
                 }
                 Err(error) => return Err(error),
