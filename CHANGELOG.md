@@ -7,6 +7,16 @@
 
 * repair shell environments and remove hidden MCP deadlines ([#482](https://github.com/MLGBJDLW/Nexa/issues/482)) ([47caa8a](https://github.com/MLGBJDLW/Nexa/commit/47caa8a2490274fe3118e2a6f30785ace78eab35))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 47caa8a2490274fe3118e2a6f30785ace78eab35 -->
+
+### What's Changed
+* fix: repair shell environments and remove hidden MCP deadlines by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/482
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.6...nexa-monorepo-v0.16.7
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.5...nexa-monorepo-v0.16.6) (2026-10-16)
 
 
