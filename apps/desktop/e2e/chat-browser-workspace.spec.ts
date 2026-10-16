@@ -1099,7 +1099,7 @@ test('browser trail separates invocations when a provider repeats its call ID', 
   await emit('invocation-a', 'verified');
   await emit('invocation-b', 'moving');
   await expect(trail.locator(':scope > span')).toHaveCount(2);
-  await expect(trail.locator(':scope > span').nth(0)).toContainText('Verified');
+  await expect(trail.locator(':scope > span').nth(0)).toContainText('Change observed');
   await expect(trail.locator(':scope > span').nth(1)).toContainText('In progress');
   await emit('invocation-a', 'failed');
   await expect(trail).not.toContainText('Needs review');
