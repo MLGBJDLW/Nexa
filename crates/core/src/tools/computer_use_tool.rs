@@ -1394,6 +1394,21 @@ impl ControlFailure {
         self.observation_consumed = true;
         self
     }
+
+    fn interaction(
+        &self,
+        commit: &crate::observed_interaction::InteractionCommit,
+    ) -> crate::observed_interaction::InteractionReceipt {
+        use crate::observed_interaction::{InputDelivery, InteractionReceipt};
+        let mut receipt = InteractionReceipt::failed(
+            self.observation_consumed || commit.observation_consumed(),
+            self.phase.effect_may_have_occurred(),
+        );
+        if commit.failure().delivery == InputDelivery::InputSent {
+            receipt.delivery = InputDelivery::InputSent;
+        }
+        receipt
+    }
 }
 
 #[cfg_attr(
@@ -1632,7 +1647,11 @@ fn control_failure_contract(failure: &ControlFailure) -> (&'static str, bool) {
     }
 }
 
-fn control_failure_result(call_id: &str, failure: &ControlFailure) -> ToolResult {
+fn control_failure_result(
+    call_id: &str,
+    failure: &ControlFailure,
+    commit: &crate::observed_interaction::InteractionCommit,
+) -> ToolResult {
     let (code, retryable) = control_failure_contract(failure);
     let message = match code {
         "computer_action_uncertain" => "Computer action crossed its commit boundary and may have been partially delivered. Inspect fresh state and do not blindly retry.",
@@ -1657,7 +1676,7 @@ fn control_failure_result(call_id: &str, failure: &ControlFailure) -> ToolResult
             "tool": "computer_control",
             "arguments": "must match the current computer_control schema and exact conversation-scoped observation",
             "causeCode": failure.pre_commit_kind.map(|kind| precondition_contract(kind).0),
-            "interaction": crate::observed_interaction::InteractionReceipt::failed(failure.observation_consumed, failure.phase.effect_may_have_occurred()),
+            "interaction": failure.interaction(commit),
             "recovery": if failure.phase.effect_may_have_occurred() {
                 "capture fresh visual state or ask the user; never blindly retry the same action"
             } else if failure.observation_consumed {
@@ -3311,7 +3330,7 @@ impl Tool for ComputerControlTool {
                                     "effectMayHaveOccurred": effect_may_have_occurred,
                                     "observationConsumed": failure.observation_consumed,
                                     "failureCode": failure_code,
-                                    "interaction": crate::observed_interaction::InteractionReceipt::failed(failure.observation_consumed, effect_may_have_occurred),
+                                    "interaction": failure.interaction(&worker_commit_tracker.interaction),
                                     "targetIdentity": worker_target_identity,
                                     "windowId": window_id,
                                     "consumedObservationId": worker_consumed_observation_id,
@@ -3487,7 +3506,11 @@ impl Tool for ComputerControlTool {
         Ok(match result {
             Ok(result) => result,
             Err(failure) => {
-                let mut result = control_failure_result(&failure_call_id, &failure);
+                let mut result = control_failure_result(
+                    &failure_call_id,
+                    &failure,
+                    &cancellation_tracker.interaction,
+                );
                 if let (Some(artifacts), Some(binding)) = (
                     result
                         .artifacts

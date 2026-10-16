@@ -784,4 +784,8 @@ fn failed_form_verification_retains_requested_condition_and_uncertain_effect() {
         tracker.failure_interaction("click").condition,
         RequestedCondition::NotRequested
     );
+    tracker.confirm_input_sent();
+    let confirmed = tracker.failure_interaction("set_checked");
+    assert_eq!(confirmed.delivery, InputDelivery::InputSent);
+    assert_eq!(confirmed.condition, RequestedCondition::Pending);
 }

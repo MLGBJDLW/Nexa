@@ -435,7 +435,7 @@ fn invalid_image_coordinates_are_rejected_without_consuming_the_observation() {
         observed_window(Some("coordinate-preflight"), &token, fixture.snapshot.id).unwrap();
     let error = validate_observed_coordinates(&args, &observation).unwrap_err();
     let failure = ControlFailure::pre_commit_as(PreCommitFailureKind::InvalidCoordinates, error);
-    let result = control_failure_result("coordinates", &failure);
+    let result = control_failure_result("coordinates", &failure, &Default::default());
     assert_eq!(
         result.artifacts.as_ref().unwrap()["code"],
         "computer_coordinates_out_of_bounds"
@@ -456,7 +456,7 @@ fn control_commit_phase_is_explicit_monotonic_and_independent_of_error_text() {
         PreCommitFailureKind::RuntimeUnavailable,
         CoreError::Internal("effect is uncertain but no input was sent".to_string()),
     );
-    let before_result = control_failure_result("before", &before);
+    let before_result = control_failure_result("before", &before, &tracker.interaction);
     let before_artifacts = before_result.artifacts.expect("pre-commit artifacts");
     assert_eq!(
         before_artifacts["code"],
@@ -469,7 +469,7 @@ fn control_commit_phase_is_explicit_monotonic_and_independent_of_error_text() {
         PreCommitFailureKind::RuntimeUnavailable,
         CoreError::Internal("worker stopped before OS input".to_string()),
     );
-    let consumed_artifacts = control_failure_result("consumed", &consumed)
+    let consumed_artifacts = control_failure_result("consumed", &consumed, &tracker.interaction)
         .artifacts
         .expect("consumed observation artifacts");
     assert_eq!(consumed_artifacts["sideEffect"], "not_started");
@@ -480,12 +480,26 @@ fn control_commit_phase_is_explicit_monotonic_and_independent_of_error_text() {
         PreCommitFailureKind::InvalidAction,
         CoreError::InvalidInput("no input was sent".to_string()),
     );
-    let after_result = control_failure_result("after", &after);
+    let after_result = control_failure_result("after", &after, &tracker.interaction);
     let after_artifacts = after_result.artifacts.expect("post-commit artifacts");
     assert_eq!(after_artifacts["code"], "computer_action_uncertain");
     assert_eq!(after_artifacts["sideEffect"], "may_have_occurred");
     assert!(after_artifacts.get("effectMayHaveOccurred").is_none());
     assert!(after_artifacts.get("failurePhase").is_none());
+
+    tracker.interaction.confirm_input_sent();
+    let confirmed = control_failure_result("confirmed", &after, &tracker.interaction)
+        .artifacts
+        .unwrap();
+    assert_eq!(
+        confirmed["expectedFormat"]["interaction"]["delivery"],
+        "inputSent"
+    );
+    assert_eq!(
+        confirmed["expectedFormat"]["interaction"]["evidence"],
+        "unavailable"
+    );
+    assert_eq!(confirmed["sideEffect"], "may_have_occurred");
 
     tracker.mark().unwrap();
     assert!(tracker.effect_may_have_occurred());
