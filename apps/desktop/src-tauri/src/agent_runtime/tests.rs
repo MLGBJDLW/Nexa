@@ -1,4 +1,57 @@
 use super::*;
+
+#[tokio::test(start_paused = true)]
+async fn external_connection_reuses_the_shared_retry_policy_and_stops_on_cancel() {
+    let (events, mut receiver) = mpsc::channel(32);
+    let cancellation = CancellationToken::new();
+    let attempts = std::sync::atomic::AtomicUsize::new(0);
+    let connected = connect_with_recovery(&events, &cancellation, || async {
+        let attempt = attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if attempt < 2 {
+            Err(CoreError::StreamIncomplete("connection closed".into()))
+        } else {
+            Ok("connected")
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(connected, "connected");
+    assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 3);
+    for _ in 0..2 {
+        assert!(
+            matches!(receiver.recv().await, Some(AgentEvent::ControllerStatus { code, .. }) if code == "external_agent_retrying")
+        );
+    }
+    let cancelled = cancellation.clone();
+    let result = connect_with_recovery::<(), _, _>(&events, &cancellation, || async {
+        cancelled.cancel();
+        Err(CoreError::StreamIncomplete("connection closed".into()))
+    })
+    .await;
+    assert!(matches!(result, Err(CoreError::Cancelled(_))));
+}
+
+#[test]
+fn native_transport_codes_are_recoverable_but_auth_and_configuration_are_not() {
+    for code in [
+        serde_json::json!("server_overloaded"),
+        serde_json::json!({"responseStreamDisconnected":{"httpStatusCode":503}}),
+    ] {
+        assert!(matches!(
+            runtime_failure("runtime", "provider failure", Some(&code)),
+            CoreError::TransientLlm(_)
+        ));
+    }
+    for code in [
+        serde_json::json!("unauthorized"),
+        serde_json::json!({"http_connection_failed":{"http_status_code":401}}),
+    ] {
+        assert!(matches!(
+            runtime_failure("runtime", "stream disconnected", Some(&code)),
+            CoreError::Agent(_)
+        ));
+    }
+}
 use nexa_core::{
     agent::ToolVisualObservation,
     approval::{ApprovalDecision, ToolApprovalMode},

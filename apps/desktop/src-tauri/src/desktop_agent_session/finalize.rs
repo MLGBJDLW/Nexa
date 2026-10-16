@@ -1,5 +1,9 @@
 use super::*;
 
+pub(crate) fn execution_failure_message(error: &CoreError) -> String {
+    nexa_core::external_agent::launch::redact_diagnostic(&error.to_string(), &[])
+}
+
 pub async fn finalize_desktop_agent_turn(finalization: DesktopAgentTurnFinalization<'_>) {
     let DesktopAgentTurnFinalization {
         db,
@@ -52,7 +56,7 @@ pub async fn finalize_desktop_agent_turn(finalization: DesktopAgentTurnFinalizat
                 task_run_id,
                 Some(turn_id),
                 0,
-                "Agent execution failed unexpectedly.",
+                &execution_failure_message(error),
                 "failed",
                 Some(&serde_json::json!({ "reason": error.to_string() })),
             ),

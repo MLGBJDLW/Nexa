@@ -191,11 +191,9 @@ impl Wire {
         let id = self.send(method, params).await?;
         tokio::time::timeout(RPC_TIMEOUT, async {
             loop {
-                let message = self
-                    .messages
-                    .recv()
-                    .await
-                    .ok_or_else(|| protocol_error("Codex exited during startup"))??;
+                let message = self.messages.recv().await.ok_or_else(|| {
+                    CoreError::StreamIncomplete("Codex exited during startup".into())
+                })??;
                 if message.get("method").is_none() && message["id"].as_u64() == Some(id) {
                     return rpc_result(message, method);
                 } else {
@@ -207,7 +205,7 @@ impl Wire {
             }
         })
         .await
-        .map_err(|_| protocol_error(format!("Codex {method} timed out")))?
+        .map_err(|_| CoreError::StreamIncomplete(format!("Codex {method} timed out")))?
     }
 
     async fn reject(&mut self, message: &Value) -> Result<(), CoreError> {
@@ -409,8 +407,13 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .clone()
         .ok_or_else(|| protocol_error("select a Codex model first"))?;
     let bootstrap = async {
-        let mut wire = Wire::start().await?;
-        let model = model(&mut wire, &model_id).await?;
+        let (mut wire, model) =
+            super::connect_with_recovery(&request.events, &cancellation, || async {
+                let mut wire = Wire::start().await?;
+                let model = model(&mut wire, &model_id).await?;
+                Ok((wire, model))
+            })
+            .await?;
         let native_vision = model["inputModalities"]
             .as_array()
             .is_some_and(|values| values.iter().any(|value| value == "image"));
@@ -483,7 +486,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     };
     let (mut wire, mut turn, thread_id, turn_id, native_vision, aliases) = tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Codex connection".into())),
-        result = tokio::time::timeout(Duration::from_secs(120), bootstrap) => result.map_err(|_| protocol_error("Codex connection timed out"))??,
+        result = tokio::time::timeout(Duration::from_secs(120), bootstrap) => result.map_err(|_| CoreError::StreamIncomplete("Codex connection timed out".into()))??,
     };
     let mut projection = Projection::for_turn(&turn);
     let mut pending = FuturesUnordered::new();
@@ -790,18 +793,22 @@ async fn project_event(
                 return Err(CoreError::Cancelled("Codex turn interrupted".into()))
             }
             _ => {
-                return Err(protocol_error(
+                return Err(super::runtime_failure(
+                    "Codex turn failed",
                     params["turn"]["error"]["message"]
                         .as_str()
                         .unwrap_or("Codex turn failed"),
+                    params["turn"]["error"].get("codexErrorInfo"),
                 ))
             }
         },
         "error" if params["willRetry"] != true => {
-            return Err(protocol_error(
+            return Err(super::runtime_failure(
+                "Codex runtime failed",
                 params["error"]["message"]
                     .as_str()
                     .unwrap_or("Codex runtime failed"),
+                params["error"].get("codexErrorInfo"),
             ))
         }
         _ => {}

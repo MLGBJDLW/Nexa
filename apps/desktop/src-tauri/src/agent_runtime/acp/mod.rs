@@ -1,7 +1,6 @@
 //! Native ACP agents own their tools and authentication. No API key is borrowed,
 //! no reported tool is executed twice, and uncertain prompts are never replayed.
 mod auth;
-mod auth_profile;
 mod catalog;
 pub(crate) use auth::{authenticate, Authentication};
 pub(super) mod client;
@@ -142,32 +141,27 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
     )?;
     let db = request.db.clone();
     let conversation = request.conversation_id.clone();
-    let mut connection = match pool::take(&key, &history) {
-        Some(connection) => {
-            stage(&request.events, "reusing").await?;
-            connection
-        }
-        None => {
-            stage(&request.events, "starting").await?;
-            let cache_root = adapter_cache_root(&request.db);
-            let mut wire = tokio::select! {
-                _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while preparing the external agent".into())),
-                result = Wire::prepare(&preset, &binding.launch, cache_root.as_deref()) => result?,
-            };
-            stage(&request.events, "connecting").await?;
-            let session = tokio::select! {
-                _ = request.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while connecting".into())),
-                result = Session::connect_with_mcp(&mut wire, &binding.launch.working_directory, &servers, binding.launch.authentication_method.as_deref()) => result?,
-            };
-            pool::Connected {
-                wire,
-                session,
-                history: String::new(),
-                context: String::new(),
+    let mut pooled = pool::take(&key, &history);
+    let mut connection =
+        super::connect_with_recovery(&request.events, &request.cancellation, || {
+            let pooled = pooled.take();
+            let request = &request;
+            let preset = &preset;
+            let binding = &binding;
+            let servers = &servers;
+            async move {
+                let mut connection = if let Some(connection) = pooled {
+                    stage(&request.events, "reusing").await?;
+                    connection
+                } else {
+                    connect(request, preset, &binding.launch, servers).await?
+                };
+                configure_connection(request, &mut connection).await?;
+                Ok(connection)
             }
-        }
-    };
-    let answer = run_initialized(provider, request, &mut connection).await?;
+        })
+        .await?;
+    let answer = run_configured(provider, request, &mut connection).await?;
     privacy_lease.ensure_current()?;
     // A changed/rewound transcript, model/effort, profile or workspace never reuses
     // hidden upstream state. Only a completed, persisted turn is cached.
@@ -178,6 +172,31 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
         }
     }
     Ok(answer)
+}
+
+async fn connect(
+    request: &AgentRuntimeTurnRequest,
+    preset: &nexa_core::external_agent::ExternalAgentPreset,
+    launch: &ExternalAgentLaunch,
+    servers: &[nexa_core::mcp::McpServer],
+) -> Result<pool::Connected> {
+    stage(&request.events, "starting").await?;
+    let cache_root = adapter_cache_root(&request.db);
+    let mut wire = Wire::prepare(preset, launch, cache_root.as_deref()).await?;
+    stage(&request.events, "connecting").await?;
+    let session = Session::connect_with_mcp(
+        &mut wire,
+        &launch.working_directory,
+        servers,
+        launch.authentication_method.as_deref(),
+    )
+    .await?;
+    Ok(pool::Connected {
+        wire,
+        session,
+        history: String::new(),
+        context: String::new(),
+    })
 }
 
 fn history_fingerprint(
@@ -233,11 +252,20 @@ async fn run_connected(
     run_initialized(provider, request, &mut connection).await
 }
 
+#[cfg(test)]
 async fn run_initialized(
     provider: &str,
-    mut request: AgentRuntimeTurnRequest,
+    request: AgentRuntimeTurnRequest,
     connection: &mut pool::Connected,
 ) -> Result<Message> {
+    configure_connection(&request, connection).await?;
+    run_configured(provider, request, connection).await
+}
+
+async fn configure_connection(
+    request: &AgentRuntimeTurnRequest,
+    connection: &mut pool::Connected,
+) -> Result<()> {
     let cancellation = request.cancellation.clone();
     let model = request
         .config
@@ -277,6 +305,14 @@ async fn run_initialized(
         })
         .await
         .map_err(error)?;
+    Ok(())
+}
+
+async fn run_configured(
+    provider: &str,
+    mut request: AgentRuntimeTurnRequest,
+    connection: &mut pool::Connected,
+) -> Result<Message> {
     let context = json!([
         request.config.system_prompt,
         request.config.volatile_system_sections,
