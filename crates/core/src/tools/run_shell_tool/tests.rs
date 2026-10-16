@@ -26,6 +26,17 @@ async fn selected_bash_parses_its_own_comments_and_quoting() {
     config.shell_access_mode = ShellAccessMode::Open;
     config.default_shell = "bash".into();
     db.save_app_config(&config).unwrap();
+    let script_path = dir.path().join("script.sh");
+    std::fs::write(
+        &script_path,
+        "#!/usr/bin/env bash\nprintf '%s\\n' RELATIVE_SCRIPT_OK\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let arguments = json!({"command":"printf '%s' 'literal value' # don't reinterpret this quote", "cwd":dir.path()}).to_string();
     let result = RunShellTool
         .execute(crate::tools::ToolExecutionContext::new(
@@ -38,6 +49,18 @@ async fn selected_bash_parses_its_own_comments_and_quoting() {
         .unwrap();
     assert!(!result.is_error, "{}", result.content);
     assert!(result.content.contains("literal value"));
+    let arguments = json!({"command":"./script.sh", "cwd":dir.path()}).to_string();
+    let result = RunShellTool
+        .execute(crate::tools::ToolExecutionContext::new(
+            "bash-relative",
+            &arguments,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.contains("RELATIVE_SCRIPT_OK"));
 }
 
 #[cfg(windows)]
@@ -188,6 +211,18 @@ fn saved_shell_preference_preserves_policy_and_explicit_host_argv() {
     )
     .unwrap_err()
     .contains("unavailable"));
+
+    // An isolation backend owns its interpreter; a host shell preference may
+    // not weaken its original executable admission path.
+    let isolated = parse_run_shell_args(
+        &json!({"command":"./build.sh","_nexaIsolationSandbox":{"worktreeRoot":"/workspace"}})
+            .to_string(),
+    )
+    .unwrap();
+    assert!(
+        policy::normalize_run_shell_with_preference(&isolated, ShellAccessMode::Open, "bash")
+            .is_err()
+    );
 }
 
 #[test]
@@ -210,6 +245,24 @@ fn selected_shell_keeps_advisory_server_readiness_classification() {
                 .map(|url| url.as_str()),
             Some("http://127.0.0.1:8765/")
         );
+    }
+}
+
+#[test]
+fn selected_shell_paths_are_not_validated_as_host_executables() {
+    for command in ["./build.sh", "/usr/bin/printf '%s' ok"] {
+        let parsed = parse_run_shell_args(&json!({"command":command}).to_string()).unwrap();
+        for preference in ["bash", "wsl:Ubuntu"] {
+            assert!(
+                policy::normalize_run_shell_with_preference(
+                    &parsed,
+                    ShellAccessMode::Open,
+                    preference
+                )
+                .is_ok(),
+                "valid {preference} command was rejected: {command}"
+            );
+        }
     }
 }
 

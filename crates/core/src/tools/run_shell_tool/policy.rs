@@ -123,6 +123,7 @@ pub(super) fn normalize_run_shell_with_preference(
             }
             let explicitly_direct = parsed.shell.as_ref().is_some_and(|value| !value.is_null());
             let selected_interpreter = !mode.is_restricted()
+                && parsed.isolation_sandbox.is_none()
                 && !explicitly_direct
                 && !matches!(preference, "" | "auto" | "default");
             let parts = match split_simple_command_string(command) {
@@ -142,7 +143,14 @@ pub(super) fn normalize_run_shell_with_preference(
             };
             let program = &parts[0];
             let args = parts[1..].to_vec();
-            normalize_invocation(program, &args, mode)
+            if selected_interpreter {
+                // Linux absolute paths and relative shell scripts are valid
+                // inside the chosen interpreter. These argv are advisory only;
+                // host executable validation would reject them on Windows.
+                Ok((program.clone(), args))
+            } else {
+                normalize_invocation(program, &args, mode)
+            }
         }
         (None, Some(program)) => normalize_invocation(program, &parsed.args, mode),
         (None, None) => Err("run_shell requires either command or program".to_string()),
