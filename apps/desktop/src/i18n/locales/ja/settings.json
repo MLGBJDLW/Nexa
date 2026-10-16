@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "エージェントの更新を確認",
   "externalAgentUseUpdate": "{version} を使用",
   "externalAgentCustomUpdate": "カスタム実行ファイルは、そのインストーラーで更新してください。",
-  "externalAgentGoogleProfile": "Google ログインは Nexa 専用プロファイルに保存され、チャットでも使用されます。",
   "externalAgentRegistryChecked": "確認日時 {time}"
 }

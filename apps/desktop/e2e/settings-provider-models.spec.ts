@@ -2757,7 +2757,7 @@ for (const [name, provider, presetId] of [
 
 test('ACP directory updates preserve the current release on failure and load new agents without a rebuild', async ({ page }) => {
   const presets = JSON.parse(readFileSync(new URL('../../../shared/external-agent-presets.json', import.meta.url), 'utf8'));
-  const google = presets.find((preset: any) => preset.registryId === 'antigravity-acp');
+  const google = presets.find((preset: any) => preset.registryId === 'codex-acp');
   const future = { ...google, id: 'acp-future-agent', provider: 'acp_future_agent', name: 'Future directory agent', registryId: 'future-agent', registryVersion: '2.0.0', icon: '/provider-icons/agents/custom.svg' };
   const entries = [...presets, future].map((preset: any) => ({ preset: preset === google ? { ...preset, registryVersion: '1.3.0' } : preset, availableVersion: preset === google ? '1.4.0' : preset.registryVersion ?? null, updateAvailable: preset === google, fingerprint: preset.provider }));
   await page.addInitScript(snapshot => localStorage.setItem('nexa-e2e-acp-directory', JSON.stringify(snapshot)), { source: 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json', checkedAt: 1792000000, entries });
@@ -2766,10 +2766,9 @@ test('ACP directory updates preserve the current release on failure and load new
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
   await expect(page.locator('[data-provider-preset-id="acp-future-agent"]')).toBeVisible();
-  await page.locator('[data-provider-preset-id="acp-antigravity-acp"]').click();
+  await page.locator('[data-provider-preset-id="codex-acp"]').click();
   const form = page.getByTestId('external-agent-form');
   await expect(form).toContainText('Registry release · 1.3.0');
-  await expect(form).toContainText('separate Nexa profile');
   await page.evaluate(() => localStorage.setItem('nexa-e2e-acp-update-fails', '1'));
   await form.getByRole('button', { name: 'Use 1.4.0', exact: true }).click();
   await expect(form.getByRole('alert')).toContainText('current release retained');
@@ -3072,7 +3071,7 @@ test('ACP setup retains native sign-in and the error after session configuration
   await page.goto('/settings?tab=providers');
   await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
   await page.getByRole('tab', { name: 'External agents', exact: true }).click();
-  await page.locator('[data-provider-preset-id="acp-antigravity-acp"]').click();
+  await page.locator('[data-provider-preset-id="codex-acp"]').click();
   const form = page.getByTestId('external-agent-form');
   await form.getByRole('button', { name: 'Download / check connection', exact: true }).click();
   await expect(form.getByRole('alert')).toContainText('No provider configured');
@@ -3091,7 +3090,7 @@ for (const method of ['Personal account', 'Terminal sign-in']) {
     await page.goto('/settings?tab=providers');
     await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
     await page.getByRole('tab', { name: 'External agents', exact: true }).click();
-    await page.locator('[data-provider-preset-id="acp-antigravity-acp"]').click();
+    await page.locator('[data-provider-preset-id="codex-acp"]').click();
     const form = page.getByTestId('external-agent-form');
     await form.getByRole('button', { name: 'Download / check connection', exact: true }).click();
     await expect(form.getByTestId('external-agent-auth')).toBeVisible();

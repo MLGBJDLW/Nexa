@@ -14,6 +14,7 @@ test('registry refresh keeps reviewed runner constraints only for the same packa
     }
     const script = path.join(root, 'scripts/sync-external-agent-registry.mjs');
     fs.copyFileSync(new URL('./sync-external-agent-registry.mjs', import.meta.url), script);
+    fs.copyFileSync(new URL('../shared/retired-external-agents.json', import.meta.url), path.join(root, 'shared/retired-external-agents.json'));
     fs.writeFileSync(path.join(root, 'apps/desktop/public/provider-icons/agents/example.svg'), '<svg/>');
     const output = path.join(root, 'shared/external-agent-presets.json');
     const input = path.join(root, 'registry.json');
@@ -24,9 +25,10 @@ test('registry refresh keeps reviewed runner constraints only for the same packa
       fs.writeFileSync(input, JSON.stringify({ version: '1.0.0', agents: [{
         id: 'example', name: 'Example', version, repository: 'https://example.org/agent',
         distribution: { uvx: { package: `example==${version}`, args: ['acp'] } },
-      }] }));
+      }, { id: 'antigravity-acp', name: 'Suspended agent', version: '1.0.0', distribution: { npx: { package: 'agent@1.0.0' } } }] }));
       execFileSync(process.execPath, [script, input], { stdio: 'pipe' });
       const imported = JSON.parse(fs.readFileSync(output, 'utf8'))[0];
+      assert.ok(!JSON.parse(fs.readFileSync(output, 'utf8')).some(agent => agent.registryId === 'antigravity-acp'));
       assert.deepEqual(imported.distribution.uvx.runnerArgs, version === '1.0.0' ? runnerArgs : undefined);
       assert.deepEqual(imported.args, [...(version === '1.0.0' ? runnerArgs : []), `example==${version}`, 'acp']);
     }

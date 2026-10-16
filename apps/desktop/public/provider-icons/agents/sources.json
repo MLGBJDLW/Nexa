@@ -12,12 +12,6 @@
     "sha256": "8d89c414bec3aa422ea481996bbc7699b7dc2930a49bbd619643f2c4ad26aeb2"
   },
   {
-    "provider": "acp_antigravity_acp",
-    "asset": "/provider-icons/agents/antigravity-acp.svg",
-    "source": "https://cdn.agentclientprotocol.com/registry/v1/latest/antigravity-acp.svg",
-    "sha256": "ef068db27db956dbf947b59a3e6d21e8aa170656c55ff04d0b66fa673ea852c1"
-  },
-  {
     "provider": "auggie",
     "asset": "/provider-icons/agents/auggie.svg",
     "source": "https://cdn.agentclientprotocol.com/registry/v1/latest/auggie.svg",

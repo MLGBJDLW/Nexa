@@ -188,7 +188,6 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
         {launch.executable && <span className="text-xs text-text-tertiary">{t('settings.externalAgentCustomUpdate')}</span>}
       </div>}
       {registry.error && <p role="status" className="mt-2 text-xs text-text-tertiary">{registry.error}</p>}
-      {preset.registryId === 'antigravity-acp' && !launch.executable && !Object.keys(launch.env ?? {}).some(key => key.toUpperCase() === 'GEMINI_HOME') && <p className="mt-2 text-xs text-text-tertiary">{t('settings.externalAgentGoogleProfile')}</p>}
       <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentOwnership')}</p>
       {packageRunner && <p className="mt-2 text-xs leading-5 text-text-secondary">{t('settings.externalAgentPackageHint')}</p>}
       {preset.docsUrl && <a className="mt-2 inline-flex items-center gap-1 text-xs text-accent" href={preset.docsUrl} target="_blank" rel="noreferrer">

@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "에이전트 업데이트 확인",
   "externalAgentUseUpdate": "{version} 사용",
   "externalAgentCustomUpdate": "사용자 지정 실행 파일은 해당 설치 프로그램으로 업데이트하세요.",
-  "externalAgentGoogleProfile": "Google 로그인은 별도의 Nexa 프로필에 저장되어 채팅에 재사용됩니다.",
   "externalAgentRegistryChecked": "목록 확인: {time}"
 }

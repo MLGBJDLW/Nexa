@@ -17,6 +17,30 @@ pub const SOURCE: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const REFRESH_SECONDS: u64 = 3600;
 
+fn retired_registry_ids() -> &'static Vec<String> {
+    static IDS: OnceLock<Vec<String>> = OnceLock::new();
+    IDS.get_or_init(|| {
+        serde_json::from_str(include_str!(
+            "../../../../shared/retired-external-agents.json"
+        ))
+        .expect("retired external agents must be valid")
+    })
+}
+
+pub fn is_retired(provider: &str) -> bool {
+    retired_registry_ids()
+        .iter()
+        .any(|id| provider == format!("acp_{}", id.replace('-', "_")))
+}
+
+fn supported(preset: &ExternalAgentPreset) -> bool {
+    !is_retired(&preset.provider)
+        && !preset
+            .registry_id
+            .as_ref()
+            .is_some_and(|id| retired_registry_ids().contains(id))
+}
+
 fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::InvalidInput(message.into())
 }
@@ -101,6 +125,9 @@ impl Cache {
     }
 
     fn resolve(&self, provider: &str) -> Option<ExternalAgentPreset> {
+        if is_retired(provider) {
+            return None;
+        }
         self.selected
             .get(provider)
             .or_else(|| {
@@ -113,6 +140,7 @@ impl Cache {
                     .iter()
                     .find(|preset| preset.provider == provider)
             })
+            .filter(|preset| supported(preset))
             .cloned()
     }
     fn snapshot(&self) -> RegistrySnapshot {
@@ -275,6 +303,7 @@ fn normalize(bytes: &[u8]) -> Result<Vec<ExternalAgentPreset>, CoreError> {
     directory
         .agents
         .into_iter()
+        .filter(|entry| !retired_registry_ids().contains(&entry.id))
         .map(|entry| {
             if !identifier(&entry.id)
                 || !seen.insert(entry.id.clone())
@@ -446,6 +475,10 @@ pub fn initialize(directory: &Path) -> Result<(), CoreError> {
         if loaded.version != 1 {
             return Err(invalid("Unsupported ACP directory cache"));
         }
+        loaded.available.retain(supported);
+        loaded
+            .selected
+            .retain(|provider, preset| !is_retired(provider) && supported(preset));
         for preset in loaded
             .available
             .iter_mut()
@@ -559,6 +592,29 @@ mod tests {
             "distribution":{"npx":{"package":package,"args":["--acp"]}}
         }]})).unwrap()
     }
+    #[test]
+    fn retired_agents_cannot_return_through_directory_or_selected_cache() {
+        assert!(normalize(&directory("antigravity-acp", "agent@1.0.0"))
+            .unwrap()
+            .is_empty());
+        let retired = ExternalAgentPreset {
+            provider: "acp_antigravity_acp".into(),
+            registry_id: Some("antigravity-acp".into()),
+            ..Default::default()
+        };
+        let cache = Cache {
+            selected: BTreeMap::from([(retired.provider.clone(), retired.clone())]),
+            available: vec![retired],
+            ..Default::default()
+        };
+        assert!(cache.resolve("acp_antigravity_acp").is_none());
+        assert!(!cache
+            .snapshot()
+            .entries
+            .iter()
+            .any(|entry| entry.preset.registry_id.as_deref() == Some("antigravity-acp")));
+    }
+
     #[test]
     fn directory_keeps_stable_provider_identity_and_requires_exact_packages() {
         let candidate = normalize(&directory("gemini", "@google/gemini-cli@2.0.0"))

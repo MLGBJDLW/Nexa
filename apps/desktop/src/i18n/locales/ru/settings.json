@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "Проверить обновления",
   "externalAgentUseUpdate": "Использовать {version}",
   "externalAgentCustomUpdate": "Свой исполняемый файл: обновите через его установщик.",
-  "externalAgentGoogleProfile": "Вход в Google хранится в отдельном профиле Nexa и используется в чате.",
   "externalAgentRegistryChecked": "Каталог проверен: {time}"
 }

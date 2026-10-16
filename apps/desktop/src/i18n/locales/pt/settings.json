@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "Verificar atualizações",
   "externalAgentUseUpdate": "Usar {version}",
   "externalAgentCustomUpdate": "Executável personalizado: atualize pelo instalador correspondente.",
-  "externalAgentGoogleProfile": "O login do Google é salvo em um perfil separado do Nexa e reutilizado no chat.",
   "externalAgentRegistryChecked": "Diretório verificado: {time}"
 }

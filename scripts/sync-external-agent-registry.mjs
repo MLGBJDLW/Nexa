@@ -12,9 +12,10 @@ const registry = JSON.parse(raw);
 if (registry.version !== '1.0.0' || !Array.isArray(registry.agents)) throw new Error('Unsupported ACP registry');
 const output = path.join(root, 'shared/external-agent-presets.json');
 const previous = JSON.parse(fs.readFileSync(output, 'utf8'));
+const retired = new Set(JSON.parse(fs.readFileSync(path.join(root, 'shared/retired-external-agents.json'), 'utf8')));
 const legacy = { gemini:'gemini_cli', opencode:'opencode', 'github-copilot-cli':'github_copilot_acp', 'claude-acp':'claude_code_acp', 'codex-acp':'codex_acp', 'qwen-code':'qwen_code', goose:'goose', auggie:'auggie' };
 const seen = new Set();
-const presets = registry.agents.map(agent => {
+const presets = registry.agents.filter(agent => !retired.has(agent.id)).map(agent => {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(agent.id) || seen.has(agent.id) || !agent.version) throw new Error('Invalid/duplicate registry identity');
   seen.add(agent.id);
   for (const value of [agent.repository, agent.website].filter(Boolean)) {
@@ -69,4 +70,4 @@ presets.push(...previous.filter(preset => !preset.registryId && preset.provider 
 presets.push({id:'custom-acp',name:'Custom ACP agent',provider:'custom_acp',runtime:'acp',baseUrl:'',requiresApiKey:false,models:[],icon:'/provider-icons/agents/custom.svg',
   description:'Connect any installed ACP v1 agent using its executable, arguments and environment.',command:'',args:[],docsUrl:'https://agentclientprotocol.com/overview/agents'});
 fs.writeFileSync(output, JSON.stringify(presets,null,2)+'\n');
-console.log(`Imported ${registry.agents.length} published agents; payload SHA-256 ${crypto.createHash('sha256').update(raw).digest('hex')}`);
+console.log(`Imported ${registry.agents.filter(agent => !retired.has(agent.id)).length} supported agents; payload SHA-256 ${crypto.createHash('sha256').update(raw).digest('hex')}`);

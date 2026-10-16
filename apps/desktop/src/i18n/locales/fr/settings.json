@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "Vérifier les agents",
   "externalAgentUseUpdate": "Utiliser {version}",
   "externalAgentCustomUpdate": "Exécutable personnalisé : utilisez son programme de mise à jour.",
-  "externalAgentGoogleProfile": "La connexion Google est conservée dans un profil Nexa séparé, réutilisé pour le chat.",
   "externalAgentRegistryChecked": "Annuaire vérifié le {time}"
 }

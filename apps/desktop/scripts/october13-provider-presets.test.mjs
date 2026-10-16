@@ -59,7 +59,7 @@ test('updated ACP packages remain version-pinned and preserve companion archive 
       else assert.equal(agent.registrySource, 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json', `${agent.id} unpinned archive needs official registry provenance`);
     }
   }
-  assert.ok(agents.find(p => p.id === 'acp-antigravity-acp').distribution.binary['windows-x86_64'].archive.endsWith('.zip'));
+  assert.ok(!agents.some(p => p.registryId === 'antigravity-acp'));
 });
 
 test('registry refresh keeps reviewed archive pins without carrying them to a new artifact', () => {
