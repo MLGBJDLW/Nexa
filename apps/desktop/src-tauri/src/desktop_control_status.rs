@@ -28,6 +28,9 @@ pub struct DesktopControlActivity {
 #[serde(rename_all = "camelCase")]
 enum DesktopControlPhase {
     Controlling,
+    Moving,
+    Committing,
+    Verifying,
     Waiting,
 }
 
@@ -150,7 +153,20 @@ impl Projection {
             turn_id: (!event.turn_id.is_empty()).then(|| event.turn_id.clone()),
             call_id: call_id.into(),
             tool_name: tool_name.into(),
-            phase: DesktopControlPhase::Controlling,
+            phase: match run
+                .pointer("/artifacts/activity/payload/phase")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some("moving") => DesktopControlPhase::Moving,
+                Some("committing") => DesktopControlPhase::Committing,
+                Some("waiting") => DesktopControlPhase::Verifying,
+                _ => self
+                    .active
+                    .get(&event.run_id)
+                    .filter(|scope| scope.current.call_id == call_id)
+                    .map(|scope| scope.current.phase.clone())
+                    .unwrap_or(DesktopControlPhase::Controlling),
+            },
             window_id: arguments
                 .and_then(|args| args.get("window_id").and_then(serde_json::Value::as_u64)),
         };
@@ -193,7 +209,10 @@ impl Projection {
             .map(|scope| scope.current.clone())
             .collect::<Vec<_>>();
         values.sort_by_key(|item| match item.phase {
-            DesktopControlPhase::Controlling => 0,
+            DesktopControlPhase::Controlling
+            | DesktopControlPhase::Moving
+            | DesktopControlPhase::Committing
+            | DesktopControlPhase::Verifying => 0,
             DesktopControlPhase::Waiting => 1,
         });
         values
@@ -488,6 +507,38 @@ mod tests {
             );
             assert!(state.snapshot().is_empty());
         }
+    }
+
+    #[test]
+    fn worker_phases_survive_heartbeats_and_terminal_completion() {
+        let mut state = Projection::default();
+        let mut update = event(
+            "run",
+            AgentRunEventKind::ToolProgress,
+            "call",
+            "computer_control",
+        );
+        update.payload["run"]["artifacts"] =
+            serde_json::json!({"activity":{"payload":{"phase":"moving"}}});
+        assert!(state.apply("chat", &update));
+        assert_eq!(state.snapshot()[0].phase, DesktopControlPhase::Moving);
+        update.payload["run"]["artifacts"] = serde_json::Value::Null;
+        state.apply("chat", &update);
+        assert_eq!(state.snapshot()[0].phase, DesktopControlPhase::Moving);
+        update.payload["run"]["artifacts"] =
+            serde_json::json!({"activity":{"payload":{"phase":"waiting"}}});
+        state.apply("chat", &update);
+        assert_eq!(state.snapshot()[0].phase, DesktopControlPhase::Verifying);
+        state.apply(
+            "chat",
+            &event(
+                "run",
+                AgentRunEventKind::ToolCompleted,
+                "call",
+                "computer_control",
+            ),
+        );
+        assert_eq!(state.snapshot()[0].phase, DesktopControlPhase::Waiting);
     }
 
     #[test]

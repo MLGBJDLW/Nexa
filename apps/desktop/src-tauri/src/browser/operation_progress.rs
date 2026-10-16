@@ -1,23 +1,4 @@
-use serde::Serialize;
-
-#[derive(Clone, Copy, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) enum BrowserOperationPhase {
-    Moving,
-    Committing,
-    Waiting,
-    Verified,
-    ObservedUnchanged,
-    ObservedPending,
-    Failed,
-    Interrupted,
-}
-
-impl BrowserOperationPhase {
-    fn is_terminal(self) -> bool {
-        !matches!(self, Self::Moving | Self::Committing | Self::Waiting)
-    }
-}
+pub(super) use nexa_core::observed_interaction::InteractionPhase as BrowserOperationPhase;
 
 /// Presentation identity belongs to a host invocation, never a provider's
 /// reusable call ID. This guard neither grants nor releases input authority.
@@ -48,6 +29,10 @@ impl<'a> BrowserOperationProgress<'a> {
             emit,
             terminal: false,
         }
+    }
+
+    pub fn operation_id(&self) -> &str {
+        &self.operation_id
     }
 
     pub fn update(&mut self, phase: BrowserOperationPhase, detail: serde_json::Value) {
@@ -97,7 +82,7 @@ mod tests {
             );
             action.update(BrowserOperationPhase::Committing, serde_json::json!({}));
             action.update(
-                BrowserOperationPhase::Verified,
+                BrowserOperationPhase::ObservedChanged,
                 serde_json::json!({"observationId":"obs-2"}),
             );
             action.update(BrowserOperationPhase::Moving, serde_json::json!({}));

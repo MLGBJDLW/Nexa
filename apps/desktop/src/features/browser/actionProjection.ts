@@ -1,6 +1,6 @@
 export type BrowserActionPhase =
   | 'moving' | 'committing' | 'waiting'
-  | 'verified' | 'observedUnchanged' | 'observedPending' | 'failed' | 'interrupted';
+  | 'verified' | 'observedChanged' | 'conditionMatched' | 'observedUnchanged' | 'observedPending' | 'failed' | 'interrupted';
 
 export interface BrowserActionEntry {
   action: string;
@@ -23,7 +23,7 @@ export function emptyBrowserActionProjection(): BrowserActionProjection {
 
 const PHASE_ORDER: Record<BrowserActionPhase, number> = {
   moving: 0, waiting: 0, committing: 1,
-  verified: 2, observedUnchanged: 2, observedPending: 2, failed: 2, interrupted: 2,
+  verified: 2, observedChanged: 2, conditionMatched: 2, observedUnchanged: 2, observedPending: 2, failed: 2, interrupted: 2,
 };
 
 export function browserActionInProgress(phase: BrowserActionPhase): boolean {

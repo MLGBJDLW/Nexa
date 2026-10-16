@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 // Run the production observation script, not a replacement DOM extractor.
 const source = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'scripts.rs'), 'utf8');
-const runtimeSource = source.match(/pub const BROWSER_INIT_SCRIPT: &str = r#"\r?\n([\s\S]*?)\r?\n"#;/)?.[1]
+const runtimeSource = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'interaction_runtime.js'), 'utf8')
   .replace('__NEXA_PICK_TOKEN__', JSON.stringify('competence-fixture-token'));
 if (!runtimeSource) throw new Error('Could not extract Browser Workspace runtime');
 

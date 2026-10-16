@@ -38,6 +38,8 @@
   "dialogDismissed": "Unexpected page dialog dismissed; inspect the page before retrying",
   "dialogPaused": "Page paused after repeated dialogs. Close or reload this tab to continue.",
   "recentActions": "Recent browser actions",
+  "actionObservedChange": "Change observed",
+  "conditionMatched": "Requested state matched",
   "actionVerified": "Verified",
   "actionUnchanged": "No page change",
   "actionInProgress": "In progress",

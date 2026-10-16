@@ -19,6 +19,8 @@ test('desktop computer-use status identifies active control and stops only its o
       for (const [id, listener] of listeners) if (listener.event === 'appearance://changed') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: revisionOnly ? { revision: registry.revision } : registry });
     }, __desktopTools(toolName: string) {
       for (const [id, listener] of listeners) if (listener.event === 'desktop-control:status') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: [{ ...active[0], toolName }] });
+    }, __desktopPhase(phase: string) {
+      for (const [id, listener] of listeners) if (listener.event === 'desktop-control:status') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: active.map(activity => ({ ...activity, phase })) });
     }, __desktopWait() {
       for (const [id, listener] of listeners) if (listener.event === 'desktop-control:status') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: active.map(activity => ({ ...activity, phase: 'waiting' })) });
     }, __TAURI_INTERNALS__: {
@@ -58,6 +60,11 @@ test('desktop computer-use status identifies active control and stops only its o
   await expect.poll(() => page.evaluate(() => (window as unknown as { __desktopAppearances: { accent: number[] }[] }).__desktopAppearances.at(-1)?.accent)).toEqual([49, 120, 198]);
   await expect(page.locator('.nexa-control-bond')).toHaveCSS('color', 'rgb(49, 120, 198)');
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); });
+  for (const [phase, label] of [['moving', 'Moving to target'], ['committing', 'Sending input'], ['verifying', 'Observing the result']]) {
+    await page.evaluate(value => (window as unknown as { __desktopPhase(phase: string): void }).__desktopPhase(value), phase);
+    await expect(page.getByRole('status')).toContainText(label);
+    await expect(page.getByRole('button', { name: 'Stop Computer Use', exact: true })).toBeVisible();
+  }
   await page.evaluate(() => (window as unknown as { __desktopWait(): void }).__desktopWait());
   await expect(page.getByRole('status')).toContainText('Continuing the computer task');
   await expect(page.getByRole('button', { name: 'Stop Computer Use', exact: true })).toBeVisible();

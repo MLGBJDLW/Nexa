@@ -38,6 +38,8 @@
   "dialogDismissed": "Unerwarteter Dialog verworfen; Seite vor erneutem Versuch prüfen",
   "dialogPaused": "Seite wegen wiederholter Dialoge angehalten. Tab schließen oder neu laden.",
   "recentActions": "Letzte Browseraktionen",
+  "actionObservedChange": "Änderung beobachtet",
+  "conditionMatched": "Angeforderter Zustand erreicht",
   "actionVerified": "Bestätigt",
   "actionUnchanged": "Seite unverändert",
   "actionInProgress": "In Bearbeitung",

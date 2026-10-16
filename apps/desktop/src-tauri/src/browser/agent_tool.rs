@@ -404,7 +404,7 @@ impl Tool for NativeBrowserSessionTool {
     }
 
     fn description(&self) -> &str {
-        "Operate the user-visible Nexa Browser Workspace. The Agent and user share the same native WebView session, tabs, cookies, DOM, and control lease. Use list_sessions/list_tabs to recover existing pages. create_session with url or open_tab returns the initial page screenshot and observation-scoped refs in one call. show_workspace expands the existing browser; hide_workspace collapses it while preserving tabs and revoking pending inputs. Use fresh observations before interactions; refs are rejected after user takeover, collapse, or page changes."
+        "Operate the user-visible Nexa Browser Workspace. The Agent and user share the same native WebView session, tabs, cookies, DOM, and control lease. Use list_sessions/list_tabs to recover existing pages. create_session with url or open_tab returns the initial page screenshot and observation-scoped refs in one call. show_workspace expands the existing browser; hide_workspace collapses it while preserving tabs and revoking pending inputs. Use fresh observations before interactions; refs are rejected after user takeover, collapse, or page changes. Action receipts separate input delivery, observed change and requested state matching; a page change alone does not verify the user goal."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -1171,7 +1171,7 @@ impl Tool for NativeBrowserSessionTool {
                     }
                     result => result,
                 };
-                let observation = match action_result {
+                let (observation, interaction) = match action_result {
                     Ok(outcome) => {
                         let stage = if outcome.effect_observed {
                             "observed"
@@ -1186,11 +1186,12 @@ impl Tool for NativeBrowserSessionTool {
                                 "browserSessionId": session_id,
                                 "observationId": outcome.observation.observation_id,
                                 "effectObserved": outcome.effect_observed,
+                                "interaction": outcome.interaction,
                                 "dialogs": dialogs,
                                 "download": download_result,
                             }),
                         )?;
-                        outcome.observation
+                        (outcome.observation, outcome.interaction)
                     }
                     Err(error) => {
                         let error = if let Some(download) = download_result.as_ref() {
@@ -1213,6 +1214,14 @@ impl Tool for NativeBrowserSessionTool {
                 };
                 let result = observation_result(context.call_id, observation)?;
                 let mut output = result.output_channels();
+                if let Some(data) = output
+                    .data
+                    .as_mut()
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    data.insert("interaction".into(), serde_json::to_value(interaction)?);
+                }
+                output.llm_content.push_str(&format!("\nAction receipt: {}. A visual change alone does not verify the requested goal.", serde_json::to_string(&interaction)?));
                 if let Some(download) = download_result {
                     output.llm_content.push_str(&format!(
                         "\nVerified download: {}",
@@ -1303,7 +1312,7 @@ impl Tool for NativeBrowserSessionTool {
                 };
                 progress.update(
                     if outcome.condition_matched {
-                        BrowserOperationPhase::Verified
+                        BrowserOperationPhase::ConditionMatched
                     } else {
                         BrowserOperationPhase::ObservedPending
                     },
@@ -1452,6 +1461,7 @@ fn finish_browser_action_failure(
     error: String,
 ) -> Result<ToolResult, CoreError> {
     let failure = commit_tracker.failure(error);
+    let interaction = commit_tracker.failure_interaction(action);
     let effect_may_have_occurred = failure.effect_may_have_occurred();
     let receipt_result = receipt.finish(
         ActivityState::Failed,
@@ -1462,6 +1472,7 @@ fn finish_browser_action_failure(
             "effectMayHaveOccurred": effect_may_have_occurred,
             "observationConsumed": failure.observation_consumed,
             "cause": failure.message,
+            "interaction": interaction,
         }),
     );
     if let Err(receipt_error) = receipt_result {
@@ -1476,6 +1487,14 @@ fn finish_browser_action_failure(
         ));
     }
     let mut result = browser_action_failure_result(context.call_id, &failure);
+    if let Some(artifacts) = result
+        .artifacts
+        .as_mut()
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        artifacts.insert("interaction".into(), serde_json::to_value(interaction)?);
+    }
+
     if matches!(action, "close_tab" | "close_session") {
         let recovery = if action == "close_session" {
             "List tabs for this exact session. If its typed inventory is empty, retry close_session with the same sessionId to finish any pending profile cleanup; otherwise inspect the remaining active tab before deciding."

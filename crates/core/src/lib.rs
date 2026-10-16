@@ -83,6 +83,7 @@ pub mod migrations;
 pub mod mixture_of_agents;
 pub mod model_catalog;
 pub mod models;
+pub mod observed_interaction;
 #[cfg(feature = "ocr")]
 pub mod ocr;
 #[cfg(not(feature = "ocr"))]

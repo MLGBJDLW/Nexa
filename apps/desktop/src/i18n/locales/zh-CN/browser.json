@@ -38,6 +38,8 @@
   "dialogDismissed": "已取消意外的网页提示，请检查页面后再决定是否重试",
   "dialogPaused": "网页连续弹出提示，已暂停该页面。可关闭或重新加载此标签页。",
   "recentActions": "最近的浏览器操作",
+  "actionObservedChange": "观察到变化",
+  "conditionMatched": "请求状态已满足",
   "actionVerified": "已验证",
   "actionUnchanged": "页面无变化",
   "actionInProgress": "进行中",

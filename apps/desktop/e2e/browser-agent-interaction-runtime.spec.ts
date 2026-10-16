@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 const source = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'scripts.rs'), 'utf8');
-const runtimeSource = source.match(/pub const BROWSER_INIT_SCRIPT: &str = r#"\r?\n([\s\S]*?)\r?\n"#;/)?.[1]
+const runtimeSource = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'interaction_runtime.js'), 'utf8')
   .replace('__NEXA_PICK_TOKEN__', JSON.stringify('playwright-picker-token'));
 const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"\r?\n([\s\S]*?)\r?\n"#\r?\n\s*\.replace/)?.[1]
   .replace('__NEXA_TAKEOVER_URL__', JSON.stringify('nexa-user-input://playwright-takeover-token'))
@@ -11,6 +11,89 @@ const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"
 
 if (!runtimeSource) throw new Error('Could not extract the native Browser Workspace interaction runtime');
 if (!takeoverSource) throw new Error('Could not extract the native Browser Workspace takeover guard');
+
+test('Capture without feedback does not depend on animation frames', async ({ page }) => {
+  await page.setContent('<button>Target</button>');
+  await page.addScriptTag({ content: runtimeSource });
+  const status = await page.evaluate(() => {
+    window.requestAnimationFrame = () => 1;
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    bridge.beginCapture('no-feedback');
+    return bridge.captureStatus('no-feedback').status;
+  });
+  expect(status).toBe('ready');
+});
+
+test('Already satisfied form actions report no input and dispatch no events', async ({ page }) => {
+  await page.setContent('<input type="checkbox" checked aria-label="Ready"><select aria-label="Choice"><option selected value="a">A</option><option value="b">B</option></select>');
+  await page.addScriptTag({ content: runtimeSource });
+  const results = await page.evaluate(() => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    let events = 0;
+    for (const type of ['input', 'change', 'click']) document.addEventListener(type, () => events++);
+    const act = (action: string, name: string, extra: object) => {
+      const observation = bridge.observe();
+      const target = observation.elements.find(element => element.name === name)!;
+      return bridge.act({ ...observation, action, targetRef: target.ref, expected: target, button: 'left', modifiers: [], ...extra });
+    };
+    const checked = act('set_checked', 'Ready', { checked: true });
+    const selected = act('select', 'Choice', { value: 'a' });
+    const changed = act('select', 'Choice', { value: 'b' });
+    return { checked, selected, changed, events };
+  });
+  expect(results.checked).toEqual({ inputSent: false });
+  expect(results.selected).toEqual({ inputSent: false });
+  expect(results.changed).toEqual({ inputSent: true });
+  expect(results.events).toBe(2);
+});
+
+test('Presentation arrival follows the actual animation and ignores old completion', async ({ page }) => {
+  await page.setContent('<button style="margin:100px">Target</button>');
+  await page.addScriptTag({ content: runtimeSource });
+  const observation = await observe(page);
+  const input = { ...actionInput(observation, 'click', observation.elements[0].ref), presentationId: 'first' };
+  const preview = await page.evaluate(value => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    const result = bridge.previewAction(value);
+    document.querySelector('[data-nexa-agent-cursor]')!.getAnimations().forEach(animation => animation.playbackRate = 0.05);
+    return result;
+  }, input);
+  await page.waitForTimeout(preview.durationMs + 80);
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('first').status)).toBe('pending');
+  await page.evaluate(() => document.querySelector('[data-nexa-agent-cursor]')!.getAnimations().forEach(animation => animation.finish()));
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('first').status)).toBe('arrived');
+  await page.evaluate(value => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    bridge.previewAction({ ...value, presentationId: 'second' });
+    bridge.cancelPresentation('first');
+  }, input);
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('first').status)).toBe('unavailable');
+  await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.invalidateForUserTakeover());
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('second').status)).toBe('cancelled');
+});
+
+test('Capture excludes agent decoration and restores it after nested capture scopes', async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setContent('<body style="margin:0;background:white"><button style="margin:100px">Target</button></body>');
+  await page.addScriptTag({ content: runtimeSource });
+  const baseline = await page.screenshot();
+  const observation = await observe(page);
+  const input = { ...actionInput(observation, 'click', observation.elements[0].ref), presentationId: 'capture' };
+  await page.evaluate(value => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(value), input);
+  expect((await page.screenshot()).equals(baseline)).toBe(false);
+  await page.evaluate(() => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    bridge.beginCapture('outer'); bridge.beginCapture('inner');
+  });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.captureStatus('inner').status)).toBe('ready');
+  const hidden = await page.screenshot({ path: testInfo.outputPath('feedback-free-capture.png') });
+  expect(hidden.equals(baseline)).toBe(true);
+  await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.endCapture('inner'));
+  await expect(page.locator('[data-nexa-agent-cursor]')).toBeHidden();
+  await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.endCapture('outer'));
+  await expect(page.locator('[data-nexa-agent-cursor]')).toBeVisible();
+  expect((await page.screenshot()).equals(baseline)).toBe(false);
+});
 
 test('Agent browser interaction shows cursor motion and commits verified pointer actions', async ({ page }, testInfo) => {
   await page.setContent(`
@@ -793,6 +876,7 @@ interface BrowserVerificationBaseline {
 
 interface BrowserActionInput {
   action: string;
+  presentationId?: string;
   checked?: boolean;
   value?: string;
   values?: string[];
@@ -813,7 +897,12 @@ interface BrowserBridge {
   targetContextFingerprint(element: Element): string;
   resolveTargetRef(ref: string): Element | null;
   observe(): BrowserObservation;
-  previewAction(input: BrowserActionInput): { durationMs: number };
+  previewAction(input: BrowserActionInput): { durationMs: number; presentationId: string };
+  presentationStatus(id: string): { id: string; status: string };
+  cancelPresentation(id: string): boolean;
+  beginCapture(id: string): { id: string };
+  captureStatus(id: string): { id: string; status: string };
+  endCapture(id: string): boolean;
   prepareNativePointer(input: BrowserActionInput): {
     stateMatched?: boolean;
     bounds: { x: number; y: number; width: number; height: number };
@@ -827,7 +916,7 @@ interface BrowserBridge {
     focused: boolean;
     verificationBaseline: BrowserVerificationBaseline;
   };
-  act(input: BrowserActionInput): boolean;
+  act(input: BrowserActionInput): { inputSent: boolean };
   invalidateForUserTakeover(): void;
 }
 

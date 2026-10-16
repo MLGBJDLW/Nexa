@@ -7,7 +7,7 @@ use super::*;
 fn native_html_preview_keeps_agent_observation_and_input_continuous() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index.html");
-    std::fs::write(&path, "<!doctype html><title>Preview continuity</title><button onclick=\"document.querySelector('output').textContent='clicked once'\">Continue</button><output>ready</output>").unwrap();
+    std::fs::write(&path, "<!doctype html><title>Preview continuity</title><button onclick=\"document.querySelector('output').textContent='clicked once'\">Continue</button><output>ready</output><input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>").unwrap();
     let profile = root.path().join("profiles");
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut context = tauri::generate_context!();
@@ -48,7 +48,24 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 if !after.observation.text.contains("clicked once") || after.observation.screenshot.is_none() {
                     return Err("The original HTML tab did not retain observable native input".into());
                 }
-                eprintln!("Native HTML continuity: opened, captured pixels, observed while loading, clicked, and observed the result.");
+                use nexa_core::observed_interaction::{InputDelivery, RequestedCondition};
+                if after.interaction.delivery != InputDelivery::InputSent { return Err("A real trusted click lost its dispatch receipt".into()); }
+                for (action, name, value, checked) in [("set_checked", "Ready", None, Some(true)), ("select", "Choice", Some("a"), None)] {
+                    let call_id = format!("noop-{action}");
+                    state.acquire_agent_control(&session.id, &call_id)?;
+                    let observed = state.observe(&session.id, tab_id, &call_id).await?;
+                    let target = observed.elements.iter().find(|element| element.name == name).ok_or("Missing no-op form target")?;
+                    let noop = state.act(BrowserActRequest {
+                        call_id: &call_id, session_id: &session.id, tab_id, observation_id: &observed.observation_id,
+                        action, target_ref: Some(&target.element_ref), end_ref: None, text: None,
+                        value, values: None, checked, upload: None, key: None, button: None,
+                        modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
+                    }).await?;
+                    if noop.interaction.delivery != InputDelivery::NotCommitted || noop.interaction.condition != RequestedCondition::Matched {
+                        return Err(format!("Already satisfied {action} fabricated input delivery: {:?}", noop.interaction));
+                    }
+                }
+                eprintln!("Native HTML continuity: real click delivered; already satisfied checkbox/select returned matched without input.");
                 let first_storage = state.tab_profile_directory_for_test(&session.id, tab_id)?;
                 let ordinary_storage = profile.join(&session.profile_id);
                 if first_storage == ordinary_storage { return Err("A local preview occupied the ordinary sign-in profile".into()); }

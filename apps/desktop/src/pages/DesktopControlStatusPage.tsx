@@ -6,7 +6,7 @@ import { Logo } from '../components/Logo';
 import { useTranslation } from '../i18n';
 import './DesktopControlStatusPage.css';
 
-interface DesktopActivity { conversationId: string; runId: string; callId: string; toolName: string; phase?: 'controlling' | 'waiting' }
+interface DesktopActivity { conversationId: string; runId: string; callId: string; toolName: string; phase?: 'controlling' | 'moving' | 'committing' | 'verifying' | 'waiting' }
 
 function controlActivities(value: DesktopActivity[]): DesktopActivity[] {
   return Array.isArray(value) ? value.filter(activity => activity.toolName === 'computer_control') : [];
@@ -48,7 +48,7 @@ export function DesktopControlStatusPage() {
     <div className="nexa-control-bond" aria-hidden="true"><span className="nexa-control-aura" /><Logo size={38} decorative /></div>
     <div className="min-w-0 flex-1" role="status">
       <p className="text-xs font-semibold">Nexa</p>
-      <p className="truncate text-sm">{t(active.phase === 'waiting' ? 'chat.computerUseWaiting' : 'chat.computerUseOperating')}</p>
+      <p className="truncate text-sm">{t(active.phase === 'waiting' ? 'chat.computerUseWaiting' : active.phase === 'moving' ? 'chat.computerUseMoving' : active.phase === 'committing' ? 'chat.computerUseInput' : active.phase === 'verifying' ? 'chat.computerUseVerifying' : 'chat.computerUseOperating')}</p>
       {error && <p className="truncate text-xs text-red-500" role="alert">{error}</p>}
     </div>
     <button aria-label={t('chat.computerUseStop')} title={t('chat.computerUseStop')} className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50" onClick={() => void stop()} disabled={stopping}><Square size={12} />{t('chat.stop')}</button>
