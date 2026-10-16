@@ -77,60 +77,6 @@
     }
   },
   {
-    "id": "acp-antigravity-acp",
-    "name": "Google Antigravity",
-    "provider": "acp_antigravity_acp",
-    "runtime": "acp",
-    "baseUrl": "",
-    "requiresApiKey": false,
-    "models": [],
-    "icon": "/provider-icons/agents/antigravity-acp.svg",
-    "description": "Google’s AI coding agent",
-    "command": "agy_acp_server.par",
-    "args": [
-      "--uid="
-    ],
-    "env": {},
-    "docsUrl": "https://antigravity.google/docs/ide/extensions",
-    "registryId": "antigravity-acp",
-    "registryVersion": "1.4.0",
-    "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
-    "distribution": {
-      "binary": {
-        "darwin-aarch64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-arm64.zip",
-          "cmd": "./agy_acp_server.par"
-        },
-        "darwin-x86_64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-x86_64.zip",
-          "cmd": "./agy_acp_server.par"
-        },
-        "linux-x86_64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-x86_64.zip",
-          "cmd": "./agy_acp_server.par",
-          "args": [
-            "--uid="
-          ]
-        },
-        "linux-aarch64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-arm64.zip",
-          "cmd": "./agy_acp_server.par",
-          "args": [
-            "--uid="
-          ]
-        },
-        "windows-x86_64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-x86_64.zip",
-          "cmd": "./agy_acp_server.exe"
-        },
-        "windows-aarch64": {
-          "archive": "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-arm64.zip",
-          "cmd": "./agy_acp_server.exe"
-        }
-      }
-    }
-  },
-  {
     "id": "auggie",
     "name": "Auggie",
     "provider": "auggie",

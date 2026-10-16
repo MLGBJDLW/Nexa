@@ -36,9 +36,11 @@ capturing the same window again.
 ## Visible control and Stop
 
 The status window appears at the top center of the target monitor's work area,
-including negative monitor origins and mixed scaling. It identifies observation,
-control and the interval between actions; Stop remains available until the owning
-run finishes or its desktop session is stopped. Stop closes only that turn's
+including negative monitor origins and mixed scaling. Only `computer_control`
+starts this indicator; standalone observation and Browser Workspace operations
+never announce desktop takeover. It remains available across desktop readback,
+and hides when the run switches to other tools, pauses, waits for user input,
+fails, finishes or stops its desktop session. Stop closes only that turn's
 Computer Use scope: it cancels pending observations/input, denies pending desktop
 permissions and blocks later desktop calls in the same turn. The model receives a
 tool receipt and can continue chatting or using other tools. A new user turn gets
@@ -52,11 +54,18 @@ The window stays non-activating, with transparency around its rounded surface.
 The native action worker owns a compact triangular Nexa pointer, without a tail or idle halo.
 Its color comes from the current theme's resolved accent, including theme resource
 plugins; the main theme provider projects updates into the existing native surface.
-It follows admitted pointer movement and marks semantic targets without
-moving the user's pointer for UI Automation. The overlay is transparent to input,
-does not activate a window, and is destroyed when that worker exits. It does not
-change the Windows cursor scheme. Its independent window is outside the target
-window's capture surface, so screenshots remain clean evidence.
+Foreground actions temporarily replace Windows' hardware cursor shapes so the
+system arrow or text caret cannot draw above Nexa's pointer. One lazily started
+native feedback host retains exact originals and restores them on worker release,
+parent-process exit, or an abandoned action timeout. The user's saved cursor
+settings are never modified. Background UI Automation uses an input-transparent
+marker at the semantic target and does not move or replace the user's pointer.
+
+Four narrow, input-transparent native surfaces illuminate the active monitor's
+edges using the theme accent. They share the banner's ownership and lifecycle,
+do not activate windows, and need no full-screen renderer or animation polling.
+The independent surfaces remain outside the target window's capture surface, so
+window screenshots remain clean evidence.
 
 Foreground pointer actions travel along a smooth, distance-scaled path at about
 60 Hz (100–360 ms), including movement to a drag's starting point. The pointer and

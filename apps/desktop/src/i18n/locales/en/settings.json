@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "Check agent updates",
   "externalAgentUseUpdate": "Use {version}",
   "externalAgentCustomUpdate": "Custom executable: update through its installer.",
-  "externalAgentGoogleProfile": "Google sign-in is stored in a separate Nexa profile and reused for chat.",
   "externalAgentRegistryChecked": "Directory checked {time}"
 }

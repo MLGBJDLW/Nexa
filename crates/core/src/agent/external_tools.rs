@@ -779,6 +779,64 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 1);
     }
     #[tokio::test]
+    async fn malformed_callback_is_returned_to_the_runtime_for_repair_without_an_effect() {
+        let (session, count, _rx) = session(4);
+        let mut malformed = call("incomplete", 1);
+        malformed.arguments = "{\"value\":".into();
+        let rejected = session
+            .execute(malformed)
+            .await
+            .expect("a malformed model call must not terminate its upstream loop");
+        assert!(rejected.result.is_error);
+        assert!(rejected.result.content.contains("JSON object"));
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+        assert!(
+            !session
+                .execute(call("repaired", 1))
+                .await
+                .unwrap()
+                .result
+                .is_error
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        let history = session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap();
+        assert!(!history.iter().any(|message| message
+            .tool_calls
+            .iter()
+            .any(|call| call.id == "incomplete")));
+    }
+
+    #[tokio::test]
+    async fn wrapped_callback_arguments_are_normalized_before_persistence_and_replay() {
+        let (session, count, _rx) = session(4);
+        let mut wrapped = call("encoded", 1);
+        wrapped.arguments = serde_json::to_string(&wrapped.arguments).unwrap();
+        assert!(!session.execute(wrapped).await.unwrap().result.is_error);
+        assert!(
+            !session
+                .execute(call("encoded", 1))
+                .await
+                .unwrap()
+                .result
+                .is_error
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        let history = session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap();
+        assert!(history
+            .iter()
+            .flat_map(|message| &message.tool_calls)
+            .all(crate::llm::message_validation::is_complete_tool_call));
+    }
+
+    #[tokio::test]
     async fn invalid_schema_is_visible_but_does_not_execute() {
         let (session, count, _rx) = session(4);
         let mut invalid = call("one", 1);
@@ -1058,6 +1116,29 @@ impl ExternalToolSession {
             return Err(CoreError::Cancelled("Stopped by user".into()));
         }
         self.ensure_delegated_recovery_clear()?;
+        let batch = match tool_protocol::VerifiedToolCallBatch::seal(
+            vec![call.clone()],
+            false,
+            true,
+        ) {
+            Ok(batch) => batch,
+            Err(_) => {
+                // This is a completed callback from an upstream-owned loop,
+                // not a model stream to replay. Return the validation failure
+                // so that loop can repair it without executing or persisting
+                // malformed arguments into Nexa's canonical transcript.
+                return Ok(ExternalToolOutput {
+                    result: ToolResult {
+                        call_id: call.id,
+                        content: "Tool call rejected before execution: provide a non-empty tool name and call ID with complete arguments as a JSON object within the tool's argument size limit. No action was performed; correct the arguments and try again.".into(),
+                        is_error: true,
+                        artifacts: None,
+                    },
+                    visual_parts: Vec::new(),
+                });
+            }
+        };
+        let call = &batch.as_slice()[0];
         let signature =
             blake3::hash(format!("{}:{}", call.name, call.arguments).as_bytes()).to_string();
         if let Some((previous, result)) = state.completed.get::<ToolResult>(&call.id)? {
@@ -1079,10 +1160,6 @@ impl ExternalToolSession {
                 "External agent tool budget exhausted".into(),
             ));
         }
-        let batch = tool_protocol::VerifiedToolCallBatch::seal(vec![call.clone()], false, true)
-            .map_err(|_| {
-                CoreError::InvalidInput("Upstream returned an incomplete tool call".into())
-            })?;
         let block = state.guard.observe_model_step("", batch.as_slice());
         if block
             .as_ref()

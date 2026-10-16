@@ -111,7 +111,8 @@ use self::loop_guard::{AgentLoopGuard, LoopGuardAction};
 use self::prompt_cache::PromptCacheTracker;
 use self::route::{route_user_turn, AgentRouteKind};
 pub use self::sampling::llm_streaming_disabled_by_env;
-use self::stream_recovery::{ContextOverflowRecoveryDecision, StreamRecoveryPolicy};
+use self::stream_recovery::ContextOverflowRecoveryDecision;
+pub use self::stream_recovery::{StreamConnectRetryDecision, StreamRecoveryPolicy};
 use self::tool_protocol::VerifiedToolCallBatch;
 use self::tool_runtime::{
     build_provider_hosted_tool_run_item, build_tool_run_item, tool_call_execution_batches,

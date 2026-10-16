@@ -43,7 +43,7 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
 
 test('confirmed route removals remain tombstones while future retirements remain deprecated', () => {
   for (const id of ['apodex/apodex-1.1-mini:free', 'inclusionai/ling-3.0-flash-fin', 'inclusionai/ling-3.0-flash-sante']) assert.equal(model('openrouter', id).status, 'removed');
-  assert.notEqual(model('openrouter', 'google/gemini-2.5-pro-preview-05-06').status, 'removed');
+  assert.equal(model('openrouter', 'google/gemini-2.5-pro-preview-05-06').status, 'removed');
   for (const id of ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini']) {
     assert.equal(model('openai', id).status, 'deprecated');
     assert.equal(model('openai', id).deprecationDate, '2027-01-14');

@@ -91,7 +91,7 @@ pub fn redact_diagnostic(value: &str, secrets: &[String]) -> String {
     }
     for pattern in [
         r"\x1b\[[0-?]*[ -/]*[@-~]",
-        r#"(?i)(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*["']?\s*[:=]\s*[^\r\n,]+"#,
+        r#"(?i)(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|secret)\s*["']?\s*[:=]\s*[^\r\n,]+"#,
         r"(?i)\b(?:sk-|gh[pousr]_|eyJ)[A-Za-z0-9_./+=-]+",
         r"https?://[^\s]+[?#][^\s]+",
     ] {
@@ -371,6 +371,11 @@ pub fn installed(
     preset: &ExternalAgentPreset,
     launch: &ExternalAgentLaunch,
 ) -> Result<Option<LaunchPlan>, CoreError> {
+    if super::registry::is_retired(&preset.provider) {
+        return Err(invalid(
+            "This external agent is no longer supported. Select another agent profile.",
+        ));
+    }
     launch.validate_resolved()?;
     let env = process_environment(&preset.launch_env(launch));
     if let Some(executable) = launch
@@ -702,7 +707,7 @@ mod tests {
     #[test]
     fn selected_official_binary_never_reuses_a_different_path_install() {
         let root = tempfile::tempdir().unwrap();
-        let preset = super::super::preset("acp_antigravity_acp").unwrap();
+        let preset = super::super::preset("codex_acp").unwrap();
         let Some(binary) = preset.platform_launch() else {
             return;
         };

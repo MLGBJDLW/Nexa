@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "检查 Agent 更新",
   "externalAgentUseUpdate": "使用 {version}",
   "externalAgentCustomUpdate": "自定义可执行文件：请通过其安装程序更新。",
-  "externalAgentGoogleProfile": "Google 登录保存在 Nexa 独立配置中，并供聊天复用。",
   "externalAgentRegistryChecked": "目录检查时间：{time}"
 }

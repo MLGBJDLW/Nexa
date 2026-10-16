@@ -191,11 +191,9 @@ impl Wire {
         let id = self.send(method, params).await?;
         tokio::time::timeout(RPC_TIMEOUT, async {
             loop {
-                let message = self
-                    .messages
-                    .recv()
-                    .await
-                    .ok_or_else(|| protocol_error("Codex exited during startup"))??;
+                let message = self.messages.recv().await.ok_or_else(|| {
+                    CoreError::StreamIncomplete("Codex exited during startup".into())
+                })??;
                 if message.get("method").is_none() && message["id"].as_u64() == Some(id) {
                     return rpc_result(message, method);
                 } else {
@@ -207,7 +205,7 @@ impl Wire {
             }
         })
         .await
-        .map_err(|_| protocol_error(format!("Codex {method} timed out")))?
+        .map_err(|_| CoreError::StreamIncomplete(format!("Codex {method} timed out")))?
     }
 
     async fn reject(&mut self, message: &Value) -> Result<(), CoreError> {
@@ -235,12 +233,21 @@ impl Wire {
 }
 
 fn rpc_result(message: Value, method: &str) -> Result<Value, CoreError> {
-    if message.get("error").is_some() {
+    if let Some(failure) = message.get("error") {
         // Config responses can contain credentials; never echo raw RPC values.
-        return Err(protocol_error(format!(
-            "Codex {method} failed ({})",
-            message["error"]["code"]
-        )));
+        return Err(super::runtime_failure(
+            &format!(
+                "Codex {method} failed ({})",
+                failure["code"]
+                    .as_i64()
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "invalid".into())
+            ),
+            failure["message"].as_str().unwrap_or("Request failed"),
+            failure
+                .pointer("/data/codexErrorInfo")
+                .or_else(|| failure.pointer("/data/codex_error_info")),
+        ));
     }
     message
         .get("result")
@@ -401,6 +408,40 @@ fn user_input(text: &str, images: &[(String, String)]) -> Vec<Value> {
     input
 }
 
+async fn start_thread(
+    wire: &mut Wire,
+    model_id: &str,
+    cwd: &str,
+    instructions: &str,
+    tools: &[Value],
+) -> Result<String, CoreError> {
+    let config = wire
+        .request("config/read", json!({"includeLayers":false,"cwd":cwd}))
+        .await?;
+    let skills = wire
+        .request("skills/list", json!({"cwds":[cwd],"forceReload":true}))
+        .await?;
+    let overrides = disable_ambient(&config, &skills, &cwd)?;
+    drop(config);
+    drop(skills);
+    let response = wire.request("thread/start", json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":instructions,"dynamicTools":tools,"environments":[],"selectedCapabilityRoots":[],"approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await?;
+    if response["model"].as_str() != Some(model_id)
+        || response["modelProvider"] != "openai"
+        || response["approvalPolicy"] != "never"
+        || response.pointer("/sandbox/type").and_then(Value::as_str) != Some("readOnly")
+    {
+        return Err(protocol_error(
+            "Codex did not accept the requested model and execution policy",
+        ));
+    }
+    let thread_id = response
+        .pointer("/thread/id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| protocol_error("Codex created no thread"))?
+        .to_string();
+    Ok(thread_id)
+}
+
 pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
     let cancellation = request.cancellation.clone();
     let model_id = request
@@ -409,8 +450,13 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .clone()
         .ok_or_else(|| protocol_error("select a Codex model first"))?;
     let bootstrap = async {
-        let mut wire = Wire::start().await?;
-        let model = model(&mut wire, &model_id).await?;
+        let (wire, model) =
+            super::connect_with_recovery(&request.events, &cancellation, || async {
+                let mut wire = Wire::start().await?;
+                let model = model(&mut wire, &model_id).await?;
+                Ok((wire, model))
+            })
+            .await?;
         let native_vision = model["inputModalities"]
             .as_array()
             .is_some_and(|values| values.iter().any(|value| value == "image"));
@@ -447,32 +493,29 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 .to_string_lossy()
                 .to_string(),
         };
-        let config = wire
-            .request("config/read", json!({"includeLayers":false,"cwd":cwd}))
-            .await?;
-        let skills = wire
-            .request("skills/list", json!({"cwds":[cwd],"forceReload":true}))
-            .await?;
-        let overrides = disable_ambient(&config, &skills, &cwd)?;
-        drop(config);
-        drop(skills);
         let turn = request.prepare(native_vision)?;
         let (tools, aliases) = dynamic_tool_catalog(turn.transcript.nexa_tools().definitions())?;
-        let response = wire.request("thread/start", json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":turn.system_prompt,"dynamicTools":tools,"environments":[],"selectedCapabilityRoots":[],"approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await?;
-        if response["model"].as_str() != Some(&model_id)
-            || response["modelProvider"] != "openai"
-            || response["approvalPolicy"] != "never"
-            || response.pointer("/sandbox/type").and_then(Value::as_str) != Some("readOnly")
-        {
-            return Err(protocol_error(
-                "Codex did not accept the requested model and execution policy",
-            ));
-        }
-        let thread_id = response
-            .pointer("/thread/id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| protocol_error("Codex created no thread"))?
-            .to_string();
+        let mut initial_wire = Some(wire);
+        let (mut wire, thread_id) =
+            super::connect_with_recovery(&turn.events, &turn.cancellation, || {
+                let initial_wire = initial_wire.take();
+                let cwd = &cwd;
+                let model_id = &model_id;
+                let turn = &turn;
+                let tools = &tools;
+                async move {
+                    let mut wire = match initial_wire {
+                        Some(wire) => wire,
+                        None => Wire::start().await?,
+                    };
+                    let thread_id =
+                        start_thread(&mut wire, model_id, cwd, &turn.system_prompt, tools).await?;
+                    Ok((wire, thread_id))
+                }
+            })
+            .await?;
+        // turn/start may already launch tool callbacks when its reply is lost.
+        // Keep it outside connection replay and use the durable checkpoint.
         let response = wire.request("turn/start", json!({"threadId":thread_id,"input":user_input(&turn.prompt,&turn.images),"effort":effort,"environments":[],"approvalPolicy":"never","sandboxPolicy":{"type":"readOnly","networkAccess":false}})).await?;
         let turn_id = response
             .pointer("/turn/id")
@@ -481,9 +524,11 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             .to_string();
         Ok::<_, CoreError>((wire, turn, thread_id, turn_id, native_vision, aliases))
     };
+    // Each RPC already has a deadline. A separate total deadline would consume
+    // the recovery policy's backoff budget and interrupt its final attempts.
     let (mut wire, mut turn, thread_id, turn_id, native_vision, aliases) = tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Codex connection".into())),
-        result = tokio::time::timeout(Duration::from_secs(120), bootstrap) => result.map_err(|_| protocol_error("Codex connection timed out"))??,
+        result = bootstrap => result?,
     };
     let mut projection = Projection::for_turn(&turn);
     let mut pending = FuturesUnordered::new();
@@ -790,18 +835,22 @@ async fn project_event(
                 return Err(CoreError::Cancelled("Codex turn interrupted".into()))
             }
             _ => {
-                return Err(protocol_error(
+                return Err(super::runtime_failure(
+                    "Codex turn failed",
                     params["turn"]["error"]["message"]
                         .as_str()
                         .unwrap_or("Codex turn failed"),
+                    params["turn"]["error"].get("codexErrorInfo"),
                 ))
             }
         },
         "error" if params["willRetry"] != true => {
-            return Err(protocol_error(
+            return Err(super::runtime_failure(
+                "Codex runtime failed",
                 params["error"]["message"]
                     .as_str()
                     .unwrap_or("Codex runtime failed"),
+                params["error"].get("codexErrorInfo"),
             ))
         }
         _ => {}
@@ -812,6 +861,22 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_rpc_failures_preserve_retry_metadata_without_arbitrary_payloads() {
+        let cause = rpc_result(json!({"error":{"code":-32603,"message":"request timed out; token=private-token","data":{"codexErrorInfo":"responseStreamDisconnected","credentials":"private-credentials","config":"private-config"}}}), "config/read").unwrap_err();
+        assert!(matches!(cause, CoreError::TransientLlm(_)));
+        let detail = cause.to_string();
+        assert!(!detail.contains("private-token"));
+        assert!(!detail.contains("private-credentials"));
+        assert!(!detail.contains("private-config"));
+        assert!(matches!(
+            rpc_result(
+                json!({"error":{"code":-32602,"message":"invalid configuration"}}),
+                "thread/start"
+            ),
+            Err(CoreError::Agent(_))
+        ));
+    }
     #[tokio::test]
     async fn recoverable_error_clears_on_same_block_progress_without_finishing_compaction() {
         let (request, mut rx, _, _) = super::super::tests::fixture(AgentRuntimeKind::Codex, "test");

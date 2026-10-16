@@ -1135,6 +1135,5 @@
   "externalAgentCheckUpdates": "Agent-Updates prüfen",
   "externalAgentUseUpdate": "{version} verwenden",
   "externalAgentCustomUpdate": "Eigene Programmdatei: über deren Installer aktualisieren.",
-  "externalAgentGoogleProfile": "Die Google-Anmeldung wird in einem eigenen Nexa-Profil gespeichert und im Chat verwendet.",
   "externalAgentRegistryChecked": "Verzeichnis geprüft: {time}"
 }

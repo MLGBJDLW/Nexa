@@ -145,20 +145,12 @@ pub(super) async fn prepare_plan(
     })
     .await
     .map_err(error)??;
-    let mut plan = if let Some(plan) = installed {
+    let plan = if let Some(plan) = installed {
         plan
     } else {
         nexa_core::external_agent::launch::prepare(preset, launch, cache_root).await?
     };
-    let preset = preset.clone();
-    let launch = launch.clone();
-    let cache = cache_root.map(Path::to_owned);
-    tokio::task::spawn_blocking(move || {
-        super::auth_profile::prepare(&preset, &launch, cache.as_deref(), &mut plan)?;
-        Ok(plan)
-    })
-    .await
-    .map_err(error)?
+    Ok(plan)
 }
 
 pub(super) struct Wire {
@@ -434,7 +426,7 @@ impl Wire {
             loop {
                 let message = match self.messages.recv().await {
                     Some(result) => result?,
-                    None => return Err(self.closed_error("External agent exited during connection").await),
+                    None => return Err(super::super::interrupted_startup(self.closed_error("External agent exited during connection").await.to_string())),
                 };
                 if message.get("method").is_none() && message["id"].as_u64() == Some(id) {
                     return Ok(message);
@@ -449,7 +441,7 @@ impl Wire {
                     self.queued.push_back(message);
                 }
             }
-        }).await.map_err(|_| self.diagnostic_error(&format!("ACP {method} timed out")))?
+        }).await.map_err(|_| nexa_core::error::CoreError::StreamIncomplete(self.diagnostic_error(&format!("ACP {method} timed out")).to_string()))?
     }
 }
 
@@ -470,20 +462,25 @@ fn rpc_result(message: Value, method: &str, secrets: &[String]) -> Result<Value>
             .join("\n"),
             secrets,
         );
-        return Err(error(format!(
-            "ACP {method} failed (code {}). {}",
-            failure["code"]
-                .as_i64()
-                .map(|code| code.to_string())
-                .unwrap_or_else(|| "invalid".into()),
+        return Err(super::super::runtime_failure(
+            &format!(
+                "ACP {method} failed (code {})",
+                failure["code"]
+                    .as_i64()
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "invalid".into())
+            ),
             if detail.is_empty() && failure["code"] == -32000 {
                 "Authentication is required. Open this agent's Settings profile and choose one of its advertised sign-in methods."
             } else if detail.is_empty() {
                 "Check the agent's local configuration."
             } else {
                 &detail
-            }
-        )));
+            },
+            failure
+                .pointer("/data/codex_error_info")
+                .or_else(|| failure.pointer("/data/codexErrorInfo")),
+        ));
     }
     message
         .get("result")
@@ -494,6 +491,44 @@ fn rpc_result(message: Value, method: &str, secrets: &[String]) -> Result<Value>
 #[cfg(test)]
 mod launch_tests {
     use super::*;
+
+    #[test]
+    fn prompt_transport_failures_reach_the_existing_recovery_boundary() {
+        for message in [
+            "stream disconnected before completion",
+            "error sending request for url",
+            "connection reset by peer",
+            "upstream request timed out",
+            "server is overloaded",
+        ] {
+            let cause = rpc_result(json!({"error":{"code":-32603,"message":"Internal error","data":{"message":message}}}), "session/prompt", &[]).unwrap_err();
+            assert!(
+                matches!(
+                    super::super::super::recover_interrupted_runtime(cause),
+                    nexa_core::error::CoreError::RecoveryRequired {
+                        action_reconciliation: true,
+                        ..
+                    }
+                ),
+                "{message} must preserve a resumable turn"
+            );
+        }
+        for message in [
+            "invalid API key",
+            "model is not supported",
+            "permission denied",
+            "context window exceeded",
+        ] {
+            assert!(matches!(
+                rpc_result(
+                    json!({"error":{"code":-32603,"message":message}}),
+                    "session/prompt",
+                    &[]
+                ),
+                Err(nexa_core::error::CoreError::Agent(_))
+            ));
+        }
+    }
 
     #[tokio::test]
     async fn eof_mid_frame_is_recoverable_but_malformed_complete_json_is_not() {

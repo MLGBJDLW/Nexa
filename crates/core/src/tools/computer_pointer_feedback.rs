@@ -1,5 +1,10 @@
-//! Ephemeral agent pointer. It never replaces a system cursor, activates a
-//! window, intercepts input, or outlives the native action worker that owns it.
+//! Native Computer Use feedback, scoped to admitted desktop input. Foreground
+//! actions use the real cursor; background UIA actions keep an inert marker.
+
+mod cursor;
+pub(super) fn process_entry() -> bool {
+    cursor::process_entry()
+}
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -24,6 +29,7 @@ struct State {
     drawing_failed: bool,
     painted_accent: Option<[u8; 3]>,
     status_placement: Option<StatusPlacement>,
+    cursor: Option<cursor::CursorLease>,
 }
 
 // Neutral only until the main renderer projects the current theme. Built-in
@@ -177,19 +183,123 @@ pub(super) fn avoid_status_at(point: (i32, i32)) {
 
 thread_local! { static FEEDBACK: RefCell<State> = RefCell::new(State::default()); }
 
+#[derive(Default)]
+struct FrameState {
+    signature: Vec<(i32, i32, i32, i32, u32)>,
+    accent: [u8; 3],
+    surfaces: Vec<PointerWindow>,
+}
+
+thread_local! { static FRAMES: RefCell<FrameState> = RefCell::new(FrameState::default()); }
+
+/// Called on the desktop main thread from the same projection as the Stop
+/// surface. Four thin, click-through native surfaces leave the desktop center
+/// untouched, without another full-screen WebView or a polling animation.
+pub(super) fn set_control_targets(targets: &[u64]) {
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY,
+    };
+    let mut signature = Vec::new();
+    for target in targets {
+        let handle = HWND(*target as usize as *mut _);
+        let mut monitor = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe {
+            GetMonitorInfoW(
+                MonitorFromWindow(handle, MONITOR_DEFAULTTOPRIMARY),
+                &mut monitor,
+            )
+        }
+        .as_bool()
+        {
+            let rect = monitor.rcMonitor;
+            let dpi = unsafe { GetDpiForWindow(handle) }.max(96);
+            signature.push((rect.left, rect.top, rect.right, rect.bottom, dpi));
+        }
+    }
+    signature.sort_unstable();
+    signature.dedup();
+    let color = accent();
+    FRAMES.with(|frames| {
+        let mut frames = frames.borrow_mut();
+        if frames.signature == signature && frames.accent == color {
+            return;
+        }
+        frames.surfaces.clear();
+        frames.signature = signature;
+        frames.accent = color;
+        for &(left, top, right, bottom, dpi) in &frames.signature.clone() {
+            let width = right - left;
+            let height = bottom - top;
+            let thickness = (12.0 * f64::from(dpi) / 96.0).round() as i32;
+            if width <= thickness * 2 || height <= thickness * 2 {
+                continue;
+            }
+            for (x, y, w, h, edge) in [
+                (left, top, width, thickness, 0),
+                (left, bottom - thickness, width, thickness, 1),
+                (left, top + thickness, thickness, height - thickness * 2, 2),
+                (
+                    right - thickness,
+                    top + thickness,
+                    thickness,
+                    height - thickness * 2,
+                    3,
+                ),
+            ] {
+                let pixels = frame_pixels(w, h, edge, color);
+                match PointerWindow::create_surface(w, h, 0, (x, y), &pixels) {
+                    Ok(surface) => frames.surfaces.push(surface),
+                    Err(error) => {
+                        tracing::warn!("Could not draw the Computer Use screen frame: {error}")
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn frame_pixels(width: i32, height: i32, edge: u8, accent: [u8; 3]) -> Vec<u8> {
+    let mut pixels = vec![0; width as usize * height as usize * 4];
+    for y in 0..height {
+        for x in 0..width {
+            let (distance, thickness) = match edge {
+                0 => (y, height),
+                1 => (height - 1 - y, height),
+                2 => (x, width),
+                _ => (width - 1 - x, width),
+            };
+            let fade = 1.0 - f64::from(distance) / f64::from((thickness - 1).max(1));
+            let alpha = (205.0 * fade.powi(2)) as u32;
+            let offset = (y as usize * width as usize + x as usize) * 4;
+            for (channel, value) in accent.into_iter().rev().enumerate() {
+                pixels[offset + channel] = (u32::from(value) * alpha / 255) as u8;
+            }
+            pixels[offset + 3] = alpha as u8;
+        }
+    }
+    pixels
+}
+
 pub(super) struct PointerFeedback(std::marker::PhantomData<std::rc::Rc<()>>);
 
 impl PointerFeedback {
-    pub(super) fn begin(target: u64) -> Self {
+    pub(super) fn begin(target: u64, foreground: bool) -> Self {
         let dpi = unsafe { GetDpiForWindow(HWND(target as usize as *mut _)) }.max(96);
+        let scale = f64::from(dpi) / 96.0;
         FEEDBACK.with(|state| {
             *state.borrow_mut() = State {
                 active: true,
-                scale: f64::from(dpi) / 96.0,
+                scale,
                 window: None,
                 drawing_failed: false,
                 painted_accent: None,
                 status_placement: None,
+                cursor: foreground
+                    .then(|| cursor::CursorLease::begin(scale, accent()))
+                    .flatten(),
             }
         });
         Self(std::marker::PhantomData)
@@ -208,6 +318,9 @@ pub(super) fn show_at(point: (i32, i32)) {
     FEEDBACK.with(|state| {
         let mut state = state.borrow_mut();
         if !state.active || state.drawing_failed {
+            return;
+        }
+        if state.cursor.is_some() {
             return;
         }
         let color = accent();
@@ -552,6 +665,56 @@ fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
 mod tests {
     use super::*;
     #[test]
+    fn screen_frame_fades_inward_from_every_edge_without_an_opaque_center() {
+        for (width, height, edge, outer, inner) in [
+            (120, 12, 0, 0, 120 * 11),
+            (120, 12, 1, 120 * 11, 0),
+            (12, 120, 2, 0, 11),
+            (12, 120, 3, 11, 0),
+        ] {
+            let pixels = frame_pixels(width, height, edge, [20, 184, 166]);
+            assert_eq!(pixels[outer * 4 + 3], 205);
+            assert_eq!(pixels[inner * 4 + 3], 0);
+            assert!(pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| p[..3].iter().all(|c| *c <= p[3])));
+        }
+    }
+
+    #[test]
+    #[ignore = "requires interactive Windows; draws only click-through screen edges, sends no input"]
+    fn native_screen_frame_is_visible_click_through_and_released_with_control() {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetCursorPos, GetForegroundWindow, IsWindow, IsWindowVisible, WindowFromPoint,
+        };
+        let foreground = unsafe { GetForegroundWindow() };
+        let mut point = POINT::default();
+        unsafe { GetCursorPos(&mut point) }.unwrap();
+        let hit = unsafe { WindowFromPoint(point) };
+        set_control_targets(&[foreground.0 as usize as u64]);
+        let handles = FRAMES.with(|frames| {
+            frames
+                .borrow()
+                .surfaces
+                .iter()
+                .map(|surface| surface.handle)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(handles.len(), 4);
+        assert!(handles
+            .iter()
+            .all(|handle| unsafe { IsWindowVisible(*handle) }.as_bool()));
+        assert_eq!(unsafe { GetForegroundWindow() }, foreground);
+        assert_eq!(unsafe { WindowFromPoint(point) }, hit);
+        set_control_targets(&[]);
+        assert!(handles
+            .iter()
+            .all(|handle| !unsafe { IsWindow(Some(*handle)) }.as_bool()));
+    }
+
+    #[test]
     fn pointer_and_ripple_take_the_theme_color_and_ripple_fades_completely() {
         let (width, _, red) = pointer_pixels(1.0, [255, 0, 0]);
         let (_, _, blue) = pointer_pixels(1.0, [0, 0, 255]);
@@ -624,7 +787,7 @@ mod tests {
         let hit = unsafe { WindowFromPoint(point) };
         let handle;
         {
-            let _feedback = PointerFeedback::begin(foreground.0 as usize as u64);
+            let _feedback = PointerFeedback::begin(foreground.0 as usize as u64, false);
             show_at((point.x, point.y));
             handle = FEEDBACK.with(|state| {
                 state
@@ -702,7 +865,7 @@ mod tests {
         let mut original = RECT::default();
         unsafe { GetWindowRect(handle, &mut original) }.unwrap();
         {
-            let _feedback = PointerFeedback::begin(foreground.0 as usize as u64);
+            let _feedback = PointerFeedback::begin(foreground.0 as usize as u64, false);
             // Unregistered windows are never moved, even with the same title.
             avoid_status_at((point.x, point.y));
             let mut current = RECT::default();

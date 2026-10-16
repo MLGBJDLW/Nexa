@@ -22,7 +22,7 @@ pub(super) enum StreamRecoveryDecision {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum StreamConnectRetryDecision {
+pub enum StreamConnectRetryDecision {
     Retry {
         attempt: u32,
         delay: Duration,
@@ -45,7 +45,7 @@ pub(super) enum ContextOverflowRecoveryDecision {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct StreamRecoveryPolicy {
+pub struct StreamRecoveryPolicy {
     max_context_recovery_attempts: u32,
     max_connect_retries: u32,
     max_disconnect_retries: u32,
@@ -71,7 +71,7 @@ impl StreamRecoveryPolicy {
         self
     }
 
-    pub(super) fn max_connect_retries(self) -> u32 {
+    pub fn max_connect_retries(self) -> u32 {
         self.max_connect_retries
     }
 
@@ -142,7 +142,7 @@ impl StreamRecoveryPolicy {
         StreamConnectRetryDecision::Retry { attempt, delay }
     }
 
-    pub(super) fn decide_after_transient_error(
+    pub fn decide_after_transient_error(
         self,
         completed_retries: u32,
         detail: &str,

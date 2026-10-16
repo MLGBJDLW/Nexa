@@ -421,7 +421,10 @@ mod tests {
             .iter()
             .filter(|preset| preset.registry_id.is_some())
             .collect::<Vec<_>>();
-        assert_eq!(published.len(), 42);
+        assert_eq!(published.len(), 41);
+        assert!(published
+            .iter()
+            .all(|preset| preset.registry_id.as_deref() != Some("antigravity-acp")));
         let providers = presets
             .iter()
             .map(|preset| &preset.provider)

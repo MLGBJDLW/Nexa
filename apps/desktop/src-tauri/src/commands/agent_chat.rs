@@ -1041,6 +1041,9 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 task_id: Some(task_run_id.clone()),
             };
             let mut effective_db_config = db_config.clone();
+            if nexa_core::external_agent::registry::is_retired(&db_config.provider) {
+                return Err("This external agent is no longer supported. Select another agent profile.".into());
+            }
             let runtime_kind = crate::agent_runtime::AgentRuntimeKind::from_provider(&db_config.provider);
             if matches!(runtime_kind, Some(crate::agent_runtime::AgentRuntimeKind::Acp(_)))
                 && (root_allowed_tools.is_some() || execution_mode.is_plan())
@@ -1593,7 +1596,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                         conversation_id: &conv_id,
                         task_run_id: &task_run_id,
                         turn_id: &turn_id,
-                        message: "Agent execution failed unexpectedly.",
+                        message: &crate::desktop_agent_session::execution_failure_message(e),
                         status: "failed",
                         payload: None,
                     },

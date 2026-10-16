@@ -98,8 +98,8 @@ an uncertain action.
 
 ## Installed ACP agents
 
-The bundled External agents catalog includes the 42 official agents reviewed on
-October 15, 2026, plus Hermes and a custom ACP entry. Settings reads the
+The bundled External agents catalog includes 41 supported official agents,
+plus Hermes and a custom ACP entry. Settings reads the
 [official ACP directory](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
 through one host-owned cache, checking at most hourly unless explicitly refreshed.
 Directory discovery and version activation are separate: each agent keeps its
@@ -140,8 +140,7 @@ Cached installations are checked against a host-created receipt covering every
 extracted file, permission mode and safe link. Missing helpers, changed bytes,
 unexpected files or an old/incomplete receipt trigger a fresh pinned download
 and atomic replacement; a failed publication restores the preceding directory.
-Antigravity requires `agy_acp_server.exe` and its
-helper; the separately installed `agy.exe` CLI is not the ACP server. A missing
+A missing
 package runner or unsupported platform produces an actionable setup error.
 **Advanced** accepts a JSON argv
 array and environment object, including custom ACP servers. These preferences
@@ -180,16 +179,9 @@ advertised recovery choices available. An explicit attempt never retries an old
 method, and its acknowledgement counts as success only after session creation.
 Changing the selected method participates in the unsaved-settings guard.
 
-An explicitly selected Antigravity Google OAuth method uses a Nexa-owned
-`GEMINI_HOME` and matching `auth.type` for both sign-in and subsequent inference.
-Conflicting API-key/ADC variables are removed only for that OAuth process.
-Existing unselected authentication and explicit executable/home overrides retain
-their settings. Nexa never rewrites another CLI's Google profile or copies tokens.
-The October 15 isolated Windows check verified AGY 1.4.0 installation and all four
-advertised authentication methods, without requesting login or inference. Its
-published executable still bundles `python310.dll`; Nexa cannot replace that
-embedded interpreter by updating the user's Python installation. Actual upstream
-errors remain visible in redacted diagnostics.
+Antigravity ACP support is suspended. Its adapter and Google-specific setup have
+been removed; directory refresh and cached entries cannot re-enable it.
+
 If session creation instead fails with a generic configuration error, Settings
 retains both the diagnostic and the advertised native setup methods. This does
 not classify the error as an authentication failure, mark the connection as
@@ -197,6 +189,15 @@ verified or permit saving an unverified selection. Runtime chat still propagates
 the failed session. RPC diagnostics include bounded redacted messages and stderr,
 retaining the final cause of long startup tracebacks without exposing arbitrary
 error payloads.
+
+Transient connection and configuration handshakes reconnect through the same
+five-attempt backoff policy used by Nexa's model connections. Cancellation stops
+the wait immediately. A native prompt is never blindly replayed after tool effects
+may have started: interruptions retain the existing resumable checkpoint and
+partial output. Native Codex retry notices remain visible while its own loop is
+recovering. An incomplete Nexa tool callback returns a validation result to that
+loop for correction, with no effect or malformed transcript record; normalized
+arguments share the same execution receipt for replay.
 
 A first package-runner installation shares the archive installer's ten-minute
 startup window; later session/authentication operations keep their own deadlines.

@@ -295,6 +295,161 @@ fn recover_interrupted_runtime(error: CoreError) -> CoreError {
     }
 }
 
+/// Reuse the model connection policy only before an external prompt can start.
+/// Once native tools may have run, the durable checkpoint owns recovery.
+async fn connect_with_recovery<T, F, Fut>(
+    events: &mpsc::Sender<AgentEvent>,
+    cancellation: &CancellationToken,
+    mut connect: F,
+) -> Result<T, CoreError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, CoreError>>,
+{
+    use nexa_core::agent::{StreamConnectRetryDecision, StreamRecoveryPolicy};
+    let policy = StreamRecoveryPolicy::default();
+    let mut attempts = 0;
+    loop {
+        let result = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while reconnecting the external agent".into())),
+            result = connect() => result,
+        };
+        let cause = match result {
+            Ok(connection) => return Ok(connection),
+            Err(cause @ (CoreError::StreamIncomplete(_) | CoreError::TransientLlm(_))) => cause,
+            Err(cause) => return Err(cause),
+        };
+        match policy.decide_after_transient_error(attempts, &cause.to_string()) {
+            StreamConnectRetryDecision::Retry { attempt, delay } => {
+                attempts = attempt;
+                events
+                    .send(AgentEvent::ControllerStatus {
+                        code: "external_agent_retrying".into(),
+                        content: format!(
+                            "Reconnecting the external agent ({attempt}/{})",
+                            policy.max_connect_retries()
+                        ),
+                        tone: None,
+                    })
+                    .await
+                    .map_err(protocol_error)?;
+                tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped while reconnecting the external agent".into())),
+                    _ = tokio::time::sleep(delay) => {},
+                }
+            }
+            StreamConnectRetryDecision::GiveUp { .. } => {
+                return Err(CoreError::RecoveryRequired {
+                    message: cause.to_string(),
+                    action_reconciliation: false,
+                })
+            }
+        }
+    }
+}
+
+fn runtime_failure(
+    context: &str,
+    detail: &str,
+    native_code: Option<&serde_json::Value>,
+) -> CoreError {
+    // Native error metadata is authoritative. Text matching is only for
+    // adapters that expose a transport failure as a JSON-RPC internal error.
+    let code = native_code
+        .and_then(|code| {
+            code.as_str()
+                .or_else(|| code.as_object()?.keys().next().map(String::as_str))
+        })
+        .unwrap_or_default()
+        .replace('_', "")
+        .to_ascii_lowercase();
+    let status = native_code
+        .and_then(|code| code.as_object()?.values().next())
+        .and_then(|detail| {
+            detail
+                .get("http_status_code")
+                .or_else(|| detail.get("httpStatusCode"))
+        })
+        .and_then(serde_json::Value::as_u64);
+    let lower = detail.to_ascii_lowercase();
+    let transient = if let Some(status) = status {
+        status == 408 || status == 429 || status >= 500
+    } else if !code.is_empty() && code != "other" {
+        matches!(
+            code.as_str(),
+            "httpconnectionfailed"
+                | "responsestreamconnectionfailed"
+                | "responsestreamdisconnected"
+                | "responsetoomanyfailedattempts"
+                | "internalservererror"
+                | "serveroverloaded"
+                | "ratelimitexceeded"
+        )
+    } else if permanent_runtime_failure(&lower) {
+        false
+    } else {
+        [
+            "stream disconnected",
+            "error sending request",
+            "connection reset",
+            "connection closed",
+            "broken pipe",
+            "unexpected eof",
+            "request timed out",
+            "stream timeout",
+            "server is overloaded",
+            "server overloaded",
+            "temporarily unavailable",
+            "502 bad gateway",
+            "503 service unavailable",
+            "504 gateway timeout",
+        ]
+        .iter()
+        .any(|pattern| lower.contains(pattern))
+    };
+    let message =
+        nexa_core::external_agent::launch::redact_diagnostic(&format!("{context}: {detail}"), &[]);
+    if transient {
+        CoreError::TransientLlm(message)
+    } else {
+        CoreError::Agent(message)
+    }
+}
+
+fn permanent_runtime_failure(message: &str) -> bool {
+    [
+        "invalid api key",
+        "unauthorized",
+        "permission denied",
+        "not eligible",
+        "context window",
+        "model is not supported",
+        "not found",
+        "cannot find module",
+        "no module named",
+        "not installed",
+        "no provider configured",
+        "invalid configuration",
+        "authentication required",
+        "authentication is required",
+        "not authenticated",
+        "please log in",
+        "please login",
+    ]
+    .iter()
+    .any(|pattern| message.to_ascii_lowercase().contains(pattern))
+}
+
+fn interrupted_startup(message: String) -> CoreError {
+    if permanent_runtime_failure(&message) {
+        CoreError::Agent(message)
+    } else {
+        CoreError::StreamIncomplete(message)
+    }
+}
+
 async fn write_runtime_message(
     writer: &mut (impl tokio::io::AsyncWrite + Unpin),
     bytes: &[u8],

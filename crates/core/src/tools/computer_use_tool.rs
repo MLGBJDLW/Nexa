@@ -102,6 +102,17 @@ pub fn configure_desktop_feedback(accent: [u8; 3], reduced_motion: bool) {
     super::computer_pointer_feedback::configure_appearance(accent, reduced_motion);
 }
 
+/// Handle the small native feedback subprocess before initializing the app.
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+pub fn desktop_feedback_process_entry() -> bool {
+    super::computer_pointer_feedback::process_entry()
+}
+
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+pub fn set_desktop_control_targets(targets: &[u64]) {
+    super::computer_pointer_feedback::set_control_targets(targets);
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct VisualDifference {
@@ -6121,8 +6132,13 @@ mod platform {
             ));
         }
 
-        let _pointer_feedback =
-            super::super::computer_pointer_feedback::PointerFeedback::begin(current.id);
+        let _pointer_feedback = super::super::computer_pointer_feedback::PointerFeedback::begin(
+            current.id,
+            !matches!(
+                effective_action,
+                ControlAction::Invoke | ControlAction::SetValue
+            ),
+        );
         commit_tracker.result(commit_tracker.ensure_running())?;
         let summary = match effective_action {
             ControlAction::FocusWindow => {
@@ -8651,8 +8667,9 @@ mod tests {
                 if geometry != bounds {
                     return Err(format!("captured-image click geometry mismatch: screenshot {geometry:?}, screen bounds {bounds:?}"));
                 }
-                let _feedback =
-                    super::super::computer_pointer_feedback::PointerFeedback::begin(target.id);
+                let _feedback = super::super::computer_pointer_feedback::PointerFeedback::begin(
+                    target.id, false,
+                );
                 super::super::computer_pointer_feedback::show_at((
                     capture.snapshot.x + (capture.snapshot.width / 2) as i32,
                     capture.snapshot.y + (capture.snapshot.height / 2) as i32,

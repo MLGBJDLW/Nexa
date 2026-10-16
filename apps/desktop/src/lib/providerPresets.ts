@@ -1,6 +1,7 @@
 import providerPresets from "../../../../shared/provider-presets.json";
 import subscriptionPresets from "../../../../shared/subscription-runtime-presets.json";
 import externalAgentPresets from "../../../../shared/external-agent-presets.json";
+import retiredExternalAgents from "../../../../shared/retired-external-agents.json";
 import type { ProviderStreamingConfig } from '../types/conversation';
 import type {
   ProviderCapabilities,
@@ -87,7 +88,8 @@ export const PROVIDER_PRESETS: ProviderPreset[] = ([...providerPresets, ...subsc
  * fallback for offline/browser startup, then replace that slice atomically. */
 export function applyExternalAgentPresets(presets: ProviderPreset[]): void {
   const retained = PROVIDER_PRESETS.filter(preset => preset.runtime !== 'acp');
-  PROVIDER_PRESETS.splice(0, PROVIDER_PRESETS.length, ...retained, ...presets);
+  const supported = presets.filter(preset => !retiredExternalAgents.some(id => preset.registryId === id || preset.provider === `acp_${id.replace(/-/g, '_')}`));
+  PROVIDER_PRESETS.splice(0, PROVIDER_PRESETS.length, ...retained, ...supported);
 }
 
 function normalizePresetBaseUrl(baseUrl: string | null | undefined): string {
