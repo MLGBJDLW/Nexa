@@ -55,11 +55,6 @@ html.nexa-control-surface, .nexa-control-surface body, .nexa-control-surface #ro
   animation: nexa-bond-travel 3.8s ease-in-out infinite;
 }
 
-.nexa-control-status[data-observing='true'] .nexa-logo-orbit,
-.nexa-control-status[data-observing='true'] .nexa-control-thread::after {
-  animation-duration: 6s;
-}
-
 .nexa-control-status[data-waiting='true'] .nexa-logo-orbit,
 .nexa-control-status[data-waiting='true'] .nexa-control-thread::after {
   animation-play-state: paused;

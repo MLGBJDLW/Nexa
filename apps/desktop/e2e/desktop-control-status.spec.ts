@@ -17,6 +17,8 @@ test('desktop computer-use status identifies active control and stops only its o
         theme: { baseTheme: 'dark', mode: 'dark', colors: { accent }, effects: {}, typography: {}, motion: {}, brand: {}, content: {}, components: {}, background: { kind: 'none' } },
       }] };
       for (const [id, listener] of listeners) if (listener.event === 'appearance://changed') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: revisionOnly ? { revision: registry.revision } : registry });
+    }, __desktopTools(toolName: string) {
+      for (const [id, listener] of listeners) if (listener.event === 'desktop-control:status') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: [{ ...active[0], toolName }] });
     }, __desktopWait() {
       for (const [id, listener] of listeners) if (listener.event === 'desktop-control:status') callbacks.get(listener.handler)?.({ event: listener.event, id, payload: active.map(activity => ({ ...activity, phase: 'waiting' })) });
     }, __TAURI_INTERNALS__: {
@@ -65,4 +67,8 @@ test('desktop computer-use status identifies active control and stops only its o
   await page.getByRole('button', { name: 'Stop Computer Use', exact: true }).click();
   expect(await page.evaluate(() => (window as unknown as { __desktopStops: string[] }).__desktopStops)).toEqual(['desktop-task:desktop-run']);
   await expect(page.getByTestId('computer-use-status')).toHaveCount(0);
+  for (const tool of ['computer_observe', 'browser']) {
+    await page.evaluate(toolName => (window as unknown as { __desktopTools(toolName: string): void }).__desktopTools(toolName), tool);
+    await expect(page.getByTestId('computer-use-status')).toHaveCount(0);
+  }
 });
