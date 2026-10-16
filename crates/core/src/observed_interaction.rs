@@ -36,7 +36,14 @@ impl InteractionCommit {
     }
 
     pub fn failure(&self) -> InteractionReceipt {
-        InteractionReceipt::failed(self.observation_consumed(), self.effect_may_have_occurred())
+        let mut receipt = InteractionReceipt::failed(
+            self.observation_consumed(),
+            self.effect_may_have_occurred(),
+        );
+        if self.input_sent.load(Ordering::Acquire) {
+            receipt.delivery = InputDelivery::InputSent;
+        }
+        receipt
     }
 
     pub fn completed(
@@ -149,6 +156,14 @@ mod tests {
         assert!(caller.failure().observation_consumed);
         worker.before_effect();
         assert_eq!(caller.failure().delivery, InputDelivery::MayHaveOccurred);
+        worker.confirm_input_sent();
+        let after_dispatch_failure = caller.failure();
+        assert_eq!(after_dispatch_failure.delivery, InputDelivery::InputSent);
+        assert_eq!(
+            after_dispatch_failure.evidence,
+            ObservedEvidence::Unavailable
+        );
+        assert!(after_dispatch_failure.observation_consumed);
     }
 
     #[test]
