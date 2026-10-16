@@ -1461,6 +1461,7 @@ fn finish_browser_action_failure(
     error: String,
 ) -> Result<ToolResult, CoreError> {
     let failure = commit_tracker.failure(error);
+    let interaction = commit_tracker.failure_interaction(action);
     let effect_may_have_occurred = failure.effect_may_have_occurred();
     let receipt_result = receipt.finish(
         ActivityState::Failed,
@@ -1471,7 +1472,7 @@ fn finish_browser_action_failure(
             "effectMayHaveOccurred": effect_may_have_occurred,
             "observationConsumed": failure.observation_consumed,
             "cause": failure.message,
-            "interaction": nexa_core::observed_interaction::InteractionReceipt::failed(failure.observation_consumed, effect_may_have_occurred),
+            "interaction": interaction,
         }),
     );
     if let Err(receipt_error) = receipt_result {
@@ -1491,13 +1492,7 @@ fn finish_browser_action_failure(
         .as_mut()
         .and_then(serde_json::Value::as_object_mut)
     {
-        artifacts.insert(
-            "interaction".into(),
-            serde_json::to_value(nexa_core::observed_interaction::InteractionReceipt::failed(
-                failure.observation_consumed,
-                effect_may_have_occurred,
-            ))?,
-        );
+        artifacts.insert("interaction".into(), serde_json::to_value(interaction)?);
     }
 
     if matches!(action, "close_tab" | "close_session") {

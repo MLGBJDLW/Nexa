@@ -3316,6 +3316,9 @@ pub(super) fn control_window(
     } else {
         None
     };
+    if commit_tracker.effect_may_have_occurred() {
+        commit_tracker.interaction.confirm_input_sent();
+    }
     commit_tracker.progress(crate::observed_interaction::InteractionPhase::Waiting);
     let settle_started = std::time::Instant::now();
     let deadline = settle_started + POST_ACTION_STATE_BUDGET;
@@ -3445,7 +3448,7 @@ mod native_input_tests {
         let model_width = crate::media::MAX_LLM_IMAGE_DIMENSION;
         let model_height = model_width / 2;
         let current = WindowSnapshot {
-            input_epoch: 0,
+            input_epoch: Default::default(),
             id: 42,
             pid: 7,
             process_started_at_100ns: 123,

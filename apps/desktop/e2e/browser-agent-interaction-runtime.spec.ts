@@ -12,6 +12,41 @@ const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"
 if (!runtimeSource) throw new Error('Could not extract the native Browser Workspace interaction runtime');
 if (!takeoverSource) throw new Error('Could not extract the native Browser Workspace takeover guard');
 
+test('Capture without feedback does not depend on animation frames', async ({ page }) => {
+  await page.setContent('<button>Target</button>');
+  await page.addScriptTag({ content: runtimeSource });
+  const status = await page.evaluate(() => {
+    window.requestAnimationFrame = () => 1;
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    bridge.beginCapture('no-feedback');
+    return bridge.captureStatus('no-feedback').status;
+  });
+  expect(status).toBe('ready');
+});
+
+test('Already satisfied form actions report no input and dispatch no events', async ({ page }) => {
+  await page.setContent('<input type="checkbox" checked aria-label="Ready"><select aria-label="Choice"><option selected value="a">A</option><option value="b">B</option></select>');
+  await page.addScriptTag({ content: runtimeSource });
+  const results = await page.evaluate(() => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    let events = 0;
+    for (const type of ['input', 'change', 'click']) document.addEventListener(type, () => events++);
+    const act = (action: string, name: string, extra: object) => {
+      const observation = bridge.observe();
+      const target = observation.elements.find(element => element.name === name)!;
+      return bridge.act({ ...observation, action, targetRef: target.ref, expected: target, button: 'left', modifiers: [], ...extra });
+    };
+    const checked = act('set_checked', 'Ready', { checked: true });
+    const selected = act('select', 'Choice', { value: 'a' });
+    const changed = act('select', 'Choice', { value: 'b' });
+    return { checked, selected, changed, events };
+  });
+  expect(results.checked).toEqual({ inputSent: false });
+  expect(results.selected).toEqual({ inputSent: false });
+  expect(results.changed).toEqual({ inputSent: true });
+  expect(results.events).toBe(2);
+});
+
 test('Presentation arrival follows the actual animation and ignores old completion', async ({ page }) => {
   await page.setContent('<button style="margin:100px">Target</button>');
   await page.addScriptTag({ content: runtimeSource });
@@ -881,7 +916,7 @@ interface BrowserBridge {
     focused: boolean;
     verificationBaseline: BrowserVerificationBaseline;
   };
-  act(input: BrowserActionInput): boolean;
+  act(input: BrowserActionInput): { inputSent: boolean };
   invalidateForUserTakeover(): void;
 }
 

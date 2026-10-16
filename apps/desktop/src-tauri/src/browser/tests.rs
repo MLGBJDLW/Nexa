@@ -767,3 +767,21 @@ fn browser_observation_accepts_interactive_documents_while_resources_load() {
         true
     ));
 }
+
+#[test]
+fn failed_form_verification_retains_requested_condition_and_uncertain_effect() {
+    use nexa_core::observed_interaction::{InputDelivery, RequestedCondition};
+    let tracker = super::state::BrowserActCommitTracker::default();
+    tracker.mark_observation_consumed();
+    tracker.mark_committed();
+    for action in ["set_checked", "select", "upload_files"] {
+        let receipt = tracker.failure_interaction(action);
+        assert_eq!(receipt.condition, RequestedCondition::Pending);
+        assert_eq!(receipt.delivery, InputDelivery::MayHaveOccurred);
+        assert!(receipt.observation_consumed);
+    }
+    assert_eq!(
+        tracker.failure_interaction("click").condition,
+        RequestedCondition::NotRequested
+    );
+}

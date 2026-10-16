@@ -14,6 +14,7 @@ use std::sync::{
 pub struct InteractionCommit {
     consumed: Arc<AtomicBool>,
     effect_possible: Arc<AtomicBool>,
+    input_sent: Arc<AtomicBool>,
 }
 
 impl InteractionCommit {
@@ -22,6 +23,10 @@ impl InteractionCommit {
     }
     pub fn before_effect(&self) {
         self.effect_possible.store(true, Ordering::Release);
+    }
+    /// Called only after the platform confirms a dispatched operation.
+    pub fn confirm_input_sent(&self) {
+        self.input_sent.store(true, Ordering::Release);
     }
     pub fn observation_consumed(&self) -> bool {
         self.consumed.load(Ordering::Acquire)
@@ -40,7 +45,7 @@ impl InteractionCommit {
         condition: RequestedCondition,
     ) -> InteractionReceipt {
         InteractionReceipt {
-            delivery: if self.effect_may_have_occurred() {
+            delivery: if self.input_sent.load(Ordering::Acquire) {
                 InputDelivery::InputSent
             } else {
                 InputDelivery::NotCommitted
@@ -147,10 +152,23 @@ mod tests {
     }
 
     #[test]
+    fn successful_noop_does_not_inherit_the_possible_effect_fence() {
+        let commit = InteractionCommit::default();
+        commit.consume_observation();
+        commit.before_effect();
+        assert_eq!(commit.failure().delivery, InputDelivery::MayHaveOccurred);
+        let receipt = commit.completed(ObservedEvidence::Unchanged, RequestedCondition::Matched);
+        assert_eq!(receipt.delivery, InputDelivery::NotCommitted);
+        assert!(receipt.observation_consumed);
+        assert_eq!(receipt.condition, RequestedCondition::Matched);
+    }
+
+    #[test]
     fn changed_pixels_never_prove_a_requested_condition() {
         let commit = InteractionCommit::default();
         commit.consume_observation();
         commit.before_effect();
+        commit.confirm_input_sent();
         let receipt = commit.completed(ObservedEvidence::Changed, RequestedCondition::NotRequested);
         assert_eq!(receipt.delivery, InputDelivery::InputSent);
         assert_eq!(receipt.condition, RequestedCondition::NotRequested);

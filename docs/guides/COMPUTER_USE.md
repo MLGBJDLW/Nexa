@@ -100,7 +100,9 @@ Their platform adapters retain separate permission, target identity, capture and
 input mechanisms. The existing activity journal remains the durable receipt;
 presentation updates never grant authority or trigger an action replay.
 
-An action's `interaction` receipt separates three facts:
+An action's `interaction` receipt separates three facts. Confirmed delivery is
+recorded after dispatch; an already satisfied checkbox/select reports no input,
+while failed preparation retains the conservative possible-effect fence:
 
 - `delivery`: `notCommitted`, `inputSent`, or `mayHaveOccurred`.
 - `evidence`: `changed`, `unchanged`, `targetClosed`, or `unavailable`.
@@ -119,6 +121,13 @@ actions watch the target window's conservative revision bucket. Injected input
 does not advance physical revisions. Nexa pointer movement uses injected absolute
 motion across the virtual desktop and verifies the resulting physical position.
 Existing focus, target, cursor and button checks remain in force.
+
+The monitor reports readiness and checks its message-loop heartbeat. Startup or
+thread failure permits a bounded later retry; it cannot permanently cache success.
+Capture and control receipts expose `inputGuards`: while monitoring is unavailable,
+physical Escape and retained input revisions are unavailable, while instantaneous
+input checks and the Stop control remain active. Recovery changes the monitor
+generation, invalidating observations captured during the gap.
 
 Physical Escape stops only the Computer Use turn whose worker currently owns
 desktop input. Queued calls and other chats do not acquire a stop signal. The

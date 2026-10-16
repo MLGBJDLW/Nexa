@@ -136,7 +136,7 @@ struct ScreenshotGuard {
 #[serde(rename_all = "camelCase")]
 struct WindowSnapshot {
     #[serde(skip)]
-    input_epoch: u64,
+    input_epoch: super::computer_input::InputEpoch,
     id: u64,
     pid: u32,
     process_started_at_100ns: u64,
@@ -1436,7 +1436,7 @@ struct ControlCommitTracker {
     session_stopped: Arc<AtomicBool>,
     session_cancel: crate::agent::CancellationToken,
     worker_state: Arc<AtomicU8>,
-    input_watch: Arc<Mutex<Option<(u64, u64, bool)>>>,
+    input_watch: Arc<Mutex<Option<(u64, super::computer_input::InputEpoch, bool)>>>,
     escape_baseline: Arc<AtomicU64>,
     progress: Arc<Mutex<Option<ControlProgress>>>,
 }
@@ -1480,8 +1480,8 @@ impl ControlCommitTracker {
             if current != epoch {
                 tracing::debug!(
                     window,
-                    expected_revision = epoch,
-                    current_revision = current,
+                    expected_revision = ?epoch,
+                    current_revision = ?current,
                     foreground,
                     "Physical input changed during Computer Use"
                 );
@@ -1749,6 +1749,7 @@ fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::V
         "schemaVersion": 2,
         "observationId": observation_id,
         "windowId": capture.snapshot.id,
+        "inputGuards": capture.snapshot.input_epoch.capabilities(),
         "targetIdentity": desktop_target_identity(&capture.snapshot),
         "observationCapturedAtMs": capture.observation_captured_at_ms,
         "window": capture.snapshot,
@@ -3253,6 +3254,7 @@ impl Tool for ComputerControlTool {
                                     "effect": outcome.effect,
                                     "stateChanged": outcome.state_changed,
                                     "interaction": outcome.interaction(&worker_commit_tracker.interaction),
+                                    "inputGuards": super::computer_input::physical_epoch().capabilities(),
                                     "screenContentPersistence": "removed"
                                 }),
                             )
@@ -3270,6 +3272,7 @@ impl Tool for ComputerControlTool {
                                         "consumedObservationId": worker_consumed_observation_id,
                                         "actionReceiptId": activity_id,
                                         "interaction": outcome.interaction(&worker_commit_tracker.interaction),
+                                    "inputGuards": super::computer_input::physical_epoch().capabilities(),
                                         "targetVerified": outcome.target_verified,
                                         "deliveryStatus": "delivered",
                                         "effect": outcome.effect,
@@ -3378,6 +3381,7 @@ impl Tool for ComputerControlTool {
                 "actionReceiptId": activity_id.clone(),
                 "observationId": fresh_observation_id,
                 "observation": capture_data_value,
+                "inputGuards": super::computer_input::physical_epoch().capabilities(),
                 "observationError": outcome.observation_error,
                 "cursorPosition": outcome.cursor_position.map(|(x, y)| serde_json::json!({ "x": x, "y": y })),
                 "verification": outcome.verification

@@ -54,7 +54,8 @@ fn wait_capture_fixture(level: u8) -> CapturedWindow {
 }
 
 fn wait_observed_fixture() -> ObservedWindow {
-    let capture = wait_capture_fixture(0);
+    let mut capture = wait_capture_fixture(0);
+    capture.snapshot.input_epoch = super::super::computer_input::window_epoch(capture.snapshot.id);
     ObservedWindow {
         snapshot: capture.snapshot,
         image_width: Some(32),
@@ -246,7 +247,7 @@ async fn window_inventory_pages_filtered_results_and_waits_for_the_requested_pro
         "action":"wait_for_window", "process_id":7, "app_name":"editor", "max_results":1, "timeout_ms":200
     })).unwrap();
     let target = WindowSnapshot {
-        input_epoch: 0,
+        input_epoch: Default::default(),
         id: 42,
         pid: 7,
         process_started_at_100ns: 123,
@@ -454,7 +455,7 @@ fn provider_call_ids_are_namespaced_by_turn_and_observation_for_persistent_activ
 #[test]
 fn observation_tokens_are_scoped_to_the_listed_window() {
     let snapshot = WindowSnapshot {
-        input_epoch: 0,
+        input_epoch: Default::default(),
         id: 42,
         pid: 7,
         process_started_at_100ns: 123,
@@ -500,7 +501,7 @@ fn observation_tokens_are_scoped_to_the_listed_window() {
 #[test]
 fn approval_preview_is_exact_conversation_scoped_and_hides_typed_text() {
     let snapshot = WindowSnapshot {
-        input_epoch: 0,
+        input_epoch: Default::default(),
         id: 420,
         pid: 7,
         process_started_at_100ns: 123,
@@ -623,7 +624,7 @@ fn approval_preview_is_exact_conversation_scoped_and_hides_typed_text() {
 #[test]
 fn observation_token_is_single_use_for_control() {
     let snapshot = WindowSnapshot {
-        input_epoch: 0,
+        input_epoch: super::super::computer_input::window_epoch(84),
         id: 84,
         pid: 9,
         process_started_at_100ns: 456,
@@ -872,7 +873,7 @@ fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens(
             Some("window-scope-test"),
             vec![ObservedWindow {
                 snapshot: WindowSnapshot {
-                    input_epoch: 0,
+                    input_epoch: Default::default(),
                     id: 400,
                     pid: 7,
                     process_started_at_100ns: started,

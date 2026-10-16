@@ -470,6 +470,7 @@
       if (!node.isConnected) feedbackNodes.delete(node);
       else node.style.setProperty('visibility', 'hidden', 'important');
     }
+    if (!feedbackNodes.size) { captureTokens.set(id, true); return { id }; }
     // Wait for the hidden state to reach a rendered frame before native capture.
     requestAnimationFrame(() => requestAnimationFrame(() => { if (captureTokens.has(id)) captureTokens.set(id, true); }));
     return { id };
@@ -754,12 +755,14 @@
   };
   runtime.act = (input) => {
     const { el, end } = validateAction(input);
+    let inputSent = true;
     runtime.synthetic = true;
     try {
       if (input.action === 'move' || input.action === 'hover') hoverAt(el, input, centerOf(el));
       else if (input.action === 'click') clickAt(el, input);
       else if (input.action === 'set_checked') {
         if (!checkedStateMatches(el, input)) clickAt(el, input);
+        else inputSent = false;
       }
       else if (input.action === 'double_click') {
         clickAt(el, input, 1);
@@ -786,7 +789,7 @@
           const realm = el.ownerDocument.defaultView || window;
           el.dispatchEvent(new realm.Event('input', { bubbles: true }));
           el.dispatchEvent(new realm.Event('change', { bubbles: true }));
-        }
+        } else inputSent = false;
       } else if (input.action === 'press') {
         const target = el || deepActiveElement(document) || document.body;
         const realm = target.ownerDocument?.defaultView || window;
@@ -827,7 +830,7 @@
         window.scrollBy(Number(input.scrollX || 0), Number(input.scrollY || 0));
       }
     } finally { runtime.synthetic = false; }
-    return true;
+    return { inputSent };
   };
   const clearOverlay = () => {
     runtime.overlay?.remove();

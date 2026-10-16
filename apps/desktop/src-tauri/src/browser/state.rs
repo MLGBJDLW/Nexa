@@ -178,6 +178,9 @@ impl BrowserActCommitTracker {
     pub(super) fn mark_committed(&self) {
         self.0.before_effect();
     }
+    pub(super) fn confirm_input_sent(&self) {
+        self.0.confirm_input_sent();
+    }
     pub(super) fn effect_may_have_occurred(&self) -> bool {
         self.0.effect_may_have_occurred()
     }
@@ -198,6 +201,17 @@ impl BrowserActCommitTracker {
                 RequestedCondition::NotRequested
             },
         )
+    }
+
+    pub(super) fn failure_interaction(
+        &self,
+        action: &str,
+    ) -> nexa_core::observed_interaction::InteractionReceipt {
+        let mut receipt = self.0.failure();
+        if matches!(action, "set_checked" | "select" | "upload_files") {
+            receipt.condition = nexa_core::observed_interaction::RequestedCondition::Pending;
+        }
+        receipt
     }
 
     pub fn failure(&self, message: String) -> BrowserActFailure {
@@ -2531,6 +2545,7 @@ impl BrowserState {
                 &request.commit_tracker,
             )
             .await?;
+            request.commit_tracker.confirm_input_sent();
             #[cfg(not(windows))]
             drop(_desktop_input_guard);
             let effect_observed = self
@@ -2687,16 +2702,29 @@ impl BrowserState {
                 return Err(error);
             }
         };
-        if let Err(error) = pending.resolve().await {
-            if let Some((target, form_navigation)) = navigation_approval.as_ref() {
-                self.revoke_agent_action_url(
-                    request.session_id,
-                    request.tab_id,
-                    target,
-                    *form_navigation,
-                );
+        match pending.resolve().await {
+            Ok(result) => {
+                let input_sent = result
+                    .get("inputSent")
+                    .and_then(serde_json::Value::as_bool)
+                    .ok_or(
+                        "Browser action returned no input delivery receipt; effect is uncertain",
+                    )?;
+                if input_sent {
+                    request.commit_tracker.confirm_input_sent();
+                }
             }
-            return Err(error);
+            Err(error) => {
+                if let Some((target, form_navigation)) = navigation_approval.as_ref() {
+                    self.revoke_agent_action_url(
+                        request.session_id,
+                        request.tab_id,
+                        target,
+                        *form_navigation,
+                    );
+                }
+                return Err(error);
+            }
         }
         let effect_observed = self
             .settle_after_agent_action(
@@ -2944,6 +2972,9 @@ impl BrowserState {
             }
             _ => unreachable!("trusted action kind was validated before preparation"),
         };
+        if dispatch_result.is_ok() {
+            commit_tracker.confirm_input_sent();
+        }
         let disarm_result = armed_guard.disarm().await;
         match (dispatch_result, disarm_result) {
             (Ok(()), Ok(())) => Ok(verification_baseline),
