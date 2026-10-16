@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.5...nexa-monorepo-v0.16.6) (2026-10-16)
+
+
+### Bug Fixes
+
+* stabilize external agents and native Computer Use feedback ([#480](https://github.com/MLGBJDLW/Nexa/issues/480)) ([76e4f9e](https://github.com/MLGBJDLW/Nexa/commit/76e4f9ebc75dd322ceb3bf93aa46bcdd234931df))
+
 ## [0.16.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.4...nexa-monorepo-v0.16.5) (2026-10-15)
 
 
