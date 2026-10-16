@@ -1,5 +1,5 @@
 //! A non-activating desktop indicator projected from committed tool events.
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 use nexa_core::agent_run::{AgentRunEvent, AgentRunEventKind, AgentRunPhase};
@@ -31,9 +31,15 @@ enum DesktopControlPhase {
     Waiting,
 }
 
+struct ControlScope {
+    current: DesktopControlActivity,
+    pending: VecDeque<DesktopControlActivity>,
+    yield_when_idle: bool,
+}
+
 #[derive(Default)]
 struct Projection {
-    active: BTreeMap<String, DesktopControlActivity>,
+    active: BTreeMap<String, ControlScope>,
     stopped: BTreeSet<String>,
 }
 
@@ -44,9 +50,7 @@ impl Projection {
             AgentRunEventKind::Done | AgentRunEventKind::Error
         ) {
             self.stopped.remove(&event.run_id);
-            let previous = self.active.len();
-            self.active.remove(&event.run_id);
-            return self.active.len() != previous;
+            return self.active.remove(&event.run_id).is_some();
         }
         if self.stopped.contains(&event.run_id) {
             return false;
@@ -59,7 +63,9 @@ impl Projection {
         }
         if !matches!(
             event.kind,
-            AgentRunEventKind::ToolStarted | AgentRunEventKind::ToolCompleted
+            AgentRunEventKind::ToolStarted
+                | AgentRunEventKind::ToolProgress
+                | AgentRunEventKind::ToolCompleted
         ) {
             return false;
         }
@@ -67,49 +73,77 @@ impl Projection {
         let Some(call_id) = run.get("callId").and_then(serde_json::Value::as_str) else {
             return false;
         };
-        let key = event.run_id.clone();
         if event.kind == AgentRunEventKind::ToolCompleted {
-            if self
-                .active
-                .get(&key)
-                .is_some_and(|activity| activity.call_id == call_id)
-                && matches!(
-                    run.get("status").and_then(serde_json::Value::as_str),
-                    Some("failed" | "declined" | "cancelled" | "timedOut")
-                )
-            {
-                return self.active.remove(&key).is_some();
-            }
-            if let Some(activity) = self
-                .active
-                .get_mut(&key)
-                .filter(|activity| activity.call_id == call_id)
-            {
-                if activity.phase != DesktopControlPhase::Waiting {
-                    activity.phase = DesktopControlPhase::Waiting;
-                    return true;
+            let Some(scope) = self.active.get_mut(&event.run_id) else {
+                return false;
+            };
+            let Some(index) = scope
+                .pending
+                .iter()
+                .position(|call| call.call_id == call_id)
+            else {
+                return false;
+            };
+            let completed = scope.pending.remove(index).expect("pending control exists");
+            if scope.pending.is_empty() {
+                let failed = matches!(
+                    run.get("status")
+                        .and_then(serde_json::Value::as_str)
+                        .or(event.status.as_deref()),
+                    Some("failed" | "declined" | "cancelled" | "timedOut" | "timed_out")
+                );
+                if failed || scope.yield_when_idle {
+                    self.active.remove(&event.run_id);
+                } else {
+                    scope.current = completed;
+                    scope.current.phase = DesktopControlPhase::Waiting;
                 }
+                return true;
             }
+            if scope.current.call_id == call_id {
+                scope.current = scope
+                    .pending
+                    .front()
+                    .expect("another control remains")
+                    .clone();
+                return true;
+            }
+            return false;
+        }
+        // A streaming ToolStarted can contain only a preparing draft. The
+        // complete Running transition arrives as ToolProgress after admission.
+        if run
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .or(event.status.as_deref())
+            != Some("running")
+        {
             return false;
         }
         let Some(tool_name) = run.get("toolName").and_then(serde_json::Value::as_str) else {
             return false;
         };
-        // Read-only observation never acquires desktop control. A readback may
-        // follow an existing control action without taking ownership itself.
         if tool_name == "computer_observe" {
             return false;
         }
         if tool_name != "computer_control" {
-            return self.active.remove(&key).is_some();
+            if let Some(scope) = self.active.get_mut(&event.run_id) {
+                if scope.pending.is_empty() {
+                    return self.active.remove(&event.run_id).is_some();
+                }
+                // The scheduler announces a whole batch before executing it.
+                // An unrelated announcement cannot hide Stop during input.
+                scope.yield_when_idle = true;
+            }
+            return false;
+        }
+        if self.active.len() >= 64 && !self.active.contains_key(&event.run_id) {
+            return false;
         }
         let arguments = run
             .get("arguments")
             .and_then(serde_json::Value::as_str)
             .and_then(|args| serde_json::from_str::<serde_json::Value>(args).ok());
-        if self.active.len() >= 64 && !self.active.contains_key(&key) {
-            return false;
-        }
         let activity = DesktopControlActivity {
             conversation_id: conversation_id.into(),
             run_id: event.run_id.clone(),
@@ -120,15 +154,44 @@ impl Projection {
             window_id: arguments
                 .and_then(|args| args.get("window_id").and_then(serde_json::Value::as_u64)),
         };
-        if self.active.get(&key) == Some(&activity) {
+        if let Some(scope) = self.active.get_mut(&event.run_id) {
+            let was_idle = scope.pending.is_empty();
+            if let Some(pending) = scope
+                .pending
+                .iter_mut()
+                .find(|call| call.call_id == call_id)
+            {
+                *pending = activity.clone();
+            } else {
+                scope.pending.push_back(activity.clone());
+            }
+            if was_idle {
+                scope.yield_when_idle = false;
+            }
+            if was_idle || scope.current.call_id == call_id {
+                let changed = scope.current != activity;
+                scope.current = activity;
+                return changed;
+            }
             return false;
         }
-        self.active.insert(key, activity);
+        self.active.insert(
+            event.run_id.clone(),
+            ControlScope {
+                current: activity.clone(),
+                pending: VecDeque::from([activity]),
+                yield_when_idle: false,
+            },
+        );
         true
     }
 
     fn snapshot(&self) -> Vec<DesktopControlActivity> {
-        let mut values = self.active.values().cloned().collect::<Vec<_>>();
+        let mut values = self
+            .active
+            .values()
+            .map(|scope| scope.current.clone())
+            .collect::<Vec<_>>();
         values.sort_by_key(|item| match item.phase {
             DesktopControlPhase::Controlling => 0,
             DesktopControlPhase::Waiting => 1,
@@ -242,6 +305,7 @@ pub fn observe_committed_event(app: &AppHandle, conversation_id: &str, event: &A
         event.kind,
         AgentRunEventKind::ToolStarted
             | AgentRunEventKind::ToolCompleted
+            | AgentRunEventKind::ToolProgress
             | AgentRunEventKind::Done
             | AgentRunEventKind::Error
             | AgentRunEventKind::Status
@@ -338,6 +402,7 @@ pub async fn stop_desktop_control_cmd(
         let Some(activity) = projection
             .active
             .get(&run_id)
+            .map(|scope| &scope.current)
             .filter(|activity| activity.conversation_id == conversation_id)
         else {
             return Ok(());
@@ -426,6 +491,85 @@ mod tests {
     }
 
     #[test]
+    fn mixed_batch_keeps_stop_visible_until_all_control_calls_complete() {
+        let mut state = Projection::default();
+        assert!(state.apply(
+            "chat",
+            &event(
+                "run",
+                AgentRunEventKind::ToolStarted,
+                "first",
+                "computer_control"
+            )
+        ));
+        state.apply(
+            "chat",
+            &event(
+                "run",
+                AgentRunEventKind::ToolStarted,
+                "second",
+                "computer_control",
+            ),
+        );
+        state.apply(
+            "chat",
+            &event("run", AgentRunEventKind::ToolStarted, "read", "read_file"),
+        );
+        assert_eq!(
+            state.snapshot().len(),
+            1,
+            "a mixed batch cannot remove the active Stop surface"
+        );
+        state.apply(
+            "chat",
+            &event(
+                "run",
+                AgentRunEventKind::ToolCompleted,
+                "first",
+                "computer_control",
+            ),
+        );
+        assert_eq!(state.snapshot()[0].phase, DesktopControlPhase::Controlling);
+        state.apply(
+            "chat",
+            &event(
+                "run",
+                AgentRunEventKind::ToolCompleted,
+                "second",
+                "computer_control",
+            ),
+        );
+        assert!(
+            state.snapshot().is_empty(),
+            "hide once actual control has ended and another tool took over"
+        );
+    }
+
+    #[test]
+    fn streaming_preparation_does_not_take_over_until_running_with_target_arguments() {
+        let mut state = Projection::default();
+        let mut preparing = event(
+            "run",
+            AgentRunEventKind::ToolStarted,
+            "control",
+            "computer_control",
+        );
+        preparing.payload["run"]["status"] = serde_json::json!("preparing");
+        assert!(!state.apply("chat", &preparing));
+        let mut running = event(
+            "run",
+            AgentRunEventKind::ToolProgress,
+            "control",
+            "computer_control",
+        );
+        running.payload["run"]["status"] = serde_json::json!("running");
+        running.payload["run"]["arguments"] =
+            serde_json::json!("{\"window_id\":1234,\"action\":\"click\"}");
+        assert!(state.apply("chat", &running));
+        assert_eq!(state.snapshot()[0].window_id, Some(1234));
+    }
+
+    #[test]
     fn desktop_control_ends_on_other_tools_failed_input_and_suspension() {
         for end in [
             event("run", AgentRunEventKind::ToolStarted, "browser", "browser"),
@@ -459,6 +603,17 @@ mod tests {
                     "computer_control"
                 )
             ));
+            if end.kind == AgentRunEventKind::ToolStarted {
+                state.apply(
+                    "chat",
+                    &event(
+                        "run",
+                        AgentRunEventKind::ToolCompleted,
+                        "control",
+                        "computer_control",
+                    ),
+                );
+            }
             assert!(state.apply("chat", &end));
             assert!(state.snapshot().is_empty());
         }

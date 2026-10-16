@@ -30,7 +30,7 @@ test('October additions retain native endpoint identity and exact reasoning poli
   assert.equal(step.descriptor.limits.maxOutputTokens, 64000);
   assert.equal(isRemovedProviderModel('openrouter', 'inclusionai/ling-3.0-flash-sante'), true);
   assert.equal(isRemovedProviderModel('openrouter', 'inclusionai/ling-3.0-flash-sante:free'), true);
-  assert.equal(isRemovedProviderModel('openrouter', 'google/gemini-2.5-pro-preview-05-06'), false);
+  assert.equal(isRemovedProviderModel('openrouter', 'google/gemini-2.5-pro-preview-05-06'), true);
 });
 
 test('announced future shutdowns remain selectable until their actual retirement', () => {
@@ -70,6 +70,7 @@ test('registry refresh keeps reviewed archive pins without carrying them to a ne
     }
     const script = path.join(root, 'scripts/sync-external-agent-registry.mjs');
     copyFileSync(new URL('../../../scripts/sync-external-agent-registry.mjs', import.meta.url), script);
+    copyFileSync(new URL('../../../shared/retired-external-agents.json', import.meta.url), path.join(root, 'shared/retired-external-agents.json'));
     const original = { archive: 'https://publisher.example/v1/agent.zip', cmd: 'agent', sha256: 'a'.repeat(64) };
     writeFileSync(path.join(root, 'shared/external-agent-presets.json'), JSON.stringify([
       { provider: 'acp_fixture', distribution: { binary: { same: original, changed: original } } },
