@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.6...nexa-monorepo-v0.16.7) (2026-10-16)
+
+
+### Bug Fixes
+
+* repair shell environments and remove hidden MCP deadlines ([#482](https://github.com/MLGBJDLW/Nexa/issues/482)) ([47caa8a](https://github.com/MLGBJDLW/Nexa/commit/47caa8a2490274fe3118e2a6f30785ace78eab35))
+
 ## [0.16.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.5...nexa-monorepo-v0.16.6) (2026-10-16)
 
 
