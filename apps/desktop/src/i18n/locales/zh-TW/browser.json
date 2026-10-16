@@ -38,6 +38,8 @@
   "dialogDismissed": "已取消意外的網頁提示，請檢查頁面後再決定是否重試",
   "dialogPaused": "網頁連續彈出提示，已暫停該頁面。可關閉或重新載入此分頁。",
   "recentActions": "最近的瀏覽器操作",
+  "actionObservedChange": "觀察到變化",
+  "conditionMatched": "請求狀態已滿足",
   "actionVerified": "已驗證",
   "actionUnchanged": "頁面無變化",
   "actionInProgress": "進行中",

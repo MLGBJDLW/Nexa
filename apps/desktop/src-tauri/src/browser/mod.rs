@@ -7,6 +7,7 @@ pub mod local_html;
 mod network_proxy;
 mod operation_progress;
 pub mod policy;
+mod presentation;
 mod scripts;
 pub mod state;
 pub mod webview_host;

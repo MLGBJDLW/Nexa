@@ -1172,9 +1172,9 @@ export function BrowserDock({
         <div className="mt-2 flex h-7 min-w-0 items-center gap-1 overflow-x-auto" aria-label={t('browser.recentActions')} aria-live="polite" data-testid="browser-action-trail">
           {recentActions.length === 0 && <span className="text-[10px] text-text-tertiary">{t('browser.recentActions')}</span>}
           {recentActions.map(entry => <span key={`${entry.tabId}:${entry.operationId}`} className="flex shrink-0 items-center gap-1 rounded border border-border/50 bg-surface-2/70 px-1.5 py-1 text-[10px] text-text-secondary" title={`${entry.action} · ${entry.phase}`}>
-            {entry.phase === 'verified' ? '✓' : ['observedUnchanged', 'observedPending'].includes(entry.phase) ? '○' : browserActionInProgress(entry.phase) ? '…' : '!'}
+            {entry.phase === 'conditionMatched' ? '✓' : ['verified', 'observedChanged', 'observedUnchanged', 'observedPending'].includes(entry.phase) ? '○' : browserActionInProgress(entry.phase) ? '…' : '!'}
             {ACTION_LABELS[entry.action] ? t(ACTION_LABELS[entry.action]) : entry.action}
-            <span className="text-text-tertiary">{entry.phase === 'verified' ? t('browser.actionVerified') : entry.phase === 'observedUnchanged' ? t('browser.actionUnchanged') : entry.phase === 'observedPending' ? t('browser.actionPending') : browserActionInProgress(entry.phase) ? t('browser.actionInProgress') : t('browser.actionReview')}</span>
+            <span className="text-text-tertiary">{entry.phase === 'conditionMatched' ? t('browser.conditionMatched') : ['verified', 'observedChanged'].includes(entry.phase) ? t('browser.actionObservedChange') : entry.phase === 'observedUnchanged' ? t('browser.actionUnchanged') : entry.phase === 'observedPending' ? t('browser.actionPending') : browserActionInProgress(entry.phase) ? t('browser.actionInProgress') : t('browser.actionReview')}</span>
           </span>)}
         </div>
       </header>

@@ -38,6 +38,8 @@
   "dialogDismissed": "Diálogo inesperado descartado; revisa la página antes de reintentar",
   "dialogPaused": "Página pausada por diálogos repetidos. Cierra o recarga esta pestaña.",
   "recentActions": "Acciones recientes",
+  "actionObservedChange": "Cambio observado",
+  "conditionMatched": "Estado solicitado alcanzado",
   "actionVerified": "Verificado",
   "actionUnchanged": "Página sin cambios",
   "actionInProgress": "En curso",

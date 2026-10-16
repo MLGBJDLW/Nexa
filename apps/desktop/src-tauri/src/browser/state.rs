@@ -113,6 +113,7 @@ pub type BrowserObservationPayload = CoreBrowserObservation;
 pub struct BrowserActOutcome {
     pub observation: BrowserObservationPayload,
     pub effect_observed: bool,
+    pub interaction: nexa_core::observed_interaction::InteractionReceipt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,30 +168,36 @@ where
     }
 }
 
-#[derive(Debug, Default)]
-struct BrowserActCommitState {
-    committed: AtomicBool,
-    observation_consumed: AtomicBool,
-}
-
 #[derive(Debug, Clone, Default)]
-pub struct BrowserActCommitTracker(Arc<BrowserActCommitState>);
+pub struct BrowserActCommitTracker(nexa_core::observed_interaction::InteractionCommit);
 
 impl BrowserActCommitTracker {
     pub(super) fn mark_observation_consumed(&self) {
-        self.0.observation_consumed.store(true, Ordering::Release);
+        self.0.consume_observation();
     }
-
     pub(super) fn mark_committed(&self) {
-        self.0.committed.store(true, Ordering::Release);
+        self.0.before_effect();
     }
-
     pub(super) fn effect_may_have_occurred(&self) -> bool {
-        self.0.committed.load(Ordering::Acquire)
+        self.0.effect_may_have_occurred()
     }
-
     pub(super) fn observation_consumed(&self) -> bool {
-        self.0.observation_consumed.load(Ordering::Acquire)
+        self.0.observation_consumed()
+    }
+    pub(super) fn completed(
+        &self,
+        changed: bool,
+        action: &str,
+    ) -> nexa_core::observed_interaction::InteractionReceipt {
+        use nexa_core::observed_interaction::{ObservedEvidence, RequestedCondition};
+        self.0.completed(
+            ObservedEvidence::from_changed(changed),
+            if matches!(action, "set_checked" | "select" | "upload_files") {
+                RequestedCondition::Matched
+            } else {
+                RequestedCondition::NotRequested
+            },
+        )
     }
 
     pub fn failure(&self, message: String) -> BrowserActFailure {
@@ -2148,7 +2155,9 @@ impl BrowserState {
         let snapshot_url = Url::parse(&snapshot.url)
             .map_err(|_| "Browser observation returned an invalid URL".to_string())?;
         let (capture_plan, surface_flight) = self.capture_context(session_id, tab_id)?;
+        let feedback = super::presentation::CaptureFeedbackGuard::begin(&webview).await?;
         let capture = capture_webview_image(&webview, capture_plan, surface_flight).await?;
+        drop(feedback);
         self.require_visible_focused_host_window()?;
         let screenshot = BrowserScreenshot {
             mime_type: capture.mime_type,
@@ -2397,7 +2406,8 @@ impl BrowserState {
         }
         let action_input = serde_json::to_string(&serde_json::json!({
             "action": request.action,
-                "callId": request.call_id,
+            "presentationId": progress.operation_id(),
+            "callId": request.call_id,
             "targetRef": request.target_ref,
             "endRef": request.end_ref,
             "text": request.text,
@@ -2427,6 +2437,9 @@ impl BrowserState {
                 "endRef": request.end_ref,
             }),
         );
+        let webview = self.webview(request.session_id, request.tab_id)?;
+        let presentation =
+            super::presentation::PresentationGuard::new(&webview, progress.operation_id());
         let preview = self.dispatch_agent_action(
             request.session_id,
             request.tab_id,
@@ -2434,15 +2447,22 @@ impl BrowserState {
             request.call_id,
             &preview_expression,
         )?;
-        let preview = preview.resolve().await?;
-        let duration_ms = preview
-            .get("durationMs")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0)
-            .min(600);
-        if duration_ms > 0 {
-            tokio::time::sleep(Duration::from_millis(duration_ms)).await;
+        preview.resolve().await?;
+        let presentation_arrived = presentation.wait_for_arrival().await;
+        if !presentation_arrived {
+            log::debug!(
+                "Browser operation {} continuing without presentation after host revalidation",
+                progress.operation_id()
+            );
         }
+        // Revalidate host ownership after the presentation wait. Page-side ACKs
+        // only describe animation and never grant input authority.
+        self.revalidate_agent_lease(
+            request.session_id,
+            request.tab_id,
+            request.call_id,
+            observation.lease_generation,
+        )?;
         if matches!(request.action, "move" | "hover") {
             // Acquire before the native preparation so a queued computer
             // action cannot make the returned element bounds stale while this
@@ -2530,8 +2550,10 @@ impl BrowserState {
                 )
                 .await?;
             progress.update(
-                if effect_observed {
-                    BrowserOperationPhase::Verified
+                if matches!(request.action, "set_checked" | "select" | "upload_files") {
+                    BrowserOperationPhase::ConditionMatched
+                } else if effect_observed {
+                    BrowserOperationPhase::ObservedChanged
                 } else {
                     BrowserOperationPhase::ObservedUnchanged
                 },
@@ -2543,6 +2565,9 @@ impl BrowserState {
             return Ok(BrowserActOutcome {
                 observation: fresh_observation,
                 effect_observed,
+                interaction: request
+                    .commit_tracker
+                    .completed(effect_observed, request.action),
             });
         }
         let mut navigation_permit_guard = None;
@@ -2620,8 +2645,10 @@ impl BrowserState {
             verify_requested_form_state(&request, &fresh_observation)?;
             drop(navigation_permit_guard);
             progress.update(
-                if effect_observed {
-                    BrowserOperationPhase::Verified
+                if matches!(request.action, "set_checked" | "select" | "upload_files") {
+                    BrowserOperationPhase::ConditionMatched
+                } else if effect_observed {
+                    BrowserOperationPhase::ObservedChanged
                 } else {
                     BrowserOperationPhase::ObservedUnchanged
                 },
@@ -2633,6 +2660,9 @@ impl BrowserState {
             return Ok(BrowserActOutcome {
                 observation: fresh_observation,
                 effect_observed,
+                interaction: request
+                    .commit_tracker
+                    .completed(effect_observed, request.action),
             });
         }
         self.require_visible_focused_host_window()?;
@@ -2687,8 +2717,10 @@ impl BrowserState {
         verify_requested_form_state(&request, &fresh_observation)?;
         drop(navigation_permit_guard);
         progress.update(
-            if effect_observed {
-                BrowserOperationPhase::Verified
+            if matches!(request.action, "set_checked" | "select" | "upload_files") {
+                BrowserOperationPhase::ConditionMatched
+            } else if effect_observed {
+                BrowserOperationPhase::ObservedChanged
             } else {
                 BrowserOperationPhase::ObservedUnchanged
             },
@@ -2700,6 +2732,9 @@ impl BrowserState {
         Ok(BrowserActOutcome {
             observation: fresh_observation,
             effect_observed,
+            interaction: request
+                .commit_tracker
+                .completed(effect_observed, request.action),
         })
     }
 

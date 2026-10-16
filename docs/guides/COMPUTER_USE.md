@@ -92,6 +92,52 @@ work area. Its original placement is restored on worker exit without reopening
 a hidden banner. Other windows and overlays still fail the normal input ownership
 check.
 
+## Shared interaction facts and ownership
+
+Desktop and Browser Workspace actions share `observed_interaction` for observation
+consumption, the possible-effect boundary, result facts and presentation phases.
+Their platform adapters retain separate permission, target identity, capture and
+input mechanisms. The existing activity journal remains the durable receipt;
+presentation updates never grant authority or trigger an action replay.
+
+An action's `interaction` receipt separates three facts:
+
+- `delivery`: `notCommitted`, `inputSent`, or `mayHaveOccurred`.
+- `evidence`: `changed`, `unchanged`, `targetClosed`, or `unavailable`.
+- `condition`: `notRequested`, `matched`, or `pending`.
+
+Changed pixels or DOM content alone do not prove the user's goal. Browser form
+actions report a matched condition only after checking the requested checkbox,
+selection or uploaded-file state against the fresh observation. Explicit browser
+waits still recheck their condition against their final visual observation.
+
+On Windows, a dedicated input thread records physical-input revisions and Escape
+without retaining key text. Window observations bind the revision from capture;
+input during capture or before a later action requires fresh evidence. Foreground
+actions also watch physical input anywhere on the desktop, while background UIA
+actions watch the target window's conservative revision bucket. Injected input
+does not advance physical revisions. Nexa pointer movement uses injected absolute
+motion across the virtual desktop and verifies the resulting physical position.
+Existing focus, target, cursor and button checks remain in force.
+
+Physical Escape stops only the Computer Use turn whose worker currently owns
+desktop input. Queued calls and other chats do not acquire a stop signal. The
+worker retains ownership while releasing buttons and finishing cleanup. Status
+phases come from the executing worker: moving, sending input and observing the
+result; a heartbeat cannot overwrite that phase.
+
+Browser presentation is a separate module. Every preview carries a host operation
+identity and reports actual animation completion. Old or cancelled acknowledgements
+cannot complete a newer preview. A stalled decoration is removed and the normal
+host lease and target checks still run; animation is never a capability limit.
+Capture scopes hide only Nexa-owned decoration, wait for a rendered hidden frame,
+and restore it on success, failure or cancellation. Native window capture remains
+cursor-free WGC window capture, not a crop of the composed monitor image.
+
+The native Windows adapter and its interactive fixtures live separately from the
+tool admission/receipt module. The browser interaction script is a standalone
+source file loaded by both the production host and browser regressions.
+
 ## Inspecting a local image
 
 Use `read_file` or `read_files` with `image_mode: "native"` and no line parameters.

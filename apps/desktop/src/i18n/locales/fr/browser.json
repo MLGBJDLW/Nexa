@@ -38,6 +38,8 @@
   "dialogDismissed": "Boîte de dialogue inattendue fermée ; vérifiez la page avant de réessayer",
   "dialogPaused": "Page suspendue après des dialogues répétés. Fermez ou rechargez cet onglet.",
   "recentActions": "Actions récentes",
+  "actionObservedChange": "Changement observé",
+  "conditionMatched": "État demandé atteint",
   "actionVerified": "Vérifié",
   "actionUnchanged": "Page inchangée",
   "actionInProgress": "En cours",
