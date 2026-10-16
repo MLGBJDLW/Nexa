@@ -385,11 +385,11 @@ deadline that renews with activity, not an absolute lifetime limit. Their replay
 barrier still prevents automatic retries after a remote action may have begun.
 
 An omitted outer tool timeout also stays unlimited. MCP `tools/call` requests
-issue a progress token and renew their transport idle deadline only for matching,
-strictly increasing [progress notifications](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress).
-Discovery, connection, write, and inactive-request deadlines remain separate;
-unrelated logs, SSE heartbeats, duplicate progress, and old tokens cannot keep a
-stalled operation alive. MoA presets choose advisor roles, concurrency, and
+have no implicit elapsed-time or idle-progress deadline. Quiet tools can finish
+without emitting progress; explicit caller timeouts, user Stop, connector
+revocation and transport failure still end the wait. Discovery, connection,
+transport writes and cleanup keep separate bounded deadlines. Effectful calls
+are never replayed during recovery. MoA presets choose advisor roles, concurrency, and
 fanout cadence without manufacturing cumulative call or per-answer token caps.
 Explicit caller-supplied advisor budgets remain authoritative.
 

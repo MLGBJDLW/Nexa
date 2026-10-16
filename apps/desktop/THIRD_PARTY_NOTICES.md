@@ -1,5 +1,14 @@
 # Third-party notices
 
+## Bundled command-line utilities
+
+Nexa ships [ripgrep 15.2.0](https://github.com/BurntSushi/ripgrep/releases/tag/15.2.0)
+and [jq 1.8.2](https://github.com/jqlang/jq/releases/tag/jq-1.8.2) for its shell
+environments. SHA-256 pins are recorded in `shared/shell-tools.json`. Windows
+packages include Linux builds for WSL. Their upstream notices, including
+third-party components, ship beside the executables as `rg-LICENSE.txt` and
+`jq-LICENSE.txt`; source copies are in `licenses/rg.txt` and `licenses/jq.txt`.
+
 Nexa Desktop renders selected file-type glyphs through
 [`react-icons`](https://github.com/react-icons/react-icons). Only explicitly
 imported SVG components are included in the production bundle.

@@ -281,6 +281,9 @@ jobs:
           npm run office:pptxgenjs:bundle
           test -f apps/desktop/src-tauri/resources/pptxgenjs-runtime/runtime-manifest.json
 
+      - name: Bundle verified shell utilities
+        run: npm run shell-tools:bundle
+
       - name: Setup .NET for Open XML schema validator
         uses: actions/setup-dotnet@v5
         with:

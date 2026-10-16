@@ -1023,7 +1023,7 @@
   "suggestedModelReplacement": "Substituição sugerida: {model}.",
   "savedModelResolution": "O ID do modelo salvo foi resolvido como {model}."
   ,"shellEnvironment": "Ambiente de comandos"
-  ,"shellEnvironmentDesc": "Usado nos comandos do agente e em novos terminais. As sessões existentes mantêm o shell."
+  ,"shellEnvironmentDesc": "Usado nos comandos do agente e em novos terminais. As sessões existentes mantêm o shell. Inclui rg e jq; instale outras ferramentas de desenvolvimento conforme necessário."
   ,"shellAutomatic": "Automático"
   ,"shellUnavailable": "Indisponível"
   ,"shellRestrictedHint": "O modo restrito executa comandos diretamente no computador. Altere o acesso ao shell nas configurações avançadas para usar um interpretador."

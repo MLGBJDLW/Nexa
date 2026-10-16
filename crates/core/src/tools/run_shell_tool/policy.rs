@@ -81,9 +81,18 @@ fn normalize_invocation(
     Ok((canonical, args.to_vec()))
 }
 
+#[cfg(test)]
 pub(super) fn normalize_run_shell_invocation(
     parsed: &RunShellArgs,
     mode: ShellAccessMode,
+) -> Result<(String, Vec<String>), String> {
+    normalize_run_shell_with_preference(parsed, mode, "default")
+}
+
+pub(super) fn normalize_run_shell_with_preference(
+    parsed: &RunShellArgs,
+    mode: ShellAccessMode,
+    preference: &str,
 ) -> Result<(String, Vec<String>), String> {
     let command = parsed
         .command
@@ -111,6 +120,16 @@ pub(super) fn normalize_run_shell_invocation(
         (Some(command), None) => {
             if !parsed.args.is_empty() {
                 return Err(command_args_mix_error().to_string());
+            }
+            let explicitly_direct = parsed.shell.as_ref().is_some_and(|value| !value.is_null());
+            if !mode.is_restricted()
+                && !explicitly_direct
+                && !matches!(preference, "" | "auto" | "default")
+            {
+                // This script belongs to the selected interpreter. Host argv
+                // parsing cannot judge its comments, quoting or expansions.
+                // Cwd resolution later supplies the real profile invocation.
+                return shell_invocation(CommandShell::Default, command);
             }
             let parts = match split_simple_command_string(command) {
                 Ok(parts) => parts,

@@ -1,5 +1,111 @@
 use super::*;
 
+#[cfg(windows)]
+#[test]
+fn shell_environment_requests_utf8_wsl_diagnostics() {
+    // WSL host diagnostics otherwise mix UTF-16 with the Linux child's UTF-8.
+    let env = build_env_from([(OsString::from("WSL_UTF8"), OsString::from("0"))]);
+    assert_eq!(
+        env.iter()
+            .rev()
+            .find(|(key, _)| key == "WSL_UTF8")
+            .unwrap()
+            .1,
+        "1"
+    );
+}
+
+#[tokio::test]
+async fn selected_bash_parses_its_own_comments_and_quoting() {
+    if crate::shell_environment::resolve_profile("bash").is_err() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db = db_with_source(dir.path());
+    let mut config = db.load_app_config().unwrap();
+    config.shell_access_mode = ShellAccessMode::Open;
+    config.default_shell = "bash".into();
+    db.save_app_config(&config).unwrap();
+    let arguments = json!({"command":"printf '%s' 'literal value' # don't reinterpret this quote", "cwd":dir.path()}).to_string();
+    let result = RunShellTool
+        .execute(crate::tools::ToolExecutionContext::new(
+            "bash-comment",
+            &arguments,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.contains("literal value"));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+#[ignore = "requires staged shell tools, Git Bash and an installed WSL distribution"]
+async fn native_bundled_tools_work_in_git_bash_and_wsl() {
+    let resources =
+        std::env::var_os("NEXA_TEST_SHELL_TOOLS_RESOURCES").expect("set staged resource directory");
+    crate::shell_environment::bundled_tools::configure(Path::new(&resources))
+        .unwrap()
+        .expect("bundle must be staged");
+    let discovery = crate::shell_environment::discover_shells().await;
+    let wsl = discovery
+        .profiles
+        .iter()
+        .find(|profile| profile.kind == "wsl")
+        .expect("ready WSL distribution");
+    let directory = tempfile::Builder::new()
+        .prefix("nexa's shell 中文 ")
+        .tempdir()
+        .unwrap();
+    let db = db_with_source(directory.path());
+    for preference in ["bash", &wsl.id] {
+        let mut config = db.load_app_config().unwrap();
+        config.shell_access_mode = ShellAccessMode::Open;
+        config.default_shell = preference.into();
+        db.save_app_config(&config).unwrap();
+        let script = r#"command -v rg
+command -v jq
+printf '%s\n' '{"value":41}' | jq -r '.value + 1'
+printf '%s\n' '中文 shell tools' | rg -o '中文'
+printf '%s\n' 'BASH_COMMENT_OK' # don't treat this quote as host argv"#;
+        let arguments =
+            json!({"command":script,"cwd":directory.path(),"timeout_secs":15,"stdin":""})
+                .to_string();
+        let result = RunShellTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "bundled-tools",
+                &arguments,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error, "{preference}: {}", result.content);
+        for expected in ["shell-tools", "42", "中文", "BASH_COMMENT_OK"] {
+            assert!(
+                result.content.contains(expected),
+                "{preference}: missing {expected}: {}",
+                result.content
+            );
+        }
+        assert!(
+            !result.content.contains('\0'),
+            "WSL mixed encodings: {}",
+            result.content
+        );
+        if preference.starts_with("wsl:") {
+            assert!(
+                result.content.contains("linux-x64/rg")
+                    || result.content.contains("linux-arm64/rg"),
+                "WSL used a host executable: {}",
+                result.content
+            );
+        }
+    }
+}
+
 #[test]
 fn shell_parser_rejects_arguments_from_other_tools() {
     for arguments in [
@@ -117,6 +223,11 @@ async fn native_wsl_selected_shell_maps_cwd_and_stops_linux_children() {
     assert!(!result.is_error, "{}", result.content);
     assert!(result.content.contains("NEXA_WSL_OK"));
     assert!(result.content.contains("nexa wsl 中文"));
+    assert!(
+        !result.content.contains('\0'),
+        "WSL diagnostics were decoded as UTF-8 without requesting UTF-8 output: {}",
+        result.content
+    );
     assert!(result.artifacts.unwrap()["execution"]["program"]
         .as_str()
         .unwrap()

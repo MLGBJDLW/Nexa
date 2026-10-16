@@ -1023,7 +1023,7 @@
   "suggestedModelReplacement": "Suggested replacement: {model}.",
   "savedModelResolution": "Saved model ID resolved to {model}."
   ,"shellEnvironment": "Command environment"
-  ,"shellEnvironmentDesc": "Used for agent command strings and new terminals. Existing sessions keep their shell."
+  ,"shellEnvironmentDesc": "Used for agent command strings and new terminals. Existing sessions keep their shell. Includes rg and jq; install other development tools as needed."
   ,"shellAutomatic": "Automatic"
   ,"shellUnavailable": "Unavailable"
   ,"shellRestrictedHint": "Restricted mode keeps direct commands on the host. Change shell access in Advanced to allow shell execution."

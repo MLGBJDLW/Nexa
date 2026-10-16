@@ -41,6 +41,7 @@ struct TerminalSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Arc<Mutex<Box<dyn ChildKiller + Send + Sync>>>,
     shell: String,
+    shell_kind: String,
     cwd: String,
     process_id: Option<u32>,
     conversation_id: Option<String>,
@@ -68,6 +69,9 @@ pub struct TerminalStartInput {
 pub struct TerminalSessionInfo {
     pub id: String,
     pub shell: String,
+    /// Runtime interpreter identity, independent from the translated UI label.
+    #[serde(skip)]
+    pub(crate) shell_kind: String,
     pub cwd: String,
     pub process_id: Option<u32>,
     pub conversation_id: Option<String>,
@@ -160,14 +164,7 @@ pub fn terminal_start_session_cmd(
     let (args, wsl) = nexa_core::shell_environment::wsl_process::prepare(&program, &args)?;
     let wsl = wsl.map(Arc::new);
     let shell_label = resolved_shell_label(&profile.label, &program);
-    let bootstrap = shell_integration_bootstrap(
-        if profile.kind == "wsl" {
-            "Bash"
-        } else {
-            &shell_label
-        },
-        &program,
-    );
+    let bootstrap = shell_integration_bootstrap(&profile.kind);
     let mut command = CommandBuilder::new(&program);
     command.args(&args);
     start_terminal_process(
@@ -178,6 +175,7 @@ pub fn terminal_start_session_cmd(
             cwd,
             size,
             shell_label,
+            shell_kind: profile.kind,
             bootstrap,
             conversation_id,
             workspace_lease,
@@ -191,6 +189,7 @@ struct TerminalProcess {
     cwd: PathBuf,
     size: PtySize,
     shell_label: String,
+    shell_kind: String,
     bootstrap: Option<String>,
     conversation_id: Option<String>,
     workspace_lease: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
@@ -229,6 +228,7 @@ pub(crate) fn start_external_login(
             command,
             cwd: PathBuf::from(cwd),
             shell_label: label,
+            shell_kind: "external-agent".into(),
             size: PtySize {
                 rows: 24,
                 cols: 100,
@@ -253,6 +253,7 @@ fn start_terminal_process(
         cwd,
         size,
         shell_label,
+        shell_kind,
         bootstrap,
         conversation_id,
         workspace_lease,
@@ -268,6 +269,8 @@ fn start_terminal_process(
         command.env("COLORTERM", "truecolor");
         command.env("TERM_PROGRAM", "Nexa");
         command.env("NEXA_TERMINAL", "1");
+        #[cfg(windows)]
+        command.env("WSL_UTF8", "1");
         let child = match pair.slave.spawn_command(command) {
             Ok(child) => child,
             Err(err) => {
@@ -301,6 +304,7 @@ fn start_terminal_process(
             writer: Arc::new(Mutex::new(writer)),
             killer: Arc::new(Mutex::new(child.clone_killer())),
             shell: shell_label.clone(),
+            shell_kind: shell_kind.clone(),
             cwd: cwd.display().to_string(),
             process_id,
             conversation_id: conversation_id.clone(),
@@ -341,6 +345,7 @@ fn start_terminal_process(
         Ok(TerminalSessionInfo {
             id: session_id,
             shell: shell_label,
+            shell_kind,
             cwd: cwd.display().to_string(),
             process_id,
             conversation_id,
@@ -722,6 +727,7 @@ fn session_info(id: &str, session: &TerminalSession) -> TerminalSessionInfo {
     TerminalSessionInfo {
         id: id.to_string(),
         shell: session.shell.clone(),
+        shell_kind: session.shell_kind.clone(),
         cwd: session.cwd.clone(),
         process_id: session.process_id,
         conversation_id: session.conversation_id.clone(),
@@ -836,42 +842,37 @@ fn spawn_terminal_waiter(
     });
 }
 
-fn shell_integration_bootstrap(shell: &str, program: &str) -> Option<String> {
-    if shell.contains("PowerShell") {
+fn shell_integration_bootstrap(shell_kind: &str) -> Option<String> {
+    if matches!(shell_kind, "powershell" | "pwsh") {
         return Some(
             "$global:NexaOriginalPrompt=${function:prompt}; function global:prompt { $nexaSucceeded=$?; $nexaExit=if ($nexaSucceeded) { 0 } elseif ($null -ne $global:LASTEXITCODE -and $global:LASTEXITCODE -ne 0) { $global:LASTEXITCODE } else { 1 }; $nexaEsc=[char]27; [Console]::Write(\"$nexaEsc]633;D;$nexaExit`a$nexaEsc]633;P;Cwd=$($PWD.Path)`a$nexaEsc]633;A`a\"); if ($global:NexaOriginalPrompt) { & $global:NexaOriginalPrompt } else { \"PS $($PWD.Path)> \" } }\r"
                 .to_string(),
         );
     }
-    let program_name = std::path::Path::new(program)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(program)
-        .trim_end_matches(".exe");
-    if shell == "Zsh" || program_name == "zsh" {
+    let tools = nexa_core::shell_environment::bundled_tools::posix_bootstrap(shell_kind);
+    if shell_kind == "zsh" {
         return Some(
-            r#"autoload -Uz add-zsh-hook
+            tools
+                + r#"autoload -Uz add-zsh-hook
 function __nexa_precmd { local __nexa_exit=$?; printf '\033]633;D;%s\007\033]633;P;Cwd=%s\007\033]633;A\007' "$__nexa_exit" "$PWD" }
 add-zsh-hook precmd __nexa_precmd"#
-                .to_string()
                 + "\n",
         );
     }
-    if matches!(shell, "Bash" | "Git Bash") || program_name == "bash" {
+    if matches!(shell_kind, "bash" | "wsl") {
         return Some(
-            r#"function __nexa_precmd { local __nexa_exit=$?; printf '\033]633;D;%s\007\033]633;P;Cwd=%s\007\033]633;A\007' "$__nexa_exit" "$PWD"; }
+            tools
+                + r#"function __nexa_precmd { local __nexa_exit=$?; printf '\033]633;D;%s\007\033]633;P;Cwd=%s\007\033]633;A\007' "$__nexa_exit" "$PWD"; }
 if declare -p PROMPT_COMMAND 2>/dev/null | grep -q 'declare -a'; then
   PROMPT_COMMAND=(__nexa_precmd "${PROMPT_COMMAND[@]}")
 elif [ -n "${PROMPT_COMMAND:-}" ]; then
   PROMPT_COMMAND="__nexa_precmd;${PROMPT_COMMAND}"
 else
   PROMPT_COMMAND=__nexa_precmd
-fi"#
-                .to_string()
-                + "\n",
+fi"# + "\n",
         );
     }
-    None
+    (!tools.is_empty()).then_some(tools)
 }
 
 fn resolved_shell_label(label: &str, program: &str) -> String {
@@ -988,15 +989,15 @@ mod tests {
 
     #[test]
     fn shell_integration_uses_native_hooks_and_current_command_status() {
-        let zsh = shell_integration_bootstrap("Default Shell", "/bin/zsh").unwrap();
+        let zsh = shell_integration_bootstrap("zsh").unwrap();
         assert!(zsh.contains("add-zsh-hook precmd __nexa_precmd"));
         assert!(!zsh.contains("PROMPT_COMMAND"));
 
-        let bash = shell_integration_bootstrap("Bash", "/bin/bash").unwrap();
+        let bash = shell_integration_bootstrap("bash").unwrap();
         assert!(bash.contains("PROMPT_COMMAND=(__nexa_precmd"));
         assert!(bash.contains("${PROMPT_COMMAND[@]}"));
 
-        let powershell = shell_integration_bootstrap("PowerShell", "pwsh.exe").unwrap();
+        let powershell = shell_integration_bootstrap("pwsh").unwrap();
         assert!(powershell.contains("$nexaSucceeded=$?"));
         assert!(powershell.contains("$global:LASTEXITCODE"));
 

@@ -2,6 +2,7 @@
 //! Saved identifiers are preferences, never executable paths or shell fragments.
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+pub mod bundled_tools;
 pub mod wsl_process;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -196,7 +197,10 @@ pub async fn discover_shells() -> ShellDiscovery {
     #[cfg(windows)]
     if let Some(program) = find_program("wsl") {
         let mut command = tokio::process::Command::new(&program);
-        command.args(["--list", "--quiet"]).kill_on_drop(true);
+        command
+            .args(["--list", "--quiet"])
+            .env("WSL_UTF8", "1")
+            .kill_on_drop(true);
         crate::background_process::configure_tokio_background(&mut command);
         match tokio::time::timeout(std::time::Duration::from_secs(4), command.output()).await {
             Ok(Ok(output)) if output.status.success() => {
@@ -206,7 +210,7 @@ pub async fn discover_shells() -> ShellDiscovery {
                     let program = program.clone();
                     async move {
                         let mut probe = tokio::process::Command::new(&program);
-                        probe.args(["--distribution", &distribution, "--exec", "bash", "-c", "command -v setsid >/dev/null"])
+                        probe.env("WSL_UTF8", "1").args(["--distribution", &distribution, "--exec", "bash", "-c", "command -v setsid >/dev/null"])
                             .kill_on_drop(true).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
                         crate::background_process::configure_tokio_background(&mut probe);
                         let ready = matches!(tokio::time::timeout(std::time::Duration::from_secs(8), probe.status()).await, Ok(Ok(status)) if status.success());
@@ -264,6 +268,9 @@ impl ShellProfile {
         command: Option<&str>,
         cwd: &Path,
     ) -> Result<(String, Vec<String>), String> {
+        let bootstrap = bundled_tools::posix_bootstrap(&self.kind);
+        let script = command.map(|command| format!("{bootstrap}{command}"));
+        let command = script.as_deref();
         let args: Vec<String> = match self.kind.as_str() {
             "wsl" => {
                 // wsl --cd accepts an absolute Windows path and honours distro
@@ -314,7 +321,7 @@ impl ShellProfile {
 }
 
 pub fn agent_guidance(preference: &str, restricted: bool) -> String {
-    format!("## Command environment\nHost OS: {}. Saved shell preference: {}. {} Use run_shell command for the selected shell (including WSL Bash); cwd is always an existing host path and is mapped by the runtime. Inside a WSL command use Linux paths and installed Linux tools. program plus args remains exact host argv; explicit shell overrides the preference. Do not assume Windows executables or dependencies exist inside WSL. Existing terminal sessions retain their original environment.", std::env::consts::OS, serde_json::to_string(preference).unwrap_or_default(), if restricted { "Restricted mode keeps native host argv and does not activate shell execution." } else { "The preference applies to command strings and new terminals." })
+    format!("## Command environment\nHost OS: {}. Saved shell preference: {}. {} Use run_shell command for the selected shell (including WSL Bash); cwd is always an existing host path and is mapped by the runtime. Inside a WSL command use Linux paths and installed Linux tools. Nexa release builds provide rg and jq in the selected shell, including native Linux binaries for WSL. Other development tools such as Python and Node are installed separately; check their availability before use. program plus args remains exact host argv; explicit shell overrides the preference. Do not assume Windows executables or dependencies exist inside WSL. Existing terminal sessions retain their original environment.", std::env::consts::OS, serde_json::to_string(preference).unwrap_or_default(), if restricted { "Restricted mode keeps native host argv and does not activate shell execution." } else { "The preference applies to command strings and new terminals." })
 }
 
 #[cfg(test)]

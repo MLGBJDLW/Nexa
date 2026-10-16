@@ -1023,7 +1023,7 @@
   "suggestedModelReplacement": "Empfohlener Ersatz: {model}.",
   "savedModelResolution": "Die gespeicherte Modell-ID wurde als {model} aufgelöst."
   ,"shellEnvironment": "Befehlsumgebung"
-  ,"shellEnvironmentDesc": "Gilt für Agent-Befehle und neue Terminals. Bestehende Sitzungen behalten ihre Shell."
+  ,"shellEnvironmentDesc": "Gilt für Agent-Befehle und neue Terminals. Bestehende Sitzungen behalten ihre Shell. rg und jq sind enthalten; weitere Entwicklungswerkzeuge können bei Bedarf installiert werden."
   ,"shellAutomatic": "Automatisch"
   ,"shellUnavailable": "Nicht verfügbar"
   ,"shellRestrictedHint": "Im eingeschränkten Modus werden Befehle direkt auf dem Host ausgeführt. Ändern Sie den Shell-Zugriff unter Erweitert, um eine Shell zu verwenden."
