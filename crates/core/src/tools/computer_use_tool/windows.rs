@@ -1454,7 +1454,7 @@ fn invoke_element(
             "native_checkbox_notification"
         } else {
             commit_tracker.result(commit_tracker.mark())?;
-            commit_tracker.result(
+            commit_tracker.delivered(
                 unsafe { pattern.Toggle() }
                     .map_err(|error| platform_error("toggle UI Automation element", error)),
             )?;
@@ -1482,7 +1482,7 @@ fn invoke_element(
         unsafe { element.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) }
     {
         commit_tracker.result(commit_tracker.mark())?;
-        commit_tracker.result(
+        commit_tracker.delivered(
             unsafe { pattern.Invoke() }
                 .map_err(|error| platform_error("invoke UI Automation element", error)),
         )?;
@@ -1492,7 +1492,7 @@ fn invoke_element(
         element.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
     } {
         commit_tracker.result(commit_tracker.mark())?;
-        commit_tracker.result(
+        commit_tracker.delivered(
             unsafe { pattern.Select() }
                 .map_err(|error| platform_error("select UI Automation element", error)),
         )?;
@@ -1508,7 +1508,7 @@ fn invoke_element(
         )?;
         if state == ExpandCollapseState_Expanded {
             commit_tracker.result(commit_tracker.mark())?;
-            commit_tracker.result(
+            commit_tracker.delivered(
                 unsafe { pattern.Collapse() }
                     .map_err(|error| platform_error("collapse UI Automation element", error)),
             )?;
@@ -1517,7 +1517,7 @@ fn invoke_element(
         if state == ExpandCollapseState_Collapsed || state == ExpandCollapseState_PartiallyExpanded
         {
             commit_tracker.result(commit_tracker.mark())?;
-            commit_tracker.result(
+            commit_tracker.delivered(
                 unsafe { pattern.Expand() }
                     .map_err(|error| platform_error("expand UI Automation element", error)),
             )?;
@@ -1638,6 +1638,9 @@ fn set_element_value(
                 Some(&mut retained),
             )
         };
+        if delivered.0 != 0 {
+            commit_tracker.interaction.confirm_input_sent();
+        }
         commit_tracker.result(if delivered.0 != 0 && retained != 0 {
             Ok(())
         } else {
@@ -1647,7 +1650,7 @@ fn set_element_value(
         })?;
         "native_edit_value"
     } else {
-        commit_tracker.result(
+        commit_tracker.delivered(
             unsafe { pattern.SetValue(&BSTR::from(value)) }
                 .map_err(|error| platform_error("set UI Automation value", error)),
         )?;
@@ -1744,7 +1747,7 @@ fn native_checkbox_toggle(
     commit_tracker.result(commit_tracker.mark())?;
     if automatic {
         let next = (state + 1) % if three_state { 3 } else { 2 };
-        commit_tracker.result(native_checkbox_message(button, BM_SETCHECK, next, 0))?;
+        commit_tracker.delivered(native_checkbox_message(button, BM_SETCHECK, next, 0))?;
         let retained = commit_tracker.result(native_checkbox_message(button, BM_GETCHECK, 0, 0))?;
         if retained != next {
             return Err(commit_tracker.failure(invalid(
@@ -1754,7 +1757,7 @@ fn native_checkbox_toggle(
     }
     // The exact parent receives control ID + HWND, just as for a real
     // checkbox click. A state-only BM_SETCHECK is never a successful action.
-    commit_tracker.result(native_checkbox_message(
+    commit_tracker.delivered(native_checkbox_message(
         parent,
         WM_COMMAND,
         control_id as usize | ((BN_CLICKED as usize) << 16),
@@ -1827,6 +1830,13 @@ fn focus_window(
             commit_tracker.mark()?;
             let _ = ShowWindow(handle, SW_RESTORE);
             thread::sleep(INPUT_SETTLE);
+            if !IsIconic(handle).as_bool() {
+                commit_tracker.interaction.confirm_input_sent();
+            } else {
+                return Err(invalid(
+                    "Window restoration was not confirmed; observe before retrying.",
+                ));
+            }
         }
         if GetForegroundWindow() != handle {
             commit_tracker.mark()?;
@@ -1836,6 +1846,7 @@ fn focus_window(
                     window.id
                 )));
             }
+            commit_tracker.interaction.confirm_input_sent();
         }
     }
     thread::sleep(INPUT_SETTLE);
@@ -1922,7 +1933,48 @@ fn ensure_target_patch_fresh(
     Ok(())
 }
 
-fn move_cursor_frame(point: (i32, i32), context: &str) -> Result<(), CoreError> {
+fn record_input_dispatch(tracker: &ControlCommitTracker, dispatch: impl FnOnce() -> u32) -> u32 {
+    let sent = dispatch();
+    if sent > 0 {
+        tracker.interaction.confirm_input_sent();
+    }
+    sent
+}
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::*;
+    use crate::observed_interaction::{InputDelivery, ObservedEvidence};
+
+    #[test]
+    fn computer_partial_dispatch_survives_later_failure_and_zero_acceptance() {
+        let tracker = ControlCommitTracker::default();
+        tracker.mark().unwrap();
+        assert_eq!(record_input_dispatch(&tracker, || 0), 0);
+        assert_eq!(
+            tracker.interaction.failure().delivery,
+            InputDelivery::MayHaveOccurred
+        );
+        assert_eq!(record_input_dispatch(&tracker, || 1), 1);
+        assert_eq!(record_input_dispatch(&tracker, || 0), 0);
+        let failure = tracker.failure(invalid("remaining input or readback failed"));
+        let receipt = failure.interaction(&tracker.interaction);
+        assert_eq!(receipt.delivery, InputDelivery::InputSent);
+        assert_eq!(receipt.evidence, ObservedEvidence::Unavailable);
+    }
+}
+
+fn send_input_tracked(inputs: &[INPUT], tracker: &ControlCommitTracker) -> u32 {
+    record_input_dispatch(tracker, || unsafe {
+        SendInput(inputs, std::mem::size_of::<INPUT>() as i32)
+    })
+}
+
+fn move_cursor_frame(
+    point: (i32, i32),
+    context: &str,
+    tracker: &ControlCommitTracker,
+) -> Result<(), CoreError> {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
     };
@@ -1949,7 +2001,7 @@ fn move_cursor_frame(point: (i32, i32), context: &str) -> Result<(), CoreError> 
             },
         },
     };
-    if unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) } != 1 {
+    if send_input_tracked(&[input], tracker) != 1 {
         return Err(invalid(format!(
             "Windows refused pointer motion during {context}"
         )));
@@ -2020,7 +2072,7 @@ fn approach_pointer(
         if screen.0.is_null() && index + 1 < points.len() {
             continue;
         }
-        move_cursor_frame(next, context)?;
+        move_cursor_frame(next, context, tracker)?;
         previous = next;
     }
     tracker.ensure_running()
@@ -2231,13 +2283,13 @@ fn ensure_mouse_button_not_physically_pressed(button: MouseButton) -> Result<(),
     Ok(())
 }
 
-fn send_mouse_click(button: MouseButton) -> Result<(), CoreError> {
+fn send_mouse_click(button: MouseButton, tracker: &ControlCommitTracker) -> Result<(), CoreError> {
     let (down, up) = mouse_button_flags(button);
     let inputs = [mouse_input(down, 0), mouse_input(up, 0)];
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) } as usize;
+    let sent = send_input_tracked(&inputs, tracker) as usize;
     if sent != inputs.len() {
         let emergency = [mouse_input(up, 0)];
-        let released = unsafe { SendInput(&emergency, std::mem::size_of::<INPUT>() as i32) };
+        let released = send_input_tracked(&emergency, tracker);
         return Err(CoreError::Internal(format!(
             "Windows accepted {sent} of {} mouse-click events; emergency release accepted {released}. Mouse effect is uncertain.",
             inputs.len()
@@ -2246,10 +2298,14 @@ fn send_mouse_click(button: MouseButton) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn send_mouse_button(button: MouseButton, down: bool) -> Result<(), CoreError> {
+fn send_mouse_button(
+    button: MouseButton,
+    down: bool,
+    tracker: &ControlCommitTracker,
+) -> Result<(), CoreError> {
     let (down_flag, up_flag) = mouse_button_flags(button);
     let inputs = [mouse_input(if down { down_flag } else { up_flag }, 0)];
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    let sent = send_input_tracked(&inputs, tracker);
     if sent != 1 {
         return Err(CoreError::Internal(format!(
             "Windows rejected an injected mouse {} event; effect is uncertain.",
@@ -2259,7 +2315,11 @@ fn send_mouse_button(button: MouseButton, down: bool) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn send_scroll_steps(horizontal: bool, steps: i32) -> Result<(), CoreError> {
+fn send_scroll_steps(
+    horizontal: bool,
+    steps: i32,
+    tracker: &ControlCommitTracker,
+) -> Result<(), CoreError> {
     let delta = if horizontal {
         steps.saturating_mul(WHEEL_DELTA as i32)
     } else {
@@ -2273,7 +2333,7 @@ fn send_scroll_steps(horizontal: bool, steps: i32) -> Result<(), CoreError> {
         },
         delta as u32,
     )];
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    let sent = send_input_tracked(&inputs, tracker);
     if sent != 1 {
         return Err(CoreError::Internal(
             "Windows rejected an injected scroll event; effect is uncertain.".to_string(),
@@ -2372,7 +2432,7 @@ fn virtual_key_input(key: VIRTUAL_KEY, key_up: bool) -> INPUT {
     }
 }
 
-fn send_key_sequence(sequence: &str) -> Result<(), CoreError> {
+fn send_key_sequence(sequence: &str, tracker: &ControlCommitTracker) -> Result<(), CoreError> {
     let parts: Vec<&str> = sequence
         .split('+')
         .map(str::trim)
@@ -2402,15 +2462,14 @@ fn send_key_sequence(sequence: &str) -> Result<(), CoreError> {
     for key in keys.iter().rev() {
         inputs.push(virtual_key_input(*key, true));
     }
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) } as usize;
+    let sent = send_input_tracked(&inputs, tracker) as usize;
     if sent != inputs.len() {
         let emergency_releases = keys
             .iter()
             .rev()
             .map(|key| virtual_key_input(*key, true))
             .collect::<Vec<_>>();
-        let released =
-            unsafe { SendInput(&emergency_releases, std::mem::size_of::<INPUT>() as i32) } as usize;
+        let released = send_input_tracked(&emergency_releases, tracker) as usize;
         return Err(CoreError::Internal(format!(
             "Windows accepted {sent} of {} shortcut events; emergency release accepted {released} of {}. Action effect is uncertain.",
             inputs.len(),
@@ -2494,6 +2553,7 @@ fn type_text_checked(
     text: &str,
     window: &WindowSnapshot,
     target: Option<&LiveElement>,
+    tracker: &ControlCommitTracker,
 ) -> Result<(), CoreError> {
     let operations = text_input_operations(text);
     ensure_target_foreground(window)?;
@@ -2547,7 +2607,7 @@ fn type_text_checked(
     // Submit the complete approved text/key sequence in one SendInput
     // batch. There is no inter-chunk window in which human keystrokes can
     // be silently mixed into a still-running Agent action.
-    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) } as usize;
+    let sent = send_input_tracked(&inputs, tracker) as usize;
     if sent != inputs.len() {
         let emergency_releases = control_keys
             .iter()
@@ -2557,7 +2617,7 @@ fn type_text_checked(
         let released = if emergency_releases.is_empty() {
             0
         } else {
-            unsafe { SendInput(&emergency_releases, std::mem::size_of::<INPUT>() as i32) }
+            send_input_tracked(&emergency_releases, tracker)
         };
         return Err(CoreError::Internal(format!(
             "Windows accepted {sent} of {} text input events; emergency release accepted {released}. Action effect is uncertain.",
@@ -2584,7 +2644,7 @@ fn drag_mouse(
         ensure_point_matches_live_element(live, from)?;
     }
     ensure_mouse_button_not_physically_pressed(MouseButton::Left)?;
-    send_mouse_button(MouseButton::Left, true)?;
+    send_mouse_button(MouseButton::Left, true, tracker)?;
     let mut movement_error = None;
     let mut previous = from;
     let frames = duration_ms.div_ceil(16).clamp(7, 188);
@@ -2617,7 +2677,7 @@ fn drag_mouse(
             )));
             break;
         }
-        if let Err(error) = move_cursor_frame(next, "drag mouse") {
+        if let Err(error) = move_cursor_frame(next, "drag mouse", tracker) {
             movement_error = Some(CoreError::Internal(format!(
                 "Drag cursor movement failed after button press; action effect is uncertain: {error}"
             )));
@@ -2641,10 +2701,10 @@ fn drag_mouse(
             }
         }
     }
-    let mut release = send_mouse_button(MouseButton::Left, false);
+    let mut release = send_mouse_button(MouseButton::Left, false, tracker);
     if release.is_err() {
         thread::sleep(Duration::from_millis(5));
-        release = send_mouse_button(MouseButton::Left, false).map_err(|error| {
+        release = send_mouse_button(MouseButton::Left, false, tracker).map_err(|error| {
             CoreError::Internal(format!(
                 "Failed twice to release the injected drag button. The mouse button may remain pressed; action effect is uncertain: {error}"
             ))
@@ -3033,7 +3093,7 @@ pub(super) fn control_window(
                     return Err(ControlFailure::effect_may_have_occurred(error));
                 }
                 commit_tracker.result(commit_tracker.mark())?;
-                commit_tracker.result(send_mouse_click(button))?;
+                commit_tracker.result(send_mouse_click(button, commit_tracker))?;
                 if index + 1 < count {
                     thread::sleep(Duration::from_millis(75));
                     commit_tracker.result_as(PreCommitFailureKind::UserTakeover, ensure_target_foreground(&current).map_err(|error| {
@@ -3191,7 +3251,7 @@ pub(super) fn control_window(
             commit_tracker.result(commit_tracker.ensure_running())?;
             if scroll_y != 0 {
                 commit_tracker.result(commit_tracker.mark())?;
-                commit_tracker.result(send_scroll_steps(false, scroll_y))?;
+                commit_tracker.result(send_scroll_steps(false, scroll_y, commit_tracker))?;
             }
             if scroll_x != 0 {
                 commit_tracker.result(commit_tracker.ensure_running())?;
@@ -3220,7 +3280,7 @@ pub(super) fn control_window(
                     }
                 }
                 commit_tracker.result(commit_tracker.mark())?;
-                commit_tracker.result(send_scroll_steps(true, scroll_x))?;
+                commit_tracker.result(send_scroll_steps(true, scroll_x, commit_tracker))?;
             }
             format!("Scrolled inside window {}.", current.id)
         }
@@ -3261,7 +3321,7 @@ pub(super) fn control_window(
                     bounds.y + (bounds.height / 2) as i32,
                 ));
                 commit_tracker.result(commit_tracker.mark())?;
-                commit_tracker.result(
+                commit_tracker.delivered(
                     unsafe { live.element.SetFocus() }
                         .map_err(|error| platform_error("focus semantic text target", error)),
                 )?;
@@ -3276,7 +3336,12 @@ pub(super) fn control_window(
             )?;
             let text = args.text.as_deref().expect("validated text");
             commit_tracker.result(commit_tracker.mark())?;
-            commit_tracker.result(type_text_checked(text, &current, targeted_element.as_ref()))?;
+            commit_tracker.result(type_text_checked(
+                text,
+                &current,
+                targeted_element.as_ref(),
+                commit_tracker,
+            ))?;
             drop(targeted_element);
             format!(
                 "Typed {} character(s) into window {}.",
@@ -3306,7 +3371,7 @@ pub(super) fn control_window(
                 .as_deref()
                 .expect("validated key_sequence");
             commit_tracker.result(commit_tracker.mark())?;
-            commit_tracker.result(send_key_sequence(sequence))?;
+            commit_tracker.result(send_key_sequence(sequence, commit_tracker))?;
             format!("Sent an approved key sequence to window {}.", current.id)
         }
     };
@@ -3316,9 +3381,6 @@ pub(super) fn control_window(
     } else {
         None
     };
-    if commit_tracker.effect_may_have_occurred() {
-        commit_tracker.interaction.confirm_input_sent();
-    }
     commit_tracker.progress(crate::observed_interaction::InteractionPhase::Waiting);
     let settle_started = std::time::Instant::now();
     let deadline = settle_started + POST_ACTION_STATE_BUDGET;
@@ -3391,8 +3453,13 @@ pub(super) fn control_window(
         "window_closed"
     } else if state_changed {
         "observed_change"
-    } else if capture.is_some() {
+    } else if capture.is_some()
+        && commit_tracker.interaction.failure().delivery
+            == crate::observed_interaction::InputDelivery::InputSent
+    {
         "delivered_unverified"
+    } else if difference.is_some() {
+        "observed_unchanged"
     } else {
         "unverifiable"
     };

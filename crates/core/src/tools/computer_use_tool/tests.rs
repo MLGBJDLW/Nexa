@@ -124,6 +124,42 @@ fn computer_receipt_requires_comparable_evidence_to_claim_unchanged() {
     );
 }
 
+#[test]
+fn computer_delivery_fields_agree_after_noop_and_partial_semantic_failure() {
+    use crate::observed_interaction::{ObservedEvidence, RequestedCondition};
+    let tracker = ControlCommitTracker::default();
+    tracker.mark_observation_consumed();
+    let noop = tracker.interaction.completed(
+        ObservedEvidence::Unchanged,
+        RequestedCondition::NotRequested,
+    );
+    let fields = with_control_delivery(serde_json::json!({}), noop);
+    assert_eq!(fields["interaction"]["delivery"], "notCommitted");
+    assert_eq!(fields["inputDelivered"], false);
+    assert_eq!(fields["deliveryStatus"], "not_committed");
+    assert_eq!(fields["effectMayHaveOccurred"], false);
+
+    tracker.mark().unwrap();
+    assert!(tracker
+        .delivered::<()>(Err(CoreError::Internal("provider failed".into())))
+        .is_err());
+    let uncertain = with_control_delivery(serde_json::json!({}), tracker.interaction.failure());
+    assert!(uncertain["inputDelivered"].is_null());
+    assert_eq!(uncertain["deliveryStatus"], "uncertain");
+    tracker.delivered(Ok(())).unwrap();
+    let failure = tracker
+        .result::<()>(Err(CoreError::Internal("readback failed".into())))
+        .unwrap_err();
+    let sent = with_control_delivery(
+        serde_json::json!({}),
+        failure.interaction(&tracker.interaction),
+    );
+    assert_eq!(sent["interaction"]["delivery"], "inputSent");
+    assert_eq!(sent["inputDelivered"], true);
+    assert_eq!(sent["deliveryStatus"], "delivered");
+    assert_eq!(sent["interaction"]["evidence"], "unavailable");
+}
+
 #[tokio::test]
 async fn computer_wait_change_is_proved_by_the_returned_frame() {
     let mut probes = 0;
@@ -1759,6 +1795,44 @@ fn windows_control_smoke(
         };
         if !background_only {
             original_cursor = Some(activate_isolated_window(&target)?);
+            let focus: ControlArgs = serde_json::from_value(serde_json::json!({
+                "action":"focus_window", "window_id":target.id,
+                "observation_id":uuid::Uuid::new_v4().to_string(),
+            }))
+            .map_err(|error| error.to_string())?;
+            let observed = ObservedWindow {
+                snapshot: target.clone(),
+                image_width: None,
+                image_height: None,
+                native_image_width: None,
+                native_image_height: None,
+                screenshot_signature: None,
+                screenshot_guard: None,
+                elements: Vec::new(),
+            };
+            let tracker = ControlCommitTracker::default();
+            let outcome = platform::control_window(
+                ControlAction::FocusWindow,
+                &focus,
+                &observed,
+                CaptureOptions::from_control(&focus).map_err(|error| error.to_string())?,
+                &tracker,
+            )
+            .map_err(|error| format!("focus no-op failed: {error:?}"))?;
+            let receipt = with_control_delivery(
+                serde_json::json!({}),
+                outcome.interaction(&tracker.interaction),
+            );
+            if receipt["inputDelivered"] != false
+                || receipt["interaction"]["delivery"] != "notCommitted"
+            {
+                return Err(format!(
+                    "already-focused window claimed dispatched input: {receipt}"
+                ));
+            }
+            eprintln!(
+                "Already-focused native window: no dispatched input in shared and legacy receipts"
+            );
         }
         {
             use base64::Engine;
@@ -2215,12 +2289,13 @@ fn windows_control_smoke(
                     )
                 };
             }
+            let click_tracker = ControlCommitTracker::default();
             let clicked = platform::control_window(
                 ControlAction::Click,
                 &click,
                 &observed,
                 CaptureOptions::from_control(&click).map_err(|error| error.to_string())?,
-                &ControlCommitTracker::default(),
+                &click_tracker,
             );
             sampling.store(false, AtomicOrdering::Release);
             let trajectory = sampler.join().map_err(|_| "pointer sampler failed")?;
@@ -2231,6 +2306,8 @@ fn windows_control_smoke(
                 };
                 if failure.pre_commit_kind != Some(PreCommitFailureKind::ObservationStale)
                     || failure.phase != ControlFailurePhase::EffectMayHaveOccurred
+                    || failure.interaction(&click_tracker.interaction).delivery
+                        != crate::observed_interaction::InputDelivery::InputSent
                     || unsafe { SendMessageW(checkbox, 0x00f0, Some(WPARAM(0)), Some(LPARAM(0))) }.0
                         != 1
                 {
@@ -2240,6 +2317,11 @@ fn windows_control_smoke(
                 return Ok((target.id, last));
             }
             last = clicked.map_err(|error| format!("coordinate click failed: {error:?}"))?;
+            if last.interaction(&click_tracker.interaction).delivery
+                != crate::observed_interaction::InputDelivery::InputSent
+            {
+                return Err("successful coordinate input was not retained in the receipt".into());
+            }
             if trajectory.len() < 4 {
                 return Err(format!(
                     "physical pointer jumped instead of moving through frames: {trajectory:?}"

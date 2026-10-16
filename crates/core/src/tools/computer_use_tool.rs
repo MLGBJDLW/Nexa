@@ -1275,6 +1275,25 @@ impl ControlOutcome {
     }
 }
 
+// Keep legacy fields and the shared receipt on the same dispatch facts.
+fn with_control_delivery(
+    mut data: serde_json::Value,
+    interaction: crate::observed_interaction::InteractionReceipt,
+) -> serde_json::Value {
+    use crate::observed_interaction::InputDelivery;
+    let (delivered, status) = match interaction.delivery {
+        InputDelivery::NotCommitted => (Some(false), "not_committed"),
+        InputDelivery::InputSent => (Some(true), "delivered"),
+        InputDelivery::MayHaveOccurred => (None, "uncertain"),
+    };
+    data["inputDelivered"] = serde_json::json!(delivered);
+    data["deliveryStatus"] = serde_json::json!(status);
+    data["effectMayHaveOccurred"] = serde_json::json!(delivered != Some(false));
+    data["interaction"] =
+        serde_json::to_value(interaction).expect("interaction receipt is serializable");
+    data
+}
+
 #[derive(Debug)]
 struct ModalOwnerHandoff {
     owner: WindowSnapshot,
@@ -1283,6 +1302,7 @@ struct ModalOwnerHandoff {
 
 fn modal_owner_handoff_receipt(
     outcome: &ControlOutcome,
+    interaction: crate::observed_interaction::InteractionReceipt,
     window_id: u64,
     target_identity: &str,
     consumed_observation_id: &str,
@@ -1290,40 +1310,45 @@ fn modal_owner_handoff_receipt(
 ) -> Option<serde_json::Value> {
     let handoff = outcome.modal_owner_handoff.as_ref()?;
     let action_receipt_id = action_receipt_id.filter(|value| !value.is_empty())?;
-    Some(serde_json::json!({
-        "kind": "computerModalOwnerHandoff",
-        "windowId": window_id,
-        "targetIdentity": target_identity,
-        "consumedObservationId": consumed_observation_id,
-        "actionReceiptId": action_receipt_id,
-        "windowExists": false,
-        "inputDelivered": true,
-        "ownerRelationshipVerified": true,
-        "ownerObservedBeforeAction": true,
-        "ownerObservationNotBeforeMs": handoff.observation_not_before_ms,
-        "owner": {
-            "windowId": handoff.owner.id,
-            "targetIdentity": desktop_target_identity(&handoff.owner),
-        },
-    }))
+    Some(with_control_delivery(
+        serde_json::json!({
+            "kind": "computerModalOwnerHandoff",
+            "windowId": window_id,
+            "targetIdentity": target_identity,
+            "consumedObservationId": consumed_observation_id,
+            "actionReceiptId": action_receipt_id,
+            "windowExists": false,
+            "ownerRelationshipVerified": true,
+            "ownerObservedBeforeAction": true,
+            "ownerObservationNotBeforeMs": handoff.observation_not_before_ms,
+            "owner": {
+                "windowId": handoff.owner.id,
+                "targetIdentity": desktop_target_identity(&handoff.owner),
+            },
+        }),
+        interaction,
+    ))
 }
 
 fn terminal_window_receipt(
     outcome: &ControlOutcome,
+    interaction: crate::observed_interaction::InteractionReceipt,
     window_id: u64,
     target_identity: &str,
     action_receipt_id: Option<&str>,
 ) -> Option<serde_json::Value> {
     let action_receipt_id = action_receipt_id.filter(|value| !value.is_empty())?;
     outcome.window_closed.then(|| {
-        serde_json::json!({
-            "kind": "computerWindowClosure",
-            "windowId": window_id,
-            "targetIdentity": target_identity,
-            "actionReceiptId": action_receipt_id,
-            "windowExists": false,
-            "inputDelivered": true,
-        })
+        with_control_delivery(
+            serde_json::json!({
+                "kind": "computerWindowClosure",
+                "windowId": window_id,
+                "targetIdentity": target_identity,
+                "actionReceiptId": action_receipt_id,
+                "windowExists": false,
+            }),
+            interaction,
+        )
     })
 }
 
@@ -1586,6 +1611,13 @@ impl ControlCommitTracker {
 
     fn result<T>(&self, result: Result<T, CoreError>) -> Result<T, ControlFailure> {
         result.map_err(|cause| self.failure(cause))
+    }
+
+    #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
+    fn delivered<T>(&self, result: Result<T, CoreError>) -> Result<T, ControlFailure> {
+        let value = self.result(result)?;
+        self.interaction.confirm_input_sent();
+        Ok(value)
     }
 
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
@@ -3285,28 +3317,24 @@ impl Tool for ComputerControlTool {
                                 runtime.transition(
                                     activity_id,
                                     crate::activity::ActivityState::Completed,
-                                    serde_json::json!({
+                                    with_control_delivery(serde_json::json!({
                                         "stage": "observed",
-                                        "inputDelivered": true,
-                                        "effectMayHaveOccurred": true,
                                         "stateChanged": outcome.state_changed,
                                         "targetIdentity": worker_target_identity,
                                         "windowId": window_id,
                                         "consumedObservationId": worker_consumed_observation_id,
                                         "actionReceiptId": activity_id,
-                                        "interaction": outcome.interaction(&worker_commit_tracker.interaction),
-                                    "inputGuards": super::computer_input::physical_epoch().capabilities(),
+                                        "inputGuards": super::computer_input::physical_epoch().capabilities(),
                                         "targetVerified": outcome.target_verified,
-                                        "deliveryStatus": "delivered",
                                         "effect": outcome.effect,
                                         "terminalWindowReceipt": terminal_window_receipt(
-                                            outcome, window_id, &worker_target_identity, Some(activity_id),
+                                            outcome, outcome.interaction(&worker_commit_tracker.interaction), window_id, &worker_target_identity, Some(activity_id),
                                         ),
                                         "modalOwnerHandoffReceipt": modal_owner_handoff_receipt(
-                                            outcome, window_id, &worker_target_identity,
+                                            outcome, outcome.interaction(&worker_commit_tracker.interaction), window_id, &worker_target_identity,
                                             &worker_consumed_observation_id, Some(activity_id),
                                         ),
-                                    }),
+                                    }), outcome.interaction(&worker_commit_tracker.interaction)),
                                 )
                             }),
                         Err(failure) => {
@@ -3316,25 +3344,18 @@ impl Tool for ComputerControlTool {
                             runtime.transition(
                                 activity_id,
                                 crate::activity::ActivityState::Failed,
-                                serde_json::json!({
+                                with_control_delivery(serde_json::json!({
                                     "stage": if effect_may_have_occurred {
                                         "uncertain"
                                     } else {
                                         "precommit_rejected"
                                     },
-                                    "inputDelivered": if effect_may_have_occurred {
-                                        serde_json::Value::Null
-                                    } else {
-                                        serde_json::Value::Bool(false)
-                                    },
-                                    "effectMayHaveOccurred": effect_may_have_occurred,
                                     "observationConsumed": failure.observation_consumed,
                                     "failureCode": failure_code,
-                                    "interaction": failure.interaction(&worker_commit_tracker.interaction),
                                     "targetIdentity": worker_target_identity,
                                     "windowId": window_id,
                                     "consumedObservationId": worker_consumed_observation_id,
-                                }),
+                                }), failure.interaction(&worker_commit_tracker.interaction)),
                             )
                         }
                     };
@@ -3390,10 +3411,8 @@ impl Tool for ComputerControlTool {
                 "schemaVersion": 2,
                 "action": action.label(),
                 "actionAttempted": true,
-                "inputDelivered": true,
                 "targetVerified": outcome.target_verified,
                 "stateChanged": outcome.state_changed,
-                "deliveryStatus": "delivered",
                 "route": outcome.route,
                 "delivery": outcome.delivery,
                 "effect": outcome.effect,
@@ -3409,12 +3428,11 @@ impl Tool for ComputerControlTool {
                 "cursorPosition": outcome.cursor_position.map(|(x, y)| serde_json::json!({ "x": x, "y": y })),
                 "verification": outcome.verification
             });
-            let mut data = data;
-            data["interaction"] =
-                serde_json::to_value(outcome.interaction(&commit_tracker.interaction))
-                    .expect("interaction receipt is serializable");
+            let interaction = outcome.interaction(&commit_tracker.interaction);
+            let mut data = with_control_delivery(data, interaction);
             if let Some(receipt) = terminal_window_receipt(
                 &outcome,
+                interaction,
                 window_id,
                 &target_identity,
                 activity_id.as_deref(),
@@ -3423,6 +3441,7 @@ impl Tool for ComputerControlTool {
             }
             if let Some(receipt) = modal_owner_handoff_receipt(
                 &outcome,
+                interaction,
                 window_id,
                 &target_identity,
                 &consumed_observation_id,
