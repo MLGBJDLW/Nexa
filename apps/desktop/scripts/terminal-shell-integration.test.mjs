@@ -6,7 +6,7 @@ import { test } from 'node:test';
 // Execute the production bootstrap with both Windows PowerShell 5.1 and
 // PowerShell 7. Source-string assertions cannot detect unsupported escapes.
 const source = readFileSync(new URL('../src-tauri/src/commands/terminal.rs', import.meta.url), 'utf8');
-const literal = source.match(/if shell\.contains\("PowerShell"\)\s*\{\s*return Some\(\s*("(?:\\.|[^"\\])*")/);
+const literal = source.match(/("\$global:NexaOriginalPrompt=(?:\\.|[^"\\])*")/);
 assert.ok(literal, 'production PowerShell integration bootstrap must be found');
 const bootstrap = JSON.parse(literal[1]);
 

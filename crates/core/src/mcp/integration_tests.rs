@@ -25,6 +25,8 @@ pub(super) struct TestPeer {
     content_calls: Arc<StdMutex<Vec<Value>>>,
     pages: Arc<RwLock<HashMap<String, Value>>>,
     list_gate: Arc<RwLock<Option<Arc<tokio::sync::Semaphore>>>>,
+    call_gate: Arc<RwLock<Option<Arc<tokio::sync::Semaphore>>>>,
+    call_started: Arc<tokio::sync::Semaphore>,
     listing_started: Arc<tokio::sync::Semaphore>,
     list_count: Arc<AtomicUsize>,
     notifications: tokio::sync::broadcast::Sender<Value>,
@@ -109,12 +111,16 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
     let recorded_content = Arc::clone(&content_calls);
     let pages = Arc::new(RwLock::new(HashMap::<String, Value>::new()));
     let list_gate = Arc::new(RwLock::new(None::<Arc<tokio::sync::Semaphore>>));
+    let call_gate = Arc::new(RwLock::new(None::<Arc<tokio::sync::Semaphore>>));
+    let call_started = Arc::new(tokio::sync::Semaphore::new(0));
     let listing_started = Arc::new(tokio::sync::Semaphore::new(0));
     let list_count = Arc::new(AtomicUsize::new(0));
     let stream_ready = Arc::new(tokio::sync::Semaphore::new(0));
     let (notifications, _) = tokio::sync::broadcast::channel::<Value>(128);
     let response_pages = Arc::clone(&pages);
     let response_gate = Arc::clone(&list_gate);
+    let response_call_gate = Arc::clone(&call_gate);
+    let response_call_started = Arc::clone(&call_started);
     let response_started = Arc::clone(&listing_started);
     let response_count = Arc::clone(&list_count);
     let response_notifications = notifications.clone();
@@ -130,6 +136,8 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
             let recorded_content = Arc::clone(&recorded_content);
             let response_pages = Arc::clone(&response_pages);
             let response_gate = Arc::clone(&response_gate);
+            let response_call_gate = Arc::clone(&response_call_gate);
+            let response_call_started = Arc::clone(&response_call_started);
             let response_started = Arc::clone(&response_started);
             let response_count = Arc::clone(&response_count);
             let response_notifications = response_notifications.clone();
@@ -181,6 +189,15 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
                     "tools/call" => {
                         let tool = request["params"]["name"].as_str().unwrap().to_owned();
                         recorded.lock().unwrap().push(tool.clone());
+                        response_call_started.add_permits(1);
+                        let gate = response_call_gate.read().unwrap().clone();
+                        if let Some(gate) = gate {
+                            let mut byte = [0];
+                            tokio::select! {
+                                permit = gate.acquire() => { permit.unwrap().forget(); }
+                                _ = stream.read(&mut byte) => return,
+                            }
+                        }
                         response_result
                             .read()
                             .unwrap()
@@ -242,11 +259,64 @@ pub(super) async fn peer(id: &str, name: &str, tool_names: &[&str]) -> TestPeer 
         content_calls,
         pages,
         list_gate,
+        call_gate,
+        call_started,
         listing_started,
         list_count,
         notifications,
         stream_ready,
         task,
+    }
+}
+
+#[tokio::test]
+async fn quiet_tool_cancels_on_user_stop_or_connector_revocation_without_replay() {
+    for revoke in [false, true] {
+        let remote = peer("quiet", "Quiet tool", &["long_task"]).await;
+        *remote.call_gate.write().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
+        let manager = McpManager::new();
+        manager
+            .connect_server(&remote.server, Some(1))
+            .await
+            .unwrap();
+        let mut registry = ToolRegistry::new();
+        manager.register_tools(&mut registry).unwrap();
+        let alias = McpToolIdentity::new(&remote.server, "long_task")
+            .id
+            .model_alias();
+        let tool = registry.get(&alias).unwrap();
+        let db = Database::open_memory().unwrap();
+        let cancelled = tokio_util::sync::CancellationToken::new();
+        let mut context = ToolExecutionContext::new("quiet-call", "{}", &db, &[]);
+        context.cancel_token = Some(&cancelled);
+        let result = tokio::time::timeout(Duration::from_secs(3), async {
+            let stopping = async {
+                remote.call_started.acquire().await.unwrap().forget();
+                if revoke {
+                    manager.disconnect_server(&remote.server.id).await.unwrap();
+                } else {
+                    cancelled.cancel();
+                }
+            };
+            tokio::join!(tool.execute(context), stopping).0
+        })
+        .await
+        .expect("quiet tool ignored cancellation");
+        let result = result.expect("MCP adapter returns a structured tool receipt");
+        assert!(result.is_error, "{result:?}");
+        assert_eq!(
+            result.artifacts.as_ref().unwrap()["code"],
+            "mcp_transport_failed"
+        );
+        assert_eq!(
+            result.artifacts.as_ref().unwrap()["sideEffect"],
+            "may_have_occurred"
+        );
+        assert_eq!(
+            *remote.calls.lock().unwrap(),
+            ["long_task"],
+            "effectful call was replayed"
+        );
     }
 }
 

@@ -25,7 +25,7 @@ use super::file_tracking::execute_tracked_native;
 use super::native_fs::is_native_filesystem_program;
 use super::parser::parse_run_shell_args;
 use super::policy::{
-    normalize_run_shell_invocation, validate_args, validate_scoped_args, validate_stdin,
+    normalize_run_shell_with_preference, validate_args, validate_scoped_args, validate_stdin,
 };
 use super::shell_adapter::{
     clamp_timeout, format_confirmation, format_output, format_shell_confirmation,
@@ -2486,11 +2486,14 @@ impl Tool for RunShellTool {
         let app_config = db.load_app_config().unwrap_or_default();
         let shell_access_mode = app_config.shell_access_mode;
 
-        let (canonical_program, normalized_args) =
-            match normalize_run_shell_invocation(&parsed, shell_access_mode) {
-                Ok(invocation) => invocation,
-                Err(msg) => return Ok(error_result(call_id, msg)),
-            };
+        let (canonical_program, normalized_args) = match normalize_run_shell_with_preference(
+            &parsed,
+            shell_access_mode,
+            &app_config.default_shell,
+        ) {
+            Ok(invocation) => invocation,
+            Err(msg) => return Ok(error_result(call_id, msg)),
+        };
 
         if let Err(msg) = validate_args(shell_access_mode, &canonical_program, &normalized_args) {
             return Ok(error_result(call_id, msg));

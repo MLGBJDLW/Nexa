@@ -325,7 +325,7 @@ impl TerminalAgentTool {
             )));
         }
         let command_id = format!("cmd_{}", uuid::Uuid::new_v4());
-        let payload = terminal_command_payload(&snapshot.session.shell, &command_id, command)
+        let payload = terminal_command_payload(&snapshot.session.shell_kind, &command_id, command)
             .ok_or_else(|| CoreError::InvalidInput(format!(
                 "terminal_session run is unavailable for {} because that shell has no reliable lifecycle-marker integration; use write/inspect or start a PowerShell, Bash, or Zsh session.",
                 snapshot.session.shell
@@ -467,15 +467,20 @@ enum ShellMarker {
     CwdChanged(String),
 }
 
-fn terminal_command_payload(shell: &str, command_id: &str, command: &str) -> Option<String> {
-    if shell.contains("PowerShell") {
+fn terminal_command_payload(shell_kind: &str, command_id: &str, command: &str) -> Option<String> {
+    if matches!(shell_kind, "powershell" | "pwsh") {
         return Some(format!(
             "[Console]::Write(\"`e]633;B;{command_id}`a\");\r\n& {{\r\n{command}\r\n}}\r\n$nexaSucceeded=$?; $nexaExit=if ($nexaSucceeded) {{ 0 }} elseif ($null -ne $global:LASTEXITCODE -and $global:LASTEXITCODE -ne 0) {{ $global:LASTEXITCODE }} else {{ 1 }}; [Console]::Write(\"`e]633;D;$nexaExit`a\")\r"
         ));
     }
-    if matches!(shell, "Bash" | "Git Bash" | "Zsh" | "Default Shell" | "sh") {
+    if matches!(shell_kind, "bash" | "wsl" | "zsh" | "sh" | "dash") {
+        // One compound statement prevents interactive prompt hooks from
+        // reporting completion between the start marker and the user's script.
+        // eval receives exactly one quoted string, so comments, heredocs and
+        // variable/cwd changes retain the selected shell's own semantics.
+        let quoted = command.replace('\'', "'\\''");
         return Some(format!(
-            "printf '\\033]633;B;{command_id}\\007'\n{command}\n__nexa_exit=$?\nprintf '\\033]633;D;%s\\007' \"$__nexa_exit\"\n"
+            "{{ printf '\\033]633;B;{command_id}\\007'; eval '{quoted}'; __nexa_exit=$?; printf '\\033]633;D;%s\\007' \"$__nexa_exit\"; }}\n"
         ));
     }
     None
@@ -910,22 +915,84 @@ mod tests {
 
     #[test]
     fn terminal_run_requires_marker_integration() {
-        assert!(terminal_command_payload("Command Prompt", "cmd_0", "dir").is_none());
+        assert!(terminal_command_payload("cmd", "cmd_0", "dir").is_none());
 
         let powershell =
-            terminal_command_payload("PowerShell", "cmd_1", "Get-Item missing").unwrap();
+            terminal_command_payload("powershell", "cmd_1", "Get-Item missing").unwrap();
         assert!(powershell.contains("633;B;cmd_1"));
         assert!(powershell.contains("$nexaSucceeded=$?"));
         assert!(powershell.contains("633;D;$nexaExit"));
 
         let commented =
-            terminal_command_payload("PowerShell", "cmd_1", "Write-Output hi # note").unwrap();
+            terminal_command_payload("powershell", "cmd_1", "Write-Output hi # note").unwrap();
         assert!(commented.contains("& {\r\nWrite-Output hi # note\r\n}\r\n$nexaSucceeded=$?"));
 
-        let bash = terminal_command_payload("Bash", "cmd_2", "false").unwrap();
+        let bash = terminal_command_payload("bash", "cmd_2", "false").unwrap();
         assert!(bash.contains("633;B;cmd_2"));
         assert!(bash.contains("__nexa_exit=$?"));
         assert!(bash.contains("633;D;%s"));
+    }
+
+    #[test]
+    fn terminal_run_accepts_wsl_bash() {
+        let payload = terminal_command_payload("wsl", "cmd_wsl", "printf '%s\\n' 'a b'");
+        assert!(
+            payload.is_some(),
+            "WSL Bash must support terminal_session.run"
+        );
+    }
+
+    #[test]
+    fn bash_terminal_command_completes_after_script_not_after_start_marker() {
+        use std::io::Write;
+        use std::process::Stdio;
+        let Ok(profile) = nexa_core::shell_environment::resolve_profile("bash") else {
+            return;
+        };
+        let payload = terminal_command_payload(
+            "bash",
+            "cmd_script",
+            "printf '%s\\n' 'a b' # don't strip quotes\ncat <<'NEXA_EOF'\n中文 \\\nNEXA_EOF\nfalse",
+        )
+        .unwrap();
+        let mut process = std::process::Command::new(&profile.program);
+        process
+            .args(["--noprofile", "--norc", "-i"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            process.creation_flags(0x08000000);
+        }
+        let mut child = process.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin
+            .write_all(
+                format!("PROMPT_COMMAND=\"printf '\\\\033]633;D;0\\\\007'\"\n{payload}exit\n")
+                    .as_bytes(),
+            )
+            .unwrap();
+        drop(stdin);
+        let output = child.wait_with_output().unwrap();
+        let output = String::from_utf8_lossy(&output.stdout);
+        let markers = parse_shell_markers(&output);
+        let started = markers
+            .iter()
+            .position(
+                |marker| matches!(marker, ShellMarker::CommandStarted(id) if id == "cmd_script"),
+            )
+            .unwrap();
+        assert_eq!(
+            markers.get(started + 1),
+            Some(&ShellMarker::CommandFinished(1)),
+            "premature prompt completion: {output}"
+        );
+        assert!(
+            output.contains("a b") && output.contains("中文 \\"),
+            "{output}"
+        );
     }
 
     #[test]
@@ -995,6 +1062,7 @@ mod tests {
             session: crate::commands::TerminalSessionInfo {
                 id: "terminal-1".to_string(),
                 shell: "Bash".to_string(),
+                shell_kind: "bash".to_string(),
                 cwd: "/workspace".to_string(),
                 process_id: None,
                 conversation_id: Some("conversation-1".to_string()),

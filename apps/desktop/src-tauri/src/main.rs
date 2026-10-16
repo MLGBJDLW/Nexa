@@ -518,6 +518,14 @@ fn main() {
                 );
             }
             match app.path().resource_dir() {
+                Ok(resources) => match nexa_core::shell_environment::bundled_tools::configure(&resources) {
+                    Ok(Some(bin)) => log::info!("Configured bundled shell utilities at {}", bin.display()),
+                    Ok(None) => log::debug!("Bundled shell utilities are not staged in this source checkout"),
+                    Err(error) => log::warn!("Bundled shell utilities are unavailable: {error}"),
+                },
+                Err(error) => log::warn!("Cannot locate bundled shell utilities: {error}"),
+            }
+            match app.path().resource_dir() {
                 Ok(resource_dir) => match nexa_core::office_runtime::configure_bundled_openxml_validator(
                     &data_dir,
                     &resource_dir,

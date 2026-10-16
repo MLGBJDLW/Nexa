@@ -81,9 +81,18 @@ fn normalize_invocation(
     Ok((canonical, args.to_vec()))
 }
 
+#[cfg(test)]
 pub(super) fn normalize_run_shell_invocation(
     parsed: &RunShellArgs,
     mode: ShellAccessMode,
+) -> Result<(String, Vec<String>), String> {
+    normalize_run_shell_with_preference(parsed, mode, "default")
+}
+
+pub(super) fn normalize_run_shell_with_preference(
+    parsed: &RunShellArgs,
+    mode: ShellAccessMode,
+    preference: &str,
 ) -> Result<(String, Vec<String>), String> {
     let command = parsed
         .command
@@ -112,16 +121,36 @@ pub(super) fn normalize_run_shell_invocation(
             if !parsed.args.is_empty() {
                 return Err(command_args_mix_error().to_string());
             }
+            let explicitly_direct = parsed.shell.as_ref().is_some_and(|value| !value.is_null());
+            let selected_interpreter = !mode.is_restricted()
+                && parsed.isolation_sandbox.is_none()
+                && !explicitly_direct
+                && !matches!(preference, "" | "auto" | "default");
             let parts = match split_simple_command_string(command) {
+                // Preserve useful simple-command metadata for persistent
+                // service/readiness classification. Execution still receives
+                // the original script through apply_shell_preference.
                 Ok(parts) => parts,
-                Err(_error) if !mode.is_restricted() && command_uses_shell_syntax(command) => {
+                Err(_error)
+                    if selected_interpreter
+                        || (!mode.is_restricted() && command_uses_shell_syntax(command)) =>
+                {
+                    // The selected interpreter owns script parsing. An advisory
+                    // argv parse cannot reject its comments or quoting.
                     return shell_invocation(CommandShell::Default, command);
                 }
                 Err(error) => return Err(error),
             };
             let program = &parts[0];
             let args = parts[1..].to_vec();
-            normalize_invocation(program, &args, mode)
+            if selected_interpreter {
+                // Linux absolute paths and relative shell scripts are valid
+                // inside the chosen interpreter. These argv are advisory only;
+                // host executable validation would reject them on Windows.
+                Ok((program.clone(), args))
+            } else {
+                normalize_invocation(program, &args, mode)
+            }
         }
         (None, Some(program)) => normalize_invocation(program, &parsed.args, mode),
         (None, None) => Err("run_shell requires either command or program".to_string()),

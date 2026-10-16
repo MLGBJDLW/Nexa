@@ -84,6 +84,14 @@ MCP calls. Credentials are hashed rather than exposed in permission keys. A
 prompt carries one absolute 60-second deadline through its event, queue and
 backend waiter; reconnecting the renderer does not restart that deadline.
 
+Tool execution has no hidden elapsed-time or idle-progress deadline. A quiet
+`tools/call` can keep running until it returns, its transport fails, the owning
+turn is stopped, or the user-configured outer tool deadline expires. This applies
+to stdio, legacy SSE and Streamable HTTP, including delayed HTTP headers and
+JSON response bodies. Discovery, connection setup and blocked transport writes
+remain bounded. Server-reported execution deadlines are preserved as server
+errors; Nexa cannot remove a deadline enforced inside an external MCP service.
+
 Each connector owns its connection, cancellation epoch, RPC serialization and
 catalog snapshot. Global manager and desktop registry-cache locks cover only
 short in-memory reads or publications. Discovery admits at most four connectors

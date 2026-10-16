@@ -122,8 +122,8 @@ pub struct McpClient {
     server_name: String,
     protocol_version: String,
     server_capabilities: Value,
-    /// Request timeout; tools/call renews its idle deadline with correlated
-    /// advancing progress. Defaults to [`DEFAULT_TIMEOUT`].
+    /// Discovery/control-plane and transport-write timeout. Tool execution has
+    /// no implicit deadline; its caller owns cancellation and explicit limits.
     call_timeout: Duration,
     auth: Option<super::oauth::RequestAuth>,
 }
@@ -212,7 +212,8 @@ impl McpClient {
         Ok(client)
     }
 
-    /// Override the call timeout for this client.
+    /// Override discovery/control-plane and transport-write timeouts. This does
+    /// not limit how long an accepted tools/call may execute.
     pub fn set_call_timeout(&mut self, timeout: Duration) {
         self.call_timeout = timeout;
     }
@@ -539,7 +540,7 @@ impl McpClient {
             // a tools/call retry or disables a server with working POST RPCs.
             let Ok(Ok(response)) = tokio::time::timeout(
                 SSE_CONNECT_TIMEOUT,
-                send_authorized(&client, &endpoint, headers, None, auth.as_ref()),
+                send_authorized(&client, &endpoint, headers, None, auth.as_ref(), None),
             )
             .await
             else {
@@ -695,19 +696,17 @@ impl McpClient {
                 .insert("params".to_string(), p);
         }
 
-        let progress = if method == "tools/call" {
+        let is_tool_call = method == "tools/call";
+        if is_tool_call {
             let params = request["params"].as_object_mut().ok_or_else(|| {
                 CoreError::Mcp("MCP tools/call requires object parameters".into())
             })?;
             params.insert("_meta".into(), serde_json::json!({"progressToken":id}));
-            Some(self.events().track_call(id))
-        } else {
-            None
-        };
+        }
         let timeout = self.call_timeout;
-        // Discovery keeps a full-operation deadline, even on heartbeat-heavy
-        // streams. Tool execution instead renews its idle deadline only when
-        // its own progress token advances; cancellation still drops the future.
+        // A quiet tool may legitimately run for minutes or hours. Only the
+        // owning caller's explicit timeout/cancellation may end that wait.
+        // Discovery remains bounded even on heartbeat-heavy streams.
         let operation = async {
             match &self.transport {
                 Transport::StreamableHttp(_) => {
@@ -720,8 +719,8 @@ impl McpClient {
                 }
             }
         };
-        let result = if let Some(progress) = progress {
-            progress.wait(timeout, operation).await
+        let result = if is_tool_call {
+            Ok(operation.await)
         } else {
             tokio::time::timeout(timeout, operation)
                 .await
@@ -806,8 +805,8 @@ impl McpClient {
     }
 
     async fn wait_for_response(&mut self, id: i64, method: &str) -> Result<Value, CoreError> {
-        // send_request_inner owns the response deadline for every transport.
-        // A second absolute timeout here would truncate progressing tools/call.
+        // send_request_inner owns response deadlines. Tool execution waits for
+        // a result, transport failure, or cancellation by the owning caller.
         loop {
             let next = match &mut self.transport {
                 Transport::Stdio(transport) => transport.stdout_rx.recv().await,
@@ -970,8 +969,8 @@ impl McpClient {
 
         loop {
             let next_chunk = if context == "tools/call" {
-                // Correlated progress can also arrive on the GET notification
-                // stream; the outer request owns tool-idle accounting.
+                // Tool results may be silent. Heartbeats are not required to
+                // retain ownership of an executing call.
                 Ok(stream.next().await)
             } else {
                 tokio::time::timeout(idle_timeout, stream.next()).await
@@ -1296,7 +1295,7 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             SSE_CONNECT_TIMEOUT,
-            send_authorized(&client, &base_url, request_headers, None, auth),
+            send_authorized(&client, &base_url, request_headers, None, auth, None),
         )
         .await
         .map_err(|_| {
@@ -1443,7 +1442,14 @@ impl McpClient {
 
         let response = tokio::time::timeout(
             self.call_timeout,
-            send_authorized(&client, &endpoint_url, headers, None, self.auth.as_ref()),
+            send_authorized(
+                &client,
+                &endpoint_url,
+                headers,
+                None,
+                self.auth.as_ref(),
+                None,
+            ),
         )
         .await
         .map_err(|_| {
@@ -1525,10 +1531,11 @@ impl McpClient {
             headers,
             Some(payload),
             self.auth.as_ref(),
+            Some(self.call_timeout),
         );
         let response = if payload["method"] == "tools/call" {
-            // A legacy server may report progress before acknowledging its POST.
-            // The correlated-progress idle owner covers the response wait.
+            // A legacy server may finish the tool before acknowledging its POST.
+            // The owning caller controls execution cancellation.
             Ok(sending.await)
         } else {
             tokio::time::timeout(self.call_timeout, sending).await
@@ -1610,10 +1617,11 @@ impl McpClient {
             headers,
             Some(payload),
             self.auth.as_ref(),
+            Some(self.call_timeout),
         );
         let response = if payload["method"] == "tools/call" {
-            // Progress can arrive on GET while a server computes its JSON POST response.
-            // The correlated-progress idle owner covers the response wait.
+            // JSON-only tools may compute before returning response headers.
+            // The owning caller controls execution cancellation.
             Ok(sending.await)
         } else {
             tokio::time::timeout(self.call_timeout, sending).await
@@ -1755,6 +1763,7 @@ async fn send_authorized(
     mut headers: HeaderMap,
     payload: Option<&Value>,
     auth: Option<&super::oauth::RequestAuth>,
+    upload_timeout: Option<Duration>,
 ) -> Result<reqwest::Response, CoreError> {
     let safe_retry = payload.is_none()
         || matches!(
@@ -1776,17 +1785,25 @@ async fn send_authorized(
             auth.validate_target(url)?;
             auth.apply(&mut headers, attempt == 1).await?;
         }
-        let request = if let Some(payload) = payload {
-            client.post(url.clone()).json(payload)
-        } else {
-            client.get(url.clone())
-        };
-        let response = request.headers(headers.clone()).send().await.map_err(|_| {
-            CoreError::McpTransport(
-                "MCP HTTP request failed; its effect may be unknown. No operation was replayed."
-                    .into(),
+        let response = if let (Some(payload), Some(timeout)) = (payload, upload_timeout) {
+            send_json_with_upload_deadline(
+                client.post(url.clone()).headers(headers.clone()),
+                payload,
+                timeout,
             )
-        })?;
+            .await?
+        } else {
+            let request = if let Some(payload) = payload {
+                client.post(url.clone()).json(payload)
+            } else {
+                client.get(url.clone())
+            };
+            request
+                .headers(headers.clone())
+                .send()
+                .await
+                .map_err(|_| http_request_failed())?
+        };
         if response.status() == StatusCode::UNAUTHORIZED
             && auth.is_some()
             && safe_retry
@@ -1808,6 +1825,81 @@ async fn send_authorized(
         return Ok(response);
     }
     unreachable!("bounded authorization retry")
+}
+
+fn http_request_failed() -> CoreError {
+    CoreError::McpTransport(
+        "MCP HTTP request failed; its effect may be unknown. No operation was replayed.".into(),
+    )
+}
+
+struct FinalUploadChunk {
+    bytes: bytes::Bytes,
+    delivered: Option<oneshot::Sender<()>>,
+}
+
+impl AsRef<[u8]> for FinalUploadChunk {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Drop for FinalUploadChunk {
+    fn drop(&mut self) {
+        // Retain this receipt with the last body buffer until the HTTP stack
+        // consumes/releases it, rather than when the producer yields it.
+        if let Some(delivered) = self.delivered.take() {
+            let _ = delivered.send(());
+        }
+    }
+}
+
+async fn send_json_with_upload_deadline(
+    request: reqwest::RequestBuilder,
+    payload: &Value,
+    timeout: Duration,
+) -> Result<reqwest::Response, CoreError> {
+    let bytes = bytes::Bytes::from(serde_json::to_vec(payload)?);
+    let length = bytes.len();
+    let (delivered, uploaded) = oneshot::channel();
+    let stream = futures::stream::unfold(
+        (bytes, 0usize, Some(delivered)),
+        |(bytes, offset, mut delivered)| async move {
+            if offset == bytes.len() {
+                return None;
+            }
+            let end = (offset + 16 * 1024).min(bytes.len());
+            let chunk = bytes.slice(offset..end);
+            let chunk = if end == bytes.len() {
+                bytes::Bytes::from_owner(FinalUploadChunk {
+                    bytes: chunk,
+                    delivered: delivered.take(),
+                })
+            } else {
+                chunk
+            };
+            Some((Ok::<_, std::io::Error>(chunk), (bytes, end, delivered)))
+        },
+    );
+    let sending = request
+        .header(CONTENT_TYPE, CONTENT_TYPE_JSON)
+        .header(reqwest::header::CONTENT_LENGTH, length)
+        .body(reqwest::Body::wrap_stream(stream))
+        .send();
+    tokio::pin!(sending);
+    tokio::select! {
+        biased;
+        response = &mut sending => response.map_err(|_| http_request_failed()),
+        delivered = tokio::time::timeout(timeout, uploaded) => {
+            match delivered {
+                Ok(Ok(())) => sending.await.map_err(|_| http_request_failed()),
+                // Early HTTP rejection can discard an unconsumed body. Keep
+                // that response authoritative, while a failed upload stays bounded.
+                Ok(Err(_)) => tokio::time::timeout(timeout, sending).await.map_err(|_| CoreError::McpTransport("MCP HTTP upload did not complete; no operation was replayed.".into()))?.map_err(|_| http_request_failed()),
+                Err(_) => Err(CoreError::McpTransport("MCP HTTP upload timed out before the request body was delivered; effects may have occurred and no operation was replayed.".into())),
+            }
+        }
+    }
 }
 
 fn http_auth_error(response: &reqwest::Response) -> Option<CoreError> {
@@ -2585,7 +2677,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tool_progress_renews_http_idle_deadlines_but_duplicate_progress_does_not() {
+    async fn tools_outlive_rpc_timeout_with_advancing_or_duplicate_progress() {
         for advances in [true, false] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let url = format!("http://{}/mcp", listener.local_addr().unwrap());
@@ -2623,21 +2715,103 @@ mod tests {
                 auth: None,
             };
             let result = client.call_tool("long_task", json!({})).await;
-            if advances {
-                assert!(result.is_ok(), "{result:?}");
-            } else {
-                assert!(
-                    matches!(result, Err(CoreError::McpTransport(_))),
-                    "{result:?}"
-                );
-            }
+            assert!(result.is_ok(), "{result:?}");
             server.abort();
         }
+    }
+
+    #[tokio::test]
+    async fn silent_tools_outlive_rpc_timeout_for_http_headers_json_and_sse() {
+        for mode in ["headers", "json", "sse"] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let request = read_http_request(&mut stream).await.unwrap();
+                let payload: Value = serde_json::from_slice(&request.body).unwrap();
+                if mode == "headers" {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                let response = json!({"jsonrpc":"2.0","id":payload["id"],"result":{"content":[{"type":"text","text":"finished"}]}});
+                let (content_type, body) = if mode == "sse" {
+                    ("text/event-stream", format!("data: {response}\n\n"))
+                } else {
+                    ("application/json", response.to_string())
+                };
+                if stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.is_err() { return; }
+                if mode != "headers" {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                let _ = stream.write_all(body.as_bytes()).await;
+            });
+            let mut client = McpClient {
+                transport: Transport::StreamableHttp(
+                    McpClient::build_streamable_http_transport(&url, None).unwrap(),
+                ),
+                request_id: AtomicI64::new(1),
+                server_name: "silent-tool".into(),
+                protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+                server_capabilities: json!({}),
+                call_timeout: Duration::from_millis(50),
+                auth: None,
+            };
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                client.call_tool("long_task", json!({})),
+            )
+            .await
+            .unwrap();
+            server.abort();
+            assert!(result.is_ok(), "{mode}: {result:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_http_upload_stays_bounded_when_connected_peer_stops_reading() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut byte = [0];
+            stream.read_exact(&mut byte).await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let mut client = McpClient {
+            transport: Transport::StreamableHttp(
+                McpClient::build_streamable_http_transport(&url, None).unwrap(),
+            ),
+            request_id: AtomicI64::new(1),
+            server_name: "blocked-upload".into(),
+            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+            server_capabilities: json!({}),
+            call_timeout: Duration::from_millis(100),
+            auth: None,
+        };
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            client.call_tool("long_task", json!({"payload":"x".repeat(16 * 1024 * 1024)})),
+        )
+        .await;
+        server.abort();
+        assert!(
+            matches!(&result, Ok(Err(CoreError::McpTransport(message))) if message.contains("upload")),
+            "upload was not bounded independently: {result:?}"
+        );
     }
 
     #[test]
     #[ignore = "subprocess fixture invoked only by the stdio progress test"]
     fn stdio_progress_fixture() {
+        stdio_execution_fixture(true);
+    }
+
+    #[test]
+    #[ignore = "subprocess fixture invoked only by the silent stdio test"]
+    fn stdio_silent_fixture() {
+        stdio_execution_fixture(false);
+    }
+
+    fn stdio_execution_fixture(report_progress: bool) {
         use std::io::{BufRead, Write};
         let mut line = String::new();
         std::io::stdin().lock().read_line(&mut line).unwrap();
@@ -2646,11 +2820,13 @@ mod tests {
         assert_eq!(token, &payload["id"]);
         for value in 0..10 {
             std::thread::sleep(Duration::from_millis(100));
-            println!(
-                "{}",
-                json!({"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":token,"progress":value}})
-            );
-            std::io::stdout().flush().unwrap();
+            if report_progress {
+                println!(
+                    "{}",
+                    json!({"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":token,"progress":value}})
+                );
+                std::io::stdout().flush().unwrap();
+            }
         }
         println!(
             "{}",
@@ -2660,32 +2836,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tool_progress_renews_stdio_idle_deadline() {
-        let command = std::env::current_exe().unwrap();
-        let transport = McpClient::build_stdio_transport(
-            command.to_str().unwrap(),
-            &[
-                "--exact".into(),
-                "mcp::client::tests::stdio_progress_fixture".into(),
-                "--ignored".into(),
-                "--nocapture".into(),
-            ],
-            None,
-        )
-        .await
-        .unwrap();
-        let mut client = McpClient {
-            transport: Transport::Stdio(transport),
-            request_id: AtomicI64::new(1),
-            server_name: "stdio-progress".into(),
-            protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
-            server_capabilities: json!({}),
-            call_timeout: Duration::from_millis(500),
-            auth: None,
-        };
-        let result = client.call_tool("long_task", json!({})).await;
-        client.shutdown().await.unwrap();
-        assert!(result.is_ok(), "{result:?}");
+    async fn stdio_tools_outlive_rpc_timeout_with_or_without_progress() {
+        for fixture in ["stdio_progress_fixture", "stdio_silent_fixture"] {
+            let command = std::env::current_exe().unwrap();
+            let transport = McpClient::build_stdio_transport(
+                command.to_str().unwrap(),
+                &[
+                    "--exact".into(),
+                    format!("mcp::client::tests::{fixture}"),
+                    "--ignored".into(),
+                    "--nocapture".into(),
+                ],
+                None,
+            )
+            .await
+            .unwrap();
+            let mut client = McpClient {
+                transport: Transport::Stdio(transport),
+                request_id: AtomicI64::new(1),
+                server_name: "stdio-progress".into(),
+                protocol_version: SUPPORTED_PROTOCOL_VERSIONS[0].into(),
+                server_capabilities: json!({}),
+                call_timeout: Duration::from_millis(500),
+                auth: None,
+            };
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                client.call_tool("long_task", json!({})),
+            )
+            .await
+            .unwrap();
+            client.shutdown().await.unwrap();
+            assert!(result.is_ok(), "{result:?}");
+        }
     }
 
     #[tokio::test]

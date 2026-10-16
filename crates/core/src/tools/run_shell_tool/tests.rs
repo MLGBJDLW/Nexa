@@ -1,5 +1,134 @@
 use super::*;
 
+#[cfg(windows)]
+#[test]
+fn shell_environment_requests_utf8_wsl_diagnostics() {
+    // WSL host diagnostics otherwise mix UTF-16 with the Linux child's UTF-8.
+    let env = build_env_from([(OsString::from("WSL_UTF8"), OsString::from("0"))]);
+    assert_eq!(
+        env.iter()
+            .rev()
+            .find(|(key, _)| key == "WSL_UTF8")
+            .unwrap()
+            .1,
+        "1"
+    );
+}
+
+#[tokio::test]
+async fn selected_bash_parses_its_own_comments_and_quoting() {
+    if crate::shell_environment::resolve_profile("bash").is_err() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db = db_with_source(dir.path());
+    let mut config = db.load_app_config().unwrap();
+    config.shell_access_mode = ShellAccessMode::Open;
+    config.default_shell = "bash".into();
+    db.save_app_config(&config).unwrap();
+    let script_path = dir.path().join("script.sh");
+    std::fs::write(
+        &script_path,
+        "#!/usr/bin/env bash\nprintf '%s\\n' RELATIVE_SCRIPT_OK\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let arguments = json!({"command":"printf '%s' 'literal value' # don't reinterpret this quote", "cwd":dir.path()}).to_string();
+    let result = RunShellTool
+        .execute(crate::tools::ToolExecutionContext::new(
+            "bash-comment",
+            &arguments,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.contains("literal value"));
+    let arguments = json!({"command":"./script.sh", "cwd":dir.path()}).to_string();
+    let result = RunShellTool
+        .execute(crate::tools::ToolExecutionContext::new(
+            "bash-relative",
+            &arguments,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.contains("RELATIVE_SCRIPT_OK"));
+}
+
+#[cfg(windows)]
+#[tokio::test]
+#[ignore = "requires staged shell tools, Git Bash and an installed WSL distribution"]
+async fn native_bundled_tools_work_in_git_bash_and_wsl() {
+    let resources =
+        std::env::var_os("NEXA_TEST_SHELL_TOOLS_RESOURCES").expect("set staged resource directory");
+    crate::shell_environment::bundled_tools::configure(Path::new(&resources))
+        .unwrap()
+        .expect("bundle must be staged");
+    let discovery = crate::shell_environment::discover_shells().await;
+    let wsl = discovery
+        .profiles
+        .iter()
+        .find(|profile| profile.kind == "wsl")
+        .expect("ready WSL distribution");
+    let directory = tempfile::Builder::new()
+        .prefix("nexa's shell 中文 ")
+        .tempdir()
+        .unwrap();
+    let db = db_with_source(directory.path());
+    for preference in ["bash", &wsl.id] {
+        let mut config = db.load_app_config().unwrap();
+        config.shell_access_mode = ShellAccessMode::Open;
+        config.default_shell = preference.into();
+        db.save_app_config(&config).unwrap();
+        let script = r#"command -v rg
+command -v jq
+printf '%s\n' '{"value":41}' | jq -r '.value + 1'
+printf '%s\n' '中文 shell tools' | rg -o '中文'
+printf '%s\n' 'BASH_COMMENT_OK' # don't treat this quote as host argv"#;
+        let arguments =
+            json!({"command":script,"cwd":directory.path(),"timeout_secs":15,"stdin":""})
+                .to_string();
+        let result = RunShellTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "bundled-tools",
+                &arguments,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!result.is_error, "{preference}: {}", result.content);
+        for expected in ["shell-tools", "42", "中文", "BASH_COMMENT_OK"] {
+            assert!(
+                result.content.contains(expected),
+                "{preference}: missing {expected}: {}",
+                result.content
+            );
+        }
+        assert!(
+            !result.content.contains('\0'),
+            "WSL mixed encodings: {}",
+            result.content
+        );
+        if preference.starts_with("wsl:") {
+            assert!(
+                result.content.contains("linux-x64/rg")
+                    || result.content.contains("linux-arm64/rg"),
+                "WSL used a host executable: {}",
+                result.content
+            );
+        }
+    }
+}
+
 #[test]
 fn shell_parser_rejects_arguments_from_other_tools() {
     for arguments in [
@@ -82,6 +211,59 @@ fn saved_shell_preference_preserves_policy_and_explicit_host_argv() {
     )
     .unwrap_err()
     .contains("unavailable"));
+
+    // An isolation backend owns its interpreter; a host shell preference may
+    // not weaken its original executable admission path.
+    let isolated = parse_run_shell_args(
+        &json!({"command":"./build.sh","_nexaIsolationSandbox":{"worktreeRoot":"/workspace"}})
+            .to_string(),
+    )
+    .unwrap();
+    assert!(
+        policy::normalize_run_shell_with_preference(&isolated, ShellAccessMode::Open, "bash")
+            .is_err()
+    );
+}
+
+#[test]
+fn selected_shell_keeps_advisory_server_readiness_classification() {
+    let parsed = parse_run_shell_args(
+        &json!({"command":"npm run dev -- --port 8765 --host 127.0.0.1"}).to_string(),
+    )
+    .unwrap();
+    for preference in ["bash", "wsl:Ubuntu"] {
+        let (program, args) =
+            policy::normalize_run_shell_with_preference(&parsed, ShellAccessMode::Open, preference)
+                .unwrap();
+        assert!(
+            tool_impl::looks_like_persistent_service(&program, &args),
+            "{preference} lost service metadata: {program} {args:?}"
+        );
+        assert_eq!(
+            tool_impl::infer_ready_url_from_invocation(&program, &args)
+                .as_ref()
+                .map(|url| url.as_str()),
+            Some("http://127.0.0.1:8765/")
+        );
+    }
+}
+
+#[test]
+fn selected_shell_paths_are_not_validated_as_host_executables() {
+    for command in ["./build.sh", "/usr/bin/printf '%s' ok"] {
+        let parsed = parse_run_shell_args(&json!({"command":command}).to_string()).unwrap();
+        for preference in ["bash", "wsl:Ubuntu"] {
+            assert!(
+                policy::normalize_run_shell_with_preference(
+                    &parsed,
+                    ShellAccessMode::Open,
+                    preference
+                )
+                .is_ok(),
+                "valid {preference} command was rejected: {command}"
+            );
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -117,6 +299,11 @@ async fn native_wsl_selected_shell_maps_cwd_and_stops_linux_children() {
     assert!(!result.is_error, "{}", result.content);
     assert!(result.content.contains("NEXA_WSL_OK"));
     assert!(result.content.contains("nexa wsl 中文"));
+    assert!(
+        !result.content.contains('\0'),
+        "WSL diagnostics were decoded as UTF-8 without requesting UTF-8 output: {}",
+        result.content
+    );
     assert!(result.artifacts.unwrap()["execution"]["program"]
         .as_str()
         .unwrap()

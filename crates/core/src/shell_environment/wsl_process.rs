@@ -160,6 +160,7 @@ impl WslProcessLease {
         std::thread::spawn(move || {
             let mut command = std::process::Command::new(program);
             command
+                .env("WSL_UTF8", "1")
                 .args([
                     "--distribution",
                     &distribution,

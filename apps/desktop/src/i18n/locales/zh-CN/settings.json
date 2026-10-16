@@ -1023,7 +1023,7 @@
   "suggestedModelReplacement": "建议替代模型：{model}。",
   "savedModelResolution": "已保存的模型 ID 已解析为 {model}。"
   ,"shellEnvironment": "命令环境"
-  ,"shellEnvironmentDesc": "用于 Agent 命令和新终端；已有终端保持原来的环境。"
+  ,"shellEnvironmentDesc": "用于 Agent 命令和新终端；已有终端保持原来的环境。 默认提供 rg、jq，其他开发工具按需安装。"
   ,"shellAutomatic": "自动选择"
   ,"shellUnavailable": "不可用"
   ,"shellRestrictedHint": "受限模式继续在本机直接执行命令。如需使用解释器，请在高级设置中调整命令访问权限。"

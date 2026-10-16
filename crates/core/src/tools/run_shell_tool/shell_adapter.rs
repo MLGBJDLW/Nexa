@@ -289,6 +289,10 @@ where
     // Force UTF-8 output from Python subprocesses regardless of system locale.
     out.push((OsString::from("PYTHONUTF8"), OsString::from("1")));
     out.push((OsString::from("PYTHONIOENCODING"), OsString::from("utf-8")));
+    // wsl.exe emits its own diagnostics as UTF-16 by default, while Linux
+    // children emit UTF-8. Request one encoding before either stream is read.
+    #[cfg(windows)]
+    out.push((OsString::from("WSL_UTF8"), OsString::from("1")));
 
     out
 }

@@ -69,7 +69,7 @@ fn native_powershell_input_and_paste_keep_protocol_bytes() {
             }
             false
         };
-        send(&shell_integration_bootstrap("PowerShell", program).unwrap());
+        send(&shell_integration_bootstrap("powershell").unwrap());
         let initialized = wait_for("\x1b]633;A\x07");
         for ch in "Write-Output ('NEXA_' + 'TYPED_OK')\r".chars() {
             send(&ch.to_string());
@@ -150,6 +150,7 @@ fn native_wsl_terminal_close_reaps_job_control_children() {
             writer,
             killer: Arc::new(Mutex::new(child.clone_killer())),
             shell: profile.label.clone(),
+            shell_kind: profile.kind.clone(),
             cwd: cwd.display().to_string(),
             process_id: child.process_id(),
             conversation_id: None,
