@@ -1264,8 +1264,12 @@ impl ControlOutcome {
             ObservedEvidence::TargetClosed
         } else if self.capture.is_none() {
             ObservedEvidence::Unavailable
+        } else if self.state_changed {
+            ObservedEvidence::Changed
+        } else if self.verification.difference.is_some() {
+            ObservedEvidence::Unchanged
         } else {
-            ObservedEvidence::from_changed(self.state_changed)
+            ObservedEvidence::Unavailable
         };
         commit.completed(evidence, RequestedCondition::NotRequested)
     }

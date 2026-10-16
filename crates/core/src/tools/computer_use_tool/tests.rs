@@ -68,6 +68,62 @@ fn wait_observed_fixture() -> ObservedWindow {
     }
 }
 
+#[test]
+fn computer_receipt_requires_comparable_evidence_to_claim_unchanged() {
+    use crate::observed_interaction::{InteractionCommit, ObservedEvidence};
+    let commit = InteractionCommit::default();
+    let mut outcome = ControlOutcome {
+        summary: "Restored a minimized window".to_string(),
+        capture: Some(wait_capture_fixture(0)),
+        observation_error: None,
+        cursor_position: None,
+        target_verified: true,
+        state_changed: false,
+        verification: VisualVerification {
+            before_hash: "unavailable_before_restore".to_string(),
+            after_hash: Some("captured".to_string()),
+            difference: None,
+            stable_samples: 2,
+            sampled_frames: 3,
+            elapsed_ms: 200,
+        },
+        route: "foreground",
+        delivery: "native",
+        effect: "delivered_unverified",
+        window_closed: false,
+        modal_owner_handoff: None,
+    };
+    assert_eq!(
+        outcome.interaction(&commit).evidence,
+        ObservedEvidence::Unavailable
+    );
+    outcome.verification.difference = Some(VisualDifference {
+        changed_pixel_ratio: 0.0,
+        mean_absolute_difference: 0.0,
+        materially_changed: false,
+    });
+    assert_eq!(
+        outcome.interaction(&commit).evidence,
+        ObservedEvidence::Unchanged
+    );
+    outcome.verification.difference = None;
+    outcome.state_changed = true;
+    assert_eq!(
+        outcome.interaction(&commit).evidence,
+        ObservedEvidence::Changed
+    );
+    outcome.capture = None;
+    assert_eq!(
+        outcome.interaction(&commit).evidence,
+        ObservedEvidence::Unavailable
+    );
+    outcome.window_closed = true;
+    assert_eq!(
+        outcome.interaction(&commit).evidence,
+        ObservedEvidence::TargetClosed
+    );
+}
+
 #[tokio::test]
 async fn computer_wait_change_is_proved_by_the_returned_frame() {
     let mut probes = 0;
