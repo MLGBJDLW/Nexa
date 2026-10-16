@@ -1795,44 +1795,6 @@ fn windows_control_smoke(
         };
         if !background_only {
             original_cursor = Some(activate_isolated_window(&target)?);
-            let focus: ControlArgs = serde_json::from_value(serde_json::json!({
-                "action":"focus_window", "window_id":target.id,
-                "observation_id":uuid::Uuid::new_v4().to_string(),
-            }))
-            .map_err(|error| error.to_string())?;
-            let observed = ObservedWindow {
-                snapshot: target.clone(),
-                image_width: None,
-                image_height: None,
-                native_image_width: None,
-                native_image_height: None,
-                screenshot_signature: None,
-                screenshot_guard: None,
-                elements: Vec::new(),
-            };
-            let tracker = ControlCommitTracker::default();
-            let outcome = platform::control_window(
-                ControlAction::FocusWindow,
-                &focus,
-                &observed,
-                CaptureOptions::from_control(&focus).map_err(|error| error.to_string())?,
-                &tracker,
-            )
-            .map_err(|error| format!("focus no-op failed: {error:?}"))?;
-            let receipt = with_control_delivery(
-                serde_json::json!({}),
-                outcome.interaction(&tracker.interaction),
-            );
-            if receipt["inputDelivered"] != false
-                || receipt["interaction"]["delivery"] != "notCommitted"
-            {
-                return Err(format!(
-                    "already-focused window claimed dispatched input: {receipt}"
-                ));
-            }
-            eprintln!(
-                "Already-focused native window: no dispatched input in shared and legacy receipts"
-            );
         }
         {
             use base64::Engine;
@@ -1860,7 +1822,7 @@ fn windows_control_smoke(
                 return Err("native sharing accepted a changed window owner".into());
             }
         }
-        let capture = platform::capture_window(
+        let mut capture = platform::capture_window(
             &target,
             CaptureOptions {
                 include_elements: true,
@@ -1869,6 +1831,70 @@ fn windows_control_smoke(
             },
         )
         .map_err(|error| error.to_string())?;
+        if !background_only {
+            let focus: ControlArgs = serde_json::from_value(serde_json::json!({
+                "action":"focus_window", "window_id":target.id,
+                "observation_id":uuid::Uuid::new_v4().to_string(),
+            }))
+            .map_err(|error| error.to_string())?;
+            // An activation request is not proof that Windows granted focus.
+            // Establish it through the real adapter, then test the repeated no-op.
+            let mut observed = ObservedWindow {
+                snapshot: capture.snapshot.clone(),
+                image_width: None,
+                image_height: None,
+                native_image_width: None,
+                native_image_height: None,
+                screenshot_signature: None,
+                screenshot_guard: None,
+                elements: Vec::new(),
+            };
+            let focused = platform::control_window(
+                ControlAction::FocusWindow,
+                &focus,
+                &observed,
+                CaptureOptions::from_control(&focus).map_err(|error| error.to_string())?,
+                &ControlCommitTracker::default(),
+            )
+            .map_err(|error| format!("establish fixture focus: {error:?}"))?;
+            observed.snapshot = focused
+                .capture
+                .ok_or("fixture focus had no fresh capture")?
+                .snapshot;
+            if !observed.snapshot.focused {
+                return Err("fixture lost foreground before the no-op check".into());
+            }
+            let tracker = ControlCommitTracker::default();
+            let outcome = platform::control_window(
+                ControlAction::FocusWindow,
+                &focus,
+                &observed,
+                CaptureOptions::from_control(&focus).map_err(|error| error.to_string())?,
+                &tracker,
+            )
+            .map_err(|error| {
+                format!(
+                    "focus no-op failed: {error:?}; expected {:?}; physical {:?}",
+                    *tracker.input_watch.lock().unwrap(),
+                    super::super::computer_input::physical_epoch()
+                )
+            })?;
+            let receipt = with_control_delivery(
+                serde_json::json!({}),
+                outcome.interaction(&tracker.interaction),
+            );
+            if receipt["inputDelivered"] != false
+                || receipt["interaction"]["delivery"] != "notCommitted"
+            {
+                return Err(format!(
+                    "already-focused window claimed dispatched input: {receipt}"
+                ));
+            }
+            capture = outcome.capture.ok_or("focus no-op had no fresh capture")?;
+            eprintln!(
+                "Already-focused native window: no dispatched input in shared and legacy receipts"
+            );
+        }
         if verify_semantic_state {
             let model_view = semantic_observation_for_llm("initial", &capture);
             let model_view: serde_json::Value =
