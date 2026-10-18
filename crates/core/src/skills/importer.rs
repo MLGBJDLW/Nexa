@@ -624,8 +624,14 @@ fn load_candidates_from_archive(source: &Path) -> Result<Vec<InstallCandidate>, 
         let entry = archive.by_index(index).map_err(|error| {
             CoreError::InvalidInput(format!("Invalid skill package entry: {error}"))
         })?;
+        let entry_name = entry
+            .name()
+            .map_err(|error| {
+                CoreError::InvalidInput(format!("Invalid skill package entry name: {error}"))
+            })?
+            .into_owned();
         let enclosed = entry.enclosed_name().ok_or_else(|| {
-            CoreError::InvalidInput(format!("Unsafe path in skill package: {}", entry.name()))
+            CoreError::InvalidInput(format!("Unsafe path in skill package: {entry_name}"))
         })?;
         if entry
             .unix_mode()
@@ -633,7 +639,7 @@ fn load_candidates_from_archive(source: &Path) -> Result<Vec<InstallCandidate>, 
         {
             return Err(CoreError::InvalidInput(format!(
                 "Skill package contains a symbolic link: {}",
-                entry.name()
+                entry_name
             )));
         }
         if entry.is_dir() {

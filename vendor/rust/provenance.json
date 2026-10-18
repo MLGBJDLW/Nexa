@@ -1,0 +1,46 @@
+{
+  "reason": "Adopt upstream zip 9 security fixes without unrelated downstream API upgrades",
+  "packages": [
+    {
+      "crate": "calamine",
+      "version": "0.36.0",
+      "registryChecksum": "6975084f43060e56343ffba7f9731fa52a7dcf2e1cd8e2459fd4c6bf4a1bff59",
+      "patchedFiles": [
+        "Cargo.toml",
+        "src/ods.rs",
+        "src/utils.rs",
+        "src/xlsb/mod.rs",
+        "src/xlsx/mod.rs"
+      ]
+    },
+    {
+      "crate": "candle-core",
+      "version": "0.9.2",
+      "registryChecksum": "c15b675b80d994b2eadb20a4bbe434eabeb454eac3ee5e2b4cf6f147ee9be091",
+      "patchedFiles": [
+        "Cargo.toml",
+        "src/npy.rs",
+        "src/pickle.rs"
+      ]
+    },
+    {
+      "crate": "github-copilot-sdk",
+      "version": "1.0.11",
+      "registryChecksum": "68e64592681b206e19d9bcd5b96e7cac2851fa5144df224a990b1158735d1a63",
+      "patchedFiles": [
+        "Cargo.toml",
+        "build/out_of_process.rs",
+        "src/embeddedcli.rs"
+      ]
+    },
+    {
+      "crate": "tauri-plugin-updater",
+      "version": "2.10.1",
+      "registryChecksum": "806d9dac662c2e4594ff03c647a552f2c9bd544e7d0f683ec58f872f952ce4af",
+      "patchedFiles": [
+        "Cargo.toml"
+      ]
+    }
+  ],
+  "zipVersion": "9.0.5"
+}

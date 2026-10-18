@@ -8,6 +8,14 @@ members = [
     "apps/desktop/src-tauri",
 ]
 
+exclude = ["vendor/rust/*"]
+
+[patch.crates-io]
+calamine = { path = "vendor/rust/calamine" }
+candle-core = { path = "vendor/rust/candle-core" }
+github-copilot-sdk = { path = "vendor/rust/github-copilot-sdk" }
+tauri-plugin-updater = { path = "vendor/rust/tauri-plugin-updater" }
+
 [workspace.package]
 edition = "2021"
 rust-version = "1.94"

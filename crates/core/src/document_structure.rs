@@ -83,6 +83,10 @@ pub(crate) fn docx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
         .map_err(|error| office_package_error(bytes, error))?;
     let mut parts = archive
         .file_names()
+        .map(|name| name.map(|name| name.into_owned()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| office_package_error(bytes, error))?
+        .into_iter()
         .filter(|name| {
             name.ends_with(".xml")
                 && (*name == "word/document.xml"
@@ -91,7 +95,6 @@ pub(crate) fn docx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
                     || *name == "word/footnotes.xml"
                     || *name == "word/endnotes.xml")
         })
-        .map(str::to_string)
         .collect::<Vec<_>>();
     if !parts.iter().any(|part| part == "word/document.xml") {
         return Err(CoreError::Parse("DOCX has no word/document.xml".into()));
@@ -342,8 +345,11 @@ pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
     if slides.is_empty() {
         slides = archive
             .file_names()
+            .map(|name| name.map(|name| name.into_owned()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| office_package_error(bytes, error))?
+            .into_iter()
             .filter(|name| name.starts_with("ppt/slides/slide") && name.ends_with(".xml"))
-            .map(str::to_string)
             .collect();
         slides.sort_by_key(|name| {
             name.strip_prefix("ppt/slides/slide")

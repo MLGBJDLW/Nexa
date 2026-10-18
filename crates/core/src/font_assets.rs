@@ -166,7 +166,10 @@ impl FontAssetStore {
                 if entry.is_dir() {
                     continue;
                 }
-                let name = entry.name().replace('\\', "/");
+                let name = entry
+                    .name()
+                    .map_err(|error| invalid(error.to_string()))?
+                    .replace('\\', "/");
                 let path = Path::new(&name);
                 let Some(format) = font_format(path) else {
                     continue;
