@@ -33,6 +33,8 @@ desktop.ini
 *.log
 .vite/
 build/
+!vendor/rust/github-copilot-sdk/build/
+!vendor/rust/github-copilot-sdk/build/*.rs
 .artifacts/
 **/bin/
 **/obj/
