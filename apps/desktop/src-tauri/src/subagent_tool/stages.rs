@@ -222,6 +222,16 @@ pub(super) async fn prepare_subagent_worker(
     };
     if native_runtime.is_some()
         && matches!(
+            delegation_limits.input_context_policy,
+            DelegationLimitPolicy::Explicit(_)
+        )
+    {
+        return Err(subagent_preflight_failure(SubagentPreflightStage::Policy,
+            "native_input_limit_unsupported", false,
+            "This subscription runtime manages its full input context. Use an automatic input limit or an API worker route; handoff-context budgets remain available."));
+    }
+    if native_runtime.is_some()
+        && matches!(
             delegation_limits.max_output_tokens_per_worker,
             DelegationLimitPolicy::Explicit(_)
         )
@@ -338,7 +348,12 @@ pub(super) async fn prepare_subagent_worker(
         &effective_source_scope,
         &context_snapshot,
     )?;
-    let evidence_handoff = build_evidence_handoff(db, args.evidence_chunk_ids.as_deref());
+    let evidence_handoff = build_evidence_handoff(
+        db,
+        args.evidence_chunk_ids.as_deref(),
+        (!inherited_source_scope.is_empty() || args.source_ids.is_some())
+            .then_some(effective_source_scope.as_slice()),
+    )?;
     let skill_select_started = Instant::now();
     let selected_skill_query = format!(
         "{}\n{}",
@@ -892,6 +907,7 @@ pub(super) async fn execute_subagent_worker(
                                 .map(|id| db.get_agent_task_run(id).map(|run| run.turn_id))
                                 .transpose()?,
                         )),
+                        usage_owner: parent_task_run_id.clone().zip(subtask_run_id.clone()),
                         next_sort_order: order + 1,
                         history: context_messages,
                         user_parts: vec![ContentPart::Text { text: request_text }],
@@ -976,6 +992,7 @@ pub(super) fn settle_subagent_artifact(
     };
     let args = input.args;
     let run = SubagentRunArtifact {
+        runtime_identity: capture.runtime_identity,
         recovery_required: None,
         verification_source: input.verification_source,
         name: args.name.clone(),

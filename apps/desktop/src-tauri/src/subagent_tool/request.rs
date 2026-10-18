@@ -208,7 +208,10 @@ pub(super) fn normalize_spawn_args(
     }
     args.acceptance_criteria = normalize_string_list(args.acceptance_criteria.take(), 8);
     args.evidence_chunk_ids = normalize_string_list(args.evidence_chunk_ids.take(), 8);
-    args.source_ids = normalize_string_list(args.source_ids.take(), 16);
+    args.source_ids = args
+        .source_ids
+        .take()
+        .map(|ids| normalize_string_list(Some(ids), 16).unwrap_or_default());
     args.allowed_tools = args
         .allowed_tools
         .take()

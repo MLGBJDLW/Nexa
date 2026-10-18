@@ -385,6 +385,7 @@ test.beforeEach(async ({ page }) => {
             returnSections: ['Conclusion', 'Evidence', 'Risks'],
             modelPolicy: 'independentReviewer',
             effectiveModel: 'private-model',
+            runtimeIdentity: { provider: 'observed-provider', model: 'observed-model' },
             modelRouteFallback: true,
             result: '1. Conclusion\\nThe proposed answer is acceptable.\\n\\n2. Key evidence or reasoning\\nThe referenced facts are consistent.\\n\\n3. Risks or open questions\\nDouble-check the edge case around retries.',
             finishReason: 'stop',
@@ -694,8 +695,8 @@ test('projects resolved context budgets and preflight into the subagent card', a
   await expect(budgets).toContainText('provider managed');
   await expect(budgets).toContainText('24,000');
   const route = chatLog.getByTestId('subagent-runtime-route');
-  await expect(route).toContainText('Runtime provider: Custom');
-  await expect(route).toContainText('Effective model: private-model');
+  await expect(route).toContainText('Runtime provider: observed-provider');
+  await expect(route).toContainText('Effective model: observed-model');
   await expect(route).toContainText('Reasoning Effort: high');
   await expect(route).toContainText('Max Verified Tool Rounds: 24');
   await expect(route).toContainText('Requested model route: independent reviewer');

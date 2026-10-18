@@ -59,6 +59,8 @@ pub(crate) struct AgentRuntimeTurnRequest {
     pub conversation_id: String,
     pub turn_id: String,
     pub tool_scope: Option<(String, Option<String>)>,
+    /// Parent run/subtask own delegated spend; transcript identity remains independent.
+    pub usage_owner: Option<(String, String)>,
     pub next_sort_order: i64,
     pub history: Vec<Message>,
     pub user_parts: Vec<ContentPart>,
@@ -130,6 +132,7 @@ impl AgentRuntimeTurnRequest {
                 self.turn_id.clone(),
                 self.kind.provider(),
                 self.cancellation.clone(),
+                self.usage_owner,
             )?,
         ));
         let workspace = self.dependencies.tools.workspace().cloned();

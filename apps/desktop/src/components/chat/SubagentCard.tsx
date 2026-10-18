@@ -140,8 +140,8 @@ export function SubagentCard({
   const displayRole = run.name?.trim() || run.roleName?.trim() || run.role?.trim() || t('chat.helperDefaultLabel');
   const isRunning = run.status === 'running' && run.runtimeState === 'live';
   const cardState = isRunning ? 'running' : run.status === 'error' ? 'error' : 'done';
-  const effectiveModel = run.effectiveModel?.trim() || run.effectiveModelBudgets?.model?.trim() || run.preflight?.effectiveModel.trim() || null;
-  const providerId = run.effectiveModelBudgets?.provider?.trim() || run.preflight?.providerId.trim() || null;
+  const effectiveModel = run.runtimeIdentity?.model.trim() || run.effectiveModel?.trim() || run.effectiveModelBudgets?.model?.trim() || run.preflight?.effectiveModel.trim() || null;
+  const providerId = run.runtimeIdentity?.provider.trim() || run.effectiveModelBudgets?.provider?.trim() || run.preflight?.providerId.trim() || null;
   const lifecycleTools = isRunning && run.lifecycleTools
     ? Object.values(run.lifecycleTools).filter((tool): tool is string => Boolean(tool))
     : [];

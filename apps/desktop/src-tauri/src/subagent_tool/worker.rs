@@ -509,6 +509,7 @@ pub(super) fn failed_subagent_run_artifact(
     error: &CoreError,
 ) -> SubagentRunArtifact {
     SubagentRunArtifact {
+        runtime_identity: None,
         recovery_required: error.recovery_requirement(),
         verification_source: None,
         name: fallback.name.clone(),

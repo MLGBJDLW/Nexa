@@ -56,7 +56,8 @@
         "items": {
           "type": "string"
         },
-        "description": "Optional narrower source scope for this subagent. When omitted, it inherits the supervisor scope."
+        "description": "Optional narrower source scope for this subagent. When omitted, it inherits the supervisor scope.",
+        "minItems": 1
       },
       "allowed_tools": {
         "type": "array",

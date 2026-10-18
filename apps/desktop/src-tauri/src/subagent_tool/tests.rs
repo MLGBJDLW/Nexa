@@ -254,6 +254,15 @@ async fn native_workers_inherit_the_official_runtime_without_api_credentials() {
         assert!(error
             .to_string()
             .contains("native_output_limit_unsupported"));
+        runtime.base_config.max_tokens = None;
+        runtime.base_config.context_window = Some(1024);
+        runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+        let error =
+            prepare_subagent_worker(&runtime, &db, vec![], &args, "input-bounded-native", None)
+                .await
+                .err()
+                .unwrap();
+        assert!(error.to_string().contains("native_input_limit_unsupported"));
     }
 }
 
@@ -693,8 +702,14 @@ async fn worker_inference_reaches_the_selected_endpoint_with_its_own_model_and_k
     runtime.provider_config.base_url = Some("http://127.0.0.1:1/never-use-parent".into());
     runtime.base_config.model = Some("parent-model".into());
     runtime.set_tool_registry(ToolRegistry::new());
+    let template = workflow_template_by_id("research_verify").unwrap();
+    let tasks = expand_workflow_template_tasks(
+        template,
+        "Open the desktop app, click Save, then inspect the browser page",
+        None,
+    );
     let args = serde_json::from_value(serde_json::json!({
-        "task":"Reply with route verified", "agent_config_id":selected.id,
+        "task":tasks[0].task, "context":tasks[0].context, "agent_config_id":selected.id,
         "model":"child-model", "max_iterations":0, "timeout_secs":30, "allowed_tools":[],
     }))
     .unwrap();
@@ -722,6 +737,10 @@ async fn worker_inference_reaches_the_selected_endpoint_with_its_own_model_and_k
     assert!(!headers.contains("test-parent-key"));
     assert!(headers.starts_with("POST /v1/chat/completions "));
     assert_eq!(body["model"], "child-model");
+    assert!(
+        body.to_string().contains("click Save"),
+        "the parent's objective remains context without becoming child completion gates"
+    );
     assert_eq!(run.effective_model.as_deref(), Some("child-model"));
     assert!(run.result.contains("route verified"));
     assert!(!run.is_error);
@@ -1998,12 +2017,57 @@ fn test_workflow_template_expands_role_based_tasks() {
     assert_eq!(tasks[2].role_id.as_deref(), Some("critic"));
     assert_eq!(tasks[0].parallel_group.as_deref(), Some("research_verify"));
     assert!(tasks[0]
-        .task
+        .context
+        .as_deref()
+        .unwrap()
         .contains("Decide whether the proposal is supported"));
+    assert_eq!(tasks[0].task, template.tasks[0].task);
     assert!(tasks[0]
         .return_sections
         .as_ref()
         .is_some_and(|sections| sections.iter().any(|section| section == "Conclusion")));
+}
+
+#[test]
+fn evidence_handoffs_reject_chunks_outside_the_selected_source_scope() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("evidence.db");
+    let db = Database::new(&path).unwrap();
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let allowed = uuid::Uuid::new_v4().to_string();
+    let foreign = uuid::Uuid::new_v4().to_string();
+    for id in [&allowed, &foreign] {
+        connection
+            .execute(
+                "INSERT INTO sources(id,kind,root_path) VALUES(?1,'local_folder',?2)",
+                rusqlite::params![id, format!("/scope/{id}")],
+            )
+            .unwrap();
+    }
+    let file = directory.path().join("foreign.md");
+    std::fs::write(&file, "Private evidence belonging to the foreign source.").unwrap();
+    let parsed = nexa_core::parse::parse_file(
+        &file,
+        None,
+        #[cfg(feature = "video")]
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    db.insert_document(&foreign, &parsed).unwrap();
+    let chunk = db.get_chunks_for_source(&foreign).unwrap()[0].0.clone();
+    let ids = vec![chunk];
+    let error = build_evidence_handoff(&db, Some(&ids), Some(&[allowed])).unwrap_err();
+    assert!(error.to_string().contains("evidence_outside_source_scope"));
+    assert!(build_evidence_handoff(&db, Some(&ids), Some(&[])).is_err());
+    assert_eq!(
+        build_evidence_handoff(&db, Some(&ids), Some(&[foreign]))
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]

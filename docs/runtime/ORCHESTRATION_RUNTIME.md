@@ -606,6 +606,15 @@ isolated. Native judgement uses the reserved judge lane and its durable admissio
 credit. Explicit output-token caps are rejected at preflight when the official
 runtime cannot enforce them; automatic output is reported as provider-managed.
 Actual-token usage limits remain a separate host accounting policy.
+Explicit native numeric input caps are also rejected when the runtime cannot
+enforce them; handoff size is a separate supported limit. Native usage snapshots
+retain parent run/subtask ownership before terminal settlement, so interrupted
+workers cannot lose already-reported spend on resume. Worker cards prefer the
+runtime's observed provider/model identity while retaining the configured route.
+
+Template goals belong in context; only the template step is child intent.
+Explicit evidence chunks must belong to the narrowed worker source scope. Empty
+explicit source scopes are rejected instead of becoming unrestricted retrieval.
 
 Responses history compilation lives in `llm/openai/responses_input.rs`, separate
 from delegation scheduling. It preserves each native assistant output group,
@@ -746,6 +755,17 @@ For recurring unattended work, use the durable
 prompt or creating another polling loop.
 
 ## Evaluation contract
+
+The delegation design follows specific upstream boundaries: [pi's subagent
+extension](https://github.com/badlogic/pi-mono/blob/e17e2e10556cea6b674bb627726bef8ceed90065/packages/coding-agent/examples/extensions/subagent/index.ts)
+keeps effective provider/model identity visible; [Codex child configuration](https://github.com/openai/codex/blob/7b44ac1661433ae3a6f375fde873fa7123c935fe/codex-rs/core/src/agent/child_config.rs)
+inherits the accepted parent configuration, while its [wait handler](https://github.com/openai/codex/blob/7b44ac1661433ae3a6f375fde873fa7123c935fe/codex-rs/core/src/tools/handlers/multi_agents/wait.rs)
+separates observation deadlines from worker lifetime. [Hermes delegation](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/tools/delegate_tool.py)
+distinguishes useful progress from stagnation. [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/subagent.md)
+separates child lifecycle, context and transport recovery. Nexa applies these
+principles through its existing scheduler, Activity journal and official runtime
+adapters. Persisted history is not a claim that live child processes resurrect
+after an application restart; orphaned handles remain explicit.
 
 The `orchestration_runtime` evaluation suite must cover:
 

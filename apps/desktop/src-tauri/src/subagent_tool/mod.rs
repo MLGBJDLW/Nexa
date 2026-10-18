@@ -789,8 +789,15 @@ struct JudgeSubagentResultsArgs {
     parallel_group: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct SubagentRuntimeIdentity {
+    provider: String,
+    model: String,
+}
+
 #[derive(Default)]
 struct EventCapture {
+    runtime_identity: Option<SubagentRuntimeIdentity>,
     usage_total: Usage,
     finish_reason: Option<String>,
     tool_events: Vec<serde_json::Value>,
@@ -848,6 +855,8 @@ struct SubagentSessionSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubagentRunArtifact {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_identity: Option<SubagentRuntimeIdentity>,
     #[serde(skip_serializing_if = "Option::is_none")]
     recovery_required: Option<nexa_core::error::AgentRecoveryRequirement>,
     verification_source: Option<nexa_core::workflow_verification::VerificationSourceState>,

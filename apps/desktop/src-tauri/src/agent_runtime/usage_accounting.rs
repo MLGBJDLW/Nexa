@@ -8,6 +8,7 @@ pub(super) struct RuntimeUsageAccounting {
     conversation: String,
     turn: String,
     run: Option<String>,
+    subtask: Option<String>,
     provider: String,
     scope: String,
     started: Instant,
@@ -22,6 +23,75 @@ mod tests {
     use super::*;
     use crate::agent_runtime::{projection::Projection, tests::fixture, AgentRuntimeKind};
     use nexa_core::usage_analytics::UsageAnalyticsFilter;
+
+    #[tokio::test]
+    async fn native_child_usage_survives_before_terminal_worker_settlement() {
+        let (parent, _parent_rx, _, _) = fixture(AgentRuntimeKind::Copilot, "native");
+        let db = parent.db.clone();
+        let parent_turn = db.get_conversation_turn(&parent.turn_id).unwrap();
+        let run = db
+            .create_agent_task_run(
+                &parent.conversation_id,
+                &parent.turn_id,
+                &parent_turn.user_message_id,
+                "Parent",
+                Some("github_copilot"),
+                Some("native"),
+            )
+            .unwrap();
+        let subtask = db
+            .create_agent_subtask_run(
+                &run.id,
+                "child",
+                "researcher",
+                Some(&serde_json::json!({"kind":"subagent_run"})),
+                None,
+            )
+            .unwrap();
+        db.mark_agent_subtask_run_started(&subtask.id, "running")
+            .unwrap();
+        let (mut child, _child_rx, _, _) = super::super::tests::fixture_with_database(
+            AgentRuntimeKind::Copilot,
+            "native",
+            db.clone(),
+        );
+        child.usage_owner = Some((run.id.clone(), subtask.id.clone()));
+        let turn = child.prepare(false).unwrap();
+        let mut output = Projection::for_turn(&turn);
+        output.usage_reported = true;
+        output.usage = Usage {
+            prompt_tokens: 100,
+            completion_tokens: 20,
+            total_tokens: 120,
+            ..Default::default()
+        };
+        output.publish_usage(&turn.events).await.unwrap();
+        drop(output);
+        drop(turn);
+        assert!(db
+            .get_agent_subtask_run(&subtask.id)
+            .unwrap()
+            .output
+            .is_none());
+        assert_eq!(
+            db.delegated_usage_for_run(&run.id).unwrap()[&subtask.id].0,
+            120
+        );
+        let scheduler = crate::delegation_scheduler::DelegationScheduler::new(
+            &nexa_core::agent::AgentConfig::default(),
+        );
+        scheduler
+            .bind_resume_accounting(db.as_ref().clone(), &run.id, &parent.conversation_id)
+            .unwrap();
+        assert_eq!(scheduler.snapshot().await.tokens_spent, 120);
+        assert_eq!(
+            db.get_usage_analytics(&UsageAnalyticsFilter::default())
+                .unwrap()
+                .totals
+                .total_tokens,
+            120
+        );
+    }
 
     #[tokio::test]
     async fn privacy_revocation_settles_usage_when_native_future_is_dropped() {
@@ -231,13 +301,28 @@ impl RuntimeUsageAccounting {
         turn: String,
         provider: &str,
         cancellation: nexa_core::agent::CancellationToken,
+        usage_owner: Option<(String, String)>,
     ) -> Result<Self, CoreError> {
-        let run = db.get_agent_task_run_by_turn(&turn)?.map(|run| run.id);
+        let (run, subtask) = match usage_owner {
+            Some((run, subtask)) => {
+                if db.get_agent_subtask_run(&subtask)?.parent_run_id != run {
+                    return Err(CoreError::InvalidInput(
+                        "Native worker usage owner mismatch".into(),
+                    ));
+                }
+                (Some(run), Some(subtask))
+            }
+            None => (
+                db.get_agent_task_run_by_turn(&turn)?.map(|run| run.id),
+                None,
+            ),
+        };
         Ok(Self {
             db,
             conversation,
             turn,
             run,
+            subtask,
             provider: provider.into(),
             scope: uuid::Uuid::new_v4().to_string(),
             started: Instant::now(),
@@ -339,11 +424,15 @@ impl RuntimeUsageAccounting {
             model_id: model,
             raw_model_id: Some(model),
             modality: "language_model",
-            operation_kind: "agent_main",
+            operation_kind: if self.subtask.is_some() {
+                "subagent"
+            } else {
+                "agent_main"
+            },
             conversation_id: Some(&self.conversation),
             turn_id: Some(&self.turn),
             run_id: self.run.as_deref(),
-            subtask_run_id: None,
+            subtask_run_id: self.subtask.as_deref(),
             project_id: None,
             prompt_tokens: usage.prompt_tokens.into(),
             completion_tokens: usage.completion_tokens.into(),

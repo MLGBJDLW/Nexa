@@ -343,6 +343,7 @@ pub(super) fn fixture_with_database(
         conversation_id: conversation.id,
         turn_id: turn.id,
         tool_scope: None,
+        usage_owner: None,
         next_sort_order: 1,
         history: vec![],
         user_parts: vec![ContentPart::Text {

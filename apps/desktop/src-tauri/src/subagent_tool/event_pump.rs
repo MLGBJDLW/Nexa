@@ -103,12 +103,32 @@ mod tests {
         })
         .await
         .unwrap();
+        tx.send(AgentEvent::UsageUpdate {
+            usage_total: Usage::default(),
+            last_prompt_tokens: 0,
+            context_breakdown: Some(nexa_core::agent::context::ContextUsageBreakdown {
+                total_tokens: 0,
+                segments: vec![],
+                budget: None,
+                measurement: None,
+                context_window: None,
+                runtime_provider: Some("github_copilot".into()),
+                runtime_model: Some("observed-model".into()),
+            }),
+        })
+        .await
+        .unwrap();
         drop(tx);
-        pump.task.await.unwrap();
+        let capture = pump.task.await.unwrap();
+        assert_eq!(
+            capture.runtime_identity.as_ref().unwrap().model,
+            "observed-model"
+        );
         let page = db
             .read_subagent_history(&conversation.id, "child", 0)
             .unwrap();
         let serialized = serde_json::to_string(&page).unwrap();
+        assert!(serialized.contains("observed-model"));
         assert!(!serialized.contains("privateCODE"));
         assert!(page
             .events
@@ -346,6 +366,37 @@ impl SubagentEventPump {
                 )
                 .await;
                 last_delta_flush = Instant::now();
+            }
+            let reported_context = match &event {
+                AgentEvent::UsageUpdate {
+                    context_breakdown, ..
+                }
+                | AgentEvent::Done {
+                    context_breakdown, ..
+                } => context_breakdown.as_ref(),
+                _ => None,
+            };
+            if let Some((provider, model)) = reported_context.and_then(|context| {
+                context
+                    .runtime_provider
+                    .as_ref()
+                    .zip(context.runtime_model.as_ref())
+            }) {
+                if !provider.trim().is_empty() && !model.trim().is_empty() {
+                    let identity = SubagentRuntimeIdentity {
+                        provider: provider.clone(),
+                        model: model.clone(),
+                    };
+                    if capture.runtime_identity.as_ref() != Some(&identity) {
+                        emit_subagent_lifecycle_event(
+                            lifecycle_capture.as_ref(),
+                            SubagentLifecycleEventKind::Progress,
+                            serde_json::json!({"runtimeIdentity": &identity}),
+                        )
+                        .await;
+                        capture.runtime_identity = Some(identity);
+                    }
+                }
             }
             match event {
                 AgentEvent::Thinking { content } => {

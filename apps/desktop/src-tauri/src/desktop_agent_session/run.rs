@@ -86,6 +86,7 @@ pub async fn run_desktop_agent_turn(request: DesktopAgentTurnRequest) -> Desktop
                 conversation_id: run_conversation,
                 turn_id: run_turn,
                 tool_scope: None,
+                usage_owner: None,
                 next_sort_order: assistant_sort_order,
                 history,
                 user_parts,
