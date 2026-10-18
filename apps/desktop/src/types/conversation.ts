@@ -734,12 +734,14 @@ export type ProviderNativeSearchEngine =
   | 'parallel'
   | 'perplexity';
 export type WebSearchCustomProviderPreset =
+  | 'deepseek'
   | 'brave'
   | 'tavily'
   | 'anysearch'
   | 'serpapi_google'
   | 'searxng';
 export type WebSearchEngine =
+  | 'deepseek'
   | 'baidu'
   | 'sogou'
   | 'google'

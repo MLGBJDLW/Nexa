@@ -6,6 +6,7 @@ pub const MAX_SEARCH_LIMIT: usize = 20;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchEngine {
+    Deepseek,
     Baidu,
     Sogou,
     Google,
@@ -23,6 +24,7 @@ pub enum SearchEngine {
 impl SearchEngine {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Deepseek => "deepseek",
             Self::Baidu => "baidu",
             Self::Sogou => "sogou",
             Self::Google => "google",
@@ -45,6 +47,7 @@ impl SearchEngine {
 
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "deepseek" => Some(Self::Deepseek),
             "baidu" | "百度" => Some(Self::Baidu),
             "sogou" | "搜狗" => Some(Self::Sogou),
             "google" | "谷歌" => Some(Self::Google),

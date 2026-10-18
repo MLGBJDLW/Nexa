@@ -449,6 +449,42 @@ test('model search excludes provider metadata in global and provider results', a
   await expect(page.getByTestId('agent-model-option-cfg-glm-gpt-5.5')).toHaveCount(0);
 });
 
+test('model search stays within the selected provider until returning to providers', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-tiny').click();
+  const menu = page.getByTestId('agent-model-picker-menu');
+  await menu.getByRole('searchbox').fill('gpt-5.5');
+  await expect(page.getByTestId('agent-model-option-cfg-tiny-gpt-5.5')).toBeVisible();
+  await expect(page.getByTestId('agent-model-option-cfg-large-gpt-5.5')).toHaveCount(0);
+  await menu.getByRole('button', { name: 'Back', exact: true }).click();
+  await menu.getByRole('searchbox').fill('gpt-5.5');
+  await expect(page.getByTestId('agent-model-option-cfg-large-gpt-5.5')).toBeVisible();
+});
+
+test('followup recommendations preview in the composer and Tab completes without sending', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('e2e-change-fixture', '1');
+    localStorage.setItem('e2e-render-content', 'The result is ready.\n\n```nexa-followups\n' + JSON.stringify([
+      {label:'Inspect the result',prompt:'Check the generated report for missing evidence.'},
+      {label:'Make a presentation',prompt:'Create a presentation from the completed report.'},
+    ]) + '\n```');
+  });
+  await page.goto('/chat/conv-model-switch');
+  const input = page.getByTestId('chat-input-textarea');
+  await expect(page.getByTestId('followup-suggestions').getByRole('button')).toHaveCount(2);
+  await expect(input).toHaveValue('');
+  await expect(page.getByTestId('chat-input-ghost')).toContainText('Check the generated report');
+  await page.getByTestId('chat-input').screenshot({path:testInfo.outputPath('followup-suggestions.png')});
+  await input.focus(); await input.press('Tab');
+  await expect(input).toHaveValue('Check the generated report for missing evidence.');
+  expect(await page.evaluate(() => (window as any).__lastAgentChatArgs)).toBeNull();
+  await expect(page.getByTestId('followup-suggestions')).toHaveCount(0);
+  await input.fill('');
+  await page.getByTestId('followup-suggestions').getByRole('button', {name:/Make a presentation/}).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs?.message)).toBe('Create a presentation from the completed report.');
+});
+
 test('model selector and context usage follow the active chat model', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
 
@@ -585,6 +621,27 @@ test('model selector saves model and reasoning changes to the agent config', asy
   });
 });
 
+
+test('provider-managed reasoning lets a stale native effort return to default', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  const picker = page.getByTestId('agent-model-picker-trigger');
+  await picker.click();
+  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await page.getByTestId('agent-model-option-cfg-subscription-gpt-native').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByTestId('agent-model-reasoning-ultra').click();
+  await page.evaluate(() => localStorage.setItem('e2e-native-efforts', '[]'));
+  await picker.click();
+  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await page.getByTestId('agent-model-catalog-refresh').click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('native-reasoning-reset')).toBeVisible();
+  await page.getByTestId('native-reasoning-reset').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs: Array<Record<string, unknown>> }).__savedAgentConfigInputs.at(-1))).toMatchObject({
+    model: 'gpt-native', reasoningEffort: null, thinkingBudget: null, reasoningEnabled: null,
+  });
+  await expect(page.getByTestId('native-reasoning-reset')).toHaveCount(0);
+});
 
 for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['openai_codex', 'cfg-codex']]) {
 test(`${provider} model and native reasoning selection reach the chat request`, async ({ page }) => {

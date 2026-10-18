@@ -1,4 +1,5 @@
 use super::*;
+use crate::delegation_scheduler::DelegationLane;
 use nexa_core::conversation::{ConversationMessage, CreateConversationInput};
 use nexa_core::llm::ProviderType;
 
@@ -18,10 +19,13 @@ impl SubagentBudgetController {
         verifier: bool,
         cancel: &CancellationToken,
     ) -> Result<TestWorkerAdmission, CoreError> {
-        let slot = self.acquire_worker_slot(label, verifier, cancel).await?;
-        let mut reservation = self
-            .commit_worker_call(label, tokens, verifier, cancel)
-            .await?;
+        let lane = if verifier {
+            DelegationLane::Verification
+        } else {
+            DelegationLane::Exploration
+        };
+        let slot = self.acquire_slot(label, lane, cancel).await?;
+        let mut reservation = self.commit_lane_call(label, tokens, lane, cancel).await?;
         reservation.mark_started();
         Ok(TestWorkerAdmission {
             _slot: slot,
@@ -199,8 +203,10 @@ async fn omitted_worker_route_preserves_parent_model_reasoning_and_provider_iden
     runtime.base_config.reasoning_enabled = Some(true);
     runtime.base_config.summarization_model = Some("deepseek-v4-pro".into());
     runtime.set_tool_registry(ToolRegistry::new());
-    let args =
-        serde_json::from_value(serde_json::json!({"task":"Verify", "role_id":"verifier"})).unwrap();
+    let args = serde_json::from_value(
+        serde_json::json!({"task":"Verify", "role_id":"verifier", "model_policy":"fast"}),
+    )
+    .unwrap();
     let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "inherit", None)
         .await
         .unwrap();
@@ -208,6 +214,138 @@ async fn omitted_worker_route_preserves_parent_model_reasoning_and_provider_iden
     assert_eq!(worker.config.reasoning_effort, Some(ReasoningEffort::Max));
     assert_eq!(worker.preflight.provider_id, "deep_seek");
     assert_eq!(worker.run_deadline_ms, None);
+    assert_eq!(worker.config.delegated_task.as_deref(), Some("Verify"));
+}
+
+#[tokio::test]
+async fn native_workers_inherit_the_official_runtime_without_api_credentials() {
+    for kind in [
+        crate::agent_runtime::AgentRuntimeKind::Copilot,
+        crate::agent_runtime::AgentRuntimeKind::Codex,
+    ] {
+        let db = Database::open_memory().unwrap();
+        let mut runtime = test_runtime().with_parent_runtime(kind.clone());
+        runtime.provider_config.api_key = None;
+        runtime.base_config.model = Some("native-parent-model".into());
+        runtime.set_tool_registry(ToolRegistry::new());
+        let args = serde_json::from_value(
+            serde_json::json!({"task":"Inspect the supplied evidence","model_policy":"fast"}),
+        )
+        .unwrap();
+        let worker =
+            prepare_subagent_worker(&runtime, &db, vec![], &args, "native-inheritance", None)
+                .await
+                .unwrap();
+        assert_eq!(
+            worker.effective_model.as_deref(),
+            Some("native-parent-model")
+        );
+        assert_eq!(worker.preflight.provider_id, kind.provider());
+        assert_eq!(worker.effective_model_budgets["provider"], kind.provider());
+        assert!(
+            matches!(worker.provider, crate::desktop_agent_session::DesktopAgentBackend::Runtime {kind: resolved,..} if resolved == kind)
+        );
+        runtime.base_config.max_tokens = Some(512);
+        runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+        let error = prepare_subagent_worker(&runtime, &db, vec![], &args, "bounded-native", None)
+            .await
+            .err()
+            .unwrap();
+        assert!(error
+            .to_string()
+            .contains("native_output_limit_unsupported"));
+        runtime.base_config.max_tokens = None;
+        runtime.base_config.context_window = Some(1024);
+        runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+        let error =
+            prepare_subagent_worker(&runtime, &db, vec![], &args, "input-bounded-native", None)
+                .await
+                .err()
+                .unwrap();
+        assert!(error.to_string().contains("native_input_limit_unsupported"));
+    }
+}
+
+#[tokio::test]
+async fn native_judge_preparation_keeps_one_json_response_contract() {
+    let db = Database::open_memory().unwrap();
+    let judge_args: JudgeSubagentResultsArgs = serde_json::from_value(serde_json::json!({
+        "task": "Compare the evidence", "rubric": ["Use verified facts"],
+        "candidates": [{"id":"a","result":"First evidence"},{"id":"b","result":"Second evidence"}],
+    }))
+    .unwrap();
+    for kind in [
+        crate::agent_runtime::AgentRuntimeKind::Copilot,
+        crate::agent_runtime::AgentRuntimeKind::Codex,
+    ] {
+        let mut parent = test_runtime().with_parent_runtime(kind);
+        parent.base_config.model = Some("native-model".into());
+        parent.set_tool_registry(ToolRegistry::new());
+        let (runtime, args) = judge::native_judge_worker(&parent, &judge_args).unwrap();
+        let prepared = prepare_subagent_worker(&runtime, &db, vec![], &args, "native-judge", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            prepared.request_text,
+            judge::build_judge_request(&judge_args)
+        );
+        assert!(prepared.request_text.contains("Return ONLY JSON"));
+        assert!(!prepared.request_text.contains("## Response Contract"));
+        assert!(!prepared.request_text.contains("Checks performed"));
+        assert!(prepared
+            .config
+            .system_prompt
+            .contains("only the requested judgement JSON"));
+        assert!(!prepared.config.system_prompt.contains("## Role Profile"));
+        assert!(prepared.enabled_skills.is_empty());
+        assert!(prepared.effective_allowed_tools.is_empty());
+        assert_eq!(prepared.subtask_input["kind"], "subagent_judgement");
+    }
+}
+
+#[tokio::test]
+async fn native_judgement_uses_and_refunds_its_reserved_judge_credit() {
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("native-model".into());
+    runtime.base_config.subagent_max_calls_per_turn = Some(3);
+    runtime.base_config.subagent_verification_reserve_percent = Some(20);
+    runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+    let cancel = CancellationToken::new();
+    let mut explorer = runtime
+        .budget
+        .begin_call("explore", 10, false, &cancel)
+        .await
+        .unwrap();
+    explorer.reservation.settle(&Usage::default(), None);
+    drop(explorer);
+    let mut verifier = runtime
+        .budget
+        .begin_call("verify", 10, true, &cancel)
+        .await
+        .unwrap();
+    verifier.reservation.settle(&Usage::default(), None);
+    runtime.worker_lane = Some(DelegationLane::Judge);
+    let args: SpawnSubagentArgs = serde_json::from_value(
+        serde_json::json!({"task":"Compare candidates", "role_id":"verifier"}),
+    )
+    .unwrap();
+    let slots = acquire_worker_execution_slots(&runtime, "judge", &args, None)
+        .await
+        .unwrap();
+    let reservation = runtime
+        .budget
+        .commit_lane_call("judge", 10, runtime.worker_lane.unwrap(), &cancel)
+        .await
+        .unwrap();
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 3);
+    drop(reservation);
+    drop(slots);
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 2);
+    let _retry = runtime
+        .budget
+        .commit_lane_call("judge-retry", 10, DelegationLane::Judge, &cancel)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -234,7 +372,7 @@ async fn delegated_provider_route_keeps_credentials_model_limits_and_reasoning_t
         "task": "Review the supplied evidence", "agent_config_id": selected.id, "provider": "anthropic",
         "model": "test-worker-model", "reasoning_effort": "high", "max_iterations": 24, "allowed_tools": [],
     })).unwrap();
-    let (config, provider) = resolve_subagent_route(&runtime, &db, &args.route).unwrap();
+    let (config, provider, _) = resolve_subagent_route(&runtime, &db, &args.route).unwrap();
     assert_eq!(provider.provider_type, ProviderType::Anthropic);
     assert_eq!(provider.api_key.as_deref(), Some("test-review-key"));
     assert_eq!(
@@ -422,8 +560,12 @@ async fn route_catalog_is_secret_free_and_conflicting_or_missing_routes_fail() {
     assert!(result.content.contains("anthropic"));
     assert!(!result.content.contains("test-secret-never-expose"));
     assert!(!result.content.contains("apiKey"));
-    let native_parent = runtime.require_explicit_route();
-    assert!(resolve_subagent_route(&native_parent, &db, &SubagentRouteArgs::default()).is_err());
+    let native_parent =
+        runtime.with_parent_runtime(crate::agent_runtime::AgentRuntimeKind::Copilot);
+    let (native_config, _, kind) =
+        resolve_subagent_route(&native_parent, &db, &SubagentRouteArgs::default()).unwrap();
+    assert_eq!(kind, Some(crate::agent_runtime::AgentRuntimeKind::Copilot));
+    assert_eq!(native_config.model, native_parent.base_config.model);
     let route = SubagentRouteArgs {
         provider: Some("anthropic".into()),
         ..Default::default()
@@ -591,13 +733,20 @@ async fn worker_inference_reaches_the_selected_endpoint_with_its_own_model_and_k
             .unwrap(),
         )
         .unwrap();
-    let mut runtime = test_runtime().require_explicit_route();
+    let mut runtime =
+        test_runtime().with_parent_runtime(crate::agent_runtime::AgentRuntimeKind::Copilot);
     runtime.provider_config.api_key = Some("test-parent-key".into());
     runtime.provider_config.base_url = Some("http://127.0.0.1:1/never-use-parent".into());
     runtime.base_config.model = Some("parent-model".into());
     runtime.set_tool_registry(ToolRegistry::new());
+    let template = workflow_template_by_id("research_verify").unwrap();
+    let tasks = expand_workflow_template_tasks(
+        template,
+        "Open the desktop app, click Save, then inspect the browser page",
+        None,
+    );
     let args = serde_json::from_value(serde_json::json!({
-        "task":"Reply with route verified", "agent_config_id":selected.id,
+        "task":tasks[0].task, "context":tasks[0].context, "agent_config_id":selected.id,
         "model":"child-model", "max_iterations":0, "timeout_secs":30, "allowed_tools":[],
     }))
     .unwrap();
@@ -625,6 +774,10 @@ async fn worker_inference_reaches_the_selected_endpoint_with_its_own_model_and_k
     assert!(!headers.contains("test-parent-key"));
     assert!(headers.starts_with("POST /v1/chat/completions "));
     assert_eq!(body["model"], "child-model");
+    assert!(
+        body.to_string().contains("click Save"),
+        "the parent's objective remains context without becoming child completion gates"
+    );
     assert_eq!(run.effective_model.as_deref(), Some("child-model"));
     assert!(run.result.contains("route verified"));
     assert!(!run.is_error);
@@ -1259,7 +1412,11 @@ async fn queued_worker_cancel_and_collector_abort_settle_without_spawning_or_spe
         // queued worker has not allocated its executor or entered preflight.
         let occupied = runtime
             .budget
-            .acquire_worker_slot("occupied", false, &runtime.cancel_token)
+            .acquire_slot(
+                "occupied",
+                DelegationLane::Exploration,
+                &runtime.cancel_token,
+            )
             .await
             .unwrap();
         let registration = register_test_worker(&runtime, "queued-worker");
@@ -1304,7 +1461,11 @@ async fn queued_worker_cancel_and_collector_abort_settle_without_spawning_or_spe
         drop(occupied);
         let replacement = runtime
             .budget
-            .acquire_worker_slot("replacement", false, &CancellationToken::new())
+            .acquire_slot(
+                "replacement",
+                DelegationLane::Exploration,
+                &CancellationToken::new(),
+            )
             .await
             .unwrap();
         drop(replacement);
@@ -1419,7 +1580,7 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
     let scheduler = SubagentBudgetController::new(&AgentConfig::default());
     let cancellation = CancellationToken::new();
     let reservation = scheduler
-        .commit_worker_call("setup", 123, true, &cancellation)
+        .commit_lane_call("setup", 123, DelegationLane::Verification, &cancellation)
         .await
         .unwrap();
     assert_eq!(scheduler.snapshot().await.calls_started, 1);
@@ -1427,7 +1588,7 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
     assert_eq!(scheduler.snapshot().await.calls_started, 0);
     assert_eq!(scheduler.snapshot().await.tokens_reserved, 0);
     let mut started = scheduler
-        .commit_worker_call("provider", 456, false, &cancellation)
+        .commit_lane_call("provider", 456, DelegationLane::Exploration, &cancellation)
         .await
         .unwrap();
     started.mark_started();
@@ -1436,7 +1597,11 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
     assert_eq!(scheduler.snapshot().await.tokens_reserved, 0);
     cancellation.cancel();
     assert!(scheduler
-        .acquire_worker_slot("already-cancelled", false, &cancellation)
+        .acquire_slot(
+            "already-cancelled",
+            DelegationLane::Exploration,
+            &cancellation
+        )
         .await
         .is_err());
 }
@@ -1496,47 +1661,6 @@ fn test_delegation_timeout_treats_unlimited_parent_as_default_budget() {
         resolve_delegation_run_deadline_ms(&config, None, None),
         None
     );
-}
-
-#[test]
-fn test_model_policy_routes_only_to_same_provider_auxiliary_model() {
-    let mut config = AgentConfig {
-        model: Some("gpt-5".into()),
-        summarization_model: Some("gpt-5-mini".into()),
-        summarization_provider_type: Some(ProviderType::OpenAi),
-        ..AgentConfig::default()
-    };
-    let openai = ProviderConfig {
-        provider_type: ProviderType::OpenAi,
-        base_url: None,
-        api_key: None,
-        org_id: None,
-        timeout_secs: None,
-        streaming: Default::default(),
-    };
-    assert!(!apply_delegated_model_policy(
-        &mut config,
-        &openai,
-        Some(&ModelRoutingClass::Fast)
-    ));
-    assert_eq!(config.model.as_deref(), Some("gpt-5-mini"));
-
-    config.model = Some("claude-opus".into());
-    config.summarization_model = Some("gpt-5-mini".into());
-    let anthropic = ProviderConfig {
-        provider_type: ProviderType::Anthropic,
-        base_url: None,
-        api_key: None,
-        org_id: None,
-        timeout_secs: None,
-        streaming: Default::default(),
-    };
-    assert!(apply_delegated_model_policy(
-        &mut config,
-        &anthropic,
-        Some(&ModelRoutingClass::IndependentReviewer)
-    ));
-    assert_eq!(config.model.as_deref(), Some("claude-opus"));
 }
 
 #[tokio::test]
@@ -1930,12 +2054,57 @@ fn test_workflow_template_expands_role_based_tasks() {
     assert_eq!(tasks[2].role_id.as_deref(), Some("critic"));
     assert_eq!(tasks[0].parallel_group.as_deref(), Some("research_verify"));
     assert!(tasks[0]
-        .task
+        .context
+        .as_deref()
+        .unwrap()
         .contains("Decide whether the proposal is supported"));
+    assert_eq!(tasks[0].task, template.tasks[0].task);
     assert!(tasks[0]
         .return_sections
         .as_ref()
         .is_some_and(|sections| sections.iter().any(|section| section == "Conclusion")));
+}
+
+#[test]
+fn evidence_handoffs_reject_chunks_outside_the_selected_source_scope() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("evidence.db");
+    let db = Database::new(&path).unwrap();
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let allowed = uuid::Uuid::new_v4().to_string();
+    let foreign = uuid::Uuid::new_v4().to_string();
+    for id in [&allowed, &foreign] {
+        connection
+            .execute(
+                "INSERT INTO sources(id,kind,root_path) VALUES(?1,'local_folder',?2)",
+                rusqlite::params![id, format!("/scope/{id}")],
+            )
+            .unwrap();
+    }
+    let file = directory.path().join("foreign.md");
+    std::fs::write(&file, "Private evidence belonging to the foreign source.").unwrap();
+    let parsed = nexa_core::parse::parse_file(
+        &file,
+        None,
+        #[cfg(feature = "video")]
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    db.insert_document(&foreign, &parsed).unwrap();
+    let chunk = db.get_chunks_for_source(&foreign).unwrap()[0].0.clone();
+    let ids = vec![chunk];
+    let error = build_evidence_handoff(&db, Some(&ids), Some(&[allowed])).unwrap_err();
+    assert!(error.to_string().contains("evidence_outside_source_scope"));
+    assert!(build_evidence_handoff(&db, Some(&ids), Some(&[])).is_err());
+    assert_eq!(
+        build_evidence_handoff(&db, Some(&ids), Some(&[foreign]))
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -2211,7 +2380,7 @@ async fn batch_queue_failure_rolls_back_unstarted_call_and_token_credit() {
     let budget = SubagentBudgetController::new(&config);
     let cancel = CancellationToken::new();
     let permit = budget
-        .commit_worker_call("queued", 100, false, &cancel)
+        .commit_lane_call("queued", 100, DelegationLane::Exploration, &cancel)
         .await
         .unwrap();
 

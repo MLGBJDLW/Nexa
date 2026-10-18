@@ -315,7 +315,11 @@ export function Layout() {
               data-update-status={updater.status}
               className={`relative grid h-10 w-10 place-items-center rounded-md transition-colors hover:bg-surface-2 ${updater.status === 'error' ? 'text-danger' : updater.status === 'available' ? 'text-warning' : updater.status === 'ready' ? 'text-success' : 'text-text-tertiary hover:text-text-primary'}`}
             >
-              <UpdateIcon className={`h-4.5 w-4.5 ${updater.status === 'checking' || updater.status === 'downloading' ? 'animate-spin' : ''}`} />
+              {updater.status === 'idle' || updater.status === 'up-to-date' ? (
+                <span data-testid="app-version" className="select-none font-serif text-[10px] font-semibold italic tracking-tight text-text-secondary" style={{ fontFamily: 'Literata, Georgia, serif' }}>
+                  {appVersion ? `v${appVersion}` : 'v—'}
+                </span>
+              ) : <UpdateIcon className={`h-4.5 w-4.5 ${updater.status === 'checking' || updater.status === 'downloading' ? 'animate-spin motion-reduce:animate-none' : ''}`} />}
               {(updater.status === 'available' || updater.status === 'ready') && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_7px_currentColor]" />
               )}
@@ -325,11 +329,6 @@ export function Layout() {
             <UpdateSettingsPanel appVersion={appVersion} updater={updater} />
           </NexaPopoverContent>
           </NexaPopover>
-          <Tooltip content={`${t('update.currentVersion')}: v${appVersion || '—'}`} side="right" delay={180}>
-            <div className="flex h-5 w-10 select-none items-center justify-center overflow-hidden text-[9px] font-medium tracking-tight text-text-tertiary/65" data-testid="app-version">
-              {appVersion ? `v${appVersion}` : 'v—'}
-            </div>
-          </Tooltip>
         </div>
       </aside>
 

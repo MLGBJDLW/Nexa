@@ -213,7 +213,13 @@ pub fn extract_ooxml_visual_artifacts(
                 continue;
             }
         };
-        let name = entry.name().replace('\\', "/");
+        let name = match entry.name() {
+            Ok(name) => name.replace('\\', "/"),
+            Err(error) => {
+                tracing::debug!("OOXML visual entry name failed: {error}");
+                continue;
+            }
+        };
         if name.starts_with(package_kind.chart_prefix()) && name.ends_with(".xml") {
             let mut xml = String::new();
             if let Err(err) = entry.read_to_string(&mut xml) {

@@ -49,6 +49,7 @@ export function SystemOneSettingsPanel({ appConfig, loading, onChange, onMarkDir
             <label htmlFor={`${id}-model`} className="text-sm text-text-primary">{t('settings.model')}</label>
             <Input id={`${id}-model`} value={config.model} list={`${id}-models`} disabled={loading} onChange={event => update({ model: event.target.value })} />
             <datalist id={`${id}-models`}>{preset?.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</datalist>
+            {config.provider === 'siliconflow-cn' && config.model === 'diffusiongemma' && <p role="status" className="text-xs text-warning">{t('settings.retiredModelSelection', { model: config.model })}</p>}
           </div>
         </div>
         <div className="space-y-1.5">

@@ -16,9 +16,9 @@ pub fn parse_models(value: &Value) -> Vec<ImageModelPreset> {
         let id = model["id"].as_str()?.trim();
         if id.is_empty() { return None; }
         let parameters = &model["supported_parameters"];
-        // The current tool produces raster images from text. Do not offer
-        // vector-only models or models requiring style reference uploads.
-        if parameters.pointer("/input_references/min").and_then(Value::as_u64).unwrap_or(0) > 0 { return None; }
+        if !parameters.is_object() { return None; }
+        // Reference inputs share the existing raster generation endpoint.
+        // Vector-only outputs remain unsupported.
         let formats: Vec<String> = parameters.get("output_format").map(|format| {
             format["values"].as_array().into_iter().flatten().filter_map(Value::as_str)
                 .filter(|format| matches!(*format, "png" | "jpeg" | "webp")).map(str::to_string).collect()
@@ -38,7 +38,7 @@ pub fn parse_models(value: &Value) -> Vec<ImageModelPreset> {
             id:id.into(), name:model["name"].as_str().unwrap_or(id).into(),
             recommended:id == "google/gemini-3.1-flash-image", quality_options:Some(values("quality")),
             metadata:json!({"source":"official", "productReadiness":"known", "sizeOptions":sizes,
-                "inputModalities":["text"], "outputModalities":["image"], "outputFormats":formats, "supportedParameters":parameters,
+                "inputModalities":if parameters.pointer("/input_references/max").and_then(Value::as_u64).unwrap_or(0) > 0 { vec!["text", "image"] } else { vec!["text"] }, "outputModalities":["image"], "outputFormats":formats, "supportedParameters":parameters,
                 "lastVerifiedAt":chrono::Utc::now().format("%Y-%m-%d").to_string()}).as_object().unwrap().clone(),
         })
     }).collect()
@@ -143,6 +143,31 @@ pub fn generation_body(
     Ok(body)
 }
 
+/// The endpoint accepts typed image content parts, never paths or upload IDs.
+pub fn set_reference_images(
+    body: &mut Value,
+    model: &ImageModelPreset,
+    references: &[String],
+) -> Result<(), CoreError> {
+    let descriptor = &model.metadata["supportedParameters"]["input_references"];
+    let min = descriptor["min"].as_u64().unwrap_or(0) as usize;
+    let max = descriptor["max"].as_u64().unwrap_or(0).min(16) as usize;
+    if references.len() < min || references.len() > max {
+        return Err(CoreError::InvalidInput(format!(
+            "{} requires {min}-{max} reference images; received {}",
+            model.id,
+            references.len()
+        )));
+    }
+    if !references.is_empty() {
+        body["input_references"] = references
+            .iter()
+            .map(|url| json!({"type":"image_url","image_url":{"url":url}}))
+            .collect();
+    }
+    Ok(())
+}
+
 pub fn set_parameter(
     body: &mut Value,
     model: &ImageModelPreset,
@@ -205,6 +230,19 @@ mod tests {
         source["supported_parameters"]["output_format"] = json!({"type":"enum","values":["png"]});
         source["supported_parameters"]["input_references"] =
             json!({"type":"range","min":1,"max":5});
-        assert!(parse_models(&json!({"data":[source]})).is_empty());
+        let models = parse_models(&json!({"data":[source]}));
+        assert_eq!(
+            models[0].metadata["inputModalities"],
+            json!(["text", "image"])
+        );
+        let mut body = generation_body(&models[0], "edit", None, None, "png").unwrap();
+        assert!(set_reference_images(&mut body, &models[0], &[]).is_err());
+        let reference = "data:image/png;base64,cGl4ZWxz".to_string();
+        set_reference_images(&mut body, &models[0], &[reference.clone()]).unwrap();
+        assert_eq!(
+            body["input_references"],
+            json!([{"type":"image_url","image_url":{"url":reference}}])
+        );
+        assert!(set_reference_images(&mut body, &models[0], &vec![reference; 6]).is_err());
     }
 }

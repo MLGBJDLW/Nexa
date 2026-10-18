@@ -215,12 +215,16 @@ Names may contain Unicode and may repeat. Stable agent/session IDs still own
 controls, accounting and history; a resumed session inherits its saved display
 name unless the caller supplies a new one.
 
-Each delegated node carries its model-routing class into the executor. `Fast`
-and `IndependentReviewer` use the configured auxiliary model only when that
-model belongs to the same provider endpoint as the parent; otherwise the run
-records an explicit fallback and keeps the parent model. `Strong` always keeps
-the parent model. This provider-compatibility guard prevents cross-provider
-model names from being sent with the wrong endpoint or credentials.
+Delegated roles describe the work and never silently select an auxiliary model.
+An omitted route inherits the parent's account, provider and model, including
+Copilot and Codex subscription runtimes. Only an explicit model or account
+selection changes that identity. Running and historical worker cards expose the
+effective provider and model from the runtime's preflight receipt.
+
+The worker's typed task owns intent classification and completion gates. Parent
+context, allowed tool names and evidence handoffs remain context; they cannot
+create browser or desktop obligations for a read-only child. Reconnaissance
+does not introduce an automatic 180-second deadline.
 
 The acting agent receives the updated IR and owns mutation and synthesis.
 `Code Ultra` additionally requires isolated writes plus test, typecheck, build,
@@ -577,12 +581,40 @@ transport liveness, concurrency, and repeated-tool protection remain active.
 Automatic concurrency admits four workers. Settings preserve absent budgets as
 automatic/unlimited when creating or editing a provider, and an explicit V2
 configuration owns null values instead of falling back to stale legacy limits.
-An API worker inherits the parent's endpoint, account, model and reasoning
-unless a route/model policy is explicitly selected. Routine delegation omits
+An API, Copilot or Codex worker inherits the parent's account, model and reasoning
+unless a route/model is explicitly selected. Routine delegation omits
 hard task deadlines; bounded lifecycle waits do not terminate the worker.
 Reservations remain planning estimates and are released at settlement. Failed
 requests without reported usage are marked incomplete and cannot debit their
 estimated reservation as actual usage or exhaust a sibling's admission budget.
+
+Subscription workers use the existing provider runtime with a hidden,
+parent-owned conversation and their own turn IDs. Their provider transcripts
+cannot overwrite the parent transcript; deleting the parent also deletes its
+child conversations. ACP agents retain their external runtime's delegation
+ownership. Host delegation does not invent an API credential for them.
+
+Before a native runtime publishes a final answer, exact pending desktop targets
+are checked. The same runtime receives bounded repair guidance to capture those
+windows; individual verified targets reset the stalled-attempt allowance. Exhausted repair becomes
+a recoverable pause with pending targets, never a successful completion. Explicit
+Stop remains cancellation. Physical input takeover is a separate user-control
+outcome requiring a fresh observation before another action.
+
+Native workers retain parent tool/process ownership while their transcripts stay
+isolated. Native judgement uses the reserved judge lane and its durable admission
+credit. Explicit output-token caps are rejected at preflight when the official
+runtime cannot enforce them; automatic output is reported as provider-managed.
+Actual-token usage limits remain a separate host accounting policy.
+Explicit native numeric input caps are also rejected when the runtime cannot
+enforce them; handoff size is a separate supported limit. Native usage snapshots
+retain parent run/subtask ownership before terminal settlement, so interrupted
+workers cannot lose already-reported spend on resume. Worker cards prefer the
+runtime's observed provider/model identity while retaining the configured route.
+
+Template goals belong in context; only the template step is child intent.
+Explicit evidence chunks must belong to the narrowed worker source scope. Empty
+explicit source scopes are rejected instead of becoming unrestricted retrieval.
 
 Responses history compilation lives in `llm/openai/responses_input.rs`, separate
 from delegation scheduling. It preserves each native assistant output group,
@@ -723,6 +755,17 @@ For recurring unattended work, use the durable
 prompt or creating another polling loop.
 
 ## Evaluation contract
+
+The delegation design follows specific upstream boundaries: [pi's subagent
+extension](https://github.com/badlogic/pi-mono/blob/e17e2e10556cea6b674bb627726bef8ceed90065/packages/coding-agent/examples/extensions/subagent/index.ts)
+keeps effective provider/model identity visible; [Codex child configuration](https://github.com/openai/codex/blob/7b44ac1661433ae3a6f375fde873fa7123c935fe/codex-rs/core/src/agent/child_config.rs)
+inherits the accepted parent configuration, while its [wait handler](https://github.com/openai/codex/blob/7b44ac1661433ae3a6f375fde873fa7123c935fe/codex-rs/core/src/tools/handlers/multi_agents/wait.rs)
+separates observation deadlines from worker lifetime. [Hermes delegation](https://github.com/NousResearch/hermes-agent/blob/ccc695635094d7615373db267b77f894d978b1a0/tools/delegate_tool.py)
+distinguishes useful progress from stagnation. [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/687f282e8625c6b8d11ff58211a90524be2e4317/docs/subsystems/subagent.md)
+separates child lifecycle, context and transport recovery. Nexa applies these
+principles through its existing scheduler, Activity journal and official runtime
+adapters. Persisted history is not a claim that live child processes resurrect
+after an application restart; orphaned handles remain explicit.
 
 The `orchestration_runtime` evaluation suite must cover:
 

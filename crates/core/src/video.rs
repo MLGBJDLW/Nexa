@@ -2262,7 +2262,10 @@ fn extract_ffmpeg_from_zip(
         let mut entry = archive
             .by_index(i)
             .map_err(|e| CoreError::Video(format!("Failed to read zip entry: {e}")))?;
-        let entry_name = entry.name().replace('\\', "/");
+        let entry_name = entry
+            .name()
+            .map_err(|e| CoreError::Video(format!("Invalid zip entry name: {e}")))?
+            .replace('\\', "/");
         let file_name = entry_name.rsplit('/').next().unwrap_or("");
 
         if file_name.eq_ignore_ascii_case(ffmpeg_name) {
@@ -2292,7 +2295,10 @@ fn extract_ffmpeg_from_zip(
 }
 
 /// Extract a single zip entry to a destination file.
-fn extract_zip_entry_to(entry: &mut zip::read::ZipFile<'_>, dest: &Path) -> Result<(), CoreError> {
+fn extract_zip_entry_to<R: std::io::Read + ?Sized>(
+    entry: &mut zip::read::ZipFile<'_, R>,
+    dest: &Path,
+) -> Result<(), CoreError> {
     let mut out = std::fs::File::create(dest)
         .map_err(|e| CoreError::Video(format!("create {}: {e}", dest.display())))?;
     std::io::copy(entry, &mut out)

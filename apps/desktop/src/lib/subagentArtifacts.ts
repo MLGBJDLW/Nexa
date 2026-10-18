@@ -51,6 +51,14 @@ export interface SubagentContextSnapshot {
   droppedInvalidMessages: number;
 }
 
+export interface SubagentRuntimeIdentity { provider: string; model: string }
+
+function parseRuntimeIdentity(value: unknown): SubagentRuntimeIdentity | null {
+  const record = asRecord(value);
+  return typeof record?.provider === 'string' && record.provider.trim() && typeof record.model === 'string' && record.model.trim()
+    ? { provider: record.provider, model: record.model } : null;
+}
+
 export interface SubagentEffectiveModelBudgets {
   provider?: string | null;
   model?: string | null;
@@ -62,7 +70,7 @@ export interface SubagentEffectiveModelBudgets {
   maxOutputPerStep: number | null;
   maxActualTokensPerWorker: number | null;
   contextAuthority: SubagentContextSnapshot['contextAuthority'];
-  outputAuthority: 'user_override' | 'catalog_ceiling' | 'safe_default';
+  outputAuthority: 'user_override' | 'catalog_ceiling' | 'safe_default' | 'provider_managed';
 }
 
 export interface SubagentPreflightReport {
@@ -105,6 +113,7 @@ export interface SubagentArtifact {
   role?: string | null;
   modelPolicy?: string | null;
   effectiveModel?: string | null;
+  runtimeIdentity?: SubagentRuntimeIdentity | null;
   modelRouteFallback?: boolean;
   expectedOutput?: string | null;
   acceptanceCriteria?: string[] | null;
@@ -209,6 +218,7 @@ export interface SubagentRun {
   role?: string | null;
   modelPolicy?: string | null;
   effectiveModel?: string | null;
+  runtimeIdentity?: SubagentRuntimeIdentity | null;
   modelRouteFallback?: boolean;
   expectedOutput?: string | null;
   acceptanceCriteria?: string[] | null;
@@ -244,6 +254,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 export interface SubagentLifecycleProjection {
+  effectiveModel: string | null;
+  runtimeIdentity: SubagentRuntimeIdentity | null;
+  preflight: SubagentPreflightReport | null;
+  effectiveModelBudgets: SubagentEffectiveModelBudgets | null;
   status: 'running' | 'done' | 'error' | 'cancelled' | null;
   artifact: SubagentArtifact | null;
   streamedResult: string;
@@ -269,6 +283,10 @@ export function projectSubagentLifecycle(
   const thinking: string[] = [];
   let errorMessage: string | null = null;
   let lifecyclePhase: SubagentRun['lifecyclePhase'] = null;
+  let effectiveModel: string | null = null;
+  let runtimeIdentity: SubagentRuntimeIdentity | null = null;
+  let preflight: SubagentPreflightReport | null = null;
+  let effectiveModelBudgets: SubagentEffectiveModelBudgets | null = null;
   const seen = new Set<string>();
 
   for (const event of [...(events ?? [])].sort((a, b) => a.seq - b.seq)) {
@@ -282,6 +300,12 @@ export function projectSubagentLifecycle(
     if (status === 'done' || status === 'error' || status === 'cancelled') continue;
     const kind = typeof envelope.subagentEvent === 'string' ? envelope.subagentEvent : '';
     const detail = asRecord(envelope.detail);
+    if (kind === 'progress' && detail) {
+      runtimeIdentity = parseRuntimeIdentity(detail.runtimeIdentity) ?? runtimeIdentity;
+      effectiveModel = typeof detail.effectiveModel === 'string' ? detail.effectiveModel : effectiveModel;
+      preflight = parsePreflightReport(detail.preflight) ?? preflight;
+      effectiveModelBudgets = parseEffectiveModelBudgets(detail.effectiveModelBudgets) ?? effectiveModelBudgets;
+    }
     if (kind === 'spawned' || kind === 'queued' || kind === 'connected') {
       status = 'running';
       if (lifecyclePhase !== 'cancelling') {
@@ -316,7 +340,7 @@ export function projectSubagentLifecycle(
     }
   }
   if (status !== 'running') lifecyclePhase = null;
-  return { status, artifact, streamedResult, thinking, errorMessage, lifecyclePhase };
+  return { status, artifact, streamedResult, thinking, errorMessage, lifecyclePhase, effectiveModel, runtimeIdentity, preflight, effectiveModelBudgets };
 }
 
 /** Project each worker independently when a batch shares one parent tool call. */
@@ -353,6 +377,7 @@ export function projectSubagentLifecycleRuns(
     if (projection.artifact) {
       runs.push({
         ...buildRunFromArtifact(projection.artifact, agentId),
+        runtimeIdentity: projection.artifact.runtimeIdentity ?? projection.runtimeIdentity,
         name: projection.artifact.name ?? name,
         status: projection.status ?? 'done',
         runtimeState: projection.status === 'running' ? 'live' : 'terminal',
@@ -371,6 +396,10 @@ export function projectSubagentLifecycleRuns(
       status: projection.status ?? 'running',
       runtimeState: projection.status === 'running' ? 'live' : 'terminal',
       lifecyclePhase: projection.lifecyclePhase,
+      effectiveModel: projection.effectiveModel,
+      runtimeIdentity: projection.runtimeIdentity,
+      preflight: projection.preflight,
+      effectiveModelBudgets: projection.effectiveModelBudgets,
       task,
       name,
       roleId,
@@ -503,7 +532,7 @@ function parseEffectiveModelBudgets(value: unknown): SubagentEffectiveModelBudge
     || parentHistoryHandoff == null
     || (outputAuthority !== 'user_override'
       && outputAuthority !== 'catalog_ceiling'
-      && outputAuthority !== 'safe_default')
+      && outputAuthority !== 'safe_default' && outputAuthority !== 'provider_managed')
   ) return null;
   return {
     provider: typeof record.provider === 'string' ? record.provider : null,
@@ -669,6 +698,7 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
     role: typeof record.role === 'string' ? record.role : null,
     modelPolicy: typeof record.modelPolicy === 'string' ? record.modelPolicy : null,
     effectiveModel: typeof record.effectiveModel === 'string' ? record.effectiveModel : null,
+    runtimeIdentity: parseRuntimeIdentity(record.runtimeIdentity),
     modelRouteFallback: record.modelRouteFallback === true,
     expectedOutput: typeof record.expectedOutput === 'string' ? record.expectedOutput : null,
     acceptanceCriteria,
@@ -727,6 +757,7 @@ function buildRunFromArtifact(artifact: SubagentArtifact, id: string, content?: 
     role: artifact.role ?? null,
     modelPolicy: artifact.modelPolicy ?? null,
     effectiveModel: artifact.effectiveModel ?? artifact.preflight?.effectiveModel ?? null,
+    runtimeIdentity: artifact.runtimeIdentity ?? null,
     modelRouteFallback: artifact.modelRouteFallback ?? false,
     expectedOutput: artifact.expectedOutput ?? null,
     acceptanceCriteria: artifact.acceptanceCriteria ?? null,
@@ -894,7 +925,8 @@ export function buildSubagentRun(
     roleName: artifact?.roleName ?? null,
     role: artifact?.role ?? parsedArgs?.role ?? null,
     modelPolicy: artifact?.modelPolicy ?? parsedArgs?.modelPolicy ?? null,
-    effectiveModel: artifact?.effectiveModel ?? artifact?.preflight?.effectiveModel ?? null,
+    effectiveModel: artifact?.effectiveModel ?? lifecycle.effectiveModel ?? artifact?.preflight?.effectiveModel ?? null,
+    runtimeIdentity: artifact?.runtimeIdentity ?? lifecycle.runtimeIdentity ?? null,
     modelRouteFallback: artifact?.modelRouteFallback ?? false,
     expectedOutput: artifact?.expectedOutput ?? parsedArgs?.expectedOutput ?? null,
     acceptanceCriteria: artifact?.acceptanceCriteria ?? parsedArgs?.acceptanceCriteria ?? null,
@@ -914,10 +946,10 @@ export function buildSubagentRun(
     thinking: artifact?.thinking ?? (lifecycle.thinking.length > 0 ? lifecycle.thinking : null),
     sourceScopeApplied: artifact?.sourceScopeApplied ?? false,
     allowedTools: artifact?.allowedTools ?? null,
-    preflight: artifact?.preflight ?? null,
+    preflight: artifact?.preflight ?? lifecycle.preflight ?? null,
     preflightFailure: artifact?.preflightFailure ?? null,
     contextSnapshot: artifact?.contextSnapshot ?? null,
-    effectiveModelBudgets: artifact?.effectiveModelBudgets ?? null,
+    effectiveModelBudgets: artifact?.effectiveModelBudgets ?? lifecycle.effectiveModelBudgets ?? null,
     lifecycleTools: artifact?.lifecycleTools ?? null,
     argumentsText: toolCall.arguments,
     isError: lifecycle.status === 'error' ? true : toolCall.isError,

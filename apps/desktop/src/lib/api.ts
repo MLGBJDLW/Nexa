@@ -1026,6 +1026,7 @@ export const logoutCodexAccount = async () => {
 };
 
 export interface CopilotModelSummary {
+  supportsReasoningEffort?: boolean | null;
   contextTiers?: { id: 'default' | 'long_context'; promptTokenLimit: number | null }[];
   contextWindow?: number;
   id: string;

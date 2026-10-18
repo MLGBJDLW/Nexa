@@ -2898,6 +2898,7 @@ Every answer that uses knowledge base search results.
     ("v152_subagent_history_ownership", include_str!("v152_subagent_history_ownership.sql")),
     ("v153_endpoint_model_definitions", include_str!("v153_endpoint_model_definitions.sql")),
     ("v154_embedding_performance", include_str!("v154_embedding_performance.sql")),
+    ("v155_delegated_conversations", include_str!("v155_delegated_conversations.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

@@ -31,6 +31,10 @@ pub async fn run_desktop_agent_turn(request: DesktopAgentTurnRequest) -> Desktop
         ),
     });
 
+    if let Some(runtime) = dependencies.delegation_runtime.as_ref() {
+        runtime.set_execution_services(approval_cb.clone(), tool_visual_interpreter.clone());
+    }
+
     let (events_tx, events_rx) = mpsc::channel::<AgentEvent>(64);
     let event_forwarder = AgentStreamForwarder::new(
         conversation_id.clone(),
@@ -81,6 +85,8 @@ pub async fn run_desktop_agent_turn(request: DesktopAgentTurnRequest) -> Desktop
                 db,
                 conversation_id: run_conversation,
                 turn_id: run_turn,
+                tool_scope: None,
+                usage_owner: None,
                 next_sort_order: assistant_sort_order,
                 history,
                 user_parts,

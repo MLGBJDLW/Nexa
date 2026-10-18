@@ -690,7 +690,10 @@ fn test_build_system_prompt_preserves_core_rules() {
     assert!(prompt.contains("browser_evidence_capture"));
     assert!(prompt.contains("keep recent complete turns verbatim"));
     assert!(!prompt.contains("## Tool Contract: run_shell"));
-    assert!(prompt.len() < 8_000);
+    assert!(
+        default_system_prompt().len() <= 8 * 1024,
+        "the core prompt stays within its 8 KiB budget; dynamic sections have their own budgets"
+    );
 }
 
 #[test]
@@ -829,6 +832,32 @@ fn test_agent_config_defaults_to_cache_stable_tool_visibility() {
 
 struct MockProvider {
     stream_calls: Arc<AtomicUsize>,
+}
+
+#[tokio::test]
+async fn delegated_task_intent_does_not_inherit_parent_surface_gates() {
+    let db = Database::open_memory().unwrap();
+    let calls = Arc::new(AtomicUsize::new(1));
+    let executor = AgentExecutor::new(
+        Box::new(MockProvider {
+            stream_calls: calls.clone(),
+        }),
+        ToolRegistry::new(),
+        AgentConfig {
+            model: Some("mock-model".into()),
+            request_kind: AgentRequestKind::SubagentWorker,
+            delegated_task: Some("Summarize the supplied evidence".into()),
+            ..Default::default()
+        },
+    );
+    let (tx, _rx) = mpsc::channel(256);
+    let answer = executor.run(vec![], vec![ContentPart::Text {text:"Delegated task: summarize evidence. Parent objective: open the browser, click Save in the app window and capture the desktop. Available tools include computer_observe and browser_session.".into()}], &db, None, None, tx, 0).await.unwrap();
+    assert_eq!(answer.text_content(), "final answer");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "the worker must not repair unrelated parent interaction gates"
+    );
 }
 
 #[async_trait]

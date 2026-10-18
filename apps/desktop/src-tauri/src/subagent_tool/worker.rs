@@ -65,9 +65,15 @@ pub(super) async fn acquire_worker_execution_slots(
     let profile = resolve_role_profile(args.role_id.as_deref(), args.role.as_deref())?;
     let lane = runtime
         .budget
-        .acquire_worker_slot(
+        .acquire_slot(
             call_label,
-            profile.is_some_and(|profile| profile.id == "verifier"),
+            runtime.worker_lane.unwrap_or(
+                if profile.is_some_and(|profile| profile.id == "verifier") {
+                    crate::delegation_scheduler::DelegationLane::Verification
+                } else {
+                    crate::delegation_scheduler::DelegationLane::Exploration
+                },
+            ),
             &runtime.cancel_token,
         )
         .await
@@ -196,7 +202,8 @@ pub(super) async fn run_subagent_once(
         emit_subagent_lifecycle_event(
             Some(events),
             SubagentLifecycleEventKind::Progress,
-            serde_json::json!({ "status": "running" }),
+            serde_json::json!({ "status": "running", "effectiveModel": &prepared.effective_model,
+                "preflight": &prepared.preflight, "effectiveModelBudgets": &prepared.effective_model_budgets }),
         )
         .await;
     }
@@ -502,6 +509,7 @@ pub(super) fn failed_subagent_run_artifact(
     error: &CoreError,
 ) -> SubagentRunArtifact {
     SubagentRunArtifact {
+        runtime_identity: None,
         recovery_required: error.recovery_requirement(),
         verification_source: None,
         name: fallback.name.clone(),

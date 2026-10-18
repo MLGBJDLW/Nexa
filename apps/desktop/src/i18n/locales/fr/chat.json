@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "Géré par le fournisseur",
+  "reasoningProviderManagedHint": "Aucun niveau de raisonnement sélectionnable n’est annoncé pour ce modèle. Actualisez la liste.",
+  "followupSuggestions": "Tâches suivantes suggérées",
+  "followupTabHint": "Appuyez sur Tab pour compléter : {prompt}",
   "generatedImageRequestedPrompt": "Invite demandée",
   "generatedImageEffectivePrompt": "Invite effective du fournisseur",
   "generatedImagePromptRevisedWarning": "Le fournisseur a signalé une invite révisée.",

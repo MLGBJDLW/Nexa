@@ -237,11 +237,12 @@ export function AgentModelPicker({
     .filter(([, state]) => state.models !== null)
     .map(([catalogKey, state]) => [catalogKey, state.models!.map(model => {
           const provider = state.provider;
-          const effortLevels = model.reasoningEfforts.filter((effort): effort is ReasoningEffortLevel => effort in REASONING_EFFORT_LABEL_KEYS);
+          const nativeEfforts = model.supportsReasoningEffort === false ? [] : model.reasoningEfforts;
+          const effortLevels = nativeEfforts.filter((effort): effort is ReasoningEffortLevel => effort in REASONING_EFFORT_LABEL_KEYS);
           const nativeModel = {
             id: model.id, name: model.name, source: 'discovered' as const, status: 'active' as const, productReadiness: 'known' as const,
             contextTokens: model.contextWindow,
-            capabilities: { reasoning: model.reasoningEfforts.length ? { mode: model.reasoningEfforts.includes('none') ? 'optional' as const : 'always' as const, effortLevels, nativeEffortLevels: model.reasoningEfforts } : null },
+            capabilities: { reasoning: nativeEfforts.length ? { mode: nativeEfforts.includes('none') ? 'optional' as const : 'always' as const, effortLevels, nativeEffortLevels: nativeEfforts } : null },
           };
           return { ...nativeModel, descriptor: projectModelDescriptor(nativeModel, {
             surface: 'text', providerId: provider, endpointId: modelEndpointId('text', provider), region: 'global',
@@ -291,7 +292,7 @@ export function AgentModelPicker({
   const searchModelRows = useMemo(
     () =>
       normalizedQuery
-        ? allModelRows
+        ? (pickerStep === 'providers' ? allModelRows : activeProviderModelRows)
             .map((row) => ({ row, score: scoreModelRow(row, normalizedQuery) }))
             .filter((entry) => entry.score > 0)
             .sort((a, b) => {
@@ -304,7 +305,7 @@ export function AgentModelPicker({
             .slice(0, GLOBAL_SEARCH_LIMIT)
             .map((entry) => entry.row)
         : [],
-    [allModelRows, normalizedQuery],
+    [allModelRows, activeProviderModelRows, normalizedQuery, pickerStep],
   );
   const visibleModelRows = normalizedQuery ? searchModelRows : activeProviderModelRows;
 
@@ -331,7 +332,7 @@ export function AgentModelPicker({
   const selectedTitle = selectedConfig
     ? `${selectedConfig.name || selectedConfig.provider} · ${selectedConfig.provider} / ${selectedConfig.model}`
     : t('settings.defaultModel');
-  const canChangeReasoning = Boolean(selectedConfig && (findPresetForConfig(selectedConfig)?.runtime !== 'acp' || selectedModelRow?.reasoning));
+  const canChangeReasoning = Boolean(selectedConfig && (!findPresetForConfig(selectedConfig)?.runtime || selectedModelRow?.reasoning));
   useAppCommand({ id: 'chat.reasoning', label: 'settings.reasoningEffort', keywords: 'reasoning thinking 推理 思考', enabled: canChangeReasoning, run: () => {
     if (!selectedConfig) return;
     setActiveConfigId(selectedConfig.id); setActiveModelId(selectedConfig.model);
@@ -437,23 +438,24 @@ export function AgentModelPicker({
   const applyModelSelection = useCallback(
     (row: ModelRow) => {
       const isCurrent = selectedConfig?.id === row.providerRow.config.id && selectedConfig.model === row.model.id;
+      const preserveReasoning = isCurrent && (!row.providerRow.preset?.runtime || Boolean(row.reasoning));
       const defaultEffort = row.reasoning?.nativeEffortLevels ? null : defaultReasoningEffort(row.reasoning);
       const defaultBudget = defaultThinkingBudget(row.reasoning);
       setOpen(false);
       void Promise.resolve(onSelect({
         config: row.providerRow.config,
         model: row.model.id,
-        reasoningEnabled: isCurrent
+        reasoningEnabled: preserveReasoning
           ? selectedConfig.reasoningEnabled
           : row.reasoning?.defaultEnabled === false || defaultEffort === 'none' ? false : row.reasoning?.mode === 'always' || defaultEffort || defaultBudget
             ? true
             : null,
-        thinkingBudget: isCurrent
+        thinkingBudget: preserveReasoning
           ? selectedConfig.thinkingBudget
           : defaultEffort
             ? null
             : defaultBudget,
-        reasoningEffort: isCurrent ? selectedConfig.reasoningEffort : defaultEffort,
+        reasoningEffort: preserveReasoning ? selectedConfig.reasoningEffort : defaultEffort,
       })).then(() => {
         if (!isCurrent && row.providerRow.preset?.runtime === 'acp') {
           invalidateSubscriptionModels(runtimeCatalogKey(row.providerRow.config.provider, row.providerRow.config.id));
@@ -584,6 +586,13 @@ export function AgentModelPicker({
         <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep !== 'reasoning' ? 'rotate-180' : ''}`} />
       </button>
 
+      {!canChangeReasoning && selectedModelRow?.providerRow.preset?.runtime && <span data-testid="native-reasoning-managed" title={t('chat.reasoningProviderManagedHint')} className="flex items-center gap-1 px-2 text-[10px] text-text-tertiary">
+        <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />{t('chat.reasoningProviderManaged')}
+        {(selectedConfig?.reasoningEffort != null || selectedConfig?.thinkingBudget != null || selectedConfig?.reasoningEnabled != null) && <button
+          type="button" data-testid="native-reasoning-reset" className="underline underline-offset-2 hover:text-text-primary"
+          onClick={() => { if (selectedConfig) void onSelect({ config: selectedConfig, model: selectedConfig.model, reasoningEnabled: null, thinkingBudget: null, reasoningEffort: null }); }}
+        >{t('settings.isDefault')}</button>}
+      </span>}
       {canChangeReasoning && <button
         ref={reasoningTriggerRef}
         type="button"
@@ -654,11 +663,7 @@ export function AgentModelPicker({
                     type="search"
                     value={query}
                     onChange={(event) => {
-                      const nextQuery = event.target.value;
-                      setQuery(nextQuery);
-                      if (nextQuery.trim()) {
-                        setPickerStep('models');
-                      }
+                      setQuery(event.target.value);
                     }}
                     placeholder={t('settings.modelSearchPlaceholder')}
                     className="h-7 w-full rounded-md border border-border/60 bg-surface-1 pl-7 pr-2 text-xs text-text-primary outline-none transition-colors placeholder:text-text-tertiary focus:border-accent/60 focus:ring-1 focus:ring-accent/25"

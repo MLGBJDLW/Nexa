@@ -21050,6 +21050,287 @@
         },
         "documentationRef": "https://openrouter.ai/google/gemini-3-pro-image",
         "maxOutputTokens": 32768
+      },
+      {
+        "id": "deepseek/deepseek-v4.1-flash-1017",
+        "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-10-18",
+        "releaseDate": "2026-10-17",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 393216,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "high",
+            "defaultEnabled": true
+          }
+        },
+        "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4.1-flash-1017",
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logit_bias",
+          "logprobs",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ]
+      },
+      {
+        "id": "elorian/glimpse",
+        "name": "Elorian: Glimpse",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-10-18",
+        "releaseDate": "2026-10-17",
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 262144,
+        "maxOutputTokens": 256000,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        },
+        "documentationRef": "https://openrouter.ai/elorian/glimpse",
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logit_bias",
+          "logprobs",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ]
+      },
+      {
+        "id": "xingchen-agi/xing4.0-29b-a4b:free",
+        "name": "XingChen: Xing4.0 29B A4B (free)",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-10-18",
+        "releaseDate": "2026-10-16",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 262144,
+        "maxOutputTokens": 235929,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEnabled": true
+          }
+        },
+        "documentationRef": "https://openrouter.ai/xingchen-agi/xing4.0-29b-a4b:free",
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ]
+      },
+      {
+        "id": "reflection/beam-1.0-501b-a23b",
+        "name": "Reflection: Beam 1.0 501B A23B",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-10-18",
+        "releaseDate": "2026-10-16",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "max",
+            "defaultEnabled": true
+          }
+        },
+        "documentationRef": "https://openrouter.ai/reflection/beam-1.0-501b-a23b",
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logit_bias",
+          "logprobs",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ]
+      },
+      {
+        "id": "unbiased/pareto-26.10",
+        "name": "Pareto 26.10",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "recommended": false,
+        "regions": [
+          "global"
+        ],
+        "lastVerifiedAt": "2026-10-18",
+        "releaseDate": "2026-10-15",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "capabilities": {
+          "vision": true,
+          "reasoning": null
+        },
+        "documentationRef": "https://openrouter.ai/unbiased/pareto-26.10",
+        "supportedParameters": [
+          "max_tokens",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ]
       }
     ]
   },
@@ -22330,8 +22611,8 @@
     "models": [
       {
         "id": "deepseek-flash",
-        "name": "DeepSeek V4.1 Flash",
-        "version": "DeepSeek-V4.1-Flash",
+        "name": "DeepSeek V4.1 Flash 1017",
+        "version": "DeepSeek-V4.1-Flash-1017",
         "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
@@ -22342,8 +22623,8 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-09-12",
-        "releaseDate": "2026-09-10",
+        "lastVerifiedAt": "2026-10-18",
+        "releaseDate": "2026-10-17",
         "inputModalities": [
           "text",
           "image"

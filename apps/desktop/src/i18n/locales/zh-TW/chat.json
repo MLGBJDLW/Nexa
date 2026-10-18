@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "供應商管理",
+  "reasoningProviderManagedHint": "供應商尚未公布此模型的可選推理檔位，可重新整理模型清單檢查更新。",
+  "followupSuggestions": "接下來可以做",
+  "followupTabHint": "按 Tab 補全：{prompt}",
   "generatedImageRequestedPrompt": "原始提示詞",
   "generatedImageEffectivePrompt": "提供者實際提示詞",
   "generatedImagePromptRevisedWarning": "提供者回報該提示詞已被修改。",

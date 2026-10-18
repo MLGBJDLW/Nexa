@@ -220,10 +220,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             .as_str()
             .ok_or_else(|| protocol_error("invalid reasoning effort"))?
             .to_string();
-        if !model
-            .supported_reasoning_efforts
-            .as_ref()
-            .is_some_and(|levels| levels.contains(&effort))
+        if !crate::commands::subscription_accounts::copilot_reasoning_efforts(&model)
+            .contains(&effort)
         {
             return Err(protocol_error(
                 "the selected Copilot model does not support this reasoning effort",
@@ -251,6 +249,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     let mut response = super::copilot_response::Response::default();
     let mut steering = VecDeque::new();
     let mut steering_closed = false;
+    let mut completion_repairs = super::CompletionRepairState::default();
     let run = async {
         let mut next = initial;
         loop {
@@ -316,6 +315,12 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 projection.persist_settled(&turn, response.take_settled()).await?;
             }
             response.ensure_complete()?;
+            if let Some((guidance, milestones)) = turn.transcript.completion_repair_status().await {
+                let guidance = completion_repairs.next(guidance, milestones)?;
+                projection.defer_answer_for_verification(&turn).await?;
+                next = MessageOptions::new(format!("Nexa host verification remains pending. {guidance}"));
+                continue;
+            }
             let Some(message) = steering.pop_front() else { return Ok(()); };
             if message.recovery_control.is_some() { return Err(protocol_error("Copilot manages its own recovery. Stop and start a new turn to change reasoning.")); }
             let attachments = message.parts.iter().filter_map(|part| match part { ContentPart::Image {media_type,data} => Some(Attachment::Blob{data:data.clone(),mime_type:media_type.clone(),display_name:None}),_=>None }).collect::<Vec<_>>();

@@ -1,4 +1,6 @@
 {
+  "webSearchCustomProvider.deepseek": "DeepSeek Suche und Abruf",
+  "webSearchCustomProvider.deepseek.desc": "Websuche und Markdown-Abruf mit Ihrem DeepSeek-API-Schlüssel.",
   "title": "Einstellungen",
   "subtitle": "Index- und Datenschutzeinstellungen verwalten",
   "indexSection": "Indexverwaltung",

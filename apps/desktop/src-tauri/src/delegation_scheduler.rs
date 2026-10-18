@@ -255,7 +255,7 @@ struct ResumeAccounting {
 pub(crate) struct WorkerBudgetReservation {
     state: Arc<Mutex<DelegationBudgetState>>,
     reserved_tokens: u32,
-    is_verification: bool,
+    lane: DelegationLane,
     started: bool,
     settled: bool,
 }
@@ -288,9 +288,11 @@ impl Drop for WorkerBudgetReservation {
         state.tokens_reserved = state.tokens_reserved.saturating_sub(self.reserved_tokens);
         if !self.started {
             state.calls_started = state.calls_started.saturating_sub(1);
-            if self.is_verification {
+            if self.lane == DelegationLane::Verification {
                 state.verification_calls_started =
                     state.verification_calls_started.saturating_sub(1);
+            } else if self.lane == DelegationLane::Judge {
+                state.judge_calls_started = state.judge_calls_started.saturating_sub(1);
             }
         }
     }
@@ -520,38 +522,19 @@ impl DelegationScheduler {
 
     /// Queue before allocating an isolated worker thread/provider. Admission
     /// credit is committed only after that worker's preflight succeeds.
-    pub(crate) async fn acquire_worker_slot(
-        &self,
-        label: &str,
-        is_verification: bool,
-        cancel_token: &CancellationToken,
-    ) -> Result<OwnedSemaphorePermit, CoreError> {
-        let lane = if is_verification {
-            DelegationLane::Verification
-        } else {
-            DelegationLane::Exploration
-        };
-        self.acquire_slot(label, lane, cancel_token).await
-    }
-
-    pub(crate) async fn commit_worker_call(
+    pub(crate) async fn commit_lane_call(
         &self,
         label: &str,
         reserved_tokens: u32,
-        is_verification: bool,
+        lane: DelegationLane,
         cancel_token: &CancellationToken,
     ) -> Result<WorkerBudgetReservation, CoreError> {
-        let lane = if is_verification {
-            DelegationLane::Verification
-        } else {
-            DelegationLane::Exploration
-        };
         self.commit_call(label, reserved_tokens, lane, cancel_token)
             .await?;
         Ok(WorkerBudgetReservation {
             state: Arc::clone(&self.state),
             reserved_tokens,
-            is_verification,
+            lane,
             started: false,
             settled: false,
         })
@@ -580,7 +563,7 @@ impl DelegationScheduler {
         Ok(permit)
     }
 
-    async fn acquire_slot(
+    pub(crate) async fn acquire_slot(
         &self,
         label: &str,
         lane: DelegationLane,

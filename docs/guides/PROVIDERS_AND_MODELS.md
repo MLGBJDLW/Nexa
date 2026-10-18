@@ -308,7 +308,7 @@ source links and verification dates when changing lifecycle facts.
 | --- | --- |
 | Normal API chat | Nexa owns the agent loop and dispatches available tools under current policies |
 | Subscription chat | The official runtime owns its model loop; Nexa owns tool dispatch and durable conversation state |
-| Subagent work | Configured API workers selected through `list_subagent_models` and `agent_config_id`; subscription child runtimes are not implemented |
+| Subagent work | API, Copilot and Codex workers inherit the active account and model; `list_subagent_models` and an explicit `agent_config_id` select another route |
 | Dictation | A speech connection that actually supports the selected input and interim/final delivery mode |
 | Live | A supported native realtime protocol or a configured vision plus streaming-transcription route; see [Voice and Live](LIVE.md) |
 | Embeddings | A configured local or API embedding runtime; API embeddings disclose the text sent for embedding |
@@ -329,6 +329,32 @@ route mid-sample. A failed or unavailable route should report its actual failure
 | Context or output limits differ between connections | Check endpoint/model capacity authority and explicit overrides before changing orchestration budgets |
 
 ## Implementation and checks
+
+The October 18 refresh updates the canonical DeepSeek Flash label to
+DeepSeek-V4.1-Flash-1017 and adds the new compatible OpenRouter text and image
+routes. Krea K3 Edit uses the existing OpenRouter Images endpoint with 1–8
+local references. `generate_image.reference_image_paths` follows the same file
+access and pixel-disclosure approval as native image reads, preserves accepted
+PNG/JPEG/WebP bytes, and sends typed `input_references` content parts. Nexa caps
+inputs at 12 MiB each, 32 MiB total, 8192 pixels per edge and 16 million pixels
+per image; these are host resource limits, not advertised provider limits.
+Missing references and unsupported options fail before generation. See the
+[OpenRouter Images OpenAPI](https://openrouter.ai/docs/openapi/openapi.yaml).
+DeepSeek Search and Fetch are configured in the existing web-search
+settings, using their own saved bearer key and the existing provider priority.
+See [DeepSeek's model contract](https://api-docs.deepseek.com/quick_start/pricing/)
+and [Search/Fetch guide](https://api-docs.deepseek.com/guides/search/).
+SiliconFlow's retired `diffusiongemma` decision route is no longer selectable;
+saved selections produce a migration error instead of silently choosing a
+different model. Deprecation notices with a future shutdown date do not remove
+currently supported routes.
+
+Copilot reasoning controls follow the official runtime's model capabilities and
+advertised effort IDs. An explicit `supports.reasoningEffort: false` takes
+precedence over a stale effort list. A model without configurable levels shows
+provider-managed reasoning. Native Google capabilities are not copied into a
+Copilot model with the same family name; see the
+[Copilot model reference](https://docs.github.com/en/copilot/reference/ai-models/supported-models).
 
 The October 15, 2026 catalog audit covers 81 API/local presets and 1,068 model
 projections. Public discovery probes cover OpenRouter text, images and its

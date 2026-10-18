@@ -767,7 +767,10 @@ fn read_zip_entry_text(
         let mut file = archive
             .by_index(i)
             .map_err(|e| format!("zip entry open failed: {e}"))?;
-        let name = file.name().to_string();
+        let name = file
+            .name()
+            .map_err(|e| format!("zip entry name failed: {e}"))?
+            .into_owned();
         if !include_entry(&name) {
             continue;
         }

@@ -1,4 +1,6 @@
 {
+  "webSearchCustomProvider.deepseek": "DeepSeek 搜索与抓取",
+  "webSearchCustomProvider.deepseek.desc": "使用 DeepSeek API 密钥搜索网页并抓取 Markdown 内容。",
   "title": "设置",
   "subtitle": "管理索引与隐私配置",
   "indexSection": "索引管理",

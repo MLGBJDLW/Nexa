@@ -129,10 +129,19 @@ installation commands above remain applicable outside that container.
 
 CI runs documentation-only changes through repository and release metadata
 checks. Frontend source, asset, and test changes additionally run frontend and
-browser checks; native sources, shared contracts, manifests, workflow changes,
-and unknown paths run the complete suite. Release candidates always receive
+browser checks. Changes confined to Rust source run Rust, task-evaluation,
+Linux and Windows checks; unchanged browser mocks and Office scripts do not run.
+Mixed boundaries, shared contracts, manifests, workflow changes and unknown paths
+run the complete suite. Dependency audits run for full-scope changes, nightly,
+and every release, so unrelated source-only PRs do not depend on live advisory
+services. Release candidates always receive
 full CI for their immutable tag. The final gate rejects failed or unexpectedly
 skipped required jobs.
+
+For a transient release failure, rerun the failed jobs in the existing Actions
+run first: successful jobs remain reusable for that immutable candidate. Use the
+existing draft-release resume input when a new run is necessary. A retry never
+changes the tag or bypasses validation, signatures or artifact completeness.
 
 Browser CI uses two workers while preserving serial order within each spec;
 local runs use one worker by default. Routine timeline tests compare 100 and

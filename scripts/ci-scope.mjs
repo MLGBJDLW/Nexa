@@ -147,8 +147,9 @@ const isCli =
   process.argv[1] &&
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-const DOCUMENTATION_PATH = /^(?:docs\/|(?:README|CONTRIBUTING|CHANGELOG|SECURITY)\.md$)/u;
+const DOCUMENTATION_PATH = /^(?:docs\/|README(?:\.[A-Za-z-]+)?\.md$|(?:CONTRIBUTING|CHANGELOG|SECURITY)\.md$)/u;
 const FRONTEND_PATH = /^apps\/desktop\/(?:src\/|public\/|e2e\/|tests\/)/u;
+const NATIVE_SOURCE_PATH = /^(?:crates\/(?:core|remote|agent-eval|model-catalog)\/src\/|apps\/desktop\/src-tauri\/src\/).+\.rs$/u;
 
 export function classifyCiScope(changedPaths, releaseMetadataOnly = false) {
   if (releaseMetadataOnly) return 'lightweight';
@@ -157,7 +158,10 @@ export function classifyCiScope(changedPaths, releaseMetadataOnly = false) {
   if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || FRONTEND_PATH.test(changedPath))) {
     return 'frontend';
   }
-  // Manifests, shared contracts, workflows, unknown paths and native sources
+  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || NATIVE_SOURCE_PATH.test(changedPath))) {
+    return 'native';
+  }
+  // Manifests, shared contracts, workflows, unknown paths and mixed boundaries
   // retain the complete suite. A release candidate always forces full scope.
   return 'full';
 }
@@ -165,17 +169,18 @@ export function classifyCiScope(changedPaths, releaseMetadataOnly = false) {
 export function ciResultFailures(needs) {
   const scope = needs.classify?.outputs?.scope;
   const failures = [];
-  if (needs.classify?.result !== 'success' || !['full', 'frontend', 'lightweight'].includes(scope)) {
+  if (needs.classify?.result !== 'success' || !['full', 'frontend', 'native', 'lightweight'].includes(scope)) {
     return ['CI scope classification did not succeed'];
   }
   const required = new Set(['repository_policy', 'release_metadata']);
-  if (scope !== 'lightweight') {
+  if (scope === 'full' || scope === 'frontend') {
     required.add('frontend');
     required.add('browser_regressions');
   }
-  if (scope === 'full') {
-    for (const job of ['rust_core', 'agent_task_eval', 'office_smoke', 'linux_desktop', 'windows-check']) required.add(job);
+  if (scope === 'full' || scope === 'native') {
+    for (const job of ['rust_core', 'agent_task_eval', 'linux_desktop', 'windows-check']) required.add(job);
   }
+  if (scope === 'full') required.add('office_smoke');
   for (const job of ['repository_policy', 'release_metadata', 'frontend', 'browser_regressions',
     'rust_core', 'agent_task_eval', 'office_smoke', 'linux_desktop', 'windows-check']) {
     const expected = required.has(job) ? 'success' : 'skipped';

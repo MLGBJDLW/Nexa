@@ -1,4 +1,6 @@
 {
+  "webSearchCustomProvider.deepseek": "Pesquisa e leitura DeepSeek",
+  "webSearchCustomProvider.deepseek.desc": "Pesquise na web e obtenha páginas Markdown com a sua chave API DeepSeek.",
   "title": "Configurações",
   "subtitle": "Gerenciar índices e configurações de privacidade",
   "indexSection": "Gerenciamento de índices",

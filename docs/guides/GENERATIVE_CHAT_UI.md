@@ -25,6 +25,19 @@ format and execution boundary.
 
 ## Data contract and streaming
 
+The final assistant answer may end with a `nexa-followups` fenced JSON array of
+two or three `{label, prompt}` objects, ranked by usefulness. Desktop chat shows
+these as next-task buttons only after the response finishes. A click sends the
+selected prompt through the normal composer. The first prompt also appears as
+ghost text in an empty composer: Tab fills the draft, and sending remains a
+separate action. Escape dismisses suggestions for that answer. Existing drafts,
+attachments and active responses suppress the suggestions.
+
+Only a complete top-level terminal fence in the latest assistant message can
+activate suggestions. Quoted examples, commentary, invalid payloads and older
+answers cannot create actions. Labels and prompts are plain bounded strings;
+there is no script execution or additional recommendation-model request.
+
 Structured views use `{version: 1, title, summary?, blocks}`. The complete
 supported shapes are in the [format reference](../../crates/core/assets/skills/visual-explanations/references/structured-ui.md).
 The [validator](../../crates/core/assets/skills/visual-explanations/resources/chat-ui.ts)

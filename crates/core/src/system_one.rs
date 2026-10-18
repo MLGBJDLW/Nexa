@@ -346,6 +346,11 @@ fn prepare_request(
     policy: &crate::privacy::ChatPrivacyPolicy,
 ) -> Result<DecisionRequest, CoreError> {
     request.validate()?;
+    if config.provider == "siliconflow-cn"
+        && request.model.as_deref().unwrap_or(&config.model).trim() == "diffusiongemma"
+    {
+        return Err(CoreError::InvalidInput("SiliconFlow retired diffusiongemma on 2026-10-17. Select Kev-4b or SemIf in Structured decisions settings.".into()));
+    }
     let mut state = request.state.clone();
     policy.redact_data(&mut state);
     let mut questions = BTreeMap::new();

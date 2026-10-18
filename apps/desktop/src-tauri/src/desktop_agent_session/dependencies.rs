@@ -76,6 +76,23 @@ pub(crate) fn desktop_tool_registry_generation(
     Ok(blake3::hash(&snapshot).to_hex().to_string())
 }
 
+/// Keep the product registry and its package-policy tests on the same assembly
+/// path. Copilot/Codex support the native judge; ACP owns its tool registry.
+pub(crate) fn register_delegation_tools(tools: &mut ToolRegistry, runtime: &DelegationRuntime) {
+    tools.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
+    tools.register(Box::new(SubagentModelsTool));
+    tools.register(Box::new(SubagentBatchTool::from_runtime(runtime.clone())));
+    tools.register(Box::new(JudgeSubagentResultsTool::from_runtime(
+        runtime.clone(),
+    )));
+    tools.register(Box::new(ObserveSubagentBatchTool::from_runtime(
+        runtime.clone(),
+    )));
+    for lifecycle_tool in SubagentLifecycleTool::all(runtime.clone()) {
+        tools.register(Box::new(lifecycle_tool));
+    }
+}
+
 pub async fn build_desktop_agent_session_dependencies(
     request: DesktopAgentSessionDependencyRequest<'_>,
 ) -> DesktopAgentSessionDependencies {
@@ -103,13 +120,13 @@ pub async fn build_desktop_agent_session_dependencies(
         terminal_state,
         browser_state,
     } = request;
+    let parent_runtime = agent_runtime.clone();
     let image_subscription = agent_runtime.clone();
     let native_tools = matches!(
         agent_runtime,
         Some(crate::agent_runtime::AgentRuntimeKind::Acp(_))
     );
     let image_model = executor_config.model.clone();
-    let agent_runtime = agent_runtime.is_some();
     let image_source = db
         .load_app_config()
         .map(|config| config.image_generation.source)
@@ -147,6 +164,7 @@ pub async fn build_desktop_agent_session_dependencies(
         // ACP processes own their tools. Building Nexa's MCP/delegation registry
         // here would start unrelated services and advertise unusable tools.
         return DesktopAgentSessionDependencies {
+            delegation_runtime: None,
             tools: ToolRegistry::new().with_workspace(workspace),
             selected_skills,
             auto_loaded_skills,
@@ -277,24 +295,11 @@ pub async fn build_desktop_agent_session_dependencies(
             Some(task_run_id.to_string()),
             Some(conversation_id.to_string()),
         );
-        if agent_runtime {
-            runtime = runtime.require_explicit_route();
+        if let Some(kind) = parent_runtime {
+            runtime = runtime.with_parent_runtime(kind);
         }
         runtime.restore_accounting(db);
-        tools.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
-        tools.register(Box::new(SubagentModelsTool));
-        tools.register(Box::new(SubagentBatchTool::from_runtime(runtime.clone())));
-        if !agent_runtime {
-            tools.register(Box::new(JudgeSubagentResultsTool::from_runtime(
-                runtime.clone(),
-            )));
-        }
-        tools.register(Box::new(ObserveSubagentBatchTool::from_runtime(
-            runtime.clone(),
-        )));
-        for lifecycle_tool in SubagentLifecycleTool::all(runtime.clone()) {
-            tools.register(Box::new(lifecycle_tool));
-        }
+        register_delegation_tools(&mut tools, &runtime);
         Some(runtime)
     };
     if let Some(terminal_state) = terminal_state {
@@ -386,11 +391,12 @@ pub async fn build_desktop_agent_session_dependencies(
     tools = tools.with_workspace(workspace);
     // Delegated workers inherit the already-filtered root registry and can
     // only narrow it further through their own role/tool policy.
-    if let Some(runtime) = delegation_runtime {
+    if let Some(runtime) = delegation_runtime.as_ref() {
         runtime.set_tool_registry(tools.clone());
     }
 
     DesktopAgentSessionDependencies {
+        delegation_runtime,
         tools,
         selected_skills,
         auto_loaded_skills,

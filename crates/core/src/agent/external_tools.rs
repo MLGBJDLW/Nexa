@@ -16,6 +16,8 @@ pub struct ExternalToolSessionInput {
     pub db: Arc<Database>,
     pub conversation_id: String,
     pub turn_id: String,
+    /// Tool/process ownership may stay with a parent while transcript rows are isolated.
+    pub tool_scope: Option<(String, Option<String>)>,
     pub next_sort_order: i64,
     pub user_prompt: String,
     pub events: mpsc::Sender<AgentEvent>,
@@ -55,7 +57,9 @@ mod tests {
                 call_id: context.call_id.to_string(),
                 content: "effect recorded".into(),
                 is_error: false,
-                artifacts: None,
+                artifacts: Some(
+                    serde_json::json!({"conversationId":context.conversation_id,"turnId":context.turn_id}),
+                ),
             })
         }
     }
@@ -122,6 +126,7 @@ mod tests {
             db,
             conversation_id: conversation.id,
             turn_id: turn.id,
+            tool_scope: None,
             next_sort_order: 1,
             user_prompt: user.content,
             events,
@@ -141,6 +146,34 @@ mod tests {
             arguments: serde_json::json!({"value":value}).to_string(),
             thought_signature: None,
         }
+    }
+
+    #[tokio::test]
+    async fn native_worker_tools_keep_parent_ownership_and_child_transcript() {
+        let (mut session, _, _rx) = session(3);
+        session.input.tool_scope = Some(("parent-conversation".into(), Some("parent-turn".into())));
+        let result = session
+            .execute(call("parent-owned-effect", 1))
+            .await
+            .unwrap();
+        assert_eq!(
+            result.result.artifacts.as_ref().unwrap()["conversationId"],
+            "parent-conversation"
+        );
+        assert_eq!(
+            result.result.artifacts.as_ref().unwrap()["turnId"],
+            "parent-turn"
+        );
+        let history = session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap();
+        assert!(history.iter().any(|message| message.role == Role::Tool
+            && message.tool_call_id.as_deref() == Some("parent-owned-effect")));
+        assert!(history
+            .iter()
+            .all(|message| message.conversation_id == session.input.conversation_id));
     }
 
     fn uncertain_worker(session: &ExternalToolSession, name: &str) -> String {
@@ -448,7 +481,18 @@ mod tests {
                 .result
                 .is_error
         );
-        assert!(session.persist_answer("Premature success").await.is_err());
+        assert!(matches!(
+            session.persist_answer("Premature success").await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        assert!(session
+            .completion_repair_guidance()
+            .await
+            .unwrap()
+            .contains("window_id values: 42"));
         let run = session
             .input
             .db
@@ -473,6 +517,7 @@ mod tests {
             .await
             .unwrap();
         session.persist_answer("Verified target 42").await.unwrap();
+        assert!(session.completion_repair_guidance().await.is_none());
         let history = session
             .input
             .db
@@ -998,13 +1043,22 @@ impl ExternalToolSession {
         let source_scope = input
             .db
             .get_effective_conversation_source_scope(&input.conversation_id)?;
+        let routing_objective = if input.config.request_kind == AgentRequestKind::SubagentWorker {
+            input
+                .config
+                .delegated_task
+                .as_deref()
+                .unwrap_or(&input.user_prompt)
+        } else {
+            &input.user_prompt
+        };
         let route = route_user_turn(
-            &input.user_prompt,
+            routing_objective,
             &input.config.system_prompt,
             !source_scope.is_empty(),
         );
         let plan = build_task_plan(TaskPlanningInput::for_requirements(
-            &input.user_prompt,
+            routing_objective,
             &route.requirements,
             !source_scope.is_empty(),
             source_scope.len(),
@@ -1216,7 +1270,7 @@ impl ExternalToolSession {
             approval_callback: &approval,
             tool_visual_interpreter: &self.input.visual_interpreter,
             activity_runtime: &self.activity,
-            tool_scope: None,
+            tool_scope: self.input.tool_scope.as_ref(),
         }
         .dispatch_tool_calls(
             ToolDispatchContext {
@@ -1387,6 +1441,28 @@ impl ExternalToolSession {
         self.persist_assistant(text, false).await
     }
 
+    /// Let upstream loops repair host-owned evidence before attempting a final
+    /// answer. This is controller guidance, never a synthetic user approval.
+    pub async fn completion_repair_guidance(&self) -> Option<String> {
+        self.completion_repair_status()
+            .await
+            .map(|(guidance, _)| guidance)
+    }
+
+    pub async fn completion_repair_status(&self) -> Option<(String, Vec<String>)> {
+        let state = self.state.lock().await;
+        state
+            .desktop_resume_workflow
+            .as_ref()
+            .filter(|workflow| workflow.desktop_evidence_pending())
+            .map(|workflow| {
+                (
+                    workflow.completion_repair_guidance(),
+                    workflow.completion_progress_milestones(),
+                )
+            })
+    }
+
     /// Durable progress/partial output does not assert that final verification
     /// completed. Use the same sort owner as tools to preserve message ordering.
     pub async fn persist_intermediate(
@@ -1437,7 +1513,14 @@ impl ExternalToolSession {
                 .as_ref()
                 .is_some_and(crate::workflow_ir::WorkflowIr::desktop_evidence_pending)
         {
-            return Err(CoreError::Agent("The task still has unverified desktop targets. Capture each exact pending window, or complete an explicitly requested close with a host-verified terminal receipt, before a final answer.".into()));
+            return Err(CoreError::RecoveryRequired {
+                message: state
+                    .desktop_resume_workflow
+                    .as_ref()
+                    .unwrap()
+                    .completion_repair_guidance(),
+                action_reconciliation: true,
+            });
         }
         let message = Message::text(Role::Assistant, text.to_string());
         let id = Uuid::new_v4().to_string();

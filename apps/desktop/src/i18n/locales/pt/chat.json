@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "Gerido pelo fornecedor",
+  "reasoningProviderManagedHint": "Não foram anunciados níveis de raciocínio selecionáveis para este modelo. Atualize a lista.",
+  "followupSuggestions": "Próximas tarefas sugeridas",
+  "followupTabHint": "Prima Tab para completar: {prompt}",
   "generatedImageRequestedPrompt": "Prompt solicitado",
   "generatedImageEffectivePrompt": "Prompt efetivo do provedor",
   "generatedImagePromptRevisedWarning": "O provedor informou um prompt revisado.",

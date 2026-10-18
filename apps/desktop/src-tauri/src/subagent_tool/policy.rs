@@ -42,40 +42,6 @@ pub(super) fn is_subagent_tool_name(name: &str) -> bool {
 pub(super) fn is_interactive_surface_tool(name: &str) -> bool {
     SUBAGENT_INTERACTIVE_SURFACE_TOOLS.contains(&name)
 }
-pub(super) fn compatible_auxiliary_model(
-    config: &AgentConfig,
-    provider_config: &ProviderConfig,
-) -> Option<String> {
-    let provider_matches = config
-        .summarization_provider_type
-        .is_none_or(|provider_type| provider_type == provider_config.provider_type);
-    provider_matches
-        .then(|| config.summarization_model.as_deref().map(str::trim))
-        .flatten()
-        .filter(|model| !model.is_empty())
-        .map(str::to_string)
-}
-/// Route delegated phases without ever sending a model identifier to credentials
-/// or an endpoint configured for a different provider. A missing compatible
-/// auxiliary model is an explicit fallback to the parent model.
-pub(super) fn apply_delegated_model_policy(
-    config: &mut AgentConfig,
-    provider_config: &ProviderConfig,
-    policy: Option<&ModelRoutingClass>,
-) -> bool {
-    if !matches!(
-        policy,
-        Some(ModelRoutingClass::Fast | ModelRoutingClass::IndependentReviewer)
-    ) {
-        return false;
-    }
-    if let Some(model) = compatible_auxiliary_model(config, provider_config) {
-        config.model = Some(model);
-        false
-    } else {
-        true
-    }
-}
 /// Only explicit task budgets constrain delegated execution. Tool timeouts
 /// describe individual tool operations, not the lifetime of a worker.
 pub(super) fn resolve_delegation_run_deadline_ms(

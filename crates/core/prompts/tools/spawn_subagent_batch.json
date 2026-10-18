@@ -45,7 +45,7 @@
                 "strong",
                 "independentReviewer"
               ],
-              "description": "Optional workflow model class. Fast and independent-review phases use a compatible auxiliary model when one is configured for the same provider; otherwise they safely fall back to the parent model."
+              "description": "Optional workflow role class. The worker inherits the parent account and model regardless of role. Set model explicitly only when a different model is required; list_subagent_models can discover models on the inherited provider."
             },
             "context": {
               "type": "string"
@@ -69,7 +69,8 @@
               "type": "array",
               "items": {
                 "type": "string"
-              }
+              },
+              "minItems": 1
             },
             "allowed_tools": {
               "type": "array",

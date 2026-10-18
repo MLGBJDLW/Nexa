@@ -766,23 +766,25 @@ impl AgentExecutor {
                 .tools
                 .workspace()
                 .is_some_and(|workspace| !workspace.roots.is_empty());
-        let route_plan = route_user_turn(
-            resumed_execution
-                .as_ref()
-                .and_then(|saved| saved.plan.as_ref())
-                .map_or(user_query_text_for_tools.as_str(), |plan| {
-                    plan.objective.as_str()
-                }),
-            &self.config.system_prompt,
-            has_sources,
-        );
+        let routing_objective = resumed_execution
+            .as_ref()
+            .and_then(|saved| saved.plan.as_ref())
+            .map(|plan| plan.objective.as_str())
+            .or_else(|| {
+                (self.config.request_kind == AgentRequestKind::SubagentWorker)
+                    .then_some(self.config.delegated_task.as_deref())
+                    .flatten()
+            })
+            .unwrap_or(user_query_text_for_tools.as_str());
+        let route_plan =
+            route_user_turn(routing_objective, &self.config.system_prompt, has_sources);
         let mut loop_recorder = TurnLoopRecorder::new(route_plan.kind, self.config.max_iterations);
         let mut task_plan = resumed_execution
             .as_ref()
             .and_then(|saved| saved.plan.clone())
             .unwrap_or_else(|| {
                 build_task_plan(TaskPlanningInput::for_requirements(
-                    &user_query_text_for_tools,
+                    routing_objective,
                     &route_plan.requirements,
                     has_sources,
                     source_scope.len(),
@@ -2959,6 +2961,16 @@ impl AgentExecutor {
                             orchestration_policy.retry_limit,
                         )? {
                             let reason = format!("Workflow completion repair stalled without new file state or satisfied checks: {}", blockers.join(", "));
+                            if workflow_ir.desktop_evidence_pending()
+                                || blockers
+                                    .iter()
+                                    .any(|blocker| blocker.starts_with("gate:browser-"))
+                            {
+                                return Err(emit_recovery_required(&tx, db, turn_id, route_plan.kind,
+                                    &mut persisted_trace_items,
+                                    format!("Verification needs fresh observation before this task can finish. {} ({})", workflow_ir.completion_repair_guidance(), blockers.join(", ")),
+                                    true).await);
+                            }
                             emit_error_and_finalize_turn(
                                 &tx,
                                 db,

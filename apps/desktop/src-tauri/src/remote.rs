@@ -434,6 +434,18 @@ impl RemoteHost for DesktopHost {
         let app = &self.app;
         let state = app.state::<AppState>();
         use RemoteCommand::*;
+        if let StartTurn {
+            conversation_id, ..
+        }
+        | StopTurn { conversation_id } = &command
+        {
+            let id = conversation_id.clone();
+            state
+                .db_executor
+                .read(move |db| db.require_remote_conversation(&id))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
         match command {
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
             ReleasePreview { id } => { app.state::<RemoteState>().server()?.release_html_preview(owner, &id); value(()) },

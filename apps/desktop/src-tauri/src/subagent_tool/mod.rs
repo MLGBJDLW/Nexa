@@ -37,8 +37,8 @@ use nexa_core::llm::message_validation::{
     MessageNormalizationContext, MessageSource,
 };
 use nexa_core::llm::{
-    create_provider, provider_uses_non_streaming_fallback, CompletionRequest, ContentPart,
-    LlmProvider, Message, ProviderConfig, ProviderType, ReasoningEffort, Role, Usage,
+    create_provider, provider_uses_non_streaming_fallback, CompletionRequest, ContentPart, Message,
+    ProviderConfig, ProviderType, ReasoningEffort, Role, Usage,
 };
 use nexa_core::provider_catalog::{
     model_capabilities_from_catalog, model_limits_from_catalog,
@@ -134,7 +134,16 @@ pub struct DelegationRuntime {
     worker_handles: Arc<WorkerHandleOwner>,
     budget: SubagentBudgetController,
     cancel_token: CancellationToken,
-    requires_explicit_route: bool,
+    parent_runtime: Option<crate::agent_runtime::AgentRuntimeKind>,
+    worker_lane: Option<crate::delegation_scheduler::DelegationLane>,
+    execution_services: Arc<
+        StdMutex<
+            Option<(
+                nexa_core::approval::ApprovalCallback,
+                nexa_core::agent::ToolVisualInterpreter,
+            )>,
+        >,
+    >,
 }
 
 impl SubagentTool {
@@ -245,7 +254,9 @@ impl DelegationRuntime {
             worker_handles,
             budget,
             cancel_token,
-            requires_explicit_route: false,
+            parent_runtime: None,
+            worker_lane: None,
+            execution_services: Arc::new(StdMutex::new(None)),
         }
     }
 
@@ -277,9 +288,20 @@ impl DelegationRuntime {
         }
     }
 
-    pub fn require_explicit_route(mut self) -> Self {
-        self.requires_explicit_route = true;
+    pub fn with_parent_runtime(mut self, kind: crate::agent_runtime::AgentRuntimeKind) -> Self {
+        self.parent_runtime = Some(kind);
         self
+    }
+
+    pub fn set_execution_services(
+        &self,
+        approval: nexa_core::approval::ApprovalCallback,
+        visual: nexa_core::agent::ToolVisualInterpreter,
+    ) {
+        *self
+            .execution_services
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some((approval, visual));
     }
 
     fn get_tool_registry(&self) -> Result<ToolRegistry, CoreError> {
@@ -311,7 +333,9 @@ impl DelegationRuntime {
             worker_handles: Arc::clone(&self.worker_handles),
             budget: self.budget.clone(),
             cancel_token,
-            requires_explicit_route: self.requires_explicit_route,
+            parent_runtime: self.parent_runtime.clone(),
+            worker_lane: self.worker_lane,
+            execution_services: Arc::clone(&self.execution_services),
         }
     }
 
@@ -765,8 +789,15 @@ struct JudgeSubagentResultsArgs {
     parallel_group: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct SubagentRuntimeIdentity {
+    provider: String,
+    model: String,
+}
+
 #[derive(Default)]
 struct EventCapture {
+    runtime_identity: Option<SubagentRuntimeIdentity>,
     usage_total: Usage,
     finish_reason: Option<String>,
     tool_events: Vec<serde_json::Value>,
@@ -824,6 +855,8 @@ struct SubagentSessionSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SubagentRunArtifact {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_identity: Option<SubagentRuntimeIdentity>,
     #[serde(skip_serializing_if = "Option::is_none")]
     recovery_required: Option<nexa_core::error::AgentRecoveryRequirement>,
     verification_source: Option<nexa_core::workflow_verification::VerificationSourceState>,

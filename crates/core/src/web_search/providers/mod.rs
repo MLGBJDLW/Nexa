@@ -13,6 +13,7 @@ use super::model::{
 
 pub mod baidu;
 pub mod bing;
+pub(crate) mod deepseek;
 pub mod duckduckgo;
 pub mod google;
 pub mod sogou;
@@ -44,6 +45,7 @@ pub fn provider_for_engine(engine: SearchEngine) -> Box<dyn SearchProvider> {
         SearchEngine::Bing => Box::new(bing::BingProvider),
         SearchEngine::DuckDuckGo => Box::new(duckduckgo::DuckDuckGoProvider),
         SearchEngine::Brave
+        | SearchEngine::Deepseek
         | SearchEngine::Tavily
         | SearchEngine::AnySearch
         | SearchEngine::SerpApiGoogle

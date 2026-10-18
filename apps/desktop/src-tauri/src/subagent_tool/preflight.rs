@@ -275,11 +275,7 @@ pub(super) fn expand_workflow_template_tasks(
                     .map(|id| format!("{}-{id}", template.id))
                     .collect(),
                 task_id: None,
-                task: format!(
-                    "Overall goal:\n{}\n\nTemplate step:\n{}",
-                    batch_goal.trim(),
-                    task_template.task
-                ),
+                task: task_template.task.to_string(),
                 role_id: Some(task_template.role_id.to_string()),
                 role: profile.map(|profile| profile.label.to_string()),
                 model_policy: None,
@@ -324,7 +320,7 @@ pub(super) fn build_subagent_system_prompt(
     prompt.push_str("\n\n## Subagent Instructions\n\n");
     prompt.push_str("Keep finite builds/tests attached through activity_observe completion waits using their returned activityId and cursor. For persistent development servers, use output/readiness observation and begin browser work at the verified readyUrl without waiting for process exit. If the parent must take over a running process, return its exact activityId, serviceId, cursor, verified readyUrl (if any), and the remaining verification; do not describe a launched or still-running build as completed. Close a worker only after its authoritative result has been consumed.\n\n");
     prompt.push_str(
-        "You are a short-lived worker spawned by another agent. Focus only on the delegated subtask. Keep your work scoped, use tools only when they materially help, and return a compact result for the supervisor agent rather than addressing the end user directly.",
+        "You are a short-lived worker spawned by another agent. Focus only on the delegated subtask. Keep your work scoped, use tools only when they materially help, and return a compact result for the supervisor agent rather than addressing the end user directly. Do not emit nexa-followups recommendations; those belong to the parent's final response.",
     );
     prompt.push_str(
         "\n\nTreat supervisor-provided acceptance criteria as requirements. If explicit evidence handoff is provided, ground your answer in that evidence before doing broader retrieval. If you are one of several parallel workers, produce an independent result instead of speculating about what sibling workers might find.",
@@ -592,6 +588,11 @@ pub(super) fn validate_subagent_preflight(
         }
     }
     if let Some(requested) = args.source_ids.as_deref() {
+        if requested.is_empty() {
+            return Err(subagent_preflight_failure(SubagentPreflightStage::Policy,
+                "source_scope_empty", false,
+                "Omit source_ids to inherit scope, or select authorized source IDs. An empty explicit scope cannot fall back to unrestricted retrieval."));
+        }
         if !inherited_source_scope.is_empty() {
             let inherited: BTreeSet<&str> =
                 inherited_source_scope.iter().map(String::as_str).collect();
@@ -670,14 +671,25 @@ pub(super) fn finalize_subagent_preflight(
 pub(super) fn build_evidence_handoff(
     db: &Database,
     chunk_ids: Option<&[String]>,
-) -> Vec<EvidenceHandoffItem> {
+    source_scope: Option<&[String]>,
+) -> Result<Vec<EvidenceHandoffItem>, CoreError> {
     chunk_ids
         .unwrap_or(&[])
         .iter()
         .take(8)
-        .filter_map(|chunk_id| {
-            let card = search::get_evidence_card(db, chunk_id).ok()?;
-            Some(EvidenceHandoffItem {
+        .map(|chunk_id| {
+            let card = search::get_evidence_card(db, chunk_id)?;
+            if source_scope
+                .is_some_and(|scope| !scope.iter().any(|id| id == &card.source_id.to_string()))
+            {
+                return Err(subagent_preflight_failure(
+                    SubagentPreflightStage::Policy,
+                    "evidence_outside_source_scope",
+                    false,
+                    "A requested evidence chunk is outside the worker's authorized source scope.",
+                ));
+            }
+            Ok(EvidenceHandoffItem {
                 chunk_id: card.chunk_id.to_string(),
                 path: card.document_path,
                 title: card.document_title,

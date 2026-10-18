@@ -855,6 +855,35 @@ fn cancelled_pending_worker_cannot_transition_to_started() {
 }
 
 #[test]
+fn physical_input_interruption_is_not_reported_as_an_explicit_stop() {
+    let tracker = ControlCommitTracker::default();
+    let window = 0xabc90;
+    *tracker.input_watch.lock().unwrap() = Some((
+        window,
+        super::super::computer_input::window_epoch(window),
+        false,
+    ));
+    tracker.mark_observation_consumed();
+    super::super::computer_input::record(window, false, false);
+    let error = tracker
+        .ensure_running()
+        .expect_err("new physical input invalidates the approved snapshot");
+    let failure = tracker.failure(error);
+    assert_eq!(
+        control_failure_contract(&failure),
+        ("computer_user_takeover", false)
+    );
+    assert!(!failure.phase.effect_may_have_occurred());
+    assert!(failure.observation_consumed);
+    // An explicit Stop still wins over a coincident input change.
+    tracker.session_stopped.store(true, AtomicOrdering::Release);
+    assert_eq!(
+        control_failure_contract(&tracker.failure(tracker.ensure_running().unwrap_err())),
+        ("computer_control_cancelled", false)
+    );
+}
+
+#[test]
 fn cancelled_unsettled_worker_never_claims_no_effect_and_blocks_late_commit() {
     for started in [false, true] {
         let tracker = ControlCommitTracker::default();

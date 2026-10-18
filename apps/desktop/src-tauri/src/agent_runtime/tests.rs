@@ -1,5 +1,24 @@
 use super::*;
 
+#[test]
+fn desktop_completion_repairs_count_stalls_instead_of_verified_windows() {
+    let mut repairs = CompletionRepairState::default();
+    for window in 0..8 {
+        assert!(repairs
+            .next(
+                "Capture remaining windows".into(),
+                vec![format!("desktop-target:{window}")]
+            )
+            .is_ok());
+    }
+    assert!(repairs.next("pending".into(), vec![]).is_ok());
+    assert!(repairs.next("pending".into(), vec![]).is_ok());
+    assert!(matches!(
+        repairs.next("pending".into(), vec![]),
+        Err(CoreError::RecoveryRequired { .. })
+    ));
+}
+
 #[tokio::test(start_paused = true)]
 async fn external_connection_reuses_the_shared_retry_policy_and_stops_on_cancel() {
     let (events, mut receiver) = mpsc::channel(32);
@@ -314,6 +333,7 @@ pub(super) fn fixture_with_database(
             ..AgentConfig::default()
         },
         dependencies: DesktopAgentSessionDependencies {
+            delegation_runtime: None,
             tools,
             selected_skills: vec![],
             auto_loaded_skills: vec![],
@@ -322,6 +342,8 @@ pub(super) fn fixture_with_database(
         db,
         conversation_id: conversation.id,
         turn_id: turn.id,
+        tool_scope: None,
+        usage_owner: None,
         next_sort_order: 1,
         history: vec![],
         user_parts: vec![ContentPart::Text {

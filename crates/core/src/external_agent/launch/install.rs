@@ -87,7 +87,10 @@ fn extract_zip(archive: &Path, root: &Path) -> Result<(), CoreError> {
         let mut entry = zip
             .by_index(index)
             .map_err(|e| invalid(format!("Cannot read ACP archive: {e}")))?;
-        let relative = relative_path(entry.name())?;
+        let name = entry
+            .name()
+            .map_err(|e| invalid(format!("Invalid ACP archive entry name: {e}")))?;
+        let relative = relative_path(&name)?;
         if entry
             .unix_mode()
             .is_some_and(|mode| mode & 0o170000 == 0o120000)

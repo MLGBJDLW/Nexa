@@ -1,4 +1,6 @@
 {
+  "webSearchCustomProvider.deepseek": "DeepSeek 검색 및 가져오기",
+  "webSearchCustomProvider.deepseek.desc": "DeepSeek API 키로 웹을 검색하고 Markdown 페이지를 가져옵니다.",
   "title": "설정",
   "subtitle": "인덱스 및 개인정보 보호 설정 관리",
   "indexSection": "인덱스 관리",

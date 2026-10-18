@@ -48,6 +48,8 @@ pub struct FetchUrlTool;
 #[derive(Deserialize)]
 struct FetchUrlArgs {
     url: String,
+    #[serde(default)]
+    provider: FetchProvider,
     #[serde(default = "default_max_length")]
     max_length: usize,
     #[serde(default)]
@@ -56,6 +58,15 @@ struct FetchUrlArgs {
     include_assets: bool,
     #[serde(default)]
     render_js: FetchRenderPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+enum FetchProvider {
+    #[default]
+    Auto,
+    Direct,
+    Deepseek,
 }
 
 fn default_max_length() -> usize {
@@ -1913,7 +1924,7 @@ impl Tool for FetchUrlTool {
         let crate::tools::ToolExecutionContext {
             call_id,
             arguments,
-            db: _db,
+            db,
             source_scope: _source_scope,
             ..
         } = context;
@@ -1938,6 +1949,70 @@ impl Tool for FetchUrlTool {
         } else {
             args.max_length
         };
+
+        let search = db
+            .load_app_config()
+            .map(|config| config.web_search)
+            .unwrap_or_default();
+        let deepseek = search
+            .custom_providers
+            .iter()
+            .filter(|provider| {
+                provider.enabled
+                    && provider.is_configured()
+                    && provider.preset
+                        == crate::app_settings::WebSearchCustomProviderPreset::Deepseek
+            })
+            .min_by_key(|provider| provider.priority);
+        let use_deepseek = args.provider == FetchProvider::Deepseek
+            || (args.provider == FetchProvider::Auto
+                && deepseek.is_some()
+                && search.provider_mode
+                    != crate::app_settings::WebSearchProviderMode::BuiltInFirst
+                && matches!(
+                    args.mode,
+                    FetchMode::Auto | FetchMode::Readability | FetchMode::Text
+                )
+                && args.render_js != FetchRenderPolicy::Always);
+        if use_deepseek {
+            let Some(provider) = deepseek else {
+                return Ok(ToolResult {
+                    call_id: call_id.into(),
+                    content:
+                        "Enable and configure DeepSeek Search & Fetch in web search settings first."
+                            .into(),
+                    is_error: true,
+                    artifacts: None,
+                });
+            };
+            match crate::web_search::providers::deepseek::fetch(provider, parsed_url.as_str()).await
+            {
+                Ok((title, mut text)) => {
+                    let truncated = truncate_text_for_output(&mut text, max_length);
+                    return Ok(ToolResult { call_id:call_id.into(), is_error:false,
+                        content:format!("URL: {}\nTitle: {title}\nExtraction: DeepSeek Fetch (Markdown)\nSuggested citation: [url:{}|{title}]\n---\n{text}", args.url, args.url),
+                        artifacts:Some(serde_json::json!({"kind":"fetchUrl","url":args.url,"finalUrl":args.url,"title":title,
+                            "provider":"deepseek","extractionMethod":"deepseek_fetch","contentType":"text/markdown","truncated":truncated,
+                            "assets":[],"cacheStatus":"bypass","citations":[{"url":args.url,"title":title}]})),
+                    });
+                }
+                Err(error)
+                    if args.provider == FetchProvider::Deepseek
+                        || search.provider_mode
+                            == crate::app_settings::WebSearchProviderMode::CustomOnly =>
+                {
+                    return Ok(ToolResult {
+                        call_id: call_id.into(),
+                        content: error.message,
+                        is_error: true,
+                        artifacts: Some(
+                            serde_json::json!({"kind":"fetchUrl","url":args.url,"provider":"deepseek","code":error.code,"retryAfterSeconds":error.retry_after_secs}),
+                        ),
+                    });
+                }
+                Err(_) => {} // Custom-first retains the existing direct-fetch fallback.
+            }
+        }
 
         let client = build_http_client()
             .map_err(|e| CoreError::InvalidInput(format!("Failed to build HTTP client: {e}")))?;

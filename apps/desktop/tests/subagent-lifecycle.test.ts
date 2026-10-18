@@ -57,6 +57,7 @@ const events = [
       task: 'Research primary sources',
       modelPolicy: 'independentReviewer',
       effectiveModel: 'reviewer-model',
+      runtimeIdentity: { provider: 'github_copilot', model: 'observed-native-model' },
       modelRouteFallback: true,
       result: 'Verified result',
       toolEvents: [],
@@ -81,6 +82,12 @@ assert(projection.streamedResult === 'Finding one. Finding two.', 'output deltas
 assert(projection.thinking.join('') === 'Checking source. ', 'thinking deltas should remain separate');
 assert(projection.artifact?.result === 'Verified result', 'terminal artifact should hydrate');
 assert(projection.artifact?.effectiveModel === 'reviewer-model', 'effective model should survive lifecycle projection');
+assert(projection.artifact?.runtimeIdentity?.model === 'observed-native-model', 'observed native identity survives terminal history without overwriting configured routing');
+const nativeProgress = projectSubagentLifecycle([
+  event(1, 'spawned', { task: 'Inspect' }),
+  event(2, 'progress', { runtimeIdentity: {provider:'github_copilot',model:'observed-native-model'} }),
+]);
+assert(nativeProgress.runtimeIdentity?.provider === 'github_copilot', 'live worker identity comes from reported runtime progress');
 assert(projection.artifact?.modelPolicy === 'independentReviewer', 'requested model route should survive lifecycle projection');
 assert(projection.artifact?.modelRouteFallback === true, 'model route fallback should survive lifecycle projection');
 assert(projection.artifact?.preflight?.providerId === 'OpenRouter', 'runtime provider should survive lifecycle projection');

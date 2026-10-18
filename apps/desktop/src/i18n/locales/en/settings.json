@@ -1,4 +1,6 @@
 {
+  "webSearchCustomProvider.deepseek": "DeepSeek Search & Fetch",
+  "webSearchCustomProvider.deepseek.desc": "Search the web and fetch Markdown pages with your DeepSeek API key.",
   "title": "Settings",
   "subtitle": "Manage indexing and privacy settings",
   "indexSection": "Index Management",

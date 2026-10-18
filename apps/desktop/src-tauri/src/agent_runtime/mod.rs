@@ -32,7 +32,7 @@ pub enum AgentRuntimeKind {
 }
 
 impl AgentRuntimeKind {
-    fn provider(&self) -> &str {
+    pub(crate) fn provider(&self) -> &str {
         match self {
             Self::Copilot => "github_copilot",
             Self::Codex => "openai_codex",
@@ -58,6 +58,9 @@ pub(crate) struct AgentRuntimeTurnRequest {
     pub db: Arc<Database>,
     pub conversation_id: String,
     pub turn_id: String,
+    pub tool_scope: Option<(String, Option<String>)>,
+    /// Parent run/subtask own delegated spend; transcript identity remains independent.
+    pub usage_owner: Option<(String, String)>,
     pub next_sort_order: i64,
     pub history: Vec<Message>,
     pub user_parts: Vec<ContentPart>,
@@ -94,6 +97,31 @@ struct PreparedTurn {
     usage_accounting: Arc<std::sync::Mutex<usage_accounting::RuntimeUsageAccounting>>,
 }
 
+/// Count only attempts without new host evidence, not useful repair turns.
+#[derive(Default)]
+struct CompletionRepairState {
+    milestones: std::collections::HashSet<String>,
+    stalled_attempts: u8,
+}
+impl CompletionRepairState {
+    fn next(&mut self, guidance: String, milestones: Vec<String>) -> Result<String, CoreError> {
+        let advanced = milestones.into_iter().fold(false, |advanced, item| {
+            self.milestones.insert(item) || advanced
+        });
+        if advanced {
+            self.stalled_attempts = 0;
+        }
+        if self.stalled_attempts >= 3 {
+            return Err(CoreError::RecoveryRequired {
+                message: guidance,
+                action_reconciliation: true,
+            });
+        }
+        self.stalled_attempts += 1;
+        Ok(guidance)
+    }
+}
+
 impl AgentRuntimeTurnRequest {
     fn prepare(self, native_vision: bool) -> Result<PreparedTurn, CoreError> {
         let privacy_lease = self.db.privacy_lease(&self.cancellation)?;
@@ -104,6 +132,7 @@ impl AgentRuntimeTurnRequest {
                 self.turn_id.clone(),
                 self.kind.provider(),
                 self.cancellation.clone(),
+                self.usage_owner,
             )?,
         ));
         let workspace = self.dependencies.tools.workspace().cloned();
@@ -171,7 +200,7 @@ impl AgentRuntimeTurnRequest {
             if matches!(self.kind, AgentRuntimeKind::Codex) {
                 sections.push("The registered Nexa tools execute in the Nexa host under the workspace scope and approval policy described here. The Codex process's native executor is isolated and is not the executor of these host tools. For requested file changes, use edit_file or create_file when they are present in the provided tool catalog; honor any denial or approval requirement returned by Nexa. Do not infer that host tools are read-only from the native executor's sandbox.".into());
             }
-            sections.push("The official runtime owns this parent agent. For independent work, use Nexa's spawn_subagent tools and choose an available API worker account with agent_config_id from list_subagent_models. Reuse the discovered route; never invent credentials or treat the subscription as an API key. Mixture of Agents and subscription-backed child workers are unavailable.".into());
+            sections.push("The official runtime owns this agent. For independent work, use available Nexa spawn_subagent tools. Omitted routing inherits the parent provider and model through its official runtime. Set model or agent_config_id only when deliberately choosing another advertised route. Never invent credentials or treat a subscription as an API key. Child workers cannot recursively delegate.".into());
         }
         let mut loaded_skills = std::collections::HashSet::new();
         for skill in self
@@ -211,6 +240,7 @@ impl AgentRuntimeTurnRequest {
                     db: self.db,
                     conversation_id: self.conversation_id.clone(),
                     turn_id: self.turn_id,
+                    tool_scope: self.tool_scope,
                     next_sort_order: self.next_sort_order,
                     user_prompt: user_text,
                     events: self.events.clone(),

@@ -170,13 +170,25 @@ test('fails closed when an allowlisted file cannot be read from either revision'
 test('small changes omit unrelated runtime jobs while shared or unknown changes keep full CI', () => {
   assert.equal(classifyCiScope(['docs/runtime/LIVE.md', 'CONTRIBUTING.md']), 'lightweight');
   assert.equal(classifyCiScope(['apps/desktop/src/features/chat/ChatInput.tsx', 'docs/README.md']), 'frontend');
-  for (const changedPath of ['apps/desktop/src-tauri/src/main.rs', 'crates/core/src/lib.rs',
+  assert.equal(classifyCiScope(['README.zh-CN.md']), 'lightweight');
+  assert.equal(classifyCiScope(['apps/desktop/src-tauri/src/main.rs', 'crates/core/src/lib.rs', 'docs/README.md']), 'native');
+  assert.equal(classifyCiScope(['apps/desktop/src/components/chat/ChatInput.tsx', 'crates/core/src/lib.rs']), 'full');
+  for (const changedPath of ['apps/desktop/src-tauri/migrations/v1.sql',
     'apps/desktop/package-lock.json', 'shared/external-agent-presets.json', '.github/workflows/ci.yml',
     'crates/core/assets/skills/chat/SKILL.md', 'scripts/ci-scope.mjs', 'unknown.txt']) {
     assert.equal(classifyCiScope([changedPath]), 'full', changedPath);
   }
   assert.equal(classifyCiScope([]), 'full');
   assert.equal(classifyCiScope(['package.json'], true), 'lightweight');
+});
+
+test('native-only CI retains every runtime gate and permits only unrelated suites to skip', () => {
+  const nativeJobs = ['repository_policy', 'release_metadata', 'rust_core', 'agent_task_eval', 'linux_desktop', 'windows-check'];
+  const needs = Object.fromEntries([...nativeJobs, 'frontend', 'browser_regressions', 'office_smoke']
+    .map(job => [job, { result: nativeJobs.includes(job) ? 'success' : 'skipped' }]));
+  needs.classify = { result: 'success', outputs: { scope: 'native' } };
+  assert.deepEqual(ciResultFailures(needs), []);
+  for (const job of nativeJobs) assert.notDeepEqual(ciResultFailures({ ...needs, [job]: {result:'skipped'} }), []);
 });
 
 test('CI aggregation rejects failed classification, skipped required jobs and cancelled jobs', () => {

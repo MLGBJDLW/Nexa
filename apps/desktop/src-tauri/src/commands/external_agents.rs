@@ -238,6 +238,7 @@ pub(super) fn summaries(
     models
         .into_iter()
         .map(|model| super::subscription_accounts::CopilotModelSummary {
+            supports_reasoning_effort: None,
             context_tiers: Vec::new(),
             id: model.id,
             name: model.name,

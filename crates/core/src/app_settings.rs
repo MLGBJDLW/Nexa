@@ -451,6 +451,7 @@ pub enum WebSearchProviderMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WebSearchCustomProviderPreset {
+    Deepseek,
     Brave,
     Tavily,
     #[serde(rename = "anysearch", alias = "any_search")]
@@ -463,6 +464,7 @@ pub enum WebSearchCustomProviderPreset {
 impl WebSearchCustomProviderPreset {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Deepseek => "deepseek",
             Self::Brave => "brave",
             Self::Tavily => "tavily",
             Self::AnySearch => "anysearch",
@@ -473,6 +475,7 @@ impl WebSearchCustomProviderPreset {
 
     pub fn display_name(self) -> &'static str {
         match self {
+            Self::Deepseek => "DeepSeek Search & Fetch",
             Self::Brave => "Brave Search API",
             Self::Tavily => "Tavily Search",
             Self::AnySearch => "AnySearch",
@@ -483,6 +486,7 @@ impl WebSearchCustomProviderPreset {
 
     pub fn default_base_url(self) -> Option<String> {
         match self {
+            Self::Deepseek => Some("https://api.deepseek.com/v1/tools/search".to_string()),
             Self::Brave => Some("https://api.search.brave.com/res/v1/web/search".to_string()),
             Self::Tavily => Some("https://api.tavily.com/search".to_string()),
             Self::AnySearch => Some("https://api.anysearch.com/v1/search".to_string()),
@@ -542,6 +546,7 @@ fn default_true() -> bool {
 
 fn default_web_search_custom_providers() -> Vec<WebSearchCustomProviderConfig> {
     [
+        (WebSearchCustomProviderPreset::Deepseek, 15u32),
         (WebSearchCustomProviderPreset::Brave, 10u32),
         (WebSearchCustomProviderPreset::Tavily, 20u32),
         (WebSearchCustomProviderPreset::AnySearch, 25u32),
@@ -1316,7 +1321,17 @@ mod tests {
         assert!(config.trace_enabled);
         assert_eq!(config.window_close_behavior, WindowCloseBehavior::Exit);
         assert!(config.local_model_root.is_empty());
-        assert_eq!(config.web_search.custom_providers.len(), 5);
+        let provider_ids: std::collections::HashSet<_> = config
+            .web_search
+            .custom_providers
+            .iter()
+            .map(|provider| &provider.id)
+            .collect();
+        assert_eq!(
+            provider_ids.len(),
+            config.web_search.custom_providers.len(),
+            "provider IDs must remain unique as the catalog grows"
+        );
         assert!(config
             .web_search
             .custom_providers

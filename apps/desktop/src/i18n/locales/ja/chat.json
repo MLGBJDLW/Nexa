@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "プロバイダー管理",
+  "reasoningProviderManagedHint": "このモデルで選択できる推論レベルは公開されていません。モデル一覧を更新してください。",
+  "followupSuggestions": "次のタスク候補",
+  "followupTabHint": "Tab で補完：{prompt}",
   "generatedImageRequestedPrompt": "要求プロンプト",
   "generatedImageEffectivePrompt": "プロバイダー実効プロンプト",
   "generatedImagePromptRevisedWarning": "プロバイダーがプロンプトの変更を報告しました。",
