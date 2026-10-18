@@ -116,7 +116,7 @@ jobs:
   rust_core:
     name: Rust Core
     needs: classify
-    if: needs.classify.outputs.scope == 'full'
+    if: needs.classify.outputs.scope == 'full' || needs.classify.outputs.scope == 'native'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -146,15 +146,6 @@ jobs:
           path: ~/.cache/ort.pyke.io
           key: ${{ runner.os }}-ort-${{ hashFiles('crates/core/Cargo.toml') }}
 
-      - name: Install cargo-audit
-        run: |
-          if ! cargo audit --version 2>/dev/null | grep -q '0.22.2'; then
-            cargo install cargo-audit --version 0.22.2 --locked
-          fi
-
-      - name: Rust dependency audit
-        run: cargo audit
-
       - name: Cargo fmt
         run: cargo fmt --all -- --check
 
@@ -176,10 +167,21 @@ jobs:
           cargo clippy -p nexa-remote --all-targets -- -D warnings
           cargo test -p nexa-remote
 
+      - name: Install cargo-audit
+        if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
+        run: |
+          if ! cargo audit --version 2>/dev/null | grep -q '0.22.2'; then
+            cargo install cargo-audit --version 0.22.2 --locked
+          fi
+
+      - name: Rust dependency audit
+        if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
+        run: cargo audit
+
   agent_task_eval:
     name: Agent Task Evaluation
     needs: classify
-    if: needs.classify.outputs.scope == 'full'
+    if: needs.classify.outputs.scope == 'full' || needs.classify.outputs.scope == 'native'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -311,16 +313,9 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
-      - name: Root dependency audit
-        run: npm audit --audit-level=moderate
-
       - name: Install frontend dependencies
         working-directory: apps/desktop
         run: npm ci
-
-      - name: Frontend dependency audit
-        working-directory: apps/desktop
-        run: npm audit --audit-level=moderate
 
       - name: Frontend streaming contracts
         working-directory: apps/desktop
@@ -339,6 +334,15 @@ jobs:
       - name: Frontend build
         working-directory: apps/desktop
         run: npx vite build
+
+      - name: Root dependency audit
+        if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
+        run: npm audit --audit-level=moderate
+
+      - name: Frontend dependency audit
+        if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
+        working-directory: apps/desktop
+        run: npm audit --audit-level=moderate
 
   browser_regressions:
     name: Browser Regressions
@@ -399,7 +403,7 @@ jobs:
           e2e/chat-plan-progress-panel.spec.ts
           e2e/chat-recording-dock.spec.ts
           e2e/settings-provider-models.spec.ts
-          --grep "thoughts and replies commit|stop drains retained audio|SVG identity|SVG assets|account quota|late account|notifications|reasoning slider|reasoning toggle-only|ACP reasoning|registry agents|settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|reload preserves partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD refreshes confirmed|live conversation cache totals|live cache refresh|Git capsule|browser action trail|browser trail separates invocations|browser waits share|project editor portal|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|Claude Sonnet 5.5|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login|ACP |creating a project opens|project editor stays above|read aloud reports|Nexus|live turn timing|speech preset defaults|new chat cannot accept input|project drafts remain separate|project workspace exposes|stalled account read|recorded runtime|new turn does not inherit|Copilot context policy|Copilot quotas remain|login polling recovers|cancelled login cannot"
+          --grep "followup recommendations|model search stays|provider-managed reasoning|thoughts and replies commit|stop drains retained audio|SVG identity|SVG assets|account quota|late account|notifications|reasoning slider|reasoning toggle-only|ACP reasoning|registry agents|settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|reload preserves partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD refreshes confirmed|live conversation cache totals|live cache refresh|Git capsule|browser action trail|browser trail separates invocations|browser waits share|project editor portal|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|Claude Sonnet 5.5|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login|ACP |creating a project opens|project editor stays above|read aloud reports|Nexus|live turn timing|speech preset defaults|new chat cannot accept input|project drafts remain separate|project workspace exposes|stalled account read|recorded runtime|new turn does not inherit|Copilot context policy|Copilot quotas remain|login polling recovers|cancelled login cannot"
 
       - name: Generative chat UI and HTML isolation
         working-directory: apps/desktop
@@ -467,7 +471,7 @@ jobs:
   linux_desktop:
     name: Linux Desktop Check
     needs: classify
-    if: needs.classify.outputs.scope == 'full'
+    if: needs.classify.outputs.scope == 'full' || needs.classify.outputs.scope == 'native'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -572,7 +576,7 @@ jobs:
   windows-check:
     name: Windows Desktop Check
     needs: classify
-    if: needs.classify.outputs.scope == 'full'
+    if: needs.classify.outputs.scope == 'full' || needs.classify.outputs.scope == 'native'
     runs-on: windows-latest
     # Cold default-feature checking plus the separate test profile can consume
     # twenty minutes before the final native PowerShell smoke even starts.

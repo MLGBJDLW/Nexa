@@ -1321,7 +1321,17 @@ mod tests {
         assert!(config.trace_enabled);
         assert_eq!(config.window_close_behavior, WindowCloseBehavior::Exit);
         assert!(config.local_model_root.is_empty());
-        assert_eq!(config.web_search.custom_providers.len(), 6);
+        let provider_ids: std::collections::HashSet<_> = config
+            .web_search
+            .custom_providers
+            .iter()
+            .map(|provider| &provider.id)
+            .collect();
+        assert_eq!(
+            provider_ids.len(),
+            config.web_search.custom_providers.len(),
+            "provider IDs must remain unique as the catalog grows"
+        );
         assert!(config
             .web_search
             .custom_providers

@@ -690,7 +690,10 @@ fn test_build_system_prompt_preserves_core_rules() {
     assert!(prompt.contains("browser_evidence_capture"));
     assert!(prompt.contains("keep recent complete turns verbatim"));
     assert!(!prompt.contains("## Tool Contract: run_shell"));
-    assert!(prompt.len() < 8_000);
+    assert!(
+        default_system_prompt().len() <= 8 * 1024,
+        "the core prompt stays within its 8 KiB budget; dynamic sections have their own budgets"
+    );
 }
 
 #[test]

@@ -59,6 +59,16 @@ jobs:
           NEXA_EVAL_API_KEY: ${{ secrets.NEXA_EVAL_API_KEY }}
         run: node scripts/run-live-task-eval.mjs
 
+      - name: Current dependency advisories
+        if: ${{ !cancelled() }}
+        run: |
+          if ! cargo audit --version 2>/dev/null | grep -q '0.22.2'; then
+            cargo install cargo-audit --version 0.22.2 --locked
+          fi
+          cargo audit
+          npm audit --package-lock-only --audit-level=moderate
+          npm --prefix apps/desktop audit --package-lock-only --audit-level=moderate
+
       - name: Upload evaluation evidence
         if: always()
         uses: actions/upload-artifact@v4
