@@ -751,7 +751,8 @@ Search the public web through Nexa's native no-key providers plus any enabled co
 
 DeepSeek uses `/v1/tools/search` and `/v1/tools/fetch` with separate per-key
 5-QPS limits. Configured root URLs, `/v1` bases and complete operation URLs are
-normalized to the same endpoint. Only transient HTTP failures are retried, at most three requests;
+normalized to the same endpoint. Transient HTTP and transport failures share a
+three-request limit, including connection resets, timeouts and interrupted bodies;
 authentication and balance failures are returned directly. Response sizes and
 request duration are bounded. Search results preserve title, URL and snippets
 within the existing web-search result contract.

@@ -70,7 +70,17 @@ async fn post_validated(
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| failure("request_failed", "Unable to initialize DeepSeek web client"))?;
-    for attempt in 0..3 {
+    post_with_client(&client, provider, operation, url, body).await
+}
+
+async fn post_with_client(
+    client: &reqwest::Client,
+    provider: &WebSearchCustomProviderConfig,
+    operation: &str,
+    url: reqwest::Url,
+    body: Value,
+) -> Result<Value, SearchProviderFailure> {
+    'attempts: for attempt in 0..3 {
         // Search and Fetch have independent 5 QPS account limits. Reserve a
         // slot before transport; credentials never enter diagnostics or keys.
         static SLOTS: OnceLock<tokio::sync::Mutex<HashMap<String, tokio::time::Instant>>> =
@@ -89,18 +99,25 @@ async fn post_validated(
             slot
         };
         tokio::time::sleep_until(slot).await;
-        let response = client
+        let response = match client
             .post(url.clone())
             .bearer_auth(provider.api_key.trim())
             .json(&body)
             .send()
             .await
-            .map_err(|_| {
-                failure(
+        {
+            Ok(response) => response,
+            Err(error) => {
+                if attempt < 2 && crate::llm::transport::is_retriable_http_error(&error) {
+                    tokio::time::sleep(Duration::from_secs(1 + attempt)).await;
+                    continue;
+                }
+                return Err(failure(
                     "request_failed",
                     "DeepSeek web request could not be completed",
-                )
-            })?;
+                ));
+            }
+        };
         let status = response.status().as_u16();
         let retry_after = response
             .headers()
@@ -126,8 +143,19 @@ async fn post_validated(
         let mut bytes = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk
-                .map_err(|_| failure("body_read_failed", "DeepSeek response could not be read"))?;
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    if attempt < 2 && crate::llm::transport::is_retriable_http_error(&error) {
+                        tokio::time::sleep(Duration::from_secs(1 + attempt)).await;
+                        continue 'attempts;
+                    }
+                    return Err(failure(
+                        "body_read_failed",
+                        "DeepSeek response could not be read",
+                    ));
+                }
+            };
             if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
                 return Err(failure(
                     "response_too_large",
@@ -236,6 +264,112 @@ pub(crate) async fn fetch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn transport_failures_retry_and_stop_after_three_attempts() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for fault in ["closed_headers", "timeout", "incomplete_body"] {
+            for recover in [true, false] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let url = reqwest::Url::parse(&format!(
+                    "http://{}/v1/tools/fetch",
+                    listener.local_addr().unwrap()
+                ))
+                .unwrap();
+                let expected_attempts = if recover { 2 } else { 3 };
+                let requests = Arc::new(AtomicUsize::new(0));
+                let server_requests = requests.clone();
+                let server = tokio::spawn(async move {
+                    loop {
+                        let (mut socket, _) = listener.accept().await.unwrap();
+                        let attempt = server_requests.fetch_add(1, Ordering::SeqCst);
+                        let mut headers = Vec::new();
+                        while !headers.ends_with(b"\r\n\r\n") {
+                            headers.push(socket.read_u8().await.unwrap());
+                        }
+                        let headers = String::from_utf8(headers).unwrap().to_ascii_lowercase();
+                        assert!(headers.contains("authorization: bearer transport-test-key"));
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .unwrap()
+                            .parse()
+                            .unwrap();
+                        let mut body = vec![0; length];
+                        socket.read_exact(&mut body).await.unwrap();
+                        assert_eq!(
+                            serde_json::from_slice::<Value>(&body).unwrap(),
+                            json!({"url":"https://example.com/"})
+                        );
+                        if recover && attempt == 1 {
+                            let body = "{\"content\":\"recovered\"}";
+                            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                        } else if fault == "timeout" {
+                            tokio::time::sleep(Duration::from_millis(1100)).await;
+                        } else if fault == "incomplete_body" {
+                            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 99\r\nConnection: close\r\n\r\n{\"content\":").await.unwrap();
+                        }
+                    }
+                });
+                let provider = WebSearchCustomProviderConfig {
+                    id: "transport-test".into(),
+                    preset: crate::app_settings::WebSearchCustomProviderPreset::Deepseek,
+                    name: "Test".into(),
+                    enabled: true,
+                    api_key: "transport-test-key".into(),
+                    base_url: None,
+                    priority: 0,
+                };
+                let client = reqwest::Client::builder()
+                    .no_proxy()
+                    .timeout(Duration::from_secs(1))
+                    .build()
+                    .unwrap();
+                let response = tokio::time::timeout(
+                    Duration::from_secs(12),
+                    post_with_client(
+                        &client,
+                        &provider,
+                        "fetch",
+                        url,
+                        json!({"url":"https://example.com/"}),
+                    ),
+                )
+                .await
+                .unwrap();
+                server.abort();
+                let server_result = server.await.unwrap_err();
+                assert!(
+                    server_result.is_cancelled(),
+                    "mock server failed: {server_result}"
+                );
+                assert_eq!(
+                    requests.load(Ordering::SeqCst),
+                    expected_attempts,
+                    "fault: {fault}"
+                );
+                if recover {
+                    assert_eq!(
+                        response.unwrap(),
+                        json!({"content":"recovered"}),
+                        "fault: {fault}"
+                    );
+                } else {
+                    assert_eq!(
+                        response.unwrap_err().code,
+                        if fault == "incomplete_body" {
+                            "body_read_failed"
+                        } else {
+                            "request_failed"
+                        }
+                    );
+                }
+            }
+        }
+    }
     #[tokio::test]
     async fn wire_requests_preserve_auth_and_body_retry_only_transient_statuses() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
