@@ -267,6 +267,43 @@ async fn native_workers_inherit_the_official_runtime_without_api_credentials() {
 }
 
 #[tokio::test]
+async fn native_judge_preparation_keeps_one_json_response_contract() {
+    let db = Database::open_memory().unwrap();
+    let judge_args: JudgeSubagentResultsArgs = serde_json::from_value(serde_json::json!({
+        "task": "Compare the evidence", "rubric": ["Use verified facts"],
+        "candidates": [{"id":"a","result":"First evidence"},{"id":"b","result":"Second evidence"}],
+    }))
+    .unwrap();
+    for kind in [
+        crate::agent_runtime::AgentRuntimeKind::Copilot,
+        crate::agent_runtime::AgentRuntimeKind::Codex,
+    ] {
+        let mut parent = test_runtime().with_parent_runtime(kind);
+        parent.base_config.model = Some("native-model".into());
+        parent.set_tool_registry(ToolRegistry::new());
+        let (runtime, args) = judge::native_judge_worker(&parent, &judge_args).unwrap();
+        let prepared = prepare_subagent_worker(&runtime, &db, vec![], &args, "native-judge", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            prepared.request_text,
+            judge::build_judge_request(&judge_args)
+        );
+        assert!(prepared.request_text.contains("Return ONLY JSON"));
+        assert!(!prepared.request_text.contains("## Response Contract"));
+        assert!(!prepared.request_text.contains("Checks performed"));
+        assert!(prepared
+            .config
+            .system_prompt
+            .contains("only the requested judgement JSON"));
+        assert!(!prepared.config.system_prompt.contains("## Role Profile"));
+        assert!(prepared.enabled_skills.is_empty());
+        assert!(prepared.effective_allowed_tools.is_empty());
+        assert_eq!(prepared.subtask_input["kind"], "subagent_judgement");
+    }
+}
+
+#[tokio::test]
 async fn native_judgement_uses_and_refunds_its_reserved_judge_credit() {
     let mut runtime = test_runtime();
     runtime.base_config.model = Some("native-model".into());

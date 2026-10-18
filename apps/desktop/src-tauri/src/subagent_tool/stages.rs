@@ -47,6 +47,7 @@ pub(super) async fn prepare_subagent_worker(
     worker_id: Option<&str>,
 ) -> Result<PreparedSubagentWorker, CoreError> {
     let worker_cancel_token = runtime.cancel_token.child_token();
+    let is_judge = runtime.worker_lane == Some(crate::delegation_scheduler::DelegationLane::Judge);
     let role_profile = resolve_role_profile(args.role_id.as_deref(), args.role.as_deref())?;
     let requested_task_id = args.task_id.clone();
     let session_id = requested_task_id.clone().unwrap_or_else(|| {
@@ -311,8 +312,10 @@ pub(super) async fn prepare_subagent_worker(
         run_deadline_ms.map(|ms| u32::try_from(ms.div_ceil(1_000)).unwrap_or(u32::MAX).max(1));
     config.request_kind = AgentRequestKind::SubagentWorker;
     config.delegated_task = Some(args.task.trim().to_string());
-    config.system_prompt =
-        build_subagent_system_prompt(&config.system_prompt, args.role.as_deref(), role_profile);
+    if !is_judge {
+        config.system_prompt =
+            build_subagent_system_prompt(&config.system_prompt, args.role.as_deref(), role_profile);
+    }
     let available_tool_names = runtime
         .get_tool_registry()
         .map_err(|error| {
@@ -363,10 +366,14 @@ pub(super) async fn prepare_subagent_worker(
     let skill_index = runtime
         .skill_index
         .get_or_init(|| load_skill_index_snapshot(db));
-    let enabled_skills = nexa_core::skills::select_available_skills_from_pool(
-        filter_enabled_skills(&skill_index.skills, runtime.allowed_skill_ids.as_deref()),
-        &selected_skill_query,
-    );
+    let enabled_skills = if is_judge {
+        Vec::new()
+    } else {
+        nexa_core::skills::select_available_skills_from_pool(
+            filter_enabled_skills(&skill_index.skills, runtime.allowed_skill_ids.as_deref()),
+            &selected_skill_query,
+        )
+    };
     let applied_skill_refs = applied_skills(&enabled_skills);
     let skill_select_ms = instant_elapsed_ms(skill_select_started);
     let tool_registry_started = Instant::now();
@@ -381,15 +388,24 @@ pub(super) async fn prepare_subagent_worker(
         })?;
     let tool_registry_ms = instant_elapsed_ms(tool_registry_started);
     let request_build_started = Instant::now();
-    let request_text = build_subagent_request(
-        args,
-        role_profile,
-        &effective_source_scope,
-        &effective_allowed_tools,
-        &applied_skill_refs,
-        &evidence_handoff,
-        previous_session.as_ref(),
-    );
+    // Adjudication shares worker ownership/budgets, not its prose response
+    // contract. This lane is host-owned and cannot be selected in tool input.
+    let request_text = if is_judge {
+        args.context
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| CoreError::Internal("The native judge request is missing".into()))?
+    } else {
+        build_subagent_request(
+            args,
+            role_profile,
+            &effective_source_scope,
+            &effective_allowed_tools,
+            &applied_skill_refs,
+            &evidence_handoff,
+            previous_session.as_ref(),
+        )
+    };
     let request_build_ms = instant_elapsed_ms(request_build_started);
     let initial_output_credit = initial_output_credit(role_profile, args, &config);
     let inherited_skill_tokens = enabled_skills.iter().fold(0_u32, |total, skill| {
