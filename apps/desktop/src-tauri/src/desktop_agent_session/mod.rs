@@ -140,6 +140,7 @@ pub struct DesktopAgentApprovalRuntime {
 }
 
 pub struct DesktopAgentSessionDependencies {
+    pub delegation_runtime: Option<DelegationRuntime>,
     pub tools: ToolRegistry,
     pub selected_skills: Vec<Skill>,
     pub auto_loaded_skills: Vec<Skill>,

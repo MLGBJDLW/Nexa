@@ -986,7 +986,7 @@ impl Database {
                     MAX(COALESCE(e.updated_at, c.updated_at))
              FROM conversations c
              LEFT JOIN conversation_episodes e ON e.conversation_id = c.id
-             WHERE c.project_id = ?1 AND c.archived_at IS NULL
+             WHERE c.project_id = ?1 AND c.archived_at IS NULL AND c.parent_conversation_id IS NULL
              GROUP BY c.id, c.title, c.updated_at",
         )?;
         let terms = query_terms(query.unwrap_or_default());

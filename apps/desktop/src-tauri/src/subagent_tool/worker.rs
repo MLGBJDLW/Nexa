@@ -196,7 +196,8 @@ pub(super) async fn run_subagent_once(
         emit_subagent_lifecycle_event(
             Some(events),
             SubagentLifecycleEventKind::Progress,
-            serde_json::json!({ "status": "running" }),
+            serde_json::json!({ "status": "running", "effectiveModel": &prepared.effective_model,
+                "preflight": &prepared.preflight, "effectiveModelBudgets": &prepared.effective_model_budgets }),
         )
         .await;
     }

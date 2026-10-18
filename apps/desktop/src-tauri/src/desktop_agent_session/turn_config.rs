@@ -579,6 +579,7 @@ pub fn build_desktop_agent_turn_config(
         max_iterations: orchestration_policy.max_iterations,
         system_prompt,
         volatile_system_sections,
+        delegated_task: None,
         model: Some(db_config.model.clone()),
         temperature: db_config.temperature.map(|t| t as f32),
         max_tokens: None,

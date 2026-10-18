@@ -21,6 +21,12 @@ pub(super) enum Transcript {
 }
 
 impl Transcript {
+    pub(super) async fn completion_repair_guidance(&self) -> Option<String> {
+        match self {
+            Self::NexaTools(tools) => tools.completion_repair_guidance().await,
+            Self::Native { .. } => None,
+        }
+    }
     pub(super) fn ensure_delegated_recovery_clear(&self) -> Result<(), CoreError> {
         match self {
             Self::NexaTools(tools) => tools.ensure_delegated_recovery_clear(),

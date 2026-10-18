@@ -103,6 +103,7 @@ pub async fn build_desktop_agent_session_dependencies(
         terminal_state,
         browser_state,
     } = request;
+    let parent_runtime = agent_runtime.clone();
     let image_subscription = agent_runtime.clone();
     let native_tools = matches!(
         agent_runtime,
@@ -147,6 +148,7 @@ pub async fn build_desktop_agent_session_dependencies(
         // ACP processes own their tools. Building Nexa's MCP/delegation registry
         // here would start unrelated services and advertise unusable tools.
         return DesktopAgentSessionDependencies {
+            delegation_runtime: None,
             tools: ToolRegistry::new().with_workspace(workspace),
             selected_skills,
             auto_loaded_skills,
@@ -277,8 +279,8 @@ pub async fn build_desktop_agent_session_dependencies(
             Some(task_run_id.to_string()),
             Some(conversation_id.to_string()),
         );
-        if agent_runtime {
-            runtime = runtime.require_explicit_route();
+        if let Some(kind) = parent_runtime {
+            runtime = runtime.with_parent_runtime(kind);
         }
         runtime.restore_accounting(db);
         tools.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
@@ -386,11 +388,12 @@ pub async fn build_desktop_agent_session_dependencies(
     tools = tools.with_workspace(workspace);
     // Delegated workers inherit the already-filtered root registry and can
     // only narrow it further through their own role/tool policy.
-    if let Some(runtime) = delegation_runtime {
+    if let Some(runtime) = delegation_runtime.as_ref() {
         runtime.set_tool_registry(tools.clone());
     }
 
     DesktopAgentSessionDependencies {
+        delegation_runtime,
         tools,
         selected_skills,
         auto_loaded_skills,

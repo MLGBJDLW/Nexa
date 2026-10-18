@@ -15,7 +15,7 @@ pub(super) struct PreparedSubagentWorker {
     pub(super) session_id: String,
     pub(super) previous_session: Option<SubagentSessionSnapshot>,
     pub(super) config: AgentConfig,
-    pub(super) provider: Box<dyn LlmProvider>,
+    pub(super) provider: crate::desktop_agent_session::DesktopAgentBackend,
     pub(super) effective_provider_type: ProviderType,
     pub(super) effective_model: Option<String>,
     pub(super) model_route_fallback: bool,
@@ -60,16 +60,19 @@ pub(super) async fn prepare_subagent_worker(
         .and_then(|task_id| runtime.restore_session_snapshot(db, task_id));
     let history_load_ms = instant_elapsed_ms(history_load_started);
     let context_build_started = Instant::now();
-    let (mut config, provider_config) = resolve_subagent_route(runtime, db, &args.route)?;
-    let model_route_fallback = args.route.model.is_none()
-        && apply_delegated_model_policy(&mut config, &provider_config, args.model_policy.as_ref());
-    let catalog_authoritative = config.model.as_deref().is_some_and(|model| {
-        nexa_core::provider_catalog::endpoint_model_catalog_limits_are_authoritative(
-            provider_catalog_key(provider_config.provider_type),
-            provider_config.base_url.as_deref(),
-            model,
-        )
-    });
+    let (mut config, provider_config, native_runtime) =
+        resolve_subagent_route(runtime, db, &args.route)?;
+    // Workflow roles describe the work, not permission to switch models.
+    // Only an explicit route.model overrides the inherited account/model.
+    let model_route_fallback = false;
+    let catalog_authoritative = native_runtime.is_none()
+        && config.model.as_deref().is_some_and(|model| {
+            nexa_core::provider_catalog::endpoint_model_catalog_limits_are_authoritative(
+                provider_catalog_key(provider_config.provider_type),
+                provider_config.base_url.as_deref(),
+                model,
+            )
+        });
     config.catalog_limits_authoritative = Some(catalog_authoritative);
     // A worker may select a different model from the parent's image-capable
     // route. Keep exact inherited eligibility only while its identity matches.
@@ -118,7 +121,13 @@ pub(super) async fn prepare_subagent_worker(
             crate::desktop_agent_session::provider_config_is_local(&provider_config),
         ));
     }
-    apply_explicit_worker_reasoning(&mut config, &provider_config, &args.route)?;
+    if native_runtime.is_none() {
+        apply_explicit_worker_reasoning(&mut config, &provider_config, &args.route)?;
+    } else if let Some(effort) = args.route.reasoning_effort.clone() {
+        config.reasoning_enabled = Some(effort != ReasoningEffort::None);
+        config.reasoning_effort = Some(effort);
+        config.thinking_budget = None;
+    }
     // Workers execute a handoff; the parent's fan-out and final-synthesis
     // policies must not become recursive worker completion requirements.
     config.power_mode = Default::default();
@@ -148,20 +157,33 @@ pub(super) async fn prepare_subagent_worker(
             )
         })?
         .to_string();
-    let provider = create_provider(provider_config.clone()).map_err(|error| {
-        subagent_preflight_failure(
-            SubagentPreflightStage::Provider,
-            "provider_configuration_invalid",
-            false,
-            error.to_string(),
+    let provider = if let Some(kind) = native_runtime.clone() {
+        crate::desktop_agent_session::DesktopAgentBackend::Runtime {
+            kind,
+            external: None,
+        }
+    } else {
+        crate::desktop_agent_session::DesktopAgentBackend::Nexa(
+            create_provider(provider_config.clone()).map_err(|error| {
+                subagent_preflight_failure(
+                    SubagentPreflightStage::Provider,
+                    "provider_configuration_invalid",
+                    false,
+                    error.to_string(),
+                )
+            })?,
         )
-    })?;
+    };
     let effective_provider_type = config
         .provider_type
         .unwrap_or(provider_config.provider_type);
     // The adapter name is "openai" for many compatible vendors. Artifacts
     // must identify the selected provider, not that shared wire adapter.
-    let provider_id = provider_catalog_key(effective_provider_type).to_string();
+    let provider_id = native_runtime
+        .as_ref()
+        .map(|kind| kind.provider())
+        .unwrap_or_else(|| provider_catalog_key(effective_provider_type))
+        .to_string();
     let catalog_limits = effective_model
         .as_deref()
         .filter(|_| catalog_authoritative)
@@ -185,12 +207,19 @@ pub(super) async fn prepare_subagent_worker(
             .unwrap_or(DelegationLimitPolicy::Auto);
     }
     config.max_iterations = args.max_iterations.unwrap_or(config.max_iterations);
-    let resolved_model_context = resolve_endpoint_model_context_window(
-        provider_catalog_key(provider_config.provider_type),
-        provider_config.base_url.as_deref(),
-        &effective_model_id,
-        None,
-    );
+    let resolved_model_context = if native_runtime.is_some() {
+        ResolvedContextWindow {
+            capacity_tokens: None,
+            authority: ContextWindowAuthority::ProviderManaged,
+        }
+    } else {
+        resolve_endpoint_model_context_window(
+            provider_catalog_key(provider_config.provider_type),
+            provider_config.base_url.as_deref(),
+            &effective_model_id,
+            None,
+        )
+    };
     let context_authority = apply_delegated_model_limits(
         &mut config,
         delegation_limits.input_context_policy,
@@ -259,6 +288,7 @@ pub(super) async fn prepare_subagent_worker(
     config.agent_timeout_secs =
         run_deadline_ms.map(|ms| u32::try_from(ms.div_ceil(1_000)).unwrap_or(u32::MAX).max(1));
     config.request_kind = AgentRequestKind::SubagentWorker;
+    config.delegated_task = Some(args.task.trim().to_string());
     config.system_prompt =
         build_subagent_system_prompt(&config.system_prompt, args.role.as_deref(), role_profile);
     let available_tool_names = runtime
@@ -397,7 +427,7 @@ pub(super) async fn prepare_subagent_worker(
         DelegationLimitPolicy::Auto => "safe_default",
     };
     let effective_model_budgets = serde_json::json!({
-        "provider": provider_catalog_key(provider_config.provider_type),
+        "provider": &provider_id,
         "model": config.model,
         "reasoningEffort": config.reasoning_effort,
         "maxIterations": config.max_iterations,
@@ -615,13 +645,41 @@ pub(super) struct SubagentExecutionInput<'a> {
     pub(super) run_deadline_ms: Option<u64>,
     pub(super) context_messages: Vec<Message>,
     pub(super) effective_source_scope: Vec<String>,
-    pub(super) provider: Box<dyn LlmProvider>,
+    pub(super) provider: crate::desktop_agent_session::DesktopAgentBackend,
     pub(super) tools: ToolRegistry,
     pub(super) config: AgentConfig,
     pub(super) enabled_skills: Vec<Skill>,
     pub(super) request_text: String,
     pub(super) steering_rx: Option<mpsc::UnboundedReceiver<AgentSteeringMessage>>,
     pub(super) lifecycle_events: Option<SubagentEventBridge>,
+}
+
+/// Async cancellation can drop a native runtime before its normal return path.
+/// The transcript remains durable and must never retain a phantom running turn.
+struct NativeWorkerTurnOwner {
+    db: Database,
+    turn_id: String,
+    settled: bool,
+}
+
+impl NativeWorkerTurnOwner {
+    fn finish(&mut self, status: &str) {
+        match self
+            .db
+            .finalize_conversation_turn(&self.turn_id, status, None, None)
+        {
+            Ok(()) => self.settled = true,
+            Err(error) => warn!("Failed to settle delegated native transcript: {error}"),
+        }
+    }
+}
+
+impl Drop for NativeWorkerTurnOwner {
+    fn drop(&mut self) {
+        if !self.settled {
+            self.finish("interrupted");
+        }
+    }
 }
 
 pub(super) async fn execute_subagent_worker(
@@ -652,13 +710,21 @@ pub(super) async fn execute_subagent_worker(
         steering_rx,
         lifecycle_events,
     } = input;
-    let estimated_cost_micros =
-        nexa_core::usage_analytics::usage_cost_metadata(Some(effective_provider_type)).0;
-    let non_streaming_completion = llm_streaming_disabled_by_env()
-        || provider_uses_non_streaming_fallback(
-            effective_provider_type,
-            effective_model.as_deref().unwrap_or_default(),
-        );
+    let native = matches!(
+        &provider,
+        crate::desktop_agent_session::DesktopAgentBackend::Runtime { .. }
+    );
+    let estimated_cost_micros = if native {
+        None
+    } else {
+        nexa_core::usage_analytics::usage_cost_metadata(Some(effective_provider_type)).0
+    };
+    let non_streaming_completion = !native
+        && (llm_streaming_disabled_by_env()
+            || provider_uses_non_streaming_fallback(
+                effective_provider_type,
+                effective_model.as_deref().unwrap_or_default(),
+            ));
     // Mutation attribution uses the parent's durable run identity while the
     // child still owns an isolated message stream and conversation context.
     let tools = if let Some(run_id) = parent_task_run_id.as_deref() {
@@ -671,34 +737,10 @@ pub(super) async fn execute_subagent_worker(
     } else {
         tools
     };
-    let mut executor = AgentExecutor::new(provider, tools, config)
-        .with_usage_identity(
-            format!(
-                "subagent:{}",
-                subtask_run_id.as_deref().unwrap_or(&session_id)
-            ),
-            parent_task_run_id.clone(),
-            subtask_run_id.clone(),
-        )
-        .with_cancel_token(worker_cancel_token.clone())
-        .with_skills_override(enabled_skills);
-    // Processes started by a delegated worker must remain observable by the
-    // parent after that worker finishes. Transcript persistence stays isolated.
     let activity_runtime = match lifecycle_events.as_ref() {
         Some(events) => events.activity_runtime(),
         None => nexa_core::activity::ActivityRuntime::with_database(db.clone())?,
     };
-    executor = executor.with_activity_runtime(activity_runtime);
-    if let Some(conversation_id) = runtime.parent_conversation_id.clone() {
-        let turn_id = parent_task_run_id
-            .as_deref()
-            .map(|run_id| db.get_agent_task_run(run_id).map(|run| run.turn_id))
-            .transpose()?;
-        executor = executor.with_tool_scope(conversation_id, turn_id);
-    }
-    if let Some(steering_rx) = steering_rx {
-        executor = executor.with_steering_receiver(steering_rx);
-    }
     let (tx, event_rx) = mpsc::channel::<AgentEvent>(64);
     let pump = SubagentEventPump::spawn(
         event_rx,
@@ -706,7 +748,7 @@ pub(super) async fn execute_subagent_worker(
             cancel_token: worker_cancel_token.clone(),
             worker_actual_token_limit,
             telemetry_db: db.clone(),
-            telemetry_identity: parent_task_run_id.zip(subtask_run_id),
+            telemetry_identity: parent_task_run_id.clone().zip(subtask_run_id.clone()),
             telemetry_call_label: call_label.to_string(),
             lifecycle: lifecycle_events,
             launch_started,
@@ -715,16 +757,132 @@ pub(super) async fn execute_subagent_worker(
     );
     let mut fatal_error_rx = pump.fatal_error_rx;
     let event_task = pump.task;
-    let run_future = executor.run_with_source_scope(
-        context_messages,
-        vec![ContentPart::Text { text: request_text }],
-        db,
-        None,
-        None,
-        Some(effective_source_scope),
-        tx,
-        0,
-    );
+    let execution_cancel = worker_cancel_token.clone();
+    let services = runtime
+        .execution_services
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    let run_future: futures::future::BoxFuture<'_, Result<Message, CoreError>> = match provider {
+        crate::desktop_agent_session::DesktopAgentBackend::Nexa(provider) => Box::pin(async move {
+            let mut executor = AgentExecutor::new(provider, tools, config)
+                .with_usage_identity(
+                    format!(
+                        "subagent:{}",
+                        subtask_run_id.as_deref().unwrap_or(&session_id)
+                    ),
+                    parent_task_run_id.clone(),
+                    subtask_run_id,
+                )
+                .with_cancel_token(execution_cancel.clone())
+                .with_skills_override(enabled_skills)
+                .with_activity_runtime(activity_runtime);
+            if let Some((approval, visual)) = services {
+                executor = executor
+                    .with_approval_callback(approval)
+                    .with_tool_visual_interpreter(visual);
+            }
+            if let Some(conversation) = runtime.parent_conversation_id.clone() {
+                let turn = parent_task_run_id
+                    .as_deref()
+                    .map(|id| db.get_agent_task_run(id).map(|run| run.turn_id))
+                    .transpose()?;
+                executor = executor.with_tool_scope(conversation, turn);
+            }
+            if let Some(steering) = steering_rx {
+                executor = executor.with_steering_receiver(steering);
+            }
+            executor
+                .run_with_source_scope(
+                    context_messages,
+                    vec![ContentPart::Text { text: request_text }],
+                    db,
+                    None,
+                    None,
+                    Some(effective_source_scope),
+                    tx,
+                    0,
+                )
+                .await
+        }),
+        crate::desktop_agent_session::DesktopAgentBackend::Runtime { kind, external } => {
+            Box::pin(async move {
+                let (approval, visual_interpreter) = services.ok_or_else(|| {
+                    CoreError::Internal("Native worker execution services are unavailable".into())
+                })?;
+                let parent = runtime.parent_conversation_id.as_deref().ok_or_else(|| {
+                    CoreError::InvalidInput("Native workers require a parent conversation".into())
+                })?;
+                let child = db.delegated_conversation(
+                    parent,
+                    &session_id,
+                    kind.provider(),
+                    effective_model.as_deref().unwrap_or_default(),
+                )?;
+                db.set_conversation_sources(&child.id, &effective_source_scope)?;
+                let order = db.next_message_sort_order(&child.id)?;
+                let user_id = uuid::Uuid::new_v4().to_string();
+                db.add_message(&nexa_core::conversation::ConversationMessage {
+                    id: user_id.clone(),
+                    conversation_id: child.id.clone(),
+                    role: nexa_core::llm::Role::User,
+                    content: request_text.clone(),
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    artifacts: None,
+                    token_count: 0,
+                    created_at: String::new(),
+                    sort_order: order,
+                    thinking: None,
+                    image_attachments: None,
+                })?;
+                let child_turn =
+                    db.create_conversation_turn(&child.id, &user_id, Some("SubagentWorker"))?;
+                let mut owner = NativeWorkerTurnOwner {
+                    db: db.clone(),
+                    turn_id: child_turn.id.clone(),
+                    settled: false,
+                };
+                let steering = steering_rx.unwrap_or_else(|| {
+                    let (_, rx) = mpsc::unbounded_channel();
+                    rx
+                });
+                let result =
+                    crate::agent_runtime::run(crate::agent_runtime::AgentRuntimeTurnRequest {
+                        kind,
+                        external,
+                        config,
+                        dependencies:
+                            crate::desktop_agent_session::DesktopAgentSessionDependencies {
+                                delegation_runtime: None,
+                                tools,
+                                selected_skills: enabled_skills,
+                                auto_loaded_skills: Vec::new(),
+                                metrics: Default::default(),
+                            },
+                        db: Arc::new(db.clone()),
+                        conversation_id: child.id,
+                        turn_id: child_turn.id.clone(),
+                        next_sort_order: order + 1,
+                        history: context_messages,
+                        user_parts: vec![ContentPart::Text { text: request_text }],
+                        events: tx,
+                        cancellation: execution_cancel,
+                        steering,
+                        approval,
+                        visual_interpreter,
+                    })
+                    .await;
+                let status = match &result {
+                    Ok(_) => "completed",
+                    Err(error) if error.recovery_requirement().is_some() => "interrupted",
+                    Err(_) => "error",
+                };
+                owner.finish(status);
+                result
+            })
+        }
+    };
     reservation.mark_started();
     let final_result = await_subagent_worker_completion(
         call_label,

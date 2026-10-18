@@ -1567,11 +1567,37 @@ impl Database {
     }
 
     /// List conversations ordered by most-recently updated first.
+    pub fn delegated_conversation(
+        &self,
+        parent_id: &str,
+        worker_id: &str,
+        provider: &str,
+        model: &str,
+    ) -> Result<Conversation, CoreError> {
+        let identity = serde_json::to_vec(&(parent_id, worker_id, provider))?;
+        let id = format!("subagent-{}", blake3::hash(&identity).to_hex());
+        let conn = self.conn();
+        let affected = conn.execute(
+            "INSERT INTO conversations(id,provider,model,project_id,parent_conversation_id,title_is_auto)
+             SELECT ?1,?2,?3,project_id,id,0 FROM conversations WHERE id=?4
+             ON CONFLICT(id) DO UPDATE SET model=excluded.model",
+            rusqlite::params![id,provider,model,parent_id],
+        )?;
+        if affected == 0 {
+            return Err(CoreError::NotFound(format!(
+                "Parent conversation {parent_id}"
+            )));
+        }
+        drop(conn);
+        self.get_conversation(&id)
+    }
+
+    /// List top-level conversations ordered by most-recently updated first.
     pub fn list_conversations(&self) -> Result<Vec<Conversation>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
-             FROM conversations WHERE archived_at IS NULL ORDER BY updated_at DESC",
+             FROM conversations WHERE archived_at IS NULL AND parent_conversation_id IS NULL ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Conversation {
@@ -1601,7 +1627,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
-             FROM conversations WHERE archived_at IS NOT NULL ORDER BY archived_at DESC",
+             FROM conversations WHERE archived_at IS NOT NULL AND parent_conversation_id IS NULL ORDER BY archived_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Conversation {
@@ -1954,7 +1980,7 @@ impl Database {
             "DELETE FROM conversations WHERE id IN (
                 SELECT c.id FROM conversations c
                 LEFT JOIN messages m ON m.conversation_id = c.id
-                WHERE c.archived_at IS NULL
+                WHERE c.archived_at IS NULL AND c.parent_conversation_id IS NULL
                   AND c.created_at <= datetime('now', ?1)
                 GROUP BY c.id
                 HAVING COUNT(m.id) = 0
@@ -2032,7 +2058,7 @@ impl Database {
                  JOIN conversations c ON c.id = f.conversation_id
                  JOIN messages m ON m.id = f.message_id
                  WHERE fts_messages MATCH ?1
-                   AND c.archived_at IS NULL
+                   AND c.archived_at IS NULL AND c.parent_conversation_id IS NULL
                  ORDER BY rank
                  LIMIT ?2",
             )?;
@@ -2063,7 +2089,7 @@ impl Database {
                  FROM messages m
                  JOIN conversations c ON c.id = m.conversation_id
                  WHERE m.role IN ('user', 'assistant')
-                   AND c.archived_at IS NULL
+                   AND c.archived_at IS NULL AND c.parent_conversation_id IS NULL
                    AND m.content LIKE ?1 ESCAPE '\\'
                  ORDER BY m.created_at DESC
                  LIMIT ?2",
@@ -4307,7 +4333,7 @@ impl Database {
     }
 
     /// Current append position for a conversation's serialized message producer.
-    pub(crate) fn next_message_sort_order(&self, conversation_id: &str) -> Result<i64, CoreError> {
+    pub fn next_message_sort_order(&self, conversation_id: &str) -> Result<i64, CoreError> {
         Ok(self.conn().query_row(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM messages WHERE conversation_id = ?1",
             [conversation_id],
@@ -5953,6 +5979,38 @@ mod tests {
         let updated = db.get_conversation(&conv.id).unwrap();
         assert_eq!(updated.title, "My manual title");
         assert!(!updated.initial_auto_title_pending);
+    }
+
+    #[test]
+    fn delegated_native_conversations_are_parent_owned_and_hidden_from_chat_lists() {
+        let db = Database::open_memory().unwrap();
+        let parent = db
+            .create_conversation(&CreateConversationInput {
+                provider: "github_copilot".into(),
+                model: "gemini-4-argon".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let child = db
+            .delegated_conversation(&parent.id, "reviewer", "github_copilot", "gemini-4-argon")
+            .unwrap();
+        assert_eq!(
+            db.delegated_conversation(&parent.id, "reviewer", "github_copilot", "gemini-4-argon")
+                .unwrap()
+                .id,
+            child.id
+        );
+        assert_eq!(db.list_conversations().unwrap().len(), 1);
+        db.archive_conversation(&child.id).unwrap();
+        assert!(db.list_archived_conversations().unwrap().is_empty());
+        db.delete_conversation(&parent.id).unwrap();
+        assert!(
+            db.get_conversation(&child.id).is_err(),
+            "deleting the owner also deletes native worker transcripts"
+        );
     }
 
     #[test]

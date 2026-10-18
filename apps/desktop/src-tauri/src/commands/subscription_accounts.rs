@@ -92,9 +92,10 @@ pub struct CodexAccountSnapshot {
 pub struct CopilotModelSummary {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(super) context_tiers: Vec<nexa_core::context_policy::NativeContextTier>,
-    pub(super) id: String,
+    pub(crate) id: String,
     pub(super) name: String,
     pub(super) reasoning_efforts: Vec<String>,
+    pub(super) supports_reasoning_effort: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) context_window: Option<u32>,
 }
@@ -130,6 +131,27 @@ pub(crate) fn copilot_context_tiers(
     tiers
 }
 
+pub(crate) fn copilot_reasoning_efforts(model: &github_copilot_sdk::rpc::Model) -> Vec<String> {
+    if model
+        .capabilities
+        .supports
+        .as_ref()
+        .and_then(|supports| supports.reasoning_effort)
+        == Some(false)
+    {
+        return Vec::new();
+    }
+    model
+        .supported_reasoning_efforts
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .take(12)
+        .map(|value| bounded_field(&value, 32))
+        .collect()
+}
+
 fn copilot_model_summary(model: github_copilot_sdk::rpc::Model) -> CopilotModelSummary {
     CopilotModelSummary {
         context_tiers: copilot_context_tiers(&model),
@@ -142,13 +164,12 @@ fn copilot_model_summary(model: github_copilot_sdk::rpc::Model) -> CopilotModelS
             .filter(|value| *value > 0),
         id: bounded_field(&model.id, 120),
         name: bounded_field(&model.name, 160),
-        reasoning_efforts: model
-            .supported_reasoning_efforts
-            .unwrap_or_default()
-            .into_iter()
-            .take(12)
-            .map(|value| bounded_field(&value, 32))
-            .collect(),
+        reasoning_efforts: copilot_reasoning_efforts(&model),
+        supports_reasoning_effort: model
+            .capabilities
+            .supports
+            .as_ref()
+            .and_then(|supports| supports.reasoning_effort),
     }
 }
 
@@ -1122,11 +1143,17 @@ pub async fn list_subscription_models_cmd(
         .map_err(|error| error.to_string())
         .and_then(super::external_agents::connected_models);
     }
-    match provider.as_str() {
+    if provider == "github_copilot" && state.copilot_account_runtime.login_status().pending {
+        return Err("Finish signing in to GitHub Copilot, then refresh models.".into());
+    }
+    native_subscription_models(&provider).await
+}
+
+pub(crate) async fn native_subscription_models(
+    provider: &str,
+) -> Result<Vec<CopilotModelSummary>, String> {
+    match provider {
         "github_copilot" => {
-            if state.copilot_account_runtime.login_status().pending {
-                return Err("Finish signing in to GitHub Copilot, then refresh models.".into());
-            }
             // Chat needs only the entitled model list, not status, quotas or
             // runtime-version probes. The UI shares and caches this request.
             tokio::time::timeout(COPILOT_REQUEST_TIMEOUT, async {
@@ -1175,6 +1202,7 @@ pub async fn list_subscription_models_cmd(
                         continue;
                     };
                     models.push(CopilotModelSummary {
+                        supports_reasoning_effort: None,
                         context_tiers: Vec::new(),
                         context_window: item
                             .get("contextWindow")
@@ -1369,5 +1397,24 @@ mod tests {
         assert!(!serialized.contains("ghu_"));
         assert!(!serialized.contains("gho_"));
         assert!(!serialized.contains("accessToken"));
+    }
+
+    #[test]
+    fn copilot_reasoning_uses_native_capabilities_instead_of_model_name() {
+        let mut model: github_copilot_sdk::rpc::Model = serde_json::from_value(json!({
+            "id":"gemini-4-argon", "name":"Gemini 4 Argon", "capabilities":{"supports":{"reasoningEffort":true}},
+            "supportedReasoningEfforts":["low","high"]
+        })).unwrap();
+        assert_eq!(copilot_reasoning_efforts(&model), vec!["low", "high"]);
+        model
+            .capabilities
+            .supports
+            .as_mut()
+            .unwrap()
+            .reasoning_effort = Some(false);
+        assert!(copilot_reasoning_efforts(&model).is_empty());
+        let summary = copilot_model_summary(model);
+        assert_eq!(summary.supports_reasoning_effort, Some(false));
+        assert!(summary.reasoning_efforts.is_empty());
     }
 }

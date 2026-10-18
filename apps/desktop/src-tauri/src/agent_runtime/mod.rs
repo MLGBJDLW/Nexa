@@ -32,7 +32,7 @@ pub enum AgentRuntimeKind {
 }
 
 impl AgentRuntimeKind {
-    fn provider(&self) -> &str {
+    pub(crate) fn provider(&self) -> &str {
         match self {
             Self::Copilot => "github_copilot",
             Self::Codex => "openai_codex",
@@ -171,7 +171,7 @@ impl AgentRuntimeTurnRequest {
             if matches!(self.kind, AgentRuntimeKind::Codex) {
                 sections.push("The registered Nexa tools execute in the Nexa host under the workspace scope and approval policy described here. The Codex process's native executor is isolated and is not the executor of these host tools. For requested file changes, use edit_file or create_file when they are present in the provided tool catalog; honor any denial or approval requirement returned by Nexa. Do not infer that host tools are read-only from the native executor's sandbox.".into());
             }
-            sections.push("The official runtime owns this parent agent. For independent work, use Nexa's spawn_subagent tools and choose an available API worker account with agent_config_id from list_subagent_models. Reuse the discovered route; never invent credentials or treat the subscription as an API key. Mixture of Agents and subscription-backed child workers are unavailable.".into());
+            sections.push("The official runtime owns this agent. For independent work, use available Nexa spawn_subagent tools. Omitted routing inherits the parent provider and model through its official runtime. Set model or agent_config_id only when deliberately choosing another advertised route. Never invent credentials or treat a subscription as an API key. Child workers cannot recursively delegate.".into());
         }
         let mut loaded_skills = std::collections::HashSet::new();
         for skill in self

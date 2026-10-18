@@ -17,19 +17,24 @@ pub(super) fn resolve_subagent_route(
     runtime: &DelegationRuntime,
     db: &Database,
     route: &SubagentRouteArgs,
-) -> Result<(AgentConfig, ProviderConfig), CoreError> {
+) -> Result<
+    (
+        AgentConfig,
+        ProviderConfig,
+        Option<crate::agent_runtime::AgentRuntimeKind>,
+    ),
+    CoreError,
+> {
     let requested_provider = route.provider.as_deref();
-    if runtime.requires_explicit_route
-        && route.agent_config_id.is_none()
-        && requested_provider.is_none()
-    {
-        return Err(CoreError::InvalidInput("The parent uses an official subscription runtime. Select an API worker route with agent_config_id from list_subagent_models; subscription credentials cannot be inherited by the API executor.".into()));
-    }
     let selected = if let Some(id) = route.agent_config_id.as_deref() {
         Some(db.get_agent_config(id)?)
     } else if let Some(provider) = requested_provider.filter(|provider| {
-        runtime.requires_explicit_route
-            || *provider != provider_catalog_key(runtime.provider_config.provider_type)
+        *provider
+            != runtime
+                .parent_runtime
+                .as_ref()
+                .map(|kind| kind.provider())
+                .unwrap_or_else(|| provider_catalog_key(runtime.provider_config.provider_type))
     }) {
         let mut matches = db
             .list_agent_configs()?
@@ -47,6 +52,7 @@ pub(super) fn resolve_subagent_route(
     } else {
         None
     };
+    let mut native = runtime.parent_runtime.clone();
     let mut config = runtime.base_config.clone();
     let mut provider_config = runtime.provider_config.clone();
     config.provider_type = Some(provider_config.provider_type);
@@ -56,8 +62,9 @@ pub(super) fn resolve_subagent_route(
                 "agent_config_id and provider select different routes".into(),
             ));
         }
-        if crate::agent_runtime::AgentRuntimeKind::from_provider(&selected.provider).is_some() {
-            return Err(CoreError::InvalidInput("This delegated executor requires an API provider configuration. Subscription accounts must use their official runtime and cannot be used as API credentials.".into()));
+        native = crate::agent_runtime::AgentRuntimeKind::from_provider(&selected.provider);
+        if matches!(native, Some(crate::agent_runtime::AgentRuntimeKind::Acp(_))) {
+            return Err(CoreError::InvalidInput("ACP delegation is owned by that external agent; choose an API, Copilot, or Codex worker route.".into()));
         }
         provider_config = crate::desktop_agent_session::desktop_provider_config(&selected);
         config.provider_type = Some(provider_config.provider_type);
@@ -108,7 +115,7 @@ pub(super) fn resolve_subagent_route(
         }
         config.model = Some(model.clone());
     }
-    Ok((config, provider_config))
+    Ok((config, provider_config, native))
 }
 
 pub(super) fn apply_explicit_worker_reasoning(
@@ -159,7 +166,7 @@ impl Tool for SubagentModelsTool {
         "list_subagent_models"
     }
     fn description(&self) -> &str {
-        "List configured provider routes and known models for delegation. Use a returned agent_config_id, model and optional reasoning_effort in spawn_subagent or each batch task. API parents inherit their route when omitted; subscription parents must explicitly choose an API account. Call once when choosing a different route; reuse the result."
+        "List configured provider routes and known models for delegation. Use a returned agent_config_id, model and optional reasoning_effort in spawn_subagent or each batch task. API, Copilot and Codex parents inherit their account and model when omitted. Call once when choosing a different route; reuse the result."
     }
     fn parameters_schema(&self) -> serde_json::Value {
         serde_json::json!({"type":"object", "properties":{}, "additionalProperties":false})
@@ -171,17 +178,50 @@ impl Tool for SubagentModelsTool {
         &self,
         context: nexa_core::tools::ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
-        let routes: Vec<_> = context.db.list_agent_configs()?.into_iter().map(|config| {
-            let supported = crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider).is_none();
-            let mut models = if supported { nexa_core::provider_catalog::preset_model_ids(&config.provider, config.base_url.as_deref()) } else { Vec::new() };
-            if supported && !models.contains(&config.model) { models.push(config.model.clone()); }
-            serde_json::json!({
+        let mut routes = Vec::new();
+        let mut native_catalogs = HashMap::new();
+        for config in context.db.list_agent_configs()? {
+            let native = crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider);
+            let supported = !matches!(native, Some(crate::agent_runtime::AgentRuntimeKind::Acp(_)));
+            let mut catalog_error = None;
+            let mut models = if supported && native.is_some() {
+                if !native_catalogs.contains_key(&config.provider) {
+                    native_catalogs.insert(
+                        config.provider.clone(),
+                        crate::commands::subscription_accounts::native_subscription_models(
+                            &config.provider,
+                        )
+                        .await,
+                    );
+                }
+                match &native_catalogs[&config.provider] {
+                    Ok(models) => models
+                        .iter()
+                        .map(|model| model.id.clone())
+                        .collect::<Vec<_>>(),
+                    Err(error) => {
+                        catalog_error = Some(error.clone());
+                        Vec::new()
+                    }
+                }
+            } else if supported {
+                nexa_core::provider_catalog::preset_model_ids(
+                    &config.provider,
+                    config.base_url.as_deref(),
+                )
+            } else {
+                Vec::new()
+            };
+            if supported && !models.contains(&config.model) {
+                models.push(config.model.clone());
+            }
+            routes.push(serde_json::json!({
                 "agentConfigId": config.id, "name": config.name, "provider": config.provider,
                 "defaultModel": config.model, "models": models, "availableForDelegation": supported,
-                "reasoningEffort": config.reasoning_effort,
-            })
-        }).collect();
-        let data = serde_json::json!({"routes": routes, "apiParentRouteInheritedWhenOmitted": true, "subscriptionParentRequiresExplicitRoute": true});
+                "reasoningEffort": config.reasoning_effort, "catalogError": catalog_error,
+            }));
+        }
+        let data = serde_json::json!({"routes": routes, "apiParentRouteInheritedWhenOmitted": true, "subscriptionParentRequiresExplicitRoute": false});
         Ok(ToolResult {
             call_id: context.call_id.into(),
             content: data.to_string(),

@@ -522,11 +522,19 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             .and_then(Value::as_str)
             .ok_or_else(|| protocol_error("Codex created no turn"))?
             .to_string();
-        Ok::<_, CoreError>((wire, turn, thread_id, turn_id, native_vision, aliases))
+        Ok::<_, CoreError>((
+            wire,
+            turn,
+            thread_id,
+            turn_id,
+            native_vision,
+            aliases,
+            effort,
+        ))
     };
     // Each RPC already has a deadline. A separate total deadline would consume
     // the recovery policy's backoff budget and interrupt its final attempts.
-    let (mut wire, mut turn, thread_id, turn_id, native_vision, aliases) = tokio::select! {
+    let (mut wire, mut turn, thread_id, mut turn_id, native_vision, aliases, effort) = tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Codex connection".into())),
         result = bootstrap => result?,
     };
@@ -534,6 +542,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     let mut pending = FuturesUnordered::new();
     let mut replies = HashMap::new();
     let mut steering_closed = false;
+    let mut completion_repairs = 0;
     let mut steering_queue: VecDeque<AgentSteeringMessage> = VecDeque::new();
     let mut async_items = nexa_core::runtime_receipts::RuntimeReceipts::new()?;
     let result = async {
@@ -611,6 +620,16 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                     if params["turnId"].as_str().is_some_and(|id| id != turn_id) { continue; }
                     if project_event(&mut projection,&turn,&mut async_items,method,params).await? {
                         if !pending.is_empty() || !replies.is_empty() || !steering_queue.is_empty() { return Err(protocol_error("Codex completed with unacknowledged work")); }
+                        if let Some(guidance) = turn.transcript.completion_repair_guidance().await {
+                            if completion_repairs >= 3 {
+                                return Err(CoreError::RecoveryRequired { message: guidance, action_reconciliation: true });
+                            }
+                            completion_repairs += 1;
+                            projection.defer_answer_for_verification(&turn).await?;
+                            let response = wire.request("turn/start", json!({"threadId":thread_id,"input":user_input(&format!("Nexa host verification remains pending. {guidance}"),&[]),"effort":effort,"environments":[],"approvalPolicy":"never","sandboxPolicy":{"type":"readOnly","networkAccess":false}})).await?;
+                            turn_id = response.pointer("/turn/id").and_then(Value::as_str).ok_or_else(|| protocol_error("Codex created no verification turn"))?.to_string();
+                            continue;
+                        }
                         return Ok(());
                     }
                 }

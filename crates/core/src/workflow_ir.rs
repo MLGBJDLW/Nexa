@@ -172,6 +172,10 @@ pub struct WorkflowCheckpoint {
     /// Only opaque target identity and observation tokens are retained.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub desktop_observation_targets: Vec<DesktopObservationTarget>,
+    /// Distinct host-verified target identities are progress even while other
+    /// windows remain pending and no workspace file changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_desktop_target_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -290,6 +294,8 @@ impl WorkflowIr {
         self.completion_contract.desktop_terminal_closure_evidence =
             saved.completion_contract.desktop_terminal_closure_evidence;
         self.checkpoint.revision = self.checkpoint.revision.max(saved.checkpoint.revision);
+        self.checkpoint.verified_desktop_target_ids =
+            saved.checkpoint.verified_desktop_target_ids.clone();
         self.verification_gates
             .retain(|gate| gate.kind != VerificationGateKind::DesktopTerminalClosure);
         self.verification_gates.extend(
@@ -497,8 +503,7 @@ impl WorkflowIr {
                     "parallel_group": node.parallel_group,
                     "deliverable_style": "structured evidence report",
                     "return_sections": node.artifact_contract.required_sections,
-                    "max_iterations": 3,
-                    "timeout_secs": 180
+                    "max_iterations": 3
                 })
             })
             .collect::<Vec<_>>();
@@ -842,6 +847,28 @@ impl WorkflowIr {
             } else {
                 evidence
             };
+            for target in self
+                .checkpoint
+                .desktop_observation_targets
+                .iter()
+                .filter(|target| {
+                    observation
+                        .is_some_and(|observation| desktop_observation_matches(target, observation))
+                })
+            {
+                let identity = format!(
+                    "{}:{}",
+                    target.window_id,
+                    target.target_identity.as_deref().unwrap_or_default()
+                );
+                if !self
+                    .checkpoint
+                    .verified_desktop_target_ids
+                    .contains(&identity)
+                {
+                    self.checkpoint.verified_desktop_target_ids.push(identity);
+                }
+            }
             self.checkpoint
                 .desktop_observation_targets
                 .retain(|target| {
@@ -1035,6 +1062,12 @@ impl WorkflowIr {
                 .iter()
                 .filter(|gate| self.completion_gate_is_enforced(gate) && gate.passed == Some(true))
                 .map(|gate| format!("gate:{}", gate.id)),
+        );
+        milestones.extend(
+            self.checkpoint
+                .verified_desktop_target_ids
+                .iter()
+                .map(|id| format!("desktop-target:{id}")),
         );
         if self.completion_contract.require_evidence_ledger {
             milestones.extend(
@@ -1380,7 +1413,7 @@ impl WorkflowIr {
                 && gate.passed != Some(true)
         }) {
             actions.push(
-                "call computer_observe now; every successful computer_control requires another fresh computer_observe before completion",
+                "inspect the verified post-action observation, or call computer_observe with action=capture_window for each exact pending window; do not replay the action",
             );
         }
         if self.verification_gates.iter().any(|gate| {
@@ -1395,10 +1428,18 @@ impl WorkflowIr {
                 "run the required checks, record exact passed or failed outcomes, and use an independent reviewer when required",
             );
         }
+        let targets = self
+            .checkpoint
+            .desktop_observation_targets
+            .iter()
+            .map(|target| target.window_id.to_string())
+            .collect::<Vec<_>>();
         format!(
             "Resolve the enforced completion contract with concrete tool results: {}. A pending, claimed, or skipped check is not success.",
             actions.join("; ")
-        )
+        ) + &if targets.is_empty() { String::new() } else {
+            format!(" Pending exact window_id values: {}.", targets.join(", "))
+        }
     }
 
     pub fn requires_runtime_write_isolation(&self) -> bool {
@@ -2555,6 +2596,7 @@ pub fn compile_workflow_ir(
             failed_node_ids: Vec::new(),
             remaining_delegated_tokens: profile.delegated_token_budget.unwrap_or(u32::MAX),
             desktop_observation_targets: Vec::new(),
+            verified_desktop_target_ids: Vec::new(),
         },
         completion_contract: WorkflowCompletionContract {
             controller_owned_review: false,
@@ -2771,6 +2813,14 @@ mod tests {
             .reconnaissance_batch_arguments("Investigate a regression")
             .expect("nexus should compile an automatic reconnaissance wave");
         assert_eq!(args["tasks"].as_array().unwrap().len(), 2);
+        assert!(
+            args["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|task| task.get("timeout_secs").is_none()),
+            "controller reconnaissance must not invent a worker wall-clock deadline"
+        );
         assert!(args["tasks"]
             .as_array()
             .unwrap()
@@ -4510,6 +4560,15 @@ mod tests {
                 expected,
                 "window={window}, identity={identity}, token={token}"
             );
+            if token == "after-43" {
+                assert!(workflow
+                    .completion_progress_milestones()
+                    .iter()
+                    .any(|item| item == "desktop-target:43:target-43"));
+                assert!(workflow
+                    .completion_repair_guidance()
+                    .contains("window_id values: 42"));
+            }
         }
     }
 

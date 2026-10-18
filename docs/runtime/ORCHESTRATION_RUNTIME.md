@@ -215,12 +215,16 @@ Names may contain Unicode and may repeat. Stable agent/session IDs still own
 controls, accounting and history; a resumed session inherits its saved display
 name unless the caller supplies a new one.
 
-Each delegated node carries its model-routing class into the executor. `Fast`
-and `IndependentReviewer` use the configured auxiliary model only when that
-model belongs to the same provider endpoint as the parent; otherwise the run
-records an explicit fallback and keeps the parent model. `Strong` always keeps
-the parent model. This provider-compatibility guard prevents cross-provider
-model names from being sent with the wrong endpoint or credentials.
+Delegated roles describe the work and never silently select an auxiliary model.
+An omitted route inherits the parent's account, provider and model, including
+Copilot and Codex subscription runtimes. Only an explicit model or account
+selection changes that identity. Running and historical worker cards expose the
+effective provider and model from the runtime's preflight receipt.
+
+The worker's typed task owns intent classification and completion gates. Parent
+context, allowed tool names and evidence handoffs remain context; they cannot
+create browser or desktop obligations for a read-only child. Reconnaissance
+does not introduce an automatic 180-second deadline.
 
 The acting agent receives the updated IR and owns mutation and synthesis.
 `Code Ultra` additionally requires isolated writes plus test, typecheck, build,
@@ -577,12 +581,25 @@ transport liveness, concurrency, and repeated-tool protection remain active.
 Automatic concurrency admits four workers. Settings preserve absent budgets as
 automatic/unlimited when creating or editing a provider, and an explicit V2
 configuration owns null values instead of falling back to stale legacy limits.
-An API worker inherits the parent's endpoint, account, model and reasoning
-unless a route/model policy is explicitly selected. Routine delegation omits
+An API, Copilot or Codex worker inherits the parent's account, model and reasoning
+unless a route/model is explicitly selected. Routine delegation omits
 hard task deadlines; bounded lifecycle waits do not terminate the worker.
 Reservations remain planning estimates and are released at settlement. Failed
 requests without reported usage are marked incomplete and cannot debit their
 estimated reservation as actual usage or exhaust a sibling's admission budget.
+
+Subscription workers use the existing provider runtime with a hidden,
+parent-owned conversation and their own turn IDs. Their provider transcripts
+cannot overwrite the parent transcript; deleting the parent also deletes its
+child conversations. ACP agents retain their external runtime's delegation
+ownership. Host delegation does not invent an API credential for them.
+
+Before a native runtime publishes a final answer, exact pending desktop targets
+are checked. The same runtime receives bounded repair guidance to capture those
+windows; individual verified targets count as progress. Exhausted repair becomes
+a recoverable pause with pending targets, never a successful completion. Explicit
+Stop remains cancellation. Physical input takeover is a separate user-control
+outcome requiring a fresh observation before another action.
 
 Responses history compilation lives in `llm/openai/responses_input.rs`, separate
 from delegation scheduling. It preserves each native assistant output group,

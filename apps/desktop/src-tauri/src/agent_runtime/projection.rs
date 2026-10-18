@@ -509,6 +509,20 @@ impl Projection {
         Ok(Some(message))
     }
 
+    pub(super) async fn defer_answer_for_verification(
+        &mut self,
+        turn: &PreparedTurn,
+    ) -> Result<(), CoreError> {
+        if !self.answer.trim().is_empty() {
+            turn.transcript.persist_intermediate(&self.answer).await?;
+            for id in std::mem::take(&mut self.answer_block_ids) {
+                self.mark_persisted(&id);
+            }
+            self.clear_answer();
+        }
+        Ok(())
+    }
+
     pub(super) fn queue_async_message(&mut self, id: String, text: String) {
         self.async_messages.push_back((id, text));
     }

@@ -314,6 +314,7 @@ pub(super) fn fixture_with_database(
             ..AgentConfig::default()
         },
         dependencies: DesktopAgentSessionDependencies {
+            delegation_runtime: None,
             tools,
             selected_skills: vec![],
             auto_loaded_skills: vec![],

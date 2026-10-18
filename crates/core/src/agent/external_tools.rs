@@ -448,7 +448,18 @@ mod tests {
                 .result
                 .is_error
         );
-        assert!(session.persist_answer("Premature success").await.is_err());
+        assert!(matches!(
+            session.persist_answer("Premature success").await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        assert!(session
+            .completion_repair_guidance()
+            .await
+            .unwrap()
+            .contains("window_id values: 42"));
         let run = session
             .input
             .db
@@ -473,6 +484,7 @@ mod tests {
             .await
             .unwrap();
         session.persist_answer("Verified target 42").await.unwrap();
+        assert!(session.completion_repair_guidance().await.is_none());
         let history = session
             .input
             .db
@@ -998,13 +1010,22 @@ impl ExternalToolSession {
         let source_scope = input
             .db
             .get_effective_conversation_source_scope(&input.conversation_id)?;
+        let routing_objective = if input.config.request_kind == AgentRequestKind::SubagentWorker {
+            input
+                .config
+                .delegated_task
+                .as_deref()
+                .unwrap_or(&input.user_prompt)
+        } else {
+            &input.user_prompt
+        };
         let route = route_user_turn(
-            &input.user_prompt,
+            routing_objective,
             &input.config.system_prompt,
             !source_scope.is_empty(),
         );
         let plan = build_task_plan(TaskPlanningInput::for_requirements(
-            &input.user_prompt,
+            routing_objective,
             &route.requirements,
             !source_scope.is_empty(),
             source_scope.len(),
@@ -1387,6 +1408,17 @@ impl ExternalToolSession {
         self.persist_assistant(text, false).await
     }
 
+    /// Let upstream loops repair host-owned evidence before attempting a final
+    /// answer. This is controller guidance, never a synthetic user approval.
+    pub async fn completion_repair_guidance(&self) -> Option<String> {
+        let state = self.state.lock().await;
+        state
+            .desktop_resume_workflow
+            .as_ref()
+            .filter(|workflow| workflow.desktop_evidence_pending())
+            .map(|workflow| workflow.completion_repair_guidance())
+    }
+
     /// Durable progress/partial output does not assert that final verification
     /// completed. Use the same sort owner as tools to preserve message ordering.
     pub async fn persist_intermediate(
@@ -1437,7 +1469,14 @@ impl ExternalToolSession {
                 .as_ref()
                 .is_some_and(crate::workflow_ir::WorkflowIr::desktop_evidence_pending)
         {
-            return Err(CoreError::Agent("The task still has unverified desktop targets. Capture each exact pending window, or complete an explicitly requested close with a host-verified terminal receipt, before a final answer.".into()));
+            return Err(CoreError::RecoveryRequired {
+                message: state
+                    .desktop_resume_workflow
+                    .as_ref()
+                    .unwrap()
+                    .completion_repair_guidance(),
+                action_reconciliation: true,
+            });
         }
         let message = Message::text(Role::Assistant, text.to_string());
         let id = Uuid::new_v4().to_string();

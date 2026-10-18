@@ -1375,7 +1375,6 @@ enum PreCommitFailureKind {
     CoordinateTransform,
     #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     Refused,
-    #[cfg(all(target_os = "windows", feature = "desktop-control"))]
     UserTakeover,
     Cancelled,
     RuntimeUnavailable,
@@ -1477,6 +1476,7 @@ impl ControlProgress {
 struct ControlCommitTracker {
     interaction: crate::observed_interaction::InteractionCommit,
     cancelled: Arc<AtomicBool>,
+    input_interrupted: Arc<AtomicBool>,
     session_stopped: Arc<AtomicBool>,
     session_cancel: crate::agent::CancellationToken,
     worker_state: Arc<AtomicU8>,
@@ -1513,6 +1513,13 @@ impl ControlCommitTracker {
     }
     fn ensure_running(&self) -> Result<(), CoreError> {
         self.stop_if_escape_changed(super::computer_input::escape_epoch());
+        if self.cancelled.load(AtomicOrdering::Acquire)
+            || self.session_stopped.load(AtomicOrdering::Acquire)
+        {
+            return Err(CoreError::Cancelled(
+                "Computer control stopped; no further input will be sent.".into(),
+            ));
+        }
         if let Some((window, epoch, foreground)) =
             *self.input_watch.lock().unwrap_or_else(|e| e.into_inner())
         {
@@ -1522,6 +1529,7 @@ impl ControlCommitTracker {
                 super::computer_input::window_epoch(window)
             };
             if current != epoch {
+                self.input_interrupted.store(true, AtomicOrdering::Release);
                 tracing::debug!(
                     window,
                     expected_revision = ?epoch,
@@ -1536,13 +1544,6 @@ impl ControlCommitTracker {
             }
         }
 
-        if self.cancelled.load(AtomicOrdering::Acquire)
-            || self.session_stopped.load(AtomicOrdering::Acquire)
-        {
-            return Err(CoreError::Cancelled(
-                "Computer control stopped; no further input will be sent.".into(),
-            ));
-        }
         Ok(())
     }
 
@@ -1592,7 +1593,12 @@ impl ControlCommitTracker {
     }
 
     fn failure_as(&self, kind: PreCommitFailureKind, cause: CoreError) -> ControlFailure {
-        let kind = if matches!(cause, CoreError::Cancelled(_)) {
+        let kind = if self.input_interrupted.load(AtomicOrdering::Acquire)
+            && !self.cancelled.load(AtomicOrdering::Acquire)
+            && !self.session_stopped.load(AtomicOrdering::Acquire)
+        {
+            PreCommitFailureKind::UserTakeover
+        } else if matches!(cause, CoreError::Cancelled(_)) {
             PreCommitFailureKind::Cancelled
         } else {
             kind
@@ -1660,7 +1666,6 @@ fn precondition_contract(kind: PreCommitFailureKind) -> (&'static str, bool) {
         }
         #[cfg(all(target_os = "windows", feature = "desktop-control"))]
         PreCommitFailureKind::Refused => ("computer_action_refused", false),
-        #[cfg(all(target_os = "windows", feature = "desktop-control"))]
         PreCommitFailureKind::UserTakeover => ("computer_user_takeover", false),
         PreCommitFailureKind::Cancelled => ("computer_control_cancelled", false),
         PreCommitFailureKind::RuntimeUnavailable => ("computer_control_runtime_unavailable", true),
@@ -1711,6 +1716,10 @@ fn control_failure_result(
             "interaction": failure.interaction(commit),
             "recovery": if failure.phase.effect_may_have_occurred() {
                 "capture fresh visual state or ask the user; never blindly retry the same action"
+            } else if code == "computer_control_cancelled" {
+                "Computer Use was stopped; continue without desktop input until the user resumes it in a new turn"
+            } else if code == "computer_user_takeover" {
+                "let the user finish interacting, then capture the exact target again; the interrupted action was not committed and must not reuse its old token"
             } else if failure.observation_consumed {
                 "capture a fresh observation before any retry because the approved observation token was consumed"
             } else if code == "computer_observation_stale" {

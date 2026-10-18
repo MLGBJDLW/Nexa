@@ -199,8 +199,10 @@ async fn omitted_worker_route_preserves_parent_model_reasoning_and_provider_iden
     runtime.base_config.reasoning_enabled = Some(true);
     runtime.base_config.summarization_model = Some("deepseek-v4-pro".into());
     runtime.set_tool_registry(ToolRegistry::new());
-    let args =
-        serde_json::from_value(serde_json::json!({"task":"Verify", "role_id":"verifier"})).unwrap();
+    let args = serde_json::from_value(
+        serde_json::json!({"task":"Verify", "role_id":"verifier", "model_policy":"fast"}),
+    )
+    .unwrap();
     let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "inherit", None)
         .await
         .unwrap();
@@ -208,6 +210,38 @@ async fn omitted_worker_route_preserves_parent_model_reasoning_and_provider_iden
     assert_eq!(worker.config.reasoning_effort, Some(ReasoningEffort::Max));
     assert_eq!(worker.preflight.provider_id, "deep_seek");
     assert_eq!(worker.run_deadline_ms, None);
+    assert_eq!(worker.config.delegated_task.as_deref(), Some("Verify"));
+}
+
+#[tokio::test]
+async fn native_workers_inherit_the_official_runtime_without_api_credentials() {
+    for kind in [
+        crate::agent_runtime::AgentRuntimeKind::Copilot,
+        crate::agent_runtime::AgentRuntimeKind::Codex,
+    ] {
+        let db = Database::open_memory().unwrap();
+        let mut runtime = test_runtime().with_parent_runtime(kind.clone());
+        runtime.provider_config.api_key = None;
+        runtime.base_config.model = Some("native-parent-model".into());
+        runtime.set_tool_registry(ToolRegistry::new());
+        let args = serde_json::from_value(
+            serde_json::json!({"task":"Inspect the supplied evidence","model_policy":"fast"}),
+        )
+        .unwrap();
+        let worker =
+            prepare_subagent_worker(&runtime, &db, vec![], &args, "native-inheritance", None)
+                .await
+                .unwrap();
+        assert_eq!(
+            worker.effective_model.as_deref(),
+            Some("native-parent-model")
+        );
+        assert_eq!(worker.preflight.provider_id, kind.provider());
+        assert_eq!(worker.effective_model_budgets["provider"], kind.provider());
+        assert!(
+            matches!(worker.provider, crate::desktop_agent_session::DesktopAgentBackend::Runtime {kind: resolved,..} if resolved == kind)
+        );
+    }
 }
 
 #[tokio::test]
@@ -234,7 +268,7 @@ async fn delegated_provider_route_keeps_credentials_model_limits_and_reasoning_t
         "task": "Review the supplied evidence", "agent_config_id": selected.id, "provider": "anthropic",
         "model": "test-worker-model", "reasoning_effort": "high", "max_iterations": 24, "allowed_tools": [],
     })).unwrap();
-    let (config, provider) = resolve_subagent_route(&runtime, &db, &args.route).unwrap();
+    let (config, provider, _) = resolve_subagent_route(&runtime, &db, &args.route).unwrap();
     assert_eq!(provider.provider_type, ProviderType::Anthropic);
     assert_eq!(provider.api_key.as_deref(), Some("test-review-key"));
     assert_eq!(
@@ -422,8 +456,12 @@ async fn route_catalog_is_secret_free_and_conflicting_or_missing_routes_fail() {
     assert!(result.content.contains("anthropic"));
     assert!(!result.content.contains("test-secret-never-expose"));
     assert!(!result.content.contains("apiKey"));
-    let native_parent = runtime.require_explicit_route();
-    assert!(resolve_subagent_route(&native_parent, &db, &SubagentRouteArgs::default()).is_err());
+    let native_parent =
+        runtime.with_parent_runtime(crate::agent_runtime::AgentRuntimeKind::Copilot);
+    let (native_config, _, kind) =
+        resolve_subagent_route(&native_parent, &db, &SubagentRouteArgs::default()).unwrap();
+    assert_eq!(kind, Some(crate::agent_runtime::AgentRuntimeKind::Copilot));
+    assert_eq!(native_config.model, native_parent.base_config.model);
     let route = SubagentRouteArgs {
         provider: Some("anthropic".into()),
         ..Default::default()
@@ -591,7 +629,8 @@ async fn worker_inference_reaches_the_selected_endpoint_with_its_own_model_and_k
             .unwrap(),
         )
         .unwrap();
-    let mut runtime = test_runtime().require_explicit_route();
+    let mut runtime =
+        test_runtime().with_parent_runtime(crate::agent_runtime::AgentRuntimeKind::Copilot);
     runtime.provider_config.api_key = Some("test-parent-key".into());
     runtime.provider_config.base_url = Some("http://127.0.0.1:1/never-use-parent".into());
     runtime.base_config.model = Some("parent-model".into());
@@ -1496,47 +1535,6 @@ fn test_delegation_timeout_treats_unlimited_parent_as_default_budget() {
         resolve_delegation_run_deadline_ms(&config, None, None),
         None
     );
-}
-
-#[test]
-fn test_model_policy_routes_only_to_same_provider_auxiliary_model() {
-    let mut config = AgentConfig {
-        model: Some("gpt-5".into()),
-        summarization_model: Some("gpt-5-mini".into()),
-        summarization_provider_type: Some(ProviderType::OpenAi),
-        ..AgentConfig::default()
-    };
-    let openai = ProviderConfig {
-        provider_type: ProviderType::OpenAi,
-        base_url: None,
-        api_key: None,
-        org_id: None,
-        timeout_secs: None,
-        streaming: Default::default(),
-    };
-    assert!(!apply_delegated_model_policy(
-        &mut config,
-        &openai,
-        Some(&ModelRoutingClass::Fast)
-    ));
-    assert_eq!(config.model.as_deref(), Some("gpt-5-mini"));
-
-    config.model = Some("claude-opus".into());
-    config.summarization_model = Some("gpt-5-mini".into());
-    let anthropic = ProviderConfig {
-        provider_type: ProviderType::Anthropic,
-        base_url: None,
-        api_key: None,
-        org_id: None,
-        timeout_secs: None,
-        streaming: Default::default(),
-    };
-    assert!(apply_delegated_model_policy(
-        &mut config,
-        &anthropic,
-        Some(&ModelRoutingClass::IndependentReviewer)
-    ));
-    assert_eq!(config.model.as_deref(), Some("claude-opus"));
 }
 
 #[tokio::test]

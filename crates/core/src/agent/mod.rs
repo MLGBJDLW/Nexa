@@ -348,6 +348,10 @@ pub struct AgentConfig {
     /// Classifies model requests for prompt-cache and usage analysis.
     #[serde(default)]
     pub request_kind: AgentRequestKind,
+    /// Host-owned task intent for a delegated worker. Handoff packets contain
+    /// tool names and parent context that must not create child completion gates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegated_task: Option<String>,
     /// Optional cheaper model name for summarization (e.g. "gpt-4o-mini").
     /// Falls back to main model when `None`.
     pub summarization_model: Option<String>,
@@ -517,6 +521,7 @@ impl Default for AgentConfig {
             provider_type: None,
             native_search_plan: crate::llm::native_search::NativeSearchPlan::default(),
             request_kind: AgentRequestKind::MainAgentStep,
+            delegated_task: None,
             summarization_model: None,
             summarization_provider_type: None,
             subagent_max_parallel: None,
