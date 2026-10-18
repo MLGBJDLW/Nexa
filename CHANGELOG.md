@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.17.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.8...nexa-monorepo-v0.17.0) (2026-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **chat:** add predictive followups and clarify active model routes
+
+### Features
+
+* **chat:** add predictive followups and clarify active model routes ([1c9523c](https://github.com/MLGBJDLW/Nexa/commit/1c9523c2c2fa351679002f2e3507742250805d24))
+* **images:** support scoped reference editing with Krea K3 ([27ce16b](https://github.com/MLGBJDLW/Nexa/commit/27ce16be11957f0ec32227635f037e2443c96297))
+* **providers:** support DeepSeek search and refresh current model routes ([3015d0c](https://github.com/MLGBJDLW/Nexa/commit/3015d0c4cb90ce83d9d7b240f7005cc1e6b0bb8c))
+
+
+### Bug Fixes
+
+* **agents:** expose native judging and isolate remote child transcripts ([7a8268a](https://github.com/MLGBJDLW/Nexa/commit/7a8268a22f933e3044311f667d2e8a291ff07de2))
+* **agents:** inherit native worker routes and repair pending interaction evidence ([45ac76f](https://github.com/MLGBJDLW/Nexa/commit/45ac76fbeaf0dae2cd4492cf8094e0f32021630d))
+* **agents:** keep delegated records out of user memory and bulk cleanup ([caf8d65](https://github.com/MLGBJDLW/Nexa/commit/caf8d65905892ef5a351e657a29c8c11860f2070))
+* **agents:** keep shared collection imports in production builds ([dbf3a6c](https://github.com/MLGBJDLW/Nexa/commit/dbf3a6c25dfaa7dfabee794e1bb06e3e54eeb5dc))
+* **agents:** preserve native judge JSON output contracts ([b388276](https://github.com/MLGBJDLW/Nexa/commit/b3882766596a78ad9f399c1f03d23b3919c7677c))
+* **agents:** preserve worker ownership and enforce native capability boundaries ([e7e954d](https://github.com/MLGBJDLW/Nexa/commit/e7e954d30c311de7860e28f707a7c260a9135256))
+* **agents:** retain native usage and enforce scoped worker handoffs ([411c6a9](https://github.com/MLGBJDLW/Nexa/commit/411c6a9ecd19fe661795a83936f88ef9b71a2478))
+* **build:** track vendored Copilot build source modules ([8861d43](https://github.com/MLGBJDLW/Nexa/commit/8861d4331c7051ae82787e7cd610528cbdfc8912))
+* **deps:** adopt patched ZIP extraction across native dependencies ([87fd636](https://github.com/MLGBJDLW/Nexa/commit/87fd636fc51ab32ef8dd14cf7f7c5bd2efc6bd5b))
+* **search:** retry transient DeepSeek transport failures ([3c03180](https://github.com/MLGBJDLW/Nexa/commit/3c031803dd079e993f3968ea76ed86eef9a27cc3))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 8e320a9b6fa9a02f665890e3034b9c39ae28a90d -->
+
+### What's Changed
+* feat(chat)!: predictive followups and reliable native delegation by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/486
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.8...nexa-monorepo-v0.17.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.7...nexa-monorepo-v0.16.8) (2026-10-16)
 
 
