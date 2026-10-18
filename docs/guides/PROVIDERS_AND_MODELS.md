@@ -332,7 +332,15 @@ route mid-sample. A failed or unavailable route should report its actual failure
 
 The October 18 refresh updates the canonical DeepSeek Flash label to
 DeepSeek-V4.1-Flash-1017 and adds the new compatible OpenRouter text and image
-routes. DeepSeek Search and Fetch are configured in the existing web-search
+routes. Krea K3 Edit uses the existing OpenRouter Images endpoint with 1–8
+local references. `generate_image.reference_image_paths` follows the same file
+access and pixel-disclosure approval as native image reads, preserves accepted
+PNG/JPEG/WebP bytes, and sends typed `input_references` content parts. Nexa caps
+inputs at 12 MiB each, 32 MiB total, 8192 pixels per edge and 16 million pixels
+per image; these are host resource limits, not advertised provider limits.
+Missing references and unsupported options fail before generation. See the
+[OpenRouter Images OpenAPI](https://openrouter.ai/docs/openapi/openapi.yaml).
+DeepSeek Search and Fetch are configured in the existing web-search
 settings, using their own saved bearer key and the existing provider priority.
 See [DeepSeek's model contract](https://api-docs.deepseek.com/quick_start/pricing/)
 and [Search/Fetch guide](https://api-docs.deepseek.com/guides/search/).

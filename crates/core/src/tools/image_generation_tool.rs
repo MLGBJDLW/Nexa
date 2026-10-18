@@ -1,4 +1,4 @@
-//! GenerateImageTool — text-to-image generation through configured providers.
+//! GenerateImageTool — raster generation and reference editing through configured providers.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -88,6 +88,11 @@ impl ImagePromptMode {
 #[derive(Debug, Deserialize)]
 struct GenerateImageArgs {
     prompt: String,
+    #[serde(default)]
+    reference_image_paths: Vec<String>,
+    /// Host-resolved bytes only; callers cannot inject remote URLs or bypass path scope.
+    #[serde(skip)]
+    input_references: Vec<String>,
     #[serde(default, alias = "promptMode")]
     prompt_mode: Option<ImagePromptMode>,
     #[serde(default, alias = "promptExtend")]
@@ -167,6 +172,16 @@ impl Tool for GenerateImageTool {
         ToolDef::from_json(&DEF, DEF_JSON).parameters.clone()
     }
 
+    fn requires_confirmation(&self, args: &Value) -> bool {
+        args["reference_image_paths"]
+            .as_array()
+            .is_some_and(|paths| !paths.is_empty())
+    }
+
+    fn confirmation_message(&self, args: &Value) -> Option<String> {
+        self.requires_confirmation(args).then(|| "Send the selected local reference images to the configured image provider for editing. Text redaction cannot remove content from these pixels. File access remains limited to the authorized scope.".into())
+    }
+
     async fn execute(
         &self,
         context: crate::tools::ToolExecutionContext<'_>,
@@ -178,7 +193,7 @@ impl Tool for GenerateImageTool {
             source_scope: _source_scope,
             ..
         } = context;
-        let args: GenerateImageArgs = serde_json::from_str(arguments).map_err(|e| {
+        let mut args: GenerateImageArgs = serde_json::from_str(arguments).map_err(|e| {
             CoreError::InvalidInput(format!("Invalid generate_image arguments: {e}"))
         })?;
 
@@ -207,6 +222,14 @@ impl Tool for GenerateImageTool {
             runtime.provider,
             runtime.output_format,
         )?;
+        if !args.reference_image_paths.is_empty() {
+            if runtime.config.api_style.as_deref() != Some("openrouter_images") {
+                return Err(CoreError::InvalidInput(
+                    "Reference images currently require the OpenRouter Images adapter.".into(),
+                ));
+            }
+            args.input_references = load_reference_images(&context, &args.reference_image_paths)?;
+        }
         let prompt_mode = args.effective_prompt_mode();
         let provider_enhancement_requested = prompt_mode.provider_enhancement_enabled();
         let provider_enhancement_supported = supports_explicit_prompt_enhancement(runtime.provider);
@@ -408,6 +431,71 @@ fn build_google_image_body(args: &GenerateImageArgs, configured_size: Option<&st
     })
 }
 
+/// Keep editing inputs byte-identical. These are Nexa resource limits, not
+/// provider claims; full decode rejects malformed images before disclosure.
+fn load_reference_images(
+    context: &super::ToolExecutionContext<'_>,
+    paths: &[String],
+) -> Result<Vec<String>, CoreError> {
+    use std::io::Read;
+    const MAX_TOTAL_BYTES: usize = 32 * 1024 * 1024;
+    if paths.len() > 16 {
+        return Err(CoreError::InvalidInput(
+            "At most 16 reference images are allowed; the selected model may allow fewer.".into(),
+        ));
+    }
+    let mut total = 0usize;
+    paths
+        .iter()
+        .map(|path| {
+            let path = super::resolve_agent_file_path(context, Path::new(path))?;
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)?
+                .take((crate::media::MAX_IMAGE_SIZE + 1) as u64)
+                .read_to_end(&mut bytes)?;
+            total = total.saturating_add(bytes.len());
+            if bytes.len() > crate::media::MAX_IMAGE_SIZE || total > MAX_TOTAL_BYTES {
+                return Err(CoreError::InvalidInput(
+                    "Nexa reference image limits are 12 MiB per image and 32 MiB total.".into(),
+                ));
+            }
+            let format = image::guess_format(&bytes)
+                .map_err(|e| CoreError::InvalidInput(format!("Invalid reference image: {e}")))?;
+            if !matches!(
+                format,
+                image::ImageFormat::Png | image::ImageFormat::Jpeg | image::ImageFormat::WebP
+            ) {
+                return Err(CoreError::InvalidInput(
+                    "Reference images must be PNG, JPEG or WebP.".into(),
+                ));
+            }
+            let limits = || {
+                let mut limits = image::Limits::default();
+                limits.max_image_width = Some(crate::media::MAX_BROWSER_NATIVE_CAPTURE_EDGE);
+                limits.max_image_height = Some(crate::media::MAX_BROWSER_NATIVE_CAPTURE_EDGE);
+                limits.max_alloc = Some(crate::media::MAX_BROWSER_NATIVE_CAPTURE_PIXELS * 8);
+                limits
+            };
+            let mut reader = image::ImageReader::with_format(std::io::Cursor::new(&bytes), format);
+            reader.limits(limits());
+            let (width, height) = reader.into_dimensions().map_err(|e| {
+                CoreError::InvalidInput(format!("Invalid reference dimensions: {e}"))
+            })?;
+            crate::media::validate_browser_capture_dimensions(width, height)?;
+            let mut reader = image::ImageReader::with_format(std::io::Cursor::new(&bytes), format);
+            reader.limits(limits());
+            reader
+                .decode()
+                .map_err(|e| CoreError::InvalidInput(format!("Invalid reference pixels: {e}")))?;
+            Ok(format!(
+                "data:{};base64,{}",
+                format.to_mime_type(),
+                STANDARD.encode(bytes)
+            ))
+        })
+        .collect()
+}
+
 async fn generate_openai_image(
     client: &reqwest::Client,
     config: &ResolvedImageConfig,
@@ -439,13 +527,18 @@ async fn generate_openai_image(
             .await
             .unwrap_or_else(|_| crate::openrouter_images::catalog_fallback());
         let descriptor = models.iter().find(|candidate| candidate.id == model)
-            .ok_or_else(|| CoreError::InvalidInput("This OpenRouter image model is unavailable or requires unsupported reference/vector output. Refresh the image catalog in Settings.".into()))?;
+            .ok_or_else(|| CoreError::InvalidInput("This OpenRouter image model is unavailable or requires unsupported vector output. Refresh the image catalog in Settings.".into()))?;
         let mut body = crate::openrouter_images::generation_body(
             descriptor,
             &args.prompt,
             args.size.as_deref().or(config.size.as_deref()),
             selected_image_quality(config, args, model),
             output_format,
+        )?;
+        crate::openrouter_images::set_reference_images(
+            &mut body,
+            descriptor,
+            &args.input_references,
         )?;
         for (name, value) in [
             ("aspect_ratio", args.aspect_ratio.as_ref().map(|v| json!(v))),
@@ -1371,6 +1464,8 @@ mod tests {
     fn test_args() -> GenerateImageArgs {
         GenerateImageArgs {
             prompt: "a precise product photo".to_string(),
+            reference_image_paths: Vec::new(),
+            input_references: Vec::new(),
             prompt_mode: Some(ImagePromptMode::Verbatim),
             prompt_extend: None,
             provider: None,
@@ -1604,6 +1699,65 @@ mod tests {
                 assert_eq!(body["output_format"], "jpeg");
             }
         }
+    }
+
+    #[test]
+    fn reference_images_preserve_pixels_and_enforce_file_scope_before_disclosure() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let image_path = root.path().join("reference.png");
+        image::RgbaImage::new(2, 2).save(&image_path).unwrap();
+        let bytes = std::fs::read(&image_path).unwrap();
+        let foreign = outside.path().join("reference.png");
+        std::fs::write(&foreign, &bytes).unwrap();
+        let db = crate::db::Database::open_memory().unwrap();
+        let mut config = db.load_app_config().unwrap();
+        config.shell_access_mode = crate::app_settings::ShellAccessMode::Restricted;
+        config.tool_approval_mode = crate::approval::ToolApprovalMode::Ask;
+        db.save_app_config(&config).unwrap();
+        db.conn().execute("INSERT INTO sources(id,kind,root_path) VALUES('reference-source','local_folder',?1)", [root.path().to_string_lossy().as_ref()]).unwrap();
+        let scope = vec!["reference-source".into()];
+        let context = super::super::ToolExecutionContext::new("edit", "{}", &db, &scope);
+        let references =
+            load_reference_images(&context, &[image_path.to_string_lossy().into()]).unwrap();
+        assert_eq!(
+            references,
+            vec![format!("data:image/png;base64,{}", STANDARD.encode(&bytes))]
+        );
+        assert!(load_reference_images(&context, &[foreign.to_string_lossy().into()]).is_err());
+        let malformed = root.path().join("invalid.png");
+        std::fs::write(&malformed, b"not image pixels").unwrap();
+        assert!(load_reference_images(&context, &[malformed.to_string_lossy().into()]).is_err());
+        let tool = GenerateImageTool;
+        assert!(tool.requires_confirmation(&json!({"reference_image_paths":["reference.png"]})));
+        assert!(!tool.requires_confirmation(&json!({"prompt":"new image"})));
+        let model = crate::openrouter_images::catalog_fallback()
+            .into_iter()
+            .find(|m| m.id == "krea/k3-edit")
+            .unwrap();
+        let mut body = crate::openrouter_images::generation_body(
+            &model,
+            "keep the lettering",
+            Some("1:1|2K"),
+            None,
+            "png",
+        )
+        .unwrap();
+        assert!(crate::openrouter_images::set_reference_images(&mut body, &model, &[]).is_err());
+        crate::openrouter_images::set_reference_images(&mut body, &model, &references).unwrap();
+        assert_eq!(
+            body["input_references"][0]["image_url"]["url"],
+            references[0]
+        );
+        assert_eq!(body["input_references"][0]["type"], "image_url");
+        assert!(body.get("output_format").is_none());
+        assert!(body.get("n").is_none());
+        assert!(crate::openrouter_images::set_reference_images(
+            &mut body,
+            &model,
+            &vec![references[0].clone(); 9]
+        )
+        .is_err());
     }
 
     #[test]

@@ -85,6 +85,16 @@ impl Tool for DesktopImageGenerationTool {
             }
         }
     }
+    fn requires_confirmation(&self, args: &Value) -> bool {
+        self.route == ImageRoute::ApiKey && GenerateImageTool.requires_confirmation(args)
+    }
+    fn confirmation_message(&self, args: &Value) -> Option<String> {
+        if self.route == ImageRoute::ApiKey {
+            GenerateImageTool.confirmation_message(args)
+        } else {
+            None
+        }
+    }
     async fn execute(&self, context: ToolExecutionContext<'_>) -> Result<ToolResult, CoreError> {
         match self.route {
             ImageRoute::ApiKey => GenerateImageTool.execute(context).await,
@@ -135,6 +145,12 @@ mod tests {
                 1
             );
             let selected = tools.get("generate_image").unwrap();
+            let references = json!({"reference_image_paths":["reference.png"]});
+            assert_eq!(selected.requires_confirmation(&references), !subscription);
+            assert_eq!(
+                selected.confirmation_message(&references).is_some(),
+                !subscription
+            );
             assert_eq!(
                 selected
                     .description()

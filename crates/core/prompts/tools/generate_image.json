@@ -4,6 +4,12 @@
   "parameters": {
     "type": "object",
     "properties": {
+      "reference_image_paths": {
+        "type": "array",
+        "maxItems": 16,
+        "items": {"type": "string"},
+        "description": "Authorized local PNG/JPEG/WebP paths for OpenRouter image editing. Krea K3 Edit requires 1-8 references. Other models enforce their advertised range. Raw pixels are sent to the image provider after the normal disclosure confirmation. Nexa limits: 12 MiB per image, 32 MiB total, 8192px per edge, 16 million pixels per image. Omit for text-only generation or other adapters."
+      },
       "prompt": {
         "type": "string",
         "description": "The exact prompt Nexa submits. In verbatim mode copy the user's ready prompt byte-for-byte, including whitespace, punctuation, language, quoted text, weights, and provider syntax. In agent_refined mode write a compact visual brief from sparse intent without inventing high-impact content. Keep size, format, background, and negative prompt in their dedicated fields when available."
