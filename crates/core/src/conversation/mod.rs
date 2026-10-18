@@ -1795,7 +1795,10 @@ impl Database {
     /// Returns the number of deleted rows.
     pub fn delete_all_conversations(&self) -> Result<usize, CoreError> {
         let conn = self.conn();
-        let affected = conn.execute("DELETE FROM conversations WHERE archived_at IS NULL", [])?;
+        let affected = conn.execute(
+            "DELETE FROM conversations WHERE archived_at IS NULL AND parent_conversation_id IS NULL",
+            [],
+        )?;
         Ok(affected)
     }
 
@@ -6198,9 +6201,17 @@ mod tests {
         };
         let active = db.create_conversation(&input).unwrap();
         let archived = db.create_conversation(&input).unwrap();
+        let active_child = db
+            .delegated_conversation(&active.id, "active-worker", "codex", "fixture")
+            .unwrap();
+        let archived_child = db
+            .delegated_conversation(&archived.id, "archived-worker", "codex", "fixture")
+            .unwrap();
         db.archive_conversation(&archived.id).unwrap();
 
         assert_eq!(db.delete_all_conversations().unwrap(), 1);
+        assert!(db.get_conversation(&active_child.id).is_err());
+        assert!(db.get_conversation(&archived_child.id).is_ok());
         assert!(db.get_conversation(&active.id).is_err());
         assert!(db.get_conversation(&archived.id).is_ok());
         assert_eq!(db.list_archived_conversations().unwrap().len(), 1);

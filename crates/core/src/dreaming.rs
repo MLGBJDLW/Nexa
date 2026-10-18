@@ -579,6 +579,7 @@ impl Database {
              FROM messages m
              JOIN conversations c ON c.id = m.conversation_id
              WHERE c.project_id IS NOT NULL
+               AND c.parent_conversation_id IS NULL
                AND m.role = 'user'
                AND TRIM(m.content) <> ''
                AND m.created_at > datetime('now', '-30 days')
@@ -1742,6 +1743,16 @@ mod tests {
             )
             .expect("insert message");
         }
+        let child = db
+            .delegated_conversation("conv-1", "worker-1", "copilot", "fixture")
+            .expect("create internal worker transcript");
+        db.conn()
+            .execute(
+                "INSERT INTO messages (id, conversation_id, role, content, sort_order)
+                 VALUES ('worker-handoff', ?1, 'user', 'You must use the provided evidence and do not change the requested output format.', 1)",
+                [&child.id],
+            )
+            .expect("store supervisor handoff");
 
         let run = db
             .start_dream_run(StartDreamInput::default())
