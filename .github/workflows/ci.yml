@@ -542,6 +542,8 @@ jobs:
           commands::update::tests::
           agent_runtime::
           subagent_tool::tests::
+          desktop_delegation_registry_has_one_package_owner_for_every_tool
+          disabling_delegation_removes_every_delegation_tool_from_the_runtime_registry
           subagent_lifecycle::tests::
           delegation_scheduler::
           commands::realtime_transcription::tests::
@@ -625,6 +627,8 @@ jobs:
           browser::operation_progress::tests::
           agent_runtime::
           subagent_tool::tests::
+          desktop_delegation_registry_has_one_package_owner_for_every_tool
+          disabling_delegation_removes_every_delegation_tool_from_the_runtime_registry
           subagent_lifecycle::tests::
           delegation_scheduler::
           commands::realtime_transcription::tests::

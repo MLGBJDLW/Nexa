@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 const DESKTOP_DELEGATION_TOOL_NAMES: &[&str] = &[
     "spawn_subagent",
+    "list_subagent_models",
     "spawn_subagent_batch",
     "judge_subagent_results",
     "observe_subagent_batch",
@@ -115,8 +116,10 @@ fn recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
     }
 }
 
-fn desktop_delegation_tool_registry() -> ToolRegistry {
-    let runtime = DelegationRuntime::new(
+fn desktop_delegation_tool_registry(
+    parent_runtime: Option<crate::agent_runtime::AgentRuntimeKind>,
+) -> ToolRegistry {
+    let mut runtime = DelegationRuntime::new(
         ProviderConfig {
             provider_type: ProviderType::OpenAi,
             base_url: None,
@@ -133,18 +136,11 @@ fn desktop_delegation_tool_registry() -> ToolRegistry {
         None,
         None,
     );
-    let mut registry = ToolRegistry::new();
-    registry.register(Box::new(SubagentTool::from_runtime(runtime.clone())));
-    registry.register(Box::new(SubagentBatchTool::from_runtime(runtime.clone())));
-    registry.register(Box::new(JudgeSubagentResultsTool::from_runtime(
-        runtime.clone(),
-    )));
-    registry.register(Box::new(ObserveSubagentBatchTool::from_runtime(
-        runtime.clone(),
-    )));
-    for lifecycle_tool in SubagentLifecycleTool::all(runtime) {
-        registry.register(Box::new(lifecycle_tool));
+    if let Some(kind) = parent_runtime {
+        runtime = runtime.with_parent_runtime(kind);
     }
+    let mut registry = ToolRegistry::new();
+    dependencies::register_delegation_tools(&mut registry, &runtime);
     registry
 }
 
@@ -200,26 +196,33 @@ fn registry_health_requires_activity_runtime_core_tools() {
 
 #[test]
 fn desktop_delegation_registry_has_one_package_owner_for_every_tool() {
-    let registry = desktop_delegation_tool_registry();
-    assert_eq!(
-        registry.tool_names(),
-        DESKTOP_DELEGATION_TOOL_NAMES
-            .iter()
-            .map(|name| (*name).to_string())
-            .collect::<Vec<_>>()
-    );
-
-    let capabilities = PackageRuntimeAssembler::from_host(&BuiltinPackageHost)
-        .expect("built-in package snapshot")
-        .assemble_tool_registry(registry)
-        .expect("desktop delegation tools must all have package owners");
-
-    for tool_name in DESKTOP_DELEGATION_TOOL_NAMES {
+    use crate::agent_runtime::AgentRuntimeKind;
+    for kind in [
+        None,
+        Some(AgentRuntimeKind::Copilot),
+        Some(AgentRuntimeKind::Codex),
+    ] {
+        let registry = desktop_delegation_tool_registry(kind);
         assert_eq!(
-            capabilities.tool_owners.get(*tool_name).map(String::as_str),
-            Some("delegation"),
-            "{tool_name} should be owned by the delegation package"
+            registry.tool_names(),
+            DESKTOP_DELEGATION_TOOL_NAMES
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect::<Vec<_>>()
         );
+
+        let capabilities = PackageRuntimeAssembler::from_host(&BuiltinPackageHost)
+            .expect("built-in package snapshot")
+            .assemble_tool_registry(registry)
+            .expect("desktop delegation tools must all have package owners");
+
+        for tool_name in DESKTOP_DELEGATION_TOOL_NAMES {
+            assert_eq!(
+                capabilities.tool_owners.get(*tool_name).map(String::as_str),
+                Some("delegation"),
+                "{tool_name} should be owned by the delegation package"
+            );
+        }
     }
 }
 
@@ -230,7 +233,9 @@ fn disabling_delegation_removes_every_delegation_tool_from_the_runtime_registry(
         .expect("disable delegation package");
 
     let capabilities = PackageRuntimeAssembler::database_builtin(&db)
-        .and_then(|assembler| assembler.assemble_tool_registry(desktop_delegation_tool_registry()))
+        .and_then(|assembler| {
+            assembler.assemble_tool_registry(desktop_delegation_tool_registry(None))
+        })
         .expect("disabled delegation should filter a fully owned desktop registry");
 
     for tool_name in DESKTOP_DELEGATION_TOOL_NAMES {

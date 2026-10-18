@@ -16,9 +16,22 @@ impl crate::db_executor::DatabaseExecutor {
     }
 }
 impl Database {
+    /// Internal delegated transcripts have their own desktop workspace and are
+    /// never independent phone chats, including direct-ID reads and controls.
+    pub fn require_remote_conversation(&self, conversation_id: &str) -> Result<(), CoreError> {
+        let visible = self.conn().query_row(
+            "SELECT EXISTS(SELECT 1 FROM conversations WHERE id=?1 AND parent_conversation_id IS NULL)",
+            [conversation_id], |row| row.get::<_, bool>(0),
+        )?;
+        if !visible {
+            return Err(CoreError::NotFound("Remote conversation not found".into()));
+        }
+        Ok(())
+    }
+
     pub fn remote_conversations(&self, before: Option<&str>) -> Result<Value, CoreError> {
         let conn = self.conn();
-        let mut query=conn.prepare("SELECT id,title,model,updated_at FROM conversations WHERE archived_at IS NULL AND (?1 IS NULL OR (updated_at,id)<(SELECT updated_at,id FROM conversations WHERE id=?1)) ORDER BY updated_at DESC,id DESC LIMIT 51")?;
+        let mut query=conn.prepare("SELECT id,title,model,updated_at FROM conversations WHERE archived_at IS NULL AND parent_conversation_id IS NULL AND (?1 IS NULL OR (updated_at,id)<(SELECT updated_at,id FROM conversations WHERE id=?1 AND parent_conversation_id IS NULL)) ORDER BY updated_at DESC,id DESC LIMIT 51")?;
         let mut rows=query.query_map([before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"title":row.get::<_,String>(1)?,"model":row.get::<_,String>(2)?,"updatedAt":row.get::<_,String>(3)?})))?.collect::<Result<Vec<_>,_>>()?;
         let more = rows.len() > 50;
         rows.truncate(50);
@@ -30,6 +43,7 @@ impl Database {
         conversation_id: &str,
         before: Option<i64>,
     ) -> Result<Value, CoreError> {
+        self.require_remote_conversation(conversation_id)?;
         let conversation = self.get_conversation(conversation_id)?;
         let conn = self.conn();
         let mut query=conn.prepare("SELECT id,role,substr(content,1,8000),length(content),sort_order,created_at FROM messages WHERE conversation_id=?1 AND role IN ('user','assistant') AND (?2 IS NULL OR sort_order<?2) ORDER BY sort_order DESC LIMIT 31")?;
@@ -48,12 +62,13 @@ impl Database {
         message_id: &str,
         offset: u32,
     ) -> Result<Value, CoreError> {
+        self.require_remote_conversation(conversation_id)?;
         let conn = self.conn();
         Ok(conn.query_row("SELECT substr(content,?3+1,8000),length(content) FROM messages WHERE conversation_id=?1 AND id=?2 AND role IN ('user','assistant')",params![conversation_id,message_id,offset],|row|Ok(json!({"content":row.get::<_,String>(0)?,"totalChars":row.get::<_,u64>(1)?,"offset":offset})))?)
     }
     pub fn remote_latest_run(&self, conversation_id: &str) -> Result<Option<String>, CoreError> {
         let conn = self.conn();
-        Ok(conn.query_row("SELECT id FROM agent_task_runs WHERE conversation_id=?1 ORDER BY created_at DESC,rowid DESC LIMIT 1",[conversation_id],|row|row.get(0)).optional()?)
+        Ok(conn.query_row("SELECT r.id FROM agent_task_runs r JOIN conversations c ON c.id=r.conversation_id WHERE r.conversation_id=?1 AND c.parent_conversation_id IS NULL ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1",[conversation_id],|row|row.get(0)).optional()?)
     }
 
     /// A bounded run projection with a frozen ledger head. Sequence holes are
@@ -66,6 +81,7 @@ impl Database {
         after_sequence: u64,
         durable_high_water: Option<u64>,
     ) -> Result<Value, CoreError> {
+        self.require_remote_conversation(conversation_id)?;
         let id = self
             .remote_latest_run(conversation_id)?
             .or_else(|| known_run_id.map(str::to_owned));
@@ -169,6 +185,44 @@ mod tests {
             Some(latest.as_str())
         );
         assert!(db.remote_latest_run("other").unwrap().is_none());
+        let child = db
+            .delegated_conversation(&chat.id, "worker", "custom", "fixture")
+            .unwrap();
+        let message = ConversationMessage {
+            id: "private-worker-message".into(),
+            conversation_id: child.id.clone(),
+            role: Role::User,
+            content: "Internal worker transcript".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 4,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&message).unwrap();
+        let turn = db
+            .create_conversation_turn(&child.id, &message.id, None)
+            .unwrap();
+        let run = db
+            .create_agent_task_run(&child.id, &turn.id, &message.id, "worker", None, None)
+            .unwrap();
+        let listing = db.remote_conversations(None).unwrap();
+        assert_eq!(listing["items"].as_array().unwrap().len(), 1);
+        assert_eq!(listing["items"][0]["id"], chat.id);
+        assert!(db.require_remote_conversation(&child.id).is_err());
+        assert!(db.remote_messages(&child.id, None).is_err());
+        assert!(db.remote_message_text(&child.id, &message.id, 0).is_err());
+        assert!(db.remote_latest_run(&child.id).unwrap().is_none());
+        assert!(db
+            .remote_run_page(&child.id, Some(&run.id), 0, None)
+            .is_err());
+        assert!(
+            db.get_conversation(&child.id).is_ok(),
+            "the desktop child workspace remains available"
+        );
     }
 
     #[test]
