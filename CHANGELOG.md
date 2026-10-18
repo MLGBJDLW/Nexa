@@ -27,6 +27,16 @@
 * **deps:** adopt patched ZIP extraction across native dependencies ([87fd636](https://github.com/MLGBJDLW/Nexa/commit/87fd636fc51ab32ef8dd14cf7f7c5bd2efc6bd5b))
 * **search:** retry transient DeepSeek transport failures ([3c03180](https://github.com/MLGBJDLW/Nexa/commit/3c031803dd079e993f3968ea76ed86eef9a27cc3))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 8e320a9b6fa9a02f665890e3034b9c39ae28a90d -->
+
+### What's Changed
+* feat(chat)!: predictive followups and reliable native delegation by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/486
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.8...nexa-monorepo-v0.17.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.16.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.7...nexa-monorepo-v0.16.8) (2026-10-16)
 
 
