@@ -37,6 +37,7 @@ const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
   reranker: 'auto',
   providerMode: 'built_in_first',
   customProviders: [
+    { id: 'deepseek', preset: 'deepseek', name: 'DeepSeek Search & Fetch', enabled: false, apiKey: '', baseUrl: 'https://api.deepseek.com/v1/tools/search', priority: 15 },
     {
       id: 'brave',
       preset: 'brave',
@@ -154,6 +155,7 @@ const NATIVE_SEARCH_SUPPORT: NativeSearchSupportEntry[] = PROVIDER_PRESETS.flatM
 });
 
 const CUSTOM_PROVIDER_PRESETS: WebSearchCustomProviderPreset[] = [
+  'deepseek',
   'brave',
   'tavily',
   'anysearch',
@@ -225,6 +227,7 @@ const EXECUTION_MODE_DESC_KEYS: Record<WebSearchExecutionMode, TranslationKey> =
 };
 
 const CUSTOM_PROVIDER_LABEL_KEYS: Record<WebSearchCustomProviderPreset, TranslationKey> = {
+  deepseek: 'settings.webSearchCustomProvider.deepseek',
   brave: 'settings.webSearchCustomProvider.brave',
   tavily: 'settings.webSearchCustomProvider.tavily',
   anysearch: 'settings.webSearchCustomProvider.anysearch',
@@ -233,6 +236,7 @@ const CUSTOM_PROVIDER_LABEL_KEYS: Record<WebSearchCustomProviderPreset, Translat
 };
 
 const CUSTOM_PROVIDER_DESC_KEYS: Record<WebSearchCustomProviderPreset, TranslationKey> = {
+  deepseek: 'settings.webSearchCustomProvider.deepseek.desc',
   brave: 'settings.webSearchCustomProvider.brave.desc',
   tavily: 'settings.webSearchCustomProvider.tavily.desc',
   anysearch: 'settings.webSearchCustomProvider.anysearch.desc',

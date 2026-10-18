@@ -29,7 +29,6 @@
     "documentationRef": "https://docs.siliconflow.cn/docs/api/systemone-post",
     "lastVerifiedAt": "2026-10-08",
     "models": [
-      { "id": "diffusiongemma", "name": "DiffusionGemma", "status": "preview", "access": "public" },
       { "id": "Kev-4b", "name": "Kev 4B", "status": "preview", "access": "public" },
       { "id": "SemIf", "name": "SemIf", "status": "preview", "access": "public" }
     ]

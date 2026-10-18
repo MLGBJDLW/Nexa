@@ -1,4 +1,6 @@
 {
+  "webSearchCustomProvider.deepseek": "DeepSeek 搜尋與擷取",
+  "webSearchCustomProvider.deepseek.desc": "使用 DeepSeek API 金鑰搜尋網頁並擷取 Markdown 內容。",
   "title": "設定",
   "subtitle": "管理索引與隱私設定",
   "indexSection": "索引管理",

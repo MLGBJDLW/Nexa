@@ -414,6 +414,7 @@ fn runtime_config_from_app_config(config: &WebSearchConfig) -> SearchRuntimeConf
 
 fn engine_for_custom_provider(provider: &WebSearchCustomProviderConfig) -> SearchEngine {
     match provider.preset {
+        WebSearchCustomProviderPreset::Deepseek => SearchEngine::Deepseek,
         WebSearchCustomProviderPreset::Brave => SearchEngine::Brave,
         WebSearchCustomProviderPreset::Tavily => SearchEngine::Tavily,
         WebSearchCustomProviderPreset::AnySearch => SearchEngine::AnySearch,
@@ -1330,6 +1331,9 @@ async fn search_custom_provider(
     client: &reqwest::Client,
 ) -> Result<Vec<SearchResultItem>, SearchProviderFailure> {
     match provider.preset {
+        WebSearchCustomProviderPreset::Deepseek => {
+            crate::web_search::providers::deepseek::search(provider, request).await
+        }
         WebSearchCustomProviderPreset::Brave => {
             search_brave_provider(provider, request, client).await
         }
@@ -1405,6 +1409,7 @@ fn custom_provider_supports_time_range(
     time_range: crate::web_search::TimeRange,
 ) -> bool {
     match preset {
+        WebSearchCustomProviderPreset::Deepseek => false,
         WebSearchCustomProviderPreset::Brave => time_range_for_brave(time_range).is_some(),
         WebSearchCustomProviderPreset::Tavily => time_range_for_tavily(time_range).is_some(),
         WebSearchCustomProviderPreset::AnySearch => time_range_for_anysearch(time_range).is_some(),

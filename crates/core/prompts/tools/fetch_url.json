@@ -8,6 +8,11 @@
         "type": "string",
         "description": "The URL to fetch (must be http:// or https://)."
       },
+      "provider": {
+        "type": "string",
+        "enum": ["auto", "direct", "deepseek"],
+        "description": "auto follows enabled DeepSeek Search & Fetch settings in custom-first/custom-only mode for readable text, otherwise uses direct HTTP. deepseek explicitly uses the configured DeepSeek Fetch API; direct always uses local extraction. DeepSeek returns Markdown, not image assets or browser interaction evidence."
+      },
       "max_length": {
         "type": "integer",
         "description": "Maximum number of characters to return. Default: 5000."

@@ -719,6 +719,13 @@ Fetch and extract readable text from a public web page with SSRF and redirect-ho
 
 `fetch_url` is text-first. It reports image candidates in artifacts but does not write binary files. If the user wants a candidate image saved, use `download_asset`. Browser rendering keeps the same public URL validation boundary; blocked subrequests are reported in the `jsRender` artifact.
 
+The optional `provider` is `auto` (default), `direct`, or `deepseek`. Auto follows
+the configured DeepSeek search provider when custom providers have priority;
+custom-first can fall back to direct extraction, while custom-only and explicit
+DeepSeek requests retain provider failures. DeepSeek Fetch returns page text,
+not a browser observation or interaction receipt. The endpoint and target URL
+must pass public URL validation, and requests use the saved search-provider key.
+
 > **Example:** Fetch a Stack Overflow answer the user linked to and incorporate it into the conversation.
 
 ---
@@ -740,7 +747,13 @@ Download a supported public image asset into the workspace. This tool requires c
 
 ### `web_search`
 
-Search the public web through Nexa's native no-key providers plus any enabled configured providers such as Brave, Tavily, AnySearch, SerpAPI, or SearXNG. Use it to discover candidate URLs, then use `fetch_url` on the most authoritative results before citing or summarizing them.
+Search the public web through Nexa's native no-key providers plus any enabled configured providers such as Brave, Tavily, AnySearch, SerpAPI, SearXNG, or DeepSeek. Use it to discover candidate URLs, then use `fetch_url` on the most authoritative results before citing or summarizing them.
+
+DeepSeek uses `/v1/tools/search` and `/v1/tools/fetch` with separate per-key
+5-QPS limits. Only transient HTTP failures are retried, at most three requests;
+authentication and balance failures are returned directly. Response sizes and
+request duration are bounded. Search results preserve title, URL and snippets
+within the existing web-search result contract.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

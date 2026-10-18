@@ -1,4 +1,6 @@
 {
+  "webSearchCustomProvider.deepseek": "Поиск и загрузка DeepSeek",
+  "webSearchCustomProvider.deepseek.desc": "Поиск в интернете и загрузка Markdown с вашим API-ключом DeepSeek.",
   "title": "Настройки",
   "subtitle": "Управление индексами и настройками конфиденциальности",
   "indexSection": "Управление индексами",
