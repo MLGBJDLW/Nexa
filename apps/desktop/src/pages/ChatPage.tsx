@@ -1,4 +1,5 @@
 import { isTextToSpeechConfigured } from '../lib/autoSpeech';
+import { latestFollowupSuggestions } from '../lib/followupSuggestions';
 import type { ArtifactPayload } from '../types/conversation';
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -1461,6 +1462,9 @@ export function ChatPage() {
     });
   }, [chat.conversations, chat.runningConversationIds, chat.setConversations, chat.activeId, navigate, t]);
 
+  const followupSuggestions = useMemo(() => chat.isStreaming || chat.loadingMsgs
+    ? null : latestFollowupSuggestions(chat.messages), [chat.isStreaming, chat.loadingMsgs, chat.messages]);
+
   /* ── Suggestion prefill ─────────────────────────────────────────── */
 
   const [prefillText, setPrefillText] = useState<string>('');
@@ -2105,6 +2109,7 @@ export function ChatPage() {
               sessionControls={sessionControls}
               prefillText={prefillText}
               prefillKey={prefillKey}
+              followupSuggestions={followupSuggestions}
               onCompact={chat.activeId && manualCompactionAvailable ? handleCompactConversation : undefined}
               isCompacting={isCompacting}
               planModeEnabled={planModeEnabled}

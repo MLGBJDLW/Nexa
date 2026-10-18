@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "Anbietergesteuert",
+  "reasoningProviderManagedHint": "Der Anbieter bietet keine auswählbaren Denkstufen für dieses Modell an. Aktualisieren Sie die Modellliste.",
+  "followupSuggestions": "Vorgeschlagene nächste Aufgaben",
+  "followupTabHint": "Mit Tab vervollständigen: {prompt}",
   "generatedImageRequestedPrompt": "Angeforderter Prompt",
   "generatedImageEffectivePrompt": "Effektiver Anbieter-Prompt",
   "generatedImagePromptRevisedWarning": "Der Anbieter meldet einen überarbeiteten Prompt.",

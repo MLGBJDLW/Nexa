@@ -59,6 +59,7 @@ import { UserMarkdown } from './UserMessageText';
 import { McpContentPanel } from './McpContentPanel';
 import { ChatWorktreePanel } from './ChatWorktreePanel';
 import { CodeReviewPanel } from './CodeReviewPanel';
+import type { FollowupSuggestion } from '../../lib/followupSuggestions';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
 
@@ -97,6 +98,7 @@ interface ChatInputProps {
   onBranchCheckpoint?: (conversation: Conversation) => void;
   prefillText?: string;
   prefillKey?: number;
+  followupSuggestions?: { key: string; items: FollowupSuggestion[] } | null;
   onCompact?: () => void;
   isCompacting?: boolean;
   planModeEnabled?: boolean;
@@ -382,6 +384,7 @@ export function ChatInput({
   onBranchCheckpoint,
   prefillText,
   prefillKey,
+  followupSuggestions,
   onCompact,
   isCompacting = false,
   planModeEnabled,
@@ -400,6 +403,7 @@ export function ChatInput({
     initialDraftRef.current = readChatInputDraft(draftKey);
   }
   const [value, setValue] = useState(() => initialDraftRef.current?.value ?? "");
+  const [dismissedFollowupKey, setDismissedFollowupKey] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<ImageAttachment[]>(() => (
     initialDraftRef.current?.attachments ?? []
   ));
@@ -478,6 +482,9 @@ export function ChatInput({
   const visionDecisionRequired = hasImageAttachments && visionPolicyMode === 'ask' && visionTurnOverride === null;
   const inputLocked = disabled || loadedDraftKey !== draftKey;
   const sendLocked = inputLocked || isCompacting || visionDecisionRequired || sendPending;
+  const visibleFollowups = !isStreaming && !sendLocked && !draftPreview && !value && !attachments.length && !activeSlashCommandId
+    && followupSuggestions?.key !== dismissedFollowupKey ? followupSuggestions : null;
+  const ghostSuggestion = visibleFollowups?.items[0]?.prompt ?? '';
   // Attachments belong to the next draft, independent of the running turn.
   // The send boundary still rejects image steering until the turn finishes.
   const attachmentLocked = inputLocked;
@@ -1093,9 +1100,10 @@ export function ChatInput({
     }, 0);
   }, [draftKey, resetInputHistoryNavigation]);
 
-  const handleSend = useCallback(async () => {
+  const handleSend = useCallback(async (suggestion?: string) => {
+    if (suggestion && (value.length > 0 || attachments.length > 0 || isStreaming)) return;
     if (inputLocked || sendInFlightRef.current) return;
-    const trimmed = value.trim();
+    const trimmed = (suggestion ?? value).trim();
     const slashResolution = activeSlashCommand
       ? resolveSlashCommandSelection(activeSlashCommand, trimmed)
       : (trimmed ? resolveSlashCommandMessage(trimmed, nativeAgent ? allSlashOptions.filter(option => option.action === 'composer' || option.kind !== 'command') : allSlashOptions) : null);
@@ -1223,6 +1231,7 @@ export function ChatInput({
         sendOptions,
       );
       if (accepted) {
+        if (suggestion && followupSuggestions) setDismissedFollowupKey(followupSuggestions.key);
         clearDraft();
       }
     } catch (error) {
@@ -1231,11 +1240,25 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, adjustHeight, agentRuntime, allSlashOptions, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, inputLocked, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, resumeTask, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, adjustHeight, agentRuntime, allSlashOptions, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, followupSuggestions, inputLocked, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, resumeTask, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+      if (ghostSuggestion && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          setValue(ghostSuggestion);
+          persistDraft(ghostSuggestion);
+          requestAnimationFrame(() => { adjustHeight(); textareaRef.current?.setSelectionRange(ghostSuggestion.length, ghostSuggestion.length); });
+          return;
+        }
+        if (e.key === 'Escape' && followupSuggestions) {
+          e.preventDefault();
+          setDismissedFollowupKey(followupSuggestions.key);
+          return;
+        }
+      }
       if (slashMenuOpen && slashTrigger) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -1291,6 +1314,10 @@ export function ChatInput({
       activeSlashOption,
       applySlashOption,
       handleSend,
+      ghostSuggestion,
+      followupSuggestions,
+      persistDraft,
+      adjustHeight,
       sendLocked,
       navigateInputHistory,
       slashActiveTab,
@@ -1826,6 +1853,14 @@ export function ChatInput({
         </div>
       )}
 
+      {visibleFollowups && <div data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')} className={`mb-2 grid grid-cols-1 gap-1.5 ${visibleFollowups.items.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+        {visibleFollowups.items.map((item, index) => <button key={item.prompt} type="button" onClick={() => void handleSend(item.prompt)}
+          className="group min-w-0 rounded-xl border border-border/60 bg-surface-1/70 px-3 py-2 text-left transition-colors hover:border-accent/45 hover:bg-accent-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-text-primary"><Sparkles className={`h-3 w-3 shrink-0 ${index === 0 ? 'text-accent' : 'text-text-tertiary'}`} aria-hidden="true" />{item.label}</span>
+          <span className="mt-1 line-clamp-2 block text-[11px] leading-4 text-text-secondary">{item.prompt}</span>
+        </button>)}
+      </div>}
+
       {slashMenuOpen && slashTrigger && (
         <NexaPopoverContent
           data-testid="slash-command-menu"
@@ -2104,6 +2139,10 @@ export function ChatInput({
           onChange={handleFileSelect}
         />
 
+        <div className="relative">
+        {ghostSuggestion && <div data-testid="chat-input-ghost" aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 px-4 pb-3 pt-3.5 text-sm leading-6 text-text-tertiary/70">
+          <span className="line-clamp-2">{ghostSuggestion}</span><kbd className="ml-1 rounded border border-border px-1 text-[10px]">Tab</kbd>
+        </div>}
         <NexaPopoverAnchor asChild>
         <textarea
           data-testid="chat-input-textarea"
@@ -2123,14 +2162,16 @@ export function ChatInput({
           onClick={updateCaretFromTextarea}
           onSelect={updateCaretFromTextarea}
           onPaste={handlePaste}
-          placeholder={isCompacting ? `${t("chat.compacting")} (>_<)` : t("chat.placeholder")}
+          placeholder={ghostSuggestion ? '' : isCompacting ? `${t("chat.compacting")} (>_<)` : t("chat.placeholder")}
           aria-label={t("chat.placeholder")}
+          aria-description={ghostSuggestion ? t('chat.followupTabHint', { prompt: ghostSuggestion }) : undefined}
           disabled={inputLocked}
           rows={1}
           hidden={draftPreview}
           className="chat-input-textarea min-h-20 w-full resize-none overflow-y-auto bg-transparent px-4 pb-3 pt-3.5 text-sm leading-6 text-text-primary placeholder:text-text-tertiary outline-none disabled:pointer-events-none disabled:opacity-40"
         />
         </NexaPopoverAnchor>
+        </div>
         {draftPreview && <div ref={draftPreviewRef} data-testid="chat-draft-preview" role="region" aria-label={t('chat.previewDraft')} tabIndex={0} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); runComposerAction('preview'); } }} className="max-h-72 min-h-20 overflow-auto px-4 py-3 text-sm text-text-primary">
           <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-text-tertiary"><span>{t('chat.previewHint')}</span><button type="button" onClick={() => runComposerAction('preview')} className="shrink-0 rounded px-2 py-1 hover:bg-surface-2">{t('chat.editDraft')}</button></div>
           <UserMarkdown text={value} />
@@ -2291,7 +2332,7 @@ export function ChatInput({
               </button>
             )}
             <button
-              onClick={handleSend}
+              onClick={() => void handleSend()}
               disabled={
                 sendLocked ||
                 (isStreaming

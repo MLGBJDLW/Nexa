@@ -244,6 +244,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 export interface SubagentLifecycleProjection {
+  effectiveModel: string | null;
+  preflight: SubagentPreflightReport | null;
+  effectiveModelBudgets: SubagentEffectiveModelBudgets | null;
   status: 'running' | 'done' | 'error' | 'cancelled' | null;
   artifact: SubagentArtifact | null;
   streamedResult: string;
@@ -269,6 +272,9 @@ export function projectSubagentLifecycle(
   const thinking: string[] = [];
   let errorMessage: string | null = null;
   let lifecyclePhase: SubagentRun['lifecyclePhase'] = null;
+  let effectiveModel: string | null = null;
+  let preflight: SubagentPreflightReport | null = null;
+  let effectiveModelBudgets: SubagentEffectiveModelBudgets | null = null;
   const seen = new Set<string>();
 
   for (const event of [...(events ?? [])].sort((a, b) => a.seq - b.seq)) {
@@ -282,6 +288,11 @@ export function projectSubagentLifecycle(
     if (status === 'done' || status === 'error' || status === 'cancelled') continue;
     const kind = typeof envelope.subagentEvent === 'string' ? envelope.subagentEvent : '';
     const detail = asRecord(envelope.detail);
+    if (kind === 'progress' && detail) {
+      effectiveModel = typeof detail.effectiveModel === 'string' ? detail.effectiveModel : effectiveModel;
+      preflight = parsePreflightReport(detail.preflight) ?? preflight;
+      effectiveModelBudgets = parseEffectiveModelBudgets(detail.effectiveModelBudgets) ?? effectiveModelBudgets;
+    }
     if (kind === 'spawned' || kind === 'queued' || kind === 'connected') {
       status = 'running';
       if (lifecyclePhase !== 'cancelling') {
@@ -316,7 +327,7 @@ export function projectSubagentLifecycle(
     }
   }
   if (status !== 'running') lifecyclePhase = null;
-  return { status, artifact, streamedResult, thinking, errorMessage, lifecyclePhase };
+  return { status, artifact, streamedResult, thinking, errorMessage, lifecyclePhase, effectiveModel, preflight, effectiveModelBudgets };
 }
 
 /** Project each worker independently when a batch shares one parent tool call. */
@@ -371,6 +382,9 @@ export function projectSubagentLifecycleRuns(
       status: projection.status ?? 'running',
       runtimeState: projection.status === 'running' ? 'live' : 'terminal',
       lifecyclePhase: projection.lifecyclePhase,
+      effectiveModel: projection.effectiveModel,
+      preflight: projection.preflight,
+      effectiveModelBudgets: projection.effectiveModelBudgets,
       task,
       name,
       roleId,
@@ -894,7 +908,7 @@ export function buildSubagentRun(
     roleName: artifact?.roleName ?? null,
     role: artifact?.role ?? parsedArgs?.role ?? null,
     modelPolicy: artifact?.modelPolicy ?? parsedArgs?.modelPolicy ?? null,
-    effectiveModel: artifact?.effectiveModel ?? artifact?.preflight?.effectiveModel ?? null,
+    effectiveModel: artifact?.effectiveModel ?? lifecycle.effectiveModel ?? artifact?.preflight?.effectiveModel ?? null,
     modelRouteFallback: artifact?.modelRouteFallback ?? false,
     expectedOutput: artifact?.expectedOutput ?? parsedArgs?.expectedOutput ?? null,
     acceptanceCriteria: artifact?.acceptanceCriteria ?? parsedArgs?.acceptanceCriteria ?? null,
@@ -914,10 +928,10 @@ export function buildSubagentRun(
     thinking: artifact?.thinking ?? (lifecycle.thinking.length > 0 ? lifecycle.thinking : null),
     sourceScopeApplied: artifact?.sourceScopeApplied ?? false,
     allowedTools: artifact?.allowedTools ?? null,
-    preflight: artifact?.preflight ?? null,
+    preflight: artifact?.preflight ?? lifecycle.preflight ?? null,
     preflightFailure: artifact?.preflightFailure ?? null,
     contextSnapshot: artifact?.contextSnapshot ?? null,
-    effectiveModelBudgets: artifact?.effectiveModelBudgets ?? null,
+    effectiveModelBudgets: artifact?.effectiveModelBudgets ?? lifecycle.effectiveModelBudgets ?? null,
     lifecycleTools: artifact?.lifecycleTools ?? null,
     argumentsText: toolCall.arguments,
     isError: lifecycle.status === 'error' ? true : toolCall.isError,

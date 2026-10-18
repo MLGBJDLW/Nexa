@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "Управляет провайдер",
+  "reasoningProviderManagedHint": "Провайдер не объявил доступные уровни рассуждения для этой модели. Обновите список моделей.",
+  "followupSuggestions": "Предлагаемые следующие задачи",
+  "followupTabHint": "Нажмите Tab для подстановки: {prompt}",
   "generatedImageRequestedPrompt": "Исходный промпт",
   "generatedImageEffectivePrompt": "Фактический промпт провайдера",
   "generatedImagePromptRevisedWarning": "Провайдер сообщил об изменённом промпте.",

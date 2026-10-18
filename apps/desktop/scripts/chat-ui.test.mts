@@ -3,6 +3,21 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseChatUi, MAX_UI_BYTES } from '../../../crates/core/assets/skills/visual-explanations/resources/chat-ui.ts';
 import { transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
+import { parseFollowupSuggestions, latestFollowupSuggestions } from '../src/lib/followupSuggestions.ts';
+
+test('followups require a complete final assistant block and never activate quoted examples or later user turns', () => {
+  const items = [{label:'Inspect',prompt:'Inspect the result'}, {label:'Extend',prompt:'Extend the example'}];
+  const json = JSON.stringify(items);
+  assert.deepEqual(parseFollowupSuggestions(json), items);
+  const message = {id:'final',role:'assistant',content:'Done.\n\n```nexa-followups\n'+json+'\n```',toolCalls:[],artifacts:null} as any;
+  assert.deepEqual(latestFollowupSuggestions([message]), {key:'final',items});
+  for (const content of [message.content.slice(0,-3), '````md\n'+message.content+'\n````', message.content+'\nMore prose']) {
+    assert.equal(latestFollowupSuggestions([{...message,content}]), null);
+  }
+  assert.equal(latestFollowupSuggestions([message,{...message,id:'user',role:'user'}]), null);
+  assert.equal(latestFollowupSuggestions([{...message,artifacts:{phase:'commentary'}}]), null);
+  for (const input of ['{}',JSON.stringify([items[0]]),JSON.stringify([items[0],items[0]]),JSON.stringify([{label:'Run',prompt:'/compact'},items[1]])]) assert.deepEqual(parseFollowupSuggestions(input), []);
+});
 
 const sample = JSON.parse(readFileSync(new URL('../../../crates/core/assets/skills/visual-explanations/resources/examples.json', import.meta.url), 'utf8'));
 test('chat UI shares the skill contract for all components and numeric data', () => {

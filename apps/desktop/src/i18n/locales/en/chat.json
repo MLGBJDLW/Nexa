@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "Provider managed",
+  "reasoningProviderManagedHint": "The provider has not advertised selectable reasoning levels for this model. Refresh the model list to check for updates.",
+  "followupSuggestions": "Suggested next tasks",
+  "followupTabHint": "Press Tab to complete: {prompt}",
   "generatedImageRequestedPrompt": "Requested prompt",
   "generatedImageEffectivePrompt": "Provider effective prompt",
   "generatedImagePromptRevisedWarning": "Provider reported a revised prompt.",

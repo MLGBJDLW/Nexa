@@ -1,4 +1,5 @@
 import { PreviewImage } from '../../features/preview/PreviewImage';
+import { parseFollowupSuggestions } from '../../lib/followupSuggestions';
 import { localFileReference } from '../../features/preview/localFileReference';
 import { MAX_HIGHLIGHT_CODE_CHARS } from '../../lib/streaming/markdownPresentation';
 import { memo, useMemo, createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
@@ -320,6 +321,7 @@ const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; la
     }
   }, [code]);
 
+  if (language.toLowerCase() === 'nexa-followups' && (isStreaming || parseFollowupSuggestions(code).length)) return null;
   if (language.toLowerCase() === 'nexa-ui') return <GenerativeUi source={code} streaming={isStreaming} />;
   if (language.toLowerCase() === 'nexa-html') return <HtmlPreviewFrame source={code} streaming={isStreaming} />;
   return (

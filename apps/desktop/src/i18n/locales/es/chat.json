@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "Gestionado por el proveedor",
+  "reasoningProviderManagedHint": "No se han anunciado niveles de razonamiento seleccionables para este modelo. Actualiza la lista.",
+  "followupSuggestions": "Siguientes tareas sugeridas",
+  "followupTabHint": "Pulsa Tab para completar: {prompt}",
   "generatedImageRequestedPrompt": "Prompt solicitado",
   "generatedImageEffectivePrompt": "Prompt efectivo del proveedor",
   "generatedImagePromptRevisedWarning": "El proveedor informó de un prompt revisado.",

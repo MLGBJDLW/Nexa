@@ -1,4 +1,8 @@
 {
+  "reasoningProviderManaged": "공급자 관리",
+  "reasoningProviderManagedHint": "이 모델의 선택 가능한 추론 수준이 공개되지 않았습니다. 모델 목록을 새로 고치세요.",
+  "followupSuggestions": "추천 다음 작업",
+  "followupTabHint": "Tab 키로 완성: {prompt}",
   "generatedImageRequestedPrompt": "요청 프롬프트",
   "generatedImageEffectivePrompt": "공급자 적용 프롬프트",
   "generatedImagePromptRevisedWarning": "공급자가 수정된 프롬프트를 보고했습니다.",
