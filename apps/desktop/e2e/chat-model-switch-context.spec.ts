@@ -622,6 +622,27 @@ test('model selector saves model and reasoning changes to the agent config', asy
 });
 
 
+test('provider-managed reasoning lets a stale native effort return to default', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  const picker = page.getByTestId('agent-model-picker-trigger');
+  await picker.click();
+  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await page.getByTestId('agent-model-option-cfg-subscription-gpt-native').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByTestId('agent-model-reasoning-ultra').click();
+  await page.evaluate(() => localStorage.setItem('e2e-native-efforts', '[]'));
+  await picker.click();
+  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await page.getByTestId('agent-model-catalog-refresh').click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('native-reasoning-reset')).toBeVisible();
+  await page.getByTestId('native-reasoning-reset').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs: Array<Record<string, unknown>> }).__savedAgentConfigInputs.at(-1))).toMatchObject({
+    model: 'gpt-native', reasoningEffort: null, thinkingBudget: null, reasoningEnabled: null,
+  });
+  await expect(page.getByTestId('native-reasoning-reset')).toHaveCount(0);
+});
+
 for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['openai_codex', 'cfg-codex']]) {
 test(`${provider} model and native reasoning selection reach the chat request`, async ({ page }) => {
   await page.goto('/chat/conv-model-switch');

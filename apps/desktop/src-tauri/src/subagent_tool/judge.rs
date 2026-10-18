@@ -247,6 +247,7 @@ impl Tool for JudgeSubagentResultsTool {
         args.rubric = normalize_string_list(args.rubric.take(), 8);
         let (raw_response, usage_total, mut subtask) = if self.runtime.parent_runtime.is_some() {
             let mut runtime = self.runtime.clone();
+            runtime.worker_lane = Some(crate::delegation_scheduler::DelegationLane::Judge);
             runtime.base_config.system_prompt =
                 build_judge_system_prompt(&runtime.base_config.system_prompt);
             let worker_args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({

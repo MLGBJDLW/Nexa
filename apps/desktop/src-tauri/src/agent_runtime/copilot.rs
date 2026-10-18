@@ -249,7 +249,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     let mut response = super::copilot_response::Response::default();
     let mut steering = VecDeque::new();
     let mut steering_closed = false;
-    let mut completion_repairs = 0;
+    let mut completion_repairs = super::CompletionRepairState::default();
     let run = async {
         let mut next = initial;
         loop {
@@ -315,11 +315,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 projection.persist_settled(&turn, response.take_settled()).await?;
             }
             response.ensure_complete()?;
-            if let Some(guidance) = turn.transcript.completion_repair_guidance().await {
-                if completion_repairs >= 3 {
-                    return Err(CoreError::RecoveryRequired { message: guidance, action_reconciliation: true });
-                }
-                completion_repairs += 1;
+            if let Some((guidance, milestones)) = turn.transcript.completion_repair_status().await {
+                let guidance = completion_repairs.next(guidance, milestones)?;
                 projection.defer_answer_for_verification(&turn).await?;
                 next = MessageOptions::new(format!("Nexa host verification remains pending. {guidance}"));
                 continue;

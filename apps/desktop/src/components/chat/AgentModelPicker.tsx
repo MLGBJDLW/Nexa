@@ -438,23 +438,24 @@ export function AgentModelPicker({
   const applyModelSelection = useCallback(
     (row: ModelRow) => {
       const isCurrent = selectedConfig?.id === row.providerRow.config.id && selectedConfig.model === row.model.id;
+      const preserveReasoning = isCurrent && (!row.providerRow.preset?.runtime || Boolean(row.reasoning));
       const defaultEffort = row.reasoning?.nativeEffortLevels ? null : defaultReasoningEffort(row.reasoning);
       const defaultBudget = defaultThinkingBudget(row.reasoning);
       setOpen(false);
       void Promise.resolve(onSelect({
         config: row.providerRow.config,
         model: row.model.id,
-        reasoningEnabled: isCurrent
+        reasoningEnabled: preserveReasoning
           ? selectedConfig.reasoningEnabled
           : row.reasoning?.defaultEnabled === false || defaultEffort === 'none' ? false : row.reasoning?.mode === 'always' || defaultEffort || defaultBudget
             ? true
             : null,
-        thinkingBudget: isCurrent
+        thinkingBudget: preserveReasoning
           ? selectedConfig.thinkingBudget
           : defaultEffort
             ? null
             : defaultBudget,
-        reasoningEffort: isCurrent ? selectedConfig.reasoningEffort : defaultEffort,
+        reasoningEffort: preserveReasoning ? selectedConfig.reasoningEffort : defaultEffort,
       })).then(() => {
         if (!isCurrent && row.providerRow.preset?.runtime === 'acp') {
           invalidateSubscriptionModels(runtimeCatalogKey(row.providerRow.config.provider, row.providerRow.config.id));
@@ -587,6 +588,10 @@ export function AgentModelPicker({
 
       {!canChangeReasoning && selectedModelRow?.providerRow.preset?.runtime && <span data-testid="native-reasoning-managed" title={t('chat.reasoningProviderManagedHint')} className="flex items-center gap-1 px-2 text-[10px] text-text-tertiary">
         <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />{t('chat.reasoningProviderManaged')}
+        {(selectedConfig?.reasoningEffort != null || selectedConfig?.thinkingBudget != null || selectedConfig?.reasoningEnabled != null) && <button
+          type="button" data-testid="native-reasoning-reset" className="underline underline-offset-2 hover:text-text-primary"
+          onClick={() => { if (selectedConfig) void onSelect({ config: selectedConfig, model: selectedConfig.model, reasoningEnabled: null, thinkingBudget: null, reasoningEffort: null }); }}
+        >{t('settings.isDefault')}</button>}
       </span>}
       {canChangeReasoning && <button
         ref={reasoningTriggerRef}

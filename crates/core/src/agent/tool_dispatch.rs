@@ -804,6 +804,14 @@ impl ToolDispatchRuntime<'_> {
                 .with_workspace(isolation_workspace.clone())
         });
         let discovery_tools = scoped_registry.as_ref().unwrap_or(self.tools);
+        let execution_conversation_id = self
+            .tool_scope
+            .map(|scope| scope.0.as_str())
+            .or(conversation_id);
+        let execution_turn_id = self
+            .tool_scope
+            .and_then(|scope| scope.1.as_deref())
+            .or(turn_id);
 
         // -- 4e. Execute tool calls in parallel ------------------------------
         // ToolRun is the sole produced execution lifecycle. Retired ToolCall
@@ -930,7 +938,7 @@ impl ToolDispatchRuntime<'_> {
                     // future. Never reconstruct target identity from an HWND
                     // after the operation, when that handle may have been reused.
                     if let Some(binding) = crate::tools::computer_use_tool::control_target_binding(
-                        conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str())),
+                        execution_conversation_id,
                         &scheduling.invocation.arguments.to_string(),
                     ) {
                         desktop_target_bindings.insert(tc.id.clone(), binding);
@@ -1024,7 +1032,7 @@ impl ToolDispatchRuntime<'_> {
                             && self.config.tool_approval_mode == ToolApprovalMode::AllowAll
                         {
                             if let Err(error) = self.tools.confirmation_message_in_context(
-                                &tc.name, parsed_args, conversation_id,
+                                &tc.name, parsed_args, execution_conversation_id,
                             ) {
                                 let failed = approval_context_failure(&tc.id, &tc.name, error);
                                 return FinishedToolExecution {
@@ -1103,7 +1111,7 @@ impl ToolDispatchRuntime<'_> {
                                     let reason = match self.tools.confirmation_message_in_context(
                                         &tc.name,
                                         parsed_args,
-                                        conversation_id,
+                                        execution_conversation_id,
                                     ) {
                                         Ok(Some(reason)) => reason,
                                         Ok(None) => describe_request(&tc.name, parsed_args),
@@ -1130,7 +1138,7 @@ impl ToolDispatchRuntime<'_> {
                                         .confirmation_message_for_persistence_in_context(
                                             &tc.name,
                                             parsed_args,
-                                            conversation_id,
+                                            execution_conversation_id,
                                         ) {
                                         Ok(reason) => reason,
                                         Err(error) => {
@@ -1176,7 +1184,7 @@ impl ToolDispatchRuntime<'_> {
                                     )
                                     .with_durable_reason(durable_reason)
                                     .with_default_deadline();
-                                    if let Err(error) = crate::tools::computer_use_tool::bind_window_session_approval(&mut req, parsed_args, conversation_id, turn_id) {
+                                    if let Err(error) = crate::tools::computer_use_tool::bind_window_session_approval(&mut req, parsed_args, execution_conversation_id, execution_turn_id) {
                                         let failed = approval_context_failure(&tc.id, &tc.name, error);
                                         return FinishedToolExecution { index, call: tc, timeout: tool_timeout, outcome: ToolExecutionOutcome::Result(failed, ToolRunStatus::Failed), elapsed: Duration::ZERO };
                                     }
@@ -1314,7 +1322,7 @@ impl ToolDispatchRuntime<'_> {
                                     let message = match self.tools.confirmation_message_in_context(
                                         &tc.name,
                                         parsed_args,
-                                        conversation_id,
+                                        execution_conversation_id,
                                     ) {
                                         Ok(Some(message)) => message,
                                         Ok(None) => format!("Execute tool: {}", tc.name),
@@ -1403,8 +1411,8 @@ impl ToolDispatchRuntime<'_> {
                                     arguments: &tc.arguments,
                                     db,
                                     source_scope,
-                                    conversation_id: conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str())),
-                                    turn_id: turn_id.or_else(|| self.tool_scope.and_then(|scope| scope.1.as_deref())),
+                                    conversation_id: execution_conversation_id,
+                                    turn_id: execution_turn_id,
                                     tool_registry: Some(discovery_tools),
                                     cancel_token: Some(self.cancel_token),
                                     activity_runtime: Some(&scoped_activity_runtime),
@@ -1419,7 +1427,7 @@ impl ToolDispatchRuntime<'_> {
                                     serde_json::from_str::<serde_json::Value>(&tc.arguments).ok()
                                         .and_then(|args| args.get(key).and_then(serde_json::Value::as_str).map(str::to_string))
                                         .filter(|id| self.activity_runtime.get(id).is_some_and(|record| {
-                                            record.conversation_id.as_deref() == conversation_id.or_else(|| self.tool_scope.map(|scope| scope.0.as_str()))
+                                            record.conversation_id.as_deref() == execution_conversation_id
                                         }))
                                 }
                                 _ => None,

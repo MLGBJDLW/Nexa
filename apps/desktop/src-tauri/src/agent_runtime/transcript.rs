@@ -21,9 +21,9 @@ pub(super) enum Transcript {
 }
 
 impl Transcript {
-    pub(super) async fn completion_repair_guidance(&self) -> Option<String> {
+    pub(super) async fn completion_repair_status(&self) -> Option<(String, Vec<String>)> {
         match self {
-            Self::NexaTools(tools) => tools.completion_repair_guidance().await,
+            Self::NexaTools(tools) => tools.completion_repair_status().await,
             Self::Native { .. } => None,
         }
     }

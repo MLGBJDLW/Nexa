@@ -58,6 +58,7 @@ pub(crate) struct AgentRuntimeTurnRequest {
     pub db: Arc<Database>,
     pub conversation_id: String,
     pub turn_id: String,
+    pub tool_scope: Option<(String, Option<String>)>,
     pub next_sort_order: i64,
     pub history: Vec<Message>,
     pub user_parts: Vec<ContentPart>,
@@ -92,6 +93,31 @@ struct PreparedTurn {
     permission_scope: String,
     files: acp::client::FileContext,
     usage_accounting: Arc<std::sync::Mutex<usage_accounting::RuntimeUsageAccounting>>,
+}
+
+/// Count only attempts without new host evidence, not useful repair turns.
+#[derive(Default)]
+struct CompletionRepairState {
+    milestones: std::collections::HashSet<String>,
+    stalled_attempts: u8,
+}
+impl CompletionRepairState {
+    fn next(&mut self, guidance: String, milestones: Vec<String>) -> Result<String, CoreError> {
+        let advanced = milestones.into_iter().fold(false, |advanced, item| {
+            self.milestones.insert(item) || advanced
+        });
+        if advanced {
+            self.stalled_attempts = 0;
+        }
+        if self.stalled_attempts >= 3 {
+            return Err(CoreError::RecoveryRequired {
+                message: guidance,
+                action_reconciliation: true,
+            });
+        }
+        self.stalled_attempts += 1;
+        Ok(guidance)
+    }
 }
 
 impl AgentRuntimeTurnRequest {
@@ -211,6 +237,7 @@ impl AgentRuntimeTurnRequest {
                     db: self.db,
                     conversation_id: self.conversation_id.clone(),
                     turn_id: self.turn_id,
+                    tool_scope: self.tool_scope,
                     next_sort_order: self.next_sort_order,
                     user_prompt: user_text,
                     events: self.events.clone(),

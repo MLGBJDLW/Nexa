@@ -136,6 +136,7 @@ pub struct DelegationRuntime {
     budget: SubagentBudgetController,
     cancel_token: CancellationToken,
     parent_runtime: Option<crate::agent_runtime::AgentRuntimeKind>,
+    worker_lane: Option<crate::delegation_scheduler::DelegationLane>,
     execution_services: Arc<
         StdMutex<
             Option<(
@@ -255,6 +256,7 @@ impl DelegationRuntime {
             budget,
             cancel_token,
             parent_runtime: None,
+            worker_lane: None,
             execution_services: Arc::new(StdMutex::new(None)),
         }
     }
@@ -333,6 +335,7 @@ impl DelegationRuntime {
             budget: self.budget.clone(),
             cancel_token,
             parent_runtime: self.parent_runtime.clone(),
+            worker_lane: self.worker_lane,
             execution_services: Arc::clone(&self.execution_services),
         }
     }

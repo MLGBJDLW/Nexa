@@ -750,7 +750,8 @@ Download a supported public image asset into the workspace. This tool requires c
 Search the public web through Nexa's native no-key providers plus any enabled configured providers such as Brave, Tavily, AnySearch, SerpAPI, SearXNG, or DeepSeek. Use it to discover candidate URLs, then use `fetch_url` on the most authoritative results before citing or summarizing them.
 
 DeepSeek uses `/v1/tools/search` and `/v1/tools/fetch` with separate per-key
-5-QPS limits. Only transient HTTP failures are retried, at most three requests;
+5-QPS limits. Configured root URLs, `/v1` bases and complete operation URLs are
+normalized to the same endpoint. Only transient HTTP failures are retried, at most three requests;
 authentication and balance failures are returned directly. Response sizes and
 request duration are bounded. Search results preserve title, URL and snippets
 within the existing web-search result contract.

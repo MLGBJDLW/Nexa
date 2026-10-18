@@ -220,6 +220,16 @@ pub(super) async fn prepare_subagent_worker(
             None,
         )
     };
+    if native_runtime.is_some()
+        && matches!(
+            delegation_limits.max_output_tokens_per_worker,
+            DelegationLimitPolicy::Explicit(_)
+        )
+    {
+        return Err(subagent_preflight_failure(SubagentPreflightStage::Policy,
+            "native_output_limit_unsupported", false,
+            "This subscription runtime does not expose an output-token cap. Use automatic output limits or an API worker route; the explicit limit was not ignored."));
+    }
     let context_authority = apply_delegated_model_limits(
         &mut config,
         delegation_limits.input_context_policy,
@@ -238,7 +248,9 @@ pub(super) async fn prepare_subagent_worker(
         .max_actual_tokens_per_worker
         .and_then(|limit| u32::try_from(limit).ok())
     {
-        config.max_tokens = Some(config.max_tokens.unwrap_or(worker_limit).min(worker_limit));
+        if native_runtime.is_none() {
+            config.max_tokens = Some(config.max_tokens.unwrap_or(worker_limit).min(worker_limit));
+        }
         config.max_actual_tokens_per_run = Some(worker_limit);
     }
     let model_context_limit = config.context_window;
@@ -400,6 +412,9 @@ pub(super) async fn prepare_subagent_worker(
     );
     subtask_input["delegationLimitsV2"] =
         serde_json::to_value(&delegation_limits).unwrap_or_else(|_| serde_json::json!({}));
+    if runtime.worker_lane == Some(crate::delegation_scheduler::DelegationLane::Judge) {
+        subtask_input["kind"] = serde_json::json!("subagent_judgement");
+    }
     subtask_input["initialOutputCredit"] = serde_json::json!(initial_output_credit);
     subtask_input["inheritedSkillTokens"] = serde_json::json!(inherited_skill_tokens);
     subtask_input["skillIndexGeneration"] = serde_json::json!(&skill_index.generation);
@@ -414,17 +429,21 @@ pub(super) async fn prepare_subagent_worker(
         "handoffTokenBudget": context_snapshot.handoff_token_budget,
         "droppedInvalidMessages": context_snapshot.dropped_invalid_messages,
     });
-    let output_authority = match delegation_limits.max_output_tokens_per_worker {
-        DelegationLimitPolicy::Explicit(_) => "user_override",
-        DelegationLimitPolicy::Auto
-            if catalog_limits
-                .as_ref()
-                .and_then(|limits| limits.max_output_tokens)
-                .is_some() =>
-        {
-            "catalog_ceiling"
+    let output_authority = if native_runtime.is_some() {
+        "provider_managed"
+    } else {
+        match delegation_limits.max_output_tokens_per_worker {
+            DelegationLimitPolicy::Explicit(_) => "user_override",
+            DelegationLimitPolicy::Auto
+                if catalog_limits
+                    .as_ref()
+                    .and_then(|limits| limits.max_output_tokens)
+                    .is_some() =>
+            {
+                "catalog_ceiling"
+            }
+            DelegationLimitPolicy::Auto => "safe_default",
         }
-        DelegationLimitPolicy::Auto => "safe_default",
     };
     let effective_model_budgets = serde_json::json!({
         "provider": &provider_id,
@@ -552,10 +571,14 @@ pub(super) async fn admit_subagent_worker(
     let is_verification = role_profile.is_some_and(|profile| profile.id == "verifier");
     let reservation = match runtime
         .budget
-        .commit_worker_call(
+        .commit_lane_call(
             call_label,
             reserved_tokens,
-            is_verification,
+            runtime.worker_lane.unwrap_or(if is_verification {
+                crate::delegation_scheduler::DelegationLane::Verification
+            } else {
+                crate::delegation_scheduler::DelegationLane::Exploration
+            }),
             worker_cancel_token,
         )
         .await
@@ -663,21 +686,20 @@ struct NativeWorkerTurnOwner {
 }
 
 impl NativeWorkerTurnOwner {
-    fn finish(&mut self, status: &str) {
-        match self
-            .db
-            .finalize_conversation_turn(&self.turn_id, status, None, None)
-        {
-            Ok(()) => self.settled = true,
-            Err(error) => warn!("Failed to settle delegated native transcript: {error}"),
-        }
+    fn finish(&mut self, status: &str) -> Result<(), CoreError> {
+        self.db
+            .finalize_conversation_turn(&self.turn_id, status, None, None)?;
+        self.settled = true;
+        Ok(())
     }
 }
 
 impl Drop for NativeWorkerTurnOwner {
     fn drop(&mut self) {
         if !self.settled {
-            self.finish("interrupted");
+            if let Err(error) = self.finish("interrupted") {
+                warn!("Failed to settle abandoned delegated native transcript: {error}");
+            }
         }
     }
 }
@@ -863,6 +885,13 @@ pub(super) async fn execute_subagent_worker(
                         db: Arc::new(db.clone()),
                         conversation_id: child.id,
                         turn_id: child_turn.id.clone(),
+                        tool_scope: Some((
+                            parent.to_string(),
+                            parent_task_run_id
+                                .as_deref()
+                                .map(|id| db.get_agent_task_run(id).map(|run| run.turn_id))
+                                .transpose()?,
+                        )),
                         next_sort_order: order + 1,
                         history: context_messages,
                         user_parts: vec![ContentPart::Text { text: request_text }],
@@ -874,11 +903,11 @@ pub(super) async fn execute_subagent_worker(
                     })
                     .await;
                 let status = match &result {
-                    Ok(_) => "completed",
+                    Ok(_) => "success",
                     Err(error) if error.recovery_requirement().is_some() => "interrupted",
                     Err(_) => "error",
                 };
-                owner.finish(status);
+                owner.finish(status)?;
                 result
             })
         }

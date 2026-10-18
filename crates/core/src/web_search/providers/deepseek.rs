@@ -20,6 +20,25 @@ fn search_body(query: &str, limit: usize) -> Result<Value, SearchProviderFailure
     Ok(json!({"query":query,"count":limit.clamp(1, 50),"need_content":false}))
 }
 
+fn operation_endpoint(base: &str, operation: &str) -> Result<reqwest::Url, SearchProviderFailure> {
+    let mut url = reqwest::Url::parse(base)
+        .map_err(|_| failure("invalid_base_url", "Invalid DeepSeek endpoint"))?;
+    let path = url.path().trim_end_matches('/');
+    let path = path
+        .strip_suffix("/search")
+        .or_else(|| path.strip_suffix("/fetch"))
+        .unwrap_or(path);
+    let root = if path.ends_with("/v1/tools") {
+        path.to_string()
+    } else if path.ends_with("/v1") {
+        format!("{path}/tools")
+    } else {
+        format!("{path}/v1/tools")
+    };
+    url.set_path(&format!("{root}/{operation}"));
+    Ok(url)
+}
+
 async fn post(
     provider: &WebSearchCustomProviderConfig,
     operation: &str,
@@ -28,21 +47,8 @@ async fn post(
     let endpoint = provider
         .effective_base_url()
         .ok_or_else(|| failure("not_configured", "Configure DeepSeek Search in settings"))?;
-    let endpoint = if operation == "fetch" {
-        endpoint
-            .trim_end_matches('/')
-            .strip_suffix("/search")
-            .map(|base| format!("{base}/fetch"))
-            .ok_or_else(|| {
-                failure(
-                    "invalid_base_url",
-                    "DeepSeek Fetch requires a Search endpoint ending in /search",
-                )
-            })?
-    } else {
-        endpoint
-    };
-    let url = crate::tools::fetch_url_tool::validate_url_for_fetch(&endpoint)
+    let endpoint = operation_endpoint(&endpoint, operation)?;
+    let url = crate::tools::fetch_url_tool::validate_url_for_fetch(endpoint.as_str())
         .await
         .map_err(|_| {
             failure(
@@ -50,6 +56,15 @@ async fn post(
                 "DeepSeek endpoint must be a public HTTP(S) URL",
             )
         })?;
+    post_validated(provider, operation, url, body).await
+}
+
+async fn post_validated(
+    provider: &WebSearchCustomProviderConfig,
+    operation: &str,
+    url: reqwest::Url,
+    body: Value,
+) -> Result<Value, SearchProviderFailure> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
@@ -221,6 +236,91 @@ pub(crate) async fn fetch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn wire_requests_preserve_auth_and_body_retry_only_transient_statuses() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for statuses in [vec![429, 200], vec![402]] {
+            let expected_error = statuses[0] == 402;
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = operation_endpoint(
+                &format!("http://{}/v1", listener.local_addr().unwrap()),
+                "search",
+            )
+            .unwrap();
+            let server = tokio::spawn(async move {
+                for status in statuses {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut headers = Vec::new();
+                    while !headers.ends_with(b"\r\n\r\n") {
+                        headers.push(socket.read_u8().await.unwrap());
+                    }
+                    let headers = String::from_utf8(headers).unwrap().to_ascii_lowercase();
+                    assert!(headers.starts_with("post /v1/tools/search "));
+                    assert!(headers.contains("authorization: bearer test-search-key"));
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length: "))
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    let mut body = vec![0; length];
+                    socket.read_exact(&mut body).await.unwrap();
+                    assert_eq!(
+                        serde_json::from_slice::<Value>(&body).unwrap(),
+                        json!({"query":"查证","count":3,"need_content":false})
+                    );
+                    let body = "{\"results\":[]}";
+                    socket.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nRetry-After: 0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                }
+            });
+            let provider = WebSearchCustomProviderConfig {
+                id: "test".into(),
+                preset: crate::app_settings::WebSearchCustomProviderPreset::Deepseek,
+                name: "Test".into(),
+                enabled: true,
+                api_key: "test-search-key".into(),
+                base_url: None,
+                priority: 0,
+            };
+            let response = tokio::time::timeout(
+                Duration::from_secs(5),
+                post_validated(&provider, "search", url, search_body("查证", 3).unwrap()),
+            )
+            .await
+            .unwrap();
+            if expected_error {
+                assert_eq!(response.unwrap_err().code, "insufficient_balance");
+            } else {
+                assert_eq!(response.unwrap(), json!({"results":[]}));
+            }
+            server.await.unwrap();
+        }
+    }
+    #[test]
+    fn endpoints_accept_roots_versions_and_complete_operations() {
+        for base in [
+            "https://api.deepseek.com",
+            "https://api.deepseek.com/",
+            "https://api.deepseek.com/v1",
+            "https://api.deepseek.com/v1/tools/",
+            "https://api.deepseek.com/v1/tools/search",
+            "https://api.deepseek.com/v1/tools/fetch",
+        ] {
+            for operation in ["search", "fetch"] {
+                assert_eq!(
+                    operation_endpoint(base, operation).unwrap().as_str(),
+                    format!("https://api.deepseek.com/v1/tools/{operation}")
+                );
+            }
+        }
+        assert_eq!(
+            operation_endpoint("https://proxy.example/deepseek/v1", "fetch")
+                .unwrap()
+                .as_str(),
+            "https://proxy.example/deepseek/v1/tools/fetch"
+        );
+    }
+
     #[test]
     fn search_contract_counts_unicode_and_preserves_intent() {
         assert_eq!(search_body(&"字".repeat(128), 100).unwrap()["count"], 50);

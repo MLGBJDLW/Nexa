@@ -1,4 +1,5 @@
 use super::*;
+use crate::delegation_scheduler::DelegationLane;
 use nexa_core::conversation::{ConversationMessage, CreateConversationInput};
 use nexa_core::llm::ProviderType;
 
@@ -18,10 +19,13 @@ impl SubagentBudgetController {
         verifier: bool,
         cancel: &CancellationToken,
     ) -> Result<TestWorkerAdmission, CoreError> {
-        let slot = self.acquire_worker_slot(label, verifier, cancel).await?;
-        let mut reservation = self
-            .commit_worker_call(label, tokens, verifier, cancel)
-            .await?;
+        let lane = if verifier {
+            DelegationLane::Verification
+        } else {
+            DelegationLane::Exploration
+        };
+        let slot = self.acquire_slot(label, lane, cancel).await?;
+        let mut reservation = self.commit_lane_call(label, tokens, lane, cancel).await?;
         reservation.mark_started();
         Ok(TestWorkerAdmission {
             _slot: slot,
@@ -241,7 +245,61 @@ async fn native_workers_inherit_the_official_runtime_without_api_credentials() {
         assert!(
             matches!(worker.provider, crate::desktop_agent_session::DesktopAgentBackend::Runtime {kind: resolved,..} if resolved == kind)
         );
+        runtime.base_config.max_tokens = Some(512);
+        runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+        let error = prepare_subagent_worker(&runtime, &db, vec![], &args, "bounded-native", None)
+            .await
+            .err()
+            .unwrap();
+        assert!(error
+            .to_string()
+            .contains("native_output_limit_unsupported"));
     }
+}
+
+#[tokio::test]
+async fn native_judgement_uses_and_refunds_its_reserved_judge_credit() {
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("native-model".into());
+    runtime.base_config.subagent_max_calls_per_turn = Some(3);
+    runtime.base_config.subagent_verification_reserve_percent = Some(20);
+    runtime.budget = SubagentBudgetController::new(&runtime.base_config);
+    let cancel = CancellationToken::new();
+    let mut explorer = runtime
+        .budget
+        .begin_call("explore", 10, false, &cancel)
+        .await
+        .unwrap();
+    explorer.reservation.settle(&Usage::default(), None);
+    drop(explorer);
+    let mut verifier = runtime
+        .budget
+        .begin_call("verify", 10, true, &cancel)
+        .await
+        .unwrap();
+    verifier.reservation.settle(&Usage::default(), None);
+    runtime.worker_lane = Some(DelegationLane::Judge);
+    let args: SpawnSubagentArgs = serde_json::from_value(
+        serde_json::json!({"task":"Compare candidates", "role_id":"verifier"}),
+    )
+    .unwrap();
+    let slots = acquire_worker_execution_slots(&runtime, "judge", &args, None)
+        .await
+        .unwrap();
+    let reservation = runtime
+        .budget
+        .commit_lane_call("judge", 10, runtime.worker_lane.unwrap(), &cancel)
+        .await
+        .unwrap();
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 3);
+    drop(reservation);
+    drop(slots);
+    assert_eq!(runtime.budget.snapshot().await.calls_started, 2);
+    let _retry = runtime
+        .budget
+        .commit_lane_call("judge-retry", 10, DelegationLane::Judge, &cancel)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -1298,7 +1356,11 @@ async fn queued_worker_cancel_and_collector_abort_settle_without_spawning_or_spe
         // queued worker has not allocated its executor or entered preflight.
         let occupied = runtime
             .budget
-            .acquire_worker_slot("occupied", false, &runtime.cancel_token)
+            .acquire_slot(
+                "occupied",
+                DelegationLane::Exploration,
+                &runtime.cancel_token,
+            )
             .await
             .unwrap();
         let registration = register_test_worker(&runtime, "queued-worker");
@@ -1343,7 +1405,11 @@ async fn queued_worker_cancel_and_collector_abort_settle_without_spawning_or_spe
         drop(occupied);
         let replacement = runtime
             .budget
-            .acquire_worker_slot("replacement", false, &CancellationToken::new())
+            .acquire_slot(
+                "replacement",
+                DelegationLane::Exploration,
+                &CancellationToken::new(),
+            )
             .await
             .unwrap();
         drop(replacement);
@@ -1458,7 +1524,7 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
     let scheduler = SubagentBudgetController::new(&AgentConfig::default());
     let cancellation = CancellationToken::new();
     let reservation = scheduler
-        .commit_worker_call("setup", 123, true, &cancellation)
+        .commit_lane_call("setup", 123, DelegationLane::Verification, &cancellation)
         .await
         .unwrap();
     assert_eq!(scheduler.snapshot().await.calls_started, 1);
@@ -1466,7 +1532,7 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
     assert_eq!(scheduler.snapshot().await.calls_started, 0);
     assert_eq!(scheduler.snapshot().await.tokens_reserved, 0);
     let mut started = scheduler
-        .commit_worker_call("provider", 456, false, &cancellation)
+        .commit_lane_call("provider", 456, DelegationLane::Exploration, &cancellation)
         .await
         .unwrap();
     started.mark_started();
@@ -1475,7 +1541,11 @@ async fn worker_reservation_owner_refunds_setup_failure_and_releases_started_est
     assert_eq!(scheduler.snapshot().await.tokens_reserved, 0);
     cancellation.cancel();
     assert!(scheduler
-        .acquire_worker_slot("already-cancelled", false, &cancellation)
+        .acquire_slot(
+            "already-cancelled",
+            DelegationLane::Exploration,
+            &cancellation
+        )
         .await
         .is_err());
 }
@@ -2209,7 +2279,7 @@ async fn batch_queue_failure_rolls_back_unstarted_call_and_token_credit() {
     let budget = SubagentBudgetController::new(&config);
     let cancel = CancellationToken::new();
     let permit = budget
-        .commit_worker_call("queued", 100, false, &cancel)
+        .commit_lane_call("queued", 100, DelegationLane::Exploration, &cancel)
         .await
         .unwrap();
 

@@ -596,10 +596,16 @@ ownership. Host delegation does not invent an API credential for them.
 
 Before a native runtime publishes a final answer, exact pending desktop targets
 are checked. The same runtime receives bounded repair guidance to capture those
-windows; individual verified targets count as progress. Exhausted repair becomes
+windows; individual verified targets reset the stalled-attempt allowance. Exhausted repair becomes
 a recoverable pause with pending targets, never a successful completion. Explicit
 Stop remains cancellation. Physical input takeover is a separate user-control
 outcome requiring a fresh observation before another action.
+
+Native workers retain parent tool/process ownership while their transcripts stay
+isolated. Native judgement uses the reserved judge lane and its durable admission
+credit. Explicit output-token caps are rejected at preflight when the official
+runtime cannot enforce them; automatic output is reported as provider-managed.
+Actual-token usage limits remain a separate host accounting policy.
 
 Responses history compilation lives in `llm/openai/responses_input.rs`, separate
 from delegation scheduling. It preserves each native assistant output group,

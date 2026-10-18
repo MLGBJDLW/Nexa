@@ -16,6 +16,8 @@ pub struct ExternalToolSessionInput {
     pub db: Arc<Database>,
     pub conversation_id: String,
     pub turn_id: String,
+    /// Tool/process ownership may stay with a parent while transcript rows are isolated.
+    pub tool_scope: Option<(String, Option<String>)>,
     pub next_sort_order: i64,
     pub user_prompt: String,
     pub events: mpsc::Sender<AgentEvent>,
@@ -55,7 +57,9 @@ mod tests {
                 call_id: context.call_id.to_string(),
                 content: "effect recorded".into(),
                 is_error: false,
-                artifacts: None,
+                artifacts: Some(
+                    serde_json::json!({"conversationId":context.conversation_id,"turnId":context.turn_id}),
+                ),
             })
         }
     }
@@ -122,6 +126,7 @@ mod tests {
             db,
             conversation_id: conversation.id,
             turn_id: turn.id,
+            tool_scope: None,
             next_sort_order: 1,
             user_prompt: user.content,
             events,
@@ -141,6 +146,34 @@ mod tests {
             arguments: serde_json::json!({"value":value}).to_string(),
             thought_signature: None,
         }
+    }
+
+    #[tokio::test]
+    async fn native_worker_tools_keep_parent_ownership_and_child_transcript() {
+        let (mut session, _, _rx) = session(3);
+        session.input.tool_scope = Some(("parent-conversation".into(), Some("parent-turn".into())));
+        let result = session
+            .execute(call("parent-owned-effect", 1))
+            .await
+            .unwrap();
+        assert_eq!(
+            result.result.artifacts.as_ref().unwrap()["conversationId"],
+            "parent-conversation"
+        );
+        assert_eq!(
+            result.result.artifacts.as_ref().unwrap()["turnId"],
+            "parent-turn"
+        );
+        let history = session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap();
+        assert!(history.iter().any(|message| message.role == Role::Tool
+            && message.tool_call_id.as_deref() == Some("parent-owned-effect")));
+        assert!(history
+            .iter()
+            .all(|message| message.conversation_id == session.input.conversation_id));
     }
 
     fn uncertain_worker(session: &ExternalToolSession, name: &str) -> String {
@@ -1237,7 +1270,7 @@ impl ExternalToolSession {
             approval_callback: &approval,
             tool_visual_interpreter: &self.input.visual_interpreter,
             activity_runtime: &self.activity,
-            tool_scope: None,
+            tool_scope: self.input.tool_scope.as_ref(),
         }
         .dispatch_tool_calls(
             ToolDispatchContext {
@@ -1411,12 +1444,23 @@ impl ExternalToolSession {
     /// Let upstream loops repair host-owned evidence before attempting a final
     /// answer. This is controller guidance, never a synthetic user approval.
     pub async fn completion_repair_guidance(&self) -> Option<String> {
+        self.completion_repair_status()
+            .await
+            .map(|(guidance, _)| guidance)
+    }
+
+    pub async fn completion_repair_status(&self) -> Option<(String, Vec<String>)> {
         let state = self.state.lock().await;
         state
             .desktop_resume_workflow
             .as_ref()
             .filter(|workflow| workflow.desktop_evidence_pending())
-            .map(|workflow| workflow.completion_repair_guidance())
+            .map(|workflow| {
+                (
+                    workflow.completion_repair_guidance(),
+                    workflow.completion_progress_milestones(),
+                )
+            })
     }
 
     /// Durable progress/partial output does not assert that final verification
