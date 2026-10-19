@@ -798,6 +798,8 @@ impl LlmProvider for BedrockProvider {
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
         let transport = self.transport.for_request()?;
         let body = body(request, &self.route_snapshot(request))?;
+        // This shared sender checks invocation revocation at the physical
+        // dispatch seam before RequestBuilder::send, including nested fallback.
         let response = send_stream_start_request(
             transport
                 .client()

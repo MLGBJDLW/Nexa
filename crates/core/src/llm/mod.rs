@@ -1184,7 +1184,10 @@ pub fn model_supports_vision(provider_type: &ProviderType, model: &str) -> bool 
             // Deny: pre-Claude-3 models
             !(m.contains("claude-2") || m.contains("claude-instant"))
         }
-        ProviderType::Google | ProviderType::Vertex | ProviderType::Bedrock => true,
+        ProviderType::Google | ProviderType::Vertex => true,
+        // Bedrock discovery filters output modality, not image input. Only
+        // the verified catalog above may enable vision for this mixed fleet.
+        ProviderType::Bedrock => false,
         ProviderType::DeepSeek => false,
         ProviderType::Zhipu => {
             // Most models support vision; deny embedding/cogview
@@ -1532,6 +1535,18 @@ mod tests {
 
     #[test]
     fn vision_support_prefers_provider_catalog_then_fallback() {
+        assert!(!model_supports_vision(
+            &ProviderType::Bedrock,
+            "amazon.titan-text-express-v1"
+        ));
+        assert!(!model_supports_vision(
+            &ProviderType::Bedrock,
+            "private-text-profile"
+        ));
+        assert!(model_supports_vision(
+            &ProviderType::Bedrock,
+            "global.anthropic.claude-opus-5-5"
+        ));
         assert!(model_supports_vision(&ProviderType::OpenAi, "gpt-5.5"));
         assert!(model_supports_vision(
             &ProviderType::OpenAi,

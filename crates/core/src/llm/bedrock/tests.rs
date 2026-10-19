@@ -11,6 +11,34 @@ fn config(base: String) -> ProviderConfig {
     }
 }
 
+#[tokio::test]
+async fn revoked_privacy_lease_never_opens_a_bedrock_stream_connection() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let provider =
+        BedrockProvider::new(config(format!("http://{}", listener.local_addr().unwrap()))).unwrap();
+    let db = crate::db::Database::open_memory().unwrap();
+    let lease = db
+        .privacy_lease(&tokio_util::sync::CancellationToken::new())
+        .unwrap();
+    db.revoke_privacy_runs();
+    let request = CompletionRequest {
+        model: "global.anthropic.claude-opus-5-5".into(),
+        messages: vec![Message::text(Role::User, "private task")],
+        ..Default::default()
+    };
+    let result = lease.scope(provider.stream_events(&request)).await;
+    assert!(
+        matches!(result, Err(CoreError::Cancelled(_))),
+        "revoked requests must stop before transport dispatch"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), listener.accept())
+            .await
+            .is_err(),
+        "revocation must prevent even opening a network connection"
+    );
+}
+
 fn tool_events() -> Vec<(&'static str, Value)> {
     vec![
         ("messageStart", json!({"role":"assistant"})),
