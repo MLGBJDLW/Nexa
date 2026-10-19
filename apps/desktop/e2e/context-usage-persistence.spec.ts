@@ -419,7 +419,8 @@ test.beforeEach(async ({ page }) => {
           const lowerCacheSample = /lower cache/i.test(userText);
           const fullCacheSample = /full cache/i.test(userText);
           const changedPromptSample = /changed prompt/i.test(userText);
-          const responseDelay = /multi step/i.test(userText) ? 3500 : /keep streaming/i.test(userText) ? 2500 : 60;
+          const controlledCacheSteps = /multi step/i.test(userText);
+          const responseDelay = /keep streaming/i.test(userText) ? 2500 : 60;
           const promptTokens = changedPromptSample ? 90000 : 74000;
           const streamUsage = {
             runId,
@@ -497,7 +498,7 @@ test.beforeEach(async ({ page }) => {
             });
           }, 20);
 
-          setTimeout(() => {
+          const finishResponse = () => {
             emitEvent('agent://run-event', {
               conversationId,
               runId, turnId,
@@ -508,13 +509,18 @@ test.beforeEach(async ({ page }) => {
               finishReason: 'stop',
               cached: false,
             });
-          }, responseDelay);
-          if (/multi step/i.test(userText)) setTimeout(() => {
-            streamUsage.completionTokens += 100;
-            streamUsage.totalTokens += 100;
-            recordUsageSample(conversationId, streamUsage);
-            emitEvent('agent://run-event', { conversationId, runId, turnId, type: 'usageUpdate', usageTotal: streamUsage, lastPromptTokens: streamUsage.lastPromptTokens });
-          }, 900);
+          };
+          if (controlledCacheSteps) {
+            // Let the test observe baseline hydration before publishing another
+            // sample; runner speed must not consume the observation window.
+            window.addEventListener('nexa-e2e-cache-step', () => {
+              streamUsage.completionTokens += 100;
+              streamUsage.totalTokens += 100;
+              recordUsageSample(conversationId, streamUsage);
+              emitEvent('agent://run-event', { conversationId, runId, turnId, type: 'usageUpdate', usageTotal: { ...streamUsage }, lastPromptTokens: streamUsage.lastPromptTokens });
+            }, { once: true });
+            window.addEventListener('nexa-e2e-cache-finish', finishResponse, { once: true });
+          } else setTimeout(finishResponse, responseDelay);
 
           return { sessionId: conversationId, runId, turnId, state: 'running' };
         }
@@ -804,13 +810,17 @@ test('live cache refresh queries only the active run after baseline hydration', 
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('50.0%');
   await expect(page.getByTestId('chat-stop')).toBeHidden();
+  const completedRunReads = await page.evaluate(() => Number(localStorage.getItem('__run_usage_reads__')));
   await page.getByTestId('chat-input-textarea').fill('Generate a lower cache sample, multi step, and keep streaming.');
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
+  await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('__run_usage_reads__')))).toBeGreaterThan(completedRunReads);
   const reads = await page.evaluate(() => ({ all: Number(localStorage.getItem('__conversation_usage_reads__')), run: Number(localStorage.getItem('__run_usage_reads__')) }));
+  await page.evaluate(() => window.dispatchEvent(new Event('nexa-e2e-cache-step')));
   await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('__run_usage_reads__')))).toBeGreaterThanOrEqual(reads.run + 1);
   await expect(page.getByTestId('chat-stop')).toBeVisible();
   expect(await page.evaluate(() => Number(localStorage.getItem('__conversation_usage_reads__')))).toBe(reads.all);
+  await page.evaluate(() => window.dispatchEvent(new Event('nexa-e2e-cache-finish')));
   await expect(page.getByTestId('chat-stop')).toBeHidden();
   await expect(page.getByTestId('chat-run-cache-hit-summary')).toContainText('40.0%');
 });
