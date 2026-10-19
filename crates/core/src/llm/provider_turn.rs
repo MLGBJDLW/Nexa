@@ -909,10 +909,12 @@ impl ProviderTurnEnvelope {
             crate::tool_argument_projection::is_sensitive_computer_control_name(&call.name)
         });
         let payload_sensitive = match &self.replay_payload {
-            ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload.content.iter().filter_map(|block| block.get("toolUse")).any(|tool| {
-                tool["name"].as_str().is_some_and(|name| crate::tool_argument_projection::is_sensitive_computer_control_name(name)
-                    || crate::tool_argument_projection::tool_arguments_contain_sensitive_input(name, &tool["input"]))
-            }),
+            ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload
+                .content
+                .iter()
+                .filter_map(|block| block.get("toolUse"))
+                .filter_map(|tool| tool["name"].as_str())
+                .any(crate::tool_argument_projection::is_sensitive_computer_control_name),
             ProviderReplayPayload::AnthropicAssistantBlocks(payload) => payload
                 .content
                 .iter()
@@ -953,10 +955,18 @@ impl ProviderTurnEnvelope {
             )
         });
         let payload_sensitive = match &self.replay_payload {
-            ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload.content.iter().filter_map(|block| block.get("toolUse")).any(|tool| {
-                tool["name"].as_str().is_some_and(|name| crate::tool_argument_projection::is_sensitive_computer_control_name(name)
-                    || crate::tool_argument_projection::tool_arguments_contain_sensitive_input(name, &tool["input"]))
-            }),
+            ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload
+                .content
+                .iter()
+                .filter_map(|block| block.get("toolUse"))
+                .any(|tool| {
+                    tool["name"].as_str().is_some_and(|name| {
+                        crate::tool_argument_projection::tool_arguments_contain_sensitive_input(
+                            name,
+                            &tool["input"],
+                        )
+                    })
+                }),
             ProviderReplayPayload::AnthropicAssistantBlocks(payload) => {
                 payload.content.iter().any(|block| {
                     block["type"] == "tool_use"
