@@ -713,7 +713,10 @@ test('ACP reasoning preserves opaque choices and shows Default until explicitly 
   await slider.focus(); await slider.press('End');
   await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEffort:'deep'});
   await expect(trigger).toContainText('deep');
-  await trigger.click(); await slider.focus(); await slider.press('Home');
+  // Slider selection keeps the menu open. Toggling it here targets a range
+  // input that is already leaving the DOM and races its keyup commit.
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await slider.focus(); await slider.press('Home');
   await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEffort:null,reasoningEnabled:null});
 });
 
