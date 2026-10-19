@@ -7,6 +7,16 @@
 
 * **ci:** synchronize browser regression fixtures ([#490](https://github.com/MLGBJDLW/Nexa/issues/490)) ([a7657b4](https://github.com/MLGBJDLW/Nexa/commit/a7657b42eea2857fd076123a51386c810dca42e9))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at a7657b42eea2857fd076123a51386c810dca42e9 -->
+
+### What's Changed
+* fix(ci): synchronize browser regression fixtures by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/490
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.1...nexa-monorepo-v0.17.2
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.0...nexa-monorepo-v0.17.1) (2026-10-19)
 
 
