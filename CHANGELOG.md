@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.1...nexa-monorepo-v0.17.2) (2026-10-19)
+
+
+### Bug Fixes
+
+* **ci:** synchronize browser regression fixtures ([#490](https://github.com/MLGBJDLW/Nexa/issues/490)) ([a7657b4](https://github.com/MLGBJDLW/Nexa/commit/a7657b42eea2857fd076123a51386c810dca42e9))
+
 ## [0.17.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.0...nexa-monorepo-v0.17.1) (2026-10-19)
 
 
