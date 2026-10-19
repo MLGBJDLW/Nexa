@@ -484,7 +484,7 @@ impl StreamState {
                                 )
                             })?;
                     }
-                    if !valid_replay(&[block.content.clone()], None) {
+                    if !valid_replay(std::slice::from_ref(&block.content), None) {
                         return Err(CoreError::StreamIncomplete(
                             "Incomplete Bedrock content block".into(),
                         ));

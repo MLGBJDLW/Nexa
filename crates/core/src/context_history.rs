@@ -81,13 +81,19 @@ impl HistoryHandoffPlan {
 
     pub fn replacement(&self, messages: &[Message], checkpoint: Message) -> Vec<Message> {
         let mut next = Vec::with_capacity(self.retained.len() + 1);
-        next.extend(self.retained.iter().filter_map(|&index| {
-            (messages[index].role == Role::System).then(|| messages[index].clone())
-        }));
+        next.extend(
+            self.retained
+                .iter()
+                .filter(|&&index| messages[index].role == Role::System)
+                .map(|&index| messages[index].clone()),
+        );
         next.push(checkpoint);
-        next.extend(self.retained.iter().filter_map(|&index| {
-            (messages[index].role != Role::System).then(|| messages[index].clone())
-        }));
+        next.extend(
+            self.retained
+                .iter()
+                .filter(|&&index| messages[index].role != Role::System)
+                .map(|&index| messages[index].clone()),
+        );
         next
     }
 }
