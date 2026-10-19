@@ -1016,9 +1016,9 @@
   "displayStreamingCost": "Плавное отображение может увеличить нагрузку на CPU/GPU и расход батареи, особенно при длинных ответах. Скорость модели и сохранённый текст не меняются. Уменьшение движения отключает постепенное появление.",
   "contextManagementMode": "Управление контекстом",
   "contextModeSummary": "Сжатие резюме (по умолчанию)",
-  "contextModeHistory": "Заметки и история (эксперимент)",
+  "contextModeHistory": "Новый контекст с архивом истории",
   "contextSummaryHelp": "Модель обобщает прежние сообщения, сохраняя последние ходы без изменений.",
-  "contextHistoryHelp": "Сохраняет ранние тексты и результаты инструментов локально, затем продолжает с заметками и последними сообщениями. Без вызова модели для резюме; для старых деталей может потребоваться поиск в истории.",
+  "contextHistoryHelp": "Архивирует завершённую историю и очищает прежние рассуждения. Задача и результаты работы сохраняются; заметки и исходные результаты читаются по мере необходимости, без вызова модели для сводки.",
   "contextModeScope": "Применяется к новым ходам API Nexa и ручному сжатию. Среды подписки управляют активным контекстом самостоятельно.",
   "modelLifecycleRemoved": "Отключена",
   "retiredModelSelection": "Провайдер отключил модель {model}. Перед отправкой выберите другую модель.",
@@ -1137,5 +1137,10 @@
   "externalAgentCheckUpdates": "Проверить обновления",
   "externalAgentUseUpdate": "Использовать {version}",
   "externalAgentCustomUpdate": "Свой исполняемый файл: обновите через его установщик.",
-  "externalAgentRegistryChecked": "Каталог проверен: {time}"
+  "externalAgentRegistryChecked": "Каталог проверен: {time}",
+  "providerVertex": "Google Vertex AI",
+  "providerBedrock": "Amazon Bedrock",
+  "vertexExpressHelp": "Express mode uses a Google Cloud API key. For project access, set the base URL to https://LOCATION-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/publishers/google and supply an OAuth access token; use aiplatform.googleapis.com for global.",
+  "vertexProjectHelp": "Replace the project and location in the URL. Use an OAuth access token with Cloud Platform scope and enable the selected model in that project. Tokens expire; automatic ADC refresh is not configured. Model discovery does not prove inference access.",
+  "bedrockHelp": "Use a Bedrock API key (bearer token). Set the Runtime URL to your AWS region. Model IDs may be cross-region profile IDs or full profile ARNs. IAM access-key/SSO credentials are not accepted here; catalog permissions and inference permissions are separate."
 }

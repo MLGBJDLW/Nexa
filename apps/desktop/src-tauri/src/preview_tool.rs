@@ -99,7 +99,7 @@ impl NexaPreviewHost for NativeNexaPreviewHost {
         };
         let window = self
             .app
-            .get_webview_window("main")
+            .get_window("main")
             .ok_or("The Nexa preview window is unavailable")?;
         window
             .show()

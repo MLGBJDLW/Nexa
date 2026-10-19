@@ -1016,9 +1016,9 @@
   "displayStreamingCost": "부드러운 표시는 특히 긴 답변에서 CPU/GPU 사용량과 배터리 소모를 늘릴 수 있습니다. 생성 속도나 저장 내용은 바뀌지 않습니다. 동작 줄이기를 켜면 점진적 표시가 꺼집니다.",
   "contextManagementMode": "컨텍스트 관리",
   "contextModeSummary": "요약 압축 (기본값)",
-  "contextModeHistory": "메모와 기록 전환 (실험적)",
+  "contextModeHistory": "기록을 보관하고 컨텍스트 초기화",
   "contextSummaryHelp": "모델이 이전 대화를 요약하고 최근 턴은 그대로 유지합니다.",
-  "contextHistoryHelp": "이전 텍스트와 도구 결과를 로컬에 저장한 뒤 메모와 최근 대화로 계속합니다. 요약 모델 호출을 생략하지만 이전 세부 정보는 기록 검색이 필요할 수 있습니다.",
+  "contextHistoryHelp": "완료된 기록을 보관하고 이전 추론을 지웁니다. 현재 작업과 결과물은 유지하며 필요할 때만 메모와 원본 결과를 조회합니다. 요약 모델을 호출하지 않습니다.",
   "contextModeScope": "새 Nexa API 턴과 수동 압축에 적용됩니다. 구독 런타임은 자체 활성 컨텍스트를 관리합니다.",
   "modelLifecycleRemoved": "지원 종료",
   "retiredModelSelection": "이 제공업체에서 {model} 모델 지원이 종료되었습니다. 전송 전에 다른 모델을 선택하세요.",
@@ -1137,5 +1137,10 @@
   "externalAgentCheckUpdates": "에이전트 업데이트 확인",
   "externalAgentUseUpdate": "{version} 사용",
   "externalAgentCustomUpdate": "사용자 지정 실행 파일은 해당 설치 프로그램으로 업데이트하세요.",
-  "externalAgentRegistryChecked": "목록 확인: {time}"
+  "externalAgentRegistryChecked": "목록 확인: {time}",
+  "providerVertex": "Google Vertex AI",
+  "providerBedrock": "Amazon Bedrock",
+  "vertexExpressHelp": "Express mode uses a Google Cloud API key. For project access, set the base URL to https://LOCATION-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/publishers/google and supply an OAuth access token; use aiplatform.googleapis.com for global.",
+  "vertexProjectHelp": "Replace the project and location in the URL. Use an OAuth access token with Cloud Platform scope and enable the selected model in that project. Tokens expire; automatic ADC refresh is not configured. Model discovery does not prove inference access.",
+  "bedrockHelp": "Use a Bedrock API key (bearer token). Set the Runtime URL to your AWS region. Model IDs may be cross-region profile IDs or full profile ARNs. IAM access-key/SSO credentials are not accepted here; catalog permissions and inference permissions are separate."
 }

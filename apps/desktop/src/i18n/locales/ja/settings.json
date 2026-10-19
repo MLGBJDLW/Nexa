@@ -1016,9 +1016,9 @@
   "displayStreamingCost": "なめらかな表示は CPU/GPU と電力の使用量を増やす場合があります。長文では特に影響します。生成速度や保存内容は変わりません。視差効果の低減時は段階表示を無効にします。",
   "contextManagementMode": "コンテキスト管理",
   "contextModeSummary": "要約による圧縮（標準）",
-  "contextModeHistory": "ノートと履歴の引き継ぎ（実験的）",
+  "contextModeHistory": "履歴を保存して新しいコンテキストへ",
   "contextSummaryHelp": "モデルが以前のやり取りを要約し、直近のターンはそのまま保持します。",
-  "contextHistoryHelp": "以前のテキストとツール結果をローカルに保存し、ノートと最近のやり取りで続行します。要約モデルの呼び出しは不要ですが、過去の詳細は履歴検索が必要な場合があります。",
+  "contextHistoryHelp": "完了した履歴を保存し、以前の推論を消去します。現在のタスクと作業成果は保持し、必要な場合のみノートや元の結果を参照します。要約モデルは呼び出しません。",
   "contextModeScope": "新しい Nexa API ターンと手動圧縮に適用します。サブスクリプションのランタイムは自身のコンテキストを管理します。",
   "modelLifecycleRemoved": "提供終了",
   "retiredModelSelection": "このプロバイダーではモデル {model} の提供が終了しました。送信前に別のモデルを選択してください。",
@@ -1137,5 +1137,10 @@
   "externalAgentCheckUpdates": "エージェントの更新を確認",
   "externalAgentUseUpdate": "{version} を使用",
   "externalAgentCustomUpdate": "カスタム実行ファイルは、そのインストーラーで更新してください。",
-  "externalAgentRegistryChecked": "確認日時 {time}"
+  "externalAgentRegistryChecked": "確認日時 {time}",
+  "providerVertex": "Google Vertex AI",
+  "providerBedrock": "Amazon Bedrock",
+  "vertexExpressHelp": "Express mode uses a Google Cloud API key. For project access, set the base URL to https://LOCATION-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/publishers/google and supply an OAuth access token; use aiplatform.googleapis.com for global.",
+  "vertexProjectHelp": "Replace the project and location in the URL. Use an OAuth access token with Cloud Platform scope and enable the selected model in that project. Tokens expire; automatic ADC refresh is not configured. Model discovery does not prove inference access.",
+  "bedrockHelp": "Use a Bedrock API key (bearer token). Set the Runtime URL to your AWS region. Model IDs may be cross-region profile IDs or full profile ARNs. IAM access-key/SSO credentials are not accepted here; catalog permissions and inference permissions are separate."
 }

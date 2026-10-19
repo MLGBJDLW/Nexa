@@ -132,7 +132,7 @@ test.beforeEach(async ({ page }) => {
         id: 'm-assistant-final',
         conversationId: 'conv-evidence-dedup',
         role: 'assistant',
-        content: 'Update the UI and keep the timeout guard [cite:chunk-a] [cite:chunk-b].',
+        content: 'Update the UI and keep the timeout guard [cite:chunk-a] [cite:chunk-b]. See [file:D:/Notes/October Report (final).md|Report (final)] and [url:https://example.org/docs/guide_(v2)?view=full|Web guide].',
         toolCallId: null,
         toolCalls: [],
         artifacts: null,
@@ -268,4 +268,15 @@ test('groups multiple cited chunks from the same file into one evidence source c
   await expect(page.getByText('Retries Guide ×2')).toBeVisible();
   await expect(page.getByText('Uncited Search Hit')).toHaveCount(0);
   await expect(page.getByText('1 cited sources').first()).toBeVisible();
+});
+
+
+test('keeps file and web citation badges with spaces and parentheses after reopening', async ({ page }) => {
+  await page.goto('/chat/conv-evidence-dedup');
+  await expect(page.getByRole('button', { name: 'Report (final)', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Web guide · example.org', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Report (final)', exact: true })).toBeVisible();
+  expect(decodeURI(await page.getByRole('button', { name: 'Web guide · example.org', exact: true }).getAttribute('title') ?? '')).toBe('https://example.org/docs/guide_(v2)?view=full');
+  await expect(page.getByRole('button', { name: 'Report (final)', exact: true })).toHaveAttribute('title', 'D:/Notes/October Report (final).md');
 });

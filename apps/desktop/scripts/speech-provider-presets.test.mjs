@@ -23,8 +23,14 @@ test('explicit speech presets select documented active models without claiming c
     [stt.STT_PROVIDER_PRESETS, stt.defaultSttItem],
   ]) {
     for (const preset of presets) {
-      assert.ok(select(preset.models)?.id, `${preset.id} should have a usable preset default`);
-      assert.equal(select(preset.models).descriptor.availableToCredential, null);
+      if (preset.apiStyle === 'openai_speech' && preset.id === 'openai') {
+        assert.equal(select(preset.models), null, 'the retired-next-January Speech route has no active automatic default');
+        assert.ok(preset.models.every(model => model.descriptor.lifecycle === 'deprecated'));
+        assert.ok(preset.models.every(model => model.descriptor.availableToCredential === null));
+      } else {
+        assert.ok(select(preset.models)?.id, `${preset.id} should have a usable preset default`);
+        assert.equal(select(preset.models).descriptor.availableToCredential, null);
+      }
       assert.ok(preset.lastVerifiedAt && preset.documentationUrls.length);
     }
   }

@@ -410,7 +410,7 @@ pub fn companion_command_cmd(
         }
         "settings" => {
             open_settings = true;
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
             }

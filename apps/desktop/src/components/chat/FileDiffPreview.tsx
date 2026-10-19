@@ -84,7 +84,7 @@ function diffPathKey(path: string): string {
   return body;
 }
 
-function diffPathAliasKeys(path: string | undefined): string[] {
+export function diffPathAliasKeys(path: string | undefined): string[] {
   if (!path) return [];
   const normalized = diffPathKey(path);
   if (!normalized) return [];

@@ -78,6 +78,7 @@ import {
 } from "../../components/chat/FileDiffPreview";
 import { ThinkingBlock } from "../../components/chat/ThinkingBlock";
 import { ComputerUseTrace, isComputerUseStep, type ComputerUseStep } from '../../components/chat/ComputerUseTrace';
+import { FileChangeTrace, groupFileToolCalls, type FileToolGroup } from '../../components/chat/FileChangeTrace';
 import type { ThinkingSection } from "../../components/chat/ThinkingBlock";
 import { MessageBubble } from "../../components/chat/MessageBubble";
 import { StreamingMarkdown } from "../../components/chat/StreamingMarkdown";
@@ -958,8 +959,9 @@ export function ChatMessages(props: ChatMessagesProps) {
   );
 
   const renderTimelineSections = useCallback(
-    (sections: TimelineSection[], parentRunActive = false): ThinkingSection[] => {
+    (sections: TimelineSection[], parentRunActive = false, fileGroups?: Map<ToolCallEvent, FileToolGroup>): ThinkingSection[] => {
       const result: ThinkingSection[] = [];
+      const groups = fileGroups ?? groupFileToolCalls(sections.flatMap(section => section.kind === 'tool' ? [section.toolCall] : []));
       let computerSteps: ComputerUseStep[] = [];
       const flushComputerSteps = () => {
         if (computerSteps.length === 0) return;
@@ -967,6 +969,14 @@ export function ChatMessages(props: ChatMessagesProps) {
         computerSteps = [];
       };
       for (const section of sections) {
+        const fileGroup = section.kind === 'tool' ? groups.get(section.toolCall) : undefined;
+        if (fileGroup && fileGroup.calls.length > 1) {
+          flushComputerSteps();
+          if (section.kind === 'tool' && fileGroup.calls[0] === section.toolCall) {
+            result.push({ text: '', node: <FileChangeTrace key={section.id} group={fileGroup} conversationId={conversationId} parentRunActive={parentRunActive} /> });
+          }
+          continue;
+        }
         if (isComputerUseStep(section)) {
           computerSteps.push(section);
         } else {
@@ -988,8 +998,10 @@ export function ChatMessages(props: ChatMessagesProps) {
       isStreaming = false,
       parentRunActive = isStreaming,
       forceExpanded = false,
+      fileGroups?: Map<ToolCallEvent, FileToolGroup>,
     ) => {
       if (sections.length === 0) return <Fragment key={key} />;
+      const groups = fileGroups ?? groupFileToolCalls(sections.flatMap(section => section.kind === 'tool' ? [section.toolCall] : []));
       const ordered: Array<
         | { kind: 'trace'; id: string; sections: TimelineSection[] }
         | { kind: 'steering'; id: string; text: string }
@@ -1066,7 +1078,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           {ordered.map((item, index) => item.kind === 'trace'
             ? renderThinkingTraceNode(
                 item.id,
-                renderTimelineSections(item.sections, parentRunActive),
+                renderTimelineSections(item.sections, parentRunActive, groups),
                 isStreaming && index === lastTraceIndex,
                 forceExpanded,
               )
@@ -1597,6 +1609,8 @@ export function ChatMessages(props: ChatMessagesProps) {
       traceEvents,
     ],
   );
+
+  const liveFileToolGroups = useMemo(() => groupFileToolCalls(toolCalls), [toolCalls]);
 
 
   const updateActiveTurnNavigation = useCallback(() => {
@@ -2391,6 +2405,8 @@ export function ChatMessages(props: ChatMessagesProps) {
             collapsedLiveTrace.historySections,
             false,
             isStreaming,
+            false,
+            liveFileToolGroups,
           )}
           {renderTraceReplyNode(
             collapsedLiveTrace.finalItem.id,
@@ -2417,6 +2433,8 @@ export function ChatMessages(props: ChatMessagesProps) {
                   item.sections,
                   item.isStreaming,
                   isStreaming,
+                  false,
+                  liveFileToolGroups,
                 )
               : renderTraceReplyNode(
                   item.id,
@@ -2442,6 +2460,8 @@ export function ChatMessages(props: ChatMessagesProps) {
                   roundSections,
                   false,
                   isStreaming,
+                  false,
+                  liveFileToolGroups,
                 )}
               {hasReply &&
                 renderTraceReplyNode(
@@ -2466,7 +2486,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           <div className="w-full min-w-0">
             <ThinkingBlock
               content=""
-              sections={renderTimelineSections(currentTimelineSections, isStreaming)}
+              sections={renderTimelineSections(currentTimelineSections, isStreaming, liveFileToolGroups)}
               isStreaming={currentTraceActive}
               defaultExpanded={currentTraceActive}
               collapseOnFinish

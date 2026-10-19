@@ -46,6 +46,7 @@ export interface ProviderPreset {
   baseUrl: string;
   models: ProviderModelPreset[];
   requiresApiKey: boolean;
+  apiStyle?: string;
   icon: string;
   description: string;
   capabilities?: ProviderCapabilities;
@@ -74,13 +75,13 @@ export const PROVIDER_PRESETS: ProviderPreset[] = ([...providerPresets, ...subsc
     providerId: canonicalModelProviderId(preset.id, preset.provider),
     endpointId: modelEndpointId('text', preset.id),
     region: inferModelCatalogRegion(preset.baseUrl),
-    apiStyle: preset.provider === 'anthropic'
+    apiStyle: preset.apiStyle ?? (preset.provider === 'anthropic'
       ? 'anthropic_messages'
       : preset.provider === 'google'
         ? 'gemini_generate_content'
         : preset.provider === 'ollama'
           ? 'ollama_chat'
-          : 'openai_chat',
+          : 'openai_chat'),
   }) as ProviderModelPreset[],
 }));
 
@@ -141,6 +142,19 @@ function alibabaWorkspacePresetId(
   }
 }
 
+function cloudPresetId(provider: string, baseUrl: string): string | null {
+  if (provider !== 'vertex' && provider !== 'bedrock') return null;
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol !== 'https:' || url.port || url.username || url.password || url.search || url.hash) return null;
+    const path = url.pathname.replace(/\/+$/, '');
+    if (provider === 'bedrock') return /^bedrock-runtime\.[a-z0-9-]+\.amazonaws\.com(?:\.cn)?$/.test(url.hostname) && !path ? 'bedrock' : null;
+    if (url.hostname !== 'aiplatform.googleapis.com' && !url.hostname.endsWith('-aiplatform.googleapis.com')) return null;
+    const match = path.match(/^\/v1\/projects\/[^/]+\/locations\/[^/]+\/publishers\/(google|anthropic)$/);
+    return match ? (match[1] === 'google' ? 'vertex' : 'vertex-anthropic') : null;
+  } catch { return null; }
+}
+
 export function findProviderPreset(input: {
   provider: string;
   baseUrl?: string | null;
@@ -171,6 +185,8 @@ export function findProviderPreset(input: {
     if (workspacePresetId) {
       return PROVIDER_PRESETS.find((preset) => preset.id === workspacePresetId) ?? null;
     }
+    const cloudId = cloudPresetId(lookupProvider, normalizedBaseUrl);
+    if (cloudId) return PROVIDER_PRESETS.find(preset => preset.id === cloudId) ?? null;
     // A configured endpoint is part of the capability identity. Familiar
     // provider labels or hosts must not make an edited endpoint inherit an
     // official model/reasoning contract.

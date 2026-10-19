@@ -363,6 +363,20 @@ fetching them automatically,
 and retains notices for unsupported content. Model-facing aliases remain stable
 identities; display labels prefer the artifact's exact tool name.
 
+Desktop event delivery addresses the trusted application webview explicitly.
+Adding a Browser Workspace child means Tauri no longer exposes the parent as a
+single-webview window; it must not make chat deltas disappear. Application
+events are not broadcast into remote page children. The
+[native regression](../../apps/desktop/src-tauri/src/app_events.rs) checks live
+tool completions and answer deltas while a child webview exists.
+
+Repeated `edit_file`, `create_file` and `write_note` calls for one exact file
+share a presentation row within a user turn. Expanding it retains every receipt
+and failure. The cumulative operation counters are distinct from the existing
+net workspace diff; new digit places animate without remounting older places.
+Citation preprocessing retains valid links for paths with spaces/parentheses;
+the evidence contract requires exact tool-returned references in sourced answers.
+
 ## Implementation and verification
 
 A failed bounded event-gap recovery batch marks delivery as reconnecting; it

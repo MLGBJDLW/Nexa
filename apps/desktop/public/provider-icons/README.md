@@ -26,3 +26,5 @@ Flux, Krea, Microsoft and Recraft also use the Lobe Icons MIT Mono assets.
 
 Sourceful: official header emblem from https://www.sourceful.com/ (50x50 symbol
 crop). The brand retains its owner's trademark rights.
+
+Vertex AI and Amazon Bedrock use the Lobe Icons MIT Mono SVGs (2026-10-19).

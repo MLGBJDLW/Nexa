@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '../../i18n';
 
@@ -18,7 +18,7 @@ function normalizedCount(value: number | null | undefined): number {
   return Number.isFinite(value) ? Math.max(0, Math.round(value ?? 0)) : 0;
 }
 
-function RollingCount({
+export function RollingCount({
   value,
   className,
 }: {
@@ -27,12 +27,10 @@ function RollingCount({
 }) {
   const shouldReduceMotion = useReducedMotion();
   const previousRef = useRef(value);
-  const [direction, setDirection] = useState(1);
+  const direction = value >= previousRef.current ? 1 : -1;
   const digits = String(value).split('');
 
   useEffect(() => {
-    const previous = previousRef.current;
-    setDirection(value >= previous ? 1 : -1);
     previousRef.current = value;
   }, [value]);
 
@@ -46,14 +44,20 @@ function RollingCount({
 
   return (
     <span className={`inline-flex justify-end tabular-nums ${className ?? ''}`}>
+      <AnimatePresence initial={false}>
       {digits.map((digit, index) => (
-        <span
-          key={`${digits.length}-${index}`}
-          className="relative inline-flex h-[1.15em] w-[1ch] overflow-hidden align-[-0.12em]"
+        <motion.span
+          key={digits.length - index - 1}
+          data-count-place={digits.length - index - 1}
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: '1ch', opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          className="relative inline-flex h-[1.15em] overflow-hidden align-[-0.12em]"
         >
           <AnimatePresence initial={false} mode="popLayout">
             <motion.span
-              key={`${digits.length}-${index}-${digit}`}
+              key={digit}
               initial={{ y: direction > 0 ? '82%' : '-82%', opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: direction > 0 ? '-82%' : '82%', opacity: 0 }}
@@ -63,8 +67,9 @@ function RollingCount({
               {digit}
             </motion.span>
           </AnimatePresence>
-        </span>
+        </motion.span>
       ))}
+      </AnimatePresence>
     </span>
   );
 }

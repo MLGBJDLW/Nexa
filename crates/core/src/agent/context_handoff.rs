@@ -1,8 +1,7 @@
 //! No-model-call window handoff. Persistence succeeds before live history changes.
 
-use super::context_window::ContextReductionPlan;
 use super::*;
-use crate::context_history::{ContextHistoryArchive, ContextManagementMode};
+use crate::context_history::{ContextHistoryArchive, ContextManagementMode, HistoryHandoffPlan};
 
 impl AgentExecutor {
     pub(super) fn history_handoff_enabled(&self, conversation_id: Option<&str>) -> bool {
@@ -19,21 +18,13 @@ impl AgentExecutor {
         &self,
         messages: &mut Vec<Message>,
         model: &str,
-        target: u32,
         run: context_compaction::CompactionRunContext<'_>,
     ) -> Result<bool, CoreError> {
         let Some(conversation_id) = run.conversation_id else {
             return Ok(false);
         };
         let metrics = self.context_metrics_snapshot(model, messages, &[]);
-        let costs = metrics
-            .messages
-            .iter()
-            .map(|message| message.cache_tokens)
-            .collect::<Vec<_>>();
-        let Some(plan) =
-            ContextReductionPlan::prepare_with_costs(messages, target, run.active_request, &costs)
-        else {
+        let Some(plan) = HistoryHandoffPlan::prepare(messages, run.active_request) else {
             return Ok(false);
         };
         let notes = run
@@ -41,12 +32,8 @@ impl AgentExecutor {
             .get_agent_scratchpad(conversation_id)?
             .map(|notes| notes.content)
             .unwrap_or_default();
-        let archive = ContextHistoryArchive::prepare(
-            conversation_id,
-            run.turn_id,
-            plan.evicted(messages),
-            &notes,
-        )?;
+        let archive =
+            ContextHistoryArchive::prepare(conversation_id, run.turn_id, messages, &notes)?;
         let next = plan.replacement(
             messages,
             Message::text(Role::System, archive.checkpoint_text()),
@@ -70,7 +57,14 @@ impl AgentExecutor {
                 "Context handoff cancelled before commit".into(),
             ));
         }
-        run.db.archive_context_history(&archive)?;
+        if !crate::context_maintenance::commit_live_history_handoff(
+            run.db,
+            archive,
+            model,
+            &self.cancel_token,
+        )? {
+            return Ok(false);
+        }
         if self.cancel_token.is_cancelled() {
             return Err(CoreError::Cancelled(
                 "Context handoff cancelled; working history retained".into(),
@@ -164,20 +158,31 @@ mod tests {
     }
 
     #[test]
-    fn one_long_user_turn_can_switch_without_splitting_tool_batches() {
-        let history = history();
-        let plan = ContextReductionPlan::prepare(&history, "gpt-4o", 1000, None).unwrap();
-        let boundary = 1 + plan.evicted(&history).len();
-        assert!(boundary > 2);
-        assert_eq!(history[boundary].role, Role::Assistant);
-        assert_eq!(history[boundary - 1].role, Role::Tool);
-        assert_eq!(
-            history[boundary..]
-                .iter()
-                .filter(|message| message.role == Role::Assistant)
-                .count(),
-            2
+    fn handoff_retains_task_corrections_and_rules_but_no_prior_trajectory() {
+        let mut messages = history();
+        let request = messages[1].clone();
+        messages[2].reasoning_content = Some("Old reasoning must be flushed".into());
+        messages.push(Message::text(
+            Role::System,
+            "## Earlier conversation context (compacted)\nold summary",
+        ));
+        messages.push(Message::text(
+            Role::User,
+            "Keep the original workbook layout",
+        ));
+        let plan = HistoryHandoffPlan::prepare(&messages, Some(&request)).unwrap();
+        let next = plan.replacement(
+            &messages,
+            Message::text(Role::System, "fresh archive locator"),
         );
+        assert_eq!(next.len(), 4);
+        assert_eq!(next[0].text_content(), "Stable policy");
+        assert_eq!(next[2].text_content(), request.text_content());
+        assert_eq!(next[3].text_content(), "Keep the original workbook layout");
+        assert!(next.iter().all(
+            |message| !matches!(message.role, Role::Assistant | Role::Tool)
+                && message.reasoning_content.is_none()
+        ));
     }
 
     #[test]
@@ -186,11 +191,11 @@ mod tests {
         history.remove(3);
         // No boundary after the incomplete call is safe, even though later
         // unrelated tool pairs are complete.
-        assert!(ContextReductionPlan::prepare(&history, "gpt-4o", 1000, None).is_none());
+        assert!(HistoryHandoffPlan::prepare(&history, None).is_none());
     }
 
     #[tokio::test]
-    async fn history_mode_preserves_request_and_notes_without_a_summary_call() {
+    async fn history_mode_retains_the_task_and_archives_notes_without_inheriting_old_reasoning() {
         let (executor, db, id) = setup();
         db.upsert_agent_scratchpad(
             &id,
@@ -198,6 +203,23 @@ mod tests {
         )
         .unwrap();
         let mut messages = history();
+        for (index, message) in messages.iter().enumerate() {
+            db.add_message(&crate::conversation::ConversationMessage {
+                id: format!("persisted-{index}"),
+                conversation_id: id.clone(),
+                role: message.role.clone(),
+                content: message.text_content(),
+                tool_call_id: message.name.clone(),
+                tool_calls: message.tool_calls.clone().unwrap_or_default(),
+                artifacts: None,
+                token_count: 1,
+                created_at: String::new(),
+                sort_order: index as i64,
+                thinking: message.reasoning_content.clone(),
+                image_attachments: None,
+            })
+            .unwrap();
+        }
         let original_request = messages[1].text_content();
         let (tx, _rx) = mpsc::channel(4);
         let usage = executor
@@ -220,9 +242,60 @@ mod tests {
         assert!(messages.iter().any(
             |message| message.role == Role::User && message.text_content() == original_request
         ));
-        assert!(messages
+        assert!(!messages
             .iter()
             .any(|message| message.text_content().contains("Verify the totals next")));
+        assert!(messages
+            .iter()
+            .all(|message| !matches!(message.role, Role::Assistant | Role::Tool)));
+        let windows = db.list_context_history(&id, None, 10).unwrap();
+        let window = windows["windows"][0]["windowId"].as_str().unwrap();
+        assert!(db
+            .read_context_history_notes(&id, window, 0, 16000)
+            .unwrap()["notes"]
+            .as_str()
+            .unwrap()
+            .contains("Verify the totals next"));
+        assert!(db
+            .read_context_history_notes("other-conversation", window, 0, 16000)
+            .is_err());
+        let reopened = crate::context_maintenance::load_context_projection(&db, &id).unwrap();
+        assert!(reopened.projected);
+        assert!(reopened
+            .messages
+            .iter()
+            .all(|message| !matches!(message.role, Role::Assistant | Role::Tool)));
+        assert!(reopened
+            .messages
+            .iter()
+            .any(|message| message.content == original_request));
+        let next_order = db.next_message_sort_order(&id).unwrap();
+        db.add_message(&crate::conversation::ConversationMessage {
+            id: "after-handoff".into(),
+            conversation_id: id.clone(),
+            role: Role::Assistant,
+            content: "Verified result from fresh evidence".into(),
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+            artifacts: None,
+            token_count: 1,
+            created_at: String::new(),
+            sort_order: next_order,
+            thinking: None,
+            image_attachments: None,
+        })
+        .unwrap();
+        let resumed = crate::context_maintenance::load_context_projection(&db, &id).unwrap();
+        assert!(resumed.projected);
+        assert_eq!(
+            resumed
+                .messages
+                .iter()
+                .filter(|message| message.role == Role::Assistant)
+                .count(),
+            1
+        );
+        assert_eq!(resumed.messages.last().unwrap().id, "after-handoff");
         assert_eq!(
             db.list_context_history(&id, None, 10).unwrap()["windows"]
                 .as_array()
@@ -247,7 +320,6 @@ mod tests {
         let result = executor.handoff_context(
             &mut messages,
             "gpt-4o",
-            1000,
             context_compaction::CompactionRunContext {
                 db: &db,
                 conversation_id: Some(&id),

@@ -44,6 +44,8 @@ fn default_true() -> bool {
 pub struct TtsCatalogItem {
     pub id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
     #[serde(default)]
     pub recommended: bool,
     #[serde(default)]
@@ -749,7 +751,17 @@ mod tests {
         for preset in presets {
             assert!(!preset.documentation_urls.is_empty());
             assert!(!preset.last_verified_at.is_empty());
-            assert!(preset.models.iter().any(|model| model.recommended));
+            if preset.id == "openai" {
+                // The Speech endpoint has no active replacement; Realtime is a
+                // different protocol. Retain deprecated choices for explicit use.
+                assert!(preset
+                    .models
+                    .iter()
+                    .all(|model| model.status.as_deref() == Some("deprecated")));
+                assert!(!preset.models.iter().any(|model| model.recommended));
+            } else {
+                assert!(preset.models.iter().any(|model| model.recommended));
+            }
             if preset.api_style == "dashscope_audio_generation" {
                 // TTS Next describes the voice in text_prompt instead of a voice ID.
                 assert!(preset.voices.is_empty());

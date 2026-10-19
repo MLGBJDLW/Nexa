@@ -1015,6 +1015,55 @@ test('file diff previews merge repeated changes to the same file', async ({ page
   await expect(diffCard.getByText('export const label = "new";')).toBeVisible();
 });
 
+test('file tool calls accumulate across live rounds without hiding errors or other files', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/e2e/fixtures/file-tool-accumulation.tsx';
+    (await import(/* @vite-ignore */ fixture)).renderFileToolAccumulation();
+  });
+  for (let index = 0; index < 4; index++) await page.getByRole('button', { name: 'Edit notes', exact: true }).click();
+  // Completed reasoning is collapsible; the file remains one row when opened.
+  for (const toggle of await page.getByTestId('thinking-trace-toggle').all()) {
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+  }
+  const group = page.getByTestId('file-change-trace');
+  await expect(group).toHaveCount(1);
+  await expect(group.locator('summary').first()).toContainText('4 steps');
+  await expect(group.getByTestId('file-trace-additions')).toHaveAttribute('data-value', '+12');
+  await expect(page.getByText('Verified step 4.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit other file' }).click();
+  await page.getByRole('button', { name: 'Fail edit' }).click();
+  for (const toggle of await page.getByTestId('thinking-trace-toggle').all()) {
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+  }
+  await expect(group).toHaveCount(1);
+  await expect(group.locator('summary').first()).toContainText('5 steps');
+  await expect(group.locator('summary').first()).toContainText('error');
+  await group.locator('summary').first().click();
+  await expect(group.getByTestId('tool-call-card')).toHaveCount(5);
+  await expect(page.getByTestId('tool-call-card').filter({ hasText: 'other/notes.md' })).toBeVisible();
+});
+
+test('diff counters retain place identity while new leading digits animate in', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const fixture = '/e2e/fixtures/file-tool-accumulation.tsx';
+    (await import(/* @vite-ignore */ fixture)).renderFileToolAccumulation();
+  });
+  const probe = page.getByTestId('counter-probe');
+  const ones = await probe.locator('[data-count-place="0"]').elementHandle();
+  await page.getByRole('button', { name: 'Change digits' }).click();
+  await expect(probe.locator('[data-count-place]')).toHaveCount(2);
+  expect(await ones!.evaluate(node => node === document.querySelector('[data-testid="counter-probe"] [data-count-place="0"]'))).toBe(true);
+  await expect(probe.locator('[data-count-place="1"]')).toHaveCSS('opacity', '1');
+  await page.getByRole('button', { name: 'Change digits' }).click();
+  await expect(probe.locator('[data-count-place]')).toHaveCount(3);
+  expect(await ones!.evaluate(node => node === document.querySelector('[data-testid="counter-probe"] [data-count-place="0"]'))).toBe(true);
+  await page.getByRole('button', { name: 'Change digits' }).click();
+  await expect(probe.locator('[data-count-place]')).toHaveCount(1);
+});
+
 test('file diff previews render run_shell diff arrays', async ({ page }) => {
   await page.goto('/chat/conv-run-shell-diffs');
 

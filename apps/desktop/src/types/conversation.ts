@@ -840,6 +840,8 @@ export type ProviderType =
   | 'openrouter'
   | 'anthropic'
   | 'google'
+  | 'vertex'
+  | 'bedrock'
   | 'deep_seek'
   | 'ollama'
   | 'lm_studio'

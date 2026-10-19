@@ -16,6 +16,8 @@ fn provider_metadata(provider: ProviderType) -> ProviderMetadata {
         ProviderType::OpenRouter => ("openrouter", "https://openrouter.ai/api/v1"),
         ProviderType::Anthropic => ("anthropic", "https://api.anthropic.com/v1"),
         ProviderType::Google => ("google", "https://generativelanguage.googleapis.com/v1beta"),
+        ProviderType::Vertex => ("vertex", super::vertex::DEFAULT_BASE_URL),
+        ProviderType::Bedrock => ("bedrock", "https://bedrock-runtime.us-east-1.amazonaws.com"),
         ProviderType::DeepSeek => ("deepseek", "https://api.deepseek.com"),
         ProviderType::Ollama => ("ollama", ""),
         ProviderType::LmStudio => ("lmStudio", ""),
@@ -155,6 +157,56 @@ pub(crate) fn is_google_public_endpoint(provider: ProviderType, base_url: Option
             &["generativelanguage.googleapis.com"],
             &["/v1beta"],
         )
+}
+
+pub(crate) fn is_bedrock_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {
+    if provider != ProviderType::Bedrock {
+        return false;
+    }
+    let Some(url) = trusted_url(provider, base_url) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or_default();
+    let region = host.strip_prefix("bedrock-runtime.").and_then(|host| {
+        host.strip_suffix(".amazonaws.com")
+            .or_else(|| host.strip_suffix(".amazonaws.com.cn"))
+    });
+    region.is_some_and(|region| {
+        !region.is_empty()
+            && region
+                .bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    }) && url.path().trim_end_matches('/').is_empty()
+}
+
+pub(crate) fn is_vertex_endpoint(
+    provider: ProviderType,
+    base_url: Option<&str>,
+    publisher: &str,
+) -> bool {
+    if provider != ProviderType::Vertex {
+        return false;
+    }
+    let Some(url) = trusted_url(provider, base_url) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or_default();
+    if host != "aiplatform.googleapis.com" && !host.ends_with("-aiplatform.googleapis.com") {
+        return false;
+    }
+    let path = url.path().trim_end_matches('/');
+    if publisher == "google" && path == "/v1/publishers/google" {
+        return true;
+    }
+    let parts: Vec<_> = path.split('/').collect();
+    parts.len() == 8
+        && parts[1] == "v1"
+        && parts[2] == "projects"
+        && !parts[3].is_empty()
+        && parts[4] == "locations"
+        && !parts[5].is_empty()
+        && parts[6] == "publishers"
+        && parts[7] == publisher
 }
 
 pub(super) fn is_siliconflow_public_endpoint(

@@ -10,6 +10,7 @@ use crate::provider_catalog::model_supports_vision_from_catalog;
 use crate::provider_registry::{provider_adapter_for_type, ProviderAdapterKind};
 
 pub mod anthropic;
+pub mod bedrock;
 pub mod document;
 pub mod fallback;
 pub mod google;
@@ -26,6 +27,7 @@ pub mod provider_turn;
 pub mod reasoning_profile;
 pub mod reasoning_replay;
 pub(crate) mod request_timeout;
+mod vertex;
 pub use message::{Message, MessageData};
 #[cfg(test)]
 mod message_snapshot_tests;
@@ -813,6 +815,8 @@ pub enum ProviderType {
     OpenRouter,
     Anthropic,
     Google,
+    Vertex,
+    Bedrock,
     DeepSeek,
     Ollama,
     LmStudio,
@@ -1110,10 +1114,12 @@ fn normalize_base_url(base_url: Option<String>) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 fn provider_adapter_for_config(config: &ProviderConfig) -> ProviderAdapterKind {
-    if provider_boundary::is_deepseek_anthropic_endpoint(
-        config.provider_type,
-        config.base_url.as_deref(),
-    ) {
+    if vertex::is_anthropic(config)
+        || provider_boundary::is_deepseek_anthropic_endpoint(
+            config.provider_type,
+            config.base_url.as_deref(),
+        )
+    {
         ProviderAdapterKind::Anthropic
     } else {
         provider_adapter_for_type(config.provider_type)
@@ -1135,6 +1141,7 @@ pub fn create_provider(mut config: ProviderConfig) -> Result<Box<dyn LlmProvider
         ProviderAdapterKind::OpenAiCompatible => Box::new(openai::OpenAiProvider::new(config)?),
         ProviderAdapterKind::Anthropic => Box::new(anthropic::AnthropicProvider::new(config)?),
         ProviderAdapterKind::Google => Box::new(google::GeminiProvider::new(config)?),
+        ProviderAdapterKind::Bedrock => Box::new(bedrock::BedrockProvider::new(config)?),
         ProviderAdapterKind::Ollama => Box::new(ollama::OllamaProvider::new(config)?),
     };
     Ok(Box::new(MessageValidatingProvider::new(
@@ -1177,7 +1184,7 @@ pub fn model_supports_vision(provider_type: &ProviderType, model: &str) -> bool 
             // Deny: pre-Claude-3 models
             !(m.contains("claude-2") || m.contains("claude-instant"))
         }
-        ProviderType::Google => true,
+        ProviderType::Google | ProviderType::Vertex | ProviderType::Bedrock => true,
         ProviderType::DeepSeek => false,
         ProviderType::Zhipu => {
             // Most models support vision; deny embedding/cogview

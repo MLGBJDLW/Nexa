@@ -614,6 +614,11 @@ fn build_openai_images_body(
         "size": selected_image_size(config, args, model),
     });
 
+    if is_meta_image_endpoint(config) {
+        body["output_format"] = json!(output_format);
+        return body;
+    }
+
     if should_send_openai_output_format(config, model) {
         body["output_format"] = json!(output_format);
         if let Some(compression) = args.output_compression {
@@ -638,6 +643,23 @@ fn build_openai_images_body(
     body
 }
 
+fn is_meta_image_endpoint(config: &ResolvedImageConfig) -> bool {
+    config
+        .base_url
+        .as_deref()
+        .and_then(|base| Url::parse(base).ok())
+        .is_some_and(|url| {
+            url.scheme() == "https"
+                && url.host_str() == Some("api.meta.ai")
+                && url.port_or_known_default() == Some(443)
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none()
+                && url.path().trim_end_matches('/') == "/v1"
+        })
+}
+
 fn is_gpt_image_25(model: &str) -> bool {
     matches!(
         model,
@@ -656,6 +678,26 @@ fn validate_image_options(
     output_format: &str,
 ) -> Result<(), CoreError> {
     let invalid = |message: &str| CoreError::InvalidInput(message.to_string());
+    if is_meta_image_endpoint(config) {
+        if args
+            .background
+            .as_deref()
+            .is_some_and(|background| background != "auto" && background != "opaque")
+        {
+            return Err(invalid("Meta Muse Image supports opaque backgrounds only."));
+        }
+        if args.quality.is_some() || args.output_compression.is_some() {
+            return Err(invalid(
+                "Meta Muse Image does not accept quality or output_compression.",
+            ));
+        }
+        if !matches!(output_format, "png" | "jpeg" | "webp") {
+            return Err(invalid(
+                "Meta Muse Image supports png, jpeg and webp output.",
+            ));
+        }
+        return Ok(());
+    }
     if provider == ImageProvider::Qwen
         && matches!(
             model,
@@ -1496,6 +1538,35 @@ mod tests {
             quality: None,
             output_format: None,
         }
+    }
+
+    #[test]
+    fn meta_muse_generation_uses_supported_fields_and_rejects_transparency() {
+        let mut config = test_config("open_ai", Some("https://api.meta.ai/v1"));
+        config.quality = Some("high".into());
+        let mut args = test_args();
+        args.background = Some("opaque".into());
+        validate_image_options(
+            &config,
+            &args,
+            "muse-image-1.0",
+            ImageProvider::OpenAi,
+            "webp",
+        )
+        .unwrap();
+        let body = build_openai_images_body(&config, &args, "muse-image-1.0", "webp");
+        assert_eq!(body["output_format"], "webp");
+        assert!(body.get("background").is_none());
+        assert!(body.get("quality").is_none());
+        args.background = Some("transparent".into());
+        assert!(validate_image_options(
+            &config,
+            &args,
+            "muse-image-1.0",
+            ImageProvider::OpenAi,
+            "webp"
+        )
+        .is_err());
     }
 
     #[test]

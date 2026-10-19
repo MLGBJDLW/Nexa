@@ -100,13 +100,15 @@ pub fn resolve_configured_model_contract(
     model: &str,
 ) -> Arc<ResolvedModelContract> {
     let provider = provider_type_for_parts(canonical_provider_key(provider), base_url);
-    let api_style = if super::provider_boundary::is_deepseek_anthropic_endpoint(provider, base_url)
+    let api_style = if super::provider_boundary::is_vertex_endpoint(provider, base_url, "anthropic")
+        || super::provider_boundary::is_deepseek_anthropic_endpoint(provider, base_url)
     {
         ReasoningApiStyle::AnthropicMessages
     } else {
         match provider_adapter_for_type(provider) {
             ProviderAdapterKind::OpenAiCompatible => ReasoningApiStyle::OpenAiChatCompletions,
             ProviderAdapterKind::Anthropic => ReasoningApiStyle::AnthropicMessages,
+            ProviderAdapterKind::Bedrock => ReasoningApiStyle::BedrockConverse,
             ProviderAdapterKind::Google => ReasoningApiStyle::GeminiGenerateContent,
             ProviderAdapterKind::Ollama => ReasoningApiStyle::Local,
         }
@@ -149,7 +151,7 @@ pub fn resolve_model_contract(
         }
         ReasoningApiStyle::AnthropicMessages => PromptCacheApiStyle::AnthropicMessages,
         ReasoningApiStyle::GeminiGenerateContent => PromptCacheApiStyle::Gemini,
-        ReasoningApiStyle::Local => PromptCacheApiStyle::Local,
+        ReasoningApiStyle::Local | ReasoningApiStyle::BedrockConverse => PromptCacheApiStyle::Local,
     };
     let preset = find_endpoint_model_preset(canonical_provider_key(provider), base_url, model);
     let value = Arc::new(ResolvedModelContract {

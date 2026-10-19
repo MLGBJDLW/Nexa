@@ -198,10 +198,18 @@ pub fn build_desktop_agent_turn_config(
     let learned_section = nexa_core::learning::retrieve_similar_successes(db, message, 3)
         .map(|hits| nexa_core::learning::build_learned_successes_section(&hits))
         .unwrap_or_default();
-    let scratchpad_section = nexa_core::agent::scratchpad::build_agent_scratchpad_prompt_section(
-        db,
-        Some(&conversation.id),
-    );
+    let scratchpad_section = if app_cfg.context_management_mode
+        == nexa_core::context_history::ContextManagementMode::History
+    {
+        // History handoffs must not reinject the old reasoning through notes.
+        // The same scratchpad is archived and remains readable on demand.
+        String::new()
+    } else {
+        nexa_core::agent::scratchpad::build_agent_scratchpad_prompt_section(
+            db,
+            Some(&conversation.id),
+        )
+    };
     let requested_persona_id = persona_id
         .or(conversation.persona_id.as_deref())
         .unwrap_or("default");
