@@ -82,7 +82,7 @@ impl BedrockProvider {
                 retry_after_secs: 30,
             });
         }
-        if status.is_server_error() {
+        if status.is_server_error() || matches!(status.as_u16(), 408 | 424) {
             return Err(CoreError::ProviderUnavailable {
                 status: status.as_u16(),
                 message,
@@ -411,12 +411,34 @@ impl StreamState {
             thinking_delta: None,
         };
         if kind.ends_with("Exception") || kind == "error" {
-            return Err(CoreError::Llm(format!(
+            let message = format!(
                 "Bedrock stream {kind}: {}",
                 value["message"]
                     .as_str()
                     .unwrap_or("provider stream failed")
-            )));
+            );
+            return Err(match kind {
+                "throttlingException" | "modelNotReadyException" => CoreError::RateLimited {
+                    retry_after_secs: 30,
+                },
+                "internalServerException" => CoreError::ProviderUnavailable {
+                    status: 500,
+                    message,
+                },
+                "serviceUnavailableException" => CoreError::ProviderUnavailable {
+                    status: 503,
+                    message,
+                },
+                "modelTimeoutException" => CoreError::ProviderUnavailable {
+                    status: 408,
+                    message,
+                },
+                "modelStreamErrorException" => CoreError::ProviderUnavailable {
+                    status: 424,
+                    message,
+                },
+                _ => CoreError::Llm(message),
+            });
         }
         match kind {
             "messageStart" if !self.started && value["role"] == "assistant" => self.started = true,
@@ -654,7 +676,7 @@ impl LlmProvider for BedrockProvider {
         let response = with_request_timeout(
             transport
                 .client()
-                .get(url)
+                .get(url.clone())
                 .bearer_auth(self.credential()?)
                 .query(&[("byOutputModality", "TEXT")]),
             self.timeout,
@@ -670,12 +692,81 @@ impl LlmProvider for BedrockProvider {
         let items = value["modelSummaries"]
             .as_array()
             .ok_or_else(|| CoreError::Llm("Bedrock catalog has no modelSummaries array".into()))?;
-        Ok(items
+        let mut models: HashSet<String> = items
             .iter()
             .filter(|item| item["modelLifecycle"]["status"] != "EOL")
             .filter_map(|item| item["modelId"].as_str())
             .map(str::to_owned)
-            .collect())
+            .collect();
+        let foundation_models = models.clone();
+        url.set_path("/inference-profiles");
+        url.set_query(None);
+        let mut next_token = None::<String>;
+        let mut seen_tokens = HashSet::new();
+        for _ in 0..100 {
+            let mut request = transport
+                .client()
+                .get(url.clone())
+                .bearer_auth(self.credential()?)
+                .query(&[("maxResults", "1000")]);
+            if let Some(token) = &next_token {
+                request = request.query(&[("nextToken", token)]);
+            }
+            let response = with_request_timeout(request, self.timeout)
+                .send()
+                .await
+                .map_err(|error| {
+                    super::transport::classify_http_error(&error, "Bedrock inference profiles")
+                })?;
+            let page: Value = self.check(response).await?.json().await.map_err(|error| {
+                super::transport::classify_http_error(&error, "Bedrock inference profiles")
+            })?;
+            let profiles = page["inferenceProfileSummaries"]
+                .as_array()
+                .ok_or_else(|| {
+                    CoreError::Llm("Bedrock catalog has no inferenceProfileSummaries array".into())
+                })?;
+            for profile in profiles
+                .iter()
+                .filter(|profile| profile["status"] == "ACTIVE")
+            {
+                let is_text = profile["models"].as_array().is_some_and(|targets| {
+                    targets.iter().any(|target| {
+                        target["modelArn"]
+                            .as_str()
+                            .and_then(|arn| {
+                                arn.split_once("foundation-model/").map(|(_, model)| model)
+                            })
+                            .is_some_and(|model| foundation_models.contains(model))
+                    })
+                });
+                if is_text {
+                    for field in ["inferenceProfileId", "inferenceProfileArn"] {
+                        if let Some(id) = profile[field].as_str().filter(|id| !id.is_empty()) {
+                            models.insert(id.to_owned());
+                        }
+                    }
+                }
+            }
+            match page["nextToken"].as_str().filter(|token| !token.is_empty()) {
+                None => {
+                    let mut models: Vec<_> = models.into_iter().collect();
+                    models.sort();
+                    return Ok(models);
+                }
+                Some(token) if seen_tokens.insert(token.to_owned()) => {
+                    next_token = Some(token.to_owned())
+                }
+                Some(_) => {
+                    return Err(CoreError::Llm(
+                        "Bedrock model discovery repeated a pagination token".into(),
+                    ))
+                }
+            }
+        }
+        Err(CoreError::Llm(
+            "Bedrock model discovery exceeded its page limit".into(),
+        ))
     }
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
         crate::privacy::runtime::ensure_invocation_current()?;
@@ -769,6 +860,15 @@ impl LlmProvider for BedrockProvider {
                     CoreError::Llm(message) => CoreError::Llm(
                         crate::sensitive_data::sanitize_diagnostic(&message, Some(&credential)),
                     ),
+                    CoreError::ProviderUnavailable { status, message } => {
+                        CoreError::ProviderUnavailable {
+                            status,
+                            message: crate::sensitive_data::sanitize_diagnostic(
+                                &message,
+                                Some(&credential),
+                            ),
+                        }
+                    }
                     error => error,
                 };
                 let _ = tx

@@ -16,27 +16,7 @@ pub(super) const SUBAGENT_INTERACTIVE_SURFACE_TOOLS: &[&str] = &[
     "computer_control",
     "desktop_automation",
 ];
-pub(super) fn provider_catalog_key(provider_type: ProviderType) -> &'static str {
-    match provider_type {
-        ProviderType::OpenAi => "open_ai",
-        ProviderType::OpenRouter => "openrouter",
-        ProviderType::Anthropic => "anthropic",
-        ProviderType::Google => "google",
-        ProviderType::DeepSeek => "deep_seek",
-        ProviderType::Ollama => "ollama",
-        ProviderType::LmStudio => "lm_studio",
-        ProviderType::AzureOpenAi => "azure_open_ai",
-        ProviderType::Zhipu => "zhipu",
-        ProviderType::Moonshot => "moonshot",
-        ProviderType::Qwen => "qwen",
-        ProviderType::AlibabaModelStudio => "alibaba_model_studio",
-        ProviderType::SiliconFlow => "siliconflow",
-        ProviderType::Doubao => "doubao",
-        ProviderType::Yi => "yi",
-        ProviderType::Baichuan => "baichuan",
-        ProviderType::Custom => "custom",
-    }
-}
+pub(super) use nexa_core::provider_registry::canonical_provider_key as provider_catalog_key;
 pub(super) struct DelegationToolDef {
     pub(super) description: String,
     pub(super) parameters: serde_json::Value,

@@ -101,6 +101,88 @@ fn partial_and_late_exception_streams_never_complete() {
 }
 
 #[test]
+fn provider_stream_exceptions_keep_runtime_recovery_categories() {
+    let mut state = StreamState::default();
+    assert!(matches!(
+        state.event("throttlingException", json!({})),
+        Err(CoreError::RateLimited { .. })
+    ));
+    for (kind, status) in [
+        ("internalServerException", 500),
+        ("serviceUnavailableException", 503),
+        ("modelTimeoutException", 408),
+        ("modelStreamErrorException", 424),
+    ] {
+        let error = state
+            .event(kind, json!({"message":"upstream failed"}))
+            .unwrap_err();
+        assert!(
+            matches!(provider_stream_event_from_error(error), ProviderStreamEvent::TerminalError { failure: ProviderStreamFailure::ProviderUnavailable { status: actual, .. } } if actual == status)
+        );
+    }
+    assert!(matches!(
+        state.event("validationException", json!({})),
+        Err(CoreError::Llm(_))
+    ));
+}
+
+#[tokio::test]
+async fn discovery_includes_paginated_profile_ids_and_arns_and_rejects_partial_catalogs() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    for repeat_token in [false, true] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let model = "anthropic.claude-opus-5-5";
+            let profile = |id: &str| json!({"inferenceProfileId":id,"inferenceProfileArn":format!("arn:aws:bedrock:us-east-1:123:inference-profile/{id}"),"status":"ACTIVE","models":[{"modelArn":format!("arn:aws:bedrock:us-east-1::foundation-model/{model}")}]});
+            let pages = [
+                json!({"modelSummaries":[{"modelId":model,"modelLifecycle":{"status":"ACTIVE"}},{"modelId":"retired","modelLifecycle":{"status":"EOL"}}]}),
+                json!({"inferenceProfileSummaries":[profile("global.anthropic.claude-opus-5-5")],"nextToken":"page/2"}),
+                if repeat_token {
+                    json!({"inferenceProfileSummaries":[],"nextToken":"page/2"})
+                } else {
+                    json!({"inferenceProfileSummaries":[profile("us.anthropic.claude-opus-5-5")]})
+                },
+            ];
+            for (index, page) in pages.into_iter().enumerate() {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut input = Vec::new();
+                while !input.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let mut bytes = [0u8; 4096];
+                    let count = socket.read(&mut bytes).await.unwrap();
+                    assert!(count > 0);
+                    input.extend_from_slice(&bytes[..count]);
+                }
+                let input = String::from_utf8(input).unwrap();
+                assert!(input.contains("authorization: Bearer bedrock-test-key"));
+                assert!(input.starts_with(if index == 0 {
+                    "GET /foundation-models?"
+                } else {
+                    "GET /inference-profiles?"
+                }));
+                if index == 2 {
+                    assert!(input.contains("nextToken=page%2F2"));
+                }
+                let output = page.to_string();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{output}", output.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let provider = BedrockProvider::new(config(format!("http://{address}"))).unwrap();
+        let result = provider.list_models().await;
+        server.await.unwrap();
+        if repeat_token {
+            assert!(result.is_err());
+        } else {
+            let models = result.unwrap();
+            assert_eq!(models.len(), 5);
+            assert!(models.contains(&"global.anthropic.claude-opus-5-5".to_string()));
+            assert!(models.contains(&"us.anthropic.claude-opus-5-5".to_string()));
+            assert!(!models.contains(&"retired".to_string()));
+        }
+    }
+}
+
+#[test]
 fn reasoning_replay_tracks_prefix_and_cloud_thinking_controls() {
     let provider = BedrockProvider::new(config(
         "https://bedrock-runtime.us-east-1.amazonaws.com".into(),
