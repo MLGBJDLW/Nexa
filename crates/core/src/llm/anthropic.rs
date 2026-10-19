@@ -787,6 +787,33 @@ fn anthropic_beta_headers(model: &str) -> &'static str {
     }
 }
 
+pub(super) fn cloud_beta_flags(model: &str) -> Vec<&'static str> {
+    anthropic_beta_headers(model)
+        .split(',')
+        .filter(|flag| flag.starts_with("thinking-"))
+        .collect()
+}
+
+fn validate_thinking_request(request: &CompletionRequest) -> Result<(), CoreError> {
+    if request.model.eq_ignore_ascii_case("claude-haiku-5-5")
+        && request.reasoning_enabled == Some(false)
+        && matches!(
+            request.reasoning_effort,
+            Some(ReasoningEffort::XHigh | ReasoningEffort::Max)
+        )
+    {
+        return Err(CoreError::InvalidInput("Haiku 5.5 requires thinking for xhigh or max effort; enable thinking or select high, medium, or low.".into()));
+    }
+    if !uses_adaptive_thinking(&request.model) {
+        if let (Some(output), Some(thinking)) = (request.max_tokens, request.thinking_budget) {
+            if output <= thinking.max(1024) {
+                return Err(CoreError::InvalidInput("Anthropic output capacity must exceed the configured thinking budget; increase the explicit output budget or reduce the thinking budget.".into()));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn anthropic_reasoning_effort(effort: Option<&ReasoningEffort>) -> Option<String> {
     match effort {
         Some(ReasoningEffort::None) => None,
@@ -945,6 +972,29 @@ fn build_request_body(
     };
     sonnet55::reconcile_between_tools(&mut body);
     body
+}
+
+/// Cloud transports use the same model-specific thinking contract while owning
+/// their native message envelopes and endpoint authentication.
+pub(super) fn cloud_reasoning_fields(
+    request: &CompletionRequest,
+) -> Result<serde_json::Value, CoreError> {
+    validate_thinking_request(request)?;
+    let body = serde_json::to_value(build_request_body(request, None, Vec::new(), false))?;
+    let mut fields = serde_json::Map::new();
+    for key in ["thinking", "output_config"] {
+        if let Some(value) = body.get(key) {
+            fields.insert(key.into(), value.clone());
+        }
+    }
+    let mut beta = cloud_beta_flags(&request.model);
+    if request.thinking_budget.is_some() && !uses_adaptive_thinking(&request.model) {
+        beta.push("interleaved-thinking-2025-05-14");
+    }
+    if !beta.is_empty() {
+        fields.insert("anthropic_beta".into(), serde_json::json!(beta));
+    }
+    Ok(fields.into())
 }
 
 // ---------------------------------------------------------------------------
@@ -1534,20 +1584,46 @@ impl AnthropicProvider {
         }
     }
 
+    fn inference_url(&self, model: &str, streaming: bool) -> Result<String, CoreError> {
+        if super::vertex::is_anthropic(&self.config) {
+            super::vertex::inference_url(self.base_url(), model, streaming)
+        } else {
+            Ok(self.messages_url())
+        }
+    }
+
+    fn authorize(
+        &self,
+        request: reqwest::RequestBuilder,
+        api_key: &str,
+        model: &str,
+    ) -> reqwest::RequestBuilder {
+        if super::vertex::is_anthropic(&self.config) {
+            request.bearer_auth(api_key)
+        } else {
+            request
+                .header("x-api-key", api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("anthropic-beta", anthropic_beta_headers(model))
+        }
+    }
+
+    fn wire_body<T: serde::Serialize>(&self, body: &T) -> Result<bytes::Bytes, CoreError> {
+        if super::vertex::is_anthropic(&self.config) {
+            serialized_json_body(
+                &super::vertex::anthropic_body(body)?,
+                "Vertex Claude request",
+            )
+        } else {
+            serialized_json_body(body, "Anthropic request")
+        }
+    }
+
     fn resolve_output_capacity(
         &self,
         request: &CompletionRequest,
     ) -> Result<CompletionRequest, CoreError> {
         let mut resolved = request.clone();
-        if request.model.eq_ignore_ascii_case("claude-haiku-5-5")
-            && request.reasoning_enabled == Some(false)
-            && matches!(
-                request.reasoning_effort,
-                Some(ReasoningEffort::XHigh | ReasoningEffort::Max)
-            )
-        {
-            return Err(CoreError::InvalidInput("Haiku 5.5 requires thinking for xhigh or max effort; enable thinking or select high, medium, or low.".into()));
-        }
         if resolved.max_tokens.is_none() {
             // The native API requires max_tokens; use the current catalog for
             // its exact route. Custom gateways retain their own default contract.
@@ -1559,16 +1635,7 @@ impl AnthropicProvider {
             )
             .max_output_tokens;
         }
-        if !uses_adaptive_thinking(&resolved.model) {
-            if let (Some(output), Some(thinking)) = (resolved.max_tokens, resolved.thinking_budget)
-            {
-                if output <= thinking.max(1024) {
-                    return Err(CoreError::InvalidInput(
-                        "Anthropic output capacity must exceed the configured thinking budget; increase the explicit output budget or reduce the thinking budget.".into()
-                    ));
-                }
-            }
-        }
+        validate_thinking_request(&resolved)?;
         Ok(resolved)
     }
 
@@ -2499,7 +2566,11 @@ impl LlmProvider for AnthropicProvider {
     }
 
     fn name(&self) -> &str {
-        "anthropic"
+        if super::vertex::is_anthropic(&self.config) {
+            "vertex"
+        } else {
+            "anthropic"
+        }
     }
 
     fn stream_max_retries(&self) -> Option<u32> {
@@ -2566,6 +2637,15 @@ impl LlmProvider for AnthropicProvider {
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
         let transport = self.transport.for_request()?;
         let api_key = self.api_key()?;
+        if super::vertex::is_anthropic(&self.config) {
+            return super::vertex::list_models(
+                &transport.client(),
+                self.base_url(),
+                api_key,
+                self.request_timeout,
+            )
+            .await;
+        }
         let url = self
             .messages_url()
             .strip_suffix("/messages")
@@ -2634,7 +2714,7 @@ impl LlmProvider for AnthropicProvider {
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
         let transport = self.transport.for_request()?;
-        let url = self.messages_url();
+        let url = self.inference_url(&request.model, false)?;
         let api_key = self.api_key()?;
         crate::privacy::runtime::ensure_invocation_current()?;
         let projected = super::document::project_request(
@@ -2647,15 +2727,10 @@ impl LlmProvider for AnthropicProvider {
         let (system, messages) = convert_messages(&request.messages);
         let resolved_request = self.resolve_output_capacity(request)?;
         let body = build_request_body(&resolved_request, system, messages, false);
-        let body_bytes = serialized_json_body(&body, "Anthropic completion request")?;
+        let body_bytes = self.wire_body(&body)?;
 
         let response = with_request_timeout(
-            transport
-                .client()
-                .post(&url)
-                .header("x-api-key", api_key)
-                .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("anthropic-beta", anthropic_beta_headers(&request.model))
+            self.authorize(transport.client().post(&url), api_key, &request.model)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
@@ -2865,7 +2940,7 @@ impl LlmProvider for AnthropicProvider {
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
         let transport = self.transport.for_request()?;
-        let url = self.messages_url();
+        let url = self.inference_url(&request.model, true)?;
         let api_key = self.api_key()?;
         crate::privacy::runtime::ensure_invocation_current()?;
         let projected = super::document::project_request(
@@ -2879,17 +2954,12 @@ impl LlmProvider for AnthropicProvider {
         let resolved_request = self.resolve_output_capacity(request)?;
         let body = build_request_body(&resolved_request, system, messages, true);
         let request_prefix = sonnet55::request_prefix(&body);
-        let body_bytes = serialized_json_body(&body, "Anthropic stream request")?;
+        let body_bytes = self.wire_body(&body)?;
 
         info!("Anthropic stream request to {url}, model={}", request.model);
 
         let response = send_stream_start_request(
-            transport
-                .client()
-                .post(&url)
-                .header("x-api-key", api_key)
-                .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("anthropic-beta", anthropic_beta_headers(&request.model))
+            self.authorize(transport.client().post(&url), api_key, &request.model)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
@@ -2961,30 +3031,11 @@ impl LlmProvider for AnthropicProvider {
     }
 
     async fn health_check(&self) -> Result<(), CoreError> {
-        let transport = self.transport.for_request()?;
-        // Verify API key by making a minimal request.
-        let url = self.messages_url();
-        let api_key = self.api_key()?;
-
-        let response = with_request_timeout(
-            transport
-                .client()
-                .post(&url)
-                .header("x-api-key", api_key)
-                .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("Content-Type", "application/json")
-                .json(&serde_json::json!({
-                    "model": "claude-haiku-3-5-20241022",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}]
-                })),
-            self.request_timeout,
-        )
-        .send()
-        .await
-        .map_err(|e| CoreError::Llm(format!("Health check failed: {e}")))?;
-
-        self.check_response(response).await?;
+        if self.list_models().await?.is_empty() {
+            return Err(CoreError::Llm(
+                "No models returned by the provider catalog".into(),
+            ));
+        }
         Ok(())
     }
 }

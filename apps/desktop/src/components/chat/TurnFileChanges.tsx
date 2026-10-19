@@ -3,6 +3,7 @@ import { ChevronRight, FileDiff, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from '../../i18n';
 import { getTurnFileDiff, type TurnFileChange, type TurnFileChangeSummary } from '../../lib/api';
+import { RollingCount } from './DiffStatsTicker';
 import { FileBadge } from '../ui/FileBadge';
 import { FileDiffPreview, type FileDiffArtifact } from './FileDiffPreview';
 
@@ -27,8 +28,8 @@ function ChangedFile({ conversationId, turnId, file }: { conversationId: string;
       <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-2 text-left text-xs text-text-secondary hover:bg-surface-2" title={file.absolutePath}>
         <ChevronRight size={13} className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
         <span className="min-w-0 flex-1 truncate">{file.path}</span>
-        {file.additions !== null && <span className="shrink-0 font-mono tabular-nums text-emerald-500">+{file.additions}</span>}
-        {file.deletions !== null && <span className="shrink-0 font-mono tabular-nums text-rose-400">−{file.deletions}</span>}
+        {file.additions !== null && <span className="shrink-0 font-mono tabular-nums text-emerald-500">+<RollingCount value={file.additions} /></span>}
+        {file.deletions !== null && <span className="shrink-0 font-mono tabular-nums text-rose-400">−<RollingCount value={file.deletions} /></span>}
         {file.additions === null && <span className="shrink-0 text-text-tertiary">{t('chat.turnChangesNoStats')}</span>}
       </button>
       {file.operation !== 'delete' && <FileBadge path={file.absolutePath} className="max-w-36 shrink-0" />}
@@ -78,8 +79,8 @@ export function TurnFileChanges({ conversationId, summary, docked = false }: { c
       {summary.pending ? <Loader2 size={13} className="shrink-0 animate-spin text-text-tertiary" /> : <FileDiff size={13} className="shrink-0 text-text-tertiary" />}
       <span>{summary.files.length ? t('chat.turnChangesTitle', { count: String(summary.files.length) }) : summary.pending ? t('common.loading') : t('chat.turnChangesPartial')}</span>
       {summary.files.length > 0 && <>
-        <span className="font-mono tabular-nums text-emerald-500">+{summary.additions}</span>
-        <span className="font-mono tabular-nums text-rose-400">−{summary.deletions}</span>
+        <span className="font-mono tabular-nums text-emerald-500">+<RollingCount value={summary.additions} /></span>
+        <span className="font-mono tabular-nums text-rose-400">−<RollingCount value={summary.deletions} /></span>
       </>}
       {(summary.partial || summary.unknownFiles > 0) && <span className="text-text-tertiary" title={t('chat.turnChangesCoverage')}>*</span>}
       <ChevronRight size={12} className={`transition-transform duration-200 motion-reduce:transition-none ${open ? (docked ? '-rotate-90' : 'rotate-90') : ''}`} />
@@ -90,8 +91,8 @@ export function TurnFileChanges({ conversationId, summary, docked = false }: { c
       className={`absolute bottom-full z-30 mb-2 w-80 max-w-[calc(100vw-3rem)] rounded-xl border border-border bg-surface-1 p-2 shadow-lg ${docked ? 'left-1/2 -translate-x-1/2' : 'left-0'}`}>
       {summary.files.slice(0, 6).map(file => <div key={file.absolutePath} className="flex items-center gap-2 px-1 py-1 text-[11px]">
         <FileDiff size={12} className="shrink-0 text-text-tertiary" /><span className="min-w-0 flex-1 truncate text-text-secondary">{file.path}</span>
-        {file.additions !== null && <span className="font-mono tabular-nums text-emerald-500">+{file.additions}</span>}
-        {file.deletions !== null && <span className="font-mono tabular-nums text-rose-400">−{file.deletions}</span>}
+        {file.additions !== null && <span className="font-mono tabular-nums text-emerald-500">+<RollingCount value={file.additions} /></span>}
+        {file.deletions !== null && <span className="font-mono tabular-nums text-rose-400">−<RollingCount value={file.deletions} /></span>}
         {file.additions === null && <span className="text-text-tertiary">—</span>}
       </div>)}
       {summary.files.length > 6 && <div className="px-1 pt-1 text-[11px] text-text-tertiary">+{summary.files.length - 6}</div>}

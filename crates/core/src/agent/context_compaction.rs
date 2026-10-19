@@ -364,7 +364,7 @@ impl AgentExecutor {
         actual_tokens_remaining: Option<u32>,
     ) -> Result<(Usage, bool), CoreError> {
         if self.history_handoff_enabled(run.conversation_id) {
-            let changed = self.handoff_context(messages, model, target, run)?;
+            let changed = self.handoff_context(messages, model, run)?;
             return Ok((Usage::default(), changed));
         }
         let metrics = self.context_metrics_snapshot(model, messages, &[]);

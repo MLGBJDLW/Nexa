@@ -282,7 +282,7 @@ fn request_application_exit(app: &tauri::AppHandle) {
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -1370,7 +1370,7 @@ fn main() {
                 );
                 match close_action {
                     MainWindowCloseAction::MinimizeToTray => {
-                        if let Some(window) = app_handle.get_webview_window("main") {
+                        if let Some(window) = app_handle.get_window("main") {
                             let _ = window.hide();
                         }
                         let _ = app_handle.emit("companion://main-visibility", false);

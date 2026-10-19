@@ -52,7 +52,8 @@ const publicRequiredModelIds = new Map([
 ]);
 const publicCatalogPaths = new Map([
   ['text:openrouter', '/models'],
-  ['image:openrouter-images', '/models'],
+  ['image:openrouter-images', '/images/models'],
+  ['decision:openrouter', '/models?output_modalities=decisions'],
   ['embedding:openrouter', '/embeddings/models'],
 ]);
 
@@ -126,6 +127,7 @@ async function buildStaticCatalog() {
         if (!readinessValues.has(productReadiness)) errors.push(`${endpointId}/${model.id}: invalid readiness ${productReadiness}`);
         models.push({
           id: model.id,
+          discoveryId: model.resolvedModel ?? model.id,
           aliases: model.aliases ?? [],
           lifecycle,
           regions: model.regions ?? preset.regions ?? [],
@@ -148,13 +150,13 @@ async function probeEndpoint(endpoint) {
   const credential = credentialEnv ? process.env[credentialEnv]?.trim() : '';
   const publicPath = livePublicCatalogs ? publicCatalogPaths.get(endpoint.endpointId) : null;
   const requiredIds = publicPath
-    ? publicRequiredModelIds.get(endpoint.endpointId) ?? endpoint.models.filter(model => model.lifecycle !== 'removed').map(model => model.id)
+    ? publicRequiredModelIds.get(endpoint.endpointId) ?? endpoint.models.filter(model => model.lifecycle !== 'removed').map(model => model.discoveryId)
     : [];
   const anonymousRequiredIdsOnly = !credential && requiredIds.length > 0;
   if ((!credentialEnv || !credential) && !anonymousRequiredIdsOnly) {
     return { endpointId: endpoint.endpointId, status: 'skipped', reason: 'credential_not_configured' };
   }
-  if (!endpoint.baseUrl || !String(endpoint.apiStyle).startsWith('openai')) {
+  if (!endpoint.baseUrl || (!publicPath && !String(endpoint.apiStyle).startsWith('openai'))) {
     return { endpointId: endpoint.endpointId, status: 'skipped', reason: 'discovery_not_supported' };
   }
 

@@ -31,16 +31,26 @@ export interface ParsedChunkCitation {
  * Citations are numbered sequentially per call so superscripts stay consistent
  * within a single message.
  */
+function citationLink(label: string, scheme: 'cite' | 'doc' | 'file' | 'url', target: string): string {
+  const escapedLabel = label.replace(/([\\[\]])/g, '\\$1');
+  // Local identifiers are decoded once by their renderer. Preserve existing URL
+  // percent escapes, whose exact value can participate in signed query strings.
+  const destination = scheme === 'url'
+    ? target.replace(/[\s()<>\\]/g, value => encodeURIComponent(value).replace(/[()]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`))
+    : encodeURI(target).replace(/[()]/g, value => `%${value.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `[${escapedLabel}](<${scheme}:${destination}>)`;
+}
+
 export function preprocessChunkCitations(content: string): string {
   let counter = 0;
   return content.replace(CITE_REGEX, (_match, chunkId: string, displayText?: string) => {
     counter++;
     const id = chunkId.trim();
     if (displayText != null && displayText.trim().length > 0) {
-      return `[${displayText.trim()}](cite:${id})`;
+      return citationLink(displayText.trim(), 'cite', id);
     }
     // Superscript number: ¹ ² ³ etc.
-    return `[${toSuperscript(counter)}](cite:${id})`;
+    return citationLink(toSuperscript(counter), 'cite', id);
   });
 }
 
@@ -107,32 +117,14 @@ function extractCard(item: unknown): CitationCardData | null {
 }
 
 function collectArtifactItems(value: unknown, out: unknown[]) {
-  if (!value) return;
-  if (Array.isArray(value)) {
-    for (const item of value) collectArtifactItems(item, out);
-    return;
-  }
-  if (typeof value !== 'object') {
-    out.push(value);
-    return;
-  }
-
-  const obj = value as Record<string, unknown>;
-  out.push(obj);
-
-  // Rich tool artifacts use named arrays such as evidenceCards. Recurse so
-  // citation lookup stays compatible with both old array artifacts and the
-  // newer contract/trust-boundary object shape.
-  for (const key of ['evidenceCards', 'cards', 'results', 'items']) {
-    if (Array.isArray(obj[key])) {
-      collectArtifactItems(obj[key], out);
-    }
-  }
-
-  for (const child of Object.values(obj)) {
-    if (child && typeof child === 'object') {
-      collectArtifactItems(child, out);
-    }
+  const pending: unknown[] = [value];
+  const seen = new WeakSet<object>();
+  while (pending.length > 0) {
+    const item = pending.pop();
+    if (!item || typeof item !== 'object' || seen.has(item)) continue;
+    seen.add(item);
+    if (!Array.isArray(item)) out.push(item);
+    pending.push(...Object.values(item));
   }
 }
 
@@ -179,13 +171,13 @@ export function preprocessInlineCitations(content: string): string {
     .replace(DOC_REGEX, (_m, id: string, label?: string) => {
       const trimId = id.trim();
       const display = label?.trim() || trimId.split('/').pop() || trimId;
-      return `[${display}](doc:${trimId})`;
+      return citationLink(display, 'doc', trimId);
     })
     .replace(FILE_REGEX_CITE, (_m, path: string, label?: string) => {
       const trimPath = path.trim();
       const filename = trimPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || trimPath;
       const display = label?.trim() || filename;
-      return `[${display}](file:${trimPath})`;
+      return citationLink(display, 'file', trimPath);
     })
     .replace(URL_REGEX, (_m, url: string, label?: string) => {
       const trimUrl = url.trim();
@@ -197,6 +189,6 @@ export function preprocessInlineCitations(content: string): string {
           display = trimUrl;
         }
       }
-      return `[${display}](url:${trimUrl})`;
+      return citationLink(display, 'url', trimUrl);
     });
 }

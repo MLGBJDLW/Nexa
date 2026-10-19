@@ -481,6 +481,8 @@ fn default_endpoint(provider_type: ProviderType) -> &'static str {
         ProviderType::OpenRouter => "https://openrouter.ai/api/v1",
         ProviderType::Anthropic => "https://api.anthropic.com/v1",
         ProviderType::Google => "https://generativelanguage.googleapis.com/v1beta",
+        ProviderType::Vertex => super::vertex::DEFAULT_BASE_URL,
+        ProviderType::Bedrock => "https://bedrock-runtime.us-east-1.amazonaws.com",
         ProviderType::DeepSeek => "https://api.deepseek.com/v1",
         ProviderType::Ollama => "http://127.0.0.1:11434",
         ProviderType::LmStudio => "http://127.0.0.1:1234/v1",

@@ -1799,7 +1799,25 @@ impl GeminiProvider {
     }
 
     fn base_url(&self) -> &str {
-        self.config.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL)
+        self.config.base_url.as_deref().unwrap_or(
+            if self.config.provider_type == ProviderType::Vertex {
+                super::vertex::DEFAULT_BASE_URL
+            } else {
+                DEFAULT_BASE_URL
+            },
+        )
+    }
+
+    fn authorize(
+        &self,
+        request: reqwest::RequestBuilder,
+        api_key: &str,
+    ) -> reqwest::RequestBuilder {
+        if self.config.provider_type == ProviderType::Vertex {
+            super::vertex::authorize(request, self.base_url(), api_key)
+        } else {
+            with_google_api_key(request, api_key)
+        }
     }
 
     fn api_key(&self) -> Result<&str, CoreError> {
@@ -1890,7 +1908,11 @@ impl LlmProvider for GeminiProvider {
     }
 
     fn name(&self) -> &str {
-        "google"
+        if self.config.provider_type == ProviderType::Vertex {
+            "vertex"
+        } else {
+            "google"
+        }
     }
 
     fn stream_max_retries(&self) -> Option<u32> {
@@ -1950,13 +1972,22 @@ impl LlmProvider for GeminiProvider {
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
         let transport = self.transport.for_request()?;
         let api_key = self.api_key()?;
+        if self.config.provider_type == ProviderType::Vertex {
+            return super::vertex::list_models(
+                &transport.client(),
+                self.base_url(),
+                api_key,
+                self.request_timeout,
+            )
+            .await;
+        }
         let url = format!("{}/models", self.base_url());
         let mut page_token: Option<String> = None;
         let mut models = Vec::new();
         let mut seen_page_tokens = HashSet::new();
 
         loop {
-            let mut request = with_google_api_key(transport.client().get(&url), api_key);
+            let mut request = self.authorize(transport.client().get(&url), api_key);
             if let Some(token) = page_token.as_deref() {
                 request = request.query(&[("pageToken", token)]);
             }
@@ -2041,7 +2072,7 @@ impl LlmProvider for GeminiProvider {
             let body_bytes = serialized_json_body(&body, "Gemini completion request")?;
 
             let response = with_request_timeout(
-                with_google_api_key(transport.client().post(&url), api_key)
+                self.authorize(transport.client().post(&url), api_key)
                     .header("Content-Type", "application/json")
                     .body(body_bytes),
                 super::request_timeout::for_model(
@@ -2167,7 +2198,7 @@ impl LlmProvider for GeminiProvider {
         info!("Gemini stream request to {}, model={}", url, request.model);
 
         let response = send_stream_start_request(
-            with_google_api_key(transport.client().post(&url), api_key)
+            self.authorize(transport.client().post(&url), api_key)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
@@ -2235,7 +2266,8 @@ impl LlmProvider for GeminiProvider {
                     // Continue the exact native request. Partial text and thought
                     // signatures are never appended to its original contents.
                     response = send_stream_start_request(
-                        with_google_api_key(transport.client().post(&url), &api_key)
+                        provider
+                            .authorize(transport.client().post(&url), &api_key)
                             .header("Content-Type", "application/json")
                             .body(serialized_json_body(
                                 &continuation_body,

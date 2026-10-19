@@ -275,64 +275,54 @@ errors fail, and only typed transient/transport failures use reconnect.
 
 ## Selectable context management
 
-**Settings → Appearance → Advanced → Context management** selects `summary`
-(default) or experimental `history` for new Nexa API turns and manual context
-maintenance. Existing subscription agent runtimes continue to own their
-in-turn context; this setting does not enable private Codex backend features.
+**Settings → Appearance → Context management** selects `summary` (default)
+or `history` for new Nexa API turns and manual context maintenance. The setting
+is outside Advanced. Subscription runtimes continue to own their in-turn
+context; this setting does not enable private Codex backend features.
 
 | Mode | Window transition | Cost and tradeoff |
 | --- | --- | --- |
-| Summary | Generate a recap of older complete exchanges, including an earlier prefix of one long user turn, with the existing bounded fallback | Requires a summary call when available; earlier facts are condensed |
-| History window | Save and verify local history, keep recent complete exchanges and scratchpad notes, then retrieve older evidence when needed | No summary-model call at transition; subsequent searches/reads consume normal tool and input budget |
+| Summary | Generate a recap of older complete exchanges with the existing bounded fallback | A summary call condenses earlier facts |
+| Fresh history handoff | Archive and verify the old trajectory, retain task/corrections/system policy, clear assistant/tool reasoning and prior summaries | No summary call; exact facts and notes are read on demand |
 
-The history mode takes inspiration from Codex's
-[experimental context management](https://learn.chatgpt.com/docs/models?surface=app#experimental-context-management),
-[activation PR](https://github.com/openai/codex/pull/42385), and
-[model eligibility PR](https://github.com/openai/codex/pull/43147). Its model can
-save notes and retrieve conversation history after switching windows. This is
-different from the Responses API's
-[opaque compaction endpoint](https://developers.openai.com/api/docs/guides/compaction).
-Nexa implements the notes/history pattern over its own conversation database;
-it does not claim Codex protocol compatibility or equivalent model quality.
+Microsoft's [Fork-and-Flush paper](https://arxiv.org/html/2610.07447v1) combines
+fresh reasoning trajectories with isolated parallel candidates and external
+selection. Nexa adopts only the fresh-history handoff boundary in its existing
+history mode. It does not launch candidate forks, score competing workspaces,
+or introduce a second context controller.
 
-Both modes use one retention plan before the next model request. The original
-active user request is retained from the privacy-processed live input, together
-with recent user messages and the latest complete assistant exchanges. Cuts
-cannot split a tool-call batch from its results or rewrite retained provider
-signatures. Tool dispatch, steering and usage accounting do not independently
-trim the live history. If the required retained input still exceeds a known
-window after safe reduction, the turn stops with an explicit context error
-instead of sending a prompt that silently lost its user request or evidence.
-Aggressive reduction targets are bounded by both the configured headroom and
-half of the currently estimated input. A provider overflow below a configured
-capacity can therefore reduce older exchanges beyond an existing checkpoint;
-the replacement still commits only when it reduces the input while retaining
-the protected request and exchanges.
+The active request and subsequent user corrections remain live, together with
+stable system policy. All completed assistant/tool exchanges, opaque replay
+state and earlier recap text are removed from the next prompt. Existing files,
+workspace changes, durable task state and the canonical transcript remain
+intact. An unresolved tool-call batch prevents the transition. Afterward, the
+model is instructed to inspect existing work and reassess its next step from
+current evidence, retrieving only missing facts.
 
-In history mode, before changing the live message list, Nexa writes a conversation-scoped
-archive and verifies its digest inside the transaction. Failure leaves the
-working context intact. Cancellation also retains the live history. A window
-boundary cannot split a tool-call batch from its results. Stable system policy,
-recent user requests, and the latest complete assistant exchanges stay live;
-`context_history` can list windows, search literal text, and page through exact
-text/tool records. `update_scratchpad` carries task notes. Prior instructions
-remain historical evidence subordinate to newer user instructions.
+Before changing the live list, Nexa verifies the conversation-scoped archive
+inside the transaction. Automatic and manual transitions publish the same
+durable context projection, so reopening a conversation does not reinsert the
+flushed trajectory. New messages after the checkpoint remain visible. An
+unchanged manual checkpoint is a no-op. Storage failure or a superseding edit
+cannot authorize dropping live history. Runtime handoff must reduce estimated
+input; an oversized retained request still produces an explicit context error.
 
-Archives survive application restart. Editing or deleting canonical messages
-invalidates the affected conversation's history windows. Images remain in the
-original conversation; archives do not replay provider-native reasoning,
-signatures, or opaque provider envelopes. Without the scoped history tool, an
-executor retains the summary policy. A single oversized recent exchange may
-still exceed provider capacity; history mode does not promise unlimited input.
+`context_history` lists windows, searches literal text, reads exact items and
+retrieves archived notes through `read_notes`. `update_scratchpad` stores concise
+factual progress, but those notes are not automatically reinjected in history
+mode. Historical text and notes are evidence, not new instructions. Images
+remain in the original conversation; the archive does not serialize native
+reasoning signatures or provider continuation envelopes.
 
-The [shared context window](../../crates/core/src/agent/context_window.rs),
-[handoff implementation](../../crates/core/src/agent/context_handoff.rs),
-[archive store](../../crates/core/src/context_history.rs), and
-[manual maintenance service](../../crates/core/src/context_maintenance/service.rs)
-cover zero-summary-call handoff, tool-pair integrity, persistence failures,
-restart retrieval, and invalidation. Local deterministic checks establish
-storage and runtime behavior; comparative model recall and real long-task
-quality remain experimental.
+The design also follows the durable-history/active-context separation in
+[pi compaction](https://github.com/badlogic/pi-mono/blob/1402973a9dbe8c627341e04c9744c54953e285ca/packages/coding-agent/src/core/compaction/compaction.ts)
+and the bounded recovery practices reviewed in Codex, Hermes and DeepSeek
+Harness. Storage and wire tests verify the implemented boundaries; comparative
+long-task quality is not established by those tests.
+
+See the [shared handoff plan and archive](../../crates/core/src/context_history.rs),
+[live transition](../../crates/core/src/agent/context_handoff.rs), and
+[durable maintenance service](../../crates/core/src/context_maintenance/mod.rs).
 
 Tool-result compaction is a projection over the durable turn trace. When a tool
 result is shortened, Nexa attaches a `context_history` `read_tool_result` call
@@ -730,10 +720,11 @@ OpenRouter exposes separately verified `google/gemini-3.7-flash` and
 `google/gemini-3.6-flash` routes with their own key and OpenAI-compatible wire
 contract. Users may explicitly select those routes when authorized; Nexa never
 turns them into an automatic fallback for a rejected Google direct request.
-Vertex or Google-login support requires a future first-class auth type with
-project/location and token-refresh ownership, matching the separation used by
-Gemini CLI rather than treating a service-account or OAuth credential as an AI
-Studio key.
+Vertex now has a separate provider identity. Express routes use a Cloud API key;
+project/location Gemini and Claude routes use OAuth bearer tokens with their
+native protocols. Tokens are manually supplied and expire; ADC/service-account
+refresh is not implemented. See [cloud-provider setup](../guides/PROVIDERS_AND_MODELS.md#vertex-ai-and-amazon-bedrock).
+
 
 ## Operator guidance
 

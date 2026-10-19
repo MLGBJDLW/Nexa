@@ -504,7 +504,13 @@
               "enabled": false
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2026-12-11",
+        "replacementModelId": "gpt-5.6-terra",
+        "lastVerifiedAt": "2026-10-19",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
         "id": "gpt-5-nano",
@@ -522,7 +528,13 @@
               "enabled": false
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2026-12-11",
+        "replacementModelId": "gpt-5.6-luna",
+        "lastVerifiedAt": "2026-10-19",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
         "id": "gpt-4.1",
@@ -584,7 +596,13 @@
               "enabled": false
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2026-12-11",
+        "replacementModelId": "gpt-5.6-sol",
+        "lastVerifiedAt": "2026-10-19",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
         "id": "o4-mini",
@@ -624,7 +642,13 @@
               "enabled": false
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2026-12-11",
+        "replacementModelId": "gpt-5.6-sol",
+        "lastVerifiedAt": "2026-10-19",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
         "id": "o3-mini",
@@ -22032,6 +22056,371 @@
             },
             "defaultEnabled": true
           }
+        }
+      }
+    ]
+  },
+  {
+    "id": "vertex",
+    "name": "Google Vertex AI",
+    "provider": "vertex",
+    "apiStyle": "gemini_generate_content",
+    "baseUrl": "https://aiplatform.googleapis.com/v1/publishers/google",
+    "requiresApiKey": true,
+    "icon": "☁️",
+    "description": "Gemini on Vertex AI. Express API key, or project/location endpoint with an OAuth access token.",
+    "capabilities": {
+      "vision": true
+    },
+    "models": [
+      {
+        "id": "gemini-4-argon",
+        "name": "Gemini 4 Argon",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gemini-3.5-flash",
+        "name": "Gemini 3.5 Flash",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gemini-3.5-flash-lite",
+        "name": "Gemini 3.5 Flash-Lite",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "minimal",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gemini-3.1-flash-lite",
+        "name": "Gemini 3.1 Flash Lite",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "minimal",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "vertex-anthropic",
+    "name": "Vertex AI — Claude",
+    "provider": "vertex",
+    "apiStyle": "anthropic_messages",
+    "baseUrl": "https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/anthropic",
+    "requiresApiKey": true,
+    "icon": "☁️",
+    "description": "Claude partner models on Vertex AI. Replace {project}; use an OAuth access token and enable the model.",
+    "capabilities": {
+      "vision": true
+    },
+    "models": [
+      {
+        "id": "claude-opus-5-5",
+        "name": "Claude Opus 5.5",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/opus-5-5",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "id": "bedrock",
+    "name": "Amazon Bedrock",
+    "provider": "bedrock",
+    "apiStyle": "bedrock_converse",
+    "baseUrl": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "requiresApiKey": true,
+    "icon": "☁️",
+    "description": "Native Converse streaming with a Bedrock API key. Region endpoints and inference profile IDs or ARNs are supported.",
+    "capabilities": {
+      "vision": true
+    },
+    "models": [
+      {
+        "id": "global.anthropic.claude-opus-5-5",
+        "name": "Claude Opus 5.5 (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5-5.html",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "global.anthropic.claude-haiku-5-5",
+        "name": "Claude Haiku 5.5 (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-5-5.html",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEnabled": true
+          }
+        }
+      },
+      {
+        "id": "global.openai.gpt-6.1-sol",
+        "name": "GPT-6.1 Sol (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-sol.html",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "global.moonshotai.kimi-k3",
+        "name": "Kimi K3 (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-19",
+        "contextTokens": 1000000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k3.html",
+        "capabilities": {
+          "vision": true
         }
       }
     ]

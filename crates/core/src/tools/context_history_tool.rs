@@ -78,6 +78,12 @@ impl Tool for ContextHistoryTool {
                 args.offset.unwrap_or(0),
                 args.max_chars.unwrap_or(6000),
             ),
+            "read_notes" => db.read_context_history_notes(
+                &conversation,
+                args.window_id.as_deref().ok_or_else(|| CoreError::InvalidInput("window_id is required".into()))?,
+                args.offset.unwrap_or(0),
+                args.max_chars.unwrap_or(6000),
+            ),
             "read_tool_result" => {
                 let page = db.read_context_tool_result(
                 &conversation,
@@ -103,7 +109,7 @@ impl Tool for ContextHistoryTool {
                 Ok(page)
             },
             _ => Err(CoreError::InvalidInput(
-                "Use list, search, read, or read_tool_result for context_history".into(),
+                "Use list, search, read, read_notes, or read_tool_result for context_history".into(),
             )),
         })
         .await

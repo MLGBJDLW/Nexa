@@ -1016,9 +1016,9 @@
   "displayStreamingCost": "Uma exibição mais fluida pode aumentar o uso de CPU/GPU e bateria, sobretudo em respostas longas. Não altera a velocidade do modelo nem o texto salvo. Reduzir movimento desativa a revelação gradual.",
   "contextManagementMode": "Gestão de contexto",
   "contextModeSummary": "Compactação por resumo (padrão)",
-  "contextModeHistory": "Notas e histórico (experimental)",
+  "contextModeHistory": "Novo contexto com histórico arquivado",
   "contextSummaryHelp": "Um modelo resume conversas antigas e mantém os turnos recentes.",
-  "contextHistoryHelp": "Salva textos e resultados de ferramentas localmente e continua com notas e conversas recentes. Evita uma chamada de resumo; detalhes antigos podem exigir uma busca no histórico.",
+  "contextHistoryHelp": "Arquiva o histórico concluído e limpa o raciocínio anterior. Mantém a tarefa e os arquivos; consulta notas e resultados originais quando necessário, sem gerar um resumo pelo modelo.",
   "contextModeScope": "Aplica-se a novos turnos de API do Nexa e à compactação manual. Os runtimes de assinatura gerenciam seu próprio contexto ativo.",
   "modelLifecycleRemoved": "Descontinuado",
   "retiredModelSelection": "Este provedor descontinuou o modelo {model}. Escolha outro modelo antes de enviar.",
@@ -1137,5 +1137,10 @@
   "externalAgentCheckUpdates": "Verificar atualizações",
   "externalAgentUseUpdate": "Usar {version}",
   "externalAgentCustomUpdate": "Executável personalizado: atualize pelo instalador correspondente.",
-  "externalAgentRegistryChecked": "Diretório verificado: {time}"
+  "externalAgentRegistryChecked": "Diretório verificado: {time}",
+  "providerVertex": "Google Vertex AI",
+  "providerBedrock": "Amazon Bedrock",
+  "vertexExpressHelp": "Express mode uses a Google Cloud API key. For project access, set the base URL to https://LOCATION-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/publishers/google and supply an OAuth access token; use aiplatform.googleapis.com for global.",
+  "vertexProjectHelp": "Replace the project and location in the URL. Use an OAuth access token with Cloud Platform scope and enable the selected model in that project. Tokens expire; automatic ADC refresh is not configured. Model discovery does not prove inference access.",
+  "bedrockHelp": "Use a Bedrock API key (bearer token). Set the Runtime URL to your AWS region. Model IDs may be cross-region profile IDs or full profile ARNs. IAM access-key/SSO credentials are not accepted here; catalog permissions and inference permissions are separate."
 }

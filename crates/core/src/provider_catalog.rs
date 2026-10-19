@@ -378,6 +378,31 @@ pub fn find_provider_preset(
                     .map(|position| &presets[*position]);
             }
         }
+        let cloud_preset = if provider == "vertex"
+            && crate::llm::provider_boundary::is_vertex_endpoint(
+                ProviderType::Vertex,
+                base_url,
+                "google",
+            ) {
+            Some("vertex")
+        } else if provider == "vertex"
+            && crate::llm::provider_boundary::is_vertex_endpoint(
+                ProviderType::Vertex,
+                base_url,
+                "anthropic",
+            )
+        {
+            Some("vertex-anthropic")
+        } else if provider == "bedrock"
+            && crate::llm::provider_boundary::is_bedrock_endpoint(ProviderType::Bedrock, base_url)
+        {
+            Some("bedrock")
+        } else {
+            None
+        };
+        if let Some(id) = cloud_preset {
+            return index.by_id.get(id).map(|position| &presets[*position]);
+        }
         // A provider label never authorizes projecting a trusted catalog onto
         // an unknown, user-edited, HTTP, or non-standard-port endpoint.
         return None;

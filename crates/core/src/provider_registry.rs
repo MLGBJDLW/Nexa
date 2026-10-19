@@ -11,6 +11,7 @@ pub enum ProviderAdapterKind {
     OpenAiCompatible,
     Anthropic,
     Google,
+    Bedrock,
     Ollama,
 }
 
@@ -46,6 +47,18 @@ const PROVIDER_REGISTRY: &[ProviderRegistryEntry] = &[
         canonical_key: "google",
         aliases: &["google", "gemini"],
         adapter: ProviderAdapterKind::Google,
+    },
+    ProviderRegistryEntry {
+        provider_type: ProviderType::Vertex,
+        canonical_key: "vertex",
+        aliases: &["vertex", "vertex_ai", "google_vertex"],
+        adapter: ProviderAdapterKind::Google,
+    },
+    ProviderRegistryEntry {
+        provider_type: ProviderType::Bedrock,
+        canonical_key: "bedrock",
+        aliases: &["bedrock", "amazon_bedrock", "aws_bedrock"],
+        adapter: ProviderAdapterKind::Bedrock,
     },
     ProviderRegistryEntry {
         provider_type: ProviderType::DeepSeek,

@@ -73,6 +73,8 @@ const PROVIDER_LABEL_KEYS: { value: ProviderType; labelKey: string }[] = [
   { value: "openrouter", labelKey: "settings.providerOpenRouter" },
   { value: "anthropic", labelKey: "settings.providerAnthropic" },
   { value: "google", labelKey: "settings.providerGoogleGemini" },
+  { value: "vertex", labelKey: "settings.providerVertex" },
+  { value: "bedrock", labelKey: "settings.providerBedrock" },
   { value: "deep_seek", labelKey: "settings.providerDeepSeek" },
   { value: "zhipu", labelKey: "settings.providerZhipu" },
   { value: "moonshot", labelKey: "settings.providerMoonshot" },
@@ -93,6 +95,8 @@ const BASE_URL_PLACEHOLDERS: Record<ProviderType, string> = {
   openrouter: "https://openrouter.ai/api/v1",
   anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta",
+  vertex: "https://aiplatform.googleapis.com/v1/publishers/google",
+  bedrock: "https://bedrock-runtime.us-east-1.amazonaws.com",
   deep_seek: "https://api.deepseek.com",
   zhipu: "https://open.bigmodel.cn/api/paas/v4",
   moonshot: "https://api.moonshot.cn/v1",
@@ -910,7 +914,7 @@ export function AgentConfigForm({
               type={showKey ? "text" : "password"}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
+              placeholder={provider === "bedrock" ? "Bedrock API key" : provider === "vertex" ? "API key / OAuth access token" : "sk-..."}
               className="pr-10"
             />
             <button
@@ -938,6 +942,12 @@ export function AgentConfigForm({
           placeholder={BASE_URL_PLACEHOLDERS[provider]}
         />
       </div>
+
+      {(provider === "vertex" || provider === "bedrock") && (
+        <p className="text-xs leading-relaxed text-text-secondary" data-testid="cloud-provider-help">
+          {t(provider === "bedrock" ? "settings.bedrockHelp" : baseUrl.includes('/projects/') ? "settings.vertexProjectHelp" : "settings.vertexExpressHelp")}
+        </p>
+      )}
 
       {/* Model */}
       {activePreset && activePreset.models.length > 0 && !useCustomModel ? (

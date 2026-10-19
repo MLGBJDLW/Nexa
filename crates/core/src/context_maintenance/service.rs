@@ -244,6 +244,22 @@ impl ContextCompactionService {
         let mode = job.mode;
         let plan_started = Instant::now();
         let plan = tokio::task::spawn_blocking(move || {
+            if mode == ContextManagementMode::History && loaded.value.fresh_handoff_is_current {
+                return PlanOutcome::Noop {
+                    messages_before: loaded.value.messages.len(),
+                    tokens_before: loaded
+                        .value
+                        .messages
+                        .iter()
+                        .map(|message| {
+                            crate::conversation::memory::estimate_tokens_for_model(
+                                &model_for_plan,
+                                &message.content,
+                            )
+                        })
+                        .fold(0_u32, u32::saturating_add),
+                };
+            }
             plan_compaction(
                 loaded.value.messages,
                 &model_for_plan,
@@ -879,9 +895,19 @@ mod tests {
         let projection =
             super::super::load_context_projection(&database, &conversation.id).unwrap();
         assert!(projection.projected);
-        assert!(projection.messages[0]
-            .content
-            .contains("Verify the tool tail next."));
+        assert!(!projection
+            .messages
+            .iter()
+            .any(|message| message.content.contains("Verify the tool tail next.")));
+        assert_eq!(projection.messages.len(), 2);
+        assert_eq!(projection.messages[1].content, "Continue the same task");
+        let window = matches["matches"][0]["windowId"].as_str().unwrap();
+        assert_eq!(
+            database
+                .read_context_history_notes(&conversation.id, window, 0, 16000)
+                .unwrap()["notes"],
+            "Verify the tool tail next."
+        );
         assert_eq!(database.get_messages(&conversation.id).unwrap().len(), 3);
     }
 }

@@ -1037,12 +1037,12 @@ test.beforeEach(async ({ page }) => {
 test('settings persists the selected context management mode and keeps summary as the default', async ({ page }) => {
   await page.goto('/settings');
   await page.getByRole('tab', { name:'Appearance', exact:true }).click();
-  await page.getByRole('button', { name:'Advanced', exact:true }).click();
   const mode = page.getByLabel('Context management', { exact:true });
+  await expect(mode).toBeVisible();
   await expect(mode).toHaveValue('summary');
   await mode.selectOption('history');
-  await expect(page.getByTestId('context-management-settings')).toContainText('Avoids a summary-model call');
-  const panel = page.getByRole('region', { name:'Advanced', exact:true });
+  await expect(page.getByTestId('context-management-settings')).toContainText('no summary-model call');
+  const panel = page.getByTestId('context-management-settings');
   await panel.getByRole('button', { name:'Save', exact:true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('history');
   await mode.selectOption('summary');
@@ -3133,3 +3133,29 @@ test('settings tabs support keyboard navigation, compact model choices and reduc
   await expect(card.getByRole('region', { includeHidden: true })).toHaveAttribute('inert', '');
   await page.screenshot({ path: testInfo.outputPath('settings-compact-models.png') });
 });
+
+
+for (const cloud of [
+  { id: 'vertex', provider: 'vertex', icon: 'vertexai', url: 'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/publishers/google', model: 'gemini-3.5-flash', help: 'OAuth access token' },
+  { id: 'vertex-anthropic', provider: 'vertex', icon: 'vertexai', url: 'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/publishers/anthropic', model: 'claude-opus-5-5', help: 'OAuth access token' },
+  { id: 'bedrock', provider: 'bedrock', icon: 'bedrock', url: 'https://bedrock-runtime.us-west-2.amazonaws.com', model: 'global.anthropic.claude-opus-5-5', help: 'Bedrock API key' },
+]) {
+  test(`cloud provider ${cloud.id} keeps its icon and native model contract on scoped endpoints`, async ({ page }, testInfo) => {
+    await page.goto('/settings');
+    await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
+    await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+    const card = page.locator(`[data-provider-preset-id="${cloud.id}"]`);
+    await expect(card.locator('span[style]').first()).toHaveAttribute('style', new RegExp(`provider-icons/${cloud.icon}\\.svg`));
+    const icon = await page.request.get(`/provider-icons/${cloud.icon}.svg`);
+    expect(icon.ok()).toBe(true);
+    await card.click();
+    await page.locator('input[type="password"]').fill('cloud-test-credential');
+    await page.locator('label').filter({ hasText: 'Base URL' }).locator('xpath=..').getByRole('textbox').fill(cloud.url);
+    await expect(page.getByTestId('cloud-provider-help')).toContainText(cloud.help);
+    await selectNexaOption(page.getByTestId('default-model-picker'), cloud.model);
+    const form = page.getByTestId('default-model-picker').locator('xpath=ancestor::form');
+    await form.screenshot({ path: testInfo.outputPath(`${cloud.id}-settings.png`) });
+    await form.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ provider: cloud.provider, baseUrl: cloud.url, model: cloud.model, apiKey: 'cloud-test-credential' });
+  });
+}

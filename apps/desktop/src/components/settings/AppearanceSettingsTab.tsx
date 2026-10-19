@@ -216,6 +216,26 @@ export function AppearanceSettingsTab({
           </Button>
         </div>
 
+        {appConfig && (
+          <div className="space-y-2" data-testid="context-management-settings">
+            <label htmlFor="context-management-mode" className="text-sm font-medium text-text-primary">{t('settings.contextManagementMode')}</label>
+            <select id="context-management-mode"
+              className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary"
+              value={appConfig.contextManagementMode ?? 'summary'}
+              onChange={event => onAppConfigChange({ ...appConfig, contextManagementMode: event.target.value as 'summary' | 'history' })}>
+              <option value="summary">{t('settings.contextModeSummary')}</option>
+              <option value="history">{t('settings.contextModeHistory')}</option>
+            </select>
+            <p className="text-xs leading-5 text-text-tertiary">{appConfig.contextManagementMode === 'history' ? t('settings.contextHistoryHelp') : t('settings.contextSummaryHelp')}</p>
+            <p className="text-xs leading-5 text-text-tertiary">{t('settings.contextModeScope')}</p>
+            <div className="flex justify-end">
+              <Button variant="primary" size="sm" icon={<Save size={14} />} loading={appConfigLoading} onClick={() => onAppConfigSave()}>
+                {t('common.save')}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Advanced Settings */}
         <CollapsiblePanel
           title={t('settings.advanced')}
@@ -289,18 +309,6 @@ export function AppearanceSettingsTab({
 
               {/* Agent Behavior */}
               <div className="space-y-3 mt-2">
-                <div className="space-y-2" data-testid="context-management-settings">
-                  <label htmlFor="context-management-mode" className="text-sm font-medium text-text-primary">{t('settings.contextManagementMode')}</label>
-                  <select id="context-management-mode"
-                    className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary"
-                    value={appConfig.contextManagementMode ?? 'summary'}
-                    onChange={event => onAppConfigChange({ ...appConfig, contextManagementMode:event.target.value as 'summary' | 'history' })}>
-                    <option value="summary">{t('settings.contextModeSummary')}</option>
-                    <option value="history">{t('settings.contextModeHistory')}</option>
-                  </select>
-                  <p className="text-xs leading-5 text-text-tertiary">{appConfig.contextManagementMode === 'history' ? t('settings.contextHistoryHelp') : t('settings.contextSummaryHelp')}</p>
-                  <p className="text-xs leading-5 text-text-tertiary">{t('settings.contextModeScope')}</p>
-                </div>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"

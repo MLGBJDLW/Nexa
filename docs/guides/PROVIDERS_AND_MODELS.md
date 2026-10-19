@@ -2,12 +2,14 @@
 
 [Documentation](../README.md) / [Category overview](README.md)
 
-The October 14 catalog refresh adds Gemini 4 Argon and the reviewed Ark and
-OpenRouter routes, removes router entries confirmed to have no endpoints, and
-keeps announced future retirements selectable with deprecation metadata.
-Anthropic discovery now
-reads authenticated `/v1/models` pages; failure uses the existing curated fallback
-without claiming live discovery succeeded.
+The catalog keeps provider-specific lifecycle and capability evidence. The latest
+update adds Vertex AI and Bedrock connections, Jev 1.14 and the reviewed
+OpenRouter Decisions models, Meta Muse Image generation and raster Recraft
+Styles models. OpenAI's announced future retirements remain selectable with
+`deprecated` metadata; retired entries stay out of active choices. Public
+OpenRouter audits cover text, embeddings, images and decisions separately.
+Anthropic discovery and health checks read authenticated `/v1/models` pages;
+failure uses the curated fallback without claiming live discovery succeeded.
 
 Gemini Argon uses native thinking levels and preserves the exact request across
 `CONTINUATION` hops through the top-level `continuationToken`. A hop can contain
@@ -42,7 +44,50 @@ does not become an API key, and selecting an API-only feature does not silently
 switch to another connection. Model availability, entitlement, cost, and service
 limits remain properties of the configured account and endpoint.
 
-### OpenRouter credentials
+### Vertex AI and Amazon Bedrock
+
+Both providers appear under **Settings → AI Providers** with their own icons.
+Their credentials are saved in the existing endpoint-scoped secret store.
+
+| Connection | Base URL and credential |
+| --- | --- |
+| Vertex Gemini Express | `https://aiplatform.googleapis.com/v1/publishers/google`; Google Cloud API key |
+| Vertex Gemini project | `https://LOCATION-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/publishers/google`; OAuth access token with Cloud Platform scope |
+| Vertex Claude | The same project/location form ending in `/publishers/anthropic`; OAuth access token and enabled partner-model access |
+| Bedrock Converse | `https://bedrock-runtime.REGION.amazonaws.com`; Amazon Bedrock API key (Bearer token) |
+
+For Vertex's `global` location, use the unprefixed `aiplatform.googleapis.com`
+host. Replace project placeholders before sending a request. Manually supplied
+OAuth tokens expire: this connection does not refresh ADC, service-account,
+SSO or IAM credentials. Bedrock AWS access-key IDs are not bearer API keys.
+
+Vertex Gemini uses GenerateContent/SSE; Vertex Claude uses rawPredict and
+streamRawPredict with the native Claude body. Bedrock uses Converse and the
+AWS binary event stream, including late errors and trailing usage metadata.
+Native signed reasoning and tool-use IDs remain paired with their exact route.
+The same provider-neutral tool loop consumes these transports.
+
+Bedrock model selection accepts regional or global inference-profile IDs and
+full profile ARNs without rewriting them. Curated global profiles are examples;
+account, source-region and model permissions still determine availability.
+Discovery permission and inference permission are separate. The configured
+connection test is the explicit model probe; a catalog listing alone is not
+proof of successful inference. Native PDF input is not advertised for these
+cloud routes; existing local extraction remains available.
+
+Lifecycle metadata also stays endpoint scoped. For example, Vertex's Gemini
+2.5 retirement schedule does not retire the same IDs on the Gemini Developer
+API. Consult the provider's current lifecycle page before migrating a saved
+connection: [Vertex model lifecycle](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions),
+[Bedrock lifecycle](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html),
+[Gemini Developer API deprecations](https://ai.google.dev/gemini-api/docs/deprecations).
+
+Implementation and focused wire tests live in
+[Vertex routing](../../crates/core/src/llm/vertex.rs),
+[Bedrock transport](../../crates/core/src/llm/bedrock.rs), and
+[Bedrock tests](../../crates/core/src/llm/bedrock/tests.rs).
+
+## OpenRouter credentials
 
 Use a regular inference API key from [OpenRouter API keys](https://openrouter.ai/settings/keys).
 Management/provisioning keys can query key metadata but cannot call models. This

@@ -79,6 +79,7 @@ impl RouteSnapshot {
             ReasoningApiStyle::OpenAiResponses => "openAiResponses",
             ReasoningApiStyle::AnthropicMessages => "anthropicMessages",
             ReasoningApiStyle::GeminiGenerateContent => "geminiGenerateContent",
+            ReasoningApiStyle::BedrockConverse => "bedrockConverse",
             ReasoningApiStyle::Local => "local",
         }
     }
@@ -493,6 +494,13 @@ impl AnthropicAssistantReplay {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BedrockAssistantReplay {
+    pub content: Vec<serde_json::Value>,
+    pub request_prefix: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", content = "data", rename_all = "camelCase")]
 pub enum ProviderReplayPayload {
@@ -506,6 +514,7 @@ pub enum ProviderReplayPayload {
     AnthropicAssistantBlocks(AnthropicAssistantReplay),
     OpenAiResponseItems(ResponsesReplayPayload),
     GeminiThoughtSignatures(GeminiThoughtSignatureSet),
+    BedrockAssistantBlocks(BedrockAssistantReplay),
     OpenAiCompatibleReasoningContent {
         source_field: String,
         content: String,
@@ -538,6 +547,10 @@ impl ProviderReplayPayload {
             }
             Self::GeminiThoughtSignatures(payload) => {
                 !payload.signatures.is_empty() && payload.has_valid_signature_positions()
+            }
+            Self::BedrockAssistantBlocks(payload) => {
+                !payload.request_prefix.is_empty()
+                    && super::bedrock::valid_replay(&payload.content, None)
             }
             Self::None => false,
         }
@@ -578,6 +591,12 @@ impl ProviderReplayPayload {
 
     fn authorizes_tool_calls(&self, route: &RouteSnapshot, tool_calls: &[ToolCallRequest]) -> bool {
         match self {
+            Self::BedrockAssistantBlocks(payload) => {
+                self.is_present()
+                    && super::bedrock::valid_replay(&payload.content, Some(tool_calls))
+                    && (!route.model_id.contains("anthropic.claude-")
+                        || super::bedrock::signed_reasoning_complete(&payload.content))
+            }
             Self::DeepSeekResponseItems(payload) => {
                 payload.authorizes_tool_calls(tool_calls, false)
             }
@@ -673,7 +692,7 @@ impl ProviderReplayPayload {
                     }
                 }
             }
-            ReasoningApiStyle::Local => Self::None,
+            ReasoningApiStyle::Local | ReasoningApiStyle::BedrockConverse => Self::None,
         }
     }
 }
@@ -688,6 +707,7 @@ pub enum ProviderReplayItem {
     AnthropicAssistantBlock(serde_json::Value),
     OpenAiResponseItem(serde_json::Value),
     GeminiContentPart(serde_json::Value),
+    BedrockContentBlock(serde_json::Value),
     OpenAiCompatibleReasoningContent {
         source_field: String,
         content: String,
@@ -751,6 +771,12 @@ impl ProviderReplayItem {
             ProviderReplayPayload::ArkEncryptedContent(content) => {
                 vec![Self::ArkEncryptedContent(content.clone())]
             }
+            ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload
+                .content
+                .iter()
+                .cloned()
+                .map(Self::BedrockContentBlock)
+                .collect(),
             ProviderReplayPayload::None => Vec::new(),
         }
     }
@@ -883,6 +909,12 @@ impl ProviderTurnEnvelope {
             crate::tool_argument_projection::is_sensitive_computer_control_name(&call.name)
         });
         let payload_sensitive = match &self.replay_payload {
+            ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload
+                .content
+                .iter()
+                .filter_map(|block| block.get("toolUse"))
+                .filter_map(|tool| tool["name"].as_str())
+                .any(crate::tool_argument_projection::is_sensitive_computer_control_name),
             ProviderReplayPayload::AnthropicAssistantBlocks(payload) => payload
                 .content
                 .iter()
@@ -923,6 +955,18 @@ impl ProviderTurnEnvelope {
             )
         });
         let payload_sensitive = match &self.replay_payload {
+            ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload
+                .content
+                .iter()
+                .filter_map(|block| block.get("toolUse"))
+                .any(|tool| {
+                    tool["name"].as_str().is_some_and(|name| {
+                        crate::tool_argument_projection::tool_arguments_contain_sensitive_input(
+                            name,
+                            &tool["input"],
+                        )
+                    })
+                }),
             ProviderReplayPayload::AnthropicAssistantBlocks(payload) => {
                 payload.content.iter().any(|block| {
                     block["type"] == "tool_use"

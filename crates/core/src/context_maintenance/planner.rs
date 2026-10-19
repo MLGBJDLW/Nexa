@@ -43,6 +43,9 @@ pub(crate) fn plan_compaction(
     expected_checkpoint_generation: u64,
     mode: crate::context_history::ContextManagementMode,
 ) -> PlanOutcome {
+    if mode == crate::context_history::ContextManagementMode::History {
+        return plan_history_handoff(messages, model, expected_checkpoint_generation);
+    }
     let messages_before = messages.len();
     let tokens = messages
         .iter()
@@ -118,20 +121,7 @@ pub(crate) fn plan_compaction(
 
     let summary_messages = messages[prefix_end..evict_end]
         .iter()
-        .map(|message| {
-            if mode == crate::context_history::ContextManagementMode::History {
-                let mut archived = Message::text(
-                    message.role.clone(),
-                    conversation_message_llm_context_content(message),
-                );
-                archived.name = message.tool_call_id.clone();
-                archived.tool_calls =
-                    (!message.tool_calls.is_empty()).then(|| message.tool_calls.clone());
-                archived
-            } else {
-                summary_message(message)
-            }
-        })
+        .map(summary_message)
         .collect::<Vec<_>>();
     let extractive_fallback = build_evicted_recap_from_messages(&summary_messages);
     let retained_tail_message_ids = messages[evict_end..]
@@ -172,6 +162,91 @@ pub(crate) fn plan_compaction(
         retained_start_sort_order,
         messages_before,
         evicted_messages: evict_end.saturating_sub(prefix_end),
+        tokens_before,
+        retained_tokens,
+    })
+}
+
+fn plan_history_handoff(
+    messages: Vec<ConversationMessage>,
+    model: &str,
+    expected_checkpoint_generation: u64,
+) -> PlanOutcome {
+    let tokens = messages
+        .iter()
+        .map(|message| estimated_message_tokens(message, model))
+        .collect::<Vec<_>>();
+    let tokens_before = tokens.iter().copied().fold(0_u32, u32::saturating_add);
+    let snapshot = messages
+        .iter()
+        .map(|message| {
+            let mut item = Message::text(
+                message.role.clone(),
+                conversation_message_llm_context_content(message),
+            );
+            item.name = message.tool_call_id.clone();
+            item.tool_calls = (!message.tool_calls.is_empty()).then(|| message.tool_calls.clone());
+            item
+        })
+        .collect::<Vec<_>>();
+    let active = messages.iter().rposition(|message| {
+        message.role == Role::User
+            && !matches!(
+                message
+                    .artifacts
+                    .as_ref()
+                    .and_then(|a| a.get("kind"))
+                    .and_then(serde_json::Value::as_str),
+                Some("steering" | "questionResponse" | "checkpointContinuation")
+            )
+    });
+    let Some(plan) = crate::context_history::HistoryHandoffPlan::prepare(
+        &snapshot,
+        active.map(|index| &snapshot[index]),
+    ) else {
+        return PlanOutcome::Noop {
+            messages_before: messages.len(),
+            tokens_before,
+        };
+    };
+    let retained_start_sort_order = plan
+        .retained
+        .iter()
+        .map(|&index| messages[index].sort_order)
+        .min()
+        .unwrap_or_default();
+    let retained_tokens = plan
+        .retained
+        .iter()
+        .map(|&index| tokens[index])
+        .fold(0_u32, u32::saturating_add);
+    PlanOutcome::Planned(CompactionPlan {
+        snapshot_high_watermark: messages
+            .iter()
+            .map(|message| message.sort_order)
+            .max()
+            .unwrap_or_default(),
+        source_message_ids: messages.iter().map(|message| message.id.clone()).collect(),
+        source_start_sort_order: messages
+            .first()
+            .map(|message| message.sort_order)
+            .unwrap_or_default(),
+        source_boundary_sort_order: messages
+            .last()
+            .map(|message| message.sort_order)
+            .unwrap_or_default(),
+        source_digest: source_digest(&messages),
+        expected_checkpoint_generation,
+        summary_messages: snapshot,
+        extractive_fallback: String::new(),
+        retained_tail_message_ids: plan
+            .retained
+            .iter()
+            .map(|&index| messages[index].id.clone())
+            .collect(),
+        retained_start_sort_order,
+        messages_before: messages.len(),
+        evicted_messages: messages.len().saturating_sub(plan.retained.len()),
         tokens_before,
         retained_tokens,
     })

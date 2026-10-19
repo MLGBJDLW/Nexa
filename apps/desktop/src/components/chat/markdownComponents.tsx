@@ -164,6 +164,10 @@ function scrollAnchorIntoChatContainer(target: HTMLElement): boolean {
 /*  Markdown component overrides                                       */
 /* ------------------------------------------------------------------ */
 
+function decodeCitationTarget(value: string): string {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
 /** Route web links through Nexa Browser, or render local/citation references. */
 function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>) {
   const citationCtx = useContext(CitationContext);
@@ -171,7 +175,7 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
 
   // Detect citation links: href="cite:CHUNK_ID"
   if (href && href.startsWith('cite:')) {
-    const chunkId = href.slice(5); // strip "cite:"
+    const chunkId = decodeCitationTarget(href.slice(5)); // strip "cite:"
     const displayText = typeof children === 'string'
       ? children
       : Array.isArray(children)
@@ -183,7 +187,7 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
 
   // Document reference badge
   if (href && href.startsWith('doc:')) {
-    const docId = href.slice(4);
+    const docId = decodeCitationTarget(href.slice(4));
     return (
       <span
         className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[11px] font-medium

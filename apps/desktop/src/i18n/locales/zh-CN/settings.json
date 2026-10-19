@@ -1016,9 +1016,9 @@
   "displayStreamingCost": "更流畅的显示可能增加 CPU/GPU 占用和耗电，长回答尤其明显。不会改变模型生成速度或保存的内容；系统启用减少动态效果时，将关闭逐步呈现。",
   "contextManagementMode": "上下文管理方式",
   "contextModeSummary": "摘要压缩（默认）",
-  "contextModeHistory": "笔记与历史切换（实验）",
+  "contextModeHistory": "清空推理并归档历史",
   "contextSummaryHelp": "由模型概括较早的交流，保留最近的完整轮次。",
-  "contextHistoryHelp": "先将早期文本和工具结果保存在本地，再携带笔记和近期交流继续。省去摘要模型调用；回忆旧细节时可能需要检索历史。",
+  "contextHistoryHelp": "归档已完成的历史，清空旧推理，保留当前任务与工作成果。需要时再读取笔记和原始结果，不调用模型生成摘要。",
   "contextModeScope": "应用于新开始的 Nexa API 轮次和手动压缩。订阅运行器自行管理其活动上下文。",
   "modelLifecycleRemoved": "已下线",
   "retiredModelSelection": "此服务商已下线模型 {model}，请在发送前选择其他模型。",
@@ -1137,5 +1137,10 @@
   "externalAgentCheckUpdates": "检查 Agent 更新",
   "externalAgentUseUpdate": "使用 {version}",
   "externalAgentCustomUpdate": "自定义可执行文件：请通过其安装程序更新。",
-  "externalAgentRegistryChecked": "目录检查时间：{time}"
+  "externalAgentRegistryChecked": "目录检查时间：{time}",
+  "providerVertex": "Google Vertex AI",
+  "providerBedrock": "Amazon Bedrock",
+  "vertexExpressHelp": "Express 模式使用 Google Cloud API 密钥。项目模式请将地址设为 https://LOCATION-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/publishers/google，并填写 OAuth 访问令牌；global 区域使用 aiplatform.googleapis.com。",
+  "vertexProjectHelp": "请替换地址中的项目和区域，填写含 Cloud Platform 权限的 OAuth 访问令牌，并在项目中启用所选模型。令牌会过期，此处未配置 ADC 自动刷新。目录查询成功不代表模型推理权限可用。",
+  "bedrockHelp": "请填写 Bedrock API 密钥（Bearer 令牌），并将 Runtime 地址改为所在 AWS 区域。模型可使用跨区域推理配置 ID 或完整 ARN。此处不接受 IAM Access Key 或 SSO 凭据；目录权限与推理权限独立。"
 }

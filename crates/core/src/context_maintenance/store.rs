@@ -27,6 +27,7 @@ pub(crate) enum CommitOutcome {
 pub(crate) struct CompactionSnapshot {
     pub messages: Vec<ConversationMessage>,
     pub checkpoint_generation: u64,
+    pub fresh_handoff_is_current: bool,
 }
 
 pub(crate) fn load_compaction_snapshot(
@@ -46,9 +47,22 @@ pub(crate) fn load_compaction_snapshot(
         .optional()?
         .ok_or_else(|| CoreError::NotFound(format!("Conversation {conversation_id}")))?
     };
+    let messages = model_history_messages(database.get_messages(conversation_id)?);
+    let fresh_handoff_is_current =
+        active_checkpoint(database, conversation_id)?.is_some_and(|checkpoint| {
+            checkpoint
+                .summary
+                .starts_with(crate::context_history::FRESH_HISTORY_HEADER)
+                && checkpoint.source_digest == super::planner::source_digest(&messages)
+                && checkpoint
+                    .source_message_ids
+                    .iter()
+                    .eq(messages.iter().map(|message| &message.id))
+        });
     Ok(CompactionSnapshot {
-        messages: model_history_messages(database.get_messages(conversation_id)?),
+        messages,
         checkpoint_generation,
+        fresh_handoff_is_current,
     })
 }
 
@@ -195,12 +209,21 @@ pub(crate) fn commit_context_checkpoint(
          WHERE id = ?1",
         rusqlite::params![input.conversation_id, input.operation_id],
     )?;
-    let messages_after = tx.query_row(
-        "SELECT COUNT(*) + 1 FROM messages
+    let messages_after = if input.history_archive.is_some() {
+        let added: usize = tx.query_row(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id=?1 AND sort_order > ?2",
+            rusqlite::params![input.conversation_id, input.snapshot_high_watermark],
+            |row| row.get(0),
+        )?;
+        added + input.retained_tail_message_ids.len() + 1
+    } else {
+        tx.query_row(
+            "SELECT COUNT(*) + 1 FROM messages
          WHERE conversation_id = ?1 AND sort_order >= ?2",
-        rusqlite::params![input.conversation_id, input.retained_start_sort_order],
-        |row| row.get::<_, usize>(0),
-    )?;
+            rusqlite::params![input.conversation_id, input.retained_start_sort_order],
+            |row| row.get::<_, usize>(0),
+        )?
+    };
     tx.commit()?;
     Ok(CommitOutcome::Committed { messages_after })
 }
@@ -350,6 +373,9 @@ pub fn load_context_projection(
         });
     }
 
+    let fresh_handoff = checkpoint
+        .summary
+        .starts_with(crate::context_history::FRESH_HISTORY_HEADER);
     let summary = ConversationMessage {
         id: format!("context-compaction:{}", checkpoint.id),
         conversation_id: conversation_id.to_string(),
@@ -379,7 +405,14 @@ pub fn load_context_projection(
             projected: false,
         });
     }
-    let tail = model_history_messages(tail);
+    let tail = model_history_messages(tail)
+        .into_iter()
+        .filter(|message| {
+            !fresh_handoff
+                || message.sort_order > checkpoint.snapshot_high_watermark
+                || expected_tail.contains(message.id.as_str())
+        })
+        .collect::<Vec<_>>();
     let mut messages = Vec::with_capacity(tail.len() + 1);
     messages.push(summary);
     messages.extend(tail);

@@ -26,6 +26,7 @@ pub enum ReasoningApiStyle {
     OpenAiResponses,
     AnthropicMessages,
     GeminiGenerateContent,
+    BedrockConverse,
     Local,
 }
 
@@ -432,10 +433,25 @@ pub fn resolve_reasoning_profile(
         value.confidence = CapabilityConfidence::Verified;
         return value;
     }
+    if api_style == ReasoningApiStyle::BedrockConverse {
+        let mut value = ReasoningProfile::unsupported(key);
+        if !super::provider_boundary::is_bedrock_endpoint(provider, base_url) {
+            return value;
+        }
+        value.id = "bedrock-converse-v1".into();
+        value.mode_control = ThinkingModeControl::ProviderDefault;
+        value.preserve_reasoning_history = true;
+        value.replay_policy = ReasoningReplayPolicy::NotRequired;
+        value.confidence = CapabilityConfidence::Verified;
+        return value;
+    }
     if api_style == ReasoningApiStyle::AnthropicMessages {
         let mut value = ReasoningProfile::unsupported(key);
         let is_deepseek_compat = is_deepseek_anthropic_endpoint(provider, base_url);
-        if !is_anthropic_public_endpoint(provider, base_url) && !is_deepseek_compat {
+        if !is_anthropic_public_endpoint(provider, base_url)
+            && !is_deepseek_compat
+            && !super::provider_boundary::is_vertex_endpoint(provider, base_url, "anthropic")
+        {
             return value;
         }
         value.id = if is_deepseek_compat {
@@ -452,7 +468,9 @@ pub fn resolve_reasoning_profile(
     }
     if api_style == ReasoningApiStyle::GeminiGenerateContent {
         let mut value = ReasoningProfile::unsupported(key);
-        if !is_google_public_endpoint(provider, base_url) {
+        if !is_google_public_endpoint(provider, base_url)
+            && !super::provider_boundary::is_vertex_endpoint(provider, base_url, "google")
+        {
             return value;
         }
         value.id = "gemini-thought-signature-v1".to_string();

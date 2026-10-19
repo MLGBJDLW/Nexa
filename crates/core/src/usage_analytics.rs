@@ -611,6 +611,8 @@ pub fn provider_type_id(provider_type: Option<ProviderType>) -> &'static str {
         Some(ProviderType::OpenRouter) => "open_router",
         Some(ProviderType::Anthropic) => "anthropic",
         Some(ProviderType::Google) => "google",
+        Some(ProviderType::Vertex) => "vertex",
+        Some(ProviderType::Bedrock) => "bedrock",
         Some(ProviderType::DeepSeek) => "deep_seek",
         Some(ProviderType::Ollama) => "ollama",
         Some(ProviderType::LmStudio) => "lm_studio",
