@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.0...nexa-monorepo-v0.17.1) (2026-10-19)
+
+
+### Features
+
+* add cloud providers and fresh context handoffs ([#488](https://github.com/MLGBJDLW/Nexa/issues/488)) ([d0f9053](https://github.com/MLGBJDLW/Nexa/commit/d0f9053e8252bc5429349fe0e1cee42834691976))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at d0f9053e8252bc5429349fe0e1cee42834691976 -->
+
+### What's Changed
+* feat: add cloud providers and fresh context handoffs by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/488
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.0...nexa-monorepo-v0.17.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.16.8...nexa-monorepo-v0.17.0) (2026-10-18)
 
 
