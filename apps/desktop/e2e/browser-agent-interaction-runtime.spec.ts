@@ -12,6 +12,43 @@ const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"
 if (!runtimeSource) throw new Error('Could not extract the native Browser Workspace interaction runtime');
 if (!takeoverSource) throw new Error('Could not extract the native Browser Workspace takeover guard');
 
+// Match visible native WebViews: headless Chromium otherwise hides scrollbar chrome.
+test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } });
+
+test('Browser pages retain draggable vertical and horizontal scrollbars', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 700, height: 500 });
+  await page.setContent(`<!doctype html><style>
+    html { scrollbar-width: none; }
+    *::-webkit-scrollbar { display: none; width: 0; height: 0; }
+    body { margin: 0; }
+    main { width: 1600px; height: 1800px; background: linear-gradient(135deg, #e0f2fe, #c4b5fd); }
+  </style><main>Wide and tall browser page</main>`);
+  const gutters = () => page.evaluate(() => ({
+    vertical: innerWidth - document.documentElement.clientWidth,
+    horizontal: innerHeight - document.documentElement.clientHeight,
+  }));
+  await expect.poll(gutters).toEqual({ vertical: 0, horizontal: 0 });
+  await page.addScriptTag({ content: runtimeSource });
+  await expect.poll(gutters).toEqual({ vertical: 12, horizontal: 12 });
+  const userEpoch = () => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.observe().userEpoch);
+  const beforeDrag = await userEpoch();
+  await page.mouse.move(694, 50);
+  await page.mouse.down();
+  await page.mouse.move(694, 330, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(400);
+  await page.mouse.move(70, 494);
+  await page.mouse.down();
+  await page.mouse.move(430, 494, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => scrollX)).toBeGreaterThan(400);
+  await expect.poll(userEpoch).toBeGreaterThan(beforeDrag);
+  await page.screenshot({ path: testInfo.outputPath('browser-scrollbars.png') });
+  // Modal scroll locks belong to the page; restoring chrome must not unlock it.
+  await page.evaluate(() => { document.documentElement.style.overflow = 'hidden'; });
+  await expect.poll(gutters).toEqual({ vertical: 0, horizontal: 0 });
+});
+
 test('Capture without feedback does not depend on animation frames', async ({ page }) => {
   await page.setContent('<button>Target</button>');
   await page.addScriptTag({ content: runtimeSource });
