@@ -1698,7 +1698,7 @@ mod tests {
             .expect("MiniMax preset should match its exact base URL");
         assert_eq!(
             minimax.models.first().map(|model| model.id.as_str()),
-            Some("MiniMax-M3")
+            Some("MiniMax-M3.1-Flash")
         );
 
         let meta = find_provider_preset("open_ai", Some("https://api.meta.ai/v1/"))

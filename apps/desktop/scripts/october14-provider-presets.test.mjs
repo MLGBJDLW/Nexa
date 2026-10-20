@@ -30,6 +30,11 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   assert.equal(argon.maxOutputTokens, 65_536);
   assert.equal(argon.capabilities.promptCache, false);
   assert.deepEqual(argon.capabilities.reasoning.effortLevels, ['low', 'medium', 'high']);
+  for (const provider of ['google', 'vertex']) {
+    for (const id of ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash']) {
+      assert.equal(model(provider, id).capabilities.reasoning.mode, 'always', `${provider}/${id} cannot disable thinking`);
+    }
+  }
   assert.equal(model('doubao', 'glm-5-2-260617').capabilities.reasoning.defaultEffort, 'high');
   assert.deepEqual(model('doubao', 'glm-5-2-260617').capabilities.reasoning.effortLevels, ['high', 'max']);
   for (const id of ['doubao-seed-2-0-mini-260428', 'doubao-seed-character-260628']) assert.equal(model('doubao', id).capabilities.reasoning.defaultEffort, 'medium');

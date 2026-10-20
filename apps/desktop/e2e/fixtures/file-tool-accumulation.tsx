@@ -33,7 +33,7 @@ function Probe() {
     emit('toolStarted', { run });
     emit('toolCompleted', { run: { ...run, status: failed ? 'failed' : 'completed', isError: failed,
       content: failed ? 'Expected text was not found' : 'File saved',
-      artifacts: failed ? undefined : { diffStats: { additions: index === 1 ? 9 : 1, deletions: index === 1 ? 0 : 1, filesChanged: 1, paths: [path] } },
+      artifacts: failed ? undefined : { diffStats: { additions: index === 1 ? 9 : 1, deletions: index === 1 ? 0 : 1, replacements: 1, filesChanged: 1, paths: [path] } },
     } });
     emit('outputDelta', { channel: 'answer', blockId: `reply-${index}`, offset: 0, delta: `Verified step ${index}.` });
   }

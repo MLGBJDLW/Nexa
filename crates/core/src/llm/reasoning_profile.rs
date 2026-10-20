@@ -641,7 +641,10 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_minimax_public_endpoint(provider, base_url) && model.starts_with("minimax-m") {
-        if model == "minimax-m3.1-flash-preview" {
+        if matches!(
+            model.as_str(),
+            "minimax-m3.1-flash" | "minimax-m3.1-flash-preview"
+        ) {
             let mut value = profile(
                 key,
                 "minimax-m31-reasoning-v1",
@@ -751,6 +754,8 @@ pub fn resolve_reasoning_profile(
             model.as_str(),
             "glm-5-3-flash-260828"
                 | "deepseek-v4-1-flash-260910"
+                | "deepseek-v4-1-flash-261017"
+                | "deepseek-v4-1-flash-economy-261017"
                 | "glm-5-2-260617"
                 | "deepseek-v4-pro-ga-260813"
                 | "deepseek-v4-flash-ga-260731"
@@ -1160,6 +1165,7 @@ pub fn resolve_reasoning_profile(
                 "glm-5.3"
                     | "glm-5.2"
                     | "deepseek-v4.1-flash"
+                    | "deepseek-v4.1-flash-1017"
                     | "deepseek-v4-pro"
                     | "deepseek-v4-pro-0813"
                     | "deepseek-v4-flash-0731"
@@ -1211,7 +1217,10 @@ pub fn resolve_reasoning_profile(
         if (beijing_payg
             && matches!(
                 model.as_str(),
-                "zhipu/glm-5.3-flash" | "zhipu/glm-5.3-flashx" | "stepfun/step-5-preview"
+                "zhipu/glm-5.3-flash"
+                    | "zhipu/glm-5.3-flashx"
+                    | "stepfun/step-5-preview"
+                    | "vanchin/deepseek-v4.1-flash"
             ))
             || (qwen_payg && model == "deepseek-v4.1-flash")
         {
@@ -1243,7 +1252,10 @@ pub fn resolve_reasoning_profile(
                     &efforts,
                     if mandatory {
                         Some(ReasoningEffort::Max)
-                    } else if model == "deepseek-v4.1-flash" {
+                    } else if matches!(
+                        model.as_str(),
+                        "deepseek-v4.1-flash" | "vanchin/deepseek-v4.1-flash"
+                    ) {
                         Some(ReasoningEffort::High)
                     } else {
                         None
@@ -1253,6 +1265,21 @@ pub fn resolve_reasoning_profile(
             );
             value.preserve_reasoning_history = true;
             value.omit_temperature_when_reasoning = true;
+            return value;
+        }
+        if beijing_payg && model == "xiaomi/mimo-v2.6-pro-ultraspeed" {
+            // Bailian documents reasoning_content replay but does not publish
+            // an effort/toggle contract for this workspace-hosted route.
+            let mut value = profile(
+                key,
+                "alibaba-mimo-v26-replay-v1",
+                ThinkingModeControl::ProviderDefault,
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
             return value;
         }
         if model == "qwen3.8-omni-flash" && qwen_payg {

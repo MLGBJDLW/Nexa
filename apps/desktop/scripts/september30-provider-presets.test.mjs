@@ -8,7 +8,7 @@ const { build } = createRequire(import.meta.resolve('vite'))('esbuild');
 const compiled = await build({ entryPoints: [fileURLToPath(new URL('../src/lib/providerPresets.ts', import.meta.url))], bundle: true, platform: 'node', format: 'esm', write: false });
 const { findProviderModelPreset: find, findProviderPreset, isRemovedProviderModel } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
 
-test('September additions project actual model limits and gated access into the picker', () => {
+test('native models project current limits and preserve gated preview identity in the picker', () => {
   const sol = find({ provider: 'open_ai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-6.1-sol' });
   assert.equal(sol.descriptor.limits.contextTokens, 1_050_000);
   assert.equal(sol.descriptor.limits.maxOutputTokens, 128_000);
@@ -20,6 +20,10 @@ test('September additions project actual model limits and gated access into the 
   assert.equal(minimax.descriptor.limits.maxOutputTokens, 524_288);
   assert.deepEqual(minimax.descriptor.inputModalities, ['text', 'image']);
   assert.equal(find({ provider: 'open_ai', baseUrl: 'https://api.openai.com/v1', model: minimax.id }), null);
+  const stable = find({ provider: 'open_ai', baseUrl: 'https://api.minimax.io/v1', model: 'MiniMax-M3.1-Flash' });
+  assert.equal(stable.descriptor.access, 'public');
+  assert.equal(stable.capabilities.reasoning.mode, 'always');
+  assert.deepEqual(stable.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
 });
 
 test('gateway reasoning controls and regional hosted models do not leak into direct or subscription routes', () => {
@@ -36,9 +40,19 @@ test('gateway reasoning controls and regional hosted models do not leak into dir
   assert.equal(find({ ...cn, model: 'ZHIPU/GLM-5.3-FlashX' }).descriptor.limits.maxOutputTokens, 131_072);
   assert.equal(find({ ...sg, model: 'ZHIPU/GLM-5.3-FlashX' }), null);
   assert.equal(find({ ...sg, model: 'deepseek-v4.1-flash' }).descriptor.limits.maxOutputTokens, 393_216);
+  const hostedDeepSeek = find({ ...cn, model: 'vanchin/deepseek-v4.1-flash' });
+  assert.equal(hostedDeepSeek.descriptor.access, 'account_enablement');
+  assert.deepEqual(hostedDeepSeek.capabilities.reasoning.effortLevels, ['low', 'high', 'max']);
+  assert.equal(find({ ...sg, model: hostedDeepSeek.id }), null);
+  const hostedMimo = find({ ...cn, model: 'xiaomi/mimo-v2.6-pro-ultraspeed' });
+  assert.equal(hostedMimo.descriptor.limits.contextTokens, 1_048_576);
+  assert.equal(hostedMimo.capabilities.reasoning, null);
   const plan = find({ provider: 'qwen', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'deepseek-v4.1-flash' });
   assert.ok(plan, 'Token Plan added this exact model in the October catalog');
   assert.equal(plan.descriptor.limits.maxOutputTokens, null, 'do not copy a PAYG output limit into Token Plan');
+  const snapshot = find({ provider: 'qwen', baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'deepseek-v4.1-flash-1017' });
+  assert.ok(snapshot);
+  assert.equal(snapshot.descriptor.limits.maxOutputTokens, null);
 });
 
 test('confirmed retirements disappear while still-supported legacy and future shutdowns remain', () => {

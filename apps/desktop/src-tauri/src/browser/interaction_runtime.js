@@ -1,5 +1,39 @@
 (() => {
   if (window.__NEXA_BROWSER_RUNTIME__) return;
+  // These are independent WebViews, so application chrome styles do not reach
+  // their documents. Keep native drag targets visible without changing any
+  // page-owned overflow rules (including modal and nested-scroll locks).
+  const scrollbarCss = `
+    :root, :root * { scrollbar-width: auto !important; scrollbar-color: auto !important; }
+    :root::-webkit-scrollbar, :root *::-webkit-scrollbar {
+      display: block !important; width: 12px !important; height: 12px !important;
+    }
+    :root::-webkit-scrollbar-track, :root *::-webkit-scrollbar-track {
+      background: rgba(128, 128, 128, .12) !important;
+    }
+    :root::-webkit-scrollbar-thumb, :root *::-webkit-scrollbar-thumb {
+      background: rgba(128, 128, 128, .65) !important;
+      background-clip: padding-box !important; border: 2px solid transparent !important;
+      border-radius: 6px !important; min-width: 24px !important; min-height: 24px !important;
+    }
+    :root::-webkit-scrollbar-thumb:hover, :root *::-webkit-scrollbar-thumb:hover {
+      background-color: rgba(128, 128, 128, .9) !important;
+    }
+  `;
+  try {
+    // A constructed sheet also works on documents that disallow inline styles.
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(scrollbarCss);
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+  } catch (_) {
+    const install = () => {
+      const style = document.createElement('style');
+      style.textContent = scrollbarCss;
+      (document.head || document.documentElement).append(style);
+    };
+    if (document.documentElement) install();
+    else document.addEventListener('DOMContentLoaded', install, { once: true });
+  }
   const runtime = {
     refs: new Map(),
     refIds: new WeakMap(),

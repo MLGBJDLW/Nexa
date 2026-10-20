@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useMemo, useCallback } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { save as showSaveDialog } from '@tauri-apps/plugin-dialog';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
@@ -299,6 +299,8 @@ interface ToolCallCardProps {
   compact?: boolean;
   inline?: boolean;
   trace?: boolean;
+  /** Receipts for accumulated edits, presented inside the ordinary card. */
+  detailContent?: ReactNode;
   /** Assembly progress of `arguments` before execution. */
   argsStatus?: ToolCallEvent['argsStatus'];
   /** Total characters of `arguments` received so far. */
@@ -405,7 +407,6 @@ function DiffStatsSummaryPanel({ stats }: { stats: DiffStatsArtifact }) {
         additions={stats.additions}
         deletions={stats.deletions}
         filesChanged={stats.filesChanged}
-        replacements={stats.replacements}
       />
       {path && <FileBadge path={path} className="min-w-0 max-w-full" />}
       {stats.hunks > 0 && (
@@ -1520,6 +1521,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   compact,
   inline,
   trace,
+  detailContent,
   argsStatus,
   onQuestionSubmit,
   questionAnswered,
@@ -1779,6 +1781,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   const liveFileDiff = trace && isPending && Boolean(fileDiff);
   const detailsExpanded = expanded;
   const expandableDetails = Boolean(
+    detailContent ||
     mcpResult ||
     visibleArgs ||
     visibleResultContent ||
@@ -1842,7 +1845,6 @@ export const ToolCallCard = memo(function ToolCallCard({
                   additions={headerDiffStats.additions}
                   deletions={headerDiffStats.deletions}
                   filesChanged={headerDiffStats.filesChanged}
-                  replacements={headerDiffStats.replacements}
                   compact
                   live={isPending}
                   testIdPrefix="tool-card-header"
@@ -1879,7 +1881,7 @@ export const ToolCallCard = memo(function ToolCallCard({
                 {visibleArgs ? (
                   <ToolArgumentDetails raw={visibleArgs} className="break-words rounded-md border border-border/35 bg-surface-0/45 px-2 py-1 text-[11px] leading-relaxed text-text-tertiary" />
                 ) : null}
-                {skillActivation ? (
+                {detailContent ?? (skillActivation ? (
                   <SkillActivationPanel activation={skillActivation} compact />
                 ) : mcpResult ? (
                   <McpResultView result={mcpResult} />
@@ -1972,7 +1974,7 @@ export const ToolCallCard = memo(function ToolCallCard({
                   </>
                 ) : visibleResultContent ? (
                   <ToolResultSurface content={visibleResultContent} error={failedStatus} compact />
-                ) : null}
+                ) : null)}
               </div>
             </motion.div>
           )}
@@ -2016,7 +2018,6 @@ export const ToolCallCard = memo(function ToolCallCard({
                   additions={headerDiffStats.additions}
                   deletions={headerDiffStats.deletions}
                   filesChanged={headerDiffStats.filesChanged}
-                  replacements={headerDiffStats.replacements}
                   compact
                   live={isPending}
                   testIdPrefix="tool-card-header"
@@ -2383,7 +2384,6 @@ export const ToolCallCard = memo(function ToolCallCard({
                 additions={headerDiffStats.additions}
                 deletions={headerDiffStats.deletions}
                 filesChanged={headerDiffStats.filesChanged}
-                replacements={headerDiffStats.replacements}
                 live={isPending}
                 testIdPrefix="tool-card-header"
               />

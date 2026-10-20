@@ -1525,10 +1525,11 @@ test("settings exposes current Qwen3.8 Token Plan models without the retired pre
   const modelSelect = modelField.locator("[data-nexa-select-trigger]");
   await expectNexaValue(modelSelect, "");
   await expectNexaOptions(modelSelect, ["Qwen3.8 Max", "Qwen3.8 Flash"]);
-  await expectNexaOptionCount(modelSelect, 12);
+  await expectNexaOptionCount(modelSelect, 13);
   await expectNexaOption(modelSelect, "auto", "visible");
   await expectNexaOption(modelSelect, "glm-5.3", "visible");
   await expectNexaOption(modelSelect, "deepseek-v4.1-flash", "visible");
+  await expectNexaOption(modelSelect, "deepseek-v4.1-flash-1017", "visible");
   await expectNexaOption(modelSelect, "qwen3.7-flash", "absent");
   await modelSelect.click();
   const retiredPreview = page.locator('[role="option"][data-value="qwen3.8-max-preview"]');
