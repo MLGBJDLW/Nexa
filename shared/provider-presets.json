@@ -22434,7 +22434,8 @@
             "defaultEffort": "medium",
             "thinkingBudget": {
               "enabled": false
-            }
+            },
+            "mode": "always"
           }
         },
         "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-7-flash",
@@ -22491,7 +22492,8 @@
             "defaultEffort": "medium",
             "thinkingBudget": {
               "enabled": false
-            }
+            },
+            "mode": "always"
           }
         },
         "access": "account_enablement",
@@ -22946,7 +22948,7 @@
         "maxOutputTokens": 65536,
         "source": "official",
         "status": "deprecated",
-        "lastVerifiedAt": "2026-10-14",
+        "lastVerifiedAt": "2026-10-20",
         "modalities": [
           "text",
           "image",
@@ -22968,7 +22970,8 @@
             "defaultEffort": "medium",
             "thinkingBudget": {
               "enabled": false
-            }
+            },
+            "mode": "always"
           }
         },
         "replacementModelId": "gemini-3.8-flash",
@@ -22992,7 +22995,7 @@
         "maxOutputTokens": 65536,
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-08-28",
+        "lastVerifiedAt": "2026-10-20",
         "modalities": [
           "text",
           "image",
@@ -23015,7 +23018,8 @@
             "defaultEffort": "medium",
             "thinkingBudget": {
               "enabled": false
-            }
+            },
+            "mode": "always"
           }
         }
       },
