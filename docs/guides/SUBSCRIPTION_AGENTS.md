@@ -9,6 +9,14 @@ Choose the model and reasoning level in Chat. The saved provider and its current
 then appear in the Chat model picker. Reasoning levels come from that account's
 model catalog. Signing in does not automatically create a provider.
 
+Copilot discovery and execution use the same editor integration catalog through
+the official SDK. The bundled CLI is pinned to `1.0.100` with upstream archive
+hashes; `status.get` reports the actual SDK runtime version (a standalone
+`--version` command may follow a newer locally installed CLI). Gemini 4 Argon's
+reasoning levels are read from the account catalog and passed to the session;
+Nexa does not infer them from the model name. Explicit CLI path overrides remain
+user-managed and need a version that supports the selected model.
+
 The gauge beside the Chat model and reasoning controls opens **Account usage**.
 It shows provider-reported used and remaining percentages, individual quota
 windows and reset times. Settings uses the same quota presentation. Opening or

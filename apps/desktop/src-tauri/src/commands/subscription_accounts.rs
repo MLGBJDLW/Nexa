@@ -14,7 +14,7 @@ use tauri::State;
 use url::Url;
 
 use github_copilot_sdk::rpc::AccountGetQuotaRequest;
-use github_copilot_sdk::{install_bundled_cli, CliProgram, Client, ClientOptions};
+use github_copilot_sdk::{install_bundled_cli, Client};
 
 use super::AppState;
 
@@ -147,8 +147,7 @@ pub(crate) fn copilot_reasoning_efforts(model: &github_copilot_sdk::rpc::Model) 
         .unwrap_or_default()
         .into_iter()
         .filter(|value| !value.trim().is_empty())
-        .take(12)
-        .map(|value| bounded_field(&value, 32))
+        .map(|value| value.trim().to_string())
         .collect()
 }
 
@@ -162,7 +161,7 @@ fn copilot_model_summary(model: github_copilot_sdk::rpc::Model) -> CopilotModelS
             .and_then(|limits| limits.max_context_window_tokens)
             .and_then(|value| u32::try_from(value).ok())
             .filter(|value| *value > 0),
-        id: bounded_field(&model.id, 120),
+        id: model.id.clone(),
         name: bounded_field(&model.name, 160),
         reasoning_efforts: copilot_reasoning_efforts(&model),
         supports_reasoning_effort: model
@@ -972,7 +971,7 @@ async fn read_copilot_account_snapshot(runtime: CopilotAccountRuntime) -> Copilo
         let binary = tokio::task::spawn_blocking(resolve_copilot_binary)
             .await
             .map_err(|_| "copilot_runtime_task_failed".to_string())??;
-        let options = ClientOptions::default().with_program(CliProgram::Path(binary));
+        let options = crate::agent_runtime::copilot_options::client_options(binary);
         let client = Client::start(options)
             .await
             .map_err(|_| "copilot_runtime_start_failed".to_string())?;
@@ -1006,11 +1005,7 @@ async fn read_copilot_account_snapshot(runtime: CopilotAccountRuntime) -> Copilo
             );
             match catalog {
                 Ok(Ok(catalog)) => {
-                    models = catalog
-                        .into_iter()
-                        .take(100)
-                        .map(copilot_model_summary)
-                        .collect();
+                    models = catalog.into_iter().map(copilot_model_summary).collect();
                     entitlement_verified = !models.is_empty();
                     if !entitlement_verified {
                         error_code = Some("copilot_entitlement_unverified".to_string());
@@ -1159,7 +1154,7 @@ pub(crate) async fn native_subscription_models(
             tokio::time::timeout(COPILOT_REQUEST_TIMEOUT, async {
                 let binary = tokio::task::spawn_blocking(resolve_copilot_binary).await
                     .map_err(|_| "copilot_runtime_task_failed".to_string())??;
-                let client = Client::start(ClientOptions::default().with_program(CliProgram::Path(binary))).await
+                let client = Client::start(crate::agent_runtime::copilot_options::client_options(binary)).await
                     .map_err(|_| "Unable to start Copilot. Check its installation and retry.".to_string())?;
                 let result = async {
                     let auth = client.get_auth_status().await.map_err(|_| "Unable to verify the Copilot account.".to_string())?;

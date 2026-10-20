@@ -169,7 +169,9 @@ test.beforeEach(async ({ page }) => {
           (fixture.__catalogCalls ??= []).push(String(args.provider));
           if (fixture.__catalogDelay) await new Promise(resolve => setTimeout(resolve, fixture.__catalogDelay));
           if (fixture.__catalogError) throw new Error(fixture.__catalogError);
-          return [{ id: args.provider === 'hermes' ? 'openai-codex:gpt-native' : 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
+          const models = [{ id: args.provider === 'hermes' ? 'openai-codex:gpt-native' : 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
+          if (args.provider === 'github_copilot') models.push({ id: 'gemini-4-argon', name: 'Gemini 4 Argon', reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 265536 });
+          return models;
         }
         case 'list_agent_configs_cmd':
           return configs.map(clone);
@@ -661,6 +663,21 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs?: Array<Record<string,unknown>> }).__savedAgentConfigInputs?.at(-1))).toMatchObject({ provider, model: 'gpt-native', reasoningEffort: 'ultra' });
 });
 }
+
+test('provider-managed reasoning sends Gemini Argon with its advertised Copilot effort', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await page.getByTestId('agent-model-option-cfg-subscription-gemini-4-argon').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await expect(page.getByTestId('agent-model-reasoning-ultra')).toHaveCount(0);
+  await expect(page.getByTestId('agent-model-reasoning-medium')).toBeVisible();
+  await page.getByTestId('agent-model-reasoning-low').click();
+  await page.locator('textarea').fill('Hello Gemini');
+  await page.locator('textarea').press('Enter');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string, unknown> }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: 'cfg-subscription' });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> }).__savedAgentConfigInputs?.at(-1))).toMatchObject({ provider: 'github_copilot', model: 'gemini-4-argon', reasoningEffort: 'low' });
+});
 
 
 test('subscription compact command is rejected without starting an API summarizer', async ({ page }) => {

@@ -5,6 +5,7 @@ pub(crate) mod acp;
 pub(crate) mod codex;
 mod copilot;
 mod copilot_events;
+pub(crate) mod copilot_options;
 mod copilot_response;
 mod projection;
 #[cfg(test)]
