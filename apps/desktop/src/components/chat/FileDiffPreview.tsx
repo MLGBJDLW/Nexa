@@ -465,7 +465,6 @@ export function FileDiffSummaryPanel({ diffs }: { diffs: FileDiffArtifact[] }) {
           compact
           live={false}
           showFiles={false}
-          showReplacements={false}
         />
         <ChevronDown
           size={16}
@@ -515,7 +514,6 @@ export function FileDiffSummaryPanel({ diffs }: { diffs: FileDiffArtifact[] }) {
                     compact
                     live={false}
                     showFiles={false}
-                    showReplacements={false}
                   />
                 </button>
                 <CollapsibleMotion open={expanded} mode="heavy">
@@ -622,7 +620,6 @@ export function FileDiffPreview({
           compact={compact}
           live={live}
           showFiles={false}
-          showReplacements={false}
         />
       </div>
 

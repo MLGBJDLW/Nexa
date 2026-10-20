@@ -6,11 +6,9 @@ interface DiffStatsTickerProps {
   additions: number;
   deletions: number;
   filesChanged?: number;
-  replacements?: number | null;
   compact?: boolean;
   live?: boolean;
   showFiles?: boolean;
-  showReplacements?: boolean;
   testIdPrefix?: string;
 }
 
@@ -93,7 +91,7 @@ function StatPill({
   children,
 }: {
   tone: 'add' | 'delete' | 'neutral';
-  kind: 'additions' | 'deletions' | 'files' | 'replacements';
+  kind: 'additions' | 'deletions' | 'files';
   valueLabel: string;
   testId?: string;
   compact?: boolean;
@@ -126,18 +124,15 @@ export function DiffStatsTicker({
   additions,
   deletions,
   filesChanged = 1,
-  replacements = null,
   compact = false,
   live = false,
   showFiles = true,
-  showReplacements = true,
   testIdPrefix,
 }: DiffStatsTickerProps) {
   const { t } = useTranslation();
   const additionsValue = normalizedCount(additions);
   const deletionsValue = normalizedCount(deletions);
   const filesValue = normalizedCount(filesChanged);
-  const replacementsValue = normalizedCount(replacements);
   const statTestId = (kind: string) => (testIdPrefix ? `${testIdPrefix}-${kind}` : undefined);
 
   return (
@@ -177,18 +172,6 @@ export function DiffStatsTicker({
         >
           <RollingCount value={filesValue} />
           <span className="font-sans">{t('chat.diffFiles')}</span>
-        </StatPill>
-      )}
-      {showReplacements && replacementsValue > 0 && (
-        <StatPill
-          tone="neutral"
-          kind="replacements"
-          valueLabel={String(replacementsValue)}
-          testId={statTestId('replacements')}
-          compact={compact}
-        >
-          <RollingCount value={replacementsValue} />
-          <span className="hidden font-sans sm:inline">{t('chat.diffReplacements')}</span>
         </StatPill>
       )}
     </div>

@@ -1,11 +1,10 @@
 import { memo } from 'react';
-import { AlertCircle, ChevronRight, FilePenLine, Loader2 } from 'lucide-react';
-import { useTranslation } from '../../i18n';
 import type { ToolCallEvent } from '../../lib/streaming/protocol';
 import { isPendingToolCallStatus, isUnsuccessfulToolCallStatus } from '../../lib/streaming/toolStatus';
-import { DiffStatsTicker } from './DiffStatsTicker';
+import { useStreamSelector } from '../../lib/useStreamSelector';
+import { streamStore } from '../../lib/streamStore';
 import { diffPathAliasKeys, extractDiffStatsArtifact, extractFileDiffArtifacts } from './FileDiffPreview';
-import { TimelineToolCallCard } from './ToolCallCard';
+import { TimelineToolCallCard, ToolCallCard } from './ToolCallCard';
 
 export interface FileToolGroup {
   path: string;
@@ -67,27 +66,37 @@ export const FileChangeTrace = memo(function FileChangeTrace({ group, conversati
   conversationId?: string | null;
   parentRunActive: boolean;
 }) {
-  const { t } = useTranslation();
-  const pending = parentRunActive && group.calls.some(call => isPendingToolCallStatus(call.status));
-  const failed = group.calls.some(call => call.isError || isUnsuccessfulToolCallStatus(call.status));
+  const liveId = parentRunActive ? conversationId ?? '' : '';
+  // Subscribe to receipt updates as well as newly appended calls. Occurrence
+  // lookup prevents a later run reusing a call ID from replacing history.
+  useStreamSelector(liveId, state => state?.toolCalls);
+  const calls = group.calls.map(call => streamStore.selectTool(liveId, call.callId, call) ?? call);
+  const pending = parentRunActive ? calls.find(call => isPendingToolCallStatus(call.status)) : undefined;
+  const failed = calls.find(call => call.isError || isUnsuccessfulToolCallStatus(call.status));
+  const representative = pending ?? failed ?? calls[calls.length - 1];
+  const accumulated = calls.length > 1;
   // These are cumulative operation counts; the existing file-changes dock
   // remains the authority for the net on-disk diff and baseline readback.
-  const stats = group.calls.map(call => call.isError || isUnsuccessfulToolCallStatus(call.status)
-    ? null : extractDiffStatsArtifact(call.artifacts));
+  // A failed edit can still carry a confirmed partial-write receipt. Count
+  // those real changes, never the failed call's speculative arguments.
+  const stats = calls.map(call => extractDiffStatsArtifact(call.artifacts));
   const additions = stats.reduce((total, item) => total + (item?.additions ?? 0), 0);
   const deletions = stats.reduce((total, item) => total + (item?.deletions ?? 0), 0);
-  const Icon = pending ? Loader2 : failed ? AlertCircle : FilePenLine;
-  return <details className="group/file-changes my-1 min-w-0 rounded-lg border border-border bg-surface-1/50" data-testid="file-change-trace" data-file-path={group.path}>
-    <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs text-text-secondary" aria-busy={pending}>
-      <ChevronRight size={13} className="shrink-0 transition-transform group-open/file-changes:rotate-90 motion-reduce:transition-none" />
-      <Icon size={14} className={`${pending ? 'animate-spin motion-reduce:animate-none' : ''} ${failed ? 'text-amber-500' : 'text-accent'} shrink-0`} />
-      <span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={group.path}>{group.path}</span>
-      <span className="shrink-0">{t('chat.workflowTasks', { count: String(group.calls.length) })}</span>
-      {failed && <span className="text-amber-500">{t('chat.toolBriefError')}</span>}
-      {stats.some(Boolean) && <DiffStatsTicker additions={additions} deletions={deletions} showFiles={false} showReplacements={false} compact live={pending} testIdPrefix="file-trace" />}
-    </summary>
-    <div className="flex min-w-0 flex-col gap-1 border-t border-border p-2">
-      {group.calls.map((call, index) => <TimelineToolCallCard key={`${index}:${call.callId}`} conversationId={conversationId} toolCall={call} parentRunActive={parentRunActive} trace />)}
-    </div>
-  </details>;
+  return <div className="min-w-0 max-w-full" data-testid="file-change-trace" data-file-path={group.path}>
+    <ToolCallCard
+      {...representative}
+      toolName={accumulated ? 'edit_file' : representative.toolName}
+      status={failed && !pending ? 'error' : representative.status}
+      artifacts={accumulated ? { diffStats: {
+        kind: 'diffStats', operation: 'edit_file', filesChanged: 1,
+        additions, deletions, hunks: stats.reduce((total, item) => total + (item?.hunks ?? 0), 0),
+        paths: [group.path],
+      } } : representative.artifacts}
+      parentRunActive={parentRunActive}
+      trace
+      detailContent={accumulated ? calls.map((call, index) => (
+        <TimelineToolCallCard key={`${index}:${call.callId}`} conversationId={conversationId} toolCall={call} parentRunActive={parentRunActive} trace />
+      )) : undefined}
+    />
+  </div>;
 });

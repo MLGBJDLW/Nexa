@@ -970,7 +970,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       };
       for (const section of sections) {
         const fileGroup = section.kind === 'tool' ? groups.get(section.toolCall) : undefined;
-        if (fileGroup && fileGroup.calls.length > 1) {
+        if (fileGroup) {
           flushComputerSteps();
           if (section.kind === 'tool' && fileGroup.calls[0] === section.toolCall) {
             result.push({ text: '', node: <FileChangeTrace key={section.id} group={fileGroup} conversationId={conversationId} parentRunActive={parentRunActive} /> });

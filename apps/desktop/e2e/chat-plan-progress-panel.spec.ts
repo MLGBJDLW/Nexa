@@ -1015,33 +1015,46 @@ test('file diff previews merge repeated changes to the same file', async ({ page
   await expect(diffCard.getByText('export const label = "new";')).toBeVisible();
 });
 
-test('file tool calls accumulate across live rounds without hiding errors or other files', async ({ page }) => {
+test('file edit badges accumulate in the ordinary card without hiding errors or other files', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(async () => {
     const fixture = '/e2e/fixtures/file-tool-accumulation.tsx';
     (await import(/* @vite-ignore */ fixture)).renderFileToolAccumulation();
   });
-  for (let index = 0; index < 4; index++) await page.getByRole('button', { name: 'Edit notes', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit notes', exact: true }).click();
+  await page.getByTestId('thinking-trace-toggle').first().click();
+  const firstCard = page.getByTestId('tool-call-card').first();
+  await expect(firstCard).toBeVisible();
+  const originalClass = await firstCard.getAttribute('class');
+  const originalCard = await firstCard.elementHandle();
+  await expect(firstCard.locator('[data-diff-stat-kind="replacements"]')).toHaveCount(0);
+  for (let index = 1; index < 4; index++) await page.getByRole('button', { name: 'Edit notes', exact: true }).click();
   // Completed reasoning is collapsible; the file remains one row when opened.
   for (const toggle of await page.getByTestId('thinking-trace-toggle').all()) {
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   }
-  const group = page.getByTestId('file-change-trace');
+  const group = page.getByTestId('file-change-trace').filter({ has: page.getByTestId('tool-call-card').filter({ hasText: 'src/notes.md' }) });
   await expect(group).toHaveCount(1);
-  await expect(group.locator('summary').first()).toContainText('4 steps');
-  await expect(group.getByTestId('file-trace-additions')).toHaveAttribute('data-value', '+12');
+  const header = group.getByTestId('tool-call-card').first();
+  await expect(header).toHaveAttribute('class', originalClass!);
+  await expect(header).toContainText('edit_file');
+  expect(await originalCard!.evaluate(element => element.isConnected)).toBe(true);
+  await expect(group).not.toContainText(/\d+ steps|\d+ replacements/);
+  await expect(header.getByTestId('tool-card-header-additions')).toHaveAttribute('data-value', '+12');
   await expect(page.getByText('Verified step 4.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Edit other file' }).click();
   await page.getByRole('button', { name: 'Fail edit' }).click();
   for (const toggle of await page.getByTestId('thinking-trace-toggle').all()) {
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   }
-  await expect(group).toHaveCount(1);
-  await expect(group.locator('summary').first()).toContainText('5 steps');
-  await expect(group.locator('summary').first()).toContainText('error');
-  await group.locator('summary').first().click();
-  await expect(group.getByTestId('tool-call-card')).toHaveCount(5);
+  await expect(page.getByTestId('file-change-trace')).toHaveCount(2);
+  await expect(header).toHaveAttribute('data-tool-state', 'error');
+  await header.click();
+  await expect(group.first().getByTestId('tool-call-card')).toHaveCount(6);
+  await expect(group.first()).toContainText('Expected text was not found');
   await expect(page.getByTestId('tool-call-card').filter({ hasText: 'other/notes.md' })).toBeVisible();
+  await header.click();
+  await expect(group.first().getByTestId('tool-call-card')).toHaveCount(1);
 });
 
 test('diff counters retain place identity while new leading digits animate in', async ({ page }) => {
