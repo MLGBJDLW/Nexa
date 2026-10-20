@@ -3711,6 +3711,7 @@ mod tests {
                 "glm-5.3",
                 "glm-5.2",
                 "deepseek-v4.1-flash",
+                "deepseek-v4.1-flash-1017",
                 "deepseek-v4-pro",
                 "deepseek-v4-pro-0813",
                 "deepseek-v4-flash-0731",
@@ -3847,6 +3848,21 @@ mod tests {
                 "https://ark.cn-beijing.volces.com/api/v3",
                 "deepseek-v4-1-flash-260910",
             ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "deepseek-v4-1-flash-261017",
+            ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
+                "deepseek-v4-1-flash-economy-261017",
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://work.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "xiaomi/mimo-v2.6-pro-ultraspeed",
+            ),
         ] {
             let config = endpoint_config(provider, base);
             let profile = resolve_reasoning_profile(
@@ -3945,6 +3961,8 @@ mod tests {
             ("doubao-seed-2-1-turbo-260628", "high", false),
             ("glm-5-3-flash-260828", "max", true),
             ("deepseek-v4-1-flash-260910", "high", false),
+            ("deepseek-v4-1-flash-261017", "high", false),
+            ("deepseek-v4-1-flash-economy-261017", "high", false),
         ] {
             let mut request = endpoint_reasoning_request(model);
             request.provider_type = Some(ProviderType::Doubao);
@@ -4302,7 +4320,7 @@ mod tests {
     fn minimax31_preserves_tool_reasoning_and_m3_can_disable_adaptive_thinking() {
         let config = endpoint_config(ProviderType::OpenAi, "https://api.minimax.io/v1");
         let provider = OpenAiProvider::new(config.clone()).unwrap();
-        let mut request = endpoint_reasoning_request("MiniMax-M3.1-Flash-Preview");
+        let mut request = endpoint_reasoning_request("MiniMax-M3.1-Flash");
         request.reasoning_enabled = Some(false); // A saved old config cannot disable M3.1.
         request.reasoning_effort = Some(ReasoningEffort::High);
         request.thinking_budget = Some(2048);
@@ -4342,6 +4360,16 @@ mod tests {
             provider.replay_history_projection(&request),
             ReplayHistoryProjection::Caller(ReasoningReplayPolicy::RequiredOnToolCall)
         ));
+
+        request.model = "MiniMax-M3.1-Flash-Preview".into();
+        let preview = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(preview["reasoning_effort"], body["reasoning_effort"]);
+        assert_eq!(preview["messages"], body["messages"]);
 
         request.model = "MiniMax-M3".into();
         let body = serde_json::to_value(build_request_body_with_config(
@@ -4390,6 +4418,7 @@ mod tests {
             "ZHIPU/GLM-5.3-Flash",
             "ZHIPU/GLM-5.3-FlashX",
             "deepseek-v4.1-flash",
+            "vanchin/deepseek-v4.1-flash",
             "stepfun/step-5-preview",
         ] {
             let mut request = endpoint_reasoning_request(model);
@@ -4414,6 +4443,16 @@ mod tests {
                 assert!(body.get(field).is_none(), "{model}: {field}");
             }
             assert_eq!(body["stream_options"]["include_usage"], true);
+            request.reasoning_enabled = Some(true);
+            let enabled = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(enabled["enable_thinking"], true);
+            assert_eq!(enabled["reasoning_effort"], "high");
+            assert!(enabled.get("thinking").is_none());
             let custom = endpoint_config(
                 ProviderType::AlibabaModelStudio,
                 "https://example.com/compatible-mode/v1",
