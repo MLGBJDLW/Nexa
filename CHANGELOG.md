@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.2...nexa-monorepo-v0.17.3) (2026-10-20)
+
+
+### Bug Fixes
+
+* restore browser scrollbars, edit cards, and Copilot Gemini ([#492](https://github.com/MLGBJDLW/Nexa/issues/492)) ([3999585](https://github.com/MLGBJDLW/Nexa/commit/3999585a59f0f6cde444c126066205d8328157ab))
+
 ## [0.17.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.0...nexa-monorepo-v0.17.2) (2026-10-19)
 
 This release includes the cloud providers, fresh context handoffs, streaming and citation fixes, and file-edit UI prepared in the unpublished 0.17.1 candidate. It also stabilizes the two existing browser regression fixtures that blocked that candidate.
