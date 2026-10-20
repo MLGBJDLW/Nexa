@@ -850,106 +850,6 @@
     },
     "models": [
       {
-        "id": "minimax/minimax-m3.1-flash:free",
-        "name": "MiniMax: MiniMax M3.1 Flash (free)",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-20",
-        "documentationRef": "https://openrouter.ai/minimax/minimax-m3.1-flash:free",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 524288,
-        "inputModalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": false,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "defaultEffort": "max",
-            "defaultEnabled": true,
-            "effortBudgetExclusive": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        }
-      },
-      {
-        "id": "inception/mercury-3",
-        "name": "Inception: Mercury 3",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-20",
-        "documentationRef": "https://openrouter.ai/inception/mercury-3",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 131072,
-        "inputModalities": [
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools"
-        ],
-        "capabilities": {
-          "vision": false,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "defaultEnabled": true,
-            "effortBudgetExclusive": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        }
-      },
-      {
         "id": "~anthropic/claude-fable-latest",
         "name": "Anthropic: Claude Fable Latest",
         "tagKey": "providers.tagLatest",
@@ -21476,6 +21376,106 @@
           "tools",
           "top_p"
         ]
+      },
+      {
+        "id": "minimax/minimax-m3.1-flash:free",
+        "name": "MiniMax: MiniMax M3.1 Flash (free)",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-20",
+        "documentationRef": "https://openrouter.ai/minimax/minimax-m3.1-flash:free",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 524288,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "defaultEnabled": true,
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "inception/mercury-3",
+        "name": "Inception: Mercury 3",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-20",
+        "documentationRef": "https://openrouter.ai/inception/mercury-3",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools"
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "defaultEnabled": true,
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       }
     ]
   },
