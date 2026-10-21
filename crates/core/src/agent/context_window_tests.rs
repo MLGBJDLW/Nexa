@@ -294,14 +294,40 @@ async fn provider_usage_counts_anthropic_cache_in_occupancy_without_changing_bil
     check_provider_usage(ProviderType::Anthropic, "anthropic", true, 100).await;
 }
 
+struct UnavailableContextProvider;
+#[async_trait]
+impl LlmProvider for UnavailableContextProvider {
+    fn name(&self) -> &str {
+        "unavailable-context-fixture"
+    }
+    fn reasoning_replay_policy(&self, _: &str) -> ReasoningReplayPolicy {
+        ReasoningReplayPolicy::NotRequired
+    }
+    async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+        Ok(vec![])
+    }
+    async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        Err(CoreError::TransientLlm("fixture unavailable".into()))
+    }
+    async fn stream_events(
+        &self,
+        _: &CompletionRequest,
+    ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        Err(CoreError::TransientLlm("fixture unavailable".into()))
+    }
+    async fn health_check(&self) -> Result<(), CoreError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn context_hud_measures_the_same_replay_projection_as_each_model_request() {
-    for routed in [false, true] {
+    for routed in 0..3 {
         check_replay_projected_hud(routed).await;
     }
 }
 
-async fn check_replay_projected_hud(routed: bool) {
+async fn check_replay_projected_hud(routed: u8) {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let mut tools = ToolRegistry::new();
     tools.register(Box::new(ContextFixtureTool { steering: None }));
@@ -318,7 +344,24 @@ async fn check_replay_projected_hud(routed: bool) {
             ..Default::default()
         }),
     });
-    let provider = if routed {
+    let provider = if routed == 2 {
+        Box::new(
+            crate::llm::fallback::AutomaticFallbackProvider::new(
+                0,
+                Box::new(UnavailableContextProvider),
+                "gpt-4o".into(),
+                ProviderType::OpenAi,
+                vec![crate::llm::fallback::AutomaticFallbackCandidate {
+                    fallback_index: 1,
+                    provider,
+                    model: "gpt-4o".into(),
+                    provider_type: ProviderType::OpenAi,
+                }],
+                Arc::new(|_, _, _| Ok(())),
+            )
+            .unwrap(),
+        ) as Box<dyn LlmProvider>
+    } else if routed == 1 {
         Box::new(
             crate::llm::fallback::AutomaticFallbackProvider::new(
                 0,
@@ -368,6 +411,15 @@ async fn check_replay_projected_hud(routed: bool) {
     let drain = tokio::spawn(async move {
         let mut occupied = Vec::new();
         while let Some(event) = rx.recv().await {
+            if matches!(
+                &event,
+                AgentEvent::ToolRunStarted { .. } | AgentEvent::TextDelta { .. }
+            ) {
+                assert!(
+                    occupied.last().is_some_and(|tokens| *tokens < 20_000),
+                    "fallback must refresh occupancy before streaming visible output: {occupied:?}"
+                );
+            }
             if let AgentEvent::UsageUpdate {
                 last_prompt_tokens, ..
             } = event
@@ -397,9 +449,9 @@ async fn check_replay_projected_hud(routed: bool) {
         .iter()
         .all(|message| !message.text_content().contains("old detailed evidence"))));
     let occupied = drain.await.unwrap();
-    assert!(occupied.iter().skip(1).all(|tokens| *tokens < 1_200),
+    assert!(occupied.iter().skip(if routed == 2 { 2 } else { 1 }).all(|tokens| *tokens < 1_200),
         "the same projected prefix must retain provider calibration, including recreated conclusions: {occupied:?}");
-    assert!(occupied.iter().all(|tokens| *tokens < 20_000),
+    assert!(occupied.iter().skip(usize::from(routed == 2)).all(|tokens| *tokens < 20_000),
         "the HUD must not alternate between canonical archives and the transmitted window: {occupied:?}");
 }
 

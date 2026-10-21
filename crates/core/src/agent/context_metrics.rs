@@ -322,27 +322,40 @@ impl AgentExecutor {
         &self,
         request: &crate::llm::CompletionRequest,
         window: super::context_window::ContextWindow,
+        selected_route: Option<&crate::llm::provider_turn::RouteSnapshot>,
     ) -> context::ContextUsageBreakdown {
         let (mut messages, projection) = crate::llm::reasoning_replay::prepare_invocation_history(
             self.provider.as_ref(),
             request,
         );
+        let resolved_route = selected_route.cloned().or_else(|| {
+            projection
+                .is_none()
+                .then(|| self.provider.route_snapshot(request))
+        });
         if projection.is_none() {
             // This is an observation of the selected route, never the input
             // passed to fallback dispatch (which retains canonical history).
-            let route = self.provider.route_snapshot(request);
+            let route = resolved_route
+                .as_ref()
+                .expect("route-selecting provider has a snapshot");
             messages =
-                crate::llm::reasoning_replay::prepare_provider_replay_history(&messages, &route)
+                crate::llm::reasoning_replay::prepare_provider_replay_history(&messages, route)
                     .messages;
         }
+        let model = resolved_route
+            .as_ref()
+            .map(|route| route.model_id.as_str())
+            .unwrap_or(&request.model);
         let tools = request.tools.as_deref().unwrap_or_default();
-        if messages.len() == request.messages.len()
+        if projection.is_some()
+            && messages.len() == request.messages.len()
             && messages
                 .iter()
                 .zip(&request.messages)
                 .all(|(a, b)| a.revision() == b.revision())
         {
-            return self.context_budget_usage(&request.model, &messages, tools, window);
+            return self.context_budget_usage(model, &messages, tools, window);
         }
         // Do not evict the canonical analysis cache for a temporary wire
         // projection, or large historical tool results get tokenized again on
@@ -352,8 +365,8 @@ impl AgentExecutor {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let snapshot = metrics.snapshot(
-            self.provider.prompt_cache_profile(&request.model).key,
-            &request.model,
+            self.provider.prompt_cache_profile(model).key,
+            model,
             &messages,
             tools,
         );
@@ -361,11 +374,15 @@ impl AgentExecutor {
         let mut breakdown = snapshot.breakdown(Some(tokens));
         breakdown.measurement = Some(measurement);
         breakdown.budget = window.budget_snapshot();
-        breakdown.runtime_provider = self
-            .config
-            .provider_type
-            .map(|provider| crate::provider_registry::canonical_provider_key(provider).to_string());
-        breakdown.runtime_model = Some(request.model.clone());
+        breakdown.runtime_provider = resolved_route
+            .as_ref()
+            .map(|route| route.provider_family.clone())
+            .or_else(|| {
+                self.config.provider_type.map(|provider| {
+                    crate::provider_registry::canonical_provider_key(provider).to_string()
+                })
+            });
+        breakdown.runtime_model = Some(model.to_string());
         breakdown
     }
 
@@ -384,7 +401,8 @@ impl AgentExecutor {
                 crate::llm::reasoning_replay::prepare_provider_replay_history(&messages, route)
                     .messages;
         }
-        if messages.len() == request.messages.len()
+        if projection.is_some()
+            && messages.len() == request.messages.len()
             && messages
                 .iter()
                 .zip(&request.messages)
@@ -396,9 +414,14 @@ impl AgentExecutor {
             .projected_context_metrics
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let model = if projection.is_none() {
+            &route.model_id
+        } else {
+            &request.model
+        };
         let snapshot = metrics.snapshot(
-            self.provider.prompt_cache_profile(&request.model).key,
-            &request.model,
+            self.provider.prompt_cache_profile(model).key,
+            model,
             &messages,
             request.tools.as_deref().unwrap_or_default(),
         );
