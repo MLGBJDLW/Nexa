@@ -1770,18 +1770,21 @@ impl AgentExecutor {
                 effective_tool_defs,
                 context_window,
             );
-            // Publish the gate's current occupancy before compaction starts.
-            // Tool results appended since the last response are context, not
-            // newly billed tokens: keep cumulative provider usage unchanged.
-            let before_compaction =
-                self.context_budget_usage(model, &messages, effective_tool_defs, context_window);
-            let _ = tx
-                .send(AgentEvent::UsageUpdate {
-                    usage_total: total_usage.clone(),
-                    last_prompt_tokens: before_compaction.total_tokens,
-                    context_breakdown: Some(before_compaction),
-                })
-                .await;
+            // Compaction checks canonical input conservatively. The HUD is
+            // published by model_step after route-specific replay projection,
+            // so archived/incompatible tool units never alternate with the
+            // provider's measured occupancy while the task streams.
+            prompt_was_compacted |= self.apply_pending_context_fork(
+                &mut messages,
+                model,
+                context_compaction::CompactionRunContext {
+                    db,
+                    conversation_id,
+                    turn_id,
+                    active_request: Some(&active_request),
+                },
+                false,
+            );
             prompt_was_compacted |= self
                 .compact_before_model_step_if_needed(LongTaskCompactionContext {
                     db,
@@ -1815,13 +1818,6 @@ impl AgentExecutor {
             let estimated_prompt = prepared_context.total_tokens;
             last_prompt_tokens = estimated_prompt;
             last_context_breakdown = Some(prepared_context.clone());
-            let _ = tx
-                .send(AgentEvent::UsageUpdate {
-                    usage_total: total_usage.clone(),
-                    last_prompt_tokens,
-                    context_breakdown: Some(prepared_context),
-                })
-                .await;
             // Desktop context is attached after canonical projection. Check
             // the actual prepared input as well as the retained live window.
             context_window.validate_request(
@@ -1902,6 +1898,9 @@ impl AgentExecutor {
                     buffer_answer_projection,
                     output_recovery: &output_recovery,
                     total_usage: &mut total_usage,
+                    context_window,
+                    last_prompt_tokens: &mut last_prompt_tokens,
+                    last_context_breakdown: &mut last_context_breakdown,
                 })
                 .await;
             let model_step = match model_step_result {
@@ -3066,6 +3065,19 @@ impl AgentExecutor {
                         return Err(error);
                     }
                 };
+                // The final answer is durable before a manual Fork archives
+                // this trajectory. It must not force another model sample.
+                self.apply_pending_context_fork(
+                    &mut messages,
+                    model,
+                    context_compaction::CompactionRunContext {
+                        db,
+                        conversation_id,
+                        turn_id,
+                        active_request: Some(&active_request),
+                    },
+                    true,
+                );
                 return Ok(assistant_msg);
             }
 

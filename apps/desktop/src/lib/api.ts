@@ -2051,6 +2051,7 @@ export interface CompactConversationResult {
 }
 
 export type ContextCompactionPhase =
+  | 'waiting_for_boundary'
   | 'queued'
   | 'planning'
   | 'summarizing'

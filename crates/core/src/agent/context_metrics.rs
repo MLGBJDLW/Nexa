@@ -314,6 +314,97 @@ impl ContextMetrics {
 }
 
 impl AgentExecutor {
+    /// HUD occupancy follows the same route-specific history as the physical
+    /// request. Canonical history remains the conservative compaction input;
+    /// incompatible replay units are not transmitted and must not flash back
+    /// into the indicator between two provider measurements.
+    pub(super) fn request_context_usage(
+        &self,
+        request: &crate::llm::CompletionRequest,
+        window: super::context_window::ContextWindow,
+    ) -> context::ContextUsageBreakdown {
+        let (mut messages, projection) = crate::llm::reasoning_replay::prepare_invocation_history(
+            self.provider.as_ref(),
+            request,
+        );
+        if projection.is_none() {
+            // This is an observation of the selected route, never the input
+            // passed to fallback dispatch (which retains canonical history).
+            let route = self.provider.route_snapshot(request);
+            messages =
+                crate::llm::reasoning_replay::prepare_provider_replay_history(&messages, &route)
+                    .messages;
+        }
+        let tools = request.tools.as_deref().unwrap_or_default();
+        if messages.len() == request.messages.len()
+            && messages
+                .iter()
+                .zip(&request.messages)
+                .all(|(a, b)| a.revision() == b.revision())
+        {
+            return self.context_budget_usage(&request.model, &messages, tools, window);
+        }
+        // Do not evict the canonical analysis cache for a temporary wire
+        // projection, or large historical tool results get tokenized again on
+        // every model step. A projected sample cannot calibrate omitted input.
+        let mut metrics = self
+            .projected_context_metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let snapshot = metrics.snapshot(
+            self.provider.prompt_cache_profile(&request.model).key,
+            &request.model,
+            &messages,
+            tools,
+        );
+        let (tokens, measurement) = metrics.input_measurement(&snapshot);
+        let mut breakdown = snapshot.breakdown(Some(tokens));
+        breakdown.measurement = Some(measurement);
+        breakdown.budget = window.budget_snapshot();
+        breakdown.runtime_provider = self
+            .config
+            .provider_type
+            .map(|provider| crate::provider_registry::canonical_provider_key(provider).to_string());
+        breakdown.runtime_model = Some(request.model.clone());
+        breakdown
+    }
+
+    pub(super) fn observe_projected_context_input(
+        &self,
+        request: &crate::llm::CompletionRequest,
+        route: &crate::llm::provider_turn::RouteSnapshot,
+        actual_tokens: Option<u32>,
+    ) {
+        let (mut messages, projection) = crate::llm::reasoning_replay::prepare_invocation_history(
+            self.provider.as_ref(),
+            request,
+        );
+        if projection.is_none() {
+            messages =
+                crate::llm::reasoning_replay::prepare_provider_replay_history(&messages, route)
+                    .messages;
+        }
+        if messages.len() == request.messages.len()
+            && messages
+                .iter()
+                .zip(&request.messages)
+                .all(|(a, b)| a.revision() == b.revision())
+        {
+            return;
+        }
+        let mut metrics = self
+            .projected_context_metrics
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let snapshot = metrics.snapshot(
+            self.provider.prompt_cache_profile(&request.model).key,
+            &request.model,
+            &messages,
+            request.tools.as_deref().unwrap_or_default(),
+        );
+        metrics.observe(&snapshot, actual_tokens);
+    }
+
     pub(super) fn context_budget_usage(
         &self,
         model: &str,

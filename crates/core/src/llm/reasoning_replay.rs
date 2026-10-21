@@ -13,6 +13,33 @@ pub struct ReasoningReplayProjection {
     pub omitted_units: usize,
 }
 
+/// One projection seam for physical requests, context occupancy and cache
+/// diagnostics. A route-selecting provider retains ownership until selection.
+pub(crate) fn prepare_invocation_history(
+    provider: &dyn super::LlmProvider,
+    request: &super::CompletionRequest,
+) -> (Vec<Message>, Option<usize>) {
+    let messages = request
+        .messages
+        .iter()
+        .filter(|message| {
+            !message
+                .name
+                .as_deref()
+                .is_some_and(|name| name.starts_with("nexa_screen_"))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let policy = match provider.replay_history_projection(request) {
+        super::ReplayHistoryProjection::ProviderSelectedRoute => return (messages, None),
+        super::ReplayHistoryProjection::Caller(policy) => policy,
+    };
+    let mut route = provider.route_snapshot(request);
+    route.replay_policy = policy;
+    let projection = prepare_provider_replay_history(&messages, &route);
+    (projection.messages, Some(projection.omitted_units))
+}
+
 pub fn sanitize_reasoning_text(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)

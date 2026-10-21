@@ -1016,7 +1016,7 @@
   "displayStreamingCost": "更流畅的显示可能增加 CPU/GPU 占用和耗电，长回答尤其明显。不会改变模型生成速度或保存的内容；系统启用减少动态效果时，将关闭逐步呈现。",
   "contextManagementMode": "上下文管理方式",
   "contextModeSummary": "摘要压缩（默认）",
-  "contextModeHistory": "清空推理并归档历史",
+  "contextModeHistory": "Fork 到新窗口",
   "contextSummaryHelp": "由模型概括较早的交流，保留最近的完整轮次。",
   "contextHistoryHelp": "归档已完成的历史，清空旧推理，保留当前任务与工作成果。需要时再读取笔记和原始结果，不调用模型生成摘要。",
   "contextModeScope": "应用于新开始的 Nexa API 轮次和手动压缩。订阅运行器自行管理其活动上下文。",

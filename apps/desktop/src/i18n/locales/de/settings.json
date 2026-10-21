@@ -1016,7 +1016,7 @@
   "displayStreamingCost": "Flüssigere Anzeige kann CPU/GPU und Akku stärker beanspruchen, besonders bei langen Antworten. Modellgeschwindigkeit und gespeicherter Text bleiben gleich. Reduzierte Bewegung deaktiviert die schrittweise Anzeige.",
   "contextManagementMode": "Kontextverwaltung",
   "contextModeSummary": "Zusammenfassung (Standard)",
-  "contextModeHistory": "Neuer Kontext mit archiviertem Verlauf",
+  "contextModeHistory": "Fork in ein neues Fenster",
   "contextSummaryHelp": "Ein Modell fasst ältere Gespräche zusammen; die letzten Runden bleiben erhalten.",
   "contextHistoryHelp": "Archiviert den abgeschlossenen Verlauf und entfernt frühere Überlegungen. Aufgabe und Arbeitsstand bleiben erhalten. Notizen und Originalergebnisse werden bei Bedarf abgerufen; kein Modellaufruf zur Zusammenfassung.",
   "contextModeScope": "Gilt für neue Nexa-API-Runden und manuelle Komprimierung. Abonnement-Laufzeiten verwalten ihren aktiven Kontext selbst.",

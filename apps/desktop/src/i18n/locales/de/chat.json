@@ -930,5 +930,22 @@
   "captureScreen": "Screenshot aufnehmen",
   "captureScreenHint": "Ein Bild aufnehmen, prüfen und senden. Die Aufnahme endet sofort.",
   "captureScreenLive": "Für fortlaufende Aufnahmen Live öffnen",
-  "attachmentsNextMessage": "Die Anhänge sind für die nächste Nachricht nach dieser Antwort bereit."
+  "attachmentsNextMessage": "Die Anhänge sind für die nächste Nachricht nach dieser Antwort bereit.",
+  "fork": "Fork in ein neues Fenster",
+  "forkNow": "Jetzt Fork",
+  "forking": "Wechsel in ein neues Fenster",
+  "forkQueued": "Warten auf Modell und Werkzeuge",
+  "forkComplete": "Neues Fenster bereit",
+  "forkFailed": "Fork fehlgeschlagen",
+  "forkObserveFailed": "Fork-Status nicht abrufbar",
+  "forkCancelFailed": "Fork kann nicht abgebrochen werden",
+  "forkMustBeAlone": "/fork muss allein gesendet werden.",
+  "forkDescription": "/fork · Öffnet ein neues Fenster, sobald Modell und Werkzeuge fertig sind. Aufgabe und Verlauf bleiben erhalten.",
+  "autoForked": "Kontext in ein neues Fenster übertragen",
+  "contextPolicySaveFork": "Anwenden und Fork",
+  "contextPolicyForkTitle": "Kontext und Fork",
+  "contextPolicyFork": "Automatischer Fork",
+  "contextPolicyForkTiming": "Zeitpunkt des Fork",
+  "contextPolicyForkTriggerAt": "Automatischer Fork ab {tokens} Eingabetokens.",
+  "contextPolicyForkCalculation": "Der Anteil gilt für {input} verfügbare Eingabetokens; {reply} für die Antwort und {safety} als Reserve sind abgezogen. Fork archiviert frühere Überlegungen und behält die Aufgabe bei."
 }

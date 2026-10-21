@@ -53,6 +53,7 @@ interface ChatRunOverviewProps {
   finishReason?: string | null;
   contextOverflow?: boolean;
   isCompacting?: boolean;
+  historyFork?: boolean;
   turnTiming?: TurnTiming | null;
   taskPhase?: string | null;
   onConfigureContext?: () => void;
@@ -200,6 +201,7 @@ export function ChatRunOverview({
   finishReason,
   contextOverflow = false,
   isCompacting = false,
+  historyFork = false,
   turnTiming,
   taskPhase,
   onConfigureContext,
@@ -222,7 +224,7 @@ export function ChatRunOverview({
   const phaseLabel = phaseKey
     ? t(phaseKey)
     : isCompacting
-      ? t('chat.compacting')
+      ? t(historyFork ? 'chat.forking' : 'chat.compacting')
       : t('chat.thinking');
 
   const usage = tokenUsage && tokenUsage.contextWindow > 0 ? tokenUsage : null;
@@ -243,7 +245,7 @@ export function ChatRunOverview({
   const totalSegmentTokens = segments.reduce((sum, segment) => sum + segment.tokens, 0);
 
   const statusLabel = isCompacting
-    ? t('chat.compacting')
+    ? t(historyFork ? 'chat.forking' : 'chat.compacting')
     : isStreaming
       ? t('chat.thinking')
       : finishReason === 'length'

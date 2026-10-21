@@ -112,6 +112,7 @@ function eventPhase(events: api.ActivityEvent[]): api.ContextCompactionPhase | n
     const phase = events[index]?.payload.phase;
     if (
       phase === 'queued'
+      || phase === 'waiting_for_boundary'
       || phase === 'planning'
       || phase === 'summarizing'
       || phase === 'validating'
@@ -585,7 +586,10 @@ export function ChatPage() {
       .then((items) => setPersonas(Array.isArray(items) ? items : []))
       .catch(() => setPersonas([]));
   }, []);
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
+  const historyFork = appConfig?.contextManagementMode === "history";
   const chat = useChatSession({
+    historyFork,
     conversationId,
     anchorMessageId: new URLSearchParams(location.search).get('message'),
     onConversationCreated,
@@ -616,7 +620,6 @@ export function ChatPage() {
     interactionStore.replaceRequests(null, requests);
   }, []);
 
-  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [autoSpeechSaving, setAutoSpeechSaving] = useState(false);
   const { state: speechPlaybackState, speakMessage, stop: stopSpeech } = useSpeechPlayback();
   const finalSpeechCandidateRef = useRef<{ conversationId: string; text: string } | null>(null);
@@ -1547,25 +1550,25 @@ export function ChatPage() {
         }));
         persistCompaction(conversationId, next);
         if (!terminal) continue;
-        if (result) {
+        if (result && result.summaryKind !== "history_fork_live") {
           chat.applyCompactionUsage(conversationId, result.tokensAfter);
-        } else {
-          toast.error(`${t('chat.compactFailed')}: ${failureDetail}`);
+        } else if (!result) {
+          toast.error(`${t(historyFork ? 'chat.forkFailed' : 'chat.compactFailed')}: ${failureDetail}`);
         }
         break;
       }
     } catch (error) {
-      toast.error(formatUserError(t('chat.compactObserveFailed'), error));
+      toast.error(formatUserError(t(historyFork ? 'chat.forkObserveFailed' : 'chat.compactObserveFailed'), error));
     } finally {
       compactionObserversRef.current.delete(initial.operationId);
     }
-  }, [chat.applyCompactionUsage, t]);
+  }, [chat.applyCompactionUsage, historyFork, t]);
 
   const handleCompactConversation = useCallback(async () => {
     if (!manualCompactionAvailable) { toast.error(t('chat.compactUnavailable')); return; }
     const conversationId = chat.activeId;
     if (!conversationId) return;
-    if (chat.isStreaming) {
+    if (chat.isStreaming && !historyFork) {
       toast.error(t('chat.compactWhileRunning'));
       return;
     }
@@ -1602,9 +1605,9 @@ export function ChatPage() {
         delete next[conversationId];
         return next;
       });
-      toast.error(formatUserError(t('chat.compact'), e));
+      toast.error(formatUserError(t(historyFork ? 'chat.fork' : 'chat.compact'), e));
     }
-  }, [chat.activeId, chat.isStreaming, compactionStatusByConversation, manualCompactionAvailable, observeCompaction, t]);
+  }, [chat.activeId, chat.isStreaming, compactionStatusByConversation, historyFork, manualCompactionAvailable, observeCompaction, t]);
 
   const handleCancelCompaction = useCallback(async () => {
     const conversationId = chat.activeId;
@@ -1619,9 +1622,9 @@ export function ChatPage() {
     try {
       await api.cancelContextCompaction(status.operationId);
     } catch (error) {
-      toast.error(formatUserError(t('chat.compactCancelFailed'), error));
+      toast.error(formatUserError(t(historyFork ? 'chat.forkCancelFailed' : 'chat.compactCancelFailed'), error));
     }
-  }, [chat.activeId, compactionStatusByConversation, t]);
+  }, [chat.activeId, compactionStatusByConversation, historyFork, t]);
 
   useEffect(() => {
     const conversationId = chat.activeId;
@@ -1634,7 +1637,7 @@ export function ChatPage() {
     }));
     if (persisted.status === 'running') {
       void observeCompaction(conversationId, persisted);
-    } else if (persisted.status === 'complete' && persisted.result) {
+    } else if (persisted.status === 'complete' && persisted.result && persisted.result.summaryKind !== 'history_fork_live') {
       chat.applyCompactionUsage(conversationId, persisted.result.tokensAfter);
     }
   }, [chat.activeId, chat.applyCompactionUsage, observeCompaction]);
@@ -1659,7 +1662,10 @@ export function ChatPage() {
   }, [chat.activeId, chat.isStreaming]);
 
   const compactionPhaseLabel = activeCompactionStatus?.status === 'running'
-    ? t(({
+    ? historyFork && activeCompactionStatus.phase !== 'cancelling'
+      ? t(activeCompactionStatus.phase === 'queued' || activeCompactionStatus.phase === 'waiting_for_boundary' ? 'chat.forkQueued' : 'chat.forking')
+      : t(({
+        waiting_for_boundary: 'chat.forkQueued',
         queued: 'chat.compactPhaseQueued',
         planning: 'chat.compactPhasePlanning',
         summarizing: 'chat.compactPhaseSummarizing',
@@ -1672,8 +1678,8 @@ export function ChatPage() {
     ? Math.max(0, Math.floor((compactionClock - activeCompactionStatus.startedAt) / 1_000))
     : undefined;
   const compactionTerminalText = activeCompactionStatus?.status === 'failed'
-    ? `${t('chat.compactFailed')}: ${activeCompactionStatus.detail ?? t('chat.compactFailed')}`
-    : undefined;
+    ? `${t(historyFork ? 'chat.forkFailed' : 'chat.compactFailed')}: ${activeCompactionStatus.detail ?? ''}`
+    : historyFork ? t('chat.forkComplete') : undefined;
   const centerComposer = !isArchivedConversation
     && chat.messages.length === 0
     && chat.toolCalls.length === 0
@@ -2112,6 +2118,8 @@ export function ChatPage() {
               followupSuggestions={followupSuggestions}
               onCompact={chat.activeId && manualCompactionAvailable ? handleCompactConversation : undefined}
               isCompacting={isCompacting}
+              historyFork={historyFork}
+              isForkWaiting={historyFork && (activeCompactionStatus?.phase === "queued" || activeCompactionStatus?.phase === "waiting_for_boundary")}
               planModeEnabled={planModeEnabled}
               onPlanModeChange={setPlanModeEnabled}
               activeGoalContext={activeGoalContext}
@@ -2122,6 +2130,7 @@ export function ChatPage() {
                   usedTokens={chat.tokenUsage?.promptTokens}
                   isStreaming={chat.isStreaming}
                   isCompacting={isCompacting}
+                  historyFork={historyFork}
                   onCompact={chat.activeId && manualCompactionAvailable ? handleCompactConversation : undefined}
                   onSaved={chat.applyModelContextPolicy}
                 >
@@ -2133,6 +2142,7 @@ export function ChatPage() {
                   finishReason={chat.finishReason}
                   contextOverflow={chat.contextOverflow}
                   isCompacting={isCompacting}
+                  historyFork={historyFork}
                   turnTiming={chat.turnTiming}
                   taskPhase={chat.taskRun?.phase}
                   onConfigureContext={openContextPolicy}

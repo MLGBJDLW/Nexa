@@ -228,6 +228,7 @@ pub struct AgentSteeringMessage {
     pub parts: Vec<ContentPart>,
     pub image_attachments: Option<Vec<ImageAttachment>>,
     pub recovery_control: Option<AgentRecoveryControl>,
+    pub context_fork: Option<crate::context_maintenance::ContextForkRequest>,
 }
 
 /// Request-side recovery selected by the user for an active model sample.
@@ -249,6 +250,7 @@ impl AgentSteeringMessage {
             content,
             image_attachments: None,
             recovery_control: None,
+            context_fork: None,
         }
     }
 
@@ -258,6 +260,17 @@ impl AgentSteeringMessage {
             parts: Vec::new(),
             image_attachments: None,
             recovery_control: Some(control),
+            context_fork: None,
+        }
+    }
+
+    pub fn fork(request: crate::context_maintenance::ContextForkRequest) -> Self {
+        Self {
+            content: String::new(),
+            parts: Vec::new(),
+            image_attachments: None,
+            recovery_control: None,
+            context_fork: Some(request),
         }
     }
 }
@@ -759,11 +772,13 @@ pub struct AgentExecutor {
     auto_loaded_skills_override: Option<Vec<Skill>>,
     cancel_token: CancellationToken,
     steering_rx: Option<Arc<TokioMutex<mpsc::UnboundedReceiver<AgentSteeringMessage>>>>,
+    pending_context_fork: StdMutex<Option<crate::context_maintenance::ContextForkRequest>>,
     confirmation_callback: Option<ConfirmationCallback>,
     approval_callback: Option<ApprovalCallback>,
     tool_visual_interpreter: Option<ToolVisualInterpreter>,
     prompt_cache_tracker: StdMutex<PromptCacheTracker>,
     context_metrics: StdMutex<context_metrics::ContextMetrics>,
+    projected_context_metrics: StdMutex<context_metrics::ContextMetrics>,
     /// Separates invocation ids for short-lived executors that do not have a
     /// persisted conversation turn (notably detached subagents).
     usage_scope_id: String,
@@ -785,11 +800,13 @@ impl AgentExecutor {
             auto_loaded_skills_override: None,
             cancel_token: CancellationToken::new(),
             steering_rx: None,
+            pending_context_fork: StdMutex::new(None),
             confirmation_callback: None,
             approval_callback: None,
             tool_visual_interpreter: None,
             prompt_cache_tracker: StdMutex::new(PromptCacheTracker::default()),
             context_metrics: StdMutex::new(context_metrics::ContextMetrics::default()),
+            projected_context_metrics: StdMutex::new(context_metrics::ContextMetrics::default()),
             usage_scope_id: Uuid::new_v4().to_string(),
             usage_run_id: None,
             usage_subtask_run_id: None,

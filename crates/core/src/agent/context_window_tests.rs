@@ -152,7 +152,9 @@ impl LlmProvider for ContextFixtureProvider {
                         }),
                         finish_reason: (index + 1 == self.tools_per_round)
                             .then_some(FinishReason::ToolCalls),
-                        usage: None,
+                        usage: (index + 1 == self.tools_per_round)
+                            .then(|| self.usage.clone())
+                            .flatten(),
                         thinking_delta: None,
                     }),
                 });
@@ -290,6 +292,113 @@ async fn run_context_fixture(
 #[tokio::test]
 async fn provider_usage_counts_anthropic_cache_in_occupancy_without_changing_billing() {
     check_provider_usage(ProviderType::Anthropic, "anthropic", true, 100).await;
+}
+
+#[tokio::test]
+async fn context_hud_measures_the_same_replay_projection_as_each_model_request() {
+    for routed in [false, true] {
+        check_replay_projected_hud(routed).await;
+    }
+}
+
+async fn check_replay_projected_hud(routed: bool) {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let mut tools = ToolRegistry::new();
+    tools.register(Box::new(ContextFixtureTool { steering: None }));
+    let provider: Box<dyn LlmProvider> = Box::new(ContextFixtureProvider {
+        requests: Arc::clone(&requests),
+        rounds: 2,
+        tools_per_round: 1,
+        rows: 1,
+        opaque_replay: true,
+        usage: Some(Usage {
+            prompt_tokens: 1000,
+            completion_tokens: 20,
+            total_tokens: 1020,
+            ..Default::default()
+        }),
+    });
+    let provider = if routed {
+        Box::new(
+            crate::llm::fallback::AutomaticFallbackProvider::new(
+                0,
+                provider,
+                "gpt-4o".into(),
+                ProviderType::OpenAi,
+                vec![],
+                Arc::new(|_, _, _| Ok(())),
+            )
+            .unwrap(),
+        ) as Box<dyn LlmProvider>
+    } else {
+        provider
+    };
+    let executor = AgentExecutor::new(
+        provider,
+        tools,
+        AgentConfig {
+            model: Some("gpt-4o".into()),
+            context_window: Some(1_000_000),
+            max_tokens: Some(512),
+            tool_approval_mode: ToolApprovalMode::AllowAll,
+            ..Default::default()
+        },
+    )
+    .with_skills_override(Vec::new())
+    .with_auto_loaded_skills_override(Vec::new());
+    let mut legacy = Message::text(Role::Assistant, "");
+    legacy.tool_calls = Some(vec![crate::llm::ToolCallRequest {
+        id: "legacy".into(),
+        name: "read_file".into(),
+        arguments: "{}".into(),
+        thought_signature: None,
+    }]);
+    let history = vec![
+        Message::text(Role::User, "Earlier completed task"),
+        legacy,
+        Message::text_with_name(
+            Role::Tool,
+            "old detailed evidence ".repeat(20_000),
+            "legacy",
+        ),
+        Message::text(Role::Assistant, "Earlier task finished."),
+    ];
+    let db = Database::open_memory().unwrap();
+    let (tx, mut rx) = mpsc::channel(64);
+    let drain = tokio::spawn(async move {
+        let mut occupied = Vec::new();
+        while let Some(event) = rx.recv().await {
+            if let AgentEvent::UsageUpdate {
+                last_prompt_tokens, ..
+            } = event
+            {
+                occupied.push(last_prompt_tokens);
+            }
+        }
+        occupied
+    });
+    executor
+        .run(
+            history,
+            vec![ContentPart::Text {
+                text: ACTIVE_REQUEST.into(),
+            }],
+            &db,
+            None,
+            None,
+            tx,
+            0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(requests.lock().unwrap().len(), 3);
+    assert!(requests.lock().unwrap().iter().all(|request| request
+        .messages
+        .iter()
+        .all(|message| !message.text_content().contains("old detailed evidence"))));
+    let occupied = drain.await.unwrap();
+    assert!(occupied.iter().all(|tokens| *tokens < 20_000),
+        "the HUD must not alternate between canonical archives and the transmitted window: {occupied:?}");
 }
 
 #[tokio::test]
@@ -699,5 +808,183 @@ async fn native_document_extraction_fallback_reaches_provider_before_large_pdf_b
             .messages
             .iter()
             .any(|m| m.text_content().contains("PDF fallback")));
+    }
+}
+
+struct ForkingContextProvider {
+    inner: ContextFixtureProvider,
+    fork: Mutex<Option<crate::context_maintenance::ContextForkRequest>>,
+    steering: mpsc::UnboundedSender<AgentSteeringMessage>,
+}
+#[async_trait]
+impl LlmProvider for ForkingContextProvider {
+    fn name(&self) -> &str {
+        "manual-fork-fixture"
+    }
+    async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+        Ok(vec![])
+    }
+    async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        unreachable!()
+    }
+    async fn health_check(&self) -> Result<(), CoreError> {
+        Ok(())
+    }
+    async fn stream_events(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        let events = self.inner.stream_events(request).await?;
+        if let Some(fork) = self.fork.lock().unwrap().take() {
+            self.steering
+                .send(AgentSteeringMessage::fork(fork))
+                .unwrap();
+        }
+        Ok(events)
+    }
+}
+
+#[tokio::test]
+async fn manual_fork_during_streaming_waits_for_tools_or_final_answer_and_accepts_short_windows() {
+    for rounds in [0, 1] {
+        let db = Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&crate::conversation::CreateConversationInput {
+                provider: "custom".into(),
+                model: "gpt-4o".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        db.add_message(&crate::conversation::ConversationMessage {
+            id: "fork-user".into(),
+            conversation_id: conversation.id.clone(),
+            role: Role::User,
+            content: ACTIVE_REQUEST.into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 10,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        })
+        .unwrap();
+        let activities = crate::activity::ActivityRuntime::new();
+        activities
+            .start(
+                crate::activity::ActivitySpec::new(
+                    crate::activity::ActivitySurface::Maintenance,
+                    "context_compaction",
+                )
+                .with_activity_id("manual-fork")
+                .with_conversation_id(&conversation.id),
+            )
+            .unwrap();
+        let (fork, completed) = crate::context_maintenance::ContextForkRequest::new(
+            "manual-fork".into(),
+            activities,
+            CancellationToken::new(),
+        );
+        let (steering, receiver) = mpsc::unbounded_channel();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider = ForkingContextProvider {
+            inner: ContextFixtureProvider {
+                requests: requests.clone(),
+                rounds,
+                tools_per_round: 1,
+                rows: 1,
+                opaque_replay: false,
+                usage: None,
+            },
+            fork: Mutex::new(Some(fork)),
+            steering,
+        };
+        let mut tools = ToolRegistry::new();
+        tools.register(Box::new(ContextFixtureTool { steering: None }));
+        tools.register(Box::new(
+            crate::tools::context_history_tool::ContextHistoryTool,
+        ));
+        let executor = AgentExecutor::new(
+            Box::new(provider),
+            tools,
+            AgentConfig {
+                model: Some("gpt-4o".into()),
+                context_window: Some(1_000_000),
+                max_tokens: Some(512),
+                context_management_mode: crate::context_history::ContextManagementMode::History,
+                tool_approval_mode: ToolApprovalMode::AllowAll,
+                ..Default::default()
+            },
+        )
+        .with_steering_receiver(receiver)
+        .with_skills_override(vec![])
+        .with_auto_loaded_skills_override(vec![]);
+        let (tx, mut rx) = mpsc::channel(64);
+        let drain = tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                assert!(
+                    !matches!(event, AgentEvent::StreamReset { .. }),
+                    "Fork must not interrupt the current sample"
+                );
+            }
+        });
+        executor
+            .run(
+                vec![],
+                vec![ContentPart::Text {
+                    text: ACTIVE_REQUEST.into(),
+                }],
+                &db,
+                Some(&conversation.id),
+                None,
+                tx,
+                1,
+            )
+            .await
+            .unwrap();
+        drain.await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), completed)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            result.summary_kind.starts_with("history_fork"),
+            "{result:?}"
+        );
+        let seen = requests.lock().unwrap();
+        assert_eq!(
+            seen.len(),
+            rounds + 1,
+            "Fork must not restart a completed answer"
+        );
+        if rounds == 1 {
+            assert!(seen[1]
+                .messages
+                .iter()
+                .any(|message| message.text_content().contains("fresh history handoff")));
+            assert!(!seen[1]
+                .messages
+                .iter()
+                .any(|message| message.text_content().contains("BATCH_0_EVIDENCE")));
+        }
+        let projection =
+            crate::context_maintenance::load_context_projection(&db, &conversation.id).unwrap();
+        assert!(projection.projected);
+        if rounds == 0 {
+            assert!(!projection
+                .messages
+                .iter()
+                .any(|message| message.role == Role::Assistant));
+            assert!(db
+                .get_messages(&conversation.id)
+                .unwrap()
+                .iter()
+                .any(|message| message.content.contains("ACCEPTANCE_314159 is satisfied")));
+        }
     }
 }

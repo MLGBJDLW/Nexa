@@ -116,6 +116,12 @@ interaction reads that expire requests). Native window work still crosses
 Tauri's UI dispatch boundary. Terminal pipe disposal never holds the global
 session registry; frontend terminal input is ordered per session.
 
+Idle knowledge consolidation runs on the blocking pool; scheduled-workflow
+discovery uses the database reader lane. Neither may occupy the async workers
+that drive chat and speech sockets while waiting for SQLite. Stream notification
+timers cancel suspended animation frames after delivery, including an emptied
+urgent batch, so background windows do not accumulate callbacks for restoration.
+
 Delegated executors share the parent's Activity Runtime and tool ownership
 scope while keeping their transcript private. A managed process and its output
 remain observable after its launching worker finishes. Provider HTTP pools are
@@ -205,6 +211,24 @@ uses the Run Event ledger to restore suspensions or terminalize interrupted
 work instead of letting task rows invent a second outcome. The detailed
 batching, failure, recovery, and wire rules are normative in the
 [Agent Streaming Protocol](AGENT_STREAMING_PROTOCOL.md).
+
+The context indicator measures the route-specific request projection, using
+the same replay boundary as physical model calls. Canonical history still owns
+archival and conservative capacity checks; billing counters remain separate.
+Fresh history handoffs preserve current rules, user requests and corrections,
+and verify the archive before replacing the working window. An unresolved tool
+in the active turn defers handoff; an interrupted older turn does not pin every
+later window. Repeating a completed handoff reports the retained projection's
+size rather than the archived transcript's size.
+
+In history mode the existing context action is labelled **Fork**. A manual Fork
+may run below the automatic threshold. While a turn is streaming it enters the
+existing steering control lane without interrupting the sample, waits until all
+tool results are sealed, then uses the same verified history handoff. A queued
+Fork can be cancelled and does not lock the composer. Final answers are saved
+before a terminal handoff; a completed task never restarts merely to Fork.
+Offline maintenance still rejects active turns, so it cannot replace a live
+executor's projection behind its back. Summary mode retains Compact semantics.
 
 ## Delegation ownership
 

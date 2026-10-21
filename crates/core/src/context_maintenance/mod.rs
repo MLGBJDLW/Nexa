@@ -4,11 +4,13 @@
 //! the active context projection. Provider transport, planning, fallback,
 //! persistence, leases, and terminal-event rules stay behind it.
 
+mod live;
 mod model;
 mod planner;
 mod service;
 mod store;
 
+pub use live::ContextForkRequest;
 pub use model::{
     ContextCompactionHandle, ContextCompactionJob, ContextCompactionPhase, ContextCompactionPolicy,
     ContextCompactionResult, ContextProjection, StartContextCompactionRequest,

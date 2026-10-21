@@ -1016,7 +1016,7 @@
   "displayStreamingCost": "Smoother display can increase CPU/GPU use and battery consumption, especially for long answers. It does not change model speed or the saved answer. Reduced motion disables gradual reveal.",
   "contextManagementMode": "Context management",
   "contextModeSummary": "Summary compaction (default)",
-  "contextModeHistory": "Fresh context with archived history",
+  "contextModeHistory": "Fork to new window",
   "contextSummaryHelp": "A model summarizes older exchanges while recent turns remain intact.",
   "contextHistoryHelp": "Archives completed history, clears earlier reasoning, and keeps the current task and workspace. Retrieve notes and exact results only when needed; no summary-model call.",
   "contextModeScope": "Applies to new Nexa API turns and manual compaction. Subscription runtimes manage their own active context.",

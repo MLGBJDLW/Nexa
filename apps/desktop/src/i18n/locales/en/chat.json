@@ -930,5 +930,22 @@
   "captureScreen": "Take screenshot",
   "captureScreenHint": "Attach one image, preview it, then send. Capture stops immediately.",
   "captureScreenLive": "For continuous recording, open Live",
-  "attachmentsNextMessage": "Attachments are ready for your next message after this reply finishes."
+  "attachmentsNextMessage": "Attachments are ready for your next message after this reply finishes.",
+  "fork": "Fork to new window",
+  "forkNow": "Fork now",
+  "forking": "Forking to new window",
+  "forkQueued": "Waiting for a safe handoff",
+  "forkComplete": "New window ready",
+  "forkFailed": "Fork failed",
+  "forkObserveFailed": "Could not observe Fork",
+  "forkCancelFailed": "Could not cancel Fork",
+  "forkMustBeAlone": "/fork must be sent by itself.",
+  "forkDescription": "/fork · Start a fresh window now, or after the current model and tools finish. Task and history stay available.",
+  "autoForked": "Context forked to a new window",
+  "contextPolicySaveFork": "Apply & fork now",
+  "contextPolicyForkTitle": "Context & Fork",
+  "contextPolicyFork": "Auto-Fork",
+  "contextPolicyForkTiming": "When to fork",
+  "contextPolicyForkTriggerAt": "Fork automatically above {tokens} input tokens.",
+  "contextPolicyForkCalculation": "The percentage applies to {input} usable input tokens, after reserving {reply} for the reply and {safety} for safety. Fork archives earlier reasoning and preserves the current task."
 }

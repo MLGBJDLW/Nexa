@@ -266,6 +266,8 @@ test.beforeEach(async ({ page }) => {
           }
           return null;
         }
+        case 'get_app_config_cmd':
+          return { contextManagementMode: localStorage.getItem('__e2e_context_mode__') ?? 'summary' };
         case 'list_checkpoints_cmd':
           return [];
         case 'start_context_compaction_cmd': {
@@ -294,11 +296,13 @@ test.beforeEach(async ({ page }) => {
             startedAt: number;
             state: 'running' | 'cancelled';
           };
-          const remaining = Math.max(0, 1200 - (Date.now() - operation.startedAt));
+          const historyFork = localStorage.getItem('__e2e_context_mode__') === 'history';
+          const waiting = historyFork && localStorage.getItem('__e2e_hold_fork__') === 'yes';
+          const remaining = waiting ? 1200 : Math.max(0, 1200 - (Date.now() - operation.startedAt));
           if (operation.state === 'running' && remaining > 0) {
             await new Promise((resolve) => setTimeout(resolve, Math.min(remaining, 250)));
           }
-          const completed = operation.state === 'running'
+          const completed = operation.state === 'running' && !waiting
             && Date.now() - operation.startedAt >= 1200;
           const state = operation.state === 'cancelled'
             ? 'cancelled'
@@ -312,7 +316,7 @@ test.beforeEach(async ({ page }) => {
             tokensBefore: 74000,
             tokensAfter: 1300,
             evictedMessages: Math.max(0, before.length - 2),
-            summaryKind: 'abstractive',
+            summaryKind: historyFork ? 'history_fork_live' : 'abstractive',
             fallbackReason: null,
           };
           const cursor = completed || state === 'cancelled' ? 3 : 2;
@@ -332,7 +336,7 @@ test.beforeEach(async ({ page }) => {
                   seq: 2,
                   timestamp: new Date().toISOString(),
                   kind: 'progress',
-                  payload: { phase: 'summarizing', progress: 0.45 },
+                  payload: { phase: historyFork ? (waiting ? 'waiting_for_boundary' : 'committing') : 'summarizing', progress: 0.45 },
                 }]
               : [{
                   activityId: operationId,
@@ -770,7 +774,7 @@ test('manual compact status and completion stay scoped to the target conversatio
 
 test('manual compact is rejected while the target conversation is streaming', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
-  await page.getByTestId('chat-input-textarea').fill('Keep streaming while I inspect the controls.');
+  await page.getByTestId('chat-input-textarea').fill('Keep streaming, multi step, while I inspect the controls.');
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-send')).toHaveAttribute('aria-label', 'Steering message');
   await expect(page.getByTestId('chat-compact')).toBeDisabled();
@@ -780,6 +784,7 @@ test('manual compact is rejected while the target conversation is streaming', as
 
   await expect(page.getByText('Wait for the current response to finish before compacting.')).toBeVisible();
   await expect(page.getByTestId('chat-compact-status')).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new Event('nexa-e2e-cache-finish')));
 });
 
 
@@ -853,4 +858,46 @@ test('runtime budget explains early compaction and survives usage hydration', as
   await page.screenshot({ path: testInfo.outputPath('runtime-context-budget.png') });
   await page.reload();
   await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /83% context used/);
+});
+
+
+test('history Fork remains available during streaming and keeps the existing composer usable while queued', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('__e2e_context_mode__', 'history');
+    localStorage.setItem('__e2e_hold_fork__', 'yes');
+  });
+  await page.goto('/chat/conv-e2e');
+  await page.getByTestId('chat-input-textarea').fill('Keep streaming, multi step, while I fork.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-send')).toHaveAttribute('aria-label', 'Steering message');
+  const fork = page.getByTestId('chat-compact');
+  await page.getByTestId('chat-input-toolbar').getByRole('button', { name: 'More options', exact: true }).click();
+  await expect(fork).toHaveAttribute('aria-label', 'Fork to new window');
+  await expect(fork).toBeEnabled();
+  await fork.click();
+  await expect(page.getByTestId('chat-compact-status')).toContainText('Waiting for a safe handoff');
+  await expect(page.getByTestId('chat-compact-cancel')).toBeVisible();
+  await page.getByTestId('chat-input-textarea').fill('Keep this draft while Fork is queued.');
+  await expect(page.getByTestId('chat-send')).toBeEnabled();
+  await page.screenshot({ path: '../../.artifacts/runtime-speech-20261021/fork-waiting.png' });
+  await page.evaluate(() => localStorage.removeItem('__e2e_hold_fork__'));
+  await expect(page.getByTestId('chat-compact-status')).toContainText('New window ready');
+  await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Keep this draft while Fork is queued.');
+  await expect(page.getByTestId('chat-send')).toHaveAttribute('aria-label', 'Steering message');
+  await page.evaluate(() => window.dispatchEvent(new Event('nexa-e2e-cache-finish')));
+});
+
+test('history mode accepts slash fork before capacity and can cancel a waiting handoff', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('__e2e_context_mode__', 'history');
+    localStorage.setItem('__e2e_hold_fork__', 'yes');
+  });
+  await page.goto('/chat/conv-empty');
+  await expect(page.getByTestId('chat-compact')).toHaveAttribute('aria-label', 'Fork to new window');
+  await page.getByTestId('chat-input-textarea').fill('/fork');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-compact-status')).toContainText('Waiting for a safe handoff');
+  await page.getByTestId('chat-compact-cancel').click();
+  await expect(page.getByTestId('chat-compact-cancel')).toHaveCount(0);
+  await expect(page.getByTestId('chat-compact')).toBeEnabled();
 });

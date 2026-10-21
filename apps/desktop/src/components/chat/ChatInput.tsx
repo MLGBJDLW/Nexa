@@ -101,6 +101,8 @@ interface ChatInputProps {
   followupSuggestions?: { key: string; items: FollowupSuggestion[] } | null;
   onCompact?: () => void;
   isCompacting?: boolean;
+  historyFork?: boolean;
+  isForkWaiting?: boolean;
   planModeEnabled?: boolean;
   onPlanModeChange?: (enabled: boolean) => void;
   activeGoalContext?: ActiveGoalContext | null;
@@ -387,6 +389,8 @@ export function ChatInput({
   followupSuggestions,
   onCompact,
   isCompacting = false,
+  historyFork = false,
+  isForkWaiting = false,
   planModeEnabled,
   onPlanModeChange,
   activeGoalContext,
@@ -481,7 +485,7 @@ export function ChatInput({
   const hasImageAttachments = attachments.some((attachment) => attachment.mediaType.startsWith('image/'));
   const visionDecisionRequired = hasImageAttachments && visionPolicyMode === 'ask' && visionTurnOverride === null;
   const inputLocked = disabled || loadedDraftKey !== draftKey;
-  const sendLocked = inputLocked || isCompacting || visionDecisionRequired || sendPending;
+  const sendLocked = inputLocked || (isCompacting && !isForkWaiting) || visionDecisionRequired || sendPending;
   const visibleFollowups = !isStreaming && !sendLocked && !draftPreview && !value && !attachments.length && !activeSlashCommandId
     && followupSuggestions?.key !== dismissedFollowupKey ? followupSuggestions : null;
   const ghostSuggestion = visibleFollowups?.items[0]?.prompt ?? '';
@@ -831,17 +835,18 @@ export function ChatInput({
   }, []);
 
   const allSlashOptions = useMemo(
-    () => buildSlashCommandOptions(activeSkills, workflowTemplates, appCommands.map(command => ({ id: command.id, title: t(command.label), keywords: command.keywords }))),
-    [activeSkills, workflowTemplates, appCommands, t],
+    () => buildSlashCommandOptions(activeSkills, workflowTemplates, appCommands.map(command => ({ id: command.id, title: t(command.label), keywords: command.keywords }))).flatMap(option => historyFork && option.action === "compact" ? [option, { ...option, name: "fork", title: t("chat.fork"), description: t("chat.forkDescription") }] : [option]),
+    [activeSkills, workflowTemplates, appCommands, historyFork, t],
   );
   const slashOptions = useMemo(
     () => allSlashOptions.filter(option => {
+      if (option.action === 'compact') return !nativeAgent && option.name === (historyFork ? 'fork' : 'compact');
       if (option.action === 'composer') {
         return option.name === 'commands' || appCommands.some(command => command.id === (option.appCommandId ?? `chat.${option.name}`) && command.enabled !== false);
       }
       return !nativeAgent || option.kind !== 'command';
     }),
-    [allSlashOptions, nativeAgent, appCommands],
+    [allSlashOptions, nativeAgent, appCommands, historyFork],
   );
   const activeSlashCommand = useMemo(
     () => slashOptions.find((option) => option.id === activeSlashCommandId) ?? null,
@@ -965,7 +970,7 @@ export function ChatInput({
   useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', enabled: !inputLocked, run: () => setMoreOptionsOpen(true) });
   useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
   useAppCommand({ id: 'chat.workflow', label: 'chat.workflows', keywords: '/workflow 工作流', enabled: !nativeAgent && !attachmentLocked, run: () => { setMoreOptionsOpen(true); setWorkflowCatalogOpen(true); } });
-  useAppCommand({ id: 'chat.compact', label: 'chat.compactNow', keywords: '/compact context 压缩 上下文', enabled: Boolean(conversationId && onCompact && !attachmentLocked && !isStreaming && !isCompacting), run: () => onCompact?.() });
+  useAppCommand({ id: 'chat.compact', label: historyFork ? 'chat.forkNow' : 'chat.compactNow', keywords: '/fork /compact context 压缩 上下文', enabled: Boolean(conversationId && onCompact && !attachmentLocked && (historyFork || !isStreaming) && !isCompacting), run: () => onCompact?.() });
   useAppCommand({ id: 'chat.nexus', label: 'chat.nexusMode', keywords: '/nexus 协作', enabled: !nativeAgent && !inputLocked, run: () => changeNexusMode() });
   useAppCommand({ id: 'chat.moa', label: 'chat.moaMode', keywords: '/moa multi-model 多模型 协作', enabled: agentRuntime === 'api' && !inputLocked, run: () => runComposerAction('moa') });
   useAppCommand({ id: 'chat.quality', label: 'chat.qualityProfile', keywords: '/quality deep ultra 质量', enabled: !nativeAgent && !inputLocked, run: () => runComposerAction('quality') });
@@ -1157,7 +1162,7 @@ export function ChatInput({
     }
     if (slashResolution?.localAction === "compact") {
       if (!onCompact) { toast.error(t("chat.compactUnavailable")); return; }
-      if (isStreaming) {
+      if (isStreaming && !historyFork) {
         toast.error(t("chat.compactWhileRunning"));
         return;
       }
@@ -1166,7 +1171,7 @@ export function ChatInput({
         clearDraft();
         return;
       }
-      toast.error(t("chat.compactMustBeAlone"));
+      toast.error(t(historyFork ? "chat.forkMustBeAlone" : "chat.compactMustBeAlone"));
       return;
     }
     if (nativeAgent && slashResolution?.executionMode === "plan") {
@@ -1240,7 +1245,7 @@ export function ChatInput({
       sendInFlightRef.current = false;
       setSendPending(false);
     }
-  }, [activeGoalContext, activeSlashCommand, adjustHeight, agentRuntime, allSlashOptions, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, followupSuggestions, inputLocked, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, resumeTask, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
+  }, [activeGoalContext, activeSlashCommand, adjustHeight, agentRuntime, allSlashOptions, attachments, clearDraft, collaborationMode, customOrchestration, effectivePlanModeEnabled, followupSuggestions, historyFork, inputLocked, isStreaming, moaPreset, nativeAgent, onCompact, onResume, onSend, orchestrationProfile, persistDraft, powerMode, resumeTask, runComposerAction, sendLocked, setPlanMode, slashOptions, t, value, visionTurnOverride]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -2162,7 +2167,7 @@ export function ChatInput({
           onClick={updateCaretFromTextarea}
           onSelect={updateCaretFromTextarea}
           onPaste={handlePaste}
-          placeholder={ghostSuggestion ? '' : isCompacting ? `${t("chat.compacting")} (>_<)` : t("chat.placeholder")}
+          placeholder={ghostSuggestion ? '' : isCompacting && !isForkWaiting ? `${t(historyFork ? "chat.forking" : "chat.compacting")} (>_<)` : t("chat.placeholder")}
           aria-label={t("chat.placeholder")}
           aria-description={ghostSuggestion ? t('chat.followupTabHint', { prompt: ghostSuggestion }) : undefined}
           disabled={inputLocked}
@@ -2268,10 +2273,10 @@ export function ChatInput({
                 type="button"
                 data-testid="chat-compact"
                 onClick={onCompact}
-                disabled={attachmentLocked}
+                disabled={attachmentLocked || (!historyFork && isStreaming) || isCompacting}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-tertiary transition-colors duration-fast ease-out cursor-pointer hover:bg-surface-2 hover:text-text-secondary disabled:pointer-events-none disabled:opacity-40"
-                aria-label={t("chat.compact")}
-                title="/compact"
+                aria-label={t(historyFork ? "chat.fork" : "chat.compact")}
+                title={t(historyFork ? "chat.forkDescription" : "chat.compactNow")}
               >
                 {isCompacting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

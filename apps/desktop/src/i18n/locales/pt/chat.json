@@ -930,5 +930,22 @@
   "captureScreen": "Fazer captura de tela",
   "captureScreenHint": "Anexe uma imagem, confira e envie. A captura termina imediatamente.",
   "captureScreenLive": "Para gravação contínua, abra o Live",
-  "attachmentsNextMessage": "Os anexos estão prontos para a próxima mensagem após esta resposta."
+  "attachmentsNextMessage": "Os anexos estão prontos para a próxima mensagem após esta resposta.",
+  "fork": "Fork para nova janela",
+  "forkNow": "Fork agora",
+  "forking": "Transferindo para nova janela",
+  "forkQueued": "Aguardando modelo e ferramentas",
+  "forkComplete": "Nova janela pronta",
+  "forkFailed": "Falha no Fork",
+  "forkObserveFailed": "Não foi possível acompanhar o Fork",
+  "forkCancelFailed": "Não foi possível cancelar o Fork",
+  "forkMustBeAlone": "Envie /fork separadamente.",
+  "forkDescription": "/fork · Abre uma nova janela após o modelo e as ferramentas atuais terminarem. Mantém a tarefa e o histórico.",
+  "autoForked": "Contexto transferido para nova janela",
+  "contextPolicySaveFork": "Aplicar e Fork",
+  "contextPolicyForkTitle": "Contexto e Fork",
+  "contextPolicyFork": "Fork automático",
+  "contextPolicyForkTiming": "Quando fazer Fork",
+  "contextPolicyForkTriggerAt": "Fork automático acima de {tokens} tokens de entrada.",
+  "contextPolicyForkCalculation": "A porcentagem se aplica a {input} tokens disponíveis, após reservar {reply} para a resposta e {safety} de segurança. Fork arquiva o raciocínio anterior e mantém a tarefa."
 }

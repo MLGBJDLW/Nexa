@@ -11,6 +11,7 @@ interface Props {
   usedTokens?: number;
   isStreaming: boolean;
   isCompacting: boolean;
+  historyFork?: boolean;
   onCompact?: () => void;
   onSaved: (snapshot: api.ModelContextPolicySnapshot) => void;
   children: (open: () => void) => ReactNode;
@@ -20,7 +21,7 @@ const numberLabel = (value: number) => value >= 1_000_000
   ? `${Number((value / 1_000_000).toFixed(2))}M`
   : value >= 1_000 ? `${Number((value / 1_000).toFixed(1))}K` : String(value);
 
-export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCompacting, onCompact, onSaved, children }: Props) {
+export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCompacting, historyFork = false, onCompact, onSaved, children }: Props) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<api.ModelContextPolicySnapshot | null>(null);
@@ -107,7 +108,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
     <NexaPopoverAnchor asChild><div className="ml-auto shrink-0">{children(() => setOpen(true))}</div></NexaPopoverAnchor>
     <NexaPopoverContent
       align="end" side="top" collisionPadding={12}
-      aria-label={t('chat.contextPolicyTitle')}
+      aria-label={t(historyFork ? 'chat.contextPolicyForkTitle' : 'chat.contextPolicyTitle')}
       data-testid="context-policy-panel"
       className="flex w-[min(25rem,calc(100vw-1.5rem))] max-h-[min(42rem,var(--radix-popover-content-available-height))] flex-col overflow-hidden rounded-2xl border border-border/75 bg-surface-0 text-text-primary shadow-2xl"
       style={{ overflow: 'hidden' }}
@@ -115,7 +116,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
       <div className="flex shrink-0 items-start gap-3 border-b border-border/60 px-5 py-4">
         <span className="rounded-xl bg-accent/10 p-2 text-accent"><Gauge className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold">{t('chat.contextPolicyTitle')}</h2>
+          <h2 className="text-sm font-semibold">{t(historyFork ? 'chat.contextPolicyForkTitle' : 'chat.contextPolicyTitle')}</h2>
           <p className="mt-1 truncate text-xs text-text-tertiary" title={config.model}>{config.model}</p>
         </div>
         <button type="button" onClick={() => setOpen(false)} aria-label={t('common.close')} className="rounded-md p-1 text-text-tertiary hover:bg-surface-2"><X className="h-4 w-4" /></button>
@@ -143,11 +144,11 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
               <div className="relative mb-2 mt-4 h-3 overflow-visible rounded-full bg-surface-3" data-testid="context-policy-budget-bar">
                 <span className="absolute inset-y-0 left-0 rounded-full bg-accent transition-[width] motion-reduce:transition-none" style={{ width: `${progress}%` }} />
                 <span className="absolute inset-y-0 right-0 rounded-r-full bg-text-tertiary/20" style={{ width: `${reservePercent}%` }} />
-                {capacity && !invalid ? <span className="absolute -inset-y-1 border-l-2 border-dashed border-warning" style={{ left: `${triggerPosition}%` }} title={t('chat.contextPolicyTriggerAt', { tokens: numberLabel(trigger) })} /> : null}
+                {capacity && !invalid ? <span className="absolute -inset-y-1 border-l-2 border-dashed border-warning" style={{ left: `${triggerPosition}%` }} title={t(historyFork ? 'chat.contextPolicyForkTriggerAt' : 'chat.contextPolicyTriggerAt', { tokens: numberLabel(trigger) })} /> : null}
               </div>
               <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-[10px] text-text-tertiary">
                 <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{t('chat.contextPolicyUsed')}</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 border-l-2 border-dashed border-warning" />{t('chat.contextPolicyCompact')}</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 border-l-2 border-dashed border-warning" />{t(historyFork ? 'chat.contextPolicyFork' : 'chat.contextPolicyCompact')}</span>
                 <span>{t('chat.contextPolicyReserved', { tokens: numberLabel(responseReserve + safetyReserve) })}</span>
               </div>
             </section>
@@ -166,12 +167,12 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
             </section>
 
             <section className="space-y-3 border-t border-border/60 pt-4">
-              <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-semibold">{t('chat.contextPolicyTiming')}</h3><span className="text-base font-semibold tabular-nums text-accent">{percent}<span className="ml-0.5 text-xs">%</span></span></div>
+              <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-semibold">{t(historyFork ? 'chat.contextPolicyForkTiming' : 'chat.contextPolicyTiming')}</h3><span className="text-base font-semibold tabular-nums text-accent">{percent}<span className="ml-0.5 text-xs">%</span></span></div>
               <div className="grid grid-cols-3 gap-2">{([{ value: 65, label: 'chat.contextPolicyEarlier' }, { value: null, label: 'chat.contextPolicyBalanced' }, { value: 95, label: 'chat.contextPolicyLater' }] as const).map(item => <button type="button" key={item.label} aria-pressed={compactPercent === item.value} className={optionClass(compactPercent === item.value)} onClick={() => { setCompactPercent(item.value); touch(); }}>{t(item.label)}</button>)}</div>
-              <input data-testid="context-policy-threshold" aria-label={t('chat.contextPolicyTiming')} type="range" min={60} max={95} step={1} value={percent} onChange={event => { setCompactPercent(Number(event.target.value)); touch(); }} className="block h-5 w-full cursor-pointer accent-accent" />
+              <input data-testid="context-policy-threshold" aria-label={t(historyFork ? 'chat.contextPolicyForkTiming' : 'chat.contextPolicyTiming')} type="range" min={60} max={95} step={1} value={percent} onChange={event => { setCompactPercent(Number(event.target.value)); touch(); }} className="block h-5 w-full cursor-pointer accent-accent" />
               <div className="flex justify-between text-[10px] text-text-tertiary"><span>{t('chat.contextPolicyMoreRoom')}</span><span>{t('chat.contextPolicyMoreHistory')}</span></div>
-              <p className="text-xs leading-5 text-text-secondary">{capacity && !invalid ? t('chat.contextPolicyTriggerAt', { tokens: numberLabel(trigger) }) : t('chat.contextPolicyUnknownTrigger')}</p>
-              <details className="group text-[11px] text-text-tertiary"><summary className="flex cursor-pointer list-none items-center gap-1"><ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />{t('chat.contextPolicyHowCalculated')}</summary><p className="mt-2 leading-5">{t('chat.contextPolicyCalculation', { input: numberLabel(promptBudget), reply: numberLabel(responseReserve), safety: numberLabel(safetyReserve) })}</p></details>
+              <p className="text-xs leading-5 text-text-secondary">{capacity && !invalid ? t(historyFork ? 'chat.contextPolicyForkTriggerAt' : 'chat.contextPolicyTriggerAt', { tokens: numberLabel(trigger) }) : t('chat.contextPolicyUnknownTrigger')}</p>
+              <details className="group text-[11px] text-text-tertiary"><summary className="flex cursor-pointer list-none items-center gap-1"><ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />{t('chat.contextPolicyHowCalculated')}</summary><p className="mt-2 leading-5">{t(historyFork ? 'chat.contextPolicyForkCalculation' : 'chat.contextPolicyCalculation', { input: numberLabel(promptBudget), reply: numberLabel(responseReserve), safety: numberLabel(safetyReserve) })}</p></details>
             </section>
           </div>
           <div className="shrink-0 space-y-3 border-t border-border/60 bg-surface-1 px-5 py-4">
@@ -180,7 +181,7 @@ export function ContextPolicyPopover({ config, usedTokens = 0, isStreaming, isCo
             {saved && <p role="status" className="flex items-center gap-1.5 text-xs text-accent"><Check className="h-3.5 w-3.5" />{t('chat.contextPolicySaved')}</p>}
             <div className="flex items-center justify-between gap-2">
               <button type="button" aria-label={t('chat.contextPolicyReset')} title={t('chat.contextPolicyReset')} onClick={() => { setAutomatic(true); setCompactPercent(null); touch(); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-tertiary hover:bg-surface-2 hover:text-text-primary"><RotateCcw className="h-4 w-4" /></button>
-              {onCompact && <button type="button" data-testid="context-policy-compact-now" disabled={!canSave || isStreaming || isCompacting} onClick={async () => { if (dirty && !await save()) return; onCompact(); }} className="mr-auto inline-flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-border/70 px-2 py-1 text-xs text-text-secondary hover:bg-surface-2 disabled:opacity-40"><ArchiveRestore className="h-3.5 w-3.5 shrink-0" /><span>{isCompacting ? t('chat.compacting') : dirty ? t('chat.contextPolicySaveCompact') : t('chat.compactNow')}</span></button>}
+              {onCompact && <button type="button" data-testid="context-policy-compact-now" disabled={!canSave || (!historyFork && isStreaming) || isCompacting} onClick={async () => { if (dirty && !await save()) return; onCompact(); }} className="mr-auto inline-flex min-h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-border/70 px-2 py-1 text-xs text-text-secondary hover:bg-surface-2 disabled:opacity-40"><ArchiveRestore className="h-3.5 w-3.5 shrink-0" /><span>{isCompacting ? t(historyFork ? 'chat.forking' : 'chat.compacting') : dirty ? t(historyFork ? 'chat.contextPolicySaveFork' : 'chat.contextPolicySaveCompact') : t(historyFork ? 'chat.forkNow' : 'chat.compactNow')}</span></button>}
               <button type="button" data-testid="context-policy-save" disabled={!canSave || !dirty} onClick={() => void save()} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40">{saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('chat.contextPolicyApply')}</button>
             </div>
           </div>

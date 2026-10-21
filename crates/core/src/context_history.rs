@@ -31,6 +31,24 @@ pub(crate) struct HistoryHandoffPlan {
 
 impl HistoryHandoffPlan {
     pub fn prepare(messages: &[Message], active_request: Option<&Message>) -> Option<Self> {
+        Self::prepare_at_boundary(messages, active_request, true)
+    }
+
+    /// The caller has already fenced live execution (manual maintenance), or
+    /// validated its live window separately (automatic handoff). Historical
+    /// cancelled calls may remain unpaired in the durable transcript.
+    pub fn prepare_persisted(
+        messages: &[Message],
+        active_request: Option<&Message>,
+    ) -> Option<Self> {
+        Self::prepare_at_boundary(messages, active_request, false)
+    }
+
+    fn prepare_at_boundary(
+        messages: &[Message],
+        active_request: Option<&Message>,
+        live: bool,
+    ) -> Option<Self> {
         let active = active_request
             .and_then(|request| {
                 messages
@@ -50,7 +68,7 @@ impl HistoryHandoffPlan {
                     .rposition(|message| message.role == Role::User)
             })?;
         let mut pending = HashSet::new();
-        for message in messages {
+        for message in &messages[active..] {
             if let Some(calls) = &message.tool_calls {
                 pending.extend(calls.iter().map(|call| call.id.as_str()));
             }
@@ -62,7 +80,7 @@ impl HistoryHandoffPlan {
         }
         // Never flush an unresolved tool batch or the native replay state it
         // still needs. The normal post-tool boundary will try again.
-        if !pending.is_empty() {
+        if live && !pending.is_empty() {
             return None;
         }
         let retained = messages

@@ -1491,6 +1491,7 @@ pub async fn cleanup_empty_conversations_cmd(
 #[tauri::command]
 pub async fn start_context_compaction_cmd(
     state: tauri::State<'_, AppState>,
+    agent_state: tauri::State<'_, AgentState>,
     request: nexa_core::context_maintenance::StartContextCompactionRequest,
 ) -> Result<nexa_core::context_maintenance::ContextCompactionHandle, String> {
     let conversation_id = request.conversation_id.clone();
@@ -1545,9 +1546,17 @@ pub async fn start_context_compaction_cmd(
         provider_label,
         summarizer: provider,
     };
+    let live_target = if mode == nexa_core::context_history::ContextManagementMode::History {
+        agent_state
+            .sessions
+            .context_fork_target(&job.request.conversation_id)
+            .await
+    } else {
+        None
+    };
     state
         .context_compaction
-        .start(job)
+        .start_with_live_target(job, live_target)
         .await
         .map_err(|error| error.to_string())
 }
@@ -1601,10 +1610,12 @@ pub async fn cancel_context_compaction_cmd(
 #[tauri::command]
 pub async fn compact_conversation_cmd(
     state: tauri::State<'_, AppState>,
+    agent_state: tauri::State<'_, AgentState>,
     conversation_id: String,
 ) -> Result<CompactConversationResult, String> {
     let handle = start_context_compaction_cmd(
         state.clone(),
+        agent_state,
         nexa_core::context_maintenance::StartContextCompactionRequest {
             conversation_id,
             idempotency_key: Uuid::new_v4().to_string(),

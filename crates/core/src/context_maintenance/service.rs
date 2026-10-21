@@ -59,8 +59,21 @@ impl ContextCompactionService {
 
     pub async fn start(
         &self,
-        mut job: ContextCompactionJob,
+        job: ContextCompactionJob,
     ) -> Result<ContextCompactionHandle, CoreError> {
+        self.start_with_live_target(job, None).await
+    }
+
+    pub async fn start_with_live_target(
+        &self,
+        mut job: ContextCompactionJob,
+        live_target: Option<tokio::sync::mpsc::UnboundedSender<crate::agent::AgentSteeringMessage>>,
+    ) -> Result<ContextCompactionHandle, CoreError> {
+        if live_target.is_some() && job.mode != ContextManagementMode::History {
+            return Err(CoreError::InvalidInput(
+                "Live Fork requires history mode".into(),
+            ));
+        }
         job.request.policy = job.request.policy.normalized();
         if job.request.conversation_id.trim().is_empty() {
             return Err(CoreError::InvalidInput(
@@ -123,7 +136,13 @@ impl ContextCompactionService {
         let conversation_id_for_handle = job.request.conversation_id.clone();
         let snapshot_version_for_handle = job.snapshot_version.clone();
         tokio::spawn(async move {
-            let result = service.run(&operation_id_for_task, cancellation, job).await;
+            let result = if let Some(target) = live_target {
+                service
+                    .run_live_fork(&operation_id_for_task, cancellation, job, target)
+                    .await
+            } else {
+                service.run(&operation_id_for_task, cancellation, job).await
+            };
             service
                 .finish(&operation_id_for_task, result)
                 .unwrap_or_else(|error| {
@@ -144,6 +163,60 @@ impl ContextCompactionService {
             state: ActivityState::Running,
             phase: ContextCompactionPhase::Queued,
         })
+    }
+
+    async fn run_live_fork(
+        &self,
+        operation_id: &str,
+        cancellation: CancellationToken,
+        job: ContextCompactionJob,
+        target: tokio::sync::mpsc::UnboundedSender<crate::agent::AgentSteeringMessage>,
+    ) -> Result<ContextCompactionResult, OperationError> {
+        self.progress(
+            operation_id,
+            ContextCompactionPhase::WaitingForBoundary,
+            0.0,
+            serde_json::json!({"eventKind": "operationProgress"}),
+        )?;
+        let (request, completed) = super::live::ContextForkRequest::new(
+            operation_id.to_string(),
+            self.inner.activities.clone(),
+            cancellation.clone(),
+        );
+        if target
+            .send(crate::agent::AgentSteeringMessage::fork(request))
+            .is_ok()
+        {
+            let result = tokio::select! {
+                biased;
+                result = completed => result,
+                _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Fork cancelled while waiting for a safe boundary".into()).into()),
+            };
+            if let Ok(result) = result {
+                return result.map_err(Into::into);
+            }
+        }
+        // The turn may finish between UI click and queue admission. Wait for
+        // its durable finalization, then use the same offline operation. No
+        // live projection is ever replaced from this service worker.
+        loop {
+            ensure_not_cancelled(&cancellation)?;
+            let conversation_id = job.request.conversation_id.clone();
+            let active = self
+                .inner
+                .database
+                .read(move |db| db.conversation_has_active_agent_task_run(&conversation_id))
+                .await?
+                .value;
+            if !active {
+                break;
+            }
+            tokio::select! {
+                _ = cancellation.cancelled() => ensure_not_cancelled(&cancellation)?,
+                _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+            }
+        }
+        self.run(operation_id, cancellation, job).await
     }
 
     pub async fn cancel(&self, operation_id: &str, reason: &str) -> Result<(), CoreError> {
@@ -242,14 +315,25 @@ impl ContextCompactionService {
         let context_window = job.context_window;
         let max_response_tokens = job.max_response_tokens;
         let mode = job.mode;
+        let current_handoff =
+            if mode == ContextManagementMode::History && loaded.value.fresh_handoff_is_current {
+                let conversation_id = job.request.conversation_id.clone();
+                let projection = self
+                    .inner
+                    .database
+                    .read(move |db| super::store::load_context_projection(db, &conversation_id))
+                    .await?
+                    .value;
+                projection.projected.then_some(projection.messages)
+            } else {
+                None
+            };
         let plan_started = Instant::now();
         let plan = tokio::task::spawn_blocking(move || {
-            if mode == ContextManagementMode::History && loaded.value.fresh_handoff_is_current {
+            if let Some(messages) = current_handoff {
                 return PlanOutcome::Noop {
-                    messages_before: loaded.value.messages.len(),
-                    tokens_before: loaded
-                        .value
-                        .messages
+                    messages_before: messages.len(),
+                    tokens_before: messages
                         .iter()
                         .map(|message| {
                             crate::conversation::memory::estimate_tokens_for_model(
@@ -909,5 +993,77 @@ mod tests {
             "Verify the tool tail next."
         );
         assert_eq!(database.get_messages(&conversation.id).unwrap().len(), 3);
+
+        // Repeating a completed fresh-window handoff must describe that window,
+        // not replace its HUD with the entire archived conversation's size.
+        service
+            .release(&conversation.id, &handle.operation_id)
+            .await;
+        let mut repeated = job(&conversation.id, "history-offline-repeat");
+        repeated.mode = ContextManagementMode::History;
+        repeated.summarizer = None;
+        let repeated = service.start(repeated).await.unwrap();
+        let observation = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut cursor = 0;
+            loop {
+                let observation = service
+                    .observe(&repeated.operation_id, cursor, Duration::from_millis(100))
+                    .await
+                    .unwrap();
+                if observation.record.state.is_terminal() {
+                    break observation;
+                }
+                cursor = observation.cursor;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(observation.record.state, ActivityState::Completed);
+        let terminal = observation.events.last().unwrap();
+        let result = &terminal.payload["detail"]["result"];
+        assert_eq!(result["messagesAfter"], 2);
+        assert!(
+            result["tokensAfter"].as_u64().unwrap() < 1_000,
+            "a second compact must not restore the archived context percentage: {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn queued_live_fork_is_cancellable_before_the_safe_boundary() {
+        let database = crate::db::Database::open_memory().unwrap();
+        let service = ContextCompactionService::new(
+            DatabaseExecutor::new(database, 4).unwrap(),
+            ActivityRuntime::new(),
+        );
+        let mut input = job("queued-conversation", "queued-fork");
+        input.mode = ContextManagementMode::History;
+        input.summarizer = None;
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let handle = service
+            .start_with_live_target(input, Some(sender))
+            .await
+            .unwrap();
+        let control = receiver.recv().await.unwrap().context_fork.unwrap();
+        service
+            .cancel(&handle.operation_id, "user_requested")
+            .await
+            .unwrap();
+        assert!(matches!(control.begin(), Err(CoreError::Cancelled(_))));
+        let observation = tokio::time::timeout(Duration::from_secs(2), async {
+            let mut cursor = 0;
+            loop {
+                let observation = service
+                    .observe(&handle.operation_id, cursor, Duration::from_millis(50))
+                    .await
+                    .unwrap();
+                if observation.record.state.is_terminal() {
+                    break observation;
+                }
+                cursor = observation.cursor;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(observation.record.state, ActivityState::Cancelled);
     }
 }

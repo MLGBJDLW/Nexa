@@ -20,6 +20,17 @@ impl AgentExecutor {
         model: &str,
         run: context_compaction::CompactionRunContext<'_>,
     ) -> Result<bool, CoreError> {
+        self.handoff_context_with_intent(messages, model, run, false, &self.cancel_token)
+    }
+
+    fn handoff_context_with_intent(
+        &self,
+        messages: &mut Vec<Message>,
+        model: &str,
+        run: context_compaction::CompactionRunContext<'_>,
+        manual: bool,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CoreError> {
         let Some(conversation_id) = run.conversation_id else {
             return Ok(false);
         };
@@ -49,10 +60,10 @@ impl AgentExecutor {
             .iter()
             .map(|message| message.base_tokens)
             .sum::<u32>();
-        if after_tokens >= before_tokens {
+        if !manual && after_tokens >= before_tokens {
             return Ok(false);
         }
-        if self.cancel_token.is_cancelled() {
+        if self.cancel_token.is_cancelled() || cancellation.is_cancelled() {
             return Err(CoreError::Cancelled(
                 "Context handoff cancelled before commit".into(),
             ));
@@ -61,7 +72,7 @@ impl AgentExecutor {
             run.db,
             archive,
             model,
-            &self.cancel_token,
+            cancellation,
         )? {
             return Ok(false);
         }
@@ -72,6 +83,92 @@ impl AgentExecutor {
         }
         *messages = next;
         Ok(true)
+    }
+
+    pub(super) fn queue_context_fork(
+        &self,
+        request: crate::context_maintenance::ContextForkRequest,
+    ) {
+        let mut pending = self
+            .pending_context_fork
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if pending
+            .as_ref()
+            .is_some_and(|pending| pending.cancellation.is_cancelled())
+        {
+            if let Some(cancelled) = pending.take() {
+                cancelled.complete(Err(CoreError::Cancelled(
+                    "Fork cancelled while queued".into(),
+                )));
+            }
+        }
+        if pending.is_some() {
+            request.complete(Err(CoreError::InvalidInput(
+                "A Fork is already waiting for this turn".into(),
+            )));
+        } else {
+            *pending = Some(request);
+        }
+    }
+
+    pub(super) fn apply_pending_context_fork(
+        &self,
+        messages: &mut Vec<Message>,
+        model: &str,
+        run: context_compaction::CompactionRunContext<'_>,
+        terminal: bool,
+    ) -> bool {
+        let Some(request) = self
+            .pending_context_fork
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        else {
+            return false;
+        };
+        let before = messages.len();
+        let tokens_before = self.context_input_tokens(model, messages, &[]);
+        let result = (|| {
+            request.begin()?;
+            if !self.history_handoff_enabled(run.conversation_id) {
+                return Err(CoreError::InvalidInput("This running turn does not support history Fork; start a new turn after enabling history mode".into()));
+            }
+            let conversation_id = run.conversation_id.unwrap_or_default().to_string();
+            let db = run.db;
+            let changed = self.handoff_context_with_intent(
+                messages,
+                model,
+                run,
+                true,
+                &request.cancellation,
+            )?;
+            let projection =
+                crate::context_maintenance::load_context_projection(db, &conversation_id)?;
+            Ok(crate::context_maintenance::ContextCompactionResult {
+                conversation_id,
+                checkpoint_id: projection.checkpoint_id,
+                messages_before: before,
+                messages_after: messages.len(),
+                tokens_before,
+                tokens_after: self.context_input_tokens(model, messages, &[]),
+                evicted_messages: before.saturating_sub(messages.len()),
+                summary_kind: if !changed {
+                    "noop"
+                } else if terminal {
+                    "history_fork_terminal"
+                } else {
+                    "history_fork_live"
+                }
+                .into(),
+                fallback_reason: None,
+            })
+        })();
+        let changed = result
+            .as_ref()
+            .is_ok_and(|result| result.summary_kind != "noop");
+        request.complete(result);
+        changed
     }
 }
 
@@ -192,6 +289,20 @@ mod tests {
         // No boundary after the incomplete call is safe, even though later
         // unrelated tool pairs are complete.
         assert!(HistoryHandoffPlan::prepare(&history, None).is_none());
+    }
+
+    #[test]
+    fn interrupted_old_turn_does_not_block_a_fresh_active_window() {
+        let mut messages = history();
+        messages.remove(3); // An old cancelled turn has an unpaired tool call.
+        let request = Message::text(Role::User, "Continue with the verified files");
+        messages.push(request.clone());
+        messages.push(Message::text(Role::Assistant, "Current completed work"));
+        let plan = HistoryHandoffPlan::prepare(&messages, Some(&request))
+            .expect("a historical interrupted tool cannot pin all later windows forever");
+        let next = plan.replacement(&messages, Message::text(Role::System, "archive locator"));
+        assert_eq!(next.len(), 3);
+        assert_eq!(next[2].text_content(), request.text_content());
     }
 
     #[tokio::test]

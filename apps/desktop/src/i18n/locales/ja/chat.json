@@ -930,5 +930,22 @@
   "captureScreen": "スクリーンショット",
   "captureScreenHint": "画像を1枚撮影し、確認して送信します。撮影後すぐに停止します。",
   "captureScreenLive": "継続的な録画は Live で",
-  "attachmentsNextMessage": "添付画像は下書きに保存され、この返信の完了後に送信できます。"
+  "attachmentsNextMessage": "添付画像は下書きに保存され、この返信の完了後に送信できます。",
+  "fork": "新しいウィンドウに Fork",
+  "forkNow": "今すぐ Fork",
+  "forking": "新しいウィンドウへ移行中",
+  "forkQueued": "モデルとツールの完了を待機中",
+  "forkComplete": "新しいウィンドウの準備完了",
+  "forkFailed": "Fork に失敗",
+  "forkObserveFailed": "Fork の進行状況を取得できません",
+  "forkCancelFailed": "Fork をキャンセルできません",
+  "forkMustBeAlone": "/fork は単独で送信してください。",
+  "forkDescription": "/fork · 新しいウィンドウを開始します。実行中はモデルとツールの完了を待ち、タスクと履歴を保持します。",
+  "autoForked": "コンテキストを新しいウィンドウに Fork しました",
+  "contextPolicySaveFork": "適用して Fork",
+  "contextPolicyForkTitle": "コンテキストと Fork",
+  "contextPolicyFork": "自動 Fork",
+  "contextPolicyForkTiming": "Fork のタイミング",
+  "contextPolicyForkTriggerAt": "入力が {tokens} トークンを超えると自動 Fork。",
+  "contextPolicyForkCalculation": "利用可能な入力 {input} トークンに対する割合です。応答用 {reply} と安全余裕 {safety} は予約済みです。Fork は以前の推論を保存し、現在のタスクを保持します。"
 }

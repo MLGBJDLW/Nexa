@@ -200,7 +200,7 @@ fn plan_history_handoff(
                 Some("steering" | "questionResponse" | "checkpointContinuation")
             )
     });
-    let Some(plan) = crate::context_history::HistoryHandoffPlan::prepare(
+    let Some(plan) = crate::context_history::HistoryHandoffPlan::prepare_persisted(
         &snapshot,
         active.map(|index| &snapshot[index]),
     ) else {
