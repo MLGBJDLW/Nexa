@@ -231,7 +231,12 @@ async fn run_context_fixture(
     rows: usize,
     opaque_replay: bool,
     with_steering: bool,
-) -> (Result<Message, CoreError>, Vec<CompletionRequest>, usize) {
+) -> (
+    Result<Message, CoreError>,
+    Vec<CompletionRequest>,
+    usize,
+    u32,
+) {
     let (steering_tx, steering_rx) = mpsc::unbounded_channel();
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(ContextFixtureTool {
@@ -265,7 +270,18 @@ async fn run_context_fixture(
     .with_summarization_provider(Box::new(ContextFixtureSummarizer(Arc::clone(&summaries))));
     let db = Database::open_memory().unwrap();
     let (tx, mut rx) = mpsc::channel(64);
-    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let drain = tokio::spawn(async move {
+        let mut latest = 0;
+        while let Some(event) = rx.recv().await {
+            if let AgentEvent::UsageUpdate {
+                last_prompt_tokens, ..
+            } = event
+            {
+                latest = last_prompt_tokens;
+            }
+        }
+        latest
+    });
     let answer = executor
         .run(
             Vec::new(),
@@ -279,14 +295,19 @@ async fn run_context_fixture(
             0,
         )
         .await;
-    drain.await.unwrap();
+    let latest_occupancy = drain.await.unwrap();
     assert_eq!(
         executor.context_metrics.lock().unwrap().analyzed_tool_message_count(),
         rounds * tools_per_round,
         "budgeting, cache diagnostics, compaction, and usage must share each completed tool result analysis"
     );
     let requests = requests.lock().unwrap().clone();
-    (answer, requests, summaries.load(Ordering::SeqCst))
+    (
+        answer,
+        requests,
+        summaries.load(Ordering::SeqCst),
+        latest_occupancy,
+    )
 }
 
 #[tokio::test]
@@ -640,7 +661,7 @@ async fn history_compaction_publishes_its_current_budget_before_the_first_reques
 
 #[tokio::test]
 async fn long_single_turn_keeps_active_request_and_latest_tool_evidence() {
-    let (answer, requests, summaries) =
+    let (answer, requests, summaries, _) =
         run_context_fixture(TOOL_ROUNDS, 1, 160, false, false).await;
     let answer = answer.expect("a long single user turn must continue through safe compaction");
     assert!(answer.text_content().contains("ACCEPTANCE_314159"));
@@ -673,9 +694,13 @@ async fn long_single_turn_keeps_active_request_and_latest_tool_evidence() {
 
 #[tokio::test]
 async fn oversized_active_exchange_stops_before_another_provider_request() {
-    let (answer, requests, _) = run_context_fixture(1, 1, 2_000, false, false).await;
+    let (answer, requests, _, occupied) = run_context_fixture(1, 1, 2_000, false, false).await;
     let error = answer.expect_err("an indivisible oversized exchange must not be silently dropped");
     assert!(error.to_string().contains("cannot fit"), "{error}");
+    assert!(
+        occupied > 8_192,
+        "the rejected oversized request must replace the previous small occupancy: {occupied}"
+    );
     assert_eq!(
         requests.len(),
         1,
@@ -685,7 +710,8 @@ async fn oversized_active_exchange_stops_before_another_provider_request() {
 
 #[tokio::test]
 async fn compaction_preserves_parallel_calls_opaque_replay_and_user_steering() {
-    let (answer, requests, summaries) = run_context_fixture(TOOL_ROUNDS, 2, 70, true, true).await;
+    let (answer, requests, summaries, _) =
+        run_context_fixture(TOOL_ROUNDS, 2, 70, true, true).await;
     answer.expect("complete signed tool batches must survive long-turn compaction");
     assert_eq!(requests.len(), TOOL_ROUNDS + 1);
     assert!(summaries > 0);

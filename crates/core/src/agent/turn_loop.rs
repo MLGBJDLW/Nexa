@@ -1785,7 +1785,7 @@ impl AgentExecutor {
                 },
                 false,
             );
-            prompt_was_compacted |= self
+            let preflight_compaction = self
                 .compact_before_model_step_if_needed(LongTaskCompactionContext {
                     db,
                     conversation_id,
@@ -1800,7 +1800,26 @@ impl AgentExecutor {
                     persisted_trace_items: &mut persisted_trace_items,
                     total_usage: &mut total_usage,
                 })
-                .await?;
+                .await;
+            match preflight_compaction {
+                Ok(changed) => prompt_was_compacted |= changed,
+                Err(error) => {
+                    let failed = self.context_budget_usage(
+                        model,
+                        &messages,
+                        effective_tool_defs,
+                        context_window,
+                    );
+                    let _ = tx
+                        .send(AgentEvent::UsageUpdate {
+                            usage_total: total_usage.clone(),
+                            last_prompt_tokens: failed.total_tokens,
+                            context_breakdown: Some(failed),
+                        })
+                        .await;
+                    return Err(error);
+                }
+            }
             let buffer_answer_projection = output_recovery.reserves_answer_channel();
             let force_answer_only = clean_final_retry_active
                 || buffer_answer_projection
@@ -1818,13 +1837,26 @@ impl AgentExecutor {
             let estimated_prompt = prepared_context.total_tokens;
             last_prompt_tokens = estimated_prompt;
             last_context_breakdown = Some(prepared_context.clone());
+            // Successful requests publish their wire projection in model_step.
+            // A rejected request still needs its failing preflight occupancy,
+            // without restoring canonical estimates during normal streaming.
+            let publish_rejected_usage = || {
+                tx.send(AgentEvent::UsageUpdate {
+                    usage_total: total_usage.clone(),
+                    last_prompt_tokens: estimated_prompt,
+                    context_breakdown: Some(prepared_context.clone()),
+                })
+            };
             // Desktop context is attached after canonical projection. Check
             // the actual prepared input as well as the retained live window.
-            context_window.validate_request(
+            if let Err(error) = context_window.validate_request(
                 &request_messages,
                 Some(&active_request),
                 estimated_prompt,
-            )?;
+            ) {
+                let _ = publish_rejected_usage().await;
+                return Err(error);
+            }
             let Some(model_step_max_response_tokens) = cumulative_run_step_output_budget(
                 output_budget_plan
                     .wire_max_tokens_for_prompt(estimated_prompt)
@@ -1833,6 +1865,7 @@ impl AgentExecutor {
                 total_usage.total_tokens,
                 estimated_prompt,
             ) else {
+                let _ = publish_rejected_usage().await;
                 let actual_limit = self.config.max_actual_tokens_per_run.unwrap_or_default();
                 let remaining = actual_limit.saturating_sub(total_usage.total_tokens);
                 let trace_message = format!(
