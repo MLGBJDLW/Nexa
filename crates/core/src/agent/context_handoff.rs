@@ -72,15 +72,12 @@ impl AgentExecutor {
             run.db,
             archive,
             model,
-            cancellation,
+            &[&self.cancel_token, cancellation],
         )? {
             return Ok(false);
         }
-        if self.cancel_token.is_cancelled() {
-            return Err(CoreError::Cancelled(
-                "Context handoff cancelled; working history retained".into(),
-            ));
-        }
+        // Commit is the linearization point. A later cancellation must not
+        // leave the live and persisted windows disagreeing about that commit.
         *messages = next;
         Ok(true)
     }
@@ -444,5 +441,57 @@ mod tests {
             db.list_context_history(&id, None, 10).unwrap()["windows"],
             serde_json::json!([])
         );
+    }
+
+    #[test]
+    fn manual_fork_observes_parent_cancellation_after_database_admission() {
+        for persisted in [false, true] {
+            let (_, db, id) = setup();
+            let messages = history();
+            if persisted {
+                for (index, message) in messages.iter().enumerate() {
+                    db.add_message(&crate::conversation::ConversationMessage {
+                        id: format!("parent-cancel-{index}"),
+                        conversation_id: id.clone(),
+                        role: message.role.clone(),
+                        content: message.text_content(),
+                        tool_call_id: message.name.clone(),
+                        tool_calls: message.tool_calls.clone().unwrap_or_default(),
+                        artifacts: None,
+                        token_count: 1,
+                        created_at: String::new(),
+                        sort_order: index as i64,
+                        thinking: None,
+                        image_attachments: None,
+                    })
+                    .unwrap();
+                }
+            }
+            let archive = ContextHistoryArchive::prepare(&id, None, &messages, "").unwrap();
+            let parent = CancellationToken::new();
+            let manual = CancellationToken::new();
+            let blocked = db.conn();
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let result = std::thread::scope(|scope| {
+                let worker = scope.spawn(|| {
+                    started_tx.send(()).unwrap();
+                    crate::context_maintenance::commit_live_history_handoff(
+                        &db,
+                        archive,
+                        "test",
+                        &[&parent, &manual],
+                    )
+                });
+                started_rx.recv().unwrap();
+                parent.cancel();
+                drop(blocked);
+                worker.join().unwrap()
+            });
+            assert!(matches!(result, Err(CoreError::Cancelled(_))), "{result:?}");
+            assert_eq!(
+                db.list_context_history(&id, None, 10).unwrap()["windows"],
+                serde_json::json!([])
+            );
+        }
     }
 }

@@ -114,7 +114,7 @@ pub(super) struct ContextMetricsSnapshot {
 
 #[derive(Debug)]
 struct ProviderObservation {
-    revisions: Vec<u64>,
+    message_hashes: Vec<u64>,
     tool_hash: u64,
     actual_tokens: u32,
 }
@@ -266,16 +266,16 @@ impl ContextMetrics {
         let estimated = snapshot.breakdown(None).total_tokens;
         let Some(observed) = self.observation.as_ref().filter(|observed| {
             observed.tool_hash == snapshot.tools.hash
-                && observed.revisions.len() <= snapshot.messages.len()
+                && observed.message_hashes.len() <= snapshot.messages.len()
                 && observed
-                    .revisions
+                    .message_hashes
                     .iter()
                     .zip(&snapshot.messages)
-                    .all(|(old, new)| *old == new.revision)
+                    .all(|(old, new)| *old == new.hash)
         }) else {
             return (estimated, context::ContextMeasurement::Estimated);
         };
-        let tail = snapshot.messages[observed.revisions.len()..]
+        let tail = snapshot.messages[observed.message_hashes.len()..]
             .iter()
             .flat_map(|message| message.segments.values())
             .copied()
@@ -297,10 +297,10 @@ impl ContextMetrics {
         self.observation = actual_tokens
             .filter(|tokens| *tokens > 0)
             .map(|actual_tokens| ProviderObservation {
-                revisions: snapshot
+                message_hashes: snapshot
                     .messages
                     .iter()
-                    .map(|message| message.revision)
+                    .map(|message| message.hash)
                     .collect(),
                 tool_hash: snapshot.tools.hash,
                 actual_tokens,

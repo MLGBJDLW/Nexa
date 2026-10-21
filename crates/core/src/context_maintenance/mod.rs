@@ -24,7 +24,7 @@ pub(crate) fn commit_live_history_handoff(
     database: &crate::db::Database,
     archive: crate::context_history::ContextHistoryArchive,
     model: &str,
-    cancellation: &tokio_util::sync::CancellationToken,
+    cancellations: &[&tokio_util::sync::CancellationToken],
 ) -> Result<bool, crate::error::CoreError> {
     let snapshot = store::load_compaction_snapshot(database, &archive.conversation_id)?;
     let has_canonical_trajectory = snapshot.messages.iter().any(|message| {
@@ -47,7 +47,7 @@ pub(crate) fn commit_live_history_handoff(
         }
         // A caller with no persisted assistant history still needs a verified
         // archive, but there is no canonical trajectory to suppress on reopen.
-        database.archive_context_history(&archive)?;
+        database.archive_context_history(&archive, cancellations)?;
         return Ok(true);
     };
     let summary = archive.checkpoint_text();
@@ -76,7 +76,7 @@ pub(crate) fn commit_live_history_handoff(
         usage: None,
     };
     Ok(matches!(
-        store::commit_context_checkpoint(database, &input, cancellation)?,
+        store::commit_context_checkpoint_cancellable(database, &input, cancellations)?,
         store::CommitOutcome::Committed { .. }
     ))
 }

@@ -78,6 +78,14 @@ pub(crate) fn commit_context_checkpoint(
     input: &ContextCheckpointInput,
     cancellation: &CancellationToken,
 ) -> Result<CommitOutcome, CoreError> {
+    commit_context_checkpoint_cancellable(database, input, &[cancellation])
+}
+
+pub(crate) fn commit_context_checkpoint_cancellable(
+    database: &Database,
+    input: &ContextCheckpointInput,
+    cancellations: &[&CancellationToken],
+) -> Result<CommitOutcome, CoreError> {
     let mut conn = database.conn();
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let checkpoint_generation = tx
@@ -103,7 +111,7 @@ pub(crate) fn commit_context_checkpoint(
     {
         return Ok(CommitOutcome::Superseded);
     }
-    if cancellation.is_cancelled() {
+    if cancellations.iter().any(|token| token.is_cancelled()) {
         return Err(CoreError::Cancelled(
             "Context compaction was cancelled before commit".to_string(),
         ));
@@ -224,6 +232,11 @@ pub(crate) fn commit_context_checkpoint(
             |row| row.get::<_, usize>(0),
         )?
     };
+    if cancellations.iter().any(|token| token.is_cancelled()) {
+        return Err(CoreError::Cancelled(
+            "Context handoff cancelled before transaction commit".into(),
+        ));
+    }
     tx.commit()?;
     Ok(CommitOutcome::Committed { messages_after })
 }

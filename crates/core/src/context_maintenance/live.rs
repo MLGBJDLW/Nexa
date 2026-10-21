@@ -1,5 +1,6 @@
 //! A manual Fork is control-plane input, consumed only at a safe turn boundary.
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -8,12 +9,33 @@ use super::ContextCompactionResult;
 use crate::activity::{ActivityEventKind, ActivityRuntime};
 use crate::error::CoreError;
 
+type ForkResult = Result<ContextCompactionResult, CoreError>;
+type ForkCompletion = Arc<Mutex<Option<oneshot::Sender<ForkResult>>>>;
+
 #[derive(Clone)]
 pub struct ContextForkRequest {
     pub(crate) cancellation: CancellationToken,
     operation_id: String,
     activities: ActivityRuntime,
-    completion: Arc<Mutex<Option<oneshot::Sender<Result<ContextCompactionResult, CoreError>>>>>,
+    pub(super) admission: Arc<ForkAdmission>,
+    completion: ForkCompletion,
+}
+
+#[derive(Default)]
+pub(super) struct ForkAdmission(AtomicU8);
+
+impl ForkAdmission {
+    fn claim(&self) -> bool {
+        self.0
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub(super) fn cancel_if_queued(&self) -> bool {
+        self.0
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
 }
 
 impl std::fmt::Debug for ContextForkRequest {
@@ -39,6 +61,7 @@ impl ContextForkRequest {
                 operation_id,
                 activities,
                 cancellation,
+                admission: Arc::new(ForkAdmission::default()),
                 completion: Arc::new(Mutex::new(Some(sender))),
             },
             receiver,
@@ -46,7 +69,7 @@ impl ContextForkRequest {
     }
 
     pub(crate) fn begin(&self) -> Result<(), CoreError> {
-        if self.cancellation.is_cancelled() {
+        if self.cancellation.is_cancelled() || !self.admission.claim() {
             return Err(CoreError::Cancelled("Fork cancelled before handoff".into()));
         }
         self.activities.append(

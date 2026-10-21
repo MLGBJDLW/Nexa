@@ -307,10 +307,21 @@ impl Database {
     pub(crate) fn archive_context_history(
         &self,
         archive: &ContextHistoryArchive,
+        cancellations: &[&tokio_util::sync::CancellationToken],
     ) -> Result<(), CoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
+        if cancellations.iter().any(|token| token.is_cancelled()) {
+            return Err(CoreError::Cancelled(
+                "Context archive cancelled before write".into(),
+            ));
+        }
         archive.commit(&tx)?;
+        if cancellations.iter().any(|token| token.is_cancelled()) {
+            return Err(CoreError::Cancelled(
+                "Context archive cancelled before commit".into(),
+            ));
+        }
         tx.commit()?;
         Ok(())
     }
@@ -902,7 +913,7 @@ mod tests {
             "Continue the review; tests remain.",
         )
         .unwrap();
-        db.archive_context_history(&archive).unwrap();
+        db.archive_context_history(&archive, &[]).unwrap();
         drop(db);
         let db = Database::new(&path).unwrap();
         let found = db
@@ -938,7 +949,7 @@ mod tests {
             "Pending work",
         )
         .unwrap();
-        assert!(db.archive_context_history(&archive).is_err());
+        assert!(db.archive_context_history(&archive, &[]).is_err());
         assert_eq!(
             db.list_context_history(&id, None, 5).unwrap()["windows"],
             json!([])
@@ -971,7 +982,7 @@ mod tests {
             "",
         )
         .unwrap();
-        db.archive_context_history(&archive).unwrap();
+        db.archive_context_history(&archive, &[]).unwrap();
         db.conn()
             .execute(
                 "UPDATE messages SET content='new request' WHERE id='original'",

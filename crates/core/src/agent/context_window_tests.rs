@@ -397,6 +397,8 @@ async fn check_replay_projected_hud(routed: bool) {
         .iter()
         .all(|message| !message.text_content().contains("old detailed evidence"))));
     let occupied = drain.await.unwrap();
+    assert!(occupied.iter().skip(1).all(|tokens| *tokens < 1_200),
+        "the same projected prefix must retain provider calibration, including recreated conclusions: {occupied:?}");
     assert!(occupied.iter().all(|tokens| *tokens < 20_000),
         "the HUD must not alternate between canonical archives and the transmitted window: {occupied:?}");
 }

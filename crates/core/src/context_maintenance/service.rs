@@ -178,19 +178,27 @@ impl ContextCompactionService {
             0.0,
             serde_json::json!({"eventKind": "operationProgress"}),
         )?;
-        let (request, completed) = super::live::ContextForkRequest::new(
+        let (request, mut completed) = super::live::ContextForkRequest::new(
             operation_id.to_string(),
             self.inner.activities.clone(),
             cancellation.clone(),
         );
+        let admission = Arc::clone(&request.admission);
         if target
             .send(crate::agent::AgentSteeringMessage::fork(request))
             .is_ok()
         {
             let result = tokio::select! {
                 biased;
-                result = completed => result,
-                _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Fork cancelled while waiting for a safe boundary".into()).into()),
+                result = &mut completed => result,
+                _ = cancellation.cancelled() => {
+                    if admission.cancel_if_queued() {
+                        return Err(CoreError::Cancelled("Fork cancelled while waiting for a safe boundary".into()).into());
+                    }
+                    // Once the executor owns the boundary, only its commit
+                    // acknowledgement may decide cancelled versus completed.
+                    completed.await
+                },
             };
             if let Ok(result) = result {
                 return result.map_err(Into::into);
@@ -1065,5 +1073,63 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(observation.record.state, ActivityState::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_claimed_fork_waits_for_its_commit_acknowledgement() {
+        let service = ContextCompactionService::new(
+            DatabaseExecutor::new(crate::db::Database::open_memory().unwrap(), 4).unwrap(),
+            ActivityRuntime::new(),
+        );
+        let mut input = job("claimed-conversation", "claimed-fork");
+        input.mode = ContextManagementMode::History;
+        input.summarizer = None;
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let handle = service
+            .start_with_live_target(input, Some(sender))
+            .await
+            .unwrap();
+        let control = receiver.recv().await.unwrap().context_fork.unwrap();
+        control.begin().unwrap();
+        service
+            .cancel(&handle.operation_id, "user_requested")
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+        assert_eq!(
+            service
+                .activities()
+                .get(&handle.operation_id)
+                .unwrap()
+                .state,
+            ActivityState::Cancelling
+        );
+        control.complete(Ok(ContextCompactionResult {
+            conversation_id: "claimed-conversation".into(),
+            checkpoint_id: Some("committed".into()),
+            messages_before: 4,
+            messages_after: 2,
+            tokens_before: 100,
+            tokens_after: 50,
+            evicted_messages: 2,
+            summary_kind: "history_fork_live".into(),
+            fallback_reason: None,
+        }));
+        let terminal = tokio::time::timeout(Duration::from_secs(2), async {
+            let mut cursor = 0;
+            loop {
+                let observation = service
+                    .observe(&handle.operation_id, cursor, Duration::from_millis(50))
+                    .await
+                    .unwrap();
+                if observation.record.state.is_terminal() {
+                    break observation.record.state;
+                }
+                cursor = observation.cursor;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(terminal, ActivityState::Completed);
     }
 }

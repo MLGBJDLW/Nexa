@@ -54,7 +54,7 @@ type CompactionUiPhase = api.ContextCompactionPhase | 'cancelling';
 
 interface CompactionUiState {
   operationId: string;
-  status: 'running' | 'complete' | 'failed';
+  status: 'running' | 'complete' | 'failed' | 'cancelled';
   phase: CompactionUiPhase;
   startedAt: number;
   cursor: number;
@@ -1496,7 +1496,8 @@ export function ChatPage() {
     : undefined;
   const isCompacting = activeCompactionStatus?.status === 'running';
   const compactCompleteVisible = activeCompactionStatus?.status === 'complete'
-    || activeCompactionStatus?.status === 'failed';
+    || activeCompactionStatus?.status === 'failed'
+    || activeCompactionStatus?.status === 'cancelled';
 
   const observeCompaction = useCallback(async (
     conversationId: string,
@@ -1536,7 +1537,8 @@ export function ChatPage() {
         const next: CompactionUiState = {
           operationId: initial.operationId,
           status: terminal
-            ? (observation.record.state === 'completed' ? 'complete' : 'failed')
+            ? (observation.record.state === 'completed' ? 'complete'
+              : historyFork && observation.record.state === 'cancelled' ? 'cancelled' : 'failed')
             : 'running',
           phase,
           startedAt: initial.startedAt,
@@ -1552,7 +1554,7 @@ export function ChatPage() {
         if (!terminal) continue;
         if (result && result.summaryKind !== "history_fork_live") {
           chat.applyCompactionUsage(conversationId, result.tokensAfter);
-        } else if (!result) {
+        } else if (!result && !(historyFork && observation.record.state === 'cancelled')) {
           toast.error(`${t(historyFork ? 'chat.forkFailed' : 'chat.compactFailed')}: ${failureDetail}`);
         }
         break;
@@ -1677,7 +1679,9 @@ export function ChatPage() {
   const compactionElapsedSeconds = activeCompactionStatus?.status === 'running'
     ? Math.max(0, Math.floor((compactionClock - activeCompactionStatus.startedAt) / 1_000))
     : undefined;
-  const compactionTerminalText = activeCompactionStatus?.status === 'failed'
+  const compactionTerminalText = activeCompactionStatus?.status === 'cancelled'
+    ? `${t('chat.fork')} · ${t('chat.toolBriefCancelled')}`
+    : activeCompactionStatus?.status === 'failed'
     ? `${t(historyFork ? 'chat.forkFailed' : 'chat.compactFailed')}: ${activeCompactionStatus.detail ?? ''}`
     : historyFork ? t('chat.forkComplete') : undefined;
   const centerComposer = !isArchivedConversation
