@@ -983,13 +983,17 @@ pub async fn run_task_orchestrator_scheduler_tick(
         .ok_or_else(|| "Approval state is not initialized.".to_string())?;
 
     let now = Utc::now().to_rfc3339();
+    let due_at = now.clone();
     let visible_due_runs = app_state
-        .db
-        .list_due_workflow_automations(&now)
-        .map_err(|err| err.to_string())
-        .and_then(|due_runs| {
-            filter_due_workflow_runs_by_package_host(app_state.db.as_ref(), due_runs)
-        })?;
+        .db_executor
+        .read(move |db| {
+            let due_runs = db.list_due_workflow_automations(&due_at)?;
+            filter_due_workflow_runs_by_package_host(db, due_runs)
+                .map_err(nexa_core::error::CoreError::InvalidInput)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .value;
     let mut launches = Vec::new();
     let launch_limit = scheduler_state.max_concurrent_due_runs.max(1);
     for due in visible_due_runs {

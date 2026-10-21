@@ -517,6 +517,17 @@ pub fn shutdown_dreaming_scheduler(state: &DreamingSchedulerState) {
 pub async fn run_dreaming_scheduler_tick(
     app_handle: AppHandle,
 ) -> Result<Vec<nexa_core::dreaming::DreamRun>, String> {
+    // This tick performs synchronous SQLite reads and consolidation. Running
+    // it on Tokio's socket workers can stall speech and all active chats when
+    // a large knowledge store or another writer holds the database.
+    tauri::async_runtime::spawn_blocking(move || run_dreaming_scheduler_tick_blocking(app_handle))
+        .await
+        .map_err(|error| format!("Dreaming scheduler worker failed: {error}"))?
+}
+
+fn run_dreaming_scheduler_tick_blocking(
+    app_handle: AppHandle,
+) -> Result<Vec<nexa_core::dreaming::DreamRun>, String> {
     let scheduler_state = app_handle
         .try_state::<DreamingSchedulerState>()
         .ok_or_else(|| "Dreaming scheduler state is not initialized.".to_string())?;

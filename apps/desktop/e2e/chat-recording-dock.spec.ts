@@ -74,6 +74,9 @@ test.beforeEach(async ({ page }) => {
       flushChunkSizes: [] as number[],
       spoolAudioBytes: 0,
       realtimeAudioBytes: 0,
+      deferRealtimeAudio: false,
+      releaseRealtimeAudio: () => {},
+      pushPcmFrames: (_count: number) => {},
       realtimeFinishCalls: 0,
       grant: () => {},
       rejectExact: () => {},
@@ -99,6 +102,14 @@ test.beforeEach(async ({ page }) => {
       stop() { microphoneControl.stopCalls += 1; }
     }
     class FakeWorkletNode extends FakeAudioNode {
+      constructor() {
+        super();
+        microphoneControl.pushPcmFrames = (count) => {
+          for (let frame = 0; frame < count; frame++) {
+            this.port.onmessage?.({ data: { type: 'pcm', buffer: new ArrayBuffer(960) } });
+          }
+        };
+      }
       onprocessorerror: (() => void) | null = null;
       port = {
         onmessage: null as ((event: { data: unknown }) => void) | null,
@@ -329,6 +340,9 @@ test.beforeEach(async ({ page }) => {
           }
           return 'realtime-voice-test';
         case 'append_realtime_transcription_audio_cmd':
+          if (microphoneControl.deferRealtimeAudio) {
+            await new Promise<void>(resolve => { microphoneControl.releaseRealtimeAudio = resolve; });
+          }
           microphoneControl.realtimeAudioBytes += (args as unknown as Uint8Array).byteLength;
           return null;
         case 'cancel_realtime_transcription_cmd':
@@ -408,7 +422,7 @@ for (const overloaded of [false, true]) {
     await expect(page.getByTestId('voice-recording-dock')).toBeVisible();
     await page.evaluate((large) => {
       (window as unknown as { __VOICE_MICROPHONE_CONTROL__: { flushChunkSizes: number[] } })
-        .__VOICE_MICROPHONE_CONTROL__.flushChunkSizes = large ? [48_000, 48_000, 48_000] : [960, 960];
+        .__VOICE_MICROPHONE_CONTROL__.flushChunkSizes = large ? Array(9).fill(262_144) : [960, 960];
     }, overloaded);
     await page.getByRole('button', { name: 'Stop & Transcribe' }).click();
     await expect(page.getByTestId('chat-input-textarea')).toHaveValue(
@@ -420,7 +434,7 @@ for (const overloaded of [false, true]) {
       }).__VOICE_MICROPHONE_CONTROL__;
       return { spool: control.spoolAudioBytes, realtime: control.realtimeAudioBytes, finishes: control.realtimeFinishCalls };
     });
-    expect(received.spool).toBe(overloaded ? 144_000 : 1_920);
+    expect(received.spool).toBe(overloaded ? 9 * 262_144 : 1_920);
     expect(received.finishes).toBe(overloaded ? 0 : 1);
     if (!overloaded) expect(received.realtime).toBe(received.spool);
   });
@@ -462,6 +476,21 @@ test('recording dock exposes responsive live, pause, details, processing, and ca
   await expect(dock).toBeVisible();
   await expect(dock).toHaveAttribute('data-state', 'online');
   await expect(dock).toContainText('en · gpt-live-transcribe');
+  // A 500 ms native IPC pause must batch the 20 ms microphone frames and
+  // continue streaming, not silently abandon the live connection after eight.
+  await page.evaluate(() => {
+    const control = (window as any).__VOICE_MICROPHONE_CONTROL__;
+    control.deferRealtimeAudio = true;
+    control.pushPcmFrames(25);
+  });
+  await expect(dock).toHaveAttribute('data-state', 'online');
+  expect(await page.evaluate(() => (window as any).__REALTIME_CANCEL_CALLS__)).toEqual([]);
+  await page.evaluate(() => {
+    const control = (window as any).__VOICE_MICROPHONE_CONTROL__;
+    control.deferRealtimeAudio = false;
+    control.releaseRealtimeAudio();
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.realtimeAudioBytes)).toBe(24_000);
   expect((await dock.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(420);
   await page.screenshot({ path: testInfo.outputPath('voice-dock-desktop.png') });
 

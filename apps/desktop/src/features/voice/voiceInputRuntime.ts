@@ -732,11 +732,11 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
           realtimeUploadQueueRef.current = new BoundedAudioUploadQueue(
             (chunk) => api.appendRealtimeTranscriptionAudio(sessionId!, chunk),
             {
-              // This is a replaceable live preview. The native spool already
-              // retains every frame; a stalled preview falls back to that file
-              // without stopping the microphone or duplicating unlimited PCM.
-              bytesPerSecond: sampleRate * 2,
-              maxBufferedDurationMs: 2_000,
+              // The native session journals PCM before sending it. Batch a
+              // brief IPC backlog instead of disabling live text after only
+              // eight 20 ms frames. The shared byte budget still bounds memory;
+              // sustained failure falls back to the separately retained spool.
+              preserveAudio: true,
               onRejected: () => degradeRealtimeToSpool(true),
               onError: (error) => {
                 realtimeUploadErrorRef.current = error.message;
