@@ -7,7 +7,13 @@ use super::*;
 fn native_html_preview_keeps_agent_observation_and_input_continuous() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index.html");
-    std::fs::write(&path, "<!doctype html><title>Preview continuity</title><button onclick=\"document.querySelector('output').textContent='clicked once'\">Continue</button><output>ready</output><input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>").unwrap();
+    std::fs::write(&path, r#"<!doctype html><title>Preview continuity</title>
+      <button onclick="document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
+      <input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>
+      <input id=editor aria-label=Editor value="select this text" style="position:absolute;left:20px;top:70px">
+      <canvas width=300 height=120 style="position:absolute;left:20px;top:150px"></canvas>
+      <div id=scrollbox style="position:absolute;left:350px;top:150px;width:200px;height:140px;overflow:auto"><div style="height:1500px">Nested content</div></div>
+      <script>window.dragMoves=0;document.querySelector('canvas').onpointermove=e=>{if(e.isTrusted&&e.buttons===1)window.dragMoves++};</script>"#).unwrap();
     let profile = root.path().join("profiles");
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut context = tauri::generate_context!();
@@ -20,9 +26,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
         let handle = app.handle().clone();
         let state = super::super::state::BrowserState::new(handle.clone(), profile.clone());
         tauri::async_runtime::spawn(async move {
-            use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker}};
+            use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker, BrowserViewportPoint}};
             use nexa_core::browser_runtime::{BrowserBounds, BrowserControlOwner};
-            let result = tokio::time::timeout(std::time::Duration::from_secs(45), async {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(90), async {
                 let prepared = state.prepare_html_preview(path.to_string_lossy().into(), "fixture".into(), vec![]).await?;
                 let session = state.create_session(Some("fixture".into()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
@@ -41,7 +47,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 let target = before.elements.iter().find(|element| element.name == "Continue").ok_or("Missing button in native observation")?;
                 let after = state.act(BrowserActRequest {
                     call_id: "preview-click", session_id: &session.id, tab_id, observation_id: &before.observation_id,
-                    action: "click", target_ref: Some(&target.element_ref), end_ref: None, text: None,
+                    action: "click", target_ref: Some(&target.element_ref), end_ref: None, point: None, end_point: None, text: None,
                     value: None, values: None, checked: None, upload: None, key: None, button: None,
                     modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
                 }).await.map_err(|error| format!("Native click: {error}"))?;
@@ -57,7 +63,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     let target = observed.elements.iter().find(|element| element.name == name).ok_or("Missing no-op form target")?;
                     let noop = state.act(BrowserActRequest {
                         call_id: &call_id, session_id: &session.id, tab_id, observation_id: &observed.observation_id,
-                        action, target_ref: Some(&target.element_ref), end_ref: None, text: None,
+                        action, target_ref: Some(&target.element_ref), end_ref: None, point: None, end_point: None, text: None,
                         value, values: None, checked, upload: None, key: None, button: None,
                         modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
                     }).await?;
@@ -66,6 +72,31 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     }
                 }
                 eprintln!("Native HTML continuity: real click delivered; already satisfied checkbox/select returned matched without input.");
+                for action in ["drag", "scroll", "press"] {
+                    let call_id = format!("native-{action}");
+                    state.acquire_agent_control(&session.id, &call_id)?;
+                    let observed = state.observe(&session.id, tab_id, &call_id).await?;
+                    let editor = observed.elements.iter().find(|element| element.name == "Editor").ok_or("Missing editor")?;
+                    let modifiers = if action == "press" { vec!["Control".to_string()] } else { vec![] };
+                    let outcome = state.act(BrowserActRequest {
+                        call_id: &call_id, session_id: &session.id, tab_id, observation_id: &observed.observation_id,
+                        action, target_ref: (action == "press").then_some(editor.element_ref.as_str()), end_ref: None,
+                        point: match action { "drag" => Some(BrowserViewportPoint { x: 40.0, y: 170.0 }), "scroll" => Some(BrowserViewportPoint { x: 400.0, y: 200.0 }), _ => None },
+                        end_point: (action == "drag").then_some(BrowserViewportPoint { x: 240.0, y: 240.0 }),
+                        text: None, value: None, values: None, checked: None, upload: None,
+                        key: (action == "press").then_some("A"), button: None, modifiers: &modifiers,
+                        scroll_x: 0, scroll_y: if action == "scroll" { 240 } else { 0 }, commit_tracker: BrowserActCommitTracker::default(),
+                    }).await.map_err(|error| format!("Native {action}: {error}"))?;
+                    if outcome.interaction.delivery != InputDelivery::InputSent { return Err(format!("Native {action} did not send input")); }
+                    let evidence = state.eval_action(&session.id, tab_id,
+                        "({ moves: window.dragMoves, scroll: document.querySelector('#scrollbox').scrollTop, selected: document.querySelector('#editor').selectionEnd - document.querySelector('#editor').selectionStart })").await?;
+                    if (action == "drag" && evidence["moves"].as_u64().unwrap_or(0) < 2)
+                        || (action == "scroll" && evidence["scroll"].as_f64().unwrap_or(0.0) <= 0.0)
+                        || (action == "press" && evidence["selected"].as_u64() != Some(16)) {
+                        return Err(format!("Native {action} failed its actual page effect: {evidence}"));
+                    }
+                }
+                eprintln!("Native browser controls: screenshot-coordinate canvas drag, nested wheel and Control+A all produced verified page effects.");
                 let first_storage = state.tab_profile_directory_for_test(&session.id, tab_id)?;
                 let ordinary_storage = profile.join(&session.profile_id);
                 if first_storage == ordinary_storage { return Err("A local preview occupied the ordinary sign-in profile".into()); }
@@ -98,7 +129,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     }
                 }
                 Ok::<_, String>(())
-            }).await.unwrap_or_else(|_| Err("Native preview continuity fixture exceeded 45 seconds".into()));
+            }).await.unwrap_or_else(|_| Err("Native preview continuity fixture exceeded 90 seconds".into()));
             let _ = sender.send(result);
             handle.exit(0);
         });

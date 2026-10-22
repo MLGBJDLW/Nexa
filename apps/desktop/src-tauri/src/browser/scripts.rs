@@ -21,11 +21,13 @@ pub fn browser_takeover_script(token: &str) -> String {
     const pointerDown = Number(budget.pointerDown);
     const keyDown = Number(budget.keyDown);
     const input = Number(budget.input);
+    const wheel = Number(budget.wheel || 0);
     if (!Number.isInteger(pointerDown) || pointerDown < 0 || pointerDown > 2) return null;
     if (!Number.isInteger(keyDown) || keyDown < 0 || keyDown > 1) return null;
     if (!Number.isInteger(input) || input < 0 || input > 2) return null;
-    if (pointerDown + keyDown + input === 0) return null;
-    return { pointerDown, keyDown, input };
+    if (!Number.isInteger(wheel) || wheel < 0 || wheel > 1) return null;
+    if (pointerDown + keyDown + input + wheel === 0) return null;
+    return { pointerDown, keyDown, input, wheel };
   };
 
   const normalizedTrustedExpectation = (expected) => {
@@ -33,17 +35,29 @@ pub fn browser_takeover_script(token: &str) -> String {
     const targetRef = String(expected.targetRef || '');
     const targetContext = String(expected.targetContext || '');
     if (!targetRef || !targetContext) return null;
-    if (expected.kind === 'pointer') {
+    if (['pointer', 'drag', 'wheel'].includes(expected.kind)) {
       const x = Number(expected.x);
       const y = Number(expected.y);
       const button = String(expected.button || '');
       if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) return null;
+      if (expected.kind === 'wheel') {
+        const deltaX = Number(expected.deltaX), deltaY = Number(expected.deltaY);
+        if (![deltaX, deltaY].every(value => Number.isFinite(value) && Math.abs(value) <= 100000)) return null;
+        return { kind: 'wheel', x, y, deltaX, deltaY, targetRef, targetContext };
+      }
+      if (expected.kind === 'drag') {
+        const endX = Number(expected.endX), endY = Number(expected.endY);
+        const endRef = String(expected.endRef || ''), endContext = String(expected.endContext || '');
+        if (![endX, endY].every(value => Number.isFinite(value) && value >= 0) || !endRef || !endContext || button !== 'left') return null;
+        return { kind: 'drag', x, y, endX, endY, endRef, endContext, button, targetRef, targetContext };
+      }
       if (!['left', 'middle', 'right'].includes(button)) return null;
       return { kind: 'pointer', x, y, button, targetRef, targetContext };
     }
     if (expected.kind === 'key') {
       const key = String(expected.key || '');
-      return key && key.length <= 32 ? { kind: 'key', key, targetRef, targetContext } : null;
+      const modifiers = Number(expected.modifiers || 0);
+      return key && key.length <= 32 && Number.isInteger(modifiers) && modifiers >= 0 && modifiers <= 15 ? { kind: 'key', key, modifiers, targetRef, targetContext } : null;
     }
     if (expected.kind === 'text') {
       const data = String(expected.data ?? '');
@@ -81,9 +95,26 @@ pub fn browser_takeover_script(token: &str) -> String {
     return false;
   };
   const eventElement = (event) => event.composedPath?.().find(node => node?.nodeType === 1) || event.target;
-  const guardContextMatches = () => {
+  const hitMatchesTarget = (target, hit) => {
+    if (composedContains(target, hit)) return true;
+    for (let ownerWindow = target.ownerDocument.defaultView; ownerWindow && ownerWindow !== window;) {
+      try {
+        const frame = ownerWindow.frameElement;
+        if (frame === hit) return true;
+        ownerWindow = frame?.ownerDocument.defaultView;
+      } catch (_) { break; }
+    }
+    return false;
+  };
+  const guardContextMatches = (finishingDrag = false) => {
     const bridge = observationBridge();
     const guard = trustedInputGuard;
+    if (guard?.expected.kind === 'drag' && guard.pointerDown === 0) {
+      const end = bridge?.resolveTargetRef(guard.expected.endRef);
+      return Boolean(guard.target.isConnected && end?.isConnected
+        && bridge.resolveTargetRef(guard.expected.targetRef) === guard.target
+        && (!finishingDrag || bridge.targetContextFingerprint(end) === guard.expected.endContext));
+    }
     return Boolean(guard && guard.target.isConnected
       && bridge?.resolveTargetRef(guard.expected.targetRef) === guard.target
       && bridge.targetContextFingerprint(guard.target) === guard.expected.targetContext);
@@ -92,26 +123,24 @@ pub fn browser_takeover_script(token: &str) -> String {
   const armTrustedInputLocal = (operationId, budget, expected) => {
     const normalized = normalizedTrustedBudget(budget);
     const normalizedExpected = normalizedTrustedExpectation(expected);
-    if (trustedInputGuard && !trustedInputGuard.blocked && trustedInputGuard.pointerDown + trustedInputGuard.keyDown + trustedInputGuard.input === 0) trustedInputGuard = null;
+    if (trustedInputGuard && !trustedInputGuard.blocked && trustedInputGuard.expected.kind !== 'drag' && trustedInputGuard.pointerDown + trustedInputGuard.keyDown + trustedInputGuard.input + trustedInputGuard.wheel === 0) trustedInputGuard = null;
     if (!normalized || !normalizedExpected || typeof operationId !== 'string' || !operationId || trustedInputGuard) return false;
-    const hit = normalizedExpected.kind === 'pointer'
+    const hit = ['pointer', 'drag', 'wheel'].includes(normalizedExpected.kind)
       ? deepElementFromPoint(document, normalizedExpected.x, normalizedExpected.y)
       : deepActiveElement(document);
     const bridge = observationBridge();
     const target = bridge?.resolveTargetRef(normalizedExpected.targetRef);
-    if (!target || target === document.body || target === document.documentElement) return false;
+    if (!target || (['key', 'text', 'files'].includes(normalizedExpected.kind) && (target === document.body || target === document.documentElement))) return false;
     if (!target.isConnected || bridge.targetContextFingerprint(target) !== normalizedExpected.targetContext) return false;
-    let matches = normalizedExpected.kind === 'files'
+    const matches = normalizedExpected.kind === 'files'
       ? target.tagName === 'INPUT' && target.type === 'file'
-      : composedContains(target, hit);
-    for (let ownerWindow = target.ownerDocument.defaultView; !matches && ownerWindow && ownerWindow !== window;) {
-      try {
-        const frame = ownerWindow.frameElement;
-        matches = frame === hit;
-        ownerWindow = frame?.ownerDocument.defaultView;
-      } catch (_) { break; }
-    }
+      : hitMatchesTarget(target, hit);
     if (!matches) return false;
+    if (normalizedExpected.kind === 'drag') {
+      const end = bridge?.resolveTargetRef(normalizedExpected.endRef);
+      const endHit = deepElementFromPoint(document, normalizedExpected.endX, normalizedExpected.endY);
+      if (!end?.isConnected || bridge.targetContextFingerprint(end) !== normalizedExpected.endContext || !hitMatchesTarget(end, endHit)) return false;
+    }
     trustedInputGuard = {
       operationId,
       expected: normalizedExpected,
@@ -131,9 +160,10 @@ pub fn browser_takeover_script(token: &str) -> String {
   };
 
   const expectationForFrame = (expected, frame) => {
-    if (!expected || expected.kind !== 'pointer') return expected;
+    if (!expected || !['pointer', 'drag', 'wheel'].includes(expected.kind)) return expected;
     const rect = frame.getBoundingClientRect();
-    return { ...expected, x: expected.x - rect.left, y: expected.y - rect.top };
+    return { ...expected, x: expected.x - rect.left, y: expected.y - rect.top,
+      ...(expected.kind === 'drag' ? { endX: expected.endX - rect.left, endY: expected.endY - rect.top } : {}) };
   };
 
   const relayTrustedInput = (kind, operationId, budget = null, expected = null) => {
@@ -204,19 +234,24 @@ pub fn browser_takeover_script(token: &str) -> String {
 
   const matchesTrustedInput = (type, event) => {
     if (!trustedInputGuard) return false;
-    const budgetKey = ({ pointerdown: 'pointerDown', keydown: 'keyDown', input: 'input' })[type];
+    const budgetKey = ({ pointerdown: 'pointerDown', keydown: 'keyDown', input: 'input', wheel: 'wheel' })[type];
     if (!budgetKey || trustedInputGuard[budgetKey] <= 0) return false;
     const expected = trustedInputGuard.expected;
     if (type === 'pointerdown') {
       const button = ({ 0: 'left', 1: 'middle', 2: 'right' })[event.button];
-      return expected.kind === 'pointer'
+      return ['pointer', 'drag'].includes(expected.kind)
         && button === expected.button
         && Math.abs(event.clientX - expected.x) <= 2
         && Math.abs(event.clientY - expected.y) <= 2
         && eventTargetsArmedElement(event);
     }
     if (type === 'keydown') {
-      return expected.kind === 'key' && event.key === expected.key && eventTargetsArmedElement(event);
+      const modifiers = (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+      return expected.kind === 'key' && event.key === expected.key && modifiers === expected.modifiers && eventTargetsArmedElement(event);
+    }
+    if (type === 'wheel') {
+      return expected.kind === 'wheel' && Math.abs(event.clientX - expected.x) <= 2 && Math.abs(event.clientY - expected.y) <= 2
+        && Math.abs(event.deltaX - expected.deltaX) <= 1 && Math.abs(event.deltaY - expected.deltaY) <= 1 && eventTargetsArmedElement(event);
     }
     if (expected.kind === 'text') {
       return event.data === expected.data && eventTargetsArmedElement(event);
@@ -241,7 +276,7 @@ pub fn browser_takeover_script(token: &str) -> String {
       trustedInputGuard = null;
       return false;
     }
-    const budgetKey = ({ pointerdown: 'pointerDown', keydown: 'keyDown', input: 'input' })[type];
+    const budgetKey = ({ pointerdown: 'pointerDown', keydown: 'keyDown', input: 'input', wheel: 'wheel' })[type];
     trustedInputGuard[budgetKey] -= 1;
     return true;
   };
@@ -249,7 +284,7 @@ pub fn browser_takeover_script(token: &str) -> String {
   // Keep the context fence through the actual event, including a row recycle
   // between preparation, pointerdown and click. Unrelated user input still
   // follows the takeover path rather than being swallowed by this allowance.
-  for (const type of ['pointerdown','pointerup','mousedown','mouseup','click','dblclick','keydown','keyup','keypress','beforeinput']) {
+  for (const type of ['pointerdown','pointermove','pointerup','mousedown','mousemove','mouseup','click','dblclick','dragstart','dragover','drop','keydown','keyup','keypress','beforeinput','wheel']) {
     addEventListener(type, (event) => {
       const guard = trustedInputGuard;
       if (!guard || !event.isTrusted) return;
@@ -257,7 +292,13 @@ pub fn browser_takeover_script(token: &str) -> String {
       const expected = guard.expected;
       const activationKey = expected.kind === 'key' && [' ', 'Enter'].includes(expected.key);
       const activationControl = guard.target.matches('button,a[href],input[type="button"],input[type="submit"],input[type="checkbox"],input[type="radio"],[role="button"],[role="link"],[role="checkbox"],[role="switch"]');
-      const matches = expected.kind === 'pointer'
+      const finishingDrag = expected.kind === 'drag' && ['pointerup', 'mouseup', 'drop', 'click'].includes(type);
+      const matches = expected.kind === 'drag'
+        ? ['pointerdown','pointermove','pointerup','mousedown','mousemove','mouseup','click','dragstart','dragover','drop'].includes(type)
+          && event.clientX >= Math.min(expected.x, expected.endX) - 2 && event.clientX <= Math.max(expected.x, expected.endX) + 2
+          && event.clientY >= Math.min(expected.y, expected.endY) - 2 && event.clientY <= Math.max(expected.y, expected.endY) + 2
+        : expected.kind === 'wheel' ? type === 'wheel' && matchesTrustedInput(type, event)
+        : expected.kind === 'pointer'
         ? ['pointerdown','pointerup','mousedown','mouseup','click','dblclick'].includes(type)
           && Math.abs(event.clientX - expected.x) <= 2 && Math.abs(event.clientY - expected.y) <= 2
         : expected.kind === 'text' ? type === 'beforeinput' && event.data === expected.data
@@ -266,13 +307,13 @@ pub fn browser_takeover_script(token: &str) -> String {
           || (activationKey && type === 'click' && event.detail === 0)
           || (type === 'beforeinput' && guard.keyDown === 0 && guard.input > 0 && eventTargetsArmedElement(event));
       if (!matches) return;
-      if (guard.blocked || !guardContextMatches()) {
+      if (guard.blocked || !guardContextMatches(finishingDrag)) {
         guard.blocked = true;
         event.preventDefault();
         apply(nativeStopImmediatePropagation, event, []);
         if (window !== window.top) apply(nativePostMessage, window.top, [{ marker: trustedInputMarker, token: trustedInputToken, kind: 'blocked', operationId: guard.operationId }, '*']);
       } else if (type === 'click') guard.pointerCommitted = true;
-    }, true);
+    }, { capture: true, passive: false });
   }
 
   const navigateSignal = () => {

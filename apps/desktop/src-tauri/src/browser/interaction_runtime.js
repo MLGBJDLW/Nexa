@@ -49,6 +49,7 @@
     cursorPoint: null,
     agentThread: null,
     observationOptions: { query: '', offset: 0 },
+    observedNodes: new WeakSet(),
   };
 
   const labelledByText = (el) => (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => {
@@ -405,6 +406,7 @@
     runtime.refs = new Map();
     let optionBudget = 400;
     const rootList = roots();
+    runtime.observedNodes = new WeakSet(rootList.flatMap(root => Array.from(root.querySelectorAll('*'))));
     const matches = matchingElements(rootList);
     const selected = matches.slice(offset, offset + 300);
     const elements = selected.map((el) => {
@@ -564,7 +566,7 @@
     const remove = () => { thread.remove(); if (runtime.agentThread === thread) runtime.agentThread = null; };
     if (animation) animation.onfinish = remove; else setTimeout(remove, duration + 260);
   };
-  const moveAgentCursor = (el, via = null, currentPresentation = null) => {
+  const moveAgentCursor = (el, via = null, currentPresentation = null, destinationPoint = null, originPoint = null) => {
     const finish = (status) => {
       if (presentation === currentPresentation && currentPresentation?.status === 'pending') currentPresentation.status = status;
     };
@@ -572,8 +574,8 @@
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
     const cursor = ensureAgentCursor(ownerDocument);
-    const to = centerOf(el);
-    const viaPoint = via ? centerOf(via) : null;
+    const to = destinationPoint || centerOf(el);
+    const viaPoint = via ? originPoint || centerOf(via) : null;
     const from = runtime.cursorPoint || {
       x: Math.max(18, Number(ownerWindow.innerWidth || 0) * 0.22),
       y: Math.max(22, Number(ownerWindow.innerHeight || 0) * 0.18),
@@ -708,9 +710,36 @@
     if (presentation) cancelPresentation(presentation.id);
     const current = { id: String(input.presentationId || ''), status: 'pending' };
     presentation = current;
-    return { durationMs: moveAgentCursor(destination, input.action === 'drag' ? el : null, current), presentationId: current.id, action: input.action };
+    return { durationMs: moveAgentCursor(destination, input.action === 'drag' ? el : null, current, input.action === 'drag' ? input.endPoint : input.point, input.point), presentationId: current.id, action: input.action };
   };
   runtime.validateAction = (input) => { validateAction(input); return true; };
+  const viewportPoint = (point) => {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)
+      || point.x < 0 || point.y < 0 || point.x >= innerWidth || point.y >= innerHeight) {
+      throw new Error('Browser coordinates must be finite CSS pixels inside the observed viewport');
+    }
+    return { x: point.x, y: point.y };
+  };
+  runtime.resolvePointerTarget = (input, coordinates) => {
+    validateAction(input);
+    const point = viewportPoint(coordinates);
+    let target = deepElementFromPoint(document, point.x, point.y);
+    if (!target || target.tagName === 'IFRAME') throw new Error('Observe and use an element ref for a frame target');
+    if (!runtime.observedNodes.has(target)) throw new Error('stale observation: the coordinate target appeared after observation');
+    // A screenshot may point at text inside a link or button. Bind the action
+    // to that control so native navigation authorization sees its href/form.
+    for (let ancestor = target; ancestor; ancestor = composedParent(ancestor)) {
+      if (ancestor.matches('a[href],button,input,textarea,select,[role="button"],[role="link"]')) {
+        target = ancestor;
+        break;
+      }
+    }
+    if (!enabledOf(target)) throw new Error('Browser target is disabled');
+    let ref = runtime.refIds.get(target);
+    if (!ref) { ref = `e_${++runtime.nextRefId}`; runtime.refIds.set(target, ref); }
+    runtime.refs.set(ref, target);
+    return describe(target, ref);
+  };
   runtime.prepareNativePointer = (input) => {
     const { el } = validateAction(input);
     if (!el) throw new Error('Browser pointer action requires a target');
@@ -721,11 +750,11 @@
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
     let rect = el.getBoundingClientRect();
-    if (rect.top < 0 || rect.left < 0 || rect.bottom > ownerWindow.innerHeight || rect.right > ownerWindow.innerWidth) {
+    if (!input.point && (rect.top < 0 || rect.left < 0 || rect.bottom > ownerWindow.innerHeight || rect.right > ownerWindow.innerWidth)) {
       el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
       rect = el.getBoundingClientRect();
     }
-    const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    const point = input.point ? viewportPoint(input.point) : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     if (point.x < 0 || point.y < 0 || point.x >= ownerWindow.innerWidth || point.y >= ownerWindow.innerHeight) {
       throw new Error('Browser pointer target is outside the viewport');
     }
@@ -735,11 +764,28 @@
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
     return {
-      bounds: viewportBoundsOf(el),
+      bounds: input.point ? { ...point, width: 0, height: 0 } : viewportBoundsOf(el),
       targetContext,
       targetRef: input.targetRef,
       verificationBaseline: actionVerificationBaseline(),
     };
+  };
+  runtime.prepareTrustedDrag = (input) => {
+    const { el, end } = validateAction(input);
+    if (!el || !end) throw new Error('Browser drag requires both source and destination');
+    // Both points must remain visible together; scrolling one endpoint into
+    // view can invalidate the other. Never silently drag to shifted pixels.
+    for (const element of [el, end]) {
+      const rect = element.getBoundingClientRect(), owner = element.ownerDocument.defaultView;
+      const visible = viewportBoundsOf(element);
+      if (rect.top < 0 || rect.left < 0 || rect.bottom > owner.innerHeight || rect.right > owner.innerWidth
+        || visible.x < 0 || visible.y < 0 || visible.x + visible.width > innerWidth || visible.y + visible.height > innerHeight) {
+        throw new Error('Both drag endpoints must be visible in the current viewport');
+      }
+    }
+    const start = runtime.prepareNativePointer(input);
+    const finish = runtime.prepareNativePointer({ ...input, targetRef: input.endRef, expected: input.expectedEnd, point: input.endPoint });
+    return { ...start, endBounds: finish.bounds, endRef: finish.targetRef, endContext: finish.targetContext };
   };
   runtime.prepareTrustedText = (input) => {
     const { el } = validateAction(input);
@@ -1019,7 +1065,7 @@
     }
   }, true);
   addEventListener('wheel', (event) => {
-    if (!runtime.synthetic && event.isTrusted) {
+    if (!runtime.synthetic && event.isTrusted && !window.__NEXA_TRUSTED_INPUT_GUARD__?.expects('wheel', event)) {
       runtime.userEpoch += 1;
     }
   }, true);
@@ -1034,6 +1080,8 @@
     captureStatus: (id) => runtime.captureStatus(id),
     endCapture: (id) => runtime.endCapture(id),
     validateAction: (input) => runtime.validateAction(input),
+    resolvePointerTarget: (input, point) => runtime.resolvePointerTarget(input, point),
+    prepareTrustedDrag: (input) => runtime.prepareTrustedDrag(input),
     prepareNativePointer: (input) => runtime.prepareNativePointer(input),
     prepareTrustedText: (input) => runtime.prepareTrustedText(input),
     prepareTrustedKey: (input) => runtime.prepareTrustedKey(input),

@@ -237,6 +237,7 @@ struct StoredObservation {
     user_epoch: u64,
     lease_generation: u64,
     elements: Vec<BrowserElement>,
+    viewport: serde_json::Value,
     options: BrowserObservationOptions,
     claimed_for_action: bool,
 }
@@ -2246,6 +2247,7 @@ impl BrowserState {
                 user_epoch: snapshot.user_epoch,
                 lease_generation,
                 elements: snapshot.elements.clone(),
+                viewport: snapshot.viewport.clone(),
                 options: options.clone(),
                 claimed_for_action: false,
             };
@@ -2309,7 +2311,7 @@ impl BrowserState {
             .url()
             .map_err(|error| format!("Could not read browser address: {error}"))?
             .to_string();
-        let (observation, expected, expected_end) = {
+        let (observation, mut expected, mut expected_end) = {
             let mut runtime = self
                 .inner
                 .lock()
@@ -2381,6 +2383,43 @@ impl BrowserState {
             request.commit_tracker.mark_observation_consumed();
             (observation, expected, expected_end)
         };
+        // Resolve screenshot pixels against the claimed observation before any
+        // navigation authorization. A hit inside a link retains its real href.
+        let default_scroll_point =
+            (request.action == "scroll" && request.point.is_none() && request.target_ref.is_none())
+                .then_some(BrowserViewportPoint {
+                    x: observation.viewport["width"].as_f64().unwrap_or(0.0) / 2.0,
+                    y: observation.viewport["height"].as_f64().unwrap_or(0.0) / 2.0,
+                });
+        let point = request.point.or(default_scroll_point);
+        for (coordinates, target) in [
+            (point, &mut expected),
+            (request.end_point, &mut expected_end),
+        ] {
+            if let Some(coordinates) = coordinates {
+                let input = serde_json::json!({
+                    "action": request.action,
+                    "userEpoch": observation.user_epoch,
+                    "interactionFingerprint": observation.interaction_fingerprint,
+                });
+                let coordinates =
+                    serde_json::to_string(&coordinates).map_err(|error| error.to_string())?;
+                let expression = format!(
+                    "window.__NEXA_BROWSER_RUNTIME__.resolvePointerTarget({input}, {coordinates})"
+                );
+                let pending = self.dispatch_agent_action(
+                    request.session_id,
+                    request.tab_id,
+                    request.observation_id,
+                    request.call_id,
+                    &expression,
+                )?;
+                *target = Some(
+                    serde_json::from_value(pending.resolve().await?)
+                        .map_err(|error| format!("Invalid browser coordinate target: {error}"))?,
+                );
+            }
+        }
         let is_form_submitter = expected.as_ref().is_some_and(|element| {
             element.tag == "button"
                 || (element.tag == "input"
@@ -2422,8 +2461,10 @@ impl BrowserState {
             "action": request.action,
             "presentationId": progress.operation_id(),
             "callId": request.call_id,
-            "targetRef": request.target_ref,
-            "endRef": request.end_ref,
+            "targetRef": expected.as_ref().map(|element| &element.element_ref),
+            "endRef": expected_end.as_ref().map(|element| &element.element_ref),
+            "point": point,
+            "endPoint": request.end_point,
             "text": request.text,
             "value": request.value,
             "values": request.values,
@@ -2616,7 +2657,14 @@ impl BrowserState {
         #[cfg(windows)]
         if matches!(
             request.action,
-            "click" | "double_click" | "type" | "press" | "set_checked" | "upload_files"
+            "click"
+                | "double_click"
+                | "drag"
+                | "scroll"
+                | "type"
+                | "press"
+                | "set_checked"
+                | "upload_files"
         ) {
             let verification_baseline = match self
                 .commit_trusted_webview_action(
@@ -2781,7 +2829,8 @@ impl BrowserState {
             request.action
         };
         let (preparation_method, preparation_label) = match input_action {
-            "click" | "double_click" => ("prepareNativePointer", "pointer"),
+            "click" | "double_click" | "scroll" => ("prepareNativePointer", "pointer"),
+            "drag" => ("prepareTrustedDrag", "drag"),
             "type" => ("prepareTrustedText", "text"),
             "press" => ("prepareTrustedKey", "key"),
             "upload_files" => ("prepareTrustedUpload", "upload"),
@@ -2814,7 +2863,8 @@ impl BrowserState {
         {
             return Ok(verification_baseline);
         }
-        let pointer_bounds = if matches!(input_action, "click" | "double_click") {
+        let pointer_bounds = if matches!(input_action, "click" | "double_click" | "drag" | "scroll")
+        {
             Some(
                 serde_json::from_value::<BrowserElementBounds>(
                     prepared.get("bounds").cloned().ok_or_else(|| {
@@ -2835,6 +2885,19 @@ impl BrowserState {
             }
             None
         };
+        let end_bounds = if input_action == "drag" {
+            Some(
+                serde_json::from_value::<BrowserElementBounds>(
+                    prepared
+                        .get("endBounds")
+                        .cloned()
+                        .ok_or("Missing drag destination bounds")?,
+                )
+                .map_err(|error| format!("Invalid drag destination bounds: {error}"))?,
+            )
+        } else {
+            None
+        };
         let expected_input = match input_action {
             "click" | "double_click" => {
                 let bounds = pointer_bounds
@@ -2844,6 +2907,33 @@ impl BrowserState {
                     x: bounds.x + bounds.width / 2.0,
                     y: bounds.y + bounds.height / 2.0,
                     button: request.button.unwrap_or("left").to_string(),
+                }
+            }
+            "drag" => {
+                let bounds = pointer_bounds.as_ref().expect("parsed pointer bounds");
+                let end = end_bounds.as_ref().expect("parsed drag destination");
+                TrustedInputMatch::Drag {
+                    x: bounds.x + bounds.width / 2.0,
+                    y: bounds.y + bounds.height / 2.0,
+                    end_x: end.x + end.width / 2.0,
+                    end_y: end.y + end.height / 2.0,
+                    end_ref: prepared["endRef"]
+                        .as_str()
+                        .ok_or("Missing drag destination reference")?
+                        .to_string(),
+                    end_context: prepared["endContext"]
+                        .as_str()
+                        .ok_or("Missing drag destination context")?
+                        .to_string(),
+                }
+            }
+            "scroll" => {
+                let bounds = pointer_bounds.as_ref().expect("parsed pointer bounds");
+                TrustedInputMatch::Wheel {
+                    x: bounds.x + bounds.width / 2.0,
+                    y: bounds.y + bounds.height / 2.0,
+                    delta_x: request.scroll_x,
+                    delta_y: request.scroll_y,
                 }
             }
             "type" => TrustedInputMatch::Text {
@@ -2860,6 +2950,7 @@ impl BrowserState {
                 request
                     .key
                     .expect("trusted action budget validates a press key"),
+                request.modifiers,
             )?,
             _ => unreachable!("trusted action kind was validated before preparation"),
         };
@@ -2929,6 +3020,29 @@ impl BrowserState {
         }
 
         let dispatch_result = match input_action {
+            "drag" => {
+                let start = pointer_bounds.as_ref().expect("parsed pointer bounds");
+                let end = end_bounds.as_ref().expect("parsed drag destination");
+                super::webview_host::dispatch_trusted_drag(
+                    &armed_guard,
+                    (start.x + start.width / 2.0, start.y + start.height / 2.0),
+                    (end.x + end.width / 2.0, end.y + end.height / 2.0),
+                    request.modifiers,
+                )
+                .await
+            }
+            "scroll" => {
+                let bounds = pointer_bounds.as_ref().expect("parsed pointer bounds");
+                super::webview_host::dispatch_trusted_wheel(
+                    &armed_guard,
+                    bounds.x + bounds.width / 2.0,
+                    bounds.y + bounds.height / 2.0,
+                    request.scroll_x,
+                    request.scroll_y,
+                    request.modifiers,
+                )
+                .await
+            }
             "click" | "double_click" => {
                 let bounds = pointer_bounds
                     .as_ref()
@@ -4042,6 +4156,8 @@ pub(super) fn trusted_action_budget(
     let target = target
         .ok_or_else(|| format!("Trusted browser {action} requires an observation-scoped target"))?;
     match action {
+        "drag" => TrustedInputEventBudget::pointer_click(1, 0),
+        "scroll" => Ok(TrustedInputEventBudget::wheel()),
         "click" | "double_click" => {
             let click_count = if action == "double_click" { 2 } else { 1 };
             let expected_input_events = u8::from(
@@ -4075,7 +4191,8 @@ pub(super) fn trusted_action_budget(
                     | "PageDown"
                     | "Backspace"
                     | "Delete"
-            ) {
+            ) && !(key.len() == 1 && key.as_bytes()[0].is_ascii_alphabetic())
+            {
                 return Err(format!("Unsupported trusted browser key '{key}'"));
             }
             let tag = target.tag.as_str();
@@ -4109,6 +4226,7 @@ pub(super) fn trusted_action_budget(
                     || (matches!(key, "ArrowUp" | "ArrowDown") && (is_select || is_value_stepper))
                     || (matches!(key, "Home" | "End") && is_value_stepper)
                     || (matches!(key, "Backspace" | "Delete") && is_editable)
+                    || (key.len() == 1 && key.as_bytes()[0].is_ascii_alphabetic() && is_editable)
                     || (key == "Enter"
                         && (tag.eq_ignore_ascii_case("textarea")
                             || (!tag.eq_ignore_ascii_case("input")
@@ -4206,6 +4324,12 @@ fn invalidate_for_user_takeover(webviews: &[Webview]) {
     }
 }
 
+#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
+pub struct BrowserViewportPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
 pub struct BrowserActRequest<'a> {
     pub call_id: &'a str,
     pub session_id: &'a str,
@@ -4214,6 +4338,8 @@ pub struct BrowserActRequest<'a> {
     pub action: &'a str,
     pub target_ref: Option<&'a str>,
     pub end_ref: Option<&'a str>,
+    pub point: Option<BrowserViewportPoint>,
+    pub end_point: Option<BrowserViewportPoint>,
     pub text: Option<&'a str>,
     pub value: Option<&'a str>,
     pub values: Option<&'a [String]>,
