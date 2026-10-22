@@ -179,7 +179,6 @@
   "tokenUsagePercent": "已使用 {percent}% 上下文",
   "contextFillingUp": "上下文窗口即将满载 ({percent}%)。建议开始新对话。",
   "contextNearlyFull": "上下文窗口即将满载 ({percent}%)。较早的消息可能会丢失。",
-  "imageMessage": "(图片)",
   "pasteImageFailed": "粘贴图片失败",
   "tokensLabel": "令牌",
   "tokensShort": "令牌",
@@ -947,5 +946,16 @@
   "contextPolicyFork": "自动 Fork",
   "contextPolicyForkTiming": "何时 Fork",
   "contextPolicyForkTriggerAt": "输入超过 {tokens} tokens 后自动 Fork。",
-  "contextPolicyForkCalculation": "比例基于可用输入 {input} tokens，已预留回复 {reply} 和安全余量 {safety}。Fork 会归档此前推理并保留当前任务。"
+  "contextPolicyForkCalculation": "比例基于可用输入 {input} tokens，已预留回复 {reply} 和安全余量 {safety}。Fork 会归档此前推理并保留当前任务。",
+  "questionSkip": "跳过此问题",
+  "questionSkipped": "已跳过",
+  "interactionTitle": "界面操作",
+  "interactionPending": "待验证",
+  "interactionUncertain": "结果不确定",
+  "interactionNotDispatched": "未发送输入",
+  "interactionUnchanged": "未见变化",
+  "interactionChanged": "已观察到变化",
+  "interactionTargetClosed": "目标已关闭",
+  "interactionMatched": "条件已满足",
+  "interactionObserved": "已获取观察"
 }

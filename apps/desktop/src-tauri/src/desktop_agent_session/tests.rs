@@ -1010,6 +1010,16 @@ fn desktop_agent_user_content_parts_project_attachments() {
         }
         other => panic!("unexpected attachment part: {other:?}"),
     }
+    let image_only = build_desktop_agent_user_content_parts(DesktopAgentUserContentRequest {
+        db: &db,
+        app_handle: None,
+        provider_config: &test_provider_config(ProviderType::OpenAi),
+        db_config: &db_config,
+        message: "",
+        attachments: Some(&attachments[..1]),
+    })
+    .expect("build attachment-only user content");
+    assert!(matches!(image_only.as_slice(), [ContentPart::Image { .. }]));
 }
 
 #[test]

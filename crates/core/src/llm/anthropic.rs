@@ -476,10 +476,12 @@ fn convert_messages(
                         .parts
                         .iter()
                         .filter_map(|p| match p {
-                            ContentPart::Text { text } => Some(AnthropicContentBlock::Text {
-                                text: text.clone(),
-                                cache_control: None,
-                            }),
+                            ContentPart::Text { text } if !text.trim().is_empty() => {
+                                Some(AnthropicContentBlock::Text {
+                                    text: text.clone(),
+                                    cache_control: None,
+                                })
+                            }
                             ContentPart::Image { media_type, data } => {
                                 Some(AnthropicContentBlock::Image {
                                     source: AnthropicImageSource {
@@ -499,7 +501,7 @@ fn convert_messages(
                                     },
                                 })
                             }
-                            ContentPart::ProviderTurn { .. } => None,
+                            ContentPart::Text { .. } | ContentPart::ProviderTurn { .. } => None,
                         })
                         .collect();
                     let mut message = AnthropicMessage {
@@ -1686,6 +1688,21 @@ impl AnthropicProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachment_only_user_turn_omits_empty_text_blocks() {
+        for text in ["", " \n"] {
+            let mut message = Message::text(Role::User, text);
+            message.parts.push(ContentPart::Image {
+                media_type: "image/png".into(),
+                data: "fixture-image".into(),
+            });
+            let (_, converted) = convert_messages(&[message]);
+            let wire = serde_json::to_value(converted).unwrap();
+            assert_eq!(wire[0]["content"].as_array().unwrap().len(), 1);
+            assert_eq!(wire[0]["content"][0]["type"], "image");
+        }
+    }
 
     #[tokio::test]
     async fn model_discovery_reads_account_pages_and_filters_explicit_retirement() {

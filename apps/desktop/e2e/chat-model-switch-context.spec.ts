@@ -3,6 +3,17 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 
+async function openProviderModels(page: Page, configId: string) {
+  await page.getByTestId('agent-provider-picker-trigger').click();
+  const provider = page.getByTestId(`agent-model-provider-${configId}`);
+  const label = await provider.locator('span.block.truncate.text-xs').innerText();
+  await provider.click();
+  const model = page.getByTestId('agent-model-picker-trigger');
+  await expect(page.getByTestId('agent-provider-picker-trigger')).toHaveAttribute('title', label);
+  await expect(model).toHaveAttribute('aria-expanded', 'false');
+  await model.click();
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('nexa-locale', 'en');
@@ -165,12 +176,13 @@ test.beforeEach(async ({ page }) => {
           localStorage.setItem('e2e-compact-started', '1');
           throw new Error('Unexpected subscription compaction API request');
         case 'list_subscription_models_cmd': {
-          const fixture = window as unknown as { __catalogCalls?: string[]; __catalogDelay?: number; __catalogError?: string };
+          const fixture = window as unknown as { __catalogCalls?: string[]; __catalogResults?: string[]; __catalogDelay?: number; __catalogError?: string };
           (fixture.__catalogCalls ??= []).push(String(args.provider));
           if (fixture.__catalogDelay) await new Promise(resolve => setTimeout(resolve, fixture.__catalogDelay));
           if (fixture.__catalogError) throw new Error(fixture.__catalogError);
           const models = [{ id: args.provider === 'hermes' ? 'openai-codex:gpt-native' : 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
           if (args.provider === 'github_copilot') models.push({ id: 'gemini-4-argon', name: 'Gemini 4 Argon', reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 265536 });
+          (fixture.__catalogResults ??= []).push(String(args.provider));
           return models;
         }
         case 'list_agent_configs_cmd':
@@ -437,15 +449,13 @@ test('appearance fonts and streaming preferences apply, import, survive reload a
 
 test('model search excludes provider metadata in global and provider results', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
+  await page.getByTestId('agent-provider-picker-trigger').click();
   const search = page.getByTestId('agent-model-picker-menu').getByRole('searchbox');
   await search.fill('GLM');
   await expect(page.getByTestId('agent-model-option-cfg-glm-glm-4.7')).toBeVisible();
   await expect(page.getByTestId('agent-model-option-cfg-glm-gpt-5.5')).toHaveCount(0);
   await search.press('Escape');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await search.fill('');
-  await page.getByTestId('agent-model-provider-cfg-glm').click();
+  await openProviderModels(page, 'cfg-glm');
   await search.fill(' glm 4.7 ');
   await expect(page.getByTestId('agent-model-option-cfg-glm-glm-4.7')).toBeVisible();
   await expect(page.getByTestId('agent-model-option-cfg-glm-gpt-5.5')).toHaveCount(0);
@@ -453,8 +463,7 @@ test('model search excludes provider metadata in global and provider results', a
 
 test('model search stays within the selected provider until returning to providers', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-tiny').click();
+  await openProviderModels(page, 'cfg-tiny');
   const menu = page.getByTestId('agent-model-picker-menu');
   await menu.getByRole('searchbox').fill('gpt-5.5');
   await expect(page.getByTestId('agent-model-option-cfg-tiny-gpt-5.5')).toBeVisible();
@@ -464,19 +473,20 @@ test('model search stays within the selected provider until returning to provide
   await expect(page.getByTestId('agent-model-option-cfg-large-gpt-5.5')).toBeVisible();
 });
 
-test('followup recommendations preview in the composer and Tab completes without sending', async ({ page }, testInfo) => {
+test('followup JSONL recommendations preview in the composer and Tab completes without sending', async ({ page }, testInfo) => {
   await page.addInitScript(() => {
     localStorage.setItem('e2e-change-fixture', '1');
-    localStorage.setItem('e2e-render-content', 'The result is ready.\n\n```nexa-followups\n' + JSON.stringify([
+    localStorage.setItem('e2e-render-content', 'The result is ready.\n\n```nexa-followups\n' + [
       {label:'Inspect the result',prompt:'Check the generated report for missing evidence.'},
       {label:'Make a presentation',prompt:'Create a presentation from the completed report.'},
-    ]) + '\n```');
+    ].map(item => JSON.stringify(item)).join('\n') + '\n```');
   });
   await page.goto('/chat/conv-model-switch');
   const input = page.getByTestId('chat-input-textarea');
   await expect(page.getByTestId('followup-suggestions').getByRole('button')).toHaveCount(2);
   await expect(input).toHaveValue('');
   await expect(page.getByTestId('chat-input-ghost')).toContainText('Check the generated report');
+  await expect(page.locator('.chat-assistant-reply')).not.toContainText('"label"');
   await page.getByTestId('chat-input').screenshot({path:testInfo.outputPath('followup-suggestions.png')});
   await input.focus(); await input.press('Tab');
   await expect(input).toHaveValue('Check the generated report for missing evidence.');
@@ -485,6 +495,44 @@ test('followup recommendations preview in the composer and Tab completes without
   await input.fill('');
   await page.getByTestId('followup-suggestions').getByRole('button', {name:/Make a presentation/}).click();
   await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs?.message)).toBe('Create a presentation from the completed report.');
+});
+
+test('provider icon restores each saved model and effort without reopening the model list', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-model-switch');
+  const provider = page.getByTestId('agent-provider-picker-trigger');
+  const model = page.getByTestId('agent-model-picker-trigger');
+  await model.click();
+  await page.getByTestId('agent-model-option-cfg-tiny-gpt-6.1-sol').click();
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await page.getByTestId('agent-model-reasoning-high').click();
+  await provider.click();
+  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await expect(model).toContainText('Claude Sonnet 5.5');
+  await expect(page.getByTestId('agent-model-picker-menu')).toBeHidden();
+  await provider.click();
+  await page.getByTestId('agent-model-provider-cfg-tiny').click();
+  await expect(model).toContainText('GPT-6.1 Sol');
+  await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('High');
+  await expect(page.getByTestId('agent-model-picker-menu')).toBeHidden();
+  await page.getByTestId('chat-input').screenshot({ path: testInfo.outputPath('split-model-controls.png') });
+});
+
+test('attachment-only messages share the composer surface and send no placeholder text', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-model-switch');
+  const data = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  await page.getByTestId('chat-input-textarea').evaluate((textarea, data) => {
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { files: [], items: [], getData: (type: string) => type === 'text/plain' ? `data:image/png;base64,${data}` : '' } });
+    textarea.dispatchEvent(event);
+  }, data);
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toBeVisible();
+  await expect(page.getByTestId('chat-attachments')).toHaveCSS('border-bottom-width', '0px');
+  await expect(page.getByTestId('vision-turn-selector')).toHaveCSS('border-bottom-width', '0px');
+  await page.getByTestId('chat-input').screenshot({ path: testInfo.outputPath('integrated-attachment.png') });
+  await page.getByTestId('chat-send').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs)).toMatchObject({ message: '', attachments: [{ base64Data: data }] });
+  await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(0);
+  await expect(page.getByRole('log')).not.toContainText('(Image)');
 });
 
 test('model selector and context usage follow the active chat model', async ({ page }) => {
@@ -509,8 +557,7 @@ test('model selector and context usage follow the active chat model', async ({ p
   expect(pickerSeamGap).not.toBeNull();
   expect(pickerSeamGap ?? Number.POSITIVE_INFINITY).toBeLessThan(2);
 
-  await modelSelect.click();
-  await page.getByTestId('agent-model-provider-cfg-large').click();
+  await openProviderModels(page, 'cfg-large');
   await page.getByTestId('agent-model-option-cfg-large-large-context').click();
 
   await expect(modelSelect).toHaveAttribute('title', /open_ai \/ large-context$/);
@@ -532,8 +579,7 @@ test('Claude Sonnet 5.5 model selector distinguishes default and between-tool th
   await page.goto('/chat/conv-model-switch');
   const model = page.getByTestId('agent-model-picker-trigger');
   const reasoning = page.getByTestId('agent-reasoning-picker-trigger');
-  await model.click();
-  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await openProviderModels(page, 'cfg-sonnet');
   await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
   await expect(reasoning).not.toContainText('Between-tool thinking only');
   await reasoning.click();
@@ -557,8 +603,7 @@ test('Claude Sonnet 5.5 model selector distinguishes default and between-tool th
 
 test('reasoning slider shares provider semantics with the list and persists its display preference', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await openProviderModels(page, 'cfg-sonnet');
   await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
   const trigger=page.getByTestId('agent-reasoning-picker-trigger');
   await trigger.click();
@@ -600,8 +645,7 @@ test('model selector saves model and reasoning changes to the agent config', asy
   await page.goto('/chat/conv-model-switch');
 
   const modelSelect = page.getByTestId('agent-model-picker-trigger');
-  await modelSelect.click();
-  await page.getByTestId('agent-model-provider-cfg-tiny').click();
+  await openProviderModels(page, 'cfg-tiny');
   await page.getByTestId('agent-model-option-cfg-tiny-gpt-5.5').click();
   await expect(modelSelect).toHaveAttribute('title', /open_ai \/ gpt-5\.5$/);
 
@@ -627,14 +671,12 @@ test('model selector saves model and reasoning changes to the agent config', asy
 test('provider-managed reasoning lets a stale native effort return to default', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
   const picker = page.getByTestId('agent-model-picker-trigger');
-  await picker.click();
-  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await openProviderModels(page, 'cfg-subscription');
   await page.getByTestId('agent-model-option-cfg-subscription-gpt-native').click();
   await page.getByTestId('agent-reasoning-picker-trigger').click();
   await page.getByTestId('agent-model-reasoning-ultra').click();
   await page.evaluate(() => localStorage.setItem('e2e-native-efforts', '[]'));
-  await picker.click();
-  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await openProviderModels(page, 'cfg-subscription');
   await page.getByTestId('agent-model-catalog-refresh').click();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('native-reasoning-reset')).toBeVisible();
@@ -649,8 +691,7 @@ for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['op
 test(`${provider} model and native reasoning selection reach the chat request`, async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
   const picker = page.getByTestId('agent-model-picker-trigger');
-  await picker.click();
-  await page.getByTestId(`agent-model-provider-${configId}`).click();
+  await openProviderModels(page, configId);
   await expect(page.getByTestId(`agent-model-option-${configId}-unavailable-old-model`)).toHaveCount(0);
   await page.getByTestId(`agent-model-option-${configId}-gpt-native`).click();
   await expect(picker).toHaveAttribute('title', new RegExp(`${provider} / gpt-native$`));
@@ -666,8 +707,7 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
 
 test('provider-managed reasoning sends Gemini Argon with its advertised Copilot effort', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await openProviderModels(page, 'cfg-subscription');
   await page.getByTestId('agent-model-option-cfg-subscription-gemini-4-argon').click();
   await page.getByTestId('agent-reasoning-picker-trigger').click();
   await expect(page.getByTestId('agent-model-reasoning-ultra')).toHaveCount(0);
@@ -682,8 +722,7 @@ test('provider-managed reasoning sends Gemini Argon with its advertised Copilot 
 
 test('subscription compact command is rejected without starting an API summarizer', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await openProviderModels(page, 'cfg-subscription');
   await page.getByTestId('agent-model-option-cfg-subscription-gpt-native').click();
   await page.locator('textarea').fill('/compact');
   await page.locator('textarea').press('Escape');
@@ -694,8 +733,7 @@ test('subscription compact command is rejected without starting an API summarize
 
 test('ACP native slash commands reach the native runtime without local template expansion', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-acp').click();
+  await openProviderModels(page, 'cfg-acp');
   await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
   await page.locator('textarea').fill('/compact');
   await page.locator('textarea').press('Enter');
@@ -705,8 +743,7 @@ test('ACP native slash commands reach the native runtime without local template 
 
 test('ACP advertised reasoning and native context capacity are available in chat', async ({ page }, testInfo) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-opencode').click();
+  await openProviderModels(page, 'cfg-opencode');
   await page.getByTestId('agent-model-option-cfg-opencode-gpt-native').click();
   await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
   await page.getByTestId('agent-reasoning-picker-trigger').click();
@@ -718,8 +755,7 @@ test('ACP advertised reasoning and native context capacity are available in chat
 test('ACP reasoning preserves opaque choices and shows Default until explicitly overridden', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('e2e-native-efforts', '["eco","balanced","deep"]'));
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-opencode').click();
+  await openProviderModels(page, 'cfg-opencode');
   await page.getByTestId('agent-model-option-cfg-opencode-gpt-native').click();
   const trigger = page.getByTestId('agent-reasoning-picker-trigger');
   await expect(trigger).toContainText('Default');
@@ -739,8 +775,7 @@ test('ACP reasoning preserves opaque choices and shows Default until explicitly 
 
 test('reasoning toggle-only models retain On and Off in list and slider modes', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-toggle').click();
+  await openProviderModels(page, 'cfg-toggle');
   await page.getByTestId('agent-model-option-cfg-toggle-kimi-k2.6').click();
   const trigger = page.getByTestId('agent-reasoning-picker-trigger');
   await trigger.click();
@@ -759,10 +794,11 @@ test('ACP external agent model selector hides unsupported runtime controls and u
   await page.setViewportSize({ width: 680, height: 850 });
   await page.goto('/chat/conv-model-switch');
   const picker = page.getByTestId('agent-model-picker-trigger');
-  await picker.click();
+  await page.getByTestId('agent-provider-picker-trigger').click();
   await expect(page.getByTestId('agent-model-picker-menu')).toContainText('API models');
   await expect(page.getByTestId('agent-model-picker-menu')).toContainText('External agents');
-  await page.getByTestId('agent-model-provider-cfg-acp').click();
+  await page.keyboard.press('Escape');
+  await openProviderModels(page, 'cfg-acp');
   await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
   await expect(page.getByTestId('agent-model-picker-menu')).toBeHidden();
   await expect(picker).toHaveAttribute('title', /gemini_cli \/ gpt-native$/);
@@ -779,15 +815,16 @@ test('ACP external agent model selector hides unsupported runtime controls and u
 });
 
 for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['openai_codex', 'cfg-codex']]) {
-  test(`${provider} shows catalog loading and reuses it for direct reasoning changes`, async ({ page }, testInfo) => {
+  test(`${provider} restores the selected provider after catalog loading and reuses it for reasoning changes`, async ({ page }, testInfo) => {
     await page.addInitScript(() => { (window as unknown as { __catalogDelay: number }).__catalogDelay = 1800; });
     await page.goto('/chat/conv-model-switch');
     const picker = page.getByTestId('agent-model-picker-trigger');
-    await picker.click();
+    await page.getByTestId('agent-provider-picker-trigger').click();
     await page.getByTestId(`agent-model-provider-${configId}`).click();
     await expect(page.getByTestId('agent-model-catalog-status')).toContainText('Loading models');
     await page.getByTestId('agent-model-picker-menu').screenshot({ path: testInfo.outputPath('model-loading.png') });
-    await page.getByTestId(`agent-model-option-${configId}-gpt-native`).click();
+    await expect(picker).toHaveAttribute('title', new RegExp(`${provider} / gpt-native$`));
+    await expect(page.getByTestId('agent-model-picker-menu')).toBeHidden();
     await page.getByTestId('agent-reasoning-picker-trigger').click();
     await page.getByTestId('agent-model-picker-menu').screenshot({ path: testInfo.outputPath('native-reasoning.png') });
     await page.getByTestId('agent-model-reasoning-ultra').click();
@@ -801,17 +838,44 @@ for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['op
 test('subscription catalog errors offer retry and retain cached models during refresh', async ({ page }) => {
   await page.addInitScript(() => { (window as unknown as { __catalogError: string }).__catalogError = 'offline'; });
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
+  const picker = page.getByTestId('agent-model-picker-trigger');
+  const originalTitle = await picker.getAttribute('title');
+  await page.getByTestId('agent-provider-picker-trigger').click();
   await page.getByTestId('agent-model-provider-cfg-subscription').click();
   await expect(page.getByTestId('agent-model-catalog-status')).toContainText('Could not load models');
+  await expect(picker).toHaveAttribute('title', originalTitle!);
   await page.evaluate(() => { (window as unknown as { __catalogError: string }).__catalogError = ''; });
   await page.getByTestId('agent-model-catalog-refresh').click();
+  await expect(picker).toHaveAttribute('title', /github_copilot \/ gpt-native$/);
+  await picker.click();
   const model = page.getByTestId('agent-model-option-cfg-subscription-gpt-native');
   await expect(model).toBeVisible();
   await page.evaluate(() => { (window as unknown as { __catalogError: string }).__catalogError = 'offline'; });
   await page.getByTestId('agent-model-catalog-refresh').click();
   await expect(page.getByTestId('agent-model-catalog-status')).toContainText('Using the previous model list');
   await expect(model).toBeEnabled();
+});
+
+test('closing or changing providers cancels a pending native catalog selection', async ({ page }) => {
+  await page.addInitScript(() => { (window as unknown as { __catalogDelay: number }).__catalogDelay = 1500; });
+  for (const action of ['close', 'switch'] as const) {
+    await page.goto('/chat/conv-model-switch');
+    const provider = page.getByTestId('agent-provider-picker-trigger');
+    const originalTitle = await provider.getAttribute('title');
+    await provider.click();
+    await page.getByTestId('agent-model-provider-cfg-codex').click();
+    await expect(page.getByTestId('agent-model-catalog-status')).toContainText('Loading models');
+    if (action === 'close') {
+      await page.keyboard.press('Escape');
+    } else {
+      await provider.click();
+      await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+    }
+    await expect.poll(() => page.evaluate(() => (window as any).__catalogResults ?? [])).toContain('openai_codex');
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(provider).toHaveAttribute('title', action === 'close' ? originalTitle! : 'Anthropic');
+    expect(await page.evaluate(() => (window as any).__savedAgentConfigInputs.some((config: any) => config.id === 'cfg-codex'))).toBe(false);
+  }
 });
 
 for (const [id, model, remaining, used] of [
@@ -822,8 +886,7 @@ for (const [id, model, remaining, used] of [
   test(`composer account quota ${id} shows provider windows and clears failed reads`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 680, height: 850 });
     await page.goto('/chat/conv-model-switch');
-    await page.getByTestId('agent-model-picker-trigger').click();
-    await page.getByTestId(`agent-model-provider-${id}`).click();
+    await openProviderModels(page, id);
     await page.getByTestId(`agent-model-option-${id}-${model}`).click();
     await page.getByTestId('subscription-usage-trigger').click();
     const panel = page.getByTestId('subscription-usage-popover');
@@ -850,8 +913,7 @@ for (const [id, model, remaining, used] of [
 
 test('unsupported ACP account quota never borrows the native account or invents 100 percent', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-acp').click();
+  await openProviderModels(page, 'cfg-acp');
   await page.getByTestId('agent-model-option-cfg-acp-gpt-native').click();
   await page.getByTestId('subscription-usage-trigger').click();
   const panel = page.getByTestId('subscription-usage-popover');
@@ -863,8 +925,7 @@ test('unsupported ACP account quota never borrows the native account or invents 
 test('late account quota responses cannot appear after switching agent profiles', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
   const select = async (id: string) => {
-    await page.getByTestId('agent-model-picker-trigger').click();
-    await page.getByTestId(`agent-model-provider-${id}`).click();
+    await openProviderModels(page, id);
     await page.getByTestId(`agent-model-option-${id}-gpt-native`).click();
   };
   await select('cfg-codex');
@@ -885,8 +946,7 @@ test('late account quota responses cannot appear after switching agent profiles'
 
 test('a stalled account read settles visibly and Refresh can recover', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await openProviderModels(page, 'cfg-codex');
   await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
   await page.clock.install();
   await page.evaluate(() => { (window as any).__quotaDelay = 120000; });
@@ -904,8 +964,7 @@ test('context occupancy keeps the recorded runtime after selecting another model
   await page.addInitScript(() => localStorage.setItem('e2e-runtime-usage', '1'));
   await page.goto('/chat/conv-model-switch');
   await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await openProviderModels(page, 'cfg-codex');
   await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
   await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
 });
@@ -914,8 +973,7 @@ test('a new turn does not inherit the completed turn context before native usage
   await page.addInitScript(() => localStorage.setItem('e2e-runtime-usage', '1'));
   await page.goto('/chat/conv-model-switch');
   await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await openProviderModels(page, 'cfg-codex');
   await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
   await page.locator('textarea').fill('Start the next turn');
   await page.locator('textarea').press('Enter');
@@ -925,8 +983,7 @@ test('a new turn does not inherit the completed turn context before native usage
 
 test('Copilot context policy exposes only native tiers and saves for the next turn', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-subscription').click();
+  await openProviderModels(page, 'cfg-subscription');
   await page.getByTestId('agent-model-option-cfg-subscription-gpt-native').click();
   await page.getByRole('button', { name: /5% context used/ }).click();
   const panel = page.getByTestId('context-policy-panel');
@@ -939,8 +996,7 @@ test('Copilot context policy exposes only native tiers and saves for the next tu
 
 test('account quota retries transient failures while open and stops polling when closed', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-codex').click();
+  await openProviderModels(page, 'cfg-codex');
   await page.getByTestId('agent-model-option-cfg-codex-gpt-native').click();
   await page.clock.install();
   await page.evaluate(() => { (window as any).__quotaError = true; });
@@ -961,8 +1017,7 @@ test('reasoning slider supports pointer drag and reduced motion in the dark them
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 480, height: 850 });
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await openProviderModels(page, 'cfg-sonnet');
   await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
   await page.getByTestId('agent-reasoning-picker-trigger').click();
   await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
@@ -987,8 +1042,7 @@ test.describe('reasoning slider motion', () => {
   test('DNA rotates continuously and the thumb follows dragging before springing to a stop', async ({ page }, testInfo) => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.goto('/chat/conv-model-switch');
-    await page.getByTestId('agent-model-picker-trigger').click();
-    await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+    await openProviderModels(page, 'cfg-sonnet');
     await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
     await page.getByTestId('agent-reasoning-picker-trigger').click();
     await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
@@ -1030,8 +1084,7 @@ test.describe('reasoning slider motion', () => {
 
 test('reasoning slider restores the saved selection when persistence fails', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await openProviderModels(page, 'cfg-sonnet');
   await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
   await page.getByTestId('agent-reasoning-picker-trigger').click();
   await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
@@ -1051,8 +1104,7 @@ test('reasoning slider restores the saved selection when persistence fails', asy
 
 async function openSonnetReasoningSlider(page: Page) {
   await page.goto('/chat/conv-model-switch');
-  await page.getByTestId('agent-model-picker-trigger').click();
-  await page.getByTestId('agent-model-provider-cfg-sonnet').click();
+  await openProviderModels(page, 'cfg-sonnet');
   await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
   await page.getByTestId('agent-reasoning-picker-trigger').click();
   await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();

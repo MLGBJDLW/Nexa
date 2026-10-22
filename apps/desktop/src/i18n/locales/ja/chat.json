@@ -179,7 +179,6 @@
   "tokenUsagePercent": "コンテキスト {percent}% 使用",
   "contextFillingUp": "コンテキストウィンドウが満杯に近づいています ({percent}%)。新しい会話を開始してください。",
   "contextNearlyFull": "コンテキストウィンドウがほぼ一杯です ({percent}%)。古いメッセージが失われる可能性があります。",
-  "imageMessage": "(画像)",
   "pasteImageFailed": "Failed to paste image",
   "tokensLabel": "トークン",
   "tokensShort": "トークン",
@@ -947,5 +946,16 @@
   "contextPolicyFork": "自動 Fork",
   "contextPolicyForkTiming": "Fork のタイミング",
   "contextPolicyForkTriggerAt": "入力が {tokens} トークンを超えると自動 Fork。",
-  "contextPolicyForkCalculation": "利用可能な入力 {input} トークンに対する割合です。応答用 {reply} と安全余裕 {safety} は予約済みです。Fork は以前の推論を保存し、現在のタスクを保持します。"
+  "contextPolicyForkCalculation": "利用可能な入力 {input} トークンに対する割合です。応答用 {reply} と安全余裕 {safety} は予約済みです。Fork は以前の推論を保存し、現在のタスクを保持します。",
+  "questionSkip": "この質問をスキップ",
+  "questionSkipped": "スキップ済み",
+  "interactionTitle": "画面操作",
+  "interactionPending": "検証待ち",
+  "interactionUncertain": "結果は不確定",
+  "interactionNotDispatched": "入力は未送信",
+  "interactionUnchanged": "変化は未確認",
+  "interactionChanged": "変化を確認",
+  "interactionTargetClosed": "対象が閉じました",
+  "interactionMatched": "条件を満たしました",
+  "interactionObserved": "画面を取得済み"
 }

@@ -43,6 +43,41 @@ model/reasoning selection sits in the bottom toolbar with attachments, voice,
 sharing, and sending. Workflows, collaboration,
 quality, Nexus, compaction, checkpoints, and emoji are grouped under More options.
 
+The bottom selector has three targets: a compact provider icon, the current
+model, and reasoning. Choosing a connection restores its saved model and effort;
+the middle target opens that connection's models directly. Native catalogs remain
+authoritative: a missing saved model falls back to an available recommended model,
+and unresolved discovery opens the catalog for recovery. No second preference
+store duplicates saved connection settings, and search results are not silently
+cut off at 120 entries.
+
+Attachment previews and image interpretation options share the composer's surface
+without separator rules. Attachment-only messages retain empty text and the actual
+attachment. Ordinary question cards offer an explicit Skip action; absent answers
+remain pending, while an empty answer array records the user's skip across reload
+and continuation. Confirmation and approval questions still need explicit answers.
+Versioned draft migration keeps cleared old answers unanswered. All six questions
+accepted by the backend survive display normalization. Model request encoders omit
+empty text blocks when an attachment supplies the actual message content.
+
+Adjacent browser and desktop steps share one interaction trace and screenshot
+presentation. Their existing executors retain separate target and permission
+checks. The trace follows every live step and distinguishes input delivery from
+observed changes and verified conditions; an ended tool call alone is not a green
+success. Read-only observation does not activate desktop takeover feedback.
+
+Follow-up metadata is a final, closed `nexa-followups` Markdown fence. The canonical
+format is a JSON array; the previous prompt's newline-delimited objects are accepted
+by the same validator. Quoted examples, malformed data and partial fences never
+become composer actions. Speech omits this metadata without modifying stored text.
+Click sends a recommendation; Tab only fills the draft.
+
+Implementation references reviewed for these boundaries: [Pi model selector](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/modes/interactive/components/model-selector.ts),
+[Zed model settings](https://github.com/zed-industries/zed/blob/main/crates/agent_ui/src/agent_model_selector.rs),
+[Hermes clarify outcomes](https://github.com/NousResearch/hermes-agent/blob/main/tools/clarify_tool.py),
+[Codex question transcripts](https://github.com/openai/codex/blob/main/codex-rs/tui/src/history_cell/request_user_input.rs),
+and [DeepSeek Harness model/effort controls](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/tests/profiles/acp/tests/control-surface.e2e.ts).
+
 Ctrl/Cmd+Shift+P opens the command palette; Ctrl/Cmd+K remains an alias. The palette
 searches navigation, available chat actions, and conversation titles, and can
 submit a query to document search. Arrow keys select, Enter runs, and Escape

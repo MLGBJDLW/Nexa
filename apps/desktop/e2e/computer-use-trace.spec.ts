@@ -1,18 +1,32 @@
 import { expect, test } from '@playwright/test';
 
-test('computer workflow keeps one compact summary and inspectable live action receipts', async ({ page }, testInfo) => {
+test('browser and desktop share one trace with live receipts, verified conditions and one capture', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 700 });
   await page.goto('/e2e/fixtures/computer-use-trace.html');
-  const group = page.getByTestId('computer-use-trace');
+  const group = page.getByTestId('interaction-trace');
   const summary = group.locator('summary');
-  await expect(summary).toContainText('Computer Use');
+  await expect(summary).toContainText('UI interaction');
   await expect(summary).toContainText('3 steps');
   await expect(summary).toHaveAttribute('aria-busy', 'true');
   await summary.click();
   await expect(group.locator('.chat-tool-card')).toHaveCount(3);
+  const cards = group.getByTestId('tool-call-card');
+  await expect(cards.nth(1).getByTestId('tool-card-status')).toHaveAttribute('aria-label', 'Awaiting verification');
+  await expect(cards.nth(1).getByTestId('tool-card-status')).not.toHaveClass(/text-success/);
+  await expect(cards.nth(2).getByTestId('tool-card-status')).toHaveAttribute('aria-label', 'No change observed');
+  await page.evaluate(() => (window as any).__COMPUTER_TRACE_TEST__.finishFirst());
+  await expect(summary).toHaveAttribute('aria-busy', 'false');
+  await expect(summary).toContainText('Awaiting verification');
+  await expect(group.getByTestId('tool-visual-evidence')).toHaveCount(1);
+  await expect(group.getByTestId('tool-visual-evidence').getByRole('img')).toBeVisible();
+  await page.evaluate(() => (window as any).__COMPUTER_TRACE_TEST__.verify());
+  await expect(cards.nth(1).getByTestId('tool-card-status')).toHaveAttribute('aria-label', 'Condition met');
+  await expect(cards.nth(1).getByTestId('tool-card-status')).toHaveClass(/text-success/);
   await page.evaluate(() => (window as unknown as { __COMPUTER_TRACE_TEST__: { fail(): void } }).__COMPUTER_TRACE_TEST__.fail());
   await expect(summary).toHaveAttribute('aria-busy', 'false');
   await expect(summary).toContainText('error');
+  await expect(cards).toHaveCount(3);
+  await expect(group.getByTestId('tool-visual-evidence')).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('computer-use-trace.png') });
 });

@@ -475,6 +475,22 @@ test('restores a per-question draft, distinguishes supplements, and collapses af
   ), await finalReply.elementHandle())).toBe(true);
 });
 
+test('freeform questions can be explicitly skipped and restored before submitting', async ({ page }) => {
+  await page.goto('/chat/conv-decision-tray');
+  const tray = page.getByTestId('decision-tray');
+  await tray.getByRole('radio', { name: /Architectural refactor/ }).click();
+  await expect(tray.getByRole('button', { name: 'Review answers' })).toBeDisabled();
+  await tray.getByRole('button', { name: 'Skip this question', exact: true }).click();
+  await expect(page.getByTestId('decision-tray-review')).toContainText('Skipped');
+  await page.reload();
+  await expect(page.getByTestId('decision-tray-review')).toContainText('Skipped');
+  await tray.getByRole('button', { name: 'Submit answers' }).click();
+  await expect(tray).toBeHidden();
+  await expect(page.getByText('Continuation completed.')).toBeVisible();
+  await page.getByTestId('question-request-summary').click();
+  await expect(page.getByTestId('question-request-summary')).toContainText('Skipped');
+});
+
 test('an interrupted saved response can be retried without re-entering answers', async ({ page }) => {
   await page.goto('/chat/conv-decision-tray?recovery=1');
 

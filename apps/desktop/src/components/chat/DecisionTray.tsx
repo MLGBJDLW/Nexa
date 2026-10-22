@@ -17,6 +17,7 @@ import * as api from '../../lib/api';
 import { interactionStore } from '../../lib/interactionStore';
 import {
   formatQuestionResponse,
+  questionAnswerComplete,
   type FormattedQuestionResponse,
   type QuestionRequest,
 } from '../../lib/questionCards';
@@ -59,12 +60,12 @@ function asQuestionRequest(request: InteractionRequest): QuestionRequest {
   };
 }
 
-function questionIsComplete(question: InteractionQuestion, answers: InteractionAnswers): boolean {
-  return (answers[question.id] ?? []).some((answer) => answer.trim().length > 0);
+function questionIsComplete(question: InteractionQuestion, answers: InteractionAnswers, allowSkip = false): boolean {
+  return questionAnswerComplete(question.id, answers, allowSkip && question.type !== 'confirm');
 }
 
 function requestIsComplete(request: InteractionRequest, answers: InteractionAnswers): boolean {
-  return request.questions.every((question) => questionIsComplete(question, answers));
+  return request.questions.every((question) => questionIsComplete(question, answers, request.kind === 'user_input'));
 }
 
 export function DecisionTray({
@@ -84,6 +85,7 @@ export function DecisionTray({
   const currentQuestion = request.questions[Math.min(currentIndex, questionCount - 1)];
   const recoveryPending = request.status === 'submitted' || request.status === 'acknowledged';
   const highRisk = request.kind === 'high_risk_confirmation';
+  const allowSkip = request.kind === 'user_input';
   const modalRef = useRef<HTMLElement>(null);
   const [showAll, setShowAll] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -164,7 +166,7 @@ export function DecisionTray({
 
   const persist = (nextAnswers: InteractionAnswers, nextIndex = currentIndex) => {
     interactionStore.setDraft(request.interactionId, nextAnswers, nextIndex);
-    if (!partialMarkedRef.current && Object.values(nextAnswers).some((values) => values.length > 0)) {
+    if (!partialMarkedRef.current && Object.keys(nextAnswers).length > 0) {
       partialMarkedRef.current = true;
       void api.markInteractionPartiallyAnswered(request.interactionId)
         .then((updated) => interactionStore.upsertRequest(updated))
@@ -209,7 +211,7 @@ export function DecisionTray({
   };
 
   const advance = (nextAnswers = answers) => {
-    if (!currentQuestion || !questionIsComplete(currentQuestion, nextAnswers)) return;
+    if (!currentQuestion || !questionIsComplete(currentQuestion, nextAnswers, allowSkip)) return;
     persist(nextAnswers, Math.min(currentIndex + 1, questionCount));
   };
 
@@ -227,24 +229,26 @@ export function DecisionTray({
   const toggleMulti = (value: string) => {
     if (!currentQuestion) return;
     const selected = answers[currentQuestion.id] ?? [];
-    persist({
-      ...answers,
-      [currentQuestion.id]: selected.includes(value)
+    const next = selected.includes(value)
         ? selected.filter((answer) => answer !== value)
-        : [...selected, value],
-    });
+        : [...selected, value];
+    const nextAnswers = { ...answers, [currentQuestion.id]: next };
+    if (!next.length) delete nextAnswers[currentQuestion.id];
+    persist(nextAnswers);
   };
 
   const setTextAnswer = (value: string, multi = false) => {
     if (!currentQuestion) return;
     const optionLabels = new Set(currentQuestion.options?.map((option) => option.label) ?? []);
     const fixed = (answers[currentQuestion.id] ?? []).filter((answer) => optionLabels.has(answer));
-    persist({
+    const nextAnswers = {
       ...answers,
       [currentQuestion.id]: value.trim()
         ? (multi ? [...fixed, value] : [value])
         : fixed,
-    });
+    };
+    if (!nextAnswers[currentQuestion.id].length) delete nextAnswers[currentQuestion.id];
+    persist(nextAnswers);
   };
 
   const selected = currentQuestion ? answers[currentQuestion.id] ?? [] : [];
@@ -329,13 +333,13 @@ export function DecisionTray({
             {request.questions.map((question, index) => (
               <li key={question.id} className="flex min-w-0 items-center gap-2 text-[11px] text-text-secondary">
                 <span className={`grid h-4 w-4 shrink-0 place-items-center rounded-full text-[9px] ${
-                  questionIsComplete(question, answers)
+                  questionIsComplete(question, answers, allowSkip)
                     ? 'bg-success/15 text-success'
                     : index === currentIndex
                       ? 'bg-accent/15 text-accent'
                       : 'bg-surface-3 text-text-tertiary'
                 }`}>
-                  {questionIsComplete(question, answers) ? <Check size={9} /> : index + 1}
+                  {questionIsComplete(question, answers, allowSkip) ? <Check size={9} /> : index + 1}
                 </span>
                 <span className="truncate">{question.header}</span>
               </li>
@@ -358,7 +362,7 @@ export function DecisionTray({
                 <span className="min-w-0 flex-1">
                   <span className="block text-[10px] font-semibold uppercase tracking-[0.11em] text-text-tertiary">{question.header}</span>
                   <span className="mt-0.5 block text-xs text-text-primary">
-                    {savedAnswers ? (savedAnswers[question.id] ?? []).join(', ') : t('common.loading')}
+                    {savedAnswers ? (savedAnswers[question.id] ?? []).join(', ') || t('chat.questionSkipped') : t('common.loading')}
                   </span>
                 </span>
               </div>
@@ -378,7 +382,7 @@ export function DecisionTray({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[10px] font-semibold uppercase tracking-[0.11em] text-text-tertiary">{question.header}</span>
-                  <span className="mt-0.5 block truncate text-xs text-text-primary">{(answers[question.id] ?? []).join(', ')}</span>
+                  <span className="mt-0.5 block truncate text-xs text-text-primary">{(answers[question.id] ?? []).join(', ') || t('chat.questionSkipped')}</span>
                 </span>
                 <Pencil size={13} className="mt-1 shrink-0 text-text-tertiary" />
               </button>
@@ -484,6 +488,11 @@ export function DecisionTray({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {!recoveryPending && !reviewing && allowSkip && currentQuestion?.type !== 'confirm' && (
+            <Button size="sm" variant="ghost" disabled={submitting} onClick={() => {
+              if (currentQuestion) advance({ ...answers, [currentQuestion.id]: [] });
+            }}>{t('chat.questionSkip')}</Button>
+          )}
           {recoveryPending ? (
             <Button
               size="sm"
@@ -520,7 +529,7 @@ export function DecisionTray({
                 size="sm"
                 variant="primary"
                 icon={<ChevronRight size={13} />}
-                disabled={!questionIsComplete(currentQuestion, answers) || submitting}
+                disabled={!questionIsComplete(currentQuestion, answers, allowSkip) || submitting}
                 onClick={() => advance()}
               >
                 {currentIndex === questionCount - 1

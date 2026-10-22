@@ -50,6 +50,7 @@ import { ManagedProcessCard } from './ManagedProcessCard';
 import { extractMcpResult } from '../../lib/mcpResult';
 import { McpResultView } from './McpResultView';
 import { useStreamTool } from '../../lib/useStreamSelector';
+import { interactionPresentation } from '../../lib/streaming/interactionPresentation';
 export { extractToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { getSoftCollapseMotion } from '../../lib/uiMotion';
 import type { ToolCallEvent } from '../../lib/streaming/protocol';
@@ -371,7 +372,7 @@ export function QuestionRequestTimelineRecord({
           {answerRows.map((answer) => (
             <div key={answer.id} className="grid gap-0.5 text-[11px] sm:grid-cols-[minmax(8rem,0.35fr)_1fr] sm:gap-3">
               <dt className="truncate text-text-tertiary">{answer.question}</dt>
-              <dd className="text-text-secondary">{answer.values.join(', ')}</dd>
+              <dd className="text-text-secondary">{answer.values.join(', ') || t('chat.questionSkipped')}</dd>
             </div>
           ))}
         </dl>
@@ -1546,8 +1547,10 @@ export const ToolCallCard = memo(function ToolCallCard({
   const diffStats = useMemo(() => extractDiffStatsArtifact(artifacts), [artifacts]);
   const isFileChangeRender = isFileChangeToolRender(safeToolName, renderKind);
   const isCommandExecutionRender = isCommandExecutionTool(safeToolName, renderKind);
-  const isPending = isPendingToolCallStatus(status);
-  const failedStatus = isUnsuccessfulToolCallStatus(status);
+  const interaction = useMemo(() => interactionPresentation({ toolName: safeToolName, status, arguments: args, artifacts, activityEvents, isError, capabilities }, parentRunActive),
+    [safeToolName, status, args, artifacts, activityEvents, isError, capabilities, parentRunActive]);
+  const isPending = interaction?.pending ?? isPendingToolCallStatus(status);
+  const failedStatus = Boolean(isError) || isUnsuccessfulToolCallStatus(status);
   const argumentFileChangeStats = useMemo(
     () => deriveFileChangeStatsFromArgs({
       rawArgs: args,
@@ -1570,7 +1573,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     argsStatus,
     renderKind,
   );
-  const briefResult = getToolBriefResult(status, t, content, safeToolName);
+  const briefResult = interaction ? t(interaction.labelKey) : getToolBriefResult(status, t, content, safeToolName);
   const durationLabel = formatDurationMs(durationMs);
   const resourceKeyCount = Array.isArray(capabilities?.resourceKeys)
     ? capabilities.resourceKeys.length
@@ -1694,7 +1697,9 @@ export const ToolCallCard = memo(function ToolCallCard({
   }
 
   const failedResultSummary = failedStatus ? toolResultHeaderSummary(content) : null;
-  const baseHeaderSummary = failedStatus
+  const baseHeaderSummary = interaction && !isPending
+    ? briefResult
+    : failedStatus
     ? failedResultSummary ?? briefResult
     : skillActivation
     ? t('chat.skillActivationReady')
@@ -1743,9 +1748,11 @@ export const ToolCallCard = memo(function ToolCallCard({
   // The moving edge communicates activity without spending header space on a
   // spinner or a redundant visible "running" label. Terminal states retain a
   // compact mark with an accessible label.
-  const StatusIcon = isPending ? null : failedStatus ? XCircle : CheckCircle2;
+  const StatusIcon = isPending ? null : interaction
+    ? interaction.tone === 'danger' ? XCircle : interaction.tone === 'warning' ? CircleHelp : interaction.tone === 'success' ? CheckCircle2 : Monitor
+    : failedStatus ? XCircle : CheckCircle2;
   const statusLabel = isPending ? t('chat.toolRunning') : briefResult;
-  const toolCardState = isPending ? 'running' : failedStatus ? 'error' : 'done';
+  const toolCardState = isPending ? 'running' : (interaction ? interaction.tone === 'danger' : failedStatus) ? 'error' : 'done';
   const toolCardAriaLabel = [
     briefLabel,
     headerDiffStats ? `+${headerDiffStats.additions}, -${headerDiffStats.deletions}` : null,
@@ -1803,7 +1810,11 @@ export const ToolCallCard = memo(function ToolCallCard({
   const toolTone = getToolTone(safeToolName);
   const traceToneClass = 'tool-tone-surface';
   const traceIconToneClass = 'tool-tone-icon';
-  const statusBadgeClass = failedStatus
+  const statusBadgeClass = interaction?.tone === 'warning'
+    ? 'border-warning/25 bg-warning/10 text-warning'
+    : interaction?.tone === 'neutral'
+    ? 'border-border/60 bg-surface-1 text-text-tertiary'
+    : failedStatus || interaction?.tone === 'danger'
     ? 'border-danger/25 bg-danger/10 text-danger'
     : 'border-success/20 bg-success/10 text-success';
   const traceDetailBorderClass = 'tool-tone-detail';
@@ -1833,7 +1844,7 @@ export const ToolCallCard = memo(function ToolCallCard({
               {briefLabel}
             </span>
             {tracePreviewText && (
-              <span className="hidden min-w-0 truncate text-[10px] leading-3 text-text-tertiary sm:inline">
+              <span className={`${interaction ? '' : 'hidden sm:inline'} min-w-0 truncate text-[10px] leading-3 text-text-tertiary`}>
                 {tracePreviewText}
               </span>
             )}

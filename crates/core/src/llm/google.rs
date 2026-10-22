@@ -389,10 +389,12 @@ fn convert_messages(
                     .parts
                     .iter()
                     .filter_map(|p| match p {
-                        ContentPart::Text { text } => Some(GeminiPartV2::Text {
-                            text: text.clone(),
-                            thought_signature: None,
-                        }),
+                        ContentPart::Text { text } if !text.trim().is_empty() => {
+                            Some(GeminiPartV2::Text {
+                                text: text.clone(),
+                                thought_signature: None,
+                            })
+                        }
                         ContentPart::Image { media_type, data } => Some(GeminiPartV2::InlineData {
                             inline_data: GeminiBlob {
                                 mime_type: media_type.clone(),
@@ -405,7 +407,7 @@ fn convert_messages(
                                 data: document.data().into(),
                             },
                         }),
-                        ContentPart::ProviderTurn { .. } => None,
+                        ContentPart::Text { .. } | ContentPart::ProviderTurn { .. } => None,
                     })
                     .collect();
                 push_or_merge_content(&mut contents, "user", parts);
@@ -4013,6 +4015,20 @@ mod tests {
 #[cfg(all(test, feature = "document-processing"))]
 mod native_document_tests {
     use super::*;
+    #[test]
+    fn attachment_only_user_turn_omits_empty_text_blocks() {
+        let mut message = Message::text(Role::User, " \n");
+        message.parts.push(ContentPart::Image {
+            media_type: "image/png".into(),
+            data: "fixture-image".into(),
+        });
+        let (_, contents) = convert_messages(&[message]);
+        assert_eq!(contents[0].parts.len(), 1);
+        assert!(matches!(
+            contents[0].parts[0],
+            GeminiPartV2::InlineData { .. }
+        ));
+    }
     #[test]
     fn native_document_wire_pdf_uses_inline_data_and_private_route_extracts() {
         let mut request = super::super::document::tests::pdf_request();

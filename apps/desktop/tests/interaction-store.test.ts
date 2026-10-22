@@ -66,6 +66,17 @@ function request(
 }
 
 const storage = new MemoryStorage();
+const legacyStorage = new MemoryStorage();
+legacyStorage.setItem('nexa.interaction-drafts.v1', JSON.stringify({ legacy: {
+  schemaVersion: 1, interactionId: 'legacy', conversationId: 'conversation-1',
+  answers: { scope: ['Repo'], details: [], notes: [' '] }, currentQuestionIndex: 3, updatedAt: '2026-10-21',
+} }));
+const migratedDraft = new InteractionStore(legacyStorage).getState().draftsById.legacy;
+assertEqual(migratedDraft.schemaVersion, 2, 'old draft schema migrates');
+assertEqual(migratedDraft.answers.scope[0], 'Repo', 'migration preserves real answers');
+assert(!('details' in migratedDraft.answers) && !('notes' in migratedDraft.answers), 'old empty answers never become skips');
+assertEqual(migratedDraft.currentQuestionIndex, 0, 'migration returns unanswered questions to the wizard');
+
 const store = new InteractionStore(storage);
 const lowFirst = request('low-first', 'user_input', '2026-08-06 01:00:00');
 const lowSecond = request('low-second', 'user_input', '2026-08-06 02:00:00');
@@ -77,7 +88,11 @@ assertEqual(store.queue()[1].interactionId, 'low-first', 'equal-risk requests re
 assertEqual(store.queue()[2].interactionId, 'low-second', 'FIFO retains later request last');
 
 store.setDraft('low-first', { scope: ['Repo'] }, 0);
+store.setDraft('low-second', { scope: [] }, 1);
 const remountedStore = new InteractionStore(storage);
+assertEqual(remountedStore.getState().draftsById['low-second'].schemaVersion, 2, 'new explicit skip uses version 2');
+assertEqual(remountedStore.getState().draftsById['low-second'].answers.scope.length, 0, 'explicit skip survives reload');
+assertEqual(remountedStore.getState().draftsById['low-second'].currentQuestionIndex, 1, 'explicit skip preserves wizard progress');
 assertEqual(
   remountedStore.getState().draftsById['low-first'].answers.scope[0],
   'Repo',

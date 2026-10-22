@@ -179,7 +179,6 @@
   "tokenUsagePercent": "{percent}% context used",
   "contextFillingUp": "Context window is filling up ({percent}%). Consider starting a new conversation.",
   "contextNearlyFull": "Context window nearly full ({percent}%). Older messages may be lost.",
-  "imageMessage": "(image)",
   "pasteImageFailed": "Failed to paste image",
   "tokensLabel": "tokens",
   "tokensShort": "tok",
@@ -947,5 +946,16 @@
   "contextPolicyFork": "Auto-Fork",
   "contextPolicyForkTiming": "When to fork",
   "contextPolicyForkTriggerAt": "Fork automatically above {tokens} input tokens.",
-  "contextPolicyForkCalculation": "The percentage applies to {input} usable input tokens, after reserving {reply} for the reply and {safety} for safety. Fork archives earlier reasoning and preserves the current task."
+  "contextPolicyForkCalculation": "The percentage applies to {input} usable input tokens, after reserving {reply} for the reply and {safety} for safety. Fork archives earlier reasoning and preserves the current task.",
+  "questionSkip": "Skip this question",
+  "questionSkipped": "Skipped",
+  "interactionTitle": "UI interaction",
+  "interactionPending": "Awaiting verification",
+  "interactionUncertain": "Outcome uncertain",
+  "interactionNotDispatched": "Input not sent",
+  "interactionUnchanged": "No change observed",
+  "interactionChanged": "Change observed",
+  "interactionTargetClosed": "Target closed",
+  "interactionMatched": "Condition met",
+  "interactionObserved": "Observation received"
 }

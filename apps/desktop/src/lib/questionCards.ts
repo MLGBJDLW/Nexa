@@ -29,6 +29,12 @@ export interface FormattedQuestionResponse {
   artifact: Record<string, unknown>;
 }
 
+/** An explicit empty array records Skip; an absent key is still unanswered. */
+export function questionAnswerComplete(id: string, answers: Record<string, string[]>, allowSkip: boolean): boolean {
+  const values = answers[id];
+  return Boolean(values && (values.some(value => value.trim()) || (allowSkip && values.length === 0)));
+}
+
 const QUESTION_CARDS_BLOCK_RE = /```question-cards[^\S\r\n]*\r?\n([\s\S]*?)```/gi;
 const VALID_TYPES = new Set<QuestionCardType>(['short', 'long', 'single_choice', 'multi_choice', 'confirm']);
 
@@ -97,7 +103,7 @@ function normalizeQuestions(value: unknown): QuestionCard[] {
   return values
     .map((question, index) => normalizeCard(question, index))
     .filter((question): question is QuestionCard => Boolean(question))
-    .slice(0, 3);
+    .slice(0, 6);
 }
 
 function parseJsonRecord(value: unknown): Record<string, unknown> | null {
@@ -163,7 +169,7 @@ export function formatQuestionResponse(
     answers: (answers[question.id] ?? []).map((answer) => answer.trim()).filter(Boolean),
   }));
   const message = normalizedAnswers
-    .map(({ question, answers: values }) => `${question}\n${values.length > 0 ? values.join(', ') : 'No answer'}`)
+    .map(({ question, answers: values }) => `${question}\n${values.length > 0 ? values.join(', ') : 'Skipped by user; no answer provided.'}`)
     .join('\n\n');
   return {
     message,

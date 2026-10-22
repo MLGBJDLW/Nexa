@@ -1,6 +1,7 @@
 import { extractToolVisualEvidence, mergeCurrentTurnVisualEvidence, mergeToolArtifacts, retainMessageVisualEvidence } from '../src/lib/toolVisualEvidence';
 import { createDefaultState } from '../src/lib/streaming/state';
 import { applyToolRunEvent, resolveToolCallResult } from '../src/lib/streaming/toolProjection';
+import { interactionPresentation, isInteractionTool, summarizeInteractions } from '../src/lib/streaming/interactionPresentation';
 import type { ConversationMessage, ToolRunItem } from '../src/types/conversation';
 
 function assert(value: unknown, message: string): asserts value {
@@ -74,4 +75,38 @@ assert(separateConversations.filter(capture => extractToolVisualEvidence(capture
 const rawEnvelope = { ...message, id: 'raw-capture', artifacts: { ...evidence(), receiptId: 'preserve-me' } };
 const boundedEnvelope = retainMessageVisualEvidence([], [rawEnvelope, ...captures.slice(0, 12)]);
 assert(!extractToolVisualEvidence(boundedEnvelope[0].artifacts ?? undefined) && (boundedEnvelope[0].artifacts as Record<string, unknown>).receiptId === 'preserve-me', 'raw transient envelopes must lose only pixels, retaining receipt metadata');
+// Browser and desktop use the same outcome vocabulary, independently of pixels
+// and of whether the dispatcher itself returned a completed tool call.
+const action = { toolName: 'computer_control', status: 'done' as const };
+const interaction = (delivery: string, evidence: string, condition = 'notRequested') => ({ delivery, evidence, condition, observationConsumed: true });
+for (const toolName of ['computer_observe', 'computer_control', 'desktop_automation', 'browser_session', 'browser_evidence_capture']) assert(isInteractionTool(toolName), `${toolName} shares the interaction trace`);
+assert(!isInteractionTool('run_shell') && interactionPresentation({ ...action, toolName: 'run_shell' }) === null, 'unrelated tools retain their own presentation');
+for (const wrap of [(value: object) => ({ data: { interaction: value } }), (value: object) => ({ toolOutput: { data: { interaction: value } } }), (value: object) => ({ interaction: value })]) {
+  assert(interactionPresentation({ ...action, artifacts: wrap(interaction('inputSent', 'changed')) })?.tone === 'neutral', 'changed pixels do not establish a requested outcome');
+  assert(interactionPresentation({ ...action, artifacts: wrap(interaction('inputSent', 'unchanged')) })?.labelKey === 'chat.interactionUnchanged', 'an unchanged observation is not a success or input failure');
+  assert(interactionPresentation({ ...action, artifacts: wrap(interaction('inputSent', 'unavailable')) })?.labelKey === 'chat.interactionPending', 'input without a post-action observation needs verification');
+  assert(interactionPresentation({ ...action, artifacts: wrap(interaction('notCommitted', 'unchanged', 'matched')) })?.tone === 'success', 'a verified condition may already hold without sending input');
+  assert(interactionPresentation({ ...action, isError: true, artifacts: wrap(interaction('mayHaveOccurred', 'unavailable')) })?.labelKey === 'chat.interactionUncertain', 'a dispatch failure with possible effects must not invite an unsafe retry');
+}
+for (const [artifacts, label] of [
+  [{ kind: 'browserOpenReceipt', opened: true, observationPending: true }, 'chat.interactionPending'],
+  [{ kind: 'browserActionReceipt', status: 'uncertain' }, 'chat.interactionUncertain'],
+  [{ kind: 'browserActionReceipt', status: 'not_dispatched' }, 'chat.interactionNotDispatched'],
+  [{ data: { deliveryStatus: 'delivered', effect: 'delivered_unverified' } }, 'chat.interactionPending'],
+] as const) assert(interactionPresentation({ ...action, toolName: 'browser_session', isError: true, artifacts })?.labelKey === label, 'legacy receipts preserve their delivery/observation distinction');
+assert(interactionPresentation(action)?.tone !== 'success', 'an action without evidence never gets a green success indicator');
+assert(interactionPresentation({ ...action, artifacts: { data: { interaction: interaction('invented', 'changed', 'matched') } } })?.tone !== 'success', 'malformed receipts cannot claim verified conditions');
+const pendingPresentation = interactionPresentation({ ...action, status: 'running' })!;
+const failedPresentation = interactionPresentation({ ...action, status: 'error' })!;
+const matchedPresentation = interactionPresentation({ ...action, artifacts: { interaction: interaction('inputSent', 'changed', 'matched') } })!;
+assert(summarizeInteractions([pendingPresentation, matchedPresentation]).pending, 'an earlier pending action keeps the whole group active');
+assert(summarizeInteractions([failedPresentation, matchedPresentation]).tone === 'danger', 'a late earlier failure cannot hide behind a later successful condition');
+assert(interactionPresentation({ ...action, status: 'running' }, false)?.pending === false, 'a settled parent cannot leave a historical spinner running');
+const browserWait = (state: string, matched: boolean) => ({ kind: 'browserActivity', activity: {
+  record: { activityId: 'wait-1', state },
+  events: matched ? [{ activityId: 'wait-1', kind: 'browser_observation', payload: { matched: true } }] : [],
+} });
+assert(interactionPresentation({ ...action, toolName: 'browser_session', artifacts: browserWait('running', false) })?.labelKey === 'chat.interactionPending', 'a returned browser wait handle does not mean its condition matched');
+assert(interactionPresentation({ ...action, toolName: 'browser_session', artifacts: browserWait('completed', true) })?.tone === 'success', 'browser wait evidence can establish the requested condition');
+assert(interactionPresentation({ ...action, toolName: 'browser_session', artifacts: browserWait('timed_out', false) })?.tone === 'danger', 'a timed-out browser wait cannot remain a completed green call');
 console.log('tool visual evidence contracts passed');

@@ -153,7 +153,7 @@ export interface InteractionRequest {
 }
 
 export interface InteractionDraft {
-  schemaVersion: 1;
+  schemaVersion: 2;
   interactionId: string;
   conversationId: string;
   answers: InteractionAnswers;

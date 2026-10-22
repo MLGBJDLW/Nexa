@@ -85,8 +85,6 @@ const REASONING_EFFORT_LABEL_KEYS: Record<ReasoningEffortLevel, TranslationKey> 
   ultra: 'settings.reasoningUltra',
 };
 
-const GLOBAL_SEARCH_LIMIT = 120;
-
 function normalizeBaseUrl(value: string | null | undefined): string {
   return (value ?? '').trim().replace(/\/+$/, '').toLowerCase();
 }
@@ -218,7 +216,8 @@ export function AgentModelPicker({
   const [activeModelId, setActiveModelId] = useState(selectedConfig?.model ?? '');
   const [pickerStep, setPickerStep] = useState<PickerStep>('providers');
   const [query, setQuery] = useState('');
-  useAppCommand({ id: 'chat.model', label: 'settings.defaultModel', keywords: '/model llm provider 模型 供应商', enabled: agentConfigs.length > 0, run: () => { setPickerStep('providers'); setQuery(''); setOpen(true); } });
+  const [pendingProvider, setPendingProvider] = useState<{ configId: string; conversationId: string | null | undefined } | null>(null);
+  useAppCommand({ id: 'chat.model', label: 'settings.defaultModel', keywords: '/model llm provider 模型 供应商', enabled: agentConfigs.length > 0, run: () => { setPendingProvider(null); setPickerStep('models'); setQuery(''); setOpen(true); } });
   const [budgetDraft, setBudgetDraft] = useState('');
   const subscriptionCatalogs = useSyncExternalStore(subscribeSubscriptionCatalogs, getSubscriptionCatalogs);
   const subscriptionProviderKey = JSON.stringify(agentConfigs.filter(config => findPresetForConfig(config)?.runtime)
@@ -250,6 +249,7 @@ export function AgentModelPicker({
           }) };
         })])), [subscriptionCatalogs]);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const providerTriggerRef = useRef<HTMLButtonElement>(null);
   const reasoningTriggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -302,7 +302,6 @@ export function AgentModelPicker({
               }
               return a.row.model.name.localeCompare(b.row.model.name);
             })
-            .slice(0, GLOBAL_SEARCH_LIMIT)
             .map((entry) => entry.row)
         : [],
     [allModelRows, activeProviderModelRows, normalizedQuery, pickerStep],
@@ -335,6 +334,7 @@ export function AgentModelPicker({
   const canChangeReasoning = Boolean(selectedConfig && (!findPresetForConfig(selectedConfig)?.runtime || selectedModelRow?.reasoning));
   useAppCommand({ id: 'chat.reasoning', label: 'settings.reasoningEffort', keywords: 'reasoning thinking 推理 思考', enabled: canChangeReasoning, run: () => {
     if (!selectedConfig) return;
+    setPendingProvider(null);
     setActiveConfigId(selectedConfig.id); setActiveModelId(selectedConfig.model);
     setQuery(''); setPickerStep('reasoning'); setOpen(true);
   } });
@@ -361,7 +361,7 @@ export function AgentModelPicker({
   panelQueryRef.current = normalizedQuery;
 
   const updatePanelPosition = useCallback(() => {
-    const rect = (panelStepRef.current === 'reasoning' ? reasoningTriggerRef.current : triggerRef.current)
+    const rect = (panelStepRef.current === 'reasoning' ? reasoningTriggerRef.current : panelStepRef.current === 'providers' ? providerTriggerRef.current : triggerRef.current)
       ?.getBoundingClientRect();
     if (!rect) return;
     const availableWidth = Math.max(280, window.innerWidth - 16);
@@ -380,7 +380,9 @@ export function AgentModelPicker({
     });
   }, []);
 
-  const closeMenu = useCallback(() => setOpen(false), []);
+  const closeMenu = useCallback(() => { setPendingProvider(null); setOpen(false); }, []);
+
+  useEffect(() => { setPendingProvider(null); }, [conversationId]);
 
   useEffect(() => {
     if (!open) return;
@@ -400,6 +402,7 @@ export function AgentModelPicker({
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
       if (triggerRef.current?.contains(event.target as Node)) return;
+      if (providerTriggerRef.current?.contains(event.target as Node)) return;
       if (reasoningTriggerRef.current?.contains(event.target as Node)) return;
       if (panelRef.current?.contains(event.target as Node)) return;
       closeMenu();
@@ -408,7 +411,7 @@ export function AgentModelPicker({
       if (event.key === 'Escape') {
         event.preventDefault();
         closeMenu();
-        (panelStepRef.current === 'reasoning' ? reasoningTriggerRef.current : triggerRef.current)?.focus();
+        (panelStepRef.current === 'reasoning' ? reasoningTriggerRef.current : panelStepRef.current === 'providers' ? providerTriggerRef.current : triggerRef.current)?.focus();
       }
     };
     window.addEventListener('resize', updatePanelPosition);
@@ -437,8 +440,13 @@ export function AgentModelPicker({
 
   const applyModelSelection = useCallback(
     (row: ModelRow) => {
+      setPendingProvider(null);
       const isCurrent = selectedConfig?.id === row.providerRow.config.id && selectedConfig.model === row.model.id;
-      const preserveReasoning = isCurrent && (!row.providerRow.preset?.runtime || Boolean(row.reasoning));
+      const savedConfig = isCurrent ? selectedConfig : row.providerRow.config;
+      const hasSavedReasoning = savedConfig.reasoningEnabled != null || savedConfig.reasoningEffort != null || savedConfig.thinkingBudget != null;
+      const preserveReasoning = savedConfig.model === row.model.id
+        && (isCurrent || hasSavedReasoning || Boolean(row.providerRow.preset?.runtime))
+        && (!row.providerRow.preset?.runtime || Boolean(row.reasoning));
       const defaultEffort = row.reasoning?.nativeEffortLevels ? null : defaultReasoningEffort(row.reasoning);
       const defaultBudget = defaultThinkingBudget(row.reasoning);
       setOpen(false);
@@ -446,17 +454,18 @@ export function AgentModelPicker({
         config: row.providerRow.config,
         model: row.model.id,
         reasoningEnabled: preserveReasoning
-          ? selectedConfig.reasoningEnabled
+          ? savedConfig.reasoningEnabled
           : row.reasoning?.defaultEnabled === false || defaultEffort === 'none' ? false : row.reasoning?.mode === 'always' || defaultEffort || defaultBudget
             ? true
             : null,
         thinkingBudget: preserveReasoning
-          ? selectedConfig.thinkingBudget
+          ? savedConfig.thinkingBudget
           : defaultEffort
             ? null
             : defaultBudget,
-        reasoningEffort: preserveReasoning ? selectedConfig.reasoningEffort : defaultEffort,
-      })).then(() => {
+        reasoningEffort: preserveReasoning ? savedConfig.reasoningEffort : defaultEffort,
+      })).then((saved) => {
+        if (saved === false) return;
         if (!isCurrent && row.providerRow.preset?.runtime === 'acp') {
           invalidateSubscriptionModels(runtimeCatalogKey(row.providerRow.config.provider, row.providerRow.config.id));
           void loadSubscriptionModels(row.providerRow.config.provider, false, row.providerRow.config.id).catch(() => {});
@@ -466,6 +475,17 @@ export function AgentModelPicker({
     },
     [onSelect, selectedConfig],
   );
+
+  useEffect(() => {
+    if (!pendingProvider || !open || pickerStep !== 'models'
+      || pendingProvider.conversationId !== conversationId || pendingProvider.configId !== activeConfigId
+      || !activeCatalog?.models || activeCatalog.loading || activeCatalog.error) return;
+    // A cold runtime catalog completes the original provider click. A newer
+    // menu action clears this intent before the asynchronous result can apply.
+    const remembered = activeProviderModelRows.find(row => row.model.id === row.providerRow.config.model)
+      ?? activeProviderModelRows.find(row => row.model.recommended) ?? activeProviderModelRows[0];
+    if (remembered) applyModelSelection(remembered);
+  }, [activeCatalog, activeConfigId, activeProviderModelRows, applyModelSelection, conversationId, open, pendingProvider, pickerStep]);
 
   useEffect(() => {
     if (!activeModelRow) return;
@@ -546,51 +566,69 @@ export function AgentModelPicker({
   return (
     <div className="relative inline-flex shrink-0 overflow-hidden rounded-md border border-border/60 bg-surface-1/70">
       <button
+        ref={providerTriggerRef}
+        type="button"
+        data-testid="agent-provider-picker-trigger"
+        className={`flex h-7 w-7 shrink-0 items-center justify-center border-r border-border/60 transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/20 ${open && pickerStep === 'providers' ? 'bg-surface-2' : ''}`}
+        aria-haspopup="dialog"
+        aria-expanded={open && pickerStep === 'providers'}
+        aria-label={t('settings.provider')}
+        title={selected.name || selected.provider}
+        onClick={() => { setPendingProvider(null); setQuery(''); setPickerStep('providers'); setOpen(!(open && pickerStep === 'providers')); }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown') { event.preventDefault(); setPendingProvider(null); setQuery(''); setPickerStep('providers'); setOpen(true); }
+        }}
+      >
+        <ProviderIcon provider={selected.provider} baseUrl={selected.baseUrl} label={`${selected.name} ${selected.model}`} size="sm" />
+      </button>
+      <button
         ref={triggerRef}
         type="button"
         data-testid="agent-model-picker-trigger"
-        className={`group flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center gap-0 overflow-hidden border-r border-border/60 px-1.5 text-xs font-medium transition-colors duration-fast ease-out hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/20 sm:w-auto sm:max-w-[10rem] sm:justify-start sm:gap-1.5 ${
-          open && pickerStep !== 'reasoning' ? 'bg-surface-2 text-text-primary' : 'text-text-secondary hover:text-text-primary'
+        className={`group flex h-7 max-w-[6rem] shrink-0 cursor-pointer items-center gap-1 overflow-hidden border-r border-border/60 px-1.5 text-xs font-medium transition-colors duration-fast ease-out hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/20 sm:max-w-[10rem] sm:gap-1.5 ${
+          open && pickerStep === 'models' ? 'bg-surface-2 text-text-primary' : 'text-text-secondary hover:text-text-primary'
         }`}
         aria-haspopup="dialog"
-        aria-expanded={open && pickerStep !== 'reasoning'}
+        aria-expanded={open && pickerStep === 'models'}
         aria-label={t('settings.defaultModel')}
         title={selectedTitle}
         onClick={() => {
-          if (open && pickerStep !== 'reasoning') {
+          setPendingProvider(null);
+          if (open && pickerStep === 'models') {
             setOpen(false);
             return;
           }
-          setPickerStep('providers');
+          setActiveConfigId(selected.id);
+          setActiveModelId(selected.model);
+          setQuery('');
+          setPickerStep('models');
           setOpen(true);
         }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setPickerStep('providers');
+            setPendingProvider(null);
+            setActiveConfigId(selected.id);
+            setActiveModelId(selected.model);
+            setQuery('');
+            setPickerStep('models');
             setOpen(true);
           }
         }}
       >
-        <ProviderIcon
-          provider={selected.provider}
-          baseUrl={selected.baseUrl}
-          label={`${selected.name} ${selected.model}`}
-          size="sm"
-        />
-        <span className="hidden min-w-0 sm:flex sm:items-center">
+        <span className="flex min-w-0 items-center">
           <span className="max-w-[9rem] truncate text-xs font-medium leading-4 text-text-secondary group-hover:text-text-primary">
             {selectedLabel}
           </span>
         </span>
-        <ChevronDown className={`hidden h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary sm:block ${open && pickerStep !== 'reasoning' ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3 w-3 shrink-0 text-text-tertiary transition-transform group-hover:text-text-secondary ${open && pickerStep === 'models' ? 'rotate-180' : ''}`} />
       </button>
 
       {!canChangeReasoning && selectedModelRow?.providerRow.preset?.runtime && <span data-testid="native-reasoning-managed" title={t('chat.reasoningProviderManagedHint')} className="flex items-center gap-1 px-2 text-[10px] text-text-tertiary">
         <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />{t('chat.reasoningProviderManaged')}
         {(selectedConfig?.reasoningEffort != null || selectedConfig?.thinkingBudget != null || selectedConfig?.reasoningEnabled != null) && <button
           type="button" data-testid="native-reasoning-reset" className="underline underline-offset-2 hover:text-text-primary"
-          onClick={() => { if (selectedConfig) void onSelect({ config: selectedConfig, model: selectedConfig.model, reasoningEnabled: null, thinkingBudget: null, reasoningEffort: null }); }}
+          onClick={() => { setPendingProvider(null); if (selectedConfig) void onSelect({ config: selectedConfig, model: selectedConfig.model, reasoningEnabled: null, thinkingBudget: null, reasoningEffort: null }); }}
         >{t('settings.isDefault')}</button>}
       </span>}
       {canChangeReasoning && <button
@@ -605,6 +643,7 @@ export function AgentModelPicker({
         aria-label={t('settings.reasoningEffort')}
         title={selectedReasoningTitle}
         onClick={() => {
+          setPendingProvider(null);
           if (open && pickerStep === 'reasoning') {
             setOpen(false);
             return;
@@ -618,6 +657,7 @@ export function AgentModelPicker({
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
+            setPendingProvider(null);
             setActiveConfigId(selected.id);
             setActiveModelId(selected.model);
             setQuery('');
@@ -663,6 +703,7 @@ export function AgentModelPicker({
                     type="search"
                     value={query}
                     onChange={(event) => {
+                      setPendingProvider(null);
                       setQuery(event.target.value);
                     }}
                     placeholder={t('settings.modelSearchPlaceholder')}
@@ -680,6 +721,7 @@ export function AgentModelPicker({
                     <button
                       type="button"
                       onClick={() => {
+                        setPendingProvider(null);
                         if (isSearching) {
                           setQuery('');
                           setPickerStep('providers');
@@ -696,6 +738,7 @@ export function AgentModelPicker({
                   <button
                     type="button"
                     onClick={() => {
+                      setPendingProvider(null);
                       setQuery('');
                       setPickerStep('providers');
                     }}
@@ -712,6 +755,7 @@ export function AgentModelPicker({
                     type="button"
                     disabled={!activeProviderRow}
                     onClick={() => {
+                      setPendingProvider(null);
                       setQuery('');
                       setPickerStep('models');
                     }}
@@ -763,8 +807,19 @@ export function AgentModelPicker({
                             setActiveModelId(row.config.model);
                           }}
                           onClick={() => {
+                            setPendingProvider(null);
                             setActiveConfigId(row.config.id);
                             setActiveModelId(row.config.model);
+                            const models = allModelRows.filter(model => model.providerRow.config.id === row.config.id);
+                            const catalog = row.preset?.runtime ? subscriptionCatalogs[runtimeCatalogKey(row.config.provider, row.preset.runtime === 'acp' ? row.config.id : undefined)] : null;
+                            const remembered = models.find(model => model.model.id === row.config.model)
+                              ?? models.find(model => model.model.recommended) ?? models[0];
+                            if (remembered && (!row.preset?.runtime || catalog?.models)) {
+                              applyModelSelection(remembered);
+                              return;
+                            }
+                            if (row.preset?.runtime) setPendingProvider({ configId: row.config.id, conversationId });
+                            setQuery('');
                             setPickerStep('models');
                           }}
                           className={`grid w-full grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${

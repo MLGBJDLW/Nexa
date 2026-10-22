@@ -1186,7 +1186,7 @@ export function ChatInput({
 
     const outgoingMessage = slashResolution && !slashResolution.localAction
       ? (slashResolution.displayMessage || trimmed || slashResolution.message)
-      : (slashResolution?.message || trimmed || t("chat.imageMessage"));
+      : (slashResolution?.message || trimmed);
     const planModeArtifact: ArtifactPayload | null = effectivePlanModeEnabled
       ? {
           kind: "executionMode",
@@ -2076,7 +2076,7 @@ export function ChatInput({
           ) : null}
         </CollapsibleMotion>
         {hasImageAttachments && (
-          <div className="flex items-center justify-between gap-3 border-b border-border/35 bg-surface-1/45 px-3 py-1.5" data-testid="vision-turn-selector">
+          <div className="flex items-center justify-between gap-3 px-3 pt-2" data-testid="vision-turn-selector">
             <div className="min-w-0">
               <p className="text-[11px] font-medium text-text-secondary">{t('chat.visionTurnTitle')}</p>
               {visionDecisionRequired && <p className="text-[10px] text-warning">{t('chat.visionTurnRequired')}</p>}
@@ -2095,7 +2095,7 @@ export function ChatInput({
           </div>
         )}
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 border-b border-border/35 px-3 py-2">
+          <div data-testid="chat-attachments" className="flex flex-wrap gap-1.5 px-3 pt-2">
             {attachments.map((att, i) => (
               <div key={i} className="relative group">
                 {att.mediaType.startsWith("image/") ? (
