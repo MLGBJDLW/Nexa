@@ -19,6 +19,9 @@ test('thoughts and replies commit while a long tool continues publishing progres
     await expect(continuation).toBeVisible({ timeout: 2500 });
     await expect(page.getByText(/Thought 10\./)).toBeVisible();
     const tool = page.getByTestId('tool-call-card').filter({ hasText: 'Browser frame' });
+    const interaction = page.getByTestId('interaction-trace').filter({ has: tool });
+    await expect(interaction.locator('summary')).toHaveAttribute('aria-busy', 'true');
+    await interaction.locator('summary').click();
     await expect(tool).toBeVisible();
     const order = await before.evaluate((node) => {
       const card = [...document.querySelectorAll('[data-testid="tool-call-card"]')].find(card => card.textContent?.includes('Browser frame'));

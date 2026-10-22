@@ -179,7 +179,6 @@
   "tokenUsagePercent": "{percent}% контекста использовано",
   "contextFillingUp": "Окно контекста заполняется ({percent}%). Рассмотрите начало нового разговора.",
   "contextNearlyFull": "Окно контекста почти заполнено ({percent}%). Старые сообщения могут быть утеряны.",
-  "imageMessage": "(изображение)",
   "pasteImageFailed": "Failed to paste image",
   "tokensLabel": "токены",
   "tokensShort": "ток.",
@@ -947,5 +946,16 @@
   "contextPolicyFork": "Автоматический Fork",
   "contextPolicyForkTiming": "Когда выполнять Fork",
   "contextPolicyForkTriggerAt": "Автоматический Fork при превышении {tokens} входных токенов.",
-  "contextPolicyForkCalculation": "Доля рассчитывается от {input} доступных токенов после резервирования {reply} для ответа и {safety} для запаса. Fork архивирует прежние рассуждения и сохраняет задачу."
+  "contextPolicyForkCalculation": "Доля рассчитывается от {input} доступных токенов после резервирования {reply} для ответа и {safety} для запаса. Fork архивирует прежние рассуждения и сохраняет задачу.",
+  "questionSkip": "Пропустить вопрос",
+  "questionSkipped": "Пропущено",
+  "interactionTitle": "Действия в интерфейсе",
+  "interactionPending": "Ожидает проверки",
+  "interactionUncertain": "Результат неопределён",
+  "interactionNotDispatched": "Ввод не отправлен",
+  "interactionUnchanged": "Изменений не обнаружено",
+  "interactionChanged": "Изменение обнаружено",
+  "interactionTargetClosed": "Целевое окно закрыто",
+  "interactionMatched": "Условие выполнено",
+  "interactionObserved": "Наблюдение получено"
 }

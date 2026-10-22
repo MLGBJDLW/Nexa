@@ -7,7 +7,12 @@ export interface FollowupSuggestion { label: string; prompt: string }
 export function parseFollowupSuggestions(source: string): FollowupSuggestion[] {
   if (source.length > 4096) return [];
   try {
-    const items: unknown = JSON.parse(source);
+    // Older prompts asked for multiple JSON objects. Accept that exact JSONL
+    // shape as well as the canonical array, without repairing arbitrary JSON.
+    const trimmed = source.trim();
+    const items: unknown = trimmed.startsWith('[')
+      ? JSON.parse(trimmed)
+      : trimmed.split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
     if (!Array.isArray(items) || items.length < 2 || items.length > 3) return [];
     const result: FollowupSuggestion[] = [];
     for (const item of items) {
@@ -20,6 +25,15 @@ export function parseFollowupSuggestions(source: string): FollowupSuggestion[] {
     }
     return result;
   } catch { return []; }
+}
+
+/** Speech is a projection: metadata never mutates the stored message or draft. */
+export function stripFollowupBlocks(content: string): string {
+  const blocks = fromMarkdown(content).children.filter(node => node.type === 'code' && node.lang?.toLowerCase() === 'nexa-followups');
+  for (const block of blocks.reverse()) {
+    content = content.slice(0, block.position!.start.offset) + content.slice(block.position!.end.offset);
+  }
+  return content;
 }
 
 export function latestFollowupSuggestions(messages: ConversationMessage[]): { key: string; items: FollowupSuggestion[] } | null {

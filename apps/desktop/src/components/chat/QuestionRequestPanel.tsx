@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, CheckCircle2, HelpCircle, Send } from 'lucide-react';
 import { useTranslation } from '../../i18n';
-import { formatQuestionResponse, type QuestionRequest } from '../../lib/questionCards';
+import { formatQuestionResponse, questionAnswerComplete, type QuestionRequest } from '../../lib/questionCards';
 import type { ArtifactPayload } from '../../types/conversation';
 import { Button } from '../ui/Button';
 
@@ -33,6 +33,7 @@ export function QuestionRequestPanel({ request, answered = false, onSubmit }: Qu
     [otherAnswers],
   );
   const isAnswered = answered || submitted || request.status === 'answered';
+  const hasSkipped = Object.values(answers).some(values => values.length === 0);
 
   const submitAnswers = (nextAnswers: Record<string, string[]>) => {
     if (
@@ -60,12 +61,14 @@ export function QuestionRequestPanel({ request, answered = false, onSubmit }: Qu
   const toggleMulti = (id: string, value: string) => {
     setAnswers((current) => {
       const selected = current[id] ?? [];
-      return {
+      const next = {
         ...current,
         [id]: selected.includes(value)
           ? selected.filter((answer) => answer !== value)
           : [...selected, value],
       };
+      if (!next[id].length) delete next[id];
+      return next;
     });
   };
 
@@ -74,10 +77,12 @@ export function QuestionRequestPanel({ request, answered = false, onSubmit }: Qu
     setOtherAnswers((current) => ({ ...current, [id]: value }));
     setAnswers((current) => {
       const withoutPrevious = (current[id] ?? []).filter((answer) => answer !== previous);
-      return {
+      const next = {
         ...current,
         [id]: value.trim() ? (multi ? [...withoutPrevious, value] : [value]) : withoutPrevious,
       };
+      if (!next[id].length) delete next[id];
+      return next;
     });
   };
 
@@ -214,6 +219,10 @@ export function QuestionRequestPanel({ request, answered = false, onSubmit }: Qu
                   className="w-full resize-y rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary outline-none transition placeholder:text-text-tertiary focus:border-accent/55"
                 />
               )}
+              {question.type !== 'confirm' && <button type="button" className="mt-2 text-xs text-text-tertiary hover:text-text-primary" onClick={() => {
+                setAnswers(current => ({ ...current, [question.id]: [] }));
+                setOtherAnswers(current => ({ ...current, [question.id]: '' }));
+              }}>{answers[question.id]?.length === 0 ? t('chat.questionSkipped') : t('chat.questionSkip')}</button>}
             </fieldset>
           );
         })}
@@ -221,7 +230,7 @@ export function QuestionRequestPanel({ request, answered = false, onSubmit }: Qu
 
       <footer className="flex items-center justify-between gap-3 border-t border-border/60 bg-surface-2/55 px-4 py-3">
         <p className="text-[11px] text-text-tertiary">{t('chat.questionResponseHint')}</p>
-        {(!autoSubmitChoices || hasOtherDraft) && (
+        {(!autoSubmitChoices || hasOtherDraft || hasSkipped) && (
           <Button
             size="sm"
             variant="primary"
@@ -242,6 +251,6 @@ function hasCompleteAnswers(
   answers: Record<string, string[]>,
 ): boolean {
   return request.questions.every((question) => (
-    (answers[question.id] ?? []).some((answer) => answer.trim())
+    questionAnswerComplete(question.id, answers, question.type !== 'confirm')
   ));
 }

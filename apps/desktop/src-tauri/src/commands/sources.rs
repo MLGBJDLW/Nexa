@@ -339,7 +339,7 @@ pub async fn search(
     let query = SearchQuery {
         text: query_text,
         filters: filters.unwrap_or_default(),
-        limit: limit.unwrap_or(20),
+        limit: limit.unwrap_or(0),
         offset: offset.unwrap_or(0),
     };
     let db = state.db.clone();
@@ -607,7 +607,7 @@ pub async fn hybrid_search(
     let query = SearchQuery {
         text: query_text,
         filters: filters.unwrap_or_default(),
-        limit: limit.unwrap_or(20),
+        limit: limit.unwrap_or(0),
         offset: offset.unwrap_or(0),
     };
     let db = state.db.clone();

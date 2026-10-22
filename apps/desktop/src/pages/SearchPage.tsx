@@ -54,7 +54,7 @@ import { ResearchWorkspace } from '../features/knowledge/ResearchWorkspace';
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
 // Per-window navigation state; results are revalidated against the index on return.
 let searchWorkspace: { query: string; filters: SearchFilters; mode: 'fts' | 'hybrid'; page: number; scrollTop: number } = {
   query: '', filters: { sourceIds: [], fileTypes: [], dateFrom: null, dateTo: null }, mode: 'fts', page: 1, scrollTop: 0,
@@ -160,6 +160,8 @@ export function SearchPage() {
   const [searchMode, setSearchMode] = useState<'fts' | 'hybrid'>(initialWorkspace.current.mode);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, Feedback>>({});
   const [currentPage, setCurrentPage] = useState(initialWorkspace.current.page);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const pageSizeRequestRef = useRef<Promise<number> | null>(null);
 
   // 鈹€鈹€ Filters 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -359,17 +361,29 @@ export function SearchPage() {
     setSearchError(null);
     setPaginationReset(false);
     setFeedbackMap({});
-    const offset = (targetPage - 1) * PAGE_SIZE;
     const apiFilters = {
       ...filters,
       dateFrom: filters.dateFrom ? filters.dateFrom + "T00:00:00Z" : null,
       dateTo: filters.dateTo ? filters.dateTo + "T23:59:59Z" : null,
     };
     try {
+      // Resolve the saved default before calculating offsets. Re-entering Search
+      // reads settings again; pagination within this view keeps one stable size.
+      const requestedPageSize = await (pageSizeRequestRef.current ??= api.getAppConfig()
+        .then(config => Number.isFinite(config?.defaultSearchLimit)
+          ? Math.max(1, Math.min(100, Math.trunc(config.defaultSearchLimit)))
+          : DEFAULT_PAGE_SIZE)
+        .catch(error => {
+          pageSizeRequestRef.current = null;
+          throw error;
+        }));
+      if (!isCurrent()) return;
+      setPageSize(requestedPageSize);
+      const offset = (targetPage - 1) * requestedPageSize;
       const fetchPage = (pageOffset: number) =>
         searchMode === 'hybrid'
-          ? api.hybridSearch(q, PAGE_SIZE, pageOffset, apiFilters)
-          : api.search(q, PAGE_SIZE, pageOffset, apiFilters);
+          ? api.hybridSearch(q, requestedPageSize, pageOffset, apiFilters)
+          : api.search(q, requestedPageSize, pageOffset, apiFilters);
       const rankingBasis = (value: SearchResult) => `${value.searchMode ?? searchMode}:${value.ranking?.method ?? 'lexical_rules'}`;
       let res = await fetchPage(offset);
       if (!isCurrent()) return;
@@ -1291,11 +1305,11 @@ export function SearchPage() {
           )}
 
           {/* Pagination info */}
-          {result.totalMatches > PAGE_SIZE && (
+          {result.totalMatches > pageSize && (
             <div className="mb-3 text-xs text-text-tertiary">
               {t('search.showingResults', {
-                from: String((currentPage - 1) * PAGE_SIZE + 1),
-                to: String(Math.min(currentPage * PAGE_SIZE, result.totalMatches)),
+                from: String((currentPage - 1) * pageSize + 1),
+                to: String(Math.min(currentPage * pageSize, result.totalMatches)),
                 total: String(result.totalMatches),
               })}
             </div>
@@ -1342,8 +1356,8 @@ export function SearchPage() {
               ))}
             </motion.div>
             {/* Pagination controls */}
-            {result.totalMatches > PAGE_SIZE && (() => {
-              const totalPages = Math.ceil(result.totalMatches / PAGE_SIZE);
+            {result.totalMatches > pageSize && (() => {
+              const totalPages = Math.ceil(result.totalMatches / pageSize);
               return (
                 <div className="mt-6 flex items-center justify-center gap-3">
                   <Button

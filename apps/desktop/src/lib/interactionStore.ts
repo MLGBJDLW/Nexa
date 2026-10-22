@@ -57,9 +57,9 @@ function parseDrafts(storage: InteractionDraftStorage | null): Record<string, In
     const drafts: Record<string, InteractionDraft> = {};
     for (const [interactionId, value] of Object.entries(parsed)) {
       if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-      const draft = value as Partial<InteractionDraft>;
+      const draft = value as Partial<Omit<InteractionDraft, 'schemaVersion'>> & { schemaVersion?: number };
       if (
-        draft.schemaVersion !== 1
+        (draft.schemaVersion !== 1 && draft.schemaVersion !== 2)
         || draft.interactionId !== interactionId
         || typeof draft.conversationId !== 'string'
         || draft.conversationId.length === 0
@@ -71,12 +71,18 @@ function parseDrafts(storage: InteractionDraftStorage | null): Record<string, In
       ) {
         continue;
       }
+      // Version 1 stored empty arrays when text was cleared or every choice
+      // was unchecked. Only version 2 can attest that [] means an explicit Skip.
+      const answers = draft.schemaVersion === 1
+        ? Object.fromEntries(Object.entries(draft.answers).filter(([, values]) => values.some(value => value.trim())))
+        : draft.answers;
+      const hadUnanswered = Object.keys(answers).length !== Object.keys(draft.answers).length;
       drafts[interactionId] = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         interactionId,
         conversationId: draft.conversationId,
-        answers: draft.answers,
-        currentQuestionIndex: draft.currentQuestionIndex,
+        answers,
+        currentQuestionIndex: hadUnanswered ? 0 : draft.currentQuestionIndex,
         updatedAt: draft.updatedAt,
       };
     }
@@ -178,7 +184,7 @@ export class InteractionStore {
       throw new Error(`Cannot edit interaction ${interactionId} in status ${request.status}`);
     }
     const draft: InteractionDraft = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       interactionId,
       conversationId: request.conversationId,
       answers: Object.fromEntries(

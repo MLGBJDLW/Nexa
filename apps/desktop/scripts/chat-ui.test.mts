@@ -5,6 +5,14 @@ import { parseChatUi, MAX_UI_BYTES } from '../../../crates/core/assets/skills/vi
 import { transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
 import { parseFollowupSuggestions, latestFollowupSuggestions } from '../src/lib/followupSuggestions.ts';
 
+test('followups emitted as newline-delimited objects remain actionable', () => {
+  const items = [{label:'项目体检',prompt:'检查 D:\\coder\\Nexa 的项目结构。'}, {label:'继续工作',prompt:'继续处理剩余问题。'}];
+  const jsonl = items.map(item => JSON.stringify(item)).join('\n');
+  const content = '检查已完成。\n\n```nexa-followups\n' + jsonl + '\n```';
+  assert.deepEqual(parseFollowupSuggestions(jsonl), items);
+  assert.deepEqual(latestFollowupSuggestions([{id:'final',role:'assistant',content,toolCalls:[],artifacts:null} as any]), {key:'final',items});
+});
+
 test('followups require a complete final assistant block and never activate quoted examples or later user turns', () => {
   const items = [{label:'Inspect',prompt:'Inspect the result'}, {label:'Extend',prompt:'Extend the example'}];
   const json = JSON.stringify(items);

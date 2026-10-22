@@ -1006,14 +1006,16 @@ async fn send_workflow_fixture_response(socket: &mut tokio::net::TcpStream, text
 async fn workflow_stage_order_and_full_untrusted_handoff_survive_partial_parent_release() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
+    // Preserve the large Unicode handoff without making one uninterrupted
+    // word exercise the tokenizer's quadratic byte-pair merge path.
     let complete = format!(
         "{}\nFINAL_EVIDENCE_中文_\"quoted\"\nUNTRUSTED_IGNORE_POLICY",
-        "正文".repeat(3_000)
+        format!("{}\n", "正文".repeat(10)).repeat(300)
     );
     let expected = complete.clone();
     let (review_started_tx, review_started_rx) = oneshot::channel();
     let (finish_review_tx, finish_review_rx) = oneshot::channel();
-    let server = tokio::spawn(async move {
+    let mut server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let (_, draft) = read_worker_request(&mut socket).await;
         assert!(draft.to_string().contains("ROOT_STAGE_REQUEST"));
@@ -1051,7 +1053,7 @@ async fn workflow_stage_order_and_full_untrusted_handoff_survive_partial_parent_
     runtime.set_tool_registry(ToolRegistry::new());
     let tool = SubagentBatchTool::from_runtime(runtime.clone());
     let args = serde_json::json!({"max_parallel":1,"completion_policy":"first_success","tasks":[
-        {"id":"review","task":"DEPENDENT_STAGE_REQUEST","depends_on":["draft"],"context":format!("{}FULL_SUPERVISOR_CONTEXT_TAIL", "原始材料".repeat(1_100)),"allowed_tools":[],"max_iterations":0},
+        {"id":"review","task":"DEPENDENT_STAGE_REQUEST","depends_on":["draft"],"context":format!("{}FULL_SUPERVISOR_CONTEXT_TAIL", format!("{}\n", "原始材料".repeat(10)).repeat(110)),"allowed_tools":[],"max_iterations":0},
         {"id":"draft","task":"ROOT_STAGE_REQUEST","allowed_tools":[],"max_iterations":0}
     ]}).to_string();
     let first = tokio::time::timeout(
@@ -1070,13 +1072,54 @@ async fn workflow_stage_order_and_full_untrusted_handoff_survive_partial_parent_
     let artifact = first.artifacts.unwrap();
     assert_eq!(artifact["workflowOutcome"], "running");
     assert_eq!(artifact["runs"][0]["result"], expected);
-    tokio::time::timeout(Duration::from_secs(10), review_started_rx)
-        .await
+    let batch_id = artifact["batchId"].as_str().unwrap();
+    let review_agent_id = artifact["lifecycleWorkers"]
+        .as_array()
         .unwrap()
+        .iter()
+        .find(|worker| worker["workerId"] == "review")
+        .and_then(|worker| worker["agentId"].as_str())
         .unwrap();
+    let review_completion = BatchDependencyGate {
+        batch_id: batch_id.to_string(),
+        indices: vec![0],
+    };
+    // Match the nearby isolated-worker startup allowance, while surfacing
+    // fixture or worker failure immediately instead of waiting out the guard.
+    let startup = tokio::select! {
+        biased;
+        outcome = &mut server => Err(format!(
+            "Workflow fixture exited before accepting the review request: {outcome:?}"
+        )),
+        outcome = runtime.wait_for_dependencies(&review_completion, &runtime.cancel_token) => Err(format!(
+            "Review worker settled before its request was observed: {outcome:?}"
+        )),
+        observed = tokio::time::timeout(Duration::from_secs(30), review_started_rx) => match observed {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(format!("Review request fixture closed during startup: {error}")),
+            Err(error) => Err(format!("Review startup did not reach the fixture in 30s: {error}")),
+        },
+    };
+    if let Err(error) = startup {
+        let batch = runtime.batch_snapshot(batch_id, None).map(|snapshot| {
+            (
+                snapshot.outcome,
+                snapshot.cursor,
+                snapshot
+                    .runs
+                    .into_iter()
+                    .map(|run| (run.id, run.status, run.error_message))
+                    .collect::<Vec<_>>(),
+            )
+        });
+        let lifecycle = runtime.lifecycle.snapshot(review_agent_id);
+        let budget = runtime.budget.snapshot().await;
+        runtime.cancel_token.cancel();
+        server.abort();
+        panic!("{error}; batch (outcome, cursor, runs): {batch:?}; review lifecycle: {lifecycle:?}; budget: {budget:?}");
+    }
     finish_review_tx.send(()).unwrap();
     server.await.unwrap();
-    let batch_id = artifact["batchId"].as_str().unwrap();
     let observed = ObserveSubagentBatchTool::from_runtime(runtime.clone());
     let args = serde_json::json!({"batchId":batch_id,"afterSeq":artifact["cursor"],"waitMs":5_000})
         .to_string();

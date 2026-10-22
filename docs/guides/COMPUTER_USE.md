@@ -3,11 +3,41 @@
 [Documentation](../README.md) / [Category overview](README.md)
 
 Computer Use is one observe–act–verify workflow. Consecutive native observation,
-control and application-launch receipts appear in one expandable chat record.
+control, application-launch and Browser Workspace receipts appear in one
+expandable chat record, using the same screenshot presenter and interaction
+receipt states. Only a verified requested condition gets a green success state;
+input delivery, observed change and uncertain results remain distinct.
 The two executable contracts remain `computer_observe` and `computer_control`:
 read-only observation and input keep distinct permission boundaries while sharing
 the observation store, input arbiter, action journal and completion checks. There
 is no third computer-use executor or duplicate set of model-facing aliases.
+
+Observation includes Nexa's own top-level windows. Such snapshots carry
+`observationOnly: true`; fresh native identity checks continue to reject control
+input to the host, including its approval surfaces. Both Nexa's former host filter
+and [windows-capture's convenience enumeration](https://github.com/NiiightmareXD/windows-capture/blob/f41142cd5c6c101ee35c032211843d54aa58b6f8/src/window.rs#L269-L278)
+excluded the host. Native `EnumWindows` now supplies the shared window inventory
+without dropping the current process; visibility and protected-surface filters remain.
+Screenshots use the existing [Windows Graphics Capture](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture)
+worker, with UI Automation on a separate MTA worker as recommended by
+[Microsoft's threading guidance](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading).
+Capturing the host retains the geometry, process-identity and input-epoch checks.
+If host pixels change while UI semantics are collected, the valid screenshot is
+returned with the mismatched elements removed and a `semanticError` explanation.
+Other windows still reject mixed frame/semantics observations before control.
+
+Browser text waits query the complete accessible text independently of the
+bounded preview, including same-origin frames and open shadow roots. Cross-origin
+frames and custom elements without an accessible shadow root make an absence
+check incomplete, with a reason in the observation. A closed shadow root created
+on an ordinary element before inspection cannot reliably be detected through DOM
+APIs; use screenshot evidence for such interfaces rather than treating the DOM as
+proof of every visible word. Canvas changes also contribute screenshot evidence
+to action receipts without claiming that a requested condition was satisfied.
+
+Browser frame coordinates share one forward/inverse conversion for borders,
+padding and positive axis-aligned scaling. Rotated, skewed, mirrored or perspective
+frames reject trusted pointer positioning rather than sending guessed coordinates.
 
 ## Coordinates and recovery
 

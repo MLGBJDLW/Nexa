@@ -590,7 +590,7 @@ export function DataPrivacySettingsTab({
               </div>
             </div>
 
-            <div className="flex justify-end border-t border-border pt-4">
+            <div data-settings-actions className="flex justify-end border-t border-border pt-4">
               <Button variant="primary" size="md" icon={<Save size={16} />} loading={saveLoading} onClick={onSavePrivacy}>
                 {t('settings.saveConfig')}
               </Button>

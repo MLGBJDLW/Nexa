@@ -501,6 +501,7 @@ impl ContextCompactionService {
             source_start_sort_order: plan.source_start_sort_order,
             source_boundary_sort_order: plan.source_boundary_sort_order,
             source_digest: plan.source_digest,
+            source_image_digest: plan.source_image_digest,
             expected_checkpoint_generation: plan.expected_checkpoint_generation,
             summary: checkpoint_text,
             retained_tail_message_ids: plan.retained_tail_message_ids,

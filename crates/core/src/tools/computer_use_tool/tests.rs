@@ -69,6 +69,36 @@ fn wait_observed_fixture() -> ObservedWindow {
 }
 
 #[test]
+fn host_observations_reject_control_before_approval_and_advertise_read_only_access() {
+    let mut capture = wait_capture_fixture(0);
+    capture.snapshot.observation_only = true;
+    let data = capture_data("host", &capture);
+    let llm: serde_json::Value =
+        serde_json::from_str(&semantic_observation_for_llm("host", &capture)).unwrap();
+    assert_eq!(data["window"]["observationOnly"], true);
+    assert_eq!(llm["window"]["observationOnly"], true);
+    assert_eq!(data["singleUseForControl"], false);
+    assert_eq!(llm["singleUseForControl"], false);
+
+    let conversation = format!("host-observation-{}", uuid::Uuid::new_v4());
+    let mut observed = wait_observed_fixture();
+    observed.snapshot = capture.snapshot;
+    let observation_id = remember_observation(Some(&conversation), vec![observed]).unwrap();
+    let args: ControlArgs = serde_json::from_value(serde_json::json!({
+        "action":"focus_window","window_id":42,"observation_id":observation_id,
+    }))
+    .unwrap();
+    for result in [
+        computer_control_approval_message(&args, Some(&conversation)),
+        computer_control_persistent_approval_message(&args, Some(&conversation)),
+    ] {
+        assert!(result.unwrap_err().to_string().contains("observation-only"));
+    }
+    // Rejecting an impossible input must not spend the read-only observation.
+    assert!(observed_window(Some(&conversation), &observation_id, 42).is_ok());
+}
+
+#[test]
 fn computer_receipt_requires_comparable_evidence_to_claim_unchanged() {
     use crate::observed_interaction::{InteractionCommit, ObservedEvidence};
     let commit = InteractionCommit::default();
@@ -355,6 +385,7 @@ async fn window_inventory_pages_filtered_results_and_waits_for_the_requested_pro
         minimized: false,
         maximized: false,
         focused: false,
+        observation_only: false,
         modal_owner: None,
     };
     let mut other = target.clone();
@@ -577,6 +608,7 @@ fn observation_tokens_are_scoped_to_the_listed_window() {
         minimized: false,
         maximized: false,
         focused: true,
+        observation_only: false,
         modal_owner: None,
     };
     let observation_id = remember_observation(
@@ -623,6 +655,7 @@ fn approval_preview_is_exact_conversation_scoped_and_hides_typed_text() {
         minimized: false,
         maximized: false,
         focused: true,
+        observation_only: false,
         modal_owner: None,
     };
     let observation_id = remember_observation(
@@ -746,6 +779,7 @@ fn observation_token_is_single_use_for_control() {
         minimized: false,
         maximized: false,
         focused: false,
+        observation_only: false,
         modal_owner: None,
     };
     let observation_id = remember_observation(
@@ -1024,6 +1058,7 @@ fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens(
                     minimized: false,
                     maximized: false,
                     focused: false,
+                    observation_only: false,
                     modal_owner: None,
                 },
                 image_width: None,
@@ -2486,4 +2521,93 @@ fn windows_window_capture_smoke_test() {
     assert!(capture.image_height > 0);
     assert!(capture.semantic_error.is_none());
     assert!(capture.annotated_png.is_some());
+}
+
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+#[test]
+#[ignore = "requires an interactive Windows desktop; observes an isolated window from the host executable"]
+fn windows_host_window_observation_smoke_test() {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    let title = format!("Nexa Host Observation {}", uuid::Uuid::new_v4().simple());
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "tools::computer_use_tool::tests::windows_computer_control_helper_window",
+            "--nocapture",
+        ])
+        .env("NEXA_COMPUTER_USE_HELPER", "1")
+        .env("NEXA_COMPUTER_USE_HELPER_TITLE", &title)
+        .env("NEXA_COMPUTER_USE_HELPER_BACKGROUND", "1")
+        .creation_flags(0x08000000)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("launch host executable fixture");
+    let result = (|| -> Result<(), String> {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let target = loop {
+            if let Some(target) = platform::list_windows()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .find(|window| window.title == title)
+            {
+                break target;
+            }
+            if Instant::now() >= deadline {
+                return Err("host window was filtered out of observation".into());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        if !target.observation_only {
+            return Err("host window was not marked observation-only".into());
+        }
+        let capture = platform::capture_window(
+            &target,
+            CaptureOptions {
+                include_elements: true,
+                max_elements: 120,
+                mode: CaptureMode::SetOfMarks,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        let frame = image::load_from_memory(&capture.png).map_err(|e| e.to_string())?;
+        if frame.width() == 0 || frame.height() == 0 {
+            return Err("host screenshot is empty".into());
+        }
+        if capture.semantic_error.is_some() || capture.elements.is_empty() {
+            return Err(format!(
+                "host UI Automation unavailable: {:?}",
+                capture.semantic_error
+            ));
+        }
+        let mut observed = wait_observed_fixture();
+        observed.snapshot = capture.snapshot;
+        // Native access must recompute host identity even if a stale or forged
+        // snapshot claims the surface accepts input.
+        observed.snapshot.observation_only = false;
+        let args: ControlArgs = serde_json::from_value(serde_json::json!({"action":"focus_window","window_id":target.id,"observation_id":"host"})).unwrap();
+        let tracker = ControlCommitTracker::default();
+        let error = platform::control_window(
+            ControlAction::FocusWindow,
+            &args,
+            &observed,
+            CaptureOptions::pixels_only(),
+            &tracker,
+        )
+        .expect_err("observing the host must not authorize input to its approval controls");
+        if error.phase != ControlFailurePhase::PreCommit
+            || error.pre_commit_kind != Some(PreCommitFailureKind::TargetUnavailable)
+            || error.observation_consumed
+            || tracker.interaction.effect_may_have_occurred()
+        {
+            return Err(format!("unexpected control rejection: {error:?}"));
+        }
+        Ok(())
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    result.expect("host observation contract");
 }

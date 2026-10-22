@@ -436,18 +436,21 @@ test('failed searches show a persistent retry state without stale evidence', asy
   await page.screenshot({ path: '.artifacts/kb-ui-audit-2026-10-03-failure.png', fullPage: true });
 });
 
-async function installPagedRanking(page: import('@playwright/test').Page) {
+async function installPagedRanking(page: import('@playwright/test').Page, defaultSearchLimit = 20) {
   await installAuditSearch(page);
-  await page.evaluate(() => {
+  await page.evaluate(defaultSearchLimit => {
     const host = window as any;
     const invoke = host.__TAURI_INTERNALS__.invoke;
     host.__rankingMethod = 'semantic_cross_encoder';
     host.__pagingOffsets = [];
+    host.__pagingLimits = [];
     host.__TAURI_INTERNALS__.invoke = async (command: string, args: any = {}) => {
       const result = await invoke(command, args);
+      if (command === 'get_app_config_cmd') return { ...result, defaultSearchLimit };
       if (command !== 'search' && command !== 'hybrid_search') return result;
       const offset = Number(args.offset ?? 0);
       host.__pagingOffsets.push(offset);
+      host.__pagingLimits.push(args.limit);
       return {
         ...result,
         searchMode: host.__retrievalMode ?? result.searchMode,
@@ -457,18 +460,19 @@ async function installPagedRanking(page: import('@playwright/test').Page) {
         evidenceCards: result.evidenceCards.map((card: any) => ({ ...card, documentTitle: `${host.__rankingMethod} result ${offset}` })),
       };
     };
-  });
+  }, defaultSearchLimit);
 }
 
 test('pagination restarts from the first page when ranking switches to fallback', async ({ page }) => {
   await page.goto('/');
-  await installPagedRanking(page);
+  await installPagedRanking(page, 7);
   await page.getByPlaceholder('Search by keyword...').fill('pagination');
   await expect(page.getByRole('button', { name: 'semantic_cross_encoder result 0', exact: true })).toBeVisible();
   await page.evaluate(() => { (window as any).__rankingMethod = 'lexical_rules'; });
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByRole('button', { name: 'lexical_rules result 0', exact: true })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => (window as any).__pagingOffsets)).toEqual([0, 20, 0]);
+  await expect.poll(() => page.evaluate(() => (window as any).__pagingOffsets)).toEqual([0, 7, 0]);
+  expect(await page.evaluate(() => (window as any).__pagingLimits)).toEqual([7, 7, 7]);
   await expect(page.getByTestId('search-ranking-reset')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Previous', exact: true })).toBeDisabled();
 });

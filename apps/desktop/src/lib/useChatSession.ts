@@ -470,8 +470,9 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const knownStreamConversationsRef = useRef<Set<string>>(new Set());
   const conversationHydrationGenerationRef = useRef(0);
   const completionHydrationGenerationRef = useRef(0);
-  const suppressedLiveUsageRef = useRef<Set<string>>(new Set());
-  const compactionUsageRef = useRef<Map<string, UsageSnapshot>>(new Map());
+  // Suppress only the pre-compaction sample. A later runtime usage event is
+  // authoritative even when a suspended run resumes without a composer send.
+  const suppressedLiveUsageRef = useRef<Map<string, UsageTotal | null>>(new Map());
   const autoTitleInFlightRef = useRef<Set<string>>(new Set());
   const systemPromptCacheRef = useRef<Record<string, string>>({});
   const contextWindowCacheRef = useRef<Record<string, number>>({});
@@ -689,7 +690,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         if (!page || cancelled || generation !== conversationHydrationGenerationRef.current) return;
         const { conversation: conv, taskRuns: agentTaskRuns } = page;
         setOpenedConversation(conv);
-        setUsageSnapshot(compactionUsageRef.current.get(activeId) ?? durableUsage);
+        setUsageSnapshot(durableUsage);
         if (!streamHasVisiblePreview(activeId)) {
           void durableRunReconciler.reconcile({
             reason: 'hydration',
@@ -788,9 +789,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           const conv = page.conversation;
           if (activeId === completedConversationId) {
             setOpenedConversation(conv);
-            setUsageSnapshot(
-              compactionUsageRef.current.get(completedConversationId) ?? durableUsage,
-            );
+            setUsageSnapshot(durableUsage);
           }
           setConversations((prev) => {
             if (conv.archivedAt) {
@@ -1205,7 +1204,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       setMessagesForConversation(convId, (prev) => [...prev, optimisticMsg]);
       knownStreamConversationsRef.current.add(convId);
       suppressedLiveUsageRef.current.delete(convId);
-      compactionUsageRef.current.delete(convId);
 
       try {
         await streamSend({
@@ -1241,7 +1239,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         );
         knownStreamConversationsRef.current.delete(convId);
         suppressedLiveUsageRef.current.delete(convId);
-        compactionUsageRef.current.delete(convId);
         setChatError(String(e));
         if (ownsConversationCreation) {
           await api.deleteConversation(convId).catch((cleanupError) => {
@@ -1304,7 +1301,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       knownStreamConversationsRef.current.delete(conversationId);
     }
     suppressedLiveUsageRef.current.delete(conversationId);
-    compactionUsageRef.current.delete(conversationId);
   }, [setMessagesForConversation, setTurnsForConversation, timeline]);
 
   const retry = useCallback(async (
@@ -1418,7 +1414,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
 
     knownStreamConversationsRef.current.add(activeId);
     suppressedLiveUsageRef.current.delete(activeId);
-    compactionUsageRef.current.delete(activeId);
 
     try {
       await streamSend({
@@ -1496,7 +1491,6 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     };
     knownStreamConversationsRef.current.add(activeId);
     suppressedLiveUsageRef.current.delete(activeId);
-    compactionUsageRef.current.delete(activeId);
 
     try {
       await streamSend({
@@ -1525,7 +1519,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
       if (activeIdRef.current === targetConversationId) {
         setUsageSnapshot(null);
       }
-      suppressedLiveUsageRef.current.add(targetConversationId);
+      suppressedLiveUsageRef.current.set(targetConversationId, streamStore.getStream(targetConversationId)?.lastUsage ?? null);
     }
     try {
       const [, durableUsage] = await Promise.all([
@@ -1535,9 +1529,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           : api.getConversationUsageSnapshot(targetConversationId),
       ]);
       if (activeIdRef.current === targetConversationId) {
-        setUsageSnapshot(
-          compactionUsageRef.current.get(targetConversationId) ?? durableUsage,
-        );
+        setUsageSnapshot(durableUsage);
       }
     } catch { /* ignore */ }
   }, [activeId, timeline]);
@@ -1546,8 +1538,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     conversationId: string,
     promptTokens: number,
   ) => {
-    suppressedLiveUsageRef.current.add(conversationId);
     if (activeIdRef.current !== conversationId) return;
+    suppressedLiveUsageRef.current.set(conversationId, streamStore.getStream(conversationId)?.lastUsage ?? null);
     const snapshot: UsageSnapshot = {
       source: 'estimated',
       promptTokens,
@@ -1564,7 +1556,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         kind: 'contextCompactionProjection',
       },
     };
-    compactionUsageRef.current.set(conversationId, snapshot);
+    // This freshly observed estimate is transient. Durable hydration must
+    // replace it; a completed activity does not prove its checkpoint is active.
     setUsageSnapshot(snapshot);
   }, [contextAuthority, contextWindow]);
 
@@ -1596,7 +1589,9 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     : activeTaskRun
       ? turnTimingFromTaskRun(activeTaskRun)
       : null;
-  const liveUsageSuppressed = activeId ? suppressedLiveUsageRef.current.has(activeId) : false;
+  const liveUsageSuppressed = activeId != null
+    && suppressedLiveUsageRef.current.has(activeId)
+    && suppressedLiveUsageRef.current.get(activeId) === lastUsage;
   const scopedLastUsage = activeId && !liveUsageSuppressed ? lastUsage : null;
   const scopedLastCached = activeId && !liveUsageSuppressed ? lastCached : false;
   const scopedFinishReason = activeId && !liveUsageSuppressed ? finishReason : null;

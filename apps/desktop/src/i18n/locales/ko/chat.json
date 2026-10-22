@@ -179,7 +179,6 @@
   "tokenUsagePercent": "컨텍스트 {percent}% 사용됨",
   "contextFillingUp": "컨텍스트 창이 거의 찼습니다 ({percent}%). 새 대화를 시작하세요.",
   "contextNearlyFull": "컨텍스트 창이 거의 가득 찼습니다 ({percent}%). 이전 메시지가 손실될 수 있습니다.",
-  "imageMessage": "(이미지)",
   "pasteImageFailed": "Failed to paste image",
   "tokensLabel": "토큰",
   "tokensShort": "토큰",
@@ -947,5 +946,16 @@
   "contextPolicyFork": "자동 Fork",
   "contextPolicyForkTiming": "Fork 시점",
   "contextPolicyForkTriggerAt": "입력이 {tokens} 토큰을 넘으면 자동 Fork합니다.",
-  "contextPolicyForkCalculation": "사용 가능한 입력 {input} 토큰에 대한 비율입니다. 응답 {reply}와 안전 여유 {safety}를 예약합니다. Fork는 이전 추론을 보관하고 현재 작업을 유지합니다."
+  "contextPolicyForkCalculation": "사용 가능한 입력 {input} 토큰에 대한 비율입니다. 응답 {reply}와 안전 여유 {safety}를 예약합니다. Fork는 이전 추론을 보관하고 현재 작업을 유지합니다.",
+  "questionSkip": "이 질문 건너뛰기",
+  "questionSkipped": "건너뜀",
+  "interactionTitle": "화면 조작",
+  "interactionPending": "검증 대기",
+  "interactionUncertain": "결과 불확실",
+  "interactionNotDispatched": "입력 전송 안 됨",
+  "interactionUnchanged": "변화 없음",
+  "interactionChanged": "변화 확인됨",
+  "interactionTargetClosed": "대상 닫힘",
+  "interactionMatched": "조건 충족",
+  "interactionObserved": "화면 확인됨"
 }

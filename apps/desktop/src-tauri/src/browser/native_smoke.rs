@@ -452,6 +452,7 @@ async fn fixture_observe(
         title: confirmed["title"].as_str().unwrap_or_default().into(),
         ready_state: confirmed["readyState"].as_str().map(str::to_string),
         text: confirmed["text"].as_str().unwrap_or_default().into(),
+        text_match: None,
         viewport: confirmed["viewport"].clone(),
         content_hash: confirmed["domFingerprint"]
             .as_str()

@@ -16,7 +16,7 @@ use crate::usage_analytics::{
 };
 
 use super::model::{ContextCheckpointInput, ContextProjection};
-use super::planner::hash_source_message;
+use super::planner::{hash_source_images, hash_source_message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CommitOutcome {
@@ -30,22 +30,32 @@ pub(crate) struct CompactionSnapshot {
     pub fresh_handoff_is_current: bool,
 }
 
+fn checkpoint_generations(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+) -> Result<(u64, u64), CoreError> {
+    conn.query_row(
+        "SELECT COALESCE(cc.checkpoint_generation, 0),
+                COALESCE((SELECT MAX(checkpoint_generation) FROM context_compactions
+                          WHERE conversation_id = c.id), 0)
+         FROM conversations c
+         LEFT JOIN context_compactions cc
+           ON cc.id = c.active_context_compaction_id AND cc.status = 'completed'
+         WHERE c.id = ?1",
+        [conversation_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()?
+    .ok_or_else(|| CoreError::NotFound(format!("Conversation {conversation_id}")))
+}
+
 pub(crate) fn load_compaction_snapshot(
     database: &Database,
     conversation_id: &str,
 ) -> Result<CompactionSnapshot, CoreError> {
     let checkpoint_generation = {
         let conn = database.conn();
-        conn.query_row(
-            "SELECT COALESCE(cc.checkpoint_generation, 0)
-             FROM conversations c
-             LEFT JOIN context_compactions cc ON cc.id = c.active_context_compaction_id
-             WHERE c.id = ?1",
-            rusqlite::params![conversation_id],
-            |row| row.get::<_, u64>(0),
-        )
-        .optional()?
-        .ok_or_else(|| CoreError::NotFound(format!("Conversation {conversation_id}")))?
+        checkpoint_generations(&conn, conversation_id)?.0
     };
     let messages = model_history_messages(database.get_messages(conversation_id)?);
     let fresh_handoff_is_current =
@@ -88,17 +98,11 @@ pub(crate) fn commit_context_checkpoint_cancellable(
 ) -> Result<CommitOutcome, CoreError> {
     let mut conn = database.conn();
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let checkpoint_generation = tx
-        .query_row(
-            "SELECT COALESCE(cc.checkpoint_generation, 0)
-             FROM conversations c
-             LEFT JOIN context_compactions cc ON cc.id = c.active_context_compaction_id
-             WHERE c.id = ?1",
-            rusqlite::params![input.conversation_id],
-            |row| row.get::<_, u64>(0),
-        )
-        .optional()?
-        .ok_or_else(|| CoreError::NotFound(format!("Conversation {}", input.conversation_id)))?;
+    // Invalidation must fence plans made against the old active checkpoint.
+    // Invalidated rows still reserve their generation, so allocation separately
+    // uses the largest generation in the full history.
+    let (checkpoint_generation, latest_generation) =
+        checkpoint_generations(&tx, &input.conversation_id)?;
     if checkpoint_generation != input.expected_checkpoint_generation
         || !source_prefix_matches(
             &tx,
@@ -107,6 +111,7 @@ pub(crate) fn commit_context_checkpoint_cancellable(
             input.source_start_sort_order,
             input.source_boundary_sort_order,
             &input.source_digest,
+            Some(&input.source_image_digest),
         )?
     {
         return Ok(CommitOutcome::Superseded);
@@ -133,7 +138,7 @@ pub(crate) fn commit_context_checkpoint_cancellable(
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
-    let next_generation = checkpoint_generation.saturating_add(1);
+    let next_generation = latest_generation.saturating_add(1);
     tx.execute(
         "INSERT INTO context_compactions (
              id, operation_id, conversation_id, idempotency_key,
@@ -248,12 +253,16 @@ fn source_prefix_matches(
     source_start_sort_order: i64,
     source_boundary_sort_order: i64,
     expected_digest: &str,
+    expected_image_digest: Option<&str>,
 ) -> Result<bool, CoreError> {
     if expected_ids.is_empty() || source_boundary_sort_order < source_start_sort_order {
         return Ok(false);
     }
+    // Image bytes are only needed for the transient commit fence. Loading an
+    // existing checkpoint keeps its original digest and avoids reading blobs.
     let mut statement = conn.prepare(
-        "SELECT id, sort_order, role, content, tool_call_id, tool_calls_json, artifacts_json
+        "SELECT id, sort_order, role, content, tool_call_id, tool_calls_json, artifacts_json,
+                CASE WHEN ?4 THEN image_attachments_json ELSE NULL END
          FROM messages
          WHERE conversation_id = ?1 AND sort_order >= ?2 AND sort_order <= ?3
          ORDER BY sort_order ASC",
@@ -262,7 +271,8 @@ fn source_prefix_matches(
         rusqlite::params![
             conversation_id,
             source_start_sort_order,
-            source_boundary_sort_order
+            source_boundary_sort_order,
+            expected_image_digest.is_some()
         ],
         |row| {
             Ok((
@@ -273,13 +283,24 @@ fn source_prefix_matches(
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
             ))
         },
     )?;
     let mut message_ids = Vec::new();
     let mut hash = blake3::Hasher::new();
+    let mut image_hash = blake3::Hasher::new();
     for row in rows {
-        let (id, sort_order, role, content, tool_call_id, tool_calls_json, artifacts_json) = row?;
+        let (
+            id,
+            sort_order,
+            role,
+            content,
+            tool_call_id,
+            tool_calls_json,
+            artifacts_json,
+            images_json,
+        ) = row?;
         let artifacts = artifacts_json
             .as_deref()
             .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok());
@@ -301,9 +322,22 @@ fn source_prefix_matches(
             tool_call_id.as_deref(),
             tool_calls_json.as_deref().unwrap_or("[]"),
         );
+        if expected_image_digest.is_some() {
+            let images = match images_json {
+                Some(json) => match serde_json::from_str::<Vec<ImageAttachment>>(&json) {
+                    Ok(images) => images,
+                    Err(_) => return Ok(false),
+                },
+                None => Vec::new(),
+            };
+            hash_source_images(&mut image_hash, &id, &images);
+        }
         message_ids.push(id);
     }
-    Ok(message_ids == expected_ids && hash.finalize().to_hex().to_string() == expected_digest)
+    Ok(message_ids == expected_ids
+        && hash.finalize().to_hex().to_string() == expected_digest
+        && expected_image_digest
+            .is_none_or(|expected| image_hash.finalize().to_hex().as_str() == expected))
 }
 
 #[derive(Debug)]
@@ -342,6 +376,7 @@ pub fn load_context_projection(
                 checkpoint.source_start_sort_order,
                 checkpoint.source_boundary_sort_order,
                 &checkpoint.source_digest,
+                None,
             )?
         };
         if !source_is_current {
@@ -627,6 +662,7 @@ mod tests {
                 .map(|message| message.sort_order)
                 .unwrap_or(0),
             source_digest: super::super::planner::source_digest(source),
+            source_image_digest: super::super::planner::source_image_digest(source),
             expected_checkpoint_generation: 0,
             summary: "older context summary".to_string(),
             retained_tail_message_ids,
@@ -1105,5 +1141,259 @@ mod tests {
                 .expect("stale generation comparison"),
             CommitOutcome::Superseded,
         );
+    }
+
+    fn checkpoint_with_retained_request() -> (Database, String) {
+        let database = Database::open_memory().unwrap();
+        let conversation = database
+            .create_conversation(&CreateConversationInput {
+                provider: "open_ai".into(),
+                model: "test".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        for (index, role) in [(0, Role::User), (1, Role::Assistant), (2, Role::User)] {
+            add_message(&database, &conversation.id, index, role);
+        }
+        let messages = database.get_messages(&conversation.id).unwrap();
+        let input = checkpoint_input(
+            &conversation.id,
+            "ctx-source",
+            &messages[..2],
+            vec!["message-2".into()],
+            2,
+        );
+        commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap();
+        (database, conversation.id)
+    }
+
+    #[test]
+    fn checkpoint_survives_new_turn_context_preparation_and_unchanged_source() {
+        let (database, conversation) = checkpoint_with_retained_request();
+        add_message(&database, &conversation, 3, Role::User);
+        // Desktop startup performs this even for text-only new messages.
+        database
+            .update_message_vision_context("message-3", &[], "prepared new turn")
+            .unwrap();
+        assert!(
+            load_context_projection(&database, &conversation)
+                .unwrap()
+                .projected,
+            "preparing a newly appended user request must not undo Fork"
+        );
+        database
+            .update_message_llm_context_content("message-3", "enriched new turn")
+            .unwrap();
+        database
+            .update_message_vision_context("message-0", &[], "content 0")
+            .unwrap();
+        database
+            .update_message_llm_context_content("message-1", "content 1")
+            .unwrap();
+        let projection = load_context_projection(&database, &conversation).unwrap();
+        assert!(
+            projection.projected,
+            "unchanged source replay must preserve the checkpoint"
+        );
+        assert_eq!(
+            crate::conversation::conversation_message_llm_context_content(
+                projection.messages.last().unwrap()
+            ),
+            "enriched new turn"
+        );
+        assert_eq!(
+            database.get_messages(&conversation).unwrap().len(),
+            4,
+            "canonical evidence remains intact"
+        );
+        database
+            .update_message_vision_context("message-0", &[], "changed archived evidence")
+            .unwrap();
+        assert!(
+            !load_context_projection(&database, &conversation)
+                .unwrap()
+                .projected,
+            "a real archived-source edit must invalidate its old checkpoint"
+        );
+    }
+
+    #[test]
+    fn checkpoint_generation_advances_after_source_invalidation() {
+        let (database, conversation) = checkpoint_with_retained_request();
+        database
+            .update_message_llm_context_content("message-0", "changed archived evidence")
+            .unwrap();
+        let snapshot = load_compaction_snapshot(&database, &conversation).unwrap();
+        let mut input = checkpoint_input(
+            &conversation,
+            "ctx-rebuilt",
+            &snapshot.messages[..2],
+            vec!["message-2".into()],
+            2,
+        );
+        input.expected_checkpoint_generation = snapshot.checkpoint_generation;
+        assert!(
+            matches!(
+                commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap(),
+                CommitOutcome::Committed { .. }
+            ),
+            "a fresh Fork after invalidation must not reuse a prior generation"
+        );
+        assert_eq!(
+            load_compaction_snapshot(&database, &conversation)
+                .unwrap()
+                .checkpoint_generation,
+            2
+        );
+        assert!(
+            load_context_projection(&database, &conversation)
+                .unwrap()
+                .projected
+        );
+        input.operation_id = "ctx-stale-rebuild".into();
+        input.idempotency_key = "ctx-stale-rebuild".into();
+        assert_eq!(
+            commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap(),
+            CommitOutcome::Superseded,
+            "the monotonic generation still fences a stale parallel commit"
+        );
+    }
+
+    #[test]
+    fn checkpoint_rejects_a_plan_after_its_active_checkpoint_was_invalidated() {
+        let (database, conversation) = checkpoint_with_retained_request();
+        let snapshot = load_compaction_snapshot(&database, &conversation).unwrap();
+        let mut input = checkpoint_input(
+            &conversation,
+            "ctx-stale-active",
+            &snapshot.messages[..2],
+            vec!["message-2".into()],
+            2,
+        );
+        input.expected_checkpoint_generation = snapshot.checkpoint_generation;
+        database
+            .update_message_llm_context_content("message-0", "changed archived evidence")
+            .unwrap();
+        // Even if the original source is restored, invalidation must fence a
+        // plan prepared against the old active checkpoint.
+        database
+            .update_message_llm_context_content("message-0", "content 0")
+            .unwrap();
+        assert_eq!(
+            commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap(),
+            CommitOutcome::Superseded
+        );
+    }
+
+    #[test]
+    fn checkpoint_rejects_source_image_edits_without_an_active_checkpoint() {
+        let (database, conversation) = checkpoint_with_retained_request();
+        let mut image = ImageAttachment {
+            base64_data: "original-pixels".into(),
+            media_type: "image/png".into(),
+            original_name: "scan.png".into(),
+            attachment_id: Some("image".into()),
+            attachment_hash: None,
+            vision_analysis: None,
+        };
+        database
+            .update_message_vision_context("message-0", &[image.clone()], "content 0")
+            .unwrap();
+        assert!(active_checkpoint(&database, &conversation)
+            .unwrap()
+            .is_none());
+        let snapshot = load_compaction_snapshot(&database, &conversation).unwrap();
+        let mut input = checkpoint_input(
+            &conversation,
+            "ctx-stale-image",
+            &snapshot.messages[..2],
+            vec!["message-2".into()],
+            2,
+        );
+        input.expected_checkpoint_generation = snapshot.checkpoint_generation;
+        // No active checkpoint exists to invalidate; message IDs and replay
+        // text are unchanged, but the pending plan no longer has current pixels.
+        image.base64_data = "replacement-pixels".into();
+        database
+            .update_message_vision_context("message-0", &[image], "content 0")
+            .unwrap();
+        assert_eq!(
+            commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap(),
+            CommitOutcome::Superseded
+        );
+    }
+
+    #[test]
+    fn checkpoint_scopes_vision_cache_expiry_to_changed_archived_evidence() {
+        use crate::vision_router::{
+            observation_prompt_text, VisionAttachmentAnalysis, VisionAttachmentStatus,
+            VisionObservationV1,
+        };
+        for archived in [false, true] {
+            let (database, conversation) = checkpoint_with_retained_request();
+            add_message(&database, &conversation, 3, Role::User);
+            let message_id = if archived { "message-0" } else { "message-3" };
+            let observation: VisionObservationV1 = serde_json::from_value(serde_json::json!({
+                "schemaVersion": 1, "attachmentId": "image", "attachmentHash": "a".repeat(64),
+                "profileHash": "b".repeat(64), "intent": "dense_text", "ocrText": "verified text",
+                "fallbackUsed": false, "privacyScope": "local", "sources": [{"kind":"local_ocr","local":true}],
+                "route": {"classifierVersion":1,"intent":"dense_text","plan":"ocr_only","classificationConfidence":1.0}
+            })).unwrap();
+            let replay = format!(
+                "request\n\n{}",
+                observation_prompt_text("scan.png", &observation).unwrap()
+            );
+            let mut image = ImageAttachment {
+                base64_data: "source-image".into(),
+                media_type: "image/png".into(),
+                original_name: "scan.png".into(),
+                attachment_id: Some(observation.attachment_id.clone()),
+                attachment_hash: Some(observation.attachment_hash.clone()),
+                vision_analysis: Some(VisionAttachmentAnalysis {
+                    status: VisionAttachmentStatus::Observed,
+                    profile_hash: Some(observation.profile_hash.clone()),
+                    observation: Some(observation),
+                    reason_code: None,
+                }),
+            };
+            database
+                .update_message_vision_context(message_id, &[image.clone()], &replay)
+                .unwrap();
+            if archived {
+                let snapshot = load_compaction_snapshot(&database, &conversation).unwrap();
+                let mut input = checkpoint_input(
+                    &conversation,
+                    "ctx-image",
+                    &snapshot.messages[..2],
+                    vec!["message-2".into(), "message-3".into()],
+                    2,
+                );
+                input.snapshot_high_watermark = 3;
+                input.expected_checkpoint_generation = snapshot.checkpoint_generation;
+                commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap();
+            }
+            image.vision_analysis.as_mut().unwrap().status = VisionAttachmentStatus::Cached;
+            database
+                .update_message_vision_context(message_id, &[image], &replay)
+                .unwrap();
+            assert!(
+                load_context_projection(&database, &conversation)
+                    .unwrap()
+                    .projected,
+                "analysis-cache status alone does not change model evidence"
+            );
+            database.clear_vision_observation_cache().unwrap();
+            assert_eq!(
+                load_context_projection(&database, &conversation)
+                    .unwrap()
+                    .projected,
+                !archived,
+                "cache expiry invalidates only source evidence, not the live tail"
+            );
+            assert_eq!(database.get_messages(&conversation).unwrap().len(), 4);
+        }
     }
 }

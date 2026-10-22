@@ -18,8 +18,10 @@ type ObservedElement = {
   selectedValues?: string[];
   bounds: { x: number; y: number; width: number; height: number };
 };
-type ObservationOptions = { query?: string; offset?: number };
+type ObservationOptions = { query?: string; offset?: number; textQuery?: string | null };
 type Observation = {
+  text: string;
+  textMatch?: { query: string; found: boolean; complete: boolean };
   elements: ObservedElement[];
   userEpoch: number;
   interactionFingerprint: string;
@@ -94,6 +96,41 @@ test('agent completes observe edit verify submit using the values the page actua
   expect(committed.text).toContain('Saved Reviewed: Complete');
 });
 
+test('text wait evidence searches beyond preview limits and accessible embedded roots', async ({ page }) => {
+  for (const scenario of ['long page', 'frame', 'shadow', 'body visibility override', 'shadow visibility override']) {
+    await page.setContent(scenario === 'long page'
+      ? `<p>${'x'.repeat(30020)}</p><p id="pending">Uploading still active</p>`
+      : scenario === 'frame'
+        ? '<p>Outer page</p><iframe srcdoc="<p id=pending>Uploading still active</p>"></iframe>'
+        : scenario === 'body visibility override'
+          ? '<body style="visibility:hidden"><p id="pending" style="visibility:visible">Uploading still active</p></body>'
+          : `<p>Outer page</p><div id="host" style="${scenario === 'shadow visibility override' ? 'visibility:hidden' : ''}"></div>`);
+    if (scenario === 'frame') await expect(page.frameLocator('iframe').locator('#pending')).toBeVisible();
+    if (scenario.startsWith('shadow')) await page.evaluate(() => {
+      document.querySelector('#host')!.attachShadow({ mode: 'open' }).innerHTML = '<p id="pending" style="visibility:visible">Uploading still active</p>';
+    });
+    await page.addScriptTag({ content: runtimeSource });
+    const before = await observe(page, { textQuery: 'Uploading' });
+    expect(before.text.length).toBeLessThanOrEqual(30000);
+    expect(before.textMatch).toEqual({ query: 'Uploading', found: true, complete: true });
+    await page.evaluate(() => {
+      const frame = document.querySelector('iframe');
+      const root = frame?.contentDocument || document.querySelector('#host')?.shadowRoot || document;
+      root.querySelector('#pending')!.remove();
+    });
+    const after = await observe(page, { textQuery: 'Uploading' });
+    expect(after.textMatch).toEqual({ query: 'Uploading', found: false, complete: true });
+    expect(after.domFingerprint).not.toBe(before.domFingerprint);
+  }
+  await page.setContent('<div id="host" style="display:none"></div>');
+  await page.evaluate(() => document.querySelector('#host')!.attachShadow({ mode: 'open' }).innerHTML = '<p style="visibility:visible">Uploading hidden by display</p>');
+  expect((await observe(page, { textQuery: 'Uploading' })).textMatch).toEqual({ query: 'Uploading', found: false, complete: true });
+  await page.setContent('<upload-status></upload-status>');
+  await page.evaluate(() => document.querySelector('upload-status')!.attachShadow({ mode: 'closed' }).innerHTML = '<p>Uploading still active</p>');
+  const closed = await observe(page, { textQuery: 'Uploading' });
+  expect(closed.textMatch).toMatchObject({ query: 'Uploading', found: false, complete: false, incompleteReason: 'custom_element_shadow_root_unavailable' });
+});
+
 test('scrolling a long work queue makes its visible action reachable by agent refs', async ({ page }) => {
   await page.setContent(`<!doctype html><style>button { display:block; height:32px; }</style>
     ${Array.from({ length: 340 }, (_, index) => `<button>Earlier record ${index}</button>`).join('')}
@@ -153,7 +190,7 @@ test('filtered no-op checkbox preparation retains the same set for effect verifi
     __NEXA_BROWSER_RUNTIME__: { prepareNativePointer(input: unknown): { stateMatched: boolean; verificationBaseline: { domFingerprint: string; observationOptions: ObservationOptions } } };
   }).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), { action: 'set_checked', checked: true, targetRef: target.ref, expected: target, userEpoch: before.userEpoch, interactionFingerprint: before.interactionFingerprint });
   expect(prepared.stateMatched).toBe(true);
-  expect(prepared.verificationBaseline.observationOptions).toEqual({ query: 'Already approved', offset: 0 });
+  expect(prepared.verificationBaseline.observationOptions).toEqual({ query: 'Already approved', offset: 0, textQuery: null });
   const after = await observe(page, prepared.verificationBaseline.observationOptions);
   expect(after.domFingerprint).toBe(prepared.verificationBaseline.domFingerprint);
   expect(after.elements[0].checked).toBe(true);
@@ -178,7 +215,8 @@ test('inaccessible embedded controls report the browser boundary instead of an e
   await page.goto('https://outer.example.test/');
   await page.frameLocator('iframe').getByRole('button', { name: 'Continue authorization' }).waitFor({ state: 'visible' });
   await page.addScriptTag({ content: runtimeSource });
-  const observation = await observe(page, { query: 'Continue authorization' });
+  const observation = await observe(page, { query: 'Continue authorization', textQuery: 'Continue authorization' });
+  expect(observation.textMatch).toMatchObject({ query: 'Continue authorization', found: false, complete: false, incompleteReason: 'inaccessible_frame' });
   expect(observation.elements).toEqual([]);
   expect(observation.frameLimitations).toMatchObject({
     unavailableCount: 1,

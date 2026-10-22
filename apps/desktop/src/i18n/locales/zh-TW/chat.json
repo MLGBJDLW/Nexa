@@ -179,7 +179,6 @@
   "tokenUsagePercent": "已使用 {percent}% 上下文",
   "contextFillingUp": "上下文視窗即將滿載 ({percent}%)。建議開始新對話。",
   "contextNearlyFull": "上下文視窗即將滿載 ({percent}%)。較早的訊息可能會遺失。",
-  "imageMessage": "(圖片)",
   "pasteImageFailed": "Failed to paste image",
   "tokensLabel": "權杖",
   "tokensShort": "權杖",
@@ -947,5 +946,16 @@
   "contextPolicyFork": "自動 Fork",
   "contextPolicyForkTiming": "何時 Fork",
   "contextPolicyForkTriggerAt": "輸入超過 {tokens} tokens 後自動 Fork。",
-  "contextPolicyForkCalculation": "比例基於可用輸入 {input} tokens，已預留回覆 {reply} 與安全餘量 {safety}。Fork 會封存先前推理並保留目前任務。"
+  "contextPolicyForkCalculation": "比例基於可用輸入 {input} tokens，已預留回覆 {reply} 與安全餘量 {safety}。Fork 會封存先前推理並保留目前任務。",
+  "questionSkip": "略過此問題",
+  "questionSkipped": "已略過",
+  "interactionTitle": "介面操作",
+  "interactionPending": "待驗證",
+  "interactionUncertain": "結果不確定",
+  "interactionNotDispatched": "未送出輸入",
+  "interactionUnchanged": "未見變化",
+  "interactionChanged": "已觀察到變化",
+  "interactionTargetClosed": "目標已關閉",
+  "interactionMatched": "條件已滿足",
+  "interactionObserved": "已取得觀察"
 }

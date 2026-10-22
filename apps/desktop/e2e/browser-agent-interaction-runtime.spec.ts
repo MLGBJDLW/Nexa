@@ -353,6 +353,13 @@ test('Agent pointer preparation scrolls targets into view and rejects covered el
   expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
   expect(prepared.bounds.y).toBeGreaterThanOrEqual(0);
   expect(prepared.bounds.y + prepared.bounds.height).toBeLessThanOrEqual(600);
+  await page.screenshot();
+  const revalidated = await page.evaluate(({ input, prepared }) => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input, prepared), {
+    input: actionInput(observation, 'hover', targetRef), prepared,
+  });
+  expect(revalidated.bounds).toEqual(prepared.bounds);
 
   await page.setContent(`
     <!doctype html>
@@ -366,6 +373,33 @@ test('Agent pointer preparation scrolls targets into view and rejects covered el
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
   ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(value), actionInput(coveredObservation, 'hover', coveredRef)))
     .rejects.toThrow(/covered by another element/);
+});
+
+test('prepared hover rejects target changes during the screenshot baseline', async ({ page }) => {
+  for (const change of ['move', 'replace', 'cover', 'takeover']) {
+    await page.setContent('<button id="target" style="position:absolute;left:20px;top:20px">Target</button>');
+    await page.addScriptTag({ content: runtimeSource });
+    const observation = await observe(page);
+    const input = actionInput(observation, 'hover', observation.elements.find(element => element.name === 'Target')!.ref);
+    const prepared = await page.evaluate(input => (
+      window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+    ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), input);
+    await page.evaluate(change => {
+      const target = document.querySelector<HTMLButtonElement>('#target')!;
+      if (change === 'move') target.style.left = '500px';
+      else if (change === 'replace') target.replaceWith(target.cloneNode(true));
+      else if (change === 'cover') {
+        const cover = document.createElement('div');
+        cover.style.cssText = 'position:fixed;inset:0;z-index:100';
+        document.body.appendChild(cover);
+      } else (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.invalidateForUserTakeover();
+    }, change);
+    await page.screenshot();
+    await expect(page.evaluate(({ input, prepared }) => (
+      window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+    ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input, prepared), { input, prepared }))
+      .rejects.toThrow(/stale observation|covered by another element/);
+  }
 });
 
 test('pointer preparation establishes the post-scroll baseline for noop effect verification', async ({ page }) => {
@@ -385,7 +419,7 @@ test('pointer preparation establishes the post-scroll baseline for noop effect v
     url: afterPreparation.url,
     domFingerprint: afterPreparation.domFingerprint,
     userEpoch: afterPreparation.userEpoch,
-    observationOptions: { query: '', offset: 0 },
+    observationOptions: { query: '', offset: 0, textQuery: null },
   });
 
   const bounds = await page.locator('#target').boundingBox();
@@ -1021,8 +1055,13 @@ test('Explicit drag points work within the visible part of a large canvas', asyn
   expect(bounds).toEqual({ x: 150, y: 150, width: 0, height: 0 });
 });
 
-for (const shiftFrame of [false, true]) test(`Same-origin frame drag ${shiftFrame ? 'blocks a shifted-frame drop' : 'reaches the original destination'}`, async ({ page }) => {
-  await page.setContent('<iframe style="position:absolute;left:30px;top:30px;width:600px;height:300px;border:0"></iframe>');
+for (const { border, scale, shiftFrame } of [
+  { border: 0, scale: 1, shiftFrame: false },
+  { border: 0, scale: 1, shiftFrame: true },
+  { border: 24, scale: 1, shiftFrame: false },
+  { border: 12, scale: 1.5, shiftFrame: false },
+]) test(`Same-origin frame drag ${shiftFrame ? 'blocks a shifted-frame drop' : `reaches the original destination (border ${border}, scale ${scale})`}`, async ({ page }) => {
+  await page.setContent(`<iframe style="position:absolute;left:30px;top:30px;width:600px;height:300px;border:${border}px solid black;transform:scale(${scale});transform-origin:top left"></iframe>`);
   const frame = page.frames()[1];
   await frame.setContent('<div draggable="true" style="position:absolute;left:20px;top:20px;width:80px;height:80px" ondragstart="event.dataTransfer.setData(\'text/plain\',\'fixture\')">Frame source</div><div data-dropzone style="position:absolute;left:220px;top:20px;width:100px;height:100px" ondragover="event.preventDefault()" ondrop="event.preventDefault();window.dropped=\'original\'">Frame destination</div>');
   await page.addScriptTag({ content: runtimeSource });
@@ -1034,13 +1073,17 @@ for (const shiftFrame of [false, true]) test(`Same-origin frame drag ${shiftFram
     const target = before.elements.find(el => el.name === 'Frame source')!, end = before.elements.find(el => el.name === 'Frame destination')!;
     return bridge.prepareTrustedDrag({ ...before, action: 'drag', targetRef: target.ref, endRef: end.ref, expected: target, expectedEnd: end, button: 'left', modifiers: [] });
   });
-  expect(await page.evaluate(prepared => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'frame-drag', { pointerDown: 1, keyDown: 0, input: 0 }, { kind: 'drag', x: 90, y: 90, endX: 300, endY: 100, button: 'left', ...prepared }), prepared)).toBe(true);
+  const start = { x: prepared.bounds.x + prepared.bounds.width / 2, y: prepared.bounds.y + prepared.bounds.height / 2 };
+  const end = { x: prepared.endBounds.x + prepared.endBounds.width / 2, y: prepared.endBounds.y + prepared.endBounds.height / 2 };
+  expect(start.x).toBeCloseTo(30 + (border + 60) * scale);
+  expect(start.y).toBeCloseTo(30 + (border + 60) * scale);
+  expect(await page.evaluate(({ prepared, start, end }) => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'frame-drag', { pointerDown: 1, keyDown: 0, input: 0 }, { kind: 'drag', x: start.x, y: start.y, endX: end.x, endY: end.y, button: 'left', ...prepared }), { prepared, start, end })).toBe(true);
   // Let the authenticated arm relay reach the child before native input.
   await frame.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
   expect(await frame.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: { expects(type: string, event: unknown): boolean } }).__NEXA_TRUSTED_INPUT_GUARD__.expects('pointerdown', { button: 0, clientX: 60, clientY: 60, target: document.querySelector('[draggable]') }))).toBe(true);
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 90, y: 90 });
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 90, y: 90, button: 'left', buttons: 1, clickCount: 1 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...start });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...start, button: 'left', buttons: 1, clickCount: 1 });
   if (shiftFrame) {
     await page.locator('iframe').evaluate(el => { (el as HTMLElement).style.left = '50px'; });
     await frame.evaluate(() => {
@@ -1051,11 +1094,23 @@ for (const shiftFrame of [false, true]) test(`Same-origin frame drag ${shiftFram
       document.body.append(overlay);
     });
   }
-  for (let step = 1; step <= 16; step++) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 90 + 210 * step / 16, y: 90 + 10 * step / 16, button: 'left', buttons: 1 });
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 300, y: 100, button: 'left', buttons: 0, clickCount: 1 });
+  for (let step = 1; step <= 16; step++) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x + (end.x - start.x) * step / 16, y: start.y + (end.y - start.y) * step / 16, button: 'left', buttons: 1 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', buttons: 0, clickCount: 1 });
   if (shiftFrame) expect(await frame.evaluate(() => (window as unknown as { dropped: string }).dropped)).toBeUndefined();
   else expect(await frame.evaluate(() => (window as unknown as { dropped: string }).dropped)).toBe('original');
   expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'frame-drag'))).toBe(!shiftFrame);
+  if (!shiftFrame) {
+    await page.locator('iframe').evaluate(element => { (element as HTMLElement).style.transform = 'rotate(5deg)'; });
+    const rejection = await page.evaluate(() => {
+      const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+      const observation = bridge.observe();
+      const target = observation.elements.find(element => element.name === 'Frame source')!;
+      try { bridge.prepareNativePointer({ ...observation, action: 'click', targetRef: target.ref, expected: target, button: 'left', modifiers: [] }); }
+      catch (error) { return String(error); }
+      return 'unexpected admission';
+    });
+    expect(rejection).toContain('rotated, skewed, mirrored or perspective iframe');
+  }
 });
 
 test('Trusted wheel reaches the nested scroll area without surrendering browser control', async ({ page }) => {
@@ -1087,13 +1142,20 @@ test('Trusted drag delivers real held-button pointer events to a canvas', async 
     const fixture = window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge; dragEvents: Array<{ type: string; trusted: boolean; buttons: number }> };
     fixture.dragEvents = [];
     for (const type of ['pointerdown', 'pointermove', 'pointerup']) document.querySelector('canvas')!.addEventListener(type, event => fixture.dragEvents.push({ type, trusted: event.isTrusted, buttons: (event as PointerEvent).buttons }));
+    document.querySelector('canvas')!.addEventListener('pointermove', event => {
+      if ((event as PointerEvent).buttons !== 1) return;
+      const drawing = document.querySelector('canvas')!.getContext('2d')!;
+      drawing.fillStyle = 'red';
+      drawing.fillRect(0, 0, 200, 100);
+    });
     const bridge = fixture.__NEXA_BROWSER_RUNTIME__;
     const observation = bridge.observe();
     const input = { ...observation, action: 'drag', targetRef: '', point: { x: 30, y: 40 }, endPoint: { x: 250, y: 160 }, button: 'left', modifiers: [] };
     const start = bridge.resolvePointerTarget(input, input.point);
     const end = bridge.resolvePointerTarget(input, input.endPoint);
-    return { ...bridge.prepareTrustedDrag({ ...input, targetRef: start.ref, expected: start, endRef: end.ref, expectedEnd: end }), userEpoch: observation.userEpoch };
+    return { ...bridge.prepareTrustedDrag({ ...input, targetRef: start.ref, expected: start, endRef: end.ref, expectedEnd: end }), userEpoch: observation.userEpoch, domFingerprint: observation.domFingerprint };
   });
+  const beforePixels = await page.screenshot();
   expect(await page.evaluate(prepared => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'drag', { pointerDown: 1, keyDown: 0, input: 0 }, { kind: 'drag', x: 30, y: 40, endX: 250, endY: 160, button: 'left', ...prepared }), prepared)).toBe(true);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 30, y: 40 });
@@ -1105,7 +1167,10 @@ test('Trusted drag delivers real held-button pointer events to a canvas', async 
   expect(events.every(event => event.trusted)).toBe(true);
   expect(events.at(-1)?.type).toBe('pointerup');
   expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'drag'))).toBe(true);
-  expect((await observe(page)).userEpoch).toBe(prepared.userEpoch);
+  const finalObservation = await observe(page);
+  expect(finalObservation.userEpoch).toBe(prepared.userEpoch);
+  expect(finalObservation.domFingerprint).toBe(prepared.domFingerprint);
+  expect((await page.screenshot()).equals(beforePixels)).toBe(false);
 });
 
 interface BrowserBridge {
@@ -1121,7 +1186,7 @@ interface BrowserBridge {
   beginCapture(id: string): { id: string };
   captureStatus(id: string): { id: string; status: string };
   endCapture(id: string): boolean;
-  prepareNativePointer(input: BrowserActionInput): {
+  prepareNativePointer(input: BrowserActionInput, prepared?: { targetRef: string; targetContext: string; bounds: { x: number; y: number; width: number; height: number } }): {
     targetRef: string;
     targetContext: string;
     stateMatched?: boolean;

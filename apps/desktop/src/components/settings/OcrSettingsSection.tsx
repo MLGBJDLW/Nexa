@@ -46,10 +46,10 @@ export function OcrSettingsSection({
       {ocrConfig && (
         <div className="min-w-0 space-y-3">
           <SettingsRow label={t('settings.ocrEnabled')} description={t('settings.ocrEnabledDesc')} htmlFor="ocr-enabled">
-            <div className="flex sm:justify-end"><SettingsToggle id="ocr-enabled" label={t('settings.ocrEnabled')} checked={ocrConfig.enabled} onChange={enabled => updateConfig({ enabled })} /></div>
+            <div className="flex justify-end"><SettingsToggle id="ocr-enabled" label={t('settings.ocrEnabled')} checked={ocrConfig.enabled} onChange={enabled => updateConfig({ enabled })} /></div>
           </SettingsRow>
           <SettingsRow label={t('settings.ocrLlmFallback')} description={t('settings.ocrLlmFallbackDesc')} htmlFor="ocr-fallback">
-            <div className="flex sm:justify-end"><SettingsToggle id="ocr-fallback" label={t('settings.ocrLlmFallback')} checked={ocrConfig.llmFallbackEnabled} onChange={llmFallbackEnabled => updateConfig({ llmFallbackEnabled })} /></div>
+            <div className="flex justify-end"><SettingsToggle id="ocr-fallback" label={t('settings.ocrLlmFallback')} checked={ocrConfig.llmFallbackEnabled} onChange={llmFallbackEnabled => updateConfig({ llmFallbackEnabled })} /></div>
           </SettingsRow>
           <CollapsiblePanel title={t('settings.advanced')}>
             <SettingsRow label={t('settings.ocrConfidence')} description={t('settings.ocrConfidenceDesc')} htmlFor="ocr-confidence">
@@ -59,12 +59,12 @@ export function OcrSettingsSection({
               <Input id="ocr-detection-limit" type="number" value={ocrConfig.detLimitSideLen} onChange={event => updateConfig({ detLimitSideLen: parseInt(event.target.value) || 960 })} />
             </SettingsRow>
             <SettingsRow label={t('settings.ocrUseCls')} description={t('settings.ocrUseClsDesc')} htmlFor="ocr-orientation">
-              <div className="flex sm:justify-end"><SettingsToggle id="ocr-orientation" label={t('settings.ocrUseCls')} checked={ocrConfig.useCls} onChange={useCls => updateConfig({ useCls })} /></div>
+              <div className="flex justify-end"><SettingsToggle id="ocr-orientation" label={t('settings.ocrUseCls')} checked={ocrConfig.useCls} onChange={useCls => updateConfig({ useCls })} /></div>
             </SettingsRow>
           </CollapsiblePanel>
 
           {/* Save button */}
-          <div className="flex justify-end pt-2">
+          <div data-settings-actions className="flex justify-end pt-2">
             <Button
               variant="primary"
               size="sm"

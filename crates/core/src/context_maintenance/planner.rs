@@ -1,6 +1,8 @@
 use crate::agent::context::build_evicted_recap_from_messages;
 use crate::conversation::memory::estimate_tokens_for_model;
-use crate::conversation::{conversation_message_llm_context_content, ConversationMessage};
+use crate::conversation::{
+    conversation_message_llm_context_content, ConversationMessage, ImageAttachment,
+};
 use crate::llm::{Message, Role};
 
 const TARGET_USAGE: f32 = 0.55;
@@ -24,6 +26,7 @@ pub(crate) struct CompactionPlan {
     pub source_start_sort_order: i64,
     pub source_boundary_sort_order: i64,
     pub source_digest: String,
+    pub source_image_digest: String,
     pub expected_checkpoint_generation: u64,
     pub summary_messages: Vec<Message>,
     pub extractive_fallback: String,
@@ -155,6 +158,7 @@ pub(crate) fn plan_compaction(
             .map(|message| message.sort_order)
             .unwrap_or_default(),
         source_digest: source_digest(source_messages),
+        source_image_digest: source_image_digest(source_messages),
         expected_checkpoint_generation,
         summary_messages,
         extractive_fallback,
@@ -236,6 +240,7 @@ fn plan_history_handoff(
             .map(|message| message.sort_order)
             .unwrap_or_default(),
         source_digest: source_digest(&messages),
+        source_image_digest: source_image_digest(&messages),
         expected_checkpoint_generation,
         summary_messages: snapshot,
         extractive_fallback: String::new(),
@@ -335,6 +340,39 @@ pub(crate) fn source_digest(messages: &[ConversationMessage]) -> String {
         );
     }
     hash.finalize().to_hex().to_string()
+}
+
+// This transient fingerprint closes image-only edits between plan and commit
+// without changing the source digest stored by existing checkpoints.
+pub(crate) fn source_image_digest(messages: &[ConversationMessage]) -> String {
+    let mut hash = blake3::Hasher::new();
+    for message in messages {
+        hash_source_images(
+            &mut hash,
+            &message.id,
+            message.image_attachments.as_deref().unwrap_or_default(),
+        );
+    }
+    hash.finalize().to_hex().to_string()
+}
+
+pub(crate) fn hash_source_images(hash: &mut blake3::Hasher, id: &str, images: &[ImageAttachment]) {
+    hash_field(hash, id.as_bytes());
+    hash_field(hash, &(images.len() as u64).to_le_bytes());
+    for image in images {
+        hash_field(hash, image.base64_data.as_bytes());
+        hash_field(hash, image.media_type.as_bytes());
+        hash_field(hash, image.original_name.as_bytes());
+        for identity in [
+            image.attachment_id.as_deref(),
+            image.attachment_hash.as_deref(),
+        ] {
+            hash_field(hash, &[u8::from(identity.is_some())]);
+            hash_field(hash, identity.unwrap_or_default().as_bytes());
+        }
+        // vision_analysis caches are not source evidence. Its model-visible
+        // observation text is already covered by the canonical source digest.
+    }
 }
 
 pub(crate) fn hash_source_message(

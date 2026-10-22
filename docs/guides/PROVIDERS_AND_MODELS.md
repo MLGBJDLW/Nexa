@@ -27,6 +27,36 @@ protocol, context limit, reasoning control, or credential route.
 
 ## Choose a connection
 
+The chat toolbar separates the provider icon, model, and reasoning controls.
+Choose a provider to restore that connection's saved model and reasoning settings;
+choose the model label to browse only its models. Subscription and ACP catalogs
+still determine which saved choices are currently available.
+
+### October 22, 2026 catalog audit
+
+The shared catalog validates 85 endpoints and 1,126 model projections. The public
+OpenRouter text catalog contains every active curated route; already-retired routes
+remain tombstones rather than reappearing through saved configurations. Upcoming
+retirements remain deprecated until their published shutdown dates.
+
+New reviewed routes include [Recursive Flint on OpenRouter](https://openrouter.ai/recursive/flint-v1.0:free),
+[GLM-5.3-FlashX-Legal](https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash)
+(application required), [SiliconFlow DeepSeek V4.1 Flash 1017](https://docs.siliconflow.cn/docs/release-notes/overview),
+and Alibaba's [pinned DeepSeek V4.1 Flash 1017](https://help.aliyun.com/zh/model-studio/deepseek-v4-1-flash)
+on its Beijing and Singapore connections,
+and [MiniMax M3.1 Flash direct supply](https://help.aliyun.com/zh/model-studio/minimax-api-by-minimax).
+The [GLM-Legal application](https://z.ai/consultation/legal) remains required.
+Alibaba's [MiMo V2.5 Pro route](https://help.aliyun.com/zh/model-studio/mimo),
+retired on October 21, is hidden while retaining its replacement metadata.
+Alibaba MiniMax keeps thinking on, exposes its five documented effort levels,
+and replays `reasoning_content` alongside tool calls. Its fixed sampling and
+unsupported stop/parallel-tool controls are omitted from requests. SiliconFlow's new route
+retains provider defaults without inheriting the generic numerical thinking budget.
+
+This audit checks public documentation, shared projections and public discovery.
+It does not establish paid inference, account entitlement, local model installation,
+or authenticated discovery for credentials unavailable to the audit process.
+
 | Connection | Setup and execution |
 | --- | --- |
 | API provider | Add a provider in Settings, configure its base URL and credentials, save it, then select an available model in Chat |
@@ -66,6 +96,17 @@ streamRawPredict with the native Claude body. Bedrock uses Converse and the
 AWS binary event stream, including late errors and trailing usage metadata.
 Native signed reasoning and tool-use IDs remain paired with their exact route.
 The same provider-neutral tool loop consumes these transports.
+
+Google Search uses the existing **Settings → Web Search** execution mode.
+Verified Gemini 3/4 Developer API models can combine native search and workspace
+tools; Nexa enables tool context circulation and retains the signed server-tool
+parts for replay. Vertex Gemini and Gemini 2.5 support native search in a
+search-only request. With workspace tools, **Auto/Hybrid** retains Nexa Router
+search, while **Provider Native** explains the unsupported combination instead
+of dropping tools or sending an invalid request. Capability checks follow the
+actual endpoint and model, including Vertex project/location routes. See
+[Gemini tool combinations](https://ai.google.dev/gemini-api/docs/generate-content/tool-combination)
+and [Vertex grounding limits](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/grounding/grounding-with-google-search).
 
 Bedrock model selection accepts regional or global inference-profile IDs and
 full profile ARNs without rewriting them. Curated global profiles are examples;

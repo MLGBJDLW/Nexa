@@ -270,7 +270,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
     {authTerminal && <TerminalDock attachedSession={authTerminal} />}
     {loading && initialLaunch && <p role="status" className="text-xs text-text-tertiary">{t('settings.externalAgentPreparing')}</p>}
     {error && <p role="alert" className="break-words text-xs text-danger [overflow-wrap:anywhere]">{error}</p>}
-    <div className="flex flex-wrap gap-2">
+    <div data-settings-actions className="flex flex-wrap gap-2">
       <Button size="sm" variant="secondary" loading={loading} disabled={!initialLaunch || saving || !!authTerminal || !launchFieldsValid} onClick={() => void probe()}>{t(packageRunner ? 'settings.externalAgentPackageProbe' : 'settings.externalAgentProbe')}</Button>
       <Button size="sm" loading={saving || isSaving} disabled={!canSave} onClick={() => void save()}>{t('common.save')}</Button>
       <Button size="sm" variant="secondary" onClick={() => { generation.current++; cancelSetup(); onCancel(); }}>{t('common.cancel')}</Button>

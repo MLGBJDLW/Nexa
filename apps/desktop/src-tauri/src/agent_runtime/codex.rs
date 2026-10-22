@@ -399,7 +399,10 @@ async fn model(wire: &mut Wire, id: &str) -> Result<Value, CoreError> {
 }
 
 fn user_input(text: &str, images: &[(String, String)]) -> Vec<Value> {
-    let mut input = vec![json!({"type":"text","text":text,"text_elements":[]})];
+    let mut input = Vec::new();
+    if !text.trim().is_empty() {
+        input.push(json!({"type":"text","text":text,"text_elements":[]}));
+    }
     input.extend(
         images
             .iter()
@@ -877,6 +880,16 @@ async fn project_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn attachment_only_input_omits_empty_text() {
+        let images = vec![("image/png".into(), "fixture".into())];
+        for text in ["", " \n"] {
+            let input = user_input(text, &images);
+            assert_eq!(input.len(), 1);
+            assert_eq!(input[0]["type"], "image");
+        }
+        assert_eq!(user_input("inspect", &images).len(), 2);
+    }
     #[test]
     fn startup_rpc_failures_preserve_retry_metadata_without_arbitrary_payloads() {
         let cause = rpc_result(json!({"error":{"code":-32603,"message":"request timed out; token=private-token","data":{"codexErrorInfo":"responseStreamDisconnected","credentials":"private-credentials","config":"private-config"}}}), "config/read").unwrap_err();

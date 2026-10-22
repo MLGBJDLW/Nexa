@@ -345,7 +345,7 @@ export function SkillEditor({ skill, onSave, onCancel, onDirtyChange }: SkillEdi
         </p>
       </div>
 
-      <div className="flex items-center gap-2 pt-2 border-t border-border">
+      <div data-settings-actions className="flex items-center gap-2 pt-2 border-t border-border">
         <Button
           variant="primary"
           size="sm"

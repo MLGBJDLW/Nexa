@@ -1,5 +1,15 @@
 use super::*;
 
+fn user_text_parts(message: &str) -> Vec<ContentPart> {
+    if message.trim().is_empty() {
+        Vec::new()
+    } else {
+        vec![ContentPart::Text {
+            text: message.to_string(),
+        }]
+    }
+}
+
 pub(crate) fn build_current_turn_time_section() -> String {
     let now = Local::now();
     let utc_now = now.with_timezone(&Utc);
@@ -115,9 +125,7 @@ pub fn build_desktop_agent_user_content_parts(
         attachments.is_some_and(|items| !items.is_empty())
     );
 
-    let mut user_parts = vec![ContentPart::Text {
-        text: message.to_string(),
-    }];
+    let mut user_parts = user_text_parts(message);
     let Some(attachments) = attachments else {
         return Ok(user_parts);
     };
@@ -340,9 +348,7 @@ pub async fn build_desktop_agent_vision_user_content(
         cancellation,
         allow_observation_cache,
     } = request;
-    let mut parts = vec![ContentPart::Text {
-        text: message.to_string(),
-    }];
+    let mut parts = user_text_parts(message);
     let Some(input_attachments) = attachments else {
         return Ok(DesktopAgentVisionUserContentResult {
             parts,
@@ -620,7 +626,7 @@ pub async fn build_desktop_agent_vision_user_content(
     }
 
     if !non_image_attachments.is_empty() {
-        let mut document_parts =
+        let document_parts =
             build_desktop_agent_user_content_parts(DesktopAgentUserContentRequest {
                 db,
                 app_handle,
@@ -629,12 +635,6 @@ pub async fn build_desktop_agent_vision_user_content(
                 message: "",
                 attachments: Some(&non_image_attachments),
             })?;
-        if document_parts
-            .first()
-            .is_some_and(|part| matches!(part, ContentPart::Text { text } if text.is_empty()))
-        {
-            document_parts.remove(0);
-        }
         for part in &document_parts {
             match part {
                 ContentPart::Text { text } => llm_context_fragments.push(text.clone()),

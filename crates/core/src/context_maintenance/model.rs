@@ -109,6 +109,8 @@ pub(crate) struct ContextCheckpointInput {
     pub source_start_sort_order: i64,
     pub source_boundary_sort_order: i64,
     pub source_digest: String,
+    /// In-memory commit fence; persisted checkpoint digests remain compatible.
+    pub source_image_digest: String,
     pub expected_checkpoint_generation: u64,
     pub summary: String,
     pub retained_tail_message_ids: Vec<String>,

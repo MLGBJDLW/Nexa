@@ -399,7 +399,12 @@ fn validate_answers(
                 question.id
             )));
         }
-        if request.required && values.is_empty() {
+        // Only an explicit [] can skip an ordinary question. Missing values or
+        // whitespace are not consent, and approvals/confirmations still require an answer.
+        let skipped = request.kind == InteractionKind::UserInput
+            && question.kind != InteractionQuestionKind::Confirm
+            && answers.get(&question.id).is_some_and(Vec::is_empty);
+        if request.required && values.is_empty() && !skipped {
             return Err(CoreError::InvalidInput(format!(
                 "Question `{}` requires an answer",
                 question.id
@@ -419,7 +424,7 @@ fn validate_answers(
                 question.id
             )));
         }
-        if !values.is_empty() {
+        if !values.is_empty() || skipped {
             normalized.insert(question.id.clone(), values);
         }
     }
@@ -1733,6 +1738,57 @@ mod tests {
             }],
             required: true,
             expires_at: None,
+        }
+    }
+
+    #[test]
+    fn explicit_skip_is_durable_but_missing_answers_and_approvals_still_require_input() {
+        let fixture = fixture();
+        let created = fixture
+            .db
+            .create_interaction_request(&request_input(&fixture, "skip"))
+            .unwrap();
+        let mut request = created.request;
+        let skipped = InteractionAnswers::from([("scope".into(), vec![])]);
+        assert_eq!(validate_answers(&request, &skipped).unwrap(), skipped);
+        fixture
+            .db
+            .mark_interaction_presented(&request.interaction_id)
+            .unwrap();
+        let response = fixture
+            .db
+            .submit_interaction_response(&SubmitInteractionResponse {
+                interaction_id: request.interaction_id.clone(),
+                resume_token: request.resume_token.clone(),
+                answers: skipped.clone(),
+            })
+            .unwrap();
+        assert_eq!(response.answers, skipped);
+        assert_eq!(
+            fixture
+                .db
+                .get_interaction_response(&request.interaction_id)
+                .unwrap()
+                .answers,
+            skipped
+        );
+        assert!(validate_answers(&request, &InteractionAnswers::new()).is_err());
+        assert!(validate_answers(
+            &request,
+            &InteractionAnswers::from([("scope".into(), vec![" ".into()])])
+        )
+        .is_err());
+        request.questions[0].kind = InteractionQuestionKind::Confirm;
+        assert!(validate_answers(&request, &skipped).is_err());
+        request.questions[0].kind = InteractionQuestionKind::Short;
+        for kind in [
+            InteractionKind::Approval,
+            InteractionKind::HighRiskConfirmation,
+            InteractionKind::CredentialRequest,
+            InteractionKind::ConflictResolution,
+        ] {
+            request.kind = kind;
+            assert!(validate_answers(&request, &skipped).is_err());
         }
     }
 

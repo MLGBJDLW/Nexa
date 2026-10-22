@@ -1,3 +1,4 @@
+import { SettingsRow, settingsSelectClass } from './SettingsRow';
 import { hydrateImageProviderPreset, type RuntimeImageProviderPreset } from "../../lib/imageProviderCatalogHydration";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NexaSelect } from "../ui/overlay";
@@ -349,31 +350,30 @@ export function ImageGenerationSettingsPanel({
           <p className="mb-4 text-xs text-text-tertiary">
             {subscriptionOnly ? t('settings.imageSourceSubscriptionHint') : imageSource === 'auto' ? t('settings.imageSourceAutoHint') : t('settings.imageGenerationDesc')}
           </p>
-          <div className="mb-5 rounded-lg border border-border bg-surface-1 p-3" data-testid="image-source-selector">
-            <p className="mb-2 text-sm font-medium text-text-primary">{t('settings.imageGenerationSource')}</p>
-            <div className="grid grid-cols-1 gap-1 rounded-lg bg-surface-2 p-1 sm:grid-cols-3">
-              {([
-                ['auto', t('settings.imageSourceAuto')],
-                ['subscription', t('settings.imageSourceSubscription')],
-                ['apiKey', t('settings.imageSourceApiKey')],
-              ] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={imageSource === value} onClick={() => updateImageConfig({ ...imageConfig, source: value })} className={`rounded-md px-2 py-2 text-xs font-medium transition-colors ${imageSource === value ? 'bg-accent/15 text-accent ring-1 ring-accent/30' : 'text-text-secondary hover:bg-surface-3'}`}>{label}</button>)}
+          <div className="mb-3" data-testid="image-source-selector">
+            <SettingsRow label={t('settings.imageGenerationSource')} description={imageSource === 'auto' ? t('settings.imageSourceAutoHint') : subscriptionOnly ? t('settings.imageSourceSubscriptionNote') : t('settings.imageSourceApiKeyHint')} htmlFor="image-generation-source">
+                <select id="image-generation-source" value={imageSource} onChange={event => updateImageConfig({ ...imageConfig, source: event.target.value as typeof imageSource })} className={settingsSelectClass}>
+                  <option value="auto">{t('settings.imageSourceAuto')}</option>
+                  <option value="subscription">{t('settings.imageSourceSubscription')}</option>
+                  <option value="apiKey">{t('settings.imageSourceApiKey')}</option>
+                </select>
+              </SettingsRow>
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-text-tertiary">{imageSource === 'auto' ? t('settings.imageSourceAutoHint') : subscriptionOnly ? t('settings.imageSourceSubscriptionNote') : t('settings.imageSourceApiKeyHint')}</p>
-          </div>
-          {!subscriptionOnly && <div className="grid gap-4 md:grid-cols-2">
+            {!subscriptionOnly && <div className="space-y-1">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-primary">{t('settings.provider')}</label>
-            <NexaSelect
-              value={currentPresetId}
-              onChange={(event) => applyPreset(event.target.value)}
-              className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-            >
-              {providerPresets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))}
-            </NexaSelect>
+            <SettingsRow label={t('settings.provider')}>
+              <NexaSelect aria-label={t('settings.provider')}
+                value={currentPresetId}
+                onChange={(event) => applyPreset(event.target.value)}
+                className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+              >
+                {providerPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </NexaSelect>
+            </SettingsRow>
             <div className="flex items-center gap-2 text-xs text-text-tertiary">
               <ProviderIcon
                 provider={activePreset.provider}
@@ -386,26 +386,25 @@ export function ImageGenerationSettingsPanel({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-primary">{t('settings.apiKey')}</label>
-            <div className="relative">
-              <Input
-                type={showKey ? "text" : "password"}
-                value={imageConfig.apiKey}
-                onChange={(event) =>
-                  updateImageConfig({ ...imageConfig, apiKey: event.target.value })
-                }
-                placeholder="sk-..."
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey((value) => !value)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary transition-colors hover:text-text-secondary"
-                aria-label={showKey ? t('settings.hideKey') : t('settings.showKey')}
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
+            <SettingsRow label={t('settings.apiKey')}><div className="relative">
+                <Input aria-label={t('settings.apiKey')}
+                  type={showKey ? "text" : "password"}
+                  value={imageConfig.apiKey}
+                  onChange={(event) =>
+                    updateImageConfig({ ...imageConfig, apiKey: event.target.value })
+                  }
+                  placeholder="sk-..."
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey((value) => !value)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary transition-colors hover:text-text-secondary"
+                  aria-label={showKey ? t('settings.hideKey') : t('settings.showKey')}
+                >
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div></SettingsRow>
             <p className="text-xs text-text-tertiary">
               {usesSharedProviderKey && sharedKeySource
                 ? t('settings.providerApiKeySource', { provider: sharedKeySource.name })
@@ -424,14 +423,15 @@ export function ImageGenerationSettingsPanel({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-primary">{t('settings.baseUrl')}</label>
-            <Input
-              value={imageConfig.baseUrl ?? ""}
-              onChange={(event) =>
-                updateImageConfig({ ...imageConfig, baseUrl: event.target.value || null })
-              }
-              placeholder={activePreset.baseUrl}
-            />
+            <SettingsRow label={t('settings.baseUrl')}>
+              <Input aria-label={t('settings.baseUrl')}
+                value={imageConfig.baseUrl ?? ""}
+                onChange={(event) =>
+                  updateImageConfig({ ...imageConfig, baseUrl: event.target.value || null })
+                }
+                placeholder={activePreset.baseUrl}
+              />
+            </SettingsRow>
           </div>
 
           <div className="space-y-2">
@@ -457,63 +457,66 @@ export function ImageGenerationSettingsPanel({
 
           {sizeOptions.length > 0 && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">{t('settings.defaultSize')}</label>
-              <NexaSelect
-                value={imageConfig.size ?? ""}
-                onChange={(event) =>
-                  updateImageConfig({ ...imageConfig, size: event.target.value || null })
-                }
-                className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-              >
-                {sizeOptions.map((size) => (
-                  <option key={size.value} value={size.value}>
-                    {size.label}
-                  </option>
-                ))}
-              </NexaSelect>
+              <SettingsRow label={t('settings.defaultSize')}>
+                <NexaSelect aria-label={t('settings.defaultSize')}
+                  value={imageConfig.size ?? ""}
+                  onChange={(event) =>
+                    updateImageConfig({ ...imageConfig, size: event.target.value || null })
+                  }
+                  className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                >
+                  {sizeOptions.map((size) => (
+                    <option key={size.value} value={size.value}>
+                      {size.label}
+                    </option>
+                  ))}
+                </NexaSelect>
+              </SettingsRow>
             </div>
           )}
 
           {qualityOptions.length > 0 && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">{t('settings.quality')}</label>
-              <NexaSelect
-                value={imageConfig.quality ?? ""}
-                aria-label={t('settings.quality')}
-                onChange={(event) =>
-                  updateImageConfig({ ...imageConfig, quality: event.target.value || null })
-                }
-                className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-              >
-                {qualityOptions.map((quality) => (
-                  <option key={quality} value={quality}>
-                    {quality}
-                  </option>
-                ))}
-              </NexaSelect>
+              <SettingsRow label={t('settings.quality')}>
+                <NexaSelect
+                  value={imageConfig.quality ?? ""}
+                  aria-label={t('settings.quality')}
+                  onChange={(event) =>
+                    updateImageConfig({ ...imageConfig, quality: event.target.value || null })
+                  }
+                  className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                >
+                  {qualityOptions.map((quality) => (
+                    <option key={quality} value={quality}>
+                      {quality}
+                    </option>
+                  ))}
+                </NexaSelect>
+              </SettingsRow>
             </div>
           )}
 
           {outputFormats.length > 1 && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">{t('settings.outputFormat')}</label>
-              <NexaSelect
-                value={materializedImageConfig.outputFormat ?? ""}
-                onChange={(event) =>
-                  updateImageConfig({ ...imageConfig, outputFormat: event.target.value || null })
-                }
-                className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-              >
-                {outputFormats.map((format) => (
-                  <option key={format} value={format}>
-                    {format}
-                  </option>
-                ))}
-              </NexaSelect>
+              <SettingsRow label={t('settings.outputFormat')}>
+                <NexaSelect aria-label={t('settings.outputFormat')}
+                  value={materializedImageConfig.outputFormat ?? ""}
+                  onChange={(event) =>
+                    updateImageConfig({ ...imageConfig, outputFormat: event.target.value || null })
+                  }
+                  className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                >
+                  {outputFormats.map((format) => (
+                    <option key={format} value={format}>
+                      {format}
+                    </option>
+                  ))}
+                </NexaSelect>
+              </SettingsRow>
             </div>
           )}
           </div>}
-          <div className="mt-4 flex justify-end border-t border-border pt-3">
+          <div data-settings-actions className="mt-4 flex justify-end border-t border-border pt-3">
             <Button
               type="button"
               variant="primary"

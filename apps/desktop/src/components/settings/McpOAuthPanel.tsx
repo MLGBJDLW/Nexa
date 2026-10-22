@@ -78,7 +78,7 @@ function McpOAuthPanel({ serverId, enabled }: { serverId: string; enabled: boole
         <label className="block space-y-1 text-xs text-text-secondary"><span>{t('settings.mcpOAuthResource')}</span><Input value={resource} onChange={(e) => setResource(e.target.value)} /></label>
         <label className="block space-y-1 text-xs text-text-secondary"><span>{t('settings.mcpOAuthPort')}</span><Input type="number" min={1} max={65535} value={port} onChange={(e) => setPort(e.target.value)} /></label>
       </div></details>
-      <div className="flex flex-wrap gap-2">
+      <div data-settings-actions className="flex flex-wrap gap-2">
         <Button size="sm" disabled={!dirty || invalidPort} onClick={() => void run(async () => ({ status: await api.configureMcpOAuth(serverId, config) }))}>{t('settings.mcpOAuthSave')}</Button>
         <Button size="sm" variant="ghost" disabled={!status?.config || dirty || !enabled} onClick={() => void run(async () => ({ status: await api.beginMcpOAuth(serverId) }), true)}>{t('settings.mcpOAuthSignIn')}</Button>
         {status?.config && <Button size="sm" variant="ghost" onClick={() => void run(async () => ({ status: await api.configureMcpOAuth(serverId, null) }))}>{t('settings.mcpOAuthRemove')}</Button>}

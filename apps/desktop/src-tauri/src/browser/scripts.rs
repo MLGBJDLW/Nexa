@@ -166,9 +166,10 @@ pub fn browser_takeover_script(token: &str) -> String {
 
   const expectationForFrame = (expected, frame) => {
     if (!expected || !['pointer', 'drag', 'wheel'].includes(expected.kind)) return expected;
-    const rect = frame.getBoundingClientRect();
-    return { ...expected, x: expected.x - rect.left, y: expected.y - rect.top,
-      ...(expected.kind === 'drag' ? { endX: expected.endX - rect.left, endY: expected.endY - rect.top } : {}) };
+    const transform = observationBridge()?.frameCoordinateTransform(frame);
+    if (!transform) throw new Error('Browser iframe coordinate transform is unavailable');
+    return { ...expected, x: (expected.x - transform.x) / transform.scaleX, y: (expected.y - transform.y) / transform.scaleY,
+      ...(expected.kind === 'drag' ? { endX: (expected.endX - transform.x) / transform.scaleX, endY: (expected.endY - transform.y) / transform.scaleY } : {}) };
   };
 
   const relayTrustedInput = (kind, operationId, budget = null, expected = null) => {

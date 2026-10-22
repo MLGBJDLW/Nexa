@@ -354,6 +354,29 @@ fn all_cloud_adapters_sync_revision_fences_scope_and_durable_deletes() {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, chunk);
         assert!(!hits.iter().any(|h| h.0 == forbidden));
+        // Remote rank/score conventions cannot bypass the user's cosine floor.
+        let mut preferences = db.load_app_config().unwrap();
+        preferences.min_search_similarity = 1.0;
+        db.save_app_config(&preferences).unwrap();
+        assert_eq!(
+            cloud_candidates(&db, &space, &[1.0, 0.0], &filters, 20)
+                .unwrap()
+                .len(),
+            1
+        );
+        preferences.min_search_similarity = 0.8;
+        db.save_app_config(&preferences).unwrap();
+        assert!(cloud_candidates(&db, &space, &[0.6, 0.8], &filters, 20)
+            .unwrap()
+            .is_empty());
+        preferences.min_search_similarity = 0.0;
+        db.save_app_config(&preferences).unwrap();
+        assert_eq!(
+            cloud_candidates(&db, &space, &[0.6, 0.8], &filters, 20)
+                .unwrap()
+                .len(),
+            1
+        );
         server.state.lock().unwrap().stale = true;
         let (hits, mode) = ranked_candidates(&db, &space, &[1., 0.], &filters, 20).unwrap();
         assert_eq!(mode, "hybrid+local-fallback");

@@ -1,10 +1,8 @@
-use std::collections::HashSet;
-
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::conversation::{
-    invalidate_context_projection, ImageAttachment, LLM_CONTEXT_CONTENT_ARTIFACT_KEY,
+    invalidate_context_projection_for_message, ImageAttachment, LLM_CONTEXT_CONTENT_ARTIFACT_KEY,
 };
 use crate::db::Database;
 use crate::error::CoreError;
@@ -211,7 +209,6 @@ fn clear_persisted_observation_references(
         .collect::<Result<Vec<_>, _>>()?;
     drop(statement);
 
-    let mut invalidated = HashSet::new();
     for (message_id, conversation_id, content, artifacts_json, attachments_json) in rows {
         let mut attachments = match serde_json::from_str::<Vec<ImageAttachment>>(&attachments_json)
         {
@@ -260,6 +257,11 @@ fn clear_persisted_observation_references(
             .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
             .filter(serde_json::Value::is_object)
             .unwrap_or_else(|| serde_json::json!({}));
+        let previous_replay = artifacts
+            .get(LLM_CONTEXT_CONTENT_ARTIFACT_KEY)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&content)
+            .to_string();
         if let Some(map) = artifacts.as_object_mut() {
             let mut llm_context = map
                 .get(LLM_CONTEXT_CONTENT_ARTIFACT_KEY)
@@ -291,10 +293,13 @@ fn clear_persisted_observation_references(
                 serde_json::to_string(&attachments)?,
             ],
         )?;
-        invalidated.insert(conversation_id);
-    }
-    for conversation_id in invalidated {
-        invalidate_context_projection(conn, &conversation_id)?;
+        let replay = artifacts
+            .get(LLM_CONTEXT_CONTENT_ARTIFACT_KEY)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&content);
+        if replay != previous_replay {
+            invalidate_context_projection_for_message(conn, &conversation_id, &message_id)?;
+        }
     }
     Ok(())
 }

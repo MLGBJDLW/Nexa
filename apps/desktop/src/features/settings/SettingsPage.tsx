@@ -33,6 +33,7 @@ import type { TraceSummary, AgentTrace } from '../../types/trace';
 import type { QualityEvalReport } from '../../types/qualityEval';
 import { useTranslation, type Locale } from '../../i18n';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { Button } from '../../components/ui/Button';
 import { AgentQualitySettingsTab } from '../../components/settings/AgentQualitySettingsTab';
 import { AppearanceSettingsTab } from '../../components/settings/AppearanceSettingsTab';
 import { ThemeSettingsTab } from '../../components/settings/ThemeSettingsTab';
@@ -234,6 +235,9 @@ export function SettingsPage() {
   /* ── App Config state ─────────────────────────────────────────────── */
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [appConfigLoading, setAppConfigLoading] = useState(false);
+  const [appConfigReading, setAppConfigReading] = useState(true);
+  const [appConfigReadFailed, setAppConfigReadFailed] = useState(false);
+  const appConfigVerified = useRef(false);
   const [managedModelPaths, setManagedModelPaths] = useState<api.ManagedModelPaths | null>(null);
   const [modelStorageSaving, setModelStorageSaving] = useState(false);
   const [officeRuntime, setOfficeRuntime] = useState<api.OfficeRuntimeReadiness | null>(null);
@@ -426,56 +430,18 @@ export function SettingsPage() {
 
   /* ── App Config effects & handlers ─────────────────────────────── */
   const loadAppConfig = useCallback(async () => {
+    setAppConfigReading(true);
     try {
       const cfg = await api.getAppConfig();
       setAppConfig(cfg);
+      appConfigVerified.current = true;
+      setAppConfigReadFailed(false);
       return true;
     } catch {
-      setAppConfig({
-        defaultSearchLimit: 20,
-        minSearchSimilarity: 0.2,
-        maxTextFileSize: 104857600,
-        maxVideoFileSize: 2147483648,
-        maxAudioFileSize: 536870912,
-        dynamicToolVisibility: false,
-        toolVisibilityDefaultsVersion: 2,
-        confirmDestructive: false,
-        shellAccessMode: 'restricted',
-        toolApprovalMode: 'ask',
-        autoMemoryExtraction: true,
-        autoSkillLearning: true,
-        hfMirrorBaseUrl: 'https://hf-mirror.com',
-        ghproxyBaseUrl: 'https://mirror.ghproxy.com',
-        imageGeneration: {
-          provider: 'open_ai',
-          apiStyle: 'openai_images',
-          apiKey: '',
-          baseUrl: 'https://api.openai.com/v1',
-          model: 'gpt-image-2.5-flare',
-          size: '1024x1024',
-          quality: null,
-          outputFormat: 'png',
-        },
-        textToSpeech: {
-          provider: 'open_ai',
-          apiStyle: 'openai_speech',
-          apiKey: '',
-          baseUrl: 'https://api.openai.com/v1',
-          model: 'gpt-4o-mini-tts',
-          voice: 'coral',
-          outputFormat: 'wav',
-          speed: 1,
-        },
-        speechToText: {
-          provider: 'local_whisper',
-          apiStyle: 'local_whisper',
-          apiKey: '',
-          baseUrl: null,
-          model: 'whisper-local',
-          language: null,
-        },
-      });
+      setAppConfigReadFailed(true);
       return false;
+    } finally {
+      setAppConfigReading(false);
     }
   }, []);
 
@@ -490,7 +456,7 @@ export function SettingsPage() {
 
   const handleAppConfigSave = async (configOverride?: AppConfig) => {
     const snapshot = configOverride ?? appConfig;
-    if (!snapshot) return false;
+    if (!appConfigVerified.current || appConfigReading || !snapshot) return false;
     const configToSave = { ...snapshot, uiLocale: locale };
     setAppConfigLoading(true);
     try {
@@ -1641,7 +1607,7 @@ export function SettingsPage() {
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
     <div
-      className="mx-auto w-full max-w-5xl space-y-4 p-3 sm:p-5"
+      className="settings-page mx-auto w-full max-w-5xl space-y-4 p-3 sm:p-5"
       data-testid="settings-page"
     >
       {/* Header */}
@@ -1656,6 +1622,11 @@ export function SettingsPage() {
         <h1 className="text-lg font-semibold text-text-primary">{t('settings.title')}</h1>
         <p className="mt-1 text-xs text-text-secondary">{t('settings.subtitle')}</p>
       </motion.div>
+
+      {appConfigReadFailed && <div role="alert" data-testid="app-config-load-error" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/5 p-3">
+        <p className="text-xs text-danger">{t('settings.configLoadError')}</p>
+        <Button size="sm" variant="secondary" loading={appConfigReading} onClick={() => { void loadAppConfig(); }}>{t('common.retry')}</Button>
+      </div>}
 
       {/* Tab Navigation */}
       <div className="sticky top-0 z-10 bg-surface-0 py-1">

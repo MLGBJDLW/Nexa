@@ -25,6 +25,14 @@ test('new embedding routes preserve exact dimensions and text adapter boundaries
 });
 
 test('new native model IDs carry endpoint-specific limits and reasoning defaults', () => {
+  const hostedMiniMax = model('alibaba-model-studio', 'MiniMax/MiniMax-M3.1-Flash');
+  assert.equal(hostedMiniMax.capabilities.reasoning.mode, 'always');
+  assert.deepEqual(hostedMiniMax.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.equal(model('zhipu', 'glm-5.3-flashx-legal').access, 'application');
+  assert.equal(model('siliconflow', 'deepseek-ai/DeepSeek-V4.1-Flash').capabilities.reasoning, null);
+  assert.equal(model('openrouter', 'recursive/flint-v1.0:free').capabilities.reasoning.mode, 'always');
+  assert.equal(model('alibaba-model-studio', 'deepseek-v4.1-flash-1017').contextTokens, 1000000);
+  assert.deepEqual(model('qwen-cloud-intl', 'deepseek-v4.1-flash-1017').regions, ['ap-southeast-1']);
   const argon = model('google', 'gemini-4-argon');
   assert.equal(argon.contextTokens, 1_048_576);
   assert.equal(argon.maxOutputTokens, 65_536);
@@ -47,6 +55,8 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
 });
 
 test('confirmed route removals remain tombstones while future retirements remain deprecated', () => {
+  assert.equal(model('alibaba-model-studio', 'xiaomi/mimo-v2.5-pro').status, 'removed');
+  assert.equal(model('alibaba-model-studio', 'xiaomi/mimo-v2.5-pro').replacementModelId, 'xiaomi/mimo-v2.6-pro-ultraspeed');
   for (const id of ['apodex/apodex-1.1-mini:free', 'inclusionai/ling-3.0-flash-fin', 'inclusionai/ling-3.0-flash-sante']) assert.equal(model('openrouter', id).status, 'removed');
   assert.equal(model('openrouter', 'google/gemini-2.5-pro-preview-05-06').status, 'removed');
   for (const id of ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini']) {

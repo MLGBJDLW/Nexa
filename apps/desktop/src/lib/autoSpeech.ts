@@ -1,4 +1,5 @@
 import type { TextToSpeechConfig } from '../types/conversation';
+import { stripFollowupBlocks } from './followupSuggestions';
 
 /** Same readiness rules as TextToSpeechConfig::is_configured in the runtime. */
 export function isTextToSpeechConfigured(config: TextToSpeechConfig | null | undefined): boolean {
@@ -12,7 +13,7 @@ export function isTextToSpeechConfigured(config: TextToSpeechConfig | null | und
 }
 
 export function finalAnswerToSpeechText(markdown: string): string {
-  return markdown
+  return stripFollowupBlocks(markdown)
     .replace(/```[\s\S]*?```/g, ' Code block omitted. ')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')

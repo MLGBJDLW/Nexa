@@ -307,6 +307,22 @@ unchanged manual checkpoint is a no-op. Storage failure or a superseding edit
 cannot authorize dropping live history. Runtime handoff must reduce estimated
 input; an oversized retained request still produces an explicit context error.
 
+Checkpoint invalidation is scoped to the checkpoint's source messages. Appending
+new turns or updating an image-analysis cache without changing model-visible
+content does not resurrect archived history. Editing source text or original
+attachments invalidates the projection. Commit checks compare the active
+generation and original image digest inside the transaction, so invalidation
+followed by restoration cannot authorize an older maintenance plan.
+
+Admission and the context meter use the same prepared request and provider replay
+projection as the actual model call. A measured prefix is reusable only while its
+route, tools and message fingerprint still match; new tail content is estimated.
+The canonical transcript remains available for archives and fallback routes, but
+its omitted replay content does not inflate the active route's budget. Real
+oversized active exchanges still fail explicitly. The UI uses durable snapshots
+and current run usage after maintenance; a previous operation's completion event
+cannot permanently replace newer measurements when the conversation reopens.
+
 `context_history` lists windows, searches literal text, reads exact items and
 retrieves archived notes through `read_notes`. `update_scratchpad` stores concise
 factual progress, but those notes are not automatically reinjected in history

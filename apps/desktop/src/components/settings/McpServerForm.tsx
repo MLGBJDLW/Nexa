@@ -547,7 +547,7 @@ export function McpServerForm({ server, onSave, onCancel, onDirtyChange }: McpSe
         )}
       </div>
 
-      <div className="flex items-center gap-2 pt-2 border-t border-border">
+      <div data-settings-actions className="flex items-center gap-2 pt-2 border-t border-border">
         <Button
           variant="primary"
           size="sm"

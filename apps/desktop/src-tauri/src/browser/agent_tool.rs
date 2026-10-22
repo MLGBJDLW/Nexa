@@ -268,23 +268,33 @@ fn condition_matches(observation: &serde_json::Value, condition: &serde_json::Va
                 .and_then(serde_json::Value::as_str)
                 == Some("complete")
         }
-        "text_present" => condition
+        "text_present" | "text_absent" => condition
             .get("text")
             .and_then(serde_json::Value::as_str)
             .is_some_and(|text| {
-                observation
-                    .get("text")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|content| content.contains(text))
-            }),
-        "text_absent" => condition
-            .get("text")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|text| {
-                observation
-                    .get("text")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|content| !content.contains(text))
+                let matched = observation.get("textMatch").filter(|matched| {
+                    matched.get("query").and_then(serde_json::Value::as_str) == Some(text)
+                });
+                if let Some(found) = matched
+                    .and_then(|matched| matched.get("found"))
+                    .and_then(serde_json::Value::as_bool)
+                {
+                    return if condition_type == "text_present" {
+                        found
+                    } else {
+                        !found
+                            && matched
+                                .and_then(|matched| matched.get("complete"))
+                                .and_then(serde_json::Value::as_bool)
+                                == Some(true)
+                    };
+                }
+                // A bounded preview can prove presence, never absence.
+                condition_type == "text_present"
+                    && observation
+                        .get("text")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|content| content.contains(text))
             }),
         "url_matches" => condition
             .get("pattern")
@@ -527,6 +537,7 @@ impl Tool for NativeBrowserSessionTool {
         let observation_options = nexa_core::browser_runtime::BrowserObservationOptions {
             query: args.query.clone(),
             offset: args.offset.unwrap_or(0),
+            text_query: None,
         };
         observation_options.validate().map_err(Self::invalid)?;
         if action != "observe" && (args.query.is_some() || args.offset.is_some()) {
@@ -1199,6 +1210,7 @@ impl Tool for NativeBrowserSessionTool {
                                 .observation_coverage
                                 .as_ref()
                                 .map_or(0, |coverage| coverage.offset),
+                            text_query: None,
                         };
                         self.state
                             .observe_with_options(session_id, tab_id, context.call_id, &options)
@@ -1304,6 +1316,13 @@ impl Tool for NativeBrowserSessionTool {
                         .and_then(serde_json::Value::as_str)
                         .map(|value| value.chars().take(240).collect()),
                     offset: 0,
+                    text_query: condition
+                        .get("type")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|kind| matches!(*kind, "text_present" | "text_absent"))
+                        .and_then(|_| condition.get("text"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
                 };
                 let emit = |payload| self.state.emit("agentAction", payload);
                 let mut progress = BrowserOperationProgress::new(
@@ -1802,6 +1821,19 @@ mod tests {
             &serde_json::json!({"elements":[],"observationCoverage":{"offset":0,"hasMore":false},"frameLimitations":{"unavailableCount":0}}),
             &condition
         ));
+        let text_condition = serde_json::json!({"type":"text_absent","text":"Uploading"});
+        for evidence in [
+            serde_json::json!({"text":"bounded preview"}),
+            serde_json::json!({"text":"bounded preview","textMatch":{"query":"Uploading","found":true,"complete":true}}),
+            serde_json::json!({"text":"bounded preview","textMatch":{"query":"Uploading","found":false,"complete":false}}),
+            serde_json::json!({"text":"bounded preview","textMatch":{"query":"Different query","found":false,"complete":true}}),
+        ] {
+            assert!(!super::condition_matches(&evidence, &text_condition));
+        }
+        assert!(super::condition_matches(
+            &serde_json::json!({"text":"bounded preview","textMatch":{"query":"Uploading","found":false,"complete":true}}),
+            &text_condition,
+        ));
     }
 
     #[tokio::test]
@@ -2012,6 +2044,7 @@ mod tests {
             title: "Example".to_string(),
             ready_state: Some("complete".to_string()),
             text: "Example page".to_string(),
+            text_match: None,
             viewport: serde_json::json!({ "width": 800, "height": 600 }),
             content_hash: "dom-hash".to_string(),
             elements: Vec::new(),
@@ -2094,6 +2127,7 @@ mod tests {
     fn wait_conditions_cover_text_absence_and_semantic_elements() {
         let observation = serde_json::json!({
             "text": "Dashboard ready",
+            "textMatch": {"query":"Loading","found":false,"complete":true},
             "elements": [
                 { "ref": "e-1", "role": "button", "name": "Save changes" },
                 { "ref": "e-2", "role": "status", "name": "Ready" }

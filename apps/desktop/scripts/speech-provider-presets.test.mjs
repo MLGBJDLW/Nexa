@@ -17,6 +17,15 @@ const stt = await loadCatalog('sttProviderPresets');
 const playback = await loadCatalog('../features/voice/speechPlaybackRequest');
 const { finalAnswerToSpeechText } = await loadCatalog('autoSpeech');
 
+test('read-aloud excludes followup metadata while keeping answer text and recommendations intact', () => {
+  const items = [{ label: 'Inspect', prompt: 'Inspect the result.' }, { label: 'Extend', prompt: 'Extend the example.' }];
+  for (const json of [JSON.stringify(items), items.map(item => JSON.stringify(item)).join('\n')]) {
+    const content = '检查已完成。\n\n```nexa-followups\n' + json + '\n```';
+    assert.equal(finalAnswerToSpeechText(content), '检查已完成。');
+    assert.ok(content.includes(json));
+  }
+});
+
 test('explicit speech presets select documented active models without claiming credential acceptance', () => {
   for (const [presets, select] of [
     [tts.TTS_PROVIDER_PRESETS, tts.defaultTtsItem],

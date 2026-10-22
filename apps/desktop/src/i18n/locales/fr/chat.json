@@ -179,7 +179,6 @@
   "tokenUsagePercent": "{percent}% du contexte utilisé",
   "contextFillingUp": "La fenêtre de contexte se remplit ({percent}%). Envisagez une nouvelle conversation.",
   "contextNearlyFull": "Fenêtre de contexte presque pleine ({percent}%). Les anciens messages peuvent être perdus.",
-  "imageMessage": "(image)",
   "pasteImageFailed": "Failed to paste image",
   "tokensLabel": "jetons",
   "tokensShort": "jet.",
@@ -947,5 +946,16 @@
   "contextPolicyFork": "Fork automatique",
   "contextPolicyForkTiming": "Quand effectuer un Fork",
   "contextPolicyForkTriggerAt": "Fork automatique au-delà de {tokens} tokens d’entrée.",
-  "contextPolicyForkCalculation": "Le pourcentage porte sur {input} tokens disponibles, après réserve de {reply} pour la réponse et {safety} pour la sécurité. Fork archive le raisonnement précédent et conserve la tâche."
+  "contextPolicyForkCalculation": "Le pourcentage porte sur {input} tokens disponibles, après réserve de {reply} pour la réponse et {safety} pour la sécurité. Fork archive le raisonnement précédent et conserve la tâche.",
+  "questionSkip": "Passer cette question",
+  "questionSkipped": "Ignorée",
+  "interactionTitle": "Interaction avec l’interface",
+  "interactionPending": "Vérification en attente",
+  "interactionUncertain": "Résultat incertain",
+  "interactionNotDispatched": "Entrée non envoyée",
+  "interactionUnchanged": "Aucun changement observé",
+  "interactionChanged": "Changement observé",
+  "interactionTargetClosed": "Cible fermée",
+  "interactionMatched": "Condition remplie",
+  "interactionObserved": "Observation reçue"
 }

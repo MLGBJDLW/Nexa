@@ -77,7 +77,7 @@ import {
   type FileDiffArtifact,
 } from "../../components/chat/FileDiffPreview";
 import { ThinkingBlock } from "../../components/chat/ThinkingBlock";
-import { ComputerUseTrace, isComputerUseStep, type ComputerUseStep } from '../../components/chat/ComputerUseTrace';
+import { InteractionTrace, isInteractionStep, type InteractionStep } from '../../components/chat/InteractionTrace';
 import { FileChangeTrace, groupFileToolCalls, type FileToolGroup } from '../../components/chat/FileChangeTrace';
 import type { ThinkingSection } from "../../components/chat/ThinkingBlock";
 import { MessageBubble } from "../../components/chat/MessageBubble";
@@ -962,30 +962,30 @@ export function ChatMessages(props: ChatMessagesProps) {
     (sections: TimelineSection[], parentRunActive = false, fileGroups?: Map<ToolCallEvent, FileToolGroup>): ThinkingSection[] => {
       const result: ThinkingSection[] = [];
       const groups = fileGroups ?? groupFileToolCalls(sections.flatMap(section => section.kind === 'tool' ? [section.toolCall] : []));
-      let computerSteps: ComputerUseStep[] = [];
-      const flushComputerSteps = () => {
-        if (computerSteps.length === 0) return;
-        result.push({ text: '', node: <ComputerUseTrace key={computerSteps[0].id} steps={computerSteps} conversationId={conversationId} parentRunActive={parentRunActive} /> });
-        computerSteps = [];
+      let interactionSteps: InteractionStep[] = [];
+      const flushInteractionSteps = () => {
+        if (interactionSteps.length === 0) return;
+        result.push({ text: '', node: <InteractionTrace key={interactionSteps[0].id} steps={interactionSteps} conversationId={conversationId} parentRunActive={parentRunActive} /> });
+        interactionSteps = [];
       };
       for (const section of sections) {
         const fileGroup = section.kind === 'tool' ? groups.get(section.toolCall) : undefined;
         if (fileGroup) {
-          flushComputerSteps();
+          flushInteractionSteps();
           if (section.kind === 'tool' && fileGroup.calls[0] === section.toolCall) {
             result.push({ text: '', node: <FileChangeTrace key={section.id} group={fileGroup} conversationId={conversationId} parentRunActive={parentRunActive} /> });
           }
           continue;
         }
-        if (isComputerUseStep(section)) {
-          computerSteps.push(section);
+        if (isInteractionStep(section)) {
+          interactionSteps.push(section);
         } else {
-          flushComputerSteps();
+          flushInteractionSteps();
           const rendered = renderTimelineSection(section, parentRunActive);
           if (rendered) result.push(rendered);
         }
       }
-      flushComputerSteps();
+      flushInteractionSteps();
       return result;
     },
     [conversationId, renderTimelineSection],

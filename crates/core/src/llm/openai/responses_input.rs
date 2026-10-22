@@ -172,7 +172,7 @@ pub(super) fn responses_input_items(
         let mut content = Vec::new();
         for part in &message.parts {
             match part {
-                ContentPart::Text { text } => content.push(serde_json::json!({
+                ContentPart::Text { text } if !text.trim().is_empty() || !(message.has_images() || message.has_documents()) => content.push(serde_json::json!({
                     "type": if message.role == Role::Assistant { "output_text" } else { "input_text" },
                     "text": text,
                 })),
@@ -184,7 +184,7 @@ pub(super) fn responses_input_items(
                     "type": "input_file", "filename": document.name,
                     "file_data": format!("data:{};base64,{}", document.media_type, document.data()),
                 })),
-                ContentPart::ProviderTurn { .. } => {}
+                ContentPart::Text { .. } | ContentPart::ProviderTurn { .. } => {}
             }
         }
         let generic_message = (!(content.is_empty()

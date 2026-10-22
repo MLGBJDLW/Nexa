@@ -1,4 +1,4 @@
-import { ArrowRight, RotateCcw, Save, Settings2, Star } from 'lucide-react';
+import { ArrowRight, RotateCcw, Save, Star } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation, type Locale } from '../../i18n';
 import * as api from '../../lib/api';
@@ -15,6 +15,8 @@ import { CompanionSettingsCard } from '../../features/companion/CompanionSetting
 import { DisplaySettings } from './DisplaySettings';
 import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
 import { SettingsRow, settingsSelectClass } from './SettingsRow';
+import { SettingsToggle } from './SettingsToggle';
+import { NexaSelect } from '../ui/overlay';
 import { ShellSettingsPanel } from './ShellSettingsPanel';
 
 
@@ -218,7 +220,7 @@ export function AppearanceSettingsTab({
 
         {appConfig && (
           <div className="space-y-2" data-testid="context-management-settings">
-            <label htmlFor="context-management-mode" className="text-sm font-medium text-text-primary">{t('settings.contextManagementMode')}</label>
+            <SettingsRow label={t('settings.contextManagementMode')} description={appConfig.contextManagementMode === 'history' ? t('settings.contextHistoryHelp') : t('settings.contextSummaryHelp')} htmlFor="context-management-mode">
             <select id="context-management-mode"
               className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary"
               value={appConfig.contextManagementMode ?? 'summary'}
@@ -226,9 +228,9 @@ export function AppearanceSettingsTab({
               <option value="summary">{t('settings.contextModeSummary')}</option>
               <option value="history">{t('settings.contextModeHistory')}</option>
             </select>
-            <p className="text-xs leading-5 text-text-tertiary">{appConfig.contextManagementMode === 'history' ? t('settings.contextHistoryHelp') : t('settings.contextSummaryHelp')}</p>
+            </SettingsRow>
             <p className="text-xs leading-5 text-text-tertiary">{t('settings.contextModeScope')}</p>
-            <div className="flex justify-end">
+            <div data-settings-actions className="flex justify-end">
               <Button variant="primary" size="sm" icon={<Save size={14} />} loading={appConfigLoading} onClick={() => onAppConfigSave()}>
                 {t('common.save')}
               </Button>
@@ -236,259 +238,69 @@ export function AppearanceSettingsTab({
           </div>
         )}
 
-        {/* Advanced Settings */}
-        <CollapsiblePanel
-          title={t('settings.advanced')}
-          defaultOpen={false}
-          summary={<Settings2 size={14} className="text-text-tertiary" />}
-        >
-          {appConfig && (
-            <div className="space-y-4">
-              {/* Search */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.searchLimit')}</label>
-                  <Input
-                    type="number"
-                    value={appConfig.defaultSearchLimit}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, defaultSearchLimit: Math.max(1, Math.min(100, parseInt(e.target.value) || 20)) })}
-                    min={1}
-                    max={100}
-                  />
-                  <p className="text-xs text-text-tertiary">{t('settings.searchLimitDesc')}</p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{t('settings.searchSimilarity')}</label>
-                <Input
-                  type="number"
-                  value={appConfig.minSearchSimilarity}
-                  onChange={(e) => onAppConfigChange({ ...appConfig, minSearchSimilarity: Math.max(0, Math.min(1, parseFloat(e.target.value) || 0.2)) })}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                />
-                <p className="text-xs text-text-tertiary">{t('settings.searchSimilarityDesc')}</p>
-              </div>
-
-              {/* File Size Limits */}
-              <h4 className="text-xs font-medium text-text-secondary mt-2">{t('settings.fileSizeLimits')}</h4>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.maxTextFileSize')}</label>
-                  <Input
-                    type="number"
-                    value={Math.round(appConfig.maxTextFileSize / (1024 * 1024))}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, maxTextFileSize: Math.max(1, parseInt(e.target.value) || 100) * 1024 * 1024 })}
-                    min={1}
-                    max={1024}
-                  />
-                  <p className="text-xs text-text-tertiary">{t('settings.maxTextFileSizeDesc')}</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.maxVideoFileSize')}</label>
-                  <Input
-                    type="number"
-                    value={Math.round(appConfig.maxVideoFileSize / (1024 * 1024 * 1024))}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, maxVideoFileSize: Math.max(1, parseInt(e.target.value) || 2) * 1024 * 1024 * 1024 })}
-                    min={1}
-                    max={10}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.maxAudioFileSize')}</label>
-                  <Input
-                    type="number"
-                    value={Math.round(appConfig.maxAudioFileSize / (1024 * 1024))}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, maxAudioFileSize: Math.max(1, parseInt(e.target.value) || 500) * 1024 * 1024 })}
-                    min={1}
-                    max={2048}
-                  />
-                </div>
-              </div>
-
-              {/* Agent Behavior */}
-              <div className="space-y-3 mt-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={appConfig.dynamicToolVisibility ?? false}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, dynamicToolVisibility: e.target.checked })}
-                    className="rounded border-border"
-                  />
-                  <span className="text-sm font-medium text-text-primary">{t('settings.dynamicTools')}</span>
-                </label>
-                <p className="text-xs text-text-tertiary ml-6">{t('settings.dynamicToolsDesc')}</p>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={appConfig.traceEnabled ?? true}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, traceEnabled: e.target.checked })}
-                    className="rounded border-border"
-                  />
-                  <span className="text-sm font-medium text-text-primary">{t('settings.traceEnabled')}</span>
-                </label>
-                <p className="text-xs text-text-tertiary ml-6">{t('settings.traceEnabledDesc')}</p>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={appConfig.autoMemoryExtraction ?? true}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, autoMemoryExtraction: e.target.checked })}
-                    className="rounded border-border"
-                  />
-                  <span className="text-sm font-medium text-text-primary">{t('settings.autoMemoryExtraction')}</span>
-                </label>
-                <p className="text-xs text-text-tertiary ml-6">{t('settings.autoMemoryExtractionDesc')}</p>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={appConfig.autoSkillLearning ?? true}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, autoSkillLearning: e.target.checked })}
-                    className="rounded border-border"
-                  />
-                  <span className="text-sm font-medium text-text-primary">{t('settings.autoSkillLearning')}</span>
-                </label>
-                <p className="text-xs text-text-tertiary ml-6">{t('settings.autoSkillLearningDesc')}</p>
-
-                <div className="rounded-lg border border-border bg-surface-1 p-3 space-y-3">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={dreamingConfig.enabled}
-                      onChange={(e) => updateDreamingConfig({ enabled: e.target.checked })}
-                      className="rounded border-border"
-                    />
-                    <span className="text-sm font-medium text-text-primary">{t('settings.dreamingEnabled')}</span>
-                  </label>
-                  <p className="text-xs text-text-tertiary ml-6">{t('settings.dreamingEnabledDesc')}</p>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={dreamingConfig.idle}
-                          disabled={!dreamingConfig.enabled}
-                          onChange={(e) => updateDreamingConfig({ idle: e.target.checked })}
-                          className="rounded border-border"
-                        />
-                        <span className="text-sm text-text-primary">{t('settings.dreamingIdle')}</span>
-                      </label>
-                      <p className="mt-1 text-xs text-text-tertiary ml-6">{t('settings.dreamingIdleDesc')}</p>
-                    </div>
-                    <div>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={dreamingConfig.afterScan}
-                          disabled={!dreamingConfig.enabled}
-                          onChange={(e) => updateDreamingConfig({ afterScan: e.target.checked })}
-                          className="rounded border-border"
-                        />
-                        <span className="text-sm text-text-primary">{t('settings.dreamingAfterScan')}</span>
-                      </label>
-                      <p className="mt-1 text-xs text-text-tertiary ml-6">{t('settings.dreamingAfterScanDesc')}</p>
-                    </div>
-                    <div>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={dreamingConfig.afterSuccessfulTurn}
-                          disabled={!dreamingConfig.enabled}
-                          onChange={(e) => updateDreamingConfig({ afterSuccessfulTurn: e.target.checked })}
-                          className="rounded border-border"
-                        />
-                        <span className="text-sm text-text-primary">{t('settings.dreamingAfterTurn')}</span>
-                      </label>
-                      <p className="mt-1 text-xs text-text-tertiary ml-6">{t('settings.dreamingAfterTurnDesc')}</p>
-                    </div>
-                    <div>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={dreamingConfig.schedule}
-                          disabled={!dreamingConfig.enabled}
-                          onChange={(e) => updateDreamingConfig({ schedule: e.target.checked })}
-                          className="rounded border-border"
-                        />
-                        <span className="text-sm text-text-primary">{t('settings.dreamingSchedule')}</span>
-                      </label>
-                      <p className="mt-1 text-xs text-text-tertiary ml-6">{t('settings.dreamingScheduleDesc')}</p>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-4">
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-text-primary">{t('settings.dreamingIdleInterval')}</label>
-                      <Input
-                        type="number"
-                        value={dreamingConfig.idleIntervalMinutes}
-                        onChange={(e) => updateDreamingConfig({
-                          idleIntervalMinutes: Math.max(15, Math.min(1440, parseInt(e.target.value) || 180)),
-                        })}
-                        min={15}
-                        max={1440}
-                        disabled={!dreamingConfig.enabled || !dreamingConfig.idle}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-text-primary">{t('settings.dreamingScheduleInterval')}</label>
-                      <Input
-                        type="number"
-                        value={dreamingConfig.scheduleIntervalMinutes}
-                        onChange={(e) => updateDreamingConfig({
-                          scheduleIntervalMinutes: Math.max(30, Math.min(10080, parseInt(e.target.value) || 720)),
-                        })}
-                        min={30}
-                        max={10080}
-                        disabled={!dreamingConfig.enabled || !dreamingConfig.schedule}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-text-primary">{t('settings.dreamingMaxArtifacts')}</label>
-                      <Input
-                        type="number"
-                        value={dreamingConfig.maxArtifactsPerRun}
-                        onChange={(e) => updateDreamingConfig({
-                          maxArtifactsPerRun: Math.max(1, Math.min(100, parseInt(e.target.value) || 24)),
-                        })}
-                        min={1}
-                        max={100}
-                        disabled={!dreamingConfig.enabled}
-                      />
-                      <p className="mt-1 text-xs text-text-tertiary">{t('settings.dreamingMaxArtifactsDesc')}</p>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-text-primary">{t('settings.dreamingMaxRuns')}</label>
-                      <Input
-                        type="number"
-                        value={dreamingConfig.maxRunsPerDay}
-                        onChange={(e) => updateDreamingConfig({
-                          maxRunsPerDay: Math.max(0, Math.min(96, parseInt(e.target.value) || 0)),
-                        })}
-                        min={0}
-                        max={96}
-                        disabled={!dreamingConfig.enabled}
-                      />
-                      <p className="mt-1 text-xs text-text-tertiary">{t('settings.dreamingMaxRunsDesc')}</p>
-                    </div>
-                  </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={dreamingConfig.localOnly}
-                      disabled={!dreamingConfig.enabled}
-                      onChange={(e) => updateDreamingConfig({ localOnly: e.target.checked })}
-                      className="rounded border-border"
-                    />
-                    <span className="text-sm font-medium text-text-primary">{t('settings.dreamingLocalOnly')}</span>
-                  </label>
-                  <p className="text-xs text-text-tertiary ml-6">{t('settings.dreamingLocalOnlyDesc')}</p>
-
-                  <div className="grid gap-3 lg:grid-cols-2">
+        {appConfig && <div className="space-y-3" data-testid="appearance-runtime-settings">
+          <CollapsiblePanel title={t('nav.search')} testId="search-preferences">
+            <SettingsRow label={t('settings.searchLimit')} description={t('settings.searchLimitDesc')} htmlFor="settings-search-limit">
+              <Input id="settings-search-limit" type="number" value={appConfig.defaultSearchLimit} min={1} max={100} onChange={event => onAppConfigChange({ ...appConfig, defaultSearchLimit: Math.max(1, Math.min(100, parseInt(event.target.value) || 20)) })} />
+            </SettingsRow>
+            <SettingsRow label={t('settings.searchSimilarity')} description={t('settings.searchSimilarityDesc')} htmlFor="settings-search-similarity">
+              <Input id="settings-search-similarity" type="number" value={appConfig.minSearchSimilarity} min={0} max={1} step={0.05} onChange={event => {
+                const parsed = Number.parseFloat(event.target.value);
+                onAppConfigChange({ ...appConfig, minSearchSimilarity: Math.max(0, Math.min(1, Number.isFinite(parsed) ? parsed : 0.2)) });
+              }} />
+            </SettingsRow>
+          </CollapsiblePanel>
+          <CollapsiblePanel title={t('settings.fileSizeLimits')} testId="file-size-preferences">
+            {([
+              ['maxTextFileSize', 'settings.maxTextFileSize', 1024 * 1024, 100, 1024],
+              ['maxVideoFileSize', 'settings.maxVideoFileSize', 1024 * 1024 * 1024, 2, 10],
+              ['maxAudioFileSize', 'settings.maxAudioFileSize', 1024 * 1024, 500, 2048],
+            ] as const).map(([key, label, unit, fallback, max]) => <SettingsRow key={key} label={t(label)} description={key === 'maxTextFileSize' ? t('settings.maxTextFileSizeDesc') : undefined} htmlFor={`settings-${key}`}>
+              <Input id={`settings-${key}`} type="number" value={Math.round(appConfig[key] / unit)} min={1} max={max} onChange={event => onAppConfigChange({ ...appConfig, [key]: Math.max(1, parseInt(event.target.value) || fallback) * unit })} />
+            </SettingsRow>)}
+          </CollapsiblePanel>
+          <CollapsiblePanel title={t('settings.agentBehaviorGroup')} testId="agent-behavior-preferences">
+            {([
+              ['dynamicToolVisibility', 'settings.dynamicTools', 'settings.dynamicToolsDesc', false],
+              ['traceEnabled', 'settings.traceEnabled', 'settings.traceEnabledDesc', true],
+              ['autoMemoryExtraction', 'settings.autoMemoryExtraction', 'settings.autoMemoryExtractionDesc', true],
+              ['autoSkillLearning', 'settings.autoSkillLearning', 'settings.autoSkillLearningDesc', true],
+            ] as const).map(([key, label, description, fallback]) => <SettingsRow key={key} label={t(label)} description={t(description)} htmlFor={`settings-${key}`}>
+              <SettingsToggle id={`settings-${key}`} label={t(label)} checked={appConfig[key] ?? fallback} onChange={checked => onAppConfigChange({ ...appConfig, [key]: checked })} />
+            </SettingsRow>)}
+          </CollapsiblePanel>
+          <CollapsiblePanel title={t('settings.dreamingEnabled')} testId="dreaming-preferences">
+            <SettingsRow label={t('settings.dreamingEnabled')} description={t('settings.dreamingEnabledDesc')} htmlFor="settings-dreaming-enabled">
+              <SettingsToggle id="settings-dreaming-enabled" label={t('settings.dreamingEnabled')} checked={dreamingConfig.enabled} onChange={enabled => updateDreamingConfig({ enabled })} />
+            </SettingsRow>
+            <div className="space-y-3">
+              <CollapsiblePanel title={t('settings.dreamingTriggers')}>
+                {([
+                  ['idle', 'settings.dreamingIdle', 'settings.dreamingIdleDesc'],
+                  ['afterScan', 'settings.dreamingAfterScan', 'settings.dreamingAfterScanDesc'],
+                  ['afterSuccessfulTurn', 'settings.dreamingAfterTurn', 'settings.dreamingAfterTurnDesc'],
+                  ['schedule', 'settings.dreamingSchedule', 'settings.dreamingScheduleDesc'],
+                ] as const).map(([key, label, description]) => <SettingsRow key={key} label={t(label)} description={t(description)} htmlFor={`settings-dreaming-${key}`}>
+                  <SettingsToggle id={`settings-dreaming-${key}`} label={t(label)} checked={dreamingConfig[key]} disabled={!dreamingConfig.enabled} onChange={checked => updateDreamingConfig({ [key]: checked })} />
+                </SettingsRow>)}
+                <SettingsRow label={t('settings.dreamingIdleInterval')} htmlFor="settings-dreaming-idle-interval">
+                  <Input id="settings-dreaming-idle-interval" type="number" value={dreamingConfig.idleIntervalMinutes} min={15} max={1440} disabled={!dreamingConfig.enabled || !dreamingConfig.idle} onChange={event => updateDreamingConfig({ idleIntervalMinutes: Math.max(15, Math.min(1440, parseInt(event.target.value) || 180)) })} />
+                </SettingsRow>
+                <SettingsRow label={t('settings.dreamingScheduleInterval')} htmlFor="settings-dreaming-schedule-interval">
+                  <Input id="settings-dreaming-schedule-interval" type="number" value={dreamingConfig.scheduleIntervalMinutes} min={30} max={10080} disabled={!dreamingConfig.enabled || !dreamingConfig.schedule} onChange={event => updateDreamingConfig({ scheduleIntervalMinutes: Math.max(30, Math.min(10080, parseInt(event.target.value) || 720)) })} />
+                </SettingsRow>
+              </CollapsiblePanel>
+              <CollapsiblePanel title={t('settings.dreamingScope')}>
+                <SettingsRow label={t('settings.dreamingMaxArtifacts')} description={t('settings.dreamingMaxArtifactsDesc')} htmlFor="settings-dreaming-max-artifacts">
+                  <Input id="settings-dreaming-max-artifacts" type="number" value={dreamingConfig.maxArtifactsPerRun} min={1} max={100} disabled={!dreamingConfig.enabled} onChange={event => updateDreamingConfig({ maxArtifactsPerRun: Math.max(1, Math.min(100, parseInt(event.target.value) || 24)) })} />
+                </SettingsRow>
+                <SettingsRow label={t('settings.dreamingMaxRuns')} description={t('settings.dreamingMaxRunsDesc')} htmlFor="settings-dreaming-max-runs">
+                  <Input id="settings-dreaming-max-runs" type="number" value={dreamingConfig.maxRunsPerDay} min={0} max={96} disabled={!dreamingConfig.enabled} onChange={event => updateDreamingConfig({ maxRunsPerDay: Math.max(0, Math.min(96, parseInt(event.target.value) || 0)) })} />
+                </SettingsRow>
+                <SettingsRow label={t('settings.dreamingLocalOnly')} description={t('settings.dreamingLocalOnlyDesc')} htmlFor="settings-dreaming-local">
+                  <SettingsToggle id="settings-dreaming-local" label={t('settings.dreamingLocalOnly')} checked={dreamingConfig.localOnly} disabled={!dreamingConfig.enabled} onChange={localOnly => updateDreamingConfig({ localOnly })} />
+                </SettingsRow>
+                  <div className="space-y-3">
                     <div className="rounded-md border border-border bg-surface-0 p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div>
@@ -563,90 +375,24 @@ export function AppearanceSettingsTab({
                       </div>
                     </div>
                   </div>
-                </div>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={appConfig.confirmDestructive ?? false}
-                    onChange={(e) => onAppConfigChange({ ...appConfig, confirmDestructive: e.target.checked })}
-                    className="rounded border-border"
-                  />
-                  <span className="text-sm font-medium text-text-primary">{t('settings.confirmDestructive')}</span>
-                </label>
-                <p className="text-xs text-text-tertiary ml-6">{t('settings.confirmDestructiveDesc')}</p>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.shellAccessMode')}</label>
-                  <p className="text-xs text-text-tertiary">{t('settings.shellAccessModeDesc')}</p>
-                  <div className="grid gap-2 md:grid-cols-3">
-                    {[
-                      {
-                        value: 'restricted',
-                        label: t('settings.shellAccessRestricted'),
-                        desc: t('settings.shellAccessRestrictedDesc'),
-                      },
-                      {
-                        value: 'confirm_all',
-                        label: t('settings.shellAccessConfirmAll'),
-                        desc: t('settings.shellAccessConfirmAllDesc'),
-                      },
-                      {
-                        value: 'open',
-                        label: t('settings.shellAccessOpen'),
-                        desc: t('settings.shellAccessOpenDesc'),
-                      },
-                    ].map((option) => (
-                      <label
-                        key={option.value}
-                        className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-                          (appConfig.shellAccessMode ?? 'restricted') === option.value
-                            ? 'border-accent bg-accent/10'
-                            : 'border-border bg-surface-2'
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="radio"
-                            name="shell-access-mode"
-                            value={option.value}
-                            checked={(appConfig.shellAccessMode ?? 'restricted') === option.value}
-                            onChange={() => onAppConfigChange({
-                              ...appConfig,
-                              shellAccessMode: option.value as 'restricted' | 'confirm_all' | 'open',
-                            })}
-                            className="mt-1"
-                          />
-                          <div className="space-y-1">
-                            <div className="text-sm font-medium text-text-primary">{option.label}</div>
-                            <div className="text-xs text-text-tertiary">{option.desc}</div>
-                          </div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <ToolApprovalControl
-                  mode={appConfig.toolApprovalMode ?? 'ask'}
-                  onChange={(mode: ToolApprovalMode) => onAppConfigChange({ ...appConfig, toolApprovalMode: mode })}
-                />
-              </div>
-
-              <div className="flex justify-end">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon={<Save size={14} />}
-                  loading={appConfigLoading}
-                  onClick={() => onAppConfigSave()}
-                >
-                  {t('common.save')}
-                </Button>
-              </div>
+              </CollapsiblePanel>
             </div>
-          )}
-        </CollapsiblePanel>
+          </CollapsiblePanel>
+          <CollapsiblePanel title={t('settings.packageHost.permissions')} testId="permissions-preferences">
+            <SettingsRow label={t('settings.confirmDestructive')} description={t('settings.confirmDestructiveDesc')} htmlFor="settings-confirm-destructive">
+              <SettingsToggle id="settings-confirm-destructive" label={t('settings.confirmDestructive')} checked={appConfig.confirmDestructive ?? false} onChange={confirmDestructive => onAppConfigChange({ ...appConfig, confirmDestructive })} />
+            </SettingsRow>
+            <SettingsRow label={t('settings.shellAccessMode')} description={t('settings.shellAccessModeDesc')} htmlFor="settings-shell-access">
+              <NexaSelect id="settings-shell-access" value={appConfig.shellAccessMode ?? 'restricted'} onChange={event => onAppConfigChange({ ...appConfig, shellAccessMode: event.target.value as 'restricted' | 'confirm_all' | 'open' })} className={settingsSelectClass}>
+                <option value="restricted">{t('settings.shellAccessRestricted')}</option>
+                <option value="confirm_all">{t('settings.shellAccessConfirmAll')}</option>
+                <option value="open">{t('settings.shellAccessOpen')}</option>
+              </NexaSelect>
+            </SettingsRow>
+            <ToolApprovalControl mode={appConfig.toolApprovalMode ?? 'ask'} onChange={(toolApprovalMode: ToolApprovalMode) => onAppConfigChange({ ...appConfig, toolApprovalMode })} />
+          </CollapsiblePanel>
+          <div data-settings-actions className="flex justify-end"><Button variant="primary" size="sm" icon={<Save size={14} />} loading={appConfigLoading} onClick={() => onAppConfigSave()}>{t('common.save')}</Button></div>
+        </div>}
       </div>
     </Section>
   );

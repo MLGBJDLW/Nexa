@@ -242,7 +242,7 @@ function VisionCapabilityEditor({
           </select>
         </label>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-secondary">
+      <div data-settings-actions className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-secondary">
         <label className="flex items-center gap-2"><input type="checkbox" checked={preferLocal || localOnly} disabled={localOnly} onChange={(event) => setPreferLocal(event.target.checked)} />{t('settings.visionPreferLocal')}</label>
         <label className="flex items-center gap-2"><input type="checkbox" checked={localOnly} onChange={(event) => setLocalOnly(event.target.checked)} />{t('settings.visionLocalOnly')}</label>
         <label className="flex items-center gap-2"><input type="checkbox" checked={allowCrossProvider} onChange={(event) => setAllowCrossProvider(event.target.checked)} />{t('settings.visionAllowCrossProvider')}</label>

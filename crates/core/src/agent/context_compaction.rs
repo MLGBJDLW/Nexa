@@ -231,7 +231,19 @@ impl AgentExecutor {
         let Some(budget) = window.context_budget().filter(|budget| *budget > 0) else {
             return Ok((history, Usage::default()));
         };
-        let breakdown = self.context_budget_usage(model, &history, &[], window);
+        let request = self.prepare_model_step_request(
+            history.clone(),
+            &[],
+            super::model_step::ModelStepRequestOptions {
+                model,
+                conversation_id: run.conversation_id,
+                max_response_tokens,
+                wire_max_response_tokens: None,
+                force_answer_only: false,
+                reasoning_disabled_for_tool_loop: false,
+            },
+        )?;
+        let breakdown = self.request_context_usage(&request, window, None);
         if !window
             .budget_decision(breakdown.total_tokens)
             .should_compact
