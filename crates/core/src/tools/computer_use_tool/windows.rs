@@ -274,6 +274,9 @@ fn snapshot(window: &Window) -> Result<WindowSnapshot, CoreError> {
     }
     let (process_started_at_100ns, executable_path_hash, executable_name, session_id) =
         process_identity(native_pid)?;
+    let observation_only = native_pid == std::process::id()
+        || executable_path_hash == host_executable_hash()?
+        || executable_name.eq_ignore_ascii_case(host_executable_name()?);
     Ok(WindowSnapshot {
         input_epoch: super::super::computer_input::window_epoch(handle as usize as u64),
         id: handle as usize as u64,
@@ -293,6 +296,7 @@ fn snapshot(window: &Window) -> Result<WindowSnapshot, CoreError> {
         minimized: unsafe { IsIconic(HWND(handle)).as_bool() },
         maximized: unsafe { IsZoomed(HWND(handle)).as_bool() },
         focused: unsafe { GetForegroundWindow() == HWND(handle) },
+        observation_only,
         modal_owner: None,
     })
 }
@@ -352,24 +356,44 @@ fn recovered_modal_owner(observed: &WindowSnapshot) -> Option<ModalOwnerHandoff>
     })
 }
 
-fn enumerated_windows(allow_host: bool) -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
-    let host_executable_hash = host_executable_hash()?;
-    let host_executable_name = host_executable_name()?;
-    let windows =
-        Window::enumerate().map_err(|error| platform_error("enumerate windows", error))?;
+fn enumerated_windows() -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClientRect, GetWindowLongPtrW, GWL_EXSTYLE, GWL_STYLE, WS_CHILD,
+        WS_EX_TOOLWINDOW,
+    };
+    // windows-capture's convenience enumeration unconditionally excludes
+    // GetCurrentProcessId(). Enumerate top-level HWNDs ourselves so read-only
+    // observation can include the host; the WGC capture path stays shared.
+    unsafe extern "system" fn collect(window: HWND, context: LPARAM) -> BOOL {
+        let mut client = RECT::default();
+        let eligible = unsafe {
+            IsWindowVisible(window).as_bool()
+                && GetClientRect(window, &mut client).is_ok()
+                && GetWindowLongPtrW(window, GWL_STYLE) & WS_CHILD.0 as isize == 0
+                && GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW.0 as isize == 0
+        };
+        if eligible {
+            let windows = unsafe { &mut *(context.0 as *mut Vec<Window>) };
+            windows.push(Window::from_raw_hwnd(window.0));
+        }
+        BOOL(1)
+    }
+    let mut windows = Vec::<Window>::new();
+    unsafe {
+        EnumWindows(
+            Some(collect),
+            LPARAM(std::ptr::addr_of_mut!(windows) as isize),
+        )
+    }
+    .map_err(|error| platform_error("enumerate top-level windows", error))?;
     let mut result = Vec::new();
     for window in windows {
         let Ok(snapshot) = snapshot(&window) else {
             continue;
         };
         if snapshot.title.trim().is_empty() || snapshot.width == 0 || snapshot.height == 0 {
-            continue;
-        }
-        if !allow_host
-            && (snapshot.pid == std::process::id()
-                || snapshot.executable_path_hash == host_executable_hash
-                || snapshot.app_name.eq_ignore_ascii_case(host_executable_name))
-        {
             continue;
         }
         if protected_system_process(&snapshot.app_name) {
@@ -381,7 +405,7 @@ fn enumerated_windows(allow_host: bool) -> Result<Vec<(Window, WindowSnapshot)>,
 }
 
 pub(super) fn list_windows() -> Result<Vec<WindowSnapshot>, CoreError> {
-    let mut windows = enumerated_windows(false)?
+    let mut windows = enumerated_windows()?
         .into_iter()
         .map(|(_, snapshot)| snapshot)
         .collect::<Vec<_>>();
@@ -429,13 +453,7 @@ fn current_window_for_access(
             expected.id
         )));
     }
-    if !allow_host
-        && (current.pid == std::process::id()
-            || current.executable_path_hash == host_executable_hash()?
-            || current
-                .app_name
-                .eq_ignore_ascii_case(host_executable_name()?))
-    {
+    if !allow_host && current.observation_only {
         return Err(invalid(
             "Nexa windows and approval surfaces are protected from computer control.",
         ));
@@ -450,7 +468,7 @@ fn current_window_for_access(
 
 pub(super) fn user_share_windows() -> Result<Vec<super::UserShareWindow>, CoreError> {
     use base64::Engine;
-    let mut sources = enumerated_windows(true)?
+    let mut sources = enumerated_windows()?
         .into_iter()
         .filter(|(_, window)| !window.minimized)
         .take(100)
@@ -1160,11 +1178,19 @@ pub(super) fn capture_window(
     expected: &WindowSnapshot,
     options: CaptureOptions,
 ) -> Result<CapturedWindow, CoreError> {
+    capture_window_with_elements(expected, options, collect_elements)
+}
+
+fn capture_window_with_elements(
+    expected: &WindowSnapshot,
+    options: CaptureOptions,
+    collect: impl FnOnce(&WindowSnapshot, u32, u32, usize) -> Result<Vec<UiElementSnapshot>, CoreError>,
+) -> Result<CapturedWindow, CoreError> {
     let _physical_pixels = PhysicalPixels::enter()?;
     // Stamp the beginning, not completion: an older in-flight capture must
     // not become fresh evidence merely because its provider returned late.
     let observation_captured_at_ms = observation_time_ms();
-    let (window, current) = current_window(expected)?;
+    let (window, current) = current_window_for_access(expected, true)?;
     let modal_owner = observed_modal_owner(&current);
     if current.minimized {
         return Err(invalid(format!(
@@ -1173,7 +1199,7 @@ pub(super) fn capture_window(
         )));
     }
     let image = capture_rgba(window)?;
-    let post_capture = current_window(&current)?.1;
+    let post_capture = current_window_for_access(&current, true)?.1;
     if !same_capture_surface(&current, &post_capture) {
         return Err(invalid(
             "Target identity, title, or geometry changed during screenshot capture. Capture again.",
@@ -1181,8 +1207,8 @@ pub(super) fn capture_window(
     }
     let (png, image_width, image_height, native_image_width, native_image_height) =
         resized_png(image)?;
-    let (elements, semantic_error) = if options.include_elements {
-        match collect_elements(
+    let (mut elements, mut semantic_error) = if options.include_elements {
+        match collect(
             &post_capture,
             image_width,
             image_height,
@@ -1194,14 +1220,15 @@ pub(super) fn capture_window(
     } else {
         (Vec::new(), None)
     };
-    let mut final_snapshot = current_window(&post_capture)?.1;
+    let mut final_snapshot = current_window_for_access(&post_capture, true)?.1;
     if !same_capture_surface(&post_capture, &final_snapshot) {
         return Err(invalid(
             "Target identity, title, or geometry changed while collecting UI semantics. Capture again.",
         ));
     }
     if options.include_elements && semantic_error.is_none() {
-        let (verification_window, verification_snapshot) = current_window(&final_snapshot)?;
+        let (verification_window, verification_snapshot) =
+            current_window_for_access(&final_snapshot, true)?;
         if !same_capture_surface(&final_snapshot, &verification_snapshot) {
             return Err(invalid(
                 "Target changed before semantic observation verification. Capture again.",
@@ -1216,9 +1243,18 @@ pub(super) fn capture_window(
                 .zip(screenshot_signature(&verification_png))
                 .is_some_and(|(before, after)| screenshot_signatures_match(&before, &after));
         if !consistent {
-            return Err(invalid(
-                "Window pixels changed while collecting UI semantics. Capture again to avoid a mixed observation.",
-            ));
+            if !final_snapshot.observation_only {
+                return Err(invalid(
+                    "Window pixels changed while collecting UI semantics. Capture again to avoid a mixed observation.",
+                ));
+            }
+            // The host may stream its own tool progress during observation.
+            // Its pixels remain useful evidence, but mismatched element IDs
+            // must not describe that frame. Host input is always prohibited.
+            elements.clear();
+            semantic_error = Some(
+                "Window pixels changed while collecting UI semantics. Returned the read-only host screenshot without element mappings.".into(),
+            );
         }
     }
     let annotated_png = if options.mode == CaptureMode::SetOfMarks {
@@ -3493,6 +3529,199 @@ pub(super) fn control_window(
 mod native_input_tests {
     use super::*;
 
+    /// A real host-process window with its own message pump, matching the
+    /// separation between Nexa's UI thread and the blocking observation worker.
+    struct HostWindowFixture {
+        id: u64,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl HostWindowFixture {
+        fn new() -> Self {
+            use windows::core::{w, PCWSTR};
+            use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
+            use windows::Win32::Graphics::Gdi::{GetSysColorBrush, COLOR_WINDOW};
+            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+            use windows::Win32::UI::WindowsAndMessaging::*;
+
+            unsafe extern "system" fn window_proc(
+                window: HWND,
+                message: u32,
+                wparam: WPARAM,
+                lparam: LPARAM,
+            ) -> LRESULT {
+                if message == WM_APP + 17 {
+                    // Change most of the captured pixels after the real UIA
+                    // projection was read, without changing target identity.
+                    unsafe {
+                        let _ = CreateWindowExW(
+                            WINDOW_EX_STYLE::default(),
+                            w!("STATIC"),
+                            w!(""),
+                            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(4 /* SS_BLACKRECT */),
+                            0,
+                            54,
+                            620,
+                            240,
+                            Some(window),
+                            None,
+                            None,
+                            None,
+                        );
+                    }
+                    return LRESULT(0);
+                }
+                if message == WM_DESTROY {
+                    unsafe { PostQuitMessage(0) };
+                    return LRESULT(0);
+                }
+                unsafe { DefWindowProcW(window, message, wparam, lparam) }
+            }
+
+            let (ready, received) = mpsc::sync_channel(1);
+            let worker = thread::spawn(move || {
+                let _physical_pixels = PhysicalPixels::enter().unwrap();
+                let class: Vec<u16> = format!("NexaHostObserve{}", uuid::Uuid::new_v4().simple())
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
+                let instance = HINSTANCE(unsafe { GetModuleHandleW(None) }.unwrap().0);
+                let registration = WNDCLASSW {
+                    lpfnWndProc: Some(window_proc),
+                    lpszClassName: PCWSTR(class.as_ptr()),
+                    hInstance: instance,
+                    hbrBackground: unsafe { GetSysColorBrush(COLOR_WINDOW) },
+                    ..Default::default()
+                };
+                assert_ne!(unsafe { RegisterClassW(&registration) }, 0);
+                let window = unsafe {
+                    CreateWindowExW(
+                        WINDOW_EX_STYLE::default(),
+                        PCWSTR(class.as_ptr()),
+                        w!("Nexa same-process observation fixture"),
+                        WS_OVERLAPPEDWINDOW,
+                        CW_USEDEFAULT,
+                        CW_USEDEFAULT,
+                        640,
+                        330,
+                        None,
+                        None,
+                        Some(instance),
+                        None,
+                    )
+                }
+                .unwrap();
+                unsafe {
+                    CreateWindowExW(
+                        WINDOW_EX_STYLE::default(),
+                        w!("BUTTON"),
+                        w!("Host semantic evidence"),
+                        WS_CHILD | WS_VISIBLE,
+                        24,
+                        12,
+                        250,
+                        30,
+                        Some(window),
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap();
+                    let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
+                }
+                ready.send(window.0 as usize as u64).unwrap();
+                let mut message = MSG::default();
+                while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {
+                    let _ = unsafe { TranslateMessage(&message) };
+                    unsafe { DispatchMessageW(&message) };
+                }
+                let _ = unsafe { UnregisterClassW(PCWSTR(class.as_ptr()), Some(instance)) };
+            });
+            Self {
+                id: received.recv_timeout(Duration::from_secs(5)).unwrap(),
+                worker: Some(worker),
+            }
+        }
+    }
+
+    impl Drop for HostWindowFixture {
+        fn drop(&mut self) {
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+            let _ = unsafe { PostMessageW(Some(hwnd(self.id)), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+            if let Some(worker) = self.worker.take() {
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while !worker.is_finished() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                if worker.is_finished() {
+                    let _ = worker.join();
+                } else if !thread::panicking() {
+                    panic!("host fixture message loop did not stop within two seconds");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires an interactive Windows desktop; captures a real same-process UIA window"]
+    fn windows_same_process_host_observation_keeps_pixels_when_semantics_change() {
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::Graphics::Dwm::DwmFlush;
+        use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_APP};
+
+        let fixture = HostWindowFixture::new();
+        let target = list_windows()
+            .unwrap()
+            .into_iter()
+            .find(|window| window.id == fixture.id)
+            .expect("host window listed");
+        assert_eq!(target.pid, std::process::id());
+        assert!(target.observation_only);
+        let options = CaptureOptions {
+            include_elements: true,
+            max_elements: 120,
+            mode: CaptureMode::SetOfMarks,
+        };
+        let stable = capture_window(&target, options).expect("same-process UIA capture");
+        assert!(
+            stable.semantic_error.is_none(),
+            "{:?}",
+            stable.semantic_error
+        );
+        assert!(stable
+            .elements
+            .iter()
+            .any(|element| element.name == "Host semantic evidence"));
+
+        let changed =
+            capture_window_with_elements(&target, options, |window, width, height, limit| {
+                let elements = collect_elements(window, width, height, limit)?;
+                unsafe {
+                    SendMessageW(
+                        hwnd(fixture.id),
+                        WM_APP + 17,
+                        Some(WPARAM(0)),
+                        Some(LPARAM(0)),
+                    );
+                    DwmFlush()
+                        .map_err(|error| platform_error("flush host fixture change", error))?;
+                }
+                Ok(elements)
+            })
+            .expect("changing read-only host still returns its screenshot");
+        assert!(!changed.png.is_empty());
+        assert!(
+            changed.elements.is_empty(),
+            "stale UIA elements must be discarded"
+        );
+        assert!(changed
+            .semantic_error
+            .as_deref()
+            .is_some_and(|error| error.contains("pixels changed")));
+        assert!(changed.snapshot.observation_only);
+    }
+
     #[test]
     fn captured_frames_fit_the_model_image_dimension_envelope() {
         let image = RgbaImage::new(2_000, 1_000);
@@ -3531,6 +3760,7 @@ mod native_input_tests {
             minimized: false,
             maximized: false,
             focused: true,
+            observation_only: false,
             modal_owner: None,
         };
         let observed = ObservedWindow {
