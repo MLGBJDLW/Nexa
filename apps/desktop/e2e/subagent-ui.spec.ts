@@ -665,7 +665,7 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   await expect(page.getByText(/subagents \d+/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Add Provider' }).click();
   await page.getByRole('button', { name: 'Custom / Manual' }).click();
-  await page.getByRole('button', { name: /Advanced Settings/ }).click();
+  await page.getByRole('button', { name: /^Subagents/ }).click();
   await expect(page.getByRole('heading', { name: 'Subagents' })).toBeVisible();
   await expect(page.getByText('Max parallel workers')).toBeVisible();
   await expect(page.getByText('Max worker calls / turn')).toBeVisible();
