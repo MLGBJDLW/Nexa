@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.17.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.3...nexa-monorepo-v0.17.4) (2026-10-22)
+
+
+### Features
+
+* **browser:** add native pointer controls and repair Copilot tool loading ([#496](https://github.com/MLGBJDLW/Nexa/issues/496)) ([b363825](https://github.com/MLGBJDLW/Nexa/commit/b36382563715984f7ecdf73541963dcf8d6db31a))
+* **runtime:** stabilize streaming and speech, add safe context Fork ([#494](https://github.com/MLGBJDLW/Nexa/issues/494)) ([d3fd2ef](https://github.com/MLGBJDLW/Nexa/commit/d3fd2efe26247eb5fa3a61fa76b604fb7129deca))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at b36382563715984f7ecdf73541963dcf8d6db31a -->
+
+### What's Changed
+* feat(runtime): stabilize streaming and speech, add safe context Fork by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/494
+* feat(browser): add native pointer controls and repair Copilot tool loading by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/496
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.3...nexa-monorepo-v0.17.4
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.2...nexa-monorepo-v0.17.3) (2026-10-20)
 
 
