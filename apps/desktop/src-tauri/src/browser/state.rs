@@ -10,7 +10,7 @@ pub use nexa_core::browser_runtime::{
 use nexa_core::browser_runtime::{
     BrowserFrameLimitations, BrowserObservation as CoreBrowserObservation,
     BrowserObservationCoverage, BrowserObservationOptions, BrowserScreenshot,
-    BrowserSession as CoreBrowserSession, BrowserTab as CoreBrowserTab,
+    BrowserSession as CoreBrowserSession, BrowserTab as CoreBrowserTab, BrowserTextMatch,
     BROWSER_FINAL_OBSERVATION_TIMEOUT,
 };
 use nexa_core::tools::run_shell_tool::{managed_loopback_permits, ManagedLoopbackPermit};
@@ -67,6 +67,8 @@ struct BrowserPageSnapshot {
     #[serde(default)]
     ready_state: Option<String>,
     text: String,
+    #[serde(default)]
+    text_match: Option<BrowserTextMatch>,
     viewport: serde_json::Value,
     history_length: usize,
     user_epoch: u64,
@@ -234,6 +236,7 @@ struct StoredObservation {
     tab_id: String,
     url: String,
     dom_fingerprint: String,
+    screenshot_hash: String,
     interaction_fingerprint: String,
     coordinate_fingerprint: Option<String>,
     user_epoch: u64,
@@ -252,6 +255,8 @@ struct StoredObservation {
 struct ActionVerificationBaseline {
     url: String,
     dom_fingerprint: String,
+    #[serde(default)]
+    screenshot_hash: Option<String>,
     user_epoch: u64,
     #[serde(default)]
     observation_options: BrowserObservationOptions,
@@ -262,10 +267,32 @@ impl StoredObservation {
         ActionVerificationBaseline {
             url: self.url.clone(),
             dom_fingerprint: self.dom_fingerprint.clone(),
+            screenshot_hash: Some(self.screenshot_hash.clone()),
             user_epoch: self.user_epoch,
             observation_options: self.options.clone(),
         }
     }
+}
+
+impl ActionVerificationBaseline {
+    fn observed_change(&self, settled_change: bool, observation: &CoreBrowserObservation) -> bool {
+        settled_change
+            || blake3::hash(self.dom_fingerprint.as_bytes())
+                .to_hex()
+                .as_str()
+                != observation.content_hash
+            || screenshot_evidence_changed(
+                self.screenshot_hash.as_deref(),
+                observation
+                    .screenshot
+                    .as_ref()
+                    .map(|screenshot| screenshot.content_hash.as_str()),
+            )
+    }
+}
+
+pub(super) fn screenshot_evidence_changed(before: Option<&str>, after: Option<&str>) -> bool {
+    matches!((before, after), (Some(before), Some(after)) if before != after)
 }
 
 pub type BrowserTabInfo = CoreBrowserTab;
@@ -2189,19 +2216,7 @@ impl BrowserState {
             .await?;
         let snapshot_url = Url::parse(&snapshot.url)
             .map_err(|_| "Browser observation returned an invalid URL".to_string())?;
-        let (capture_plan, surface_flight) = self.capture_context(session_id, tab_id)?;
-        let feedback = super::presentation::CaptureFeedbackGuard::begin(&webview).await?;
-        let capture = capture_webview_image(&webview, capture_plan, surface_flight).await?;
-        drop(feedback);
-        self.require_visible_focused_host_window()?;
-        let screenshot = BrowserScreenshot {
-            mime_type: capture.mime_type,
-            content_hash: blake3::hash(&capture.image_bytes).to_hex().to_string(),
-            width: capture.width,
-            height: capture.height,
-            byte_length: capture.image_bytes.len(),
-            image_bytes: capture.image_bytes,
-        };
+        let screenshot = self.capture_screenshot(session_id, tab_id).await?;
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
         let observe_expression = format!(
             "window.__NEXA_BROWSER_RUNTIME__?.observe({})",
@@ -2215,6 +2230,7 @@ impl BrowserState {
         if confirmation.url != snapshot.url
             || confirmation.interaction_fingerprint != snapshot.interaction_fingerprint
             || confirmation.user_epoch != snapshot.user_epoch
+            || confirmation.text_match != snapshot.text_match
         {
             return Err(
                 "stale observation: page changed while its visual evidence was captured; observe again"
@@ -2270,6 +2286,7 @@ impl BrowserState {
                 tab_id: tab_id.to_string(),
                 url: snapshot.url.clone(),
                 dom_fingerprint: snapshot.dom_fingerprint.clone(),
+                screenshot_hash: screenshot.content_hash.clone(),
                 interaction_fingerprint: snapshot.interaction_fingerprint.clone(),
                 coordinate_fingerprint,
                 user_epoch: snapshot.user_epoch,
@@ -2301,6 +2318,7 @@ impl BrowserState {
             title: snapshot.title,
             ready_state: snapshot.ready_state,
             text: snapshot.text,
+            text_match: snapshot.text_match,
             viewport: snapshot.viewport,
             content_hash,
             elements: snapshot.elements.clone(),
@@ -2309,6 +2327,27 @@ impl BrowserState {
             accessibility_tree: snapshot.elements,
             control_owner: owner,
             screenshot: Some(screenshot),
+        })
+    }
+
+    async fn capture_screenshot(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+    ) -> Result<BrowserScreenshot, String> {
+        let webview = self.webview(session_id, tab_id)?;
+        let (capture_plan, surface_flight) = self.capture_context(session_id, tab_id)?;
+        let feedback = super::presentation::CaptureFeedbackGuard::begin(&webview).await?;
+        let capture = capture_webview_image(&webview, capture_plan, surface_flight).await?;
+        drop(feedback);
+        self.require_visible_focused_host_window()?;
+        Ok(BrowserScreenshot {
+            mime_type: capture.mime_type,
+            content_hash: blake3::hash(&capture.image_bytes).to_hex().to_string(),
+            width: capture.width,
+            height: capture.height,
+            byte_length: capture.image_bytes.len(),
+            image_bytes: capture.image_bytes,
         })
     }
 
@@ -2596,6 +2635,11 @@ impl BrowserState {
             let mut verification_baseline =
                 action_verification_baseline_from_preparation(&prepared, "pointer")?;
             verification_baseline.observation_options = observation.options.clone();
+            verification_baseline.screenshot_hash = Some(
+                self.capture_screenshot(request.session_id, request.tab_id)
+                    .await?
+                    .content_hash,
+            );
             self.require_visible_focused_host_window()?;
             #[cfg(windows)]
             {
@@ -2644,6 +2688,8 @@ impl BrowserState {
                     &observation.options,
                 )
                 .await?;
+            let effect_observed =
+                verification_baseline.observed_change(effect_observed, &fresh_observation);
             progress.update(
                 if matches!(request.action, "set_checked" | "select" | "upload_files") {
                     BrowserOperationPhase::ConditionMatched
@@ -2745,6 +2791,8 @@ impl BrowserState {
                 )
                 .await?;
             verify_requested_form_state(&request, &fresh_observation)?;
+            let effect_observed =
+                verification_baseline.observed_change(effect_observed, &fresh_observation);
             drop(navigation_permit_guard);
             progress.update(
                 if matches!(request.action, "set_checked" | "select" | "upload_files") {
@@ -2830,6 +2878,9 @@ impl BrowserState {
             )
             .await?;
         verify_requested_form_state(&request, &fresh_observation)?;
+        let effect_observed = observation
+            .verification_baseline()
+            .observed_change(effect_observed, &fresh_observation);
         drop(navigation_permit_guard);
         progress.update(
             if matches!(request.action, "set_checked" | "select" | "upload_files") {
@@ -2900,8 +2951,17 @@ impl BrowserState {
                 .and_then(serde_json::Value::as_bool)
                 == Some(true)
         {
+            verification_baseline.screenshot_hash = Some(observation.screenshot_hash.clone());
             return Ok(verification_baseline);
         }
+        // Preparation may focus or scroll the page. Capture its visual baseline
+        // before input so those effects are not attributed to the action, while
+        // canvas/WebGL updates remain observable in the final screenshot.
+        verification_baseline.screenshot_hash = Some(
+            self.capture_screenshot(request.session_id, request.tab_id)
+                .await?
+                .content_hash,
+        );
         let pointer_bounds = if matches!(input_action, "click" | "double_click" | "drag" | "scroll")
         {
             Some(

@@ -122,6 +122,8 @@ pub struct BrowserObservation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_state: Option<String>,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_match: Option<BrowserTextMatch>,
     pub viewport: serde_json::Value,
     pub content_hash: String,
     pub elements: Vec<BrowserElement>,
@@ -141,6 +143,20 @@ pub struct BrowserObservationOptions {
     pub query: Option<String>,
     #[serde(default)]
     pub offset: usize,
+    /// Internal wait predicate evaluated against complete accessible text,
+    /// independently of the bounded text preview returned to the model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_query: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserTextMatch {
+    pub query: String,
+    pub found: bool,
+    pub complete: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incomplete_reason: Option<String>,
 }
 
 impl BrowserObservationOptions {

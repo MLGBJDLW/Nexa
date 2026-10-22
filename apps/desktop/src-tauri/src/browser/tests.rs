@@ -578,6 +578,18 @@ fn workspace_visibility_request_remains_until_matching_visible_revision() {
 
 #[test]
 fn post_action_settle_distinguishes_observed_change_from_noop() {
+    assert!(super::state::screenshot_evidence_changed(
+        Some("canvas-before"),
+        Some("canvas-after")
+    ));
+    assert!(!super::state::screenshot_evidence_changed(
+        Some("unchanged"),
+        Some("unchanged")
+    ));
+    assert!(!super::state::screenshot_evidence_changed(
+        None,
+        Some("no-baseline")
+    ));
     assert!(!action_snapshot_changed(
         "https://example.com/",
         "fingerprint-a",

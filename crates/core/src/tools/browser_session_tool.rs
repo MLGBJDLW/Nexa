@@ -863,6 +863,7 @@ impl Tool for BrowserSessionTool {
         let observation_options = BrowserObservationOptions {
             query: args.query.clone(),
             offset: args.offset.unwrap_or(0),
+            text_query: None,
         };
         observation_options.validate().map_err(invalid)?;
         if action != "observe" && (args.query.is_some() || args.offset.is_some()) {
@@ -1960,6 +1961,7 @@ mod tests {
             &BrowserObservationOptions {
                 query: None,
                 offset: 300,
+                text_query: None,
             },
             &viewport,
         );
@@ -1973,6 +1975,7 @@ mod tests {
             &BrowserObservationOptions {
                 query: Some(" EXPORT REVIEWED ".into()),
                 offset: 0,
+                text_query: None,
             },
             &viewport,
         );

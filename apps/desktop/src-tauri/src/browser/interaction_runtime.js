@@ -48,7 +48,7 @@
     agentCursor: null,
     cursorDocument: null,
     cursorPoint: null,
-    observationOptions: { query: '', offset: 0 },
+    observationOptions: { query: '', offset: 0, textQuery: null },
     geometryIds: new WeakMap(),
     nextGeometryId: 0,
   };
@@ -212,22 +212,60 @@
       return new URL(el.getAttribute?.('formaction') || el.form.getAttribute?.('action') || fallbackUrl, ownerDocument.baseURI).href;
     } catch (_) { return null; }
   };
-  const viewportBoundsOf = (el) => {
+  const frameCoordinateTransform = (frame, strict = true) => {
+    if (strict) for (let ancestor = frame; ancestor; ancestor = composedParent(ancestor)) {
+      const style = getComputedStyle(ancestor);
+      const matrix = new DOMMatrixReadOnly(style.transform === 'none' ? undefined : style.transform);
+      const scale = style.scale === 'none' ? [1] : style.scale.split(/\s+/).map(Number);
+      if (!matrix.is2D || Math.abs(matrix.b) > 0.000001 || Math.abs(matrix.c) > 0.000001
+        || matrix.a <= 0 || matrix.d <= 0 || style.perspective !== 'none'
+        || !['none', '0deg'].includes(style.rotate) || scale.some(value => !Number.isFinite(value) || value <= 0)) {
+        throw new Error('Trusted browser input cannot map a rotated, skewed, mirrored or perspective iframe; use an untransformed frame');
+      }
+    }
+    const style = getComputedStyle(frame);
+    const px = name => Number.parseFloat(style[name]) || 0;
+    const borderLeft = px('borderLeftWidth'), borderTop = px('borderTopWidth');
+    const paddingLeft = px('paddingLeft'), paddingTop = px('paddingTop');
+    const width = px('width') + (style.boxSizing === 'border-box' ? 0 : borderLeft + px('borderRightWidth') + paddingLeft + px('paddingRight'));
+    const height = px('height') + (style.boxSizing === 'border-box' ? 0 : borderTop + px('borderBottomWidth') + paddingTop + px('paddingBottom'));
+    const rect = frame.getBoundingClientRect();
+    const scaleX = width > 0 ? rect.width / width : 1, scaleY = height > 0 ? rect.height / height : 1;
+    if (strict && (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0)) throw new Error('Browser iframe has no usable coordinate transform');
+    return { x: rect.x + (borderLeft + paddingLeft) * scaleX, y: rect.y + (borderTop + paddingTop) * scaleY, scaleX, scaleY };
+  };
+  const viewportBoundsOf = (el, strict = false) => {
     const rect = el.getBoundingClientRect();
-    let x = rect.x;
-    let y = rect.y;
+    let { x, y, width, height } = rect;
     let ownerWindow = el.ownerDocument?.defaultView;
     while (ownerWindow && ownerWindow !== window.top) {
       try {
         const frame = ownerWindow.frameElement;
         if (!frame) break;
-        const frameBounds = frame.getBoundingClientRect();
-        x += frameBounds.x;
-        y += frameBounds.y;
+        const transform = frameCoordinateTransform(frame, strict);
+        x = transform.x + x * transform.scaleX;
+        y = transform.y + y * transform.scaleY;
+        width *= transform.scaleX;
+        height *= transform.scaleY;
         ownerWindow = frame.ownerDocument?.defaultView;
-      } catch (_) { break; }
+      } catch (error) { if (strict) throw error; break; }
     }
-    return { x, y, width: rect.width, height: rect.height };
+    return { x, y, width, height };
+  };
+  const pointInOwnerDocument = (element, point) => {
+    const transforms = [];
+    for (let ownerWindow = element.ownerDocument.defaultView; ownerWindow && ownerWindow !== window.top;) {
+      const frame = ownerWindow.frameElement;
+      if (!frame) throw new Error('Browser iframe coordinate ancestry is unavailable');
+      transforms.push(frameCoordinateTransform(frame));
+      ownerWindow = frame.ownerDocument.defaultView;
+    }
+    let { x, y } = point;
+    for (const transform of transforms.reverse()) {
+      x = (x - transform.x) / transform.scaleX;
+      y = (y - transform.y) / transform.scaleY;
+    }
+    return { x, y };
   };
   const frameLimitationsOf = (rootList) => {
     const frames = [];
@@ -389,9 +427,39 @@
     }).join('\u001e');
     return `v4|${location.href}|${scrollX}|${scrollY}|${innerWidth}|${innerHeight}|${hashText(interactiveState)}`;
   };
-  const domFingerprintOf = (interactionFingerprint = interactionFingerprintOf()) => {
-    const bodyText = document.body?.innerText.slice(0, 30000) || '';
-    return `${interactionFingerprint}|${hashText(bodyText)}`;
+  const observedTextOf = (rootList = roots()) => {
+    const visible = (element) => {
+      if (!element) return false;
+      for (let ancestor = element; ancestor; ancestor = composedParent(ancestor)) {
+        const style = getComputedStyle(ancestor);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+      }
+      return true;
+    };
+    const text = [];
+    for (const root of rootList) {
+      const ownerDocument = root.nodeType === Node.DOCUMENT_NODE ? root : root.ownerDocument;
+      let included = true;
+      for (let ownerWindow = ownerDocument.defaultView; ownerWindow && ownerWindow !== window.top;) {
+        const frame = ownerWindow.frameElement;
+        if (!frame || !isObservable(frame)) { included = false; break; }
+        ownerWindow = frame.ownerDocument.defaultView;
+      }
+      if (!included) continue;
+      if (root.nodeType === Node.DOCUMENT_NODE) {
+        if (visible(root.body)) text.push(root.body.innerText || '');
+      } else if (visible(root.host)) {
+        for (const child of root.childNodes) {
+          if (child.nodeType === Node.TEXT_NODE) text.push(child.textContent || '');
+          else if (child.nodeType === Node.ELEMENT_NODE && visible(child)
+            && !child.matches('script,style,noscript,template')) text.push(child.innerText || '');
+        }
+      }
+    }
+    return text.join('\n');
+  };
+  const domFingerprintOf = (interactionFingerprint = interactionFingerprintOf(), text = observedTextOf()) => {
+    return `${interactionFingerprint}|${hashText(text)}`;
   };
   const actionVerificationBaseline = () => ({
     url: location.href,
@@ -423,8 +491,9 @@
   runtime.observe = (options = {}) => {
     const query = typeof options.query === 'string' ? options.query.trim() : '';
     const offset = options.offset ?? 0;
+    const textQuery = typeof options.textQuery === 'string' && options.textQuery.length ? options.textQuery : null;
     if ([...query].length > 240 || !Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid browser observation query or offset');
-    runtime.observationOptions = { query, offset };
+    runtime.observationOptions = { query, offset, textQuery };
     runtime.refs = new Map();
     let optionBudget = 400;
     const rootList = roots();
@@ -447,20 +516,30 @@
     // This synchronous capture has one selection and one interaction digest.
     // Native screenshot confirmation still performs a separate fresh capture.
     const interactionFingerprint = interactionFingerprintOf(selected);
+    const text = observedTextOf(rootList);
+    const frameLimitations = frameLimitationsOf(rootList);
+    // DOM cannot distinguish a light-DOM-only custom element from one with a
+    // closed shadow root. Do not use that uncertainty as proof of absence.
+    const opaqueCustomElement = rootList.some(root => Array.from(root.querySelectorAll('*'))
+      .some(element => element.localName.includes('-') && !element.shadowRoot));
+    const incompleteReason = frameLimitations.unavailableCount > 0 ? 'inaccessible_frame'
+      : opaqueCustomElement ? 'custom_element_shadow_root_unavailable' : null;
     return {
       url: location.href,
       title: document.title,
       readyState: document.readyState,
-      text: document.body ? document.body.innerText.slice(0, 30000) : '',
+      text: text.slice(0, 30000),
+      textMatch: textQuery === null ? null : { query: textQuery, found: text.includes(textQuery), complete: incompleteReason === null,
+        ...(incompleteReason ? { incompleteReason } : {}) },
       viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio },
       historyLength: history.length,
       userEpoch: runtime.userEpoch,
-      domFingerprint: domFingerprintOf(interactionFingerprint),
+      domFingerprint: domFingerprintOf(interactionFingerprint, text),
       interactionFingerprint,
       coordinateFingerprint,
       elements,
       observationCoverage: { query, offset, returned: elements.length, totalMatches: matches.length, hasMore: offset + elements.length < matches.length, nextOffset: offset + elements.length < matches.length ? offset + elements.length : null },
-      frameLimitations: frameLimitationsOf(rootList),
+      frameLimitations,
     };
   };
   const validateAction = (input) => {
@@ -749,9 +828,9 @@
       el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
       rect = el.getBoundingClientRect();
     }
-    const viewportBounds = viewportBoundsOf(el);
+    const viewportBounds = viewportBoundsOf(el, true);
     const requestedPoint = input.point ? viewportPoint(input.point) : null;
-    const point = requestedPoint ? { x: requestedPoint.x - viewportBounds.x + rect.x, y: requestedPoint.y - viewportBounds.y + rect.y }
+    const point = requestedPoint ? pointInOwnerDocument(el, requestedPoint)
       : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     if (point.x < 0 || point.y < 0 || point.x >= ownerWindow.innerWidth || point.y >= ownerWindow.innerHeight) {
       throw new Error('Browser pointer target is outside the viewport');
@@ -762,7 +841,7 @@
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
     return {
-      bounds: requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBoundsOf(el),
+      bounds: requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBounds,
       targetContext,
       targetRef: input.targetRef,
       verificationBaseline: actionVerificationBaseline(),
@@ -1064,6 +1143,7 @@
   const bridge = Object.freeze({
     observe: (options) => runtime.observe(options),
     targetContextFingerprint: (element) => targetContextFingerprint(element),
+    frameCoordinateTransform: (frame) => frameCoordinateTransform(frame),
     resolveTargetRef: (ref) => runtime.refs.get(ref) || null,
     setPointerAppearance: (appearance) => runtime.setPointerAppearance(appearance),
     previewAction: (input) => runtime.previewAction(input),
