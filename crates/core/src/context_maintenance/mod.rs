@@ -62,6 +62,7 @@ pub(crate) fn commit_live_history_handoff(
         source_start_sort_order: plan.source_start_sort_order,
         source_boundary_sort_order: plan.source_boundary_sort_order,
         source_digest: plan.source_digest,
+        source_image_digest: plan.source_image_digest,
         expected_checkpoint_generation: plan.expected_checkpoint_generation,
         tokens_before: plan.tokens_before,
         tokens_after: plan.retained_tokens.saturating_add(

@@ -74,6 +74,16 @@ enum ModelStepWaitSignal {
     Cancellation,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ModelStepRequestOptions<'a> {
+    pub(super) model: &'a str,
+    pub(super) conversation_id: Option<&'a str>,
+    pub(super) max_response_tokens: u32,
+    pub(super) wire_max_response_tokens: Option<u32>,
+    pub(super) force_answer_only: bool,
+    pub(super) reasoning_disabled_for_tool_loop: bool,
+}
+
 pub(super) struct ModelStepContext<'a> {
     pub(super) db: &'a Database,
     pub(super) tx: &'a mpsc::Sender<AgentEvent>,
@@ -191,6 +201,100 @@ fn reset_iteration_capture_for_new_sample(
 }
 
 impl AgentExecutor {
+    /// Build the request once through the same controls for admission and sampling.
+    pub(super) fn prepare_model_step_request(
+        &self,
+        request_messages: Vec<Message>,
+        tool_defs: &[ToolDefinition],
+        options: ModelStepRequestOptions<'_>,
+    ) -> Result<CompletionRequest, CoreError> {
+        let ModelStepRequestOptions {
+            model,
+            conversation_id,
+            max_response_tokens,
+            wire_max_response_tokens,
+            force_answer_only,
+            reasoning_disabled_for_tool_loop,
+        } = options;
+        let request_tools =
+            request_tools_with_native_search_plan(tool_defs, self.config.native_search_plan)?;
+        let cumulative_budget_requires_low_reasoning =
+            self.config.max_actual_tokens_per_run.is_some() && max_response_tokens <= 4_096;
+        let forced_progress_controls = (force_answer_only
+            || reasoning_disabled_for_tool_loop
+            || cumulative_budget_requires_low_reasoning)
+            .then(|| {
+                if force_answer_only
+                    && !reasoning_disabled_for_tool_loop
+                    && self.config.catalog_limits_authoritative.unwrap_or(true)
+                {
+                    model_recovery::continuation_controls(self.config.provider_type, model)
+                } else {
+                    model_recovery::recovery_controls(self.config.provider_type, model)
+                }
+            });
+        let mut configured_thinking_budget = self
+            .config
+            .reasoning_enabled
+            .unwrap_or(false)
+            .then_some(self.config.thinking_budget)
+            .flatten();
+        let configured_reasoning_effort = self
+            .config
+            .reasoning_enabled
+            .unwrap_or(false)
+            .then(|| self.config.reasoning_effort.clone())
+            .flatten();
+        let effort_budget_exclusive = self
+            .config
+            .provider_type
+            .and_then(|provider| {
+                crate::provider_catalog::model_capabilities_from_catalog(provider, model)
+            })
+            .and_then(|capabilities| capabilities.reasoning)
+            .is_some_and(|reasoning| reasoning.effort_budget_exclusive);
+        if effort_budget_exclusive && configured_reasoning_effort.is_some() {
+            configured_thinking_budget = None;
+        }
+        if self.config.max_actual_tokens_per_run.is_some() {
+            configured_thinking_budget = configured_thinking_budget
+                .map(|budget| budget.min(max_response_tokens.saturating_sub(4_096)));
+        }
+        Ok(CompletionRequest {
+            model: model.to_string(),
+            messages: request_messages,
+            temperature: self.config.temperature,
+            // Local context accounting always has a deterministic reserve.
+            // Only explicit, catalog-verified, or cumulative-worker limits
+            // cross the provider boundary; unknown routes stay provider-owned.
+            max_tokens: wire_max_response_tokens,
+            tools: if request_tools.is_empty() {
+                None
+            } else {
+                Some(request_tools)
+            },
+            stop: None,
+            thinking_budget: forced_progress_controls
+                .as_ref()
+                .map_or(configured_thinking_budget, |controls| {
+                    controls.thinking_budget
+                }),
+            reasoning_enabled: forced_progress_controls
+                .as_ref()
+                .map_or(self.config.reasoning_enabled, |controls| {
+                    controls.reasoning_enabled
+                }),
+            reasoning_effort: forced_progress_controls.as_ref().map_or_else(
+                || configured_reasoning_effort,
+                |controls| controls.reasoning_effort.clone(),
+            ),
+            provider_type: self.config.provider_type,
+            routing_session_id: conversation_id
+                .and_then(crate::llm::prompt_cache::privacy_preserving_routing_session_id),
+            parallel_tool_calls: true,
+        })
+    }
+
     async fn admit_interrupted_provider_draft(
         &self,
         capture: InterruptedProviderDraftCapture<'_>,
@@ -334,86 +438,18 @@ impl AgentExecutor {
 
         // -- 4a. Project one model attempt -----------------------------------
         let context_recovery_policy = StreamRecoveryPolicy::default();
-        let request_tools = if suppress_tools {
-            Vec::new()
-        } else {
-            request_tools_with_native_search_plan(tool_defs, self.config.native_search_plan)?
-        };
-        let cumulative_budget_requires_low_reasoning =
-            self.config.max_actual_tokens_per_run.is_some() && max_response_tokens <= 4_096;
-        let forced_progress_controls = (force_answer_only
-            || *reasoning_disabled_for_tool_loop
-            || cumulative_budget_requires_low_reasoning)
-            .then(|| {
-                if force_answer_only
-                    && !*reasoning_disabled_for_tool_loop
-                    && self.config.catalog_limits_authoritative.unwrap_or(true)
-                {
-                    model_recovery::continuation_controls(self.config.provider_type, model)
-                } else {
-                    model_recovery::recovery_controls(self.config.provider_type, model)
-                }
-            });
-        let mut configured_thinking_budget = self
-            .config
-            .reasoning_enabled
-            .unwrap_or(false)
-            .then_some(self.config.thinking_budget)
-            .flatten();
-        let configured_reasoning_effort = self
-            .config
-            .reasoning_enabled
-            .unwrap_or(false)
-            .then(|| self.config.reasoning_effort.clone())
-            .flatten();
-        let effort_budget_exclusive = self
-            .config
-            .provider_type
-            .and_then(|provider| {
-                crate::provider_catalog::model_capabilities_from_catalog(provider, model)
-            })
-            .and_then(|capabilities| capabilities.reasoning)
-            .is_some_and(|reasoning| reasoning.effort_budget_exclusive);
-        if effort_budget_exclusive && configured_reasoning_effort.is_some() {
-            configured_thinking_budget = None;
-        }
-        if self.config.max_actual_tokens_per_run.is_some() {
-            configured_thinking_budget = configured_thinking_budget
-                .map(|budget| budget.min(max_response_tokens.saturating_sub(4_096)));
-        }
-        let mut current_request = CompletionRequest {
-            model: model.to_string(),
-            messages: request_messages,
-            temperature: self.config.temperature,
-            // Local context accounting always has a deterministic reserve.
-            // Only explicit, catalog-verified, or cumulative-worker limits
-            // cross the provider boundary; unknown routes stay provider-owned.
-            max_tokens: wire_max_response_tokens,
-            tools: if request_tools.is_empty() {
-                None
-            } else {
-                Some(request_tools)
+        let mut current_request = self.prepare_model_step_request(
+            request_messages,
+            if suppress_tools { &[] } else { tool_defs },
+            ModelStepRequestOptions {
+                model,
+                conversation_id,
+                max_response_tokens,
+                wire_max_response_tokens,
+                force_answer_only,
+                reasoning_disabled_for_tool_loop: *reasoning_disabled_for_tool_loop,
             },
-            stop: None,
-            thinking_budget: forced_progress_controls
-                .as_ref()
-                .map_or(configured_thinking_budget, |controls| {
-                    controls.thinking_budget
-                }),
-            reasoning_enabled: forced_progress_controls
-                .as_ref()
-                .map_or(self.config.reasoning_enabled, |controls| {
-                    controls.reasoning_enabled
-                }),
-            reasoning_effort: forced_progress_controls.as_ref().map_or_else(
-                || configured_reasoning_effort,
-                |controls| controls.reasoning_effort.clone(),
-            ),
-            provider_type: self.config.provider_type,
-            routing_session_id: conversation_id
-                .and_then(crate::llm::prompt_cache::privacy_preserving_routing_session_id),
-            parallel_tool_calls: true,
-        };
+        )?;
         let occupancy_route = self.provider.route_snapshot(&current_request);
         let request_context = self.request_context_usage(&current_request, context_window, None);
         *last_prompt_tokens = request_context.total_tokens;
@@ -425,6 +461,13 @@ impl AgentExecutor {
                 context_breakdown: Some(request_context),
             })
             .await;
+        // Cumulative output limits can also change reasoning controls. Validate
+        // the final request with those exact controls before opening a sample.
+        context_window.validate_request(
+            &current_request.messages,
+            Some(active_request),
+            *last_prompt_tokens,
+        )?;
         // The attempt seam owns route-specific replay projection. Keep this
         // request unprojected so an automatic fallback can select a concrete
         // route without inheriting a lossy primary-route projection.

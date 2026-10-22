@@ -1502,6 +1502,7 @@ export function ChatPage() {
   const observeCompaction = useCallback(async (
     conversationId: string,
     initial: CompactionUiState,
+    applyUsageEstimate = false,
   ) => {
     if (!initial.operationId || compactionObserversRef.current.has(initial.operationId)) return;
     compactionObserversRef.current.add(initial.operationId);
@@ -1552,7 +1553,7 @@ export function ChatPage() {
         }));
         persistCompaction(conversationId, next);
         if (!terminal) continue;
-        if (result && result.summaryKind !== "history_fork_live") {
+        if (applyUsageEstimate && result && result.summaryKind !== 'history_fork_live') {
           chat.applyCompactionUsage(conversationId, result.tokensAfter);
         } else if (!result && !(historyFork && observation.record.state === 'cancelled')) {
           toast.error(`${t(historyFork ? 'chat.forkFailed' : 'chat.compactFailed')}: ${failureDetail}`);
@@ -1600,7 +1601,7 @@ export function ChatPage() {
         [conversationId]: state,
       }));
       persistCompaction(conversationId, state);
-      void observeCompaction(conversationId, state);
+      void observeCompaction(conversationId, state, true);
     } catch (e) {
       setCompactionStatusByConversation((current) => {
         const next = { ...current };
@@ -1639,10 +1640,10 @@ export function ChatPage() {
     }));
     if (persisted.status === 'running') {
       void observeCompaction(conversationId, persisted);
-    } else if (persisted.status === 'complete' && persisted.result && persisted.result.summaryKind !== 'history_fork_live') {
-      chat.applyCompactionUsage(conversationId, persisted.result.tokensAfter);
     }
-  }, [chat.activeId, chat.applyCompactionUsage, observeCompaction]);
+    // Persisted activity results describe a past operation. Only the server's
+    // current usage can establish occupancy after navigating back or reloading.
+  }, [chat.activeId, observeCompaction]);
 
   useEffect(() => {
     if (!isCompacting) return;

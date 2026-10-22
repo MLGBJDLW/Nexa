@@ -707,7 +707,7 @@ test('active goal owns the top-right task capsule and stays out of context detai
   await expect(panel).not.toHaveAttribute('data-dragging');
 });
 
-test('manual compact keeps canonical messages and updates only projected context usage', async ({ page }) => {
+test('manual compact keeps canonical messages and yields its temporary estimate to current usage', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
   await page.getByTestId('chat-more-options').click();
 
@@ -730,11 +730,42 @@ test('manual compact keeps canonical messages and updates only projected context
   await expect(page.getByTestId('chat-context-trigger')).not.toHaveAttribute('aria-label', /7% context used/);
   await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /0% context used/);
   await expect(page.getByText('Hello', { exact: true }).last()).toBeVisible();
+
+  // The operation result remains a completed activity even after its context
+  // projection has changed. Its historical tokensAfter must not hide the next
+  // authoritative snapshot, including a different effective input budget.
+  await page.evaluate(() => {
+    const samples = JSON.parse(localStorage.getItem('__e2e_usage_samples__')!);
+    const latest = samples['conv-e2e'].at(-1);
+    latest.lastPromptTokens = 57_000;
+    latest.contextBreakdown = {
+      totalTokens: 57_000,
+      segments: [{ kind: 'conversation', tokens: 57_000 }],
+      measurement: 'provider',
+      budget: { capacityTokens: 100_000, inputBudget: 60_000, responseReserve: 36_000, safetyReserve: 4_000, compactThreshold: 54_000, compactPercent: 90 },
+    };
+    localStorage.setItem('__e2e_usage_samples__', JSON.stringify(samples));
+  });
+  await page.getByTestId('conversation-item-conv-empty').click();
+  await page.getByTestId('conversation-item-conv-e2e').click();
+  await expect(page.getByText('Compaction complete').first()).toBeVisible();
+  await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /95% context used/);
+  await page.reload();
+  await expect(page.getByText('Compaction complete').first()).toBeVisible();
+  await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /95% context used/);
+
+  await page.getByTestId('chat-input-textarea').fill('Show effective budget, multi step, and keep streaming.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /83% context used/);
+  await page.evaluate(() => window.dispatchEvent(new Event('nexa-e2e-cache-finish')));
 });
 
 test('manual compact resumes observation after a page reload', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
   await page.getByTestId('chat-more-options').click();
+  await page.getByTestId('chat-input-textarea').fill('Generate usage before restoring an operation.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /7% context used/);
   await page.getByTestId('chat-compact').click();
   await expect(page.getByTestId('chat-compact-status').first()).toContainText('Queued');
 
@@ -742,6 +773,7 @@ test('manual compact resumes observation after a page reload', async ({ page }) 
 
   await expect(page.getByTestId('chat-compact-status').first()).toBeVisible();
   await expect(page.getByText('Compaction complete').first()).toBeVisible();
+  await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /7% context used/);
   await expect(page.getByText('Hello', { exact: true }).last()).toBeVisible();
 });
 

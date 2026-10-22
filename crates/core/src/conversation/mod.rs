@@ -4220,11 +4220,11 @@ impl Database {
         llm_context_content: &str,
     ) -> Result<(), CoreError> {
         let conn = self.conn();
-        let (conversation_id, artifacts_json): (String, Option<String>) = conn
+        let (conversation_id, content, artifacts_json): (String, String, Option<String>) = conn
             .query_row(
-                "SELECT conversation_id, artifacts_json FROM messages WHERE id = ?1",
+                "SELECT conversation_id, content, artifacts_json FROM messages WHERE id = ?1",
                 rusqlite::params![message_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?
             .ok_or_else(|| CoreError::NotFound(format!("Message {message_id}")))?;
@@ -4233,6 +4233,11 @@ impl Database {
             Some(json) => serde_json::from_str::<serde_json::Value>(&json)?,
             None => serde_json::json!({}),
         };
+        let replay_changed = artifacts
+            .get(LLM_CONTEXT_CONTENT_ARTIFACT_KEY)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&content)
+            != llm_context_content;
 
         match artifacts {
             serde_json::Value::Object(ref mut map) => {
@@ -4272,7 +4277,9 @@ impl Database {
         if affected == 0 {
             return Err(CoreError::NotFound(format!("Message {message_id}")));
         }
-        invalidate_context_projection(&conn, &conversation_id)?;
+        if replay_changed {
+            invalidate_context_projection_for_message(&conn, &conversation_id, message_id)?;
+        }
         Ok(())
     }
 
@@ -4286,11 +4293,12 @@ impl Database {
     ) -> Result<(), CoreError> {
         let mut conn = self.conn();
         let transaction = conn.transaction()?;
-        let (conversation_id, artifacts_json): (String, Option<String>) = transaction
+        let (conversation_id, content, artifacts_json, previous_attachments):
+            (String, String, Option<String>, Option<String>) = transaction
             .query_row(
-                "SELECT conversation_id, artifacts_json FROM messages WHERE id = ?1",
+                "SELECT conversation_id, content, artifacts_json, image_attachments_json FROM messages WHERE id = ?1",
                 rusqlite::params![message_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()?
             .ok_or_else(|| CoreError::NotFound(format!("Message {message_id}")))?;
@@ -4298,6 +4306,29 @@ impl Database {
             Some(json) => serde_json::from_str::<serde_json::Value>(&json)?,
             None => serde_json::json!({}),
         };
+        let replay_changed = artifacts
+            .get(LLM_CONTEXT_CONTENT_ARTIFACT_KEY)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&content)
+            != llm_context_content;
+        // Analysis status/profile caches are presentation metadata. The actual
+        // observation text is already covered by the canonical replay above;
+        // original image identity and bytes remain source evidence as well.
+        let image_source_changed =
+            previous_attachments
+                .as_deref()
+                .map_or(!attachments.is_empty(), |json| {
+                    serde_json::from_str::<Vec<ImageAttachment>>(json).map_or(true, |previous| {
+                        previous.len() != attachments.len()
+                            || previous.iter().zip(attachments).any(|(old, new)| {
+                                old.base64_data != new.base64_data
+                                    || old.media_type != new.media_type
+                                    || old.original_name != new.original_name
+                                    || old.attachment_id != new.attachment_id
+                                    || old.attachment_hash != new.attachment_hash
+                            })
+                    })
+                });
         if !artifacts.is_object() {
             artifacts = serde_json::json!({
                 "kind": "messageContextChannels",
@@ -4330,7 +4361,9 @@ impl Database {
         if affected != 1 {
             return Err(CoreError::NotFound(format!("Message {message_id}")));
         }
-        invalidate_context_projection(&transaction, &conversation_id)?;
+        if replay_changed || image_source_changed {
+            invalidate_context_projection_for_message(&transaction, &conversation_id, message_id)?;
+        }
         transaction.commit()?;
         Ok(())
     }
@@ -4432,6 +4465,34 @@ impl Database {
         invalidate_context_projection(&conn, conversation_id)?;
         Ok(())
     }
+}
+
+/// Only a changed archived source can invalidate its checkpoint. Requests and
+/// results appended after Fork are loaded from the live tail, independently of
+/// the archived prefix. The caller must first compare the actual replay/image
+/// projection so display-only metadata and identical writes stay harmless.
+pub(crate) fn invalidate_context_projection_for_message(
+    conn: &rusqlite::Connection,
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<(), CoreError> {
+    let archived_source: bool = conn.query_row(
+        "SELECT EXISTS (
+            SELECT 1 FROM conversations c
+            JOIN context_compactions cc ON cc.id = c.active_context_compaction_id
+            JOIN messages m ON m.id = ?2 AND m.conversation_id = c.id
+            WHERE c.id = ?1 AND cc.status = 'completed'
+              AND m.sort_order <= cc.snapshot_high_watermark
+              AND (json_array_length(cc.source_message_ids_json) = 0
+                   OR EXISTS (SELECT 1 FROM json_each(cc.source_message_ids_json) WHERE value = m.id))
+        )",
+        rusqlite::params![conversation_id, message_id],
+        |row| row.get(0),
+    )?;
+    if archived_source {
+        invalidate_context_projection(conn, conversation_id)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn invalidate_context_projection(

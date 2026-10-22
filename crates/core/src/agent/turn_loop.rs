@@ -1138,7 +1138,10 @@ impl AgentExecutor {
                 controller_state_sections: &controller_state_sections,
                 append_volatile_system_prompt_to_tail: layout.append_volatile_system_prompt_to_tail,
                 endpoint_context_resolution: self.config.context_window_resolution,
-                preserve_history_for_handoff: self.history_handoff_enabled(conversation_id),
+                // Admission owns reduction after route projection and tool
+                // assembly. A canonical-only trim here can discard history
+                // even when the selected provider's request already fits.
+                preserve_history_for_handoff: true,
             },
         );
         let current_user_was_preserved = messages
@@ -1770,10 +1773,6 @@ impl AgentExecutor {
                 effective_tool_defs,
                 context_window,
             );
-            // Compaction checks canonical input conservatively. The HUD is
-            // published by model_step after route-specific replay projection,
-            // so archived/incompatible tool units never alternate with the
-            // provider's measured occupancy while the task streams.
             prompt_was_compacted |= self.apply_pending_context_fork(
                 &mut messages,
                 model,
@@ -1785,6 +1784,22 @@ impl AgentExecutor {
                 },
                 false,
             );
+            let buffer_answer_projection = output_recovery.reserves_answer_channel();
+            let force_answer_only = clean_final_retry_active
+                || buffer_answer_projection
+                || step_permit.mode == TurnStepMode::FinalAnswerOnly;
+            let mut prepared_request = self.prepare_model_step_request(
+                Vec::new(),
+                effective_tool_defs,
+                model_step::ModelStepRequestOptions {
+                    model,
+                    conversation_id,
+                    max_response_tokens,
+                    wire_max_response_tokens: None,
+                    force_answer_only,
+                    reasoning_disabled_for_tool_loop,
+                },
+            )?;
             let preflight_compaction = self
                 .compact_before_model_step_if_needed(LongTaskCompactionContext {
                     db,
@@ -1795,7 +1810,8 @@ impl AgentExecutor {
                     messages: &mut messages,
                     active_request: &active_request,
                     context_window,
-                    tool_defs: effective_tool_defs,
+                    request: &mut prepared_request,
+                    force_answer_only,
                     loop_recorder: &mut loop_recorder,
                     persisted_trace_items: &mut persisted_trace_items,
                     total_usage: &mut total_usage,
@@ -1804,12 +1820,8 @@ impl AgentExecutor {
             match preflight_compaction {
                 Ok(changed) => prompt_was_compacted |= changed,
                 Err(error) => {
-                    let failed = self.context_budget_usage(
-                        model,
-                        &messages,
-                        effective_tool_defs,
-                        context_window,
-                    );
+                    let failed =
+                        self.request_context_usage(&prepared_request, context_window, None);
                     let _ = tx
                         .send(AgentEvent::UsageUpdate {
                             usage_total: total_usage.clone(),
@@ -1820,20 +1832,11 @@ impl AgentExecutor {
                     return Err(error);
                 }
             }
-            let buffer_answer_projection = output_recovery.reserves_answer_channel();
-            let force_answer_only = clean_final_retry_active
-                || buffer_answer_projection
-                || step_permit.mode == TurnStepMode::FinalAnswerOnly;
-            // Budget the exact canonical projection that the model step will
-            // send. Superseded step-scoped controls are not part of a reserved
-            // final-answer request and must not consume its output allowance.
-            let request_messages = prompt_ir::messages_for_model_step(&messages, force_answer_only);
-            let prepared_context = self.context_budget_usage(
-                model,
-                &request_messages,
-                effective_tool_defs,
-                context_window,
-            );
+            // Keep the canonical payload for fallback dispatch, while charging
+            // only the route-specific input and its valid measured prefix.
+            let prepared_context =
+                self.request_context_usage(&prepared_request, context_window, None);
+            let request_messages = prepared_request.messages;
             let estimated_prompt = prepared_context.total_tokens;
             last_prompt_tokens = estimated_prompt;
             last_context_breakdown = Some(prepared_context.clone());

@@ -348,6 +348,147 @@ async fn context_hud_measures_the_same_replay_projection_as_each_model_request()
     }
 }
 
+#[tokio::test]
+async fn preflight_uses_wire_projection_and_its_measured_prefix_without_evicting_history() {
+    for measured_prefix in [false, true] {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let provider: Box<dyn LlmProvider> = Box::new(ContextFixtureProvider {
+            requests,
+            rounds: 0,
+            tools_per_round: 1,
+            rows: 1,
+            opaque_replay: !measured_prefix,
+            usage: None,
+        });
+        let provider = Box::new(
+            crate::llm::fallback::AutomaticFallbackProvider::new(
+                0,
+                provider,
+                "gpt-4o".into(),
+                ProviderType::OpenAi,
+                Vec::new(),
+                Arc::new(|_, _, _| Ok(())),
+            )
+            .unwrap(),
+        );
+        let executor = AgentExecutor::new(
+            provider,
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("gpt-4o".into()),
+                context_window: Some(16_000),
+                max_tokens: Some(512),
+                ..Default::default()
+            },
+        );
+        let active = Message::text(Role::User, ACTIVE_REQUEST);
+        let mut call = Message::text(Role::Assistant, "");
+        call.tool_calls = Some(vec![ToolCallRequest {
+            id: "old-evidence".into(),
+            name: "read_file".into(),
+            arguments: "{}".into(),
+            thought_signature: None,
+        }]);
+        let mut messages = vec![
+            Message::text(Role::System, "Retain the exact source history."),
+            Message::text(Role::User, "Earlier task"),
+            call,
+            Message::text_with_name(
+                Role::Tool,
+                "old detailed evidence ".repeat(20_000),
+                "old-evidence",
+            ),
+            Message::text(Role::Assistant, "Earlier task finished."),
+            active.clone(),
+        ];
+        let mut request = CompletionRequest {
+            model: "gpt-4o".into(),
+            messages: messages.clone(),
+            ..Default::default()
+        };
+        let window = ContextWindow::new("gpt-4o", Some(16_000), 512);
+        if measured_prefix {
+            let route = executor.provider.route_snapshot(&request);
+            executor.observe_projected_context_input(&request, &route, Some(1_000));
+            messages.push(Message::text(Role::System, "A short new controller state."));
+            request.messages = messages.clone();
+            let measured = executor.request_context_usage(&request, window, None);
+            assert!(measured.total_tokens > 1_000 && measured.total_tokens < 2_000);
+            for changed_route in [
+                RouteSnapshot {
+                    provider_endpoint_id: "other-endpoint".into(),
+                    ..route.clone()
+                },
+                RouteSnapshot {
+                    replay_policy: ReasoningReplayPolicy::Unknown,
+                    ..route.clone()
+                },
+            ] {
+                assert!(
+                    executor
+                        .request_context_usage(&request, window, Some(&changed_route))
+                        .total_tokens
+                        > 16_000,
+                    "another route or replay contract cannot inherit measured occupancy"
+                );
+                executor.observe_projected_context_input(&request, &route, Some(1_000));
+            }
+            let mut edited = request.clone();
+            edited.messages[0] = Message::text(Role::System, "Changed policy.");
+            assert!(
+                executor
+                    .request_context_usage(&edited, window, None)
+                    .total_tokens
+                    > 16_000
+            );
+            edited = request.clone();
+            edited.tools = Some(vec![ToolDefinition {
+                name: "different_tool".into(),
+                description: "A different tool schema".into(),
+                parameters: serde_json::json!({"type":"object"}),
+            }]);
+            assert!(
+                executor
+                    .request_context_usage(&edited, window, None)
+                    .total_tokens
+                    > 16_000
+            );
+        }
+        let original = prompt_cache::message_sequence_fingerprint(&messages);
+        let visible = executor.request_context_usage(&request, window, None);
+        assert!(visible.total_tokens < 2_000);
+        assert!(executor.context_input_tokens("gpt-4o", &messages, &[]) > 16_000);
+        let db = Database::open_memory().unwrap();
+        let (tx, _rx) = mpsc::channel(16);
+        let mut recorder = TurnLoopRecorder::new(AgentRouteKind::CodebaseOperation, 10);
+        let mut trace = Vec::new();
+        let mut usage = Usage::default();
+        let changed = executor
+            .compact_before_model_step_if_needed(LongTaskCompactionContext {
+                db: &db,
+                conversation_id: None,
+                turn_id: None,
+                tx: &tx,
+                model: "gpt-4o",
+                messages: &mut messages,
+                active_request: &active,
+                context_window: window,
+                request: &mut request,
+                force_answer_only: false,
+                loop_recorder: &mut recorder,
+                persisted_trace_items: &mut trace,
+                total_usage: &mut usage,
+            })
+            .await
+            .expect("a fitting wire request must not be rejected by archived estimates");
+        assert!(!changed);
+        assert_eq!(
+            original,
+            prompt_cache::message_sequence_fingerprint(&messages)
+        );
+    }
+}
+
 async fn check_replay_projected_hud(routed: u8) {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let mut tools = ToolRegistry::new();

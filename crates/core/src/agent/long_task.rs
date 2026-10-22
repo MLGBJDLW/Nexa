@@ -19,7 +19,8 @@ pub(super) struct LongTaskCompactionContext<'a> {
     pub(super) messages: &'a mut Vec<Message>,
     pub(super) active_request: &'a Message,
     pub(super) context_window: ContextWindow,
-    pub(super) tool_defs: &'a [ToolDefinition],
+    pub(super) request: &'a mut CompletionRequest,
+    pub(super) force_answer_only: bool,
     pub(super) loop_recorder: &'a mut TurnLoopRecorder,
     pub(super) persisted_trace_items: &'a mut Vec<PersistedTraceItem>,
     pub(super) total_usage: &'a mut Usage,
@@ -96,13 +97,17 @@ impl AgentExecutor {
             messages,
             active_request,
             context_window,
-            tool_defs,
+            request,
+            force_answer_only,
             loop_recorder,
             persisted_trace_items,
             total_usage,
         } = ctx;
 
-        let input_tokens = self.context_input_tokens(model, messages, tool_defs);
+        request.messages = prompt_ir::messages_for_model_step(messages, force_answer_only);
+        let input_tokens = self
+            .request_context_usage(request, context_window, None)
+            .total_tokens;
         let budget_decision = context_window.budget_decision(input_tokens);
         if !budget_decision.should_compact {
             context_window.validate_request(messages, Some(active_request), input_tokens)?;
@@ -173,7 +178,10 @@ impl AgentExecutor {
                 false
             }
         };
-        let input_tokens = self.context_input_tokens(model, messages, tool_defs);
+        request.messages = prompt_ir::messages_for_model_step(messages, force_answer_only);
+        let input_tokens = self
+            .request_context_usage(request, context_window, None)
+            .total_tokens;
         context_window.validate_request(messages, Some(active_request), input_tokens)?;
         Ok(compacted)
     }
