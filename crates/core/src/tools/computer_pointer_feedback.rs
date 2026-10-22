@@ -6,8 +6,10 @@ pub(super) fn process_entry() -> bool {
     cursor::process_entry()
 }
 
+use crate::agent_pointer::accent;
+pub(super) use crate::agent_pointer::reduced_motion;
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use windows::core::w;
 use windows::Win32::Foundation::{COLORREF, HWND, POINT, SIZE};
 use windows::Win32::Graphics::Gdi::{
@@ -32,24 +34,8 @@ struct State {
     cursor: Option<cursor::CursorLease>,
 }
 
-// Neutral only until the main renderer projects the current theme. Built-in
-// and plugin colors both come from resolved CSS; there is no second palette.
-static APPEARANCE: AtomicU32 = AtomicU32::new(0x0080_8080);
-
 pub(super) fn configure_appearance(accent: [u8; 3], reduced_motion: bool) {
-    APPEARANCE.store(
-        u32::from_be_bytes([u8::from(reduced_motion), accent[0], accent[1], accent[2]]),
-        Ordering::Release,
-    );
-}
-
-fn accent() -> [u8; 3] {
-    let bytes = APPEARANCE.load(Ordering::Acquire).to_be_bytes();
-    [bytes[1], bytes[2], bytes[3]]
-}
-
-pub(super) fn reduced_motion() -> bool {
-    APPEARANCE.load(Ordering::Acquire) >> 24 != 0
+    crate::agent_pointer::configure(accent, reduced_motion);
 }
 
 static STATUS_WINDOW: AtomicUsize = AtomicUsize::new(0);
@@ -420,7 +406,13 @@ fn ripple_pixels(scale: f64, progress: f64, accent: [u8; 3]) -> (i32, i32, Vec<u
 impl PointerWindow {
     fn create(scale: f64, point: (i32, i32), accent: [u8; 3]) -> windows::core::Result<Self> {
         let (width, height, pixels) = pointer_pixels(scale, accent);
-        Self::create_surface(width, height, (8.0 * scale).round() as i32, point, &pixels)
+        Self::create_surface(
+            width,
+            height,
+            (crate::agent_pointer::HOTSPOT * scale).round() as i32,
+            point,
+            &pixels,
+        )
     }
 
     fn create_surface(
@@ -584,37 +576,13 @@ fn inside_polygon(x: f64, y: f64, points: &[(f64, f64)]) -> bool {
     inside
 }
 
-fn rounded_triangle(vertices: [(f64, f64); 3], corner: f64) -> Vec<(f64, f64)> {
-    let mut outline = Vec::with_capacity(21);
-    for index in 0..3 {
-        let vertex = vertices[index];
-        let inset = |neighbor: (f64, f64)| {
-            let dx = neighbor.0 - vertex.0;
-            let dy = neighbor.1 - vertex.1;
-            let fraction = (corner / dx.hypot(dy)).min(0.4);
-            (vertex.0 + dx * fraction, vertex.1 + dy * fraction)
-        };
-        let from = inset(vertices[(index + 2) % 3]);
-        let to = inset(vertices[(index + 1) % 3]);
-        for step in 0..=6 {
-            let t = f64::from(step) / 6.0;
-            let u = 1.0 - t;
-            outline.push((
-                u * u * from.0 + 2.0 * u * t * vertex.0 + t * t * to.0,
-                u * u * from.1 + 2.0 * u * t * vertex.1 + t * t * to.1,
-            ));
-        }
-    }
-    outline
-}
-
 /// A compact triangular pointer in premultiplied BGRA. A fine white edge
 /// and theme-tinted shadow retain contrast without a tail, label or idle halo.
 fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
-    let width = (36.0 * scale).ceil() as i32;
-    let height = (36.0 * scale).ceil() as i32;
-    let outer = rounded_triangle([(8.0, 8.0), (11.0, 28.0), (26.0, 21.0)], 3.4);
-    let inner = rounded_triangle([(9.3, 10.2), (11.8, 26.6), (24.0, 20.8)], 2.8);
+    let width = (crate::agent_pointer::SIZE * scale).ceil() as i32;
+    let height = (crate::agent_pointer::SIZE * scale).ceil() as i32;
+    let outer = crate::agent_pointer::outer_outline();
+    let inner = crate::agent_pointer::inner_outline();
     let mut pixels = vec![0; width as usize * height as usize * 4];
     for row in 0..height {
         for column in 0..width {

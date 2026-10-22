@@ -1,5 +1,6 @@
 (() => {
   if (window.__NEXA_BROWSER_RUNTIME__) return;
+  let pointerAppearance = __NEXA_POINTER_APPEARANCE__;
   // These are independent WebViews, so application chrome styles do not reach
   // their documents. Keep native drag targets visible without changing any
   // page-owned overflow rules (including modal and nested-scroll locks).
@@ -47,8 +48,9 @@
     agentCursor: null,
     cursorDocument: null,
     cursorPoint: null,
-    agentThread: null,
     observationOptions: { query: '', offset: 0 },
+    geometryIds: new WeakMap(),
+    nextGeometryId: 0,
   };
 
   const labelledByText = (el) => (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => {
@@ -397,6 +399,27 @@
     domFingerprint: domFingerprintOf(),
     observationOptions: { ...runtime.observationOptions },
   });
+  const coordinateFingerprintOf = (rootList = roots()) => {
+    const state = [];
+    for (const root of rootList) for (const element of root.querySelectorAll('*')) {
+      let feedback = false;
+      for (let ancestor = element; ancestor; ancestor = composedParent(ancestor)) {
+        if (feedbackNodes.has(ancestor)) { feedback = true; break; }
+      }
+      if (feedback) continue;
+      const rect = viewportBoundsOf(element);
+      if (!rect.width || !rect.height || rect.x >= innerWidth || rect.y >= innerHeight
+        || rect.x + rect.width <= 0 || rect.y + rect.height <= 0) continue;
+      const style = getComputedStyle(element);
+      if (style.visibility === 'hidden' || style.display === 'none' || style.pointerEvents === 'none') continue;
+      let id = runtime.geometryIds.get(element);
+      if (!id) { id = ++runtime.nextGeometryId; runtime.geometryIds.set(element, id); }
+      state.push([id, rect.x, rect.y, rect.width, rect.height, style.display, style.visibility,
+        style.pointerEvents, style.position, style.zIndex, style.transform, style.clipPath,
+        style.borderRadius, style.overflowX, style.overflowY, element.scrollLeft, element.scrollTop].join('|'));
+    }
+    return hashText(state.join('\n'));
+  };
   runtime.observe = (options = {}) => {
     const query = typeof options.query === 'string' ? options.query.trim() : '';
     const offset = options.offset ?? 0;
@@ -405,6 +428,7 @@
     runtime.refs = new Map();
     let optionBudget = 400;
     const rootList = roots();
+    const coordinateFingerprint = coordinateFingerprintOf(rootList);
     const matches = matchingElements(rootList);
     const selected = matches.slice(offset, offset + 300);
     const elements = selected.map((el) => {
@@ -433,6 +457,7 @@
       userEpoch: runtime.userEpoch,
       domFingerprint: domFingerprintOf(interactionFingerprint),
       interactionFingerprint,
+      coordinateFingerprint,
       elements,
       observationCoverage: { query, offset, returned: elements.length, totalMatches: matches.length, hasMore: offset + elements.length < matches.length, nextOffset: offset + elements.length < matches.length ? offset + elements.length : null },
       frameLimitations: frameLimitationsOf(rootList),
@@ -491,7 +516,6 @@
     runtime.agentCursor?.getAnimations?.().forEach(animation => animation.cancel());
     if (pending) {
       runtime.agentCursor?.remove(); runtime.agentCursor = null;
-      runtime.agentThread?.remove(); runtime.agentThread = null;
       runtime.cursorDocument = null; runtime.cursorPoint = null;
     }
     return true;
@@ -524,8 +548,8 @@
     const cursor = ownerDocument.createElement('div');
     cursor.setAttribute('data-nexa-agent-cursor', 'true');
     cursor.setAttribute('aria-hidden', 'true');
-    cursor.style.cssText = 'position:fixed;left:0;top:0;width:30px;height:34px;z-index:2147483647;pointer-events:none;will-change:transform;filter:drop-shadow(0 2px 4px rgba(2,6,23,.45));contain:layout paint style;';
-    cursor.innerHTML = "<svg viewBox='0 0 30 34' width='30' height='34' xmlns='http://www.w3.org/2000/svg'><path d='M2 1.75v20.5l5.4-5.2 3.45 8.15 4.2-1.8-3.5-8.05h7.35L2 1.75Z' fill='#f8fafc' stroke='#0d9488' stroke-width='1.8' stroke-linejoin='round'/><g transform='translate(20 24) rotate(-35)' fill='none' stroke='#14b8a6' stroke-width='1.8'><rect x='-7' y='-4' width='9' height='7' rx='3.5'/><rect x='-1' y='-1' width='9' height='7' rx='3.5'/></g></svg>";
+    cursor.style.cssText = `position:fixed;left:${-pointerAppearance.hotspot}px;top:${-pointerAppearance.hotspot}px;width:${pointerAppearance.size}px;height:${pointerAppearance.size}px;z-index:2147483647;pointer-events:none;will-change:transform;contain:layout paint style;`;
+    cursor.innerHTML = pointerAppearance.svg;
     (ownerDocument.documentElement || ownerDocument.body).appendChild(cursor);
     trackFeedback(cursor);
     runtime.agentCursor = cursor;
@@ -533,38 +557,11 @@
     runtime.cursorPoint = null;
     return cursor;
   };
-  const connectAgentTargets = (ownerDocument, from, to, duration) => {
-    runtime.agentThread?.remove();
-    runtime.agentThread = null;
-    if (!duration) return;
-    const ns = 'http://www.w3.org/2000/svg';
-    const thread = ownerDocument.createElementNS(ns, 'svg');
-    thread.setAttribute('data-nexa-agent-thread', 'true');
-    thread.setAttribute('aria-hidden', 'true');
-    thread.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483645;pointer-events:none;overflow:hidden;contain:strict;';
-    const bend = Math.min(70, Math.max(18, Math.hypot(to.x - from.x, to.y - from.y) * .14));
-    const path = ownerDocument.createElementNS(ns, 'path');
-    path.setAttribute('d', `M${from.x} ${from.y} Q${from.x + (to.x - from.x) * .55} ${from.y + (to.y - from.y) * .45 - bend} ${to.x} ${to.y}`);
-    path.setAttribute('fill', 'none'); path.setAttribute('stroke', '#14b8a6');
-    path.setAttribute('stroke-width', '1.5'); path.setAttribute('stroke-linecap', 'round');
-    path.setAttribute('pathLength', '1'); path.setAttribute('stroke-dasharray', '1');
-    thread.appendChild(path);
-    for (const point of [from, to]) {
-      const node = ownerDocument.createElementNS(ns, 'circle');
-      node.setAttribute('cx', String(point.x)); node.setAttribute('cy', String(point.y));
-      node.setAttribute('r', '3'); node.setAttribute('fill', '#f0fdfa');
-      node.setAttribute('stroke', '#14b8a6'); node.setAttribute('stroke-width', '1.5');
-      thread.appendChild(node);
-    }
-    (ownerDocument.documentElement || ownerDocument.body).appendChild(thread);
-    trackFeedback(thread);
-    runtime.agentThread = thread;
-    path.animate?.([{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration, easing: 'cubic-bezier(.22,.8,.24,1)', fill: 'forwards' });
-    const animation = thread.animate?.([{ opacity: .15 }, { opacity: .65, offset: .55 }, { opacity: 0 }], { duration: duration + 260, fill: 'forwards' });
-    const remove = () => { thread.remove(); if (runtime.agentThread === thread) runtime.agentThread = null; };
-    if (animation) animation.onfinish = remove; else setTimeout(remove, duration + 260);
+  runtime.setPointerAppearance = (appearance) => {
+    pointerAppearance = appearance;
+    if (runtime.agentCursor?.isConnected) runtime.agentCursor.innerHTML = appearance.svg;
   };
-  const moveAgentCursor = (el, via = null, currentPresentation = null) => {
+  const moveAgentCursor = (el, via = null, currentPresentation = null, destinationPoint = null, originPoint = null) => {
     const finish = (status) => {
       if (presentation === currentPresentation && currentPresentation?.status === 'pending') currentPresentation.status = status;
     };
@@ -572,8 +569,8 @@
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
     const cursor = ensureAgentCursor(ownerDocument);
-    const to = centerOf(el);
-    const viaPoint = via ? centerOf(via) : null;
+    const to = destinationPoint || centerOf(el);
+    const viaPoint = via ? originPoint || centerOf(via) : null;
     const from = runtime.cursorPoint || {
       x: Math.max(18, Number(ownerWindow.innerWidth || 0) * 0.22),
       y: Math.max(22, Number(ownerWindow.innerHeight || 0) * 0.18),
@@ -581,9 +578,8 @@
     const distance = viaPoint
       ? Math.hypot(viaPoint.x - from.x, viaPoint.y - from.y) + Math.hypot(to.x - viaPoint.x, to.y - viaPoint.y)
       : Math.hypot(to.x - from.x, to.y - from.y);
-    const reduced = ownerWindow.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const reduced = pointerAppearance.reducedMotion || ownerWindow.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const duration = reduced ? 0 : Math.round(Math.min(520, Math.max(180, 150 + distance * 0.36)));
-    connectAgentTargets(ownerDocument, from, to, duration);
     const translate = (point) => `translate3d(${point.x}px,${point.y}px,0)`;
     cursor.getAnimations?.().forEach((animation) => animation.cancel());
     if (duration > 0 && cursor.animate) {
@@ -634,15 +630,15 @@
     const ownerDocument = el.ownerDocument || document;
     const pulse = ownerDocument.createElement('div');
     pulse.setAttribute('data-nexa-agent-click', 'true');
-    pulse.style.cssText = `position:fixed;z-index:2147483646;pointer-events:none;left:${point.x - 11}px;top:${point.y - 11}px;width:22px;height:22px;border:2px solid #22d3ee;border-radius:999px;box-sizing:border-box;`;
+    pulse.style.cssText = `position:fixed;z-index:2147483646;pointer-events:none;left:${point.x - 26}px;top:${point.y - 26}px;width:52px;height:52px;border:2.5px solid ${pointerAppearance.accent};border-radius:999px;box-sizing:border-box;`;
     (ownerDocument.documentElement || ownerDocument.body).appendChild(pulse);
     trackFeedback(pulse);
-    const reduced = (ownerDocument.defaultView || window).matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const reduced = pointerAppearance.reducedMotion || (ownerDocument.defaultView || window).matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const animation = !reduced && pulse.animate?.([
-      { opacity: 1, transform: 'scale(.35)' },
-      { opacity: 0, transform: 'scale(1.65)' },
-    ], { duration: 360, easing: 'ease-out' });
-    if (animation) animation.onfinish = () => pulse.remove(); else setTimeout(() => pulse.remove(), 360);
+      { opacity: .88, transform: 'scale(.1538)' },
+      { opacity: 0, transform: 'scale(1)' },
+    ], { duration: 260, easing: 'ease-out' });
+    if (animation) animation.onfinish = () => pulse.remove(); else setTimeout(() => pulse.remove(), 260);
   };
   const hoverAt = (el, input, point) => {
     for (const type of ['pointerover', 'mouseover', 'pointermove', 'mousemove']) dispatchPointer(el, type, input, point);
@@ -697,20 +693,48 @@
     runtime.refs = new Map();
     runtime.agentCursor?.remove();
     runtime.agentCursor = null;
-    runtime.agentThread?.remove();
-    runtime.agentThread = null;
     runtime.cursorDocument = null;
     runtime.cursorPoint = null;
   };
   runtime.previewAction = (input) => {
     const { el, end } = validateAction(input);
+    if (input.pointerAppearance) runtime.setPointerAppearance(input.pointerAppearance);
     const destination = input.action === 'drag' ? end : el;
     if (presentation) cancelPresentation(presentation.id);
     const current = { id: String(input.presentationId || ''), status: 'pending' };
     presentation = current;
-    return { durationMs: moveAgentCursor(destination, input.action === 'drag' ? el : null, current), presentationId: current.id, action: input.action };
+    return { durationMs: moveAgentCursor(destination, input.action === 'drag' ? el : null, current, input.action === 'drag' ? input.endPoint : input.point, input.point), presentationId: current.id, action: input.action };
   };
   runtime.validateAction = (input) => { validateAction(input); return true; };
+  const viewportPoint = (point) => {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)
+      || point.x < 0 || point.y < 0 || point.x >= innerWidth || point.y >= innerHeight) {
+      throw new Error('Browser coordinates must be finite CSS pixels inside the observed viewport');
+    }
+    return { x: point.x, y: point.y };
+  };
+  runtime.resolvePointerTarget = (input, coordinates) => {
+    validateAction(input);
+    if (input.coordinateFingerprint !== coordinateFingerprintOf()) {
+      throw new Error('stale observation: screenshot coordinate geometry changed');
+    }
+    const point = viewportPoint(coordinates);
+    let target = deepElementFromPoint(document, point.x, point.y);
+    if (!target || target.tagName === 'IFRAME') throw new Error('Observe and use an element ref for a frame target');
+    // A screenshot may point at text inside a link or button. Bind the action
+    // to that control so native navigation authorization sees its href/form.
+    for (let ancestor = target; ancestor; ancestor = composedParent(ancestor)) {
+      if (ancestor.matches('a[href],button,input,textarea,select,[role="button"],[role="link"]')) {
+        target = ancestor;
+        break;
+      }
+    }
+    if (!enabledOf(target)) throw new Error('Browser target is disabled');
+    let ref = runtime.refIds.get(target);
+    if (!ref) { ref = `e_${++runtime.nextRefId}`; runtime.refIds.set(target, ref); }
+    runtime.refs.set(ref, target);
+    return describe(target, ref);
+  };
   runtime.prepareNativePointer = (input) => {
     const { el } = validateAction(input);
     if (!el) throw new Error('Browser pointer action requires a target');
@@ -721,11 +745,14 @@
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
     let rect = el.getBoundingClientRect();
-    if (rect.top < 0 || rect.left < 0 || rect.bottom > ownerWindow.innerHeight || rect.right > ownerWindow.innerWidth) {
+    if (!input.point && (rect.top < 0 || rect.left < 0 || rect.bottom > ownerWindow.innerHeight || rect.right > ownerWindow.innerWidth)) {
       el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
       rect = el.getBoundingClientRect();
     }
-    const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    const viewportBounds = viewportBoundsOf(el);
+    const requestedPoint = input.point ? viewportPoint(input.point) : null;
+    const point = requestedPoint ? { x: requestedPoint.x - viewportBounds.x + rect.x, y: requestedPoint.y - viewportBounds.y + rect.y }
+      : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     if (point.x < 0 || point.y < 0 || point.x >= ownerWindow.innerWidth || point.y >= ownerWindow.innerHeight) {
       throw new Error('Browser pointer target is outside the viewport');
     }
@@ -735,11 +762,22 @@
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
     return {
-      bounds: viewportBoundsOf(el),
+      bounds: requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBoundsOf(el),
       targetContext,
       targetRef: input.targetRef,
       verificationBaseline: actionVerificationBaseline(),
     };
+  };
+  runtime.prepareTrustedDrag = (input) => {
+    const { el, end } = validateAction(input);
+    if (!el || !end) throw new Error('Browser drag requires both source and destination');
+    if (el.ownerDocument !== end.ownerDocument) throw new Error('Browser drag endpoints must belong to the same document');
+    // Both points must remain visible together; scrolling one endpoint into
+    // view can invalidate the other. Never silently drag to shifted pixels.
+    const viewportCenter = (element) => { const bounds = viewportBoundsOf(element); return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }; };
+    const start = runtime.prepareNativePointer({ ...input, point: input.point || viewportCenter(el) });
+    const finish = runtime.prepareNativePointer({ ...input, targetRef: input.endRef, expected: input.expectedEnd, point: input.endPoint || viewportCenter(end) });
+    return { ...start, endBounds: finish.bounds, endRef: finish.targetRef, endContext: finish.targetContext };
   };
   runtime.prepareTrustedText = (input) => {
     const { el } = validateAction(input);
@@ -881,7 +919,7 @@
   const pickMessageMarker = '__NEXA_BROWSER_PICK_BRIDGE__';
   const pickMessageToken = __NEXA_PICK_TOKEN__;
   const apply = Reflect.apply;
-  const nativePostMessage = Window.prototype.postMessage;
+  const nativePostMessage = window.postMessage;
   const nativeStopImmediatePropagation = Event.prototype.stopImmediatePropagation;
   const postPickMessage = (target, message) => {
     apply(nativePostMessage, target, [{ marker: pickMessageMarker, token: pickMessageToken, ...message }, '*']);
@@ -1019,7 +1057,7 @@
     }
   }, true);
   addEventListener('wheel', (event) => {
-    if (!runtime.synthetic && event.isTrusted) {
+    if (!runtime.synthetic && event.isTrusted && !window.__NEXA_TRUSTED_INPUT_GUARD__?.expects('wheel', event)) {
       runtime.userEpoch += 1;
     }
   }, true);
@@ -1027,6 +1065,7 @@
     observe: (options) => runtime.observe(options),
     targetContextFingerprint: (element) => targetContextFingerprint(element),
     resolveTargetRef: (ref) => runtime.refs.get(ref) || null,
+    setPointerAppearance: (appearance) => runtime.setPointerAppearance(appearance),
     previewAction: (input) => runtime.previewAction(input),
     presentationStatus: (id) => runtime.presentationStatus(id),
     cancelPresentation: (id) => runtime.cancelPresentation(id),
@@ -1034,6 +1073,8 @@
     captureStatus: (id) => runtime.captureStatus(id),
     endCapture: (id) => runtime.endCapture(id),
     validateAction: (input) => runtime.validateAction(input),
+    resolvePointerTarget: (input, point) => runtime.resolvePointerTarget(input, point),
+    prepareTrustedDrag: (input) => runtime.prepareTrustedDrag(input),
     prepareNativePointer: (input) => runtime.prepareNativePointer(input),
     prepareTrustedText: (input) => runtime.prepareTrustedText(input),
     prepareTrustedKey: (input) => runtime.prepareTrustedKey(input),

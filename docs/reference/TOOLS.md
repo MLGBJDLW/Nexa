@@ -878,6 +878,26 @@ frames. An incomplete observation cannot prove `element_absent`.
 
 Windows WebView2 also supports these native interactions:
 
+- Pointer actions (`move`, `hover`, `click`, `double_click`, `drag`, `scroll`)
+  accept a fresh `point: {x, y}` in viewport CSS pixels instead of `targetRef`.
+  Scale coordinates from the displayed screenshot to its reported viewport.
+  `viewport.coordinateInputAvailable: false` means the page geometry changed
+  during capture; use element refs or observe again before coordinate input.
+  This supports canvas controls that have no semantic element ref. A drag uses
+  `endPoint` or `endRef`; both endpoints must be visible in the same document and
+  at least eight CSS pixels apart. Native held-button mouse events support canvas and HTML drag/drop.
+  The visible Agent cursor follows the requested points without moving the OS
+  cursor. Frame targets still require element refs.
+- `scroll` sends a native wheel event at `point` or `targetRef`, so nested scroll
+  areas receive input. With neither, it targets the viewport center. Each delta
+  is bounded to 100,000 CSS pixels. `press` supports letter shortcuts with
+  `Control`, `Alt`, or `Meta`, optionally `Shift`; for example `key: "A"` with
+  `modifiers: ["Control"]` selects text in the referenced editor. Plain text
+  continues to use `type`.
+- These actions consume the current observation and retain control, visibility,
+  target identity and navigation checks. A failed or interrupted native gesture
+  must be observed again before considering another action; input is never
+  silently replayed through synthetic DOM events.
 - `upload_files` takes `files` and a fresh file-input `targetRef`, including
   hidden file inputs. Paths use the same file-access policy as the file tools.
   Selection is limited to 20 files / 100 MiB; `[]` clears the input. Observations

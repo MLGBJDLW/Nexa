@@ -227,6 +227,8 @@ struct BrowserArgs {
     observation_id: Option<String>,
     target_ref: Option<String>,
     end_ref: Option<String>,
+    point: Option<super::state::BrowserViewportPoint>,
+    end_point: Option<super::state::BrowserViewportPoint>,
     text: Option<String>,
     value: Option<String>,
     values: Option<Vec<String>>,
@@ -431,6 +433,8 @@ impl Tool for NativeBrowserSessionTool {
                 "query": { "type": "string", "maxLength": 240, "description": "observe only: case-insensitive substring filter on accessible name, role, or tag. Use this to locate controls omitted from a large observation; the result returns fresh refs and coverage." },
                 "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991_u64, "description": "observe only: start at this matching-control offset, using observationCoverage.nextOffset to continue. Keep the same query and page viewport while paging." },
                 "endRef": { "type": "string", "description": "Observation-scoped destination element ref for drag." },
+                "point": { "type": "object", "properties": { "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 } }, "required": ["x", "y"], "additionalProperties": false, "description": "Windows: viewport CSS-pixel point from the current screenshot, instead of targetRef for move, hover, click, double_click, drag or scroll. Scale image pixels using viewport width/height divided by the displayed image width/height. Must remain within the observed viewport." },
+                "endPoint": { "type": "object", "properties": { "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 } }, "required": ["x", "y"], "additionalProperties": false, "description": "Windows: viewport CSS-pixel destination instead of endRef for drag. Both endpoints must be visible together." },
                 "text": { "type": "string" },
                 "value": { "type": "string", "maxLength": 512, "description": "Exact value for select. Use either value or values." },
                 "values": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "maxLength": 512 }, "description": "Exact desired selection for select, including multiple-select lists. Empty clears a multiple-select. Missing/disabled options fail before input." },
@@ -438,11 +442,11 @@ impl Tool for NativeBrowserSessionTool {
                 "downloadTo": { "type": "string", "minLength": 1, "description": "Windows only. On click/press, allow one native download into this new file under the current file-access policy. Uses page cookies, supports blob/POST downloads, limits 100 MiB/120 seconds, rejects overwrites, and reports completion only after file/hash verification." },
                 "dialogResponses": { "type": "array", "maxItems": 4, "items": { "type": "object", "properties": { "kind": { "type": "string", "enum": ["alert", "confirm", "prompt", "beforeunload"] }, "message": { "type": "string", "maxLength": 8192 }, "accept": { "type": "boolean" }, "promptText": { "type": "string", "maxLength": 8192 } }, "required": ["kind", "message", "accept"], "additionalProperties": false }, "description": "Windows only. Exact, ordered, single-use JavaScript dialog responses authorized for this interaction and page URL. Unexpected dialogs are dismissed and reported; input is never automatically replayed. Use promptText only for prompt." },
                 "files": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1 }, "description": "Local file paths for upload_files, resolved through the current file-access policy. At most 20 files and 100 MiB total. Empty clears a file input. The result confirms file selection; observe the page separately to confirm server upload completion." },
-                "key": { "type": "string" },
+                "key": { "type": "string", "description": "Non-text key such as Enter, Tab, Escape, ArrowLeft, Backspace, or Delete. On Windows, combine letters A-Z with modifiers for shortcuts, for example key=A, modifiers=[Control] to select all. Use type to enter text." },
                 "button": { "type": "string", "enum": ["left", "middle", "right"], "default": "left" },
                 "modifiers": { "type": "array", "items": { "type": "string", "enum": ["Alt", "Control", "Meta", "Shift"] }, "uniqueItems": true },
                 "scrollX": { "type": "integer", "default": 0 },
-                "scrollY": { "type": "integer", "default": 0 },
+                "scrollY": { "type": "integer", "default": 0, "description": "Wheel delta in CSS pixels. On Windows the wheel targets point or targetRef, including nested scroll areas; without either it targets the viewport center." },
                 "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, element_absent, element_checked, or element_enabled. Element conditions accept ref/targetRef, name, and role. State conditions require a boolean value; mixed/unknown checked states do not match false." },
                 "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "description": "Cancellable condition polling budget. One final visual observation has a separate 20-second limit. A pending condition returns conditionMatched=false with fresh evidence; timedOut reports whether the polling budget elapsed." }
             },
@@ -1038,6 +1042,38 @@ impl Tool for NativeBrowserSessionTool {
                     ));
                 }
                 let observation_id = required(args.observation_id.as_deref(), "observationId")?;
+                if args.point.is_some() || args.end_point.is_some() {
+                    if !cfg!(windows) {
+                        return Err(Self::invalid(
+                            "Screenshot coordinate input requires Windows WebView2",
+                        ));
+                    }
+                    if !matches!(
+                        action.as_str(),
+                        "move" | "hover" | "click" | "double_click" | "drag" | "scroll"
+                    ) || (args.point.is_some() && args.target_ref.is_some())
+                        || (args.end_point.is_some()
+                            && (action != "drag" || args.end_ref.is_some()))
+                    {
+                        return Err(Self::invalid("Use point or targetRef for pointer input, and endPoint or endRef only for drag"));
+                    }
+                }
+                if action == "drag"
+                    && args
+                        .button
+                        .as_deref()
+                        .is_some_and(|button| button != "left")
+                {
+                    return Err(Self::invalid("Browser drag requires the left button"));
+                }
+                if action == "scroll"
+                    && (args.scroll_x.unwrap_or(0).unsigned_abs() > 100_000
+                        || args.scroll_y.unwrap_or(0).unsigned_abs() > 100_000)
+                {
+                    return Err(Self::invalid(
+                        "Scroll deltas must be within 100000 CSS pixels",
+                    ));
+                }
                 let target_ref = if matches!(
                     action.as_str(),
                     "move"
@@ -1050,12 +1086,13 @@ impl Tool for NativeBrowserSessionTool {
                         | "set_checked"
                         | "upload_files"
                         | "press"
-                ) {
+                ) && args.point.is_none()
+                {
                     Some(required(args.target_ref.as_deref(), "targetRef")?)
                 } else {
                     args.target_ref.as_deref()
                 };
-                let end_ref = if action == "drag" {
+                let end_ref = if action == "drag" && args.end_point.is_none() {
                     Some(required(args.end_ref.as_deref(), "endRef")?)
                 } else {
                     args.end_ref.as_deref()
@@ -1093,6 +1130,8 @@ impl Tool for NativeBrowserSessionTool {
                         action: &action,
                         target_ref,
                         end_ref,
+                        point: args.point,
+                        end_point: args.end_point,
                         text: args.text.as_deref(),
                         value: args.value.as_deref(),
                         values: args.values.as_deref(),

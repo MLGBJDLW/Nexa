@@ -124,6 +124,23 @@ fn trusted_key_spec(key: &str) -> Option<TrustedKeySpec> {
 }
 
 fn trusted_key_payloads(key: &str, modifiers: &[String]) -> Result<Vec<serde_json::Value>, String> {
+    if key.len() == 1 && key.as_bytes()[0].is_ascii_alphabetic() {
+        let encoded = trusted_input_modifiers(modifiers)?;
+        if encoded & (1 | 2 | 4) == 0 {
+            return Err("Letter keys require Control, Alt or Meta; use type for text".into());
+        }
+        let letter = key.to_ascii_uppercase();
+        let event_key = if encoded & 8 != 0 {
+            letter.clone()
+        } else {
+            key.to_ascii_lowercase()
+        };
+        return Ok(["rawKeyDown", "keyUp"].into_iter().map(|kind| serde_json::json!({
+            "type": kind, "key": event_key, "code": format!("Key{letter}"),
+            "windowsVirtualKeyCode": letter.as_bytes()[0], "nativeVirtualKeyCode": letter.as_bytes()[0],
+            "modifiers": encoded, "autoRepeat": false, "isKeypad": false,
+        })).collect());
+    }
     let spec =
         trusted_key_spec(key).ok_or_else(|| format!("Unsupported trusted non-text key '{key}'"))?;
     let modifiers = trusted_input_modifiers(modifiers)?;
@@ -173,6 +190,7 @@ pub struct TrustedInputEventBudget {
     pointer_down: u8,
     key_down: u8,
     input: u8,
+    wheel: u8,
 }
 
 impl TrustedInputEventBudget {
@@ -189,6 +207,7 @@ impl TrustedInputEventBudget {
             pointer_down,
             key_down,
             input,
+            wheel: 0,
         })
     }
 
@@ -204,6 +223,7 @@ impl TrustedInputEventBudget {
             pointer_down: 0,
             key_down: 0,
             input: 1,
+            wheel: 0,
         }
     }
 
@@ -214,11 +234,21 @@ impl TrustedInputEventBudget {
         Self::new(0, 1, expected_input_events)
     }
 
+    pub fn wheel() -> Self {
+        Self {
+            pointer_down: 0,
+            key_down: 0,
+            input: 0,
+            wheel: 1,
+        }
+    }
+
     fn as_json(self) -> serde_json::Value {
         serde_json::json!({
             "pointerDown": self.pointer_down,
             "keyDown": self.key_down,
             "input": self.input,
+            "wheel": self.wheel,
         })
     }
 }
@@ -235,6 +265,21 @@ pub enum TrustedInputMatch {
     },
     Key {
         key: String,
+        modifiers: u8,
+    },
+    Wheel {
+        x: f64,
+        y: f64,
+        delta_x: i64,
+        delta_y: i64,
+    },
+    Drag {
+        x: f64,
+        y: f64,
+        end_x: f64,
+        end_y: f64,
+        end_ref: String,
+        end_context: String,
     },
     Files {
         files: Vec<nexa_core::browser_runtime::BrowserFileMetadata>,
@@ -254,21 +299,155 @@ impl TrustedInputMatch {
                 "kind": "text",
                 "data": data,
             }),
-            Self::Key { key } => serde_json::json!({
+            Self::Key { key, modifiers } => serde_json::json!({
                 "kind": "key",
                 "key": key,
+                "modifiers": modifiers,
+            }),
+            Self::Wheel {
+                x,
+                y,
+                delta_x,
+                delta_y,
+            } => serde_json::json!({
+                "kind": "wheel", "x": x, "y": y, "deltaX": delta_x, "deltaY": delta_y,
+            }),
+            Self::Drag {
+                x,
+                y,
+                end_x,
+                end_y,
+                end_ref,
+                end_context,
+            } => serde_json::json!({
+                "kind": "drag", "x": x, "y": y, "endX": end_x, "endY": end_y,
+                "endRef": end_ref, "endContext": end_context, "button": "left",
             }),
             Self::Files { files } => serde_json::json!({ "kind": "files", "files": files }),
         }
     }
 }
 
-pub fn trusted_key_input_match(key: &str) -> Result<TrustedInputMatch, String> {
-    let spec =
-        trusted_key_spec(key).ok_or_else(|| format!("Unsupported trusted non-text key '{key}'"))?;
+pub fn trusted_key_input_match(
+    key: &str,
+    modifiers: &[String],
+) -> Result<TrustedInputMatch, String> {
+    let payload = trusted_key_payloads(key, modifiers)?.remove(0);
     Ok(TrustedInputMatch::Key {
-        key: spec.key.to_string(),
+        key: payload["key"]
+            .as_str()
+            .expect("key payload contains a key")
+            .to_string(),
+        modifiers: trusted_input_modifiers(modifiers)?,
     })
+}
+
+#[cfg(any(windows, test))]
+fn trusted_drag_payloads(
+    start: (f64, f64),
+    end: (f64, f64),
+    modifiers: &[String],
+) -> Result<Vec<serde_json::Value>, String> {
+    if (end.0 - start.0).hypot(end.1 - start.1) < 8.0 {
+        return Err(
+            "Drag endpoints must be at least 8 CSS pixels apart to avoid an accidental click"
+                .into(),
+        );
+    }
+    let mut payloads = trusted_pointer_payloads(start.0, start.1, "left", modifiers, 1)?;
+    let mut release = payloads.pop().expect("click release");
+    let modifiers = trusted_input_modifiers(modifiers)?;
+    for step in 1..=16 {
+        let fraction = f64::from(step) / 16.0;
+        payloads.push(serde_json::json!({
+            "type": "mouseMoved", "x": start.0 + (end.0 - start.0) * fraction,
+            "y": start.1 + (end.1 - start.1) * fraction,
+            "button": "left", "buttons": 1, "modifiers": modifiers, "pointerType": "mouse",
+        }));
+    }
+    // Reuse endpoint validation before any sequence is dispatched.
+    trusted_pointer_payloads(end.0, end.1, "left", &[], 1)?;
+    release["x"] = serde_json::json!(end.0);
+    release["y"] = serde_json::json!(end.1);
+    payloads.push(release);
+    Ok(payloads)
+}
+
+#[cfg(windows)]
+struct DragCleanup(Option<Webview>);
+
+#[cfg(windows)]
+impl Drop for DragCleanup {
+    fn drop(&mut self) {
+        if let Some(webview) = self.0.take() {
+            tauri::async_runtime::spawn(async move {
+                let _ = call_devtools_protocol_method(
+                    &webview,
+                    "Input.cancelDragging",
+                    serde_json::json!({}),
+                    TRUSTED_INPUT_TIMEOUT,
+                    None,
+                )
+                .await;
+            });
+        }
+    }
+}
+
+#[cfg(windows)]
+pub async fn dispatch_trusted_drag(
+    guard: &ArmedTrustedInputGuard,
+    start: (f64, f64),
+    end: (f64, f64),
+    modifiers: &[String],
+) -> Result<(), String> {
+    if guard.budget != TrustedInputEventBudget::pointer_click(1, 0)? {
+        return Err("Trusted drag requires one bounded pointer gesture".into());
+    }
+    let payloads = trusted_drag_payloads(start, end, modifiers)?;
+    let mut cleanup = DragCleanup(Some(guard.webview().clone()));
+    let result = dispatch_cdp_sequence(guard, "Input.dispatchMouseEvent", payloads).await;
+    if result.is_err() {
+        // Cancel the native drag instead of replaying a release at a possibly
+        // stale destination. The caller retains the uncertain-action receipt.
+        let _ = call_devtools_protocol_method(
+            guard.webview(),
+            "Input.cancelDragging",
+            serde_json::json!({}),
+            TRUSTED_INPUT_TIMEOUT,
+            None,
+        )
+        .await;
+    }
+    cleanup.0 = None;
+    result
+}
+
+#[cfg(windows)]
+pub async fn dispatch_trusted_wheel(
+    guard: &ArmedTrustedInputGuard,
+    x: f64,
+    y: f64,
+    delta_x: i64,
+    delta_y: i64,
+    modifiers: &[String],
+) -> Result<(), String> {
+    if guard.budget != TrustedInputEventBudget::wheel()
+        || delta_x.unsigned_abs() > 100_000
+        || delta_y.unsigned_abs() > 100_000
+    {
+        return Err("Trusted wheel requires one bounded scroll event".into());
+    }
+    trusted_pointer_payloads(x, y, "left", &[], 1)?;
+    dispatch_cdp_sequence(
+        guard,
+        "Input.dispatchMouseEvent",
+        vec![serde_json::json!({
+            "type": "mouseWheel", "x": x, "y": y, "deltaX": delta_x, "deltaY": delta_y,
+            "modifiers": trusted_input_modifiers(modifiers)?, "pointerType": "mouse",
+        })],
+    )
+    .await
 }
 
 #[derive(Clone)]
@@ -728,7 +907,10 @@ pub async fn create_child_webview(
             navigation_preapproved(target, agent_restricted, &mut approved)
         })
     })
-    .on_page_load(move |_webview, payload| {
+    .on_page_load(move |webview, payload| {
+        if payload.event() == PageLoadEvent::Finished {
+            let _ = webview.eval(&super::scripts::pointer_appearance_update_script());
+        }
         state_for_load.update_page_load(
             &session_for_load,
             &tab_for_load,
@@ -1594,15 +1776,34 @@ mod tests {
             "rawKeyDown"
         );
         assert!(trusted_key_payloads("A", &[]).is_err());
+        let select_all = trusted_key_payloads("A", &["Control".into()]).unwrap();
+        assert_eq!(select_all[0]["key"], "a");
+        assert_eq!(select_all[0]["code"], "KeyA");
+        assert_eq!(select_all[0]["modifiers"], 2);
+        assert!(select_all[0].get("text").is_none());
         assert!(trusted_key_payloads("F12", &[]).is_err());
         assert!(matches!(
-            trusted_key_input_match("Spacebar").unwrap(),
-            TrustedInputMatch::Key { key } if key == " "
+            trusted_key_input_match("Spacebar", &[]).unwrap(),
+            TrustedInputMatch::Key { key, .. } if key == " "
         ));
         assert!(matches!(
-            trusted_key_input_match("Esc").unwrap(),
-            TrustedInputMatch::Key { key } if key == "Escape"
+            trusted_key_input_match("Esc", &[]).unwrap(),
+            TrustedInputMatch::Key { key, .. } if key == "Escape"
         ));
+    }
+
+    #[test]
+    fn trusted_drag_keeps_the_button_held_and_releases_at_the_destination() {
+        let events = super::trusted_drag_payloads((10.0, 20.0), (210.0, 120.0), &[]).unwrap();
+        assert_eq!(events[1]["type"], "mousePressed");
+        assert!(events[2..18]
+            .iter()
+            .all(|event| event["type"] == "mouseMoved" && event["buttons"] == 1));
+        assert_eq!(events[18]["type"], "mouseReleased");
+        assert_eq!(events[18]["x"], 210.0);
+        assert_eq!(events[18]["buttons"], 0);
+        assert!(super::trusted_drag_payloads((10.0, 20.0), (10.0, 20.0), &[]).is_err());
+        assert!(super::trusted_drag_payloads((10.0, 20.0), (f64::INFINITY, 30.0), &[]).is_err());
     }
 
     #[test]

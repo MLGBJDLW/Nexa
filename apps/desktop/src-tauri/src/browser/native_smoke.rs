@@ -7,7 +7,13 @@ use super::*;
 fn native_html_preview_keeps_agent_observation_and_input_continuous() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index.html");
-    std::fs::write(&path, "<!doctype html><title>Preview continuity</title><button onclick=\"document.querySelector('output').textContent='clicked once'\">Continue</button><output>ready</output><input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>").unwrap();
+    std::fs::write(&path, r#"<!doctype html><title>Preview continuity</title>
+      <button onclick="document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
+      <input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>
+      <input id=editor aria-label=Editor value="select this text" style="position:absolute;left:20px;top:70px">
+      <canvas width=300 height=120 style="position:absolute;left:20px;top:150px"></canvas>
+      <div id=scrollbox style="position:absolute;left:350px;top:150px;width:200px;height:140px;overflow:auto"><div style="height:1500px">Nested content</div></div>
+      <script>window.dragMoves=0;document.querySelector('canvas').onpointermove=e=>{if(e.isTrusted&&e.buttons===1)window.dragMoves++};</script>"#).unwrap();
     let profile = root.path().join("profiles");
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut context = tauri::generate_context!();
@@ -20,9 +26,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
         let handle = app.handle().clone();
         let state = super::super::state::BrowserState::new(handle.clone(), profile.clone());
         tauri::async_runtime::spawn(async move {
-            use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker}};
+            use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker, BrowserViewportPoint}};
             use nexa_core::browser_runtime::{BrowserBounds, BrowserControlOwner};
-            let result = tokio::time::timeout(std::time::Duration::from_secs(45), async {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(90), async {
                 let prepared = state.prepare_html_preview(path.to_string_lossy().into(), "fixture".into(), vec![]).await?;
                 let session = state.create_session(Some("fixture".into()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
@@ -41,7 +47,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 let target = before.elements.iter().find(|element| element.name == "Continue").ok_or("Missing button in native observation")?;
                 let after = state.act(BrowserActRequest {
                     call_id: "preview-click", session_id: &session.id, tab_id, observation_id: &before.observation_id,
-                    action: "click", target_ref: Some(&target.element_ref), end_ref: None, text: None,
+                    action: "click", target_ref: Some(&target.element_ref), end_ref: None, point: None, end_point: None, text: None,
                     value: None, values: None, checked: None, upload: None, key: None, button: None,
                     modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
                 }).await.map_err(|error| format!("Native click: {error}"))?;
@@ -57,7 +63,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     let target = observed.elements.iter().find(|element| element.name == name).ok_or("Missing no-op form target")?;
                     let noop = state.act(BrowserActRequest {
                         call_id: &call_id, session_id: &session.id, tab_id, observation_id: &observed.observation_id,
-                        action, target_ref: Some(&target.element_ref), end_ref: None, text: None,
+                        action, target_ref: Some(&target.element_ref), end_ref: None, point: None, end_point: None, text: None,
                         value, values: None, checked, upload: None, key: None, button: None,
                         modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
                     }).await?;
@@ -66,6 +72,52 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     }
                 }
                 eprintln!("Native HTML continuity: real click delivered; already satisfied checkbox/select returned matched without input.");
+                for action in ["drag", "scroll", "press"] {
+                    let call_id = format!("native-{action}");
+                    state.acquire_agent_control(&session.id, &call_id)?;
+                    let observed = state.observe(&session.id, tab_id, &call_id).await?;
+                    let editor = observed.elements.iter().find(|element| element.name == "Editor").ok_or("Missing editor")?;
+                    let modifiers = if action == "press" { vec!["Control".to_string()] } else { vec![] };
+                    let outcome = state.act(BrowserActRequest {
+                        call_id: &call_id, session_id: &session.id, tab_id, observation_id: &observed.observation_id,
+                        action, target_ref: (action == "press").then_some(editor.element_ref.as_str()), end_ref: None,
+                        point: match action { "drag" => Some(BrowserViewportPoint { x: 40.0, y: 170.0 }), "scroll" => Some(BrowserViewportPoint { x: 400.0, y: 200.0 }), _ => None },
+                        end_point: (action == "drag").then_some(BrowserViewportPoint { x: 240.0, y: 240.0 }),
+                        text: None, value: None, values: None, checked: None, upload: None,
+                        key: (action == "press").then_some("A"), button: None, modifiers: &modifiers,
+                        scroll_x: 0, scroll_y: if action == "scroll" { 240 } else { 0 }, commit_tracker: BrowserActCommitTracker::default(),
+                    }).await.map_err(|error| format!("Native {action}: {error}"))?;
+                    if outcome.interaction.delivery != InputDelivery::InputSent { return Err(format!("Native {action} did not send input")); }
+                    let evidence = state.eval_action(&session.id, tab_id,
+                        "({ moves: window.dragMoves, scroll: document.querySelector('#scrollbox').scrollTop, selected: document.querySelector('#editor').selectionEnd - document.querySelector('#editor').selectionStart })").await?;
+                    if (action == "drag" && evidence["moves"].as_u64().unwrap_or(0) < 2)
+                        || (action == "scroll" && evidence["scroll"].as_f64().unwrap_or(0.0) <= 0.0)
+                        || (action == "press" && evidence["selected"].as_u64() != Some(16)) {
+                        return Err(format!("Native {action} failed its actual page effect: {evidence}"));
+                    }
+                }
+                eprintln!("Native browser controls: screenshot-coordinate canvas drag, nested wheel and Control+A all produced verified page effects.");
+                state.eval_action(&session.id, tab_id, "(() => { const spinner = document.createElement('div'); spinner.id='fixture-spinner'; spinner.style.cssText='position:absolute;left:570px;top:30px;width:24px;height:24px;background:red'; document.body.append(spinner); spinner.animate([{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],{duration:200,iterations:Infinity}); return true; })()").await?;
+                state.acquire_agent_control(&session.id, "animated-observation")?;
+                let animated = state.observe(&session.id, tab_id, "animated-observation").await?;
+                if !animated.elements.iter().any(|element| element.name == "Editor") { return Err("Decorative animation prevented stable control observation".into()); }
+                state.eval_action(&session.id, tab_id, "(() => { document.querySelector('#fixture-spinner').remove(); return true; })()").await?;
+                state.eval_action(&session.id, tab_id, "(() => { const other = document.createElement('canvas'); other.style.cssText = 'position:absolute;left:20px;top:300px;width:300px;height:120px'; document.body.append(other); return true; })()").await?;
+                state.acquire_agent_control(&session.id, "coordinate-race")?;
+                let stale = state.observe(&session.id, tab_id, "coordinate-race").await?;
+                state.eval_action(&session.id, tab_id, "(() => { const canvases = document.querySelectorAll('canvas'); canvases[0].style.top = '300px'; canvases[1].style.top = '150px'; return true; })()").await?;
+                let _fresh = state.observe(&session.id, tab_id, "coordinate-race").await?;
+                let stale_action = state.act(BrowserActRequest {
+                    call_id: "coordinate-race", session_id: &session.id, tab_id, observation_id: &stale.observation_id,
+                    action: "click", target_ref: None, end_ref: None, point: Some(BrowserViewportPoint { x: 40.0, y: 170.0 }), end_point: None,
+                    text: None, value: None, values: None, checked: None, upload: None, key: None, button: None,
+                    modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
+                }).await;
+                let stale_error = stale_action.err();
+                if !stale_error.as_ref().is_some_and(|error| error.contains("stale observation")) {
+                    return Err(format!("Old screenshot coordinates were not revoked: {stale_error:?}"));
+                }
+                eprintln!("Native coordinate binding: a later observation cannot authorize a stale canvas position.");
                 let first_storage = state.tab_profile_directory_for_test(&session.id, tab_id)?;
                 let ordinary_storage = profile.join(&session.profile_id);
                 if first_storage == ordinary_storage { return Err("A local preview occupied the ordinary sign-in profile".into()); }
@@ -77,6 +129,18 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 state.acquire_agent_control(&session.id, "preview-second")?;
                 let observed = state.observe(&session.id, &next.id, "preview-second").await.map_err(|error| format!("Second tab: {error}"))?;
                 if observed.tab_id != next.id || !observed.text.contains("ready") { return Err("Observed the old same-origin tab".into()); }
+                let before_reload = state.eval_action(&session.id, &next.id, "window.fixtureDocumentId = crypto.randomUUID()").await?;
+                nexa_core::agent_pointer::configure([10, 20, 30], true);
+                state.refresh_pointer_appearance();
+                state.reload(&session.id, &next.id)?;
+                for _ in 0..80 {
+                    let loaded = state.eval_action(&session.id, &next.id, "({ id: window.fixtureDocumentId ||= crypto.randomUUID(), ready: document.readyState })").await?;
+                    if loaded["id"] != before_reload && loaded["ready"] == "complete" { break; }
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+                let cursor = state.eval_action(&session.id, &next.id, "(() => { const bridge=window.__NEXA_BROWSER_RUNTIME__; const observation=bridge.observe(); const target=observation.elements.find(e=>e.name==='Continue'); const preview=bridge.previewAction({...observation,action:'move',presentationId:'theme-after-reload',targetRef:target.ref,expected:target,button:'left',modifiers:[]}); return {duration:preview.durationMs,color:document.querySelector('[data-nexa-agent-cursor] stop')?.getAttribute('stop-color')}; })()").await?;
+                if cursor["duration"] != 0 || cursor["color"] != "rgb(63 71 79)" { return Err(format!("Pointer appearance reverted after navigation: {cursor}")); }
+                eprintln!("Native pointer theme: current Computer Use color and reduced motion survive tab reload.");
                 let ordinary = state.open_tab(&session.id, "about:blank", NavigationActor::User, None).await?;
                 if state.tab_profile_directory_for_test(&session.id, &ordinary.id)? != ordinary_storage {
                     return Err("Ordinary browsing was silently moved into a separate sign-in profile".into());
@@ -98,7 +162,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     }
                 }
                 Ok::<_, String>(())
-            }).await.unwrap_or_else(|_| Err("Native preview continuity fixture exceeded 45 seconds".into()));
+            }).await.unwrap_or_else(|_| Err("Native preview continuity fixture exceeded 90 seconds".into()));
             let _ = sender.send(result);
             handle.exit(0);
         });

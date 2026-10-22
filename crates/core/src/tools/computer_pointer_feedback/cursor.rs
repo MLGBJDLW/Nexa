@@ -352,8 +352,8 @@ fn create_cursor(scale: f64, accent: [u8; 3]) -> windows::core::Result<HCURSOR> 
         unsafe {
             CreateIconIndirect(&ICONINFO {
                 fIcon: false.into(),
-                xHotspot: (8.0 * scale).round() as u32,
-                yHotspot: (8.0 * scale).round() as u32,
+                xHotspot: (crate::agent_pointer::HOTSPOT * scale).round() as u32,
+                yHotspot: (crate::agent_pointer::HOTSPOT * scale).round() as u32,
                 hbmMask: mask,
                 hbmColor: bitmap,
             })

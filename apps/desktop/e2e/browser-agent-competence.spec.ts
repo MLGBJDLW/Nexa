@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { loadBrowserRuntime } from './fixtures/browser-runtime';
 
 // Run the production observation script, not a replacement DOM extractor.
 const source = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'scripts.rs'), 'utf8');
-const runtimeSource = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'interaction_runtime.js'), 'utf8')
-  .replace('__NEXA_PICK_TOKEN__', JSON.stringify('competence-fixture-token'));
+const runtimeSource = loadBrowserRuntime('competence-fixture-token');
 if (!runtimeSource) throw new Error('Could not extract Browser Workspace runtime');
 
 type ObservedElement = {
