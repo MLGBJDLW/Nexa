@@ -881,6 +881,8 @@ Windows WebView2 also supports these native interactions:
 - Pointer actions (`move`, `hover`, `click`, `double_click`, `drag`, `scroll`)
   accept a fresh `point: {x, y}` in viewport CSS pixels instead of `targetRef`.
   Scale coordinates from the displayed screenshot to its reported viewport.
+  `viewport.coordinateInputAvailable: false` means the page geometry changed
+  during capture; use element refs or observe again before coordinate input.
   This supports canvas controls that have no semantic element ref. A drag uses
   `endPoint` or `endRef`; both endpoints must be visible in the same document and
   at least eight CSS pixels apart. Native held-button mouse events support canvas and HTML drag/drop.

@@ -364,3 +364,10 @@ pub fn browser_init_script(pick_token: &str) -> String {
 }
 
 pub const BROWSER_INIT_SCRIPT: &str = include_str!("interaction_runtime.js");
+
+pub fn pointer_appearance_update_script() -> String {
+    format!(
+        "window.__NEXA_BROWSER_RUNTIME__?.setPointerAppearance({})",
+        nexa_core::agent_pointer::browser_appearance()
+    )
+}

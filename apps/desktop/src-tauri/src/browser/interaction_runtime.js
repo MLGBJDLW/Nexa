@@ -408,10 +408,12 @@
       }
       if (feedback) continue;
       const rect = viewportBoundsOf(element);
-      if (!rect.width || !rect.height) continue;
+      if (!rect.width || !rect.height || rect.x >= innerWidth || rect.y >= innerHeight
+        || rect.x + rect.width <= 0 || rect.y + rect.height <= 0) continue;
+      const style = getComputedStyle(element);
+      if (style.visibility === 'hidden' || style.display === 'none' || style.pointerEvents === 'none') continue;
       let id = runtime.geometryIds.get(element);
       if (!id) { id = ++runtime.nextGeometryId; runtime.geometryIds.set(element, id); }
-      const style = getComputedStyle(element);
       state.push([id, rect.x, rect.y, rect.width, rect.height, style.display, style.visibility,
         style.pointerEvents, style.position, style.zIndex, style.transform, style.clipPath,
         style.borderRadius, style.overflowX, style.overflowY, element.scrollLeft, element.scrollTop].join('|'));
@@ -696,6 +698,7 @@
   };
   runtime.previewAction = (input) => {
     const { el, end } = validateAction(input);
+    if (input.pointerAppearance) runtime.setPointerAppearance(input.pointerAppearance);
     const destination = input.action === 'drag' ? end : el;
     if (presentation) cancelPresentation(presentation.id);
     const current = { id: String(input.presentationId || ''), status: 'pending' };

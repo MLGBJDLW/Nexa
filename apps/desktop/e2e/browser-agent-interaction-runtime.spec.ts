@@ -1,11 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { loadBrowserRuntime } from './fixtures/browser-runtime';
 
 const source = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'scripts.rs'), 'utf8');
-const runtimeSource = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'interaction_runtime.js'), 'utf8')
-  .replace('__NEXA_PICK_TOKEN__', JSON.stringify('playwright-picker-token'))
-  .replace('__NEXA_POINTER_APPEARANCE__', JSON.stringify({ size: 36, hotspot: 8, accent: 'rgb(20 184 166)', reducedMotion: false, svg: '<svg viewBox="0 0 36 36"><path d="M8 8L11 28L26 21Z" fill="#14b8a6" stroke="white"/></svg>' }));
+const runtimeSource = loadBrowserRuntime('playwright-picker-token');
 const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"\r?\n([\s\S]*?)\r?\n"#\r?\n\s*\.replace/)?.[1]
   .replace('__NEXA_TAKEOVER_URL__', JSON.stringify('nexa-user-input://playwright-takeover-token'))
   .replace('__NEXA_TAKEOVER_TOKEN__', JSON.stringify('playwright-takeover-token'));

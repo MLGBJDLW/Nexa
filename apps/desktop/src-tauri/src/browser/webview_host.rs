@@ -907,7 +907,10 @@ pub async fn create_child_webview(
             navigation_preapproved(target, agent_restricted, &mut approved)
         })
     })
-    .on_page_load(move |_webview, payload| {
+    .on_page_load(move |webview, payload| {
+        if payload.event() == PageLoadEvent::Finished {
+            let _ = webview.eval(&super::scripts::pointer_appearance_update_script());
+        }
         state_for_load.update_page_load(
             &session_for_load,
             &tab_for_load,

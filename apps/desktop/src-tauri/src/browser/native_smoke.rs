@@ -97,6 +97,11 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     }
                 }
                 eprintln!("Native browser controls: screenshot-coordinate canvas drag, nested wheel and Control+A all produced verified page effects.");
+                state.eval_action(&session.id, tab_id, "(() => { const spinner = document.createElement('div'); spinner.id='fixture-spinner'; spinner.style.cssText='position:absolute;left:570px;top:30px;width:24px;height:24px;background:red'; document.body.append(spinner); spinner.animate([{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],{duration:200,iterations:Infinity}); return true; })()").await?;
+                state.acquire_agent_control(&session.id, "animated-observation")?;
+                let animated = state.observe(&session.id, tab_id, "animated-observation").await?;
+                if !animated.elements.iter().any(|element| element.name == "Editor") { return Err("Decorative animation prevented stable control observation".into()); }
+                state.eval_action(&session.id, tab_id, "(() => { document.querySelector('#fixture-spinner').remove(); return true; })()").await?;
                 state.eval_action(&session.id, tab_id, "(() => { const other = document.createElement('canvas'); other.style.cssText = 'position:absolute;left:20px;top:300px;width:300px;height:120px'; document.body.append(other); return true; })()").await?;
                 state.acquire_agent_control(&session.id, "coordinate-race")?;
                 let stale = state.observe(&session.id, tab_id, "coordinate-race").await?;
@@ -108,8 +113,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     text: None, value: None, values: None, checked: None, upload: None, key: None, button: None,
                     modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
                 }).await;
-                if !matches!(stale_action, Err(ref error) if error.contains("screenshot coordinate geometry changed")) {
-                    return Err("A new native observation reauthorized old screenshot coordinates".into());
+                let stale_error = stale_action.err();
+                if !stale_error.as_ref().is_some_and(|error| error.contains("stale observation")) {
+                    return Err(format!("Old screenshot coordinates were not revoked: {stale_error:?}"));
                 }
                 eprintln!("Native coordinate binding: a later observation cannot authorize a stale canvas position.");
                 let first_storage = state.tab_profile_directory_for_test(&session.id, tab_id)?;
@@ -123,6 +129,18 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 state.acquire_agent_control(&session.id, "preview-second")?;
                 let observed = state.observe(&session.id, &next.id, "preview-second").await.map_err(|error| format!("Second tab: {error}"))?;
                 if observed.tab_id != next.id || !observed.text.contains("ready") { return Err("Observed the old same-origin tab".into()); }
+                let before_reload = state.eval_action(&session.id, &next.id, "window.fixtureDocumentId = crypto.randomUUID()").await?;
+                nexa_core::agent_pointer::configure([10, 20, 30], true);
+                state.refresh_pointer_appearance();
+                state.reload(&session.id, &next.id)?;
+                for _ in 0..80 {
+                    let loaded = state.eval_action(&session.id, &next.id, "({ id: window.fixtureDocumentId ||= crypto.randomUUID(), ready: document.readyState })").await?;
+                    if loaded["id"] != before_reload && loaded["ready"] == "complete" { break; }
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+                let cursor = state.eval_action(&session.id, &next.id, "(() => { const bridge=window.__NEXA_BROWSER_RUNTIME__; const observation=bridge.observe(); const target=observation.elements.find(e=>e.name==='Continue'); const preview=bridge.previewAction({...observation,action:'move',presentationId:'theme-after-reload',targetRef:target.ref,expected:target,button:'left',modifiers:[]}); return {duration:preview.durationMs,color:document.querySelector('[data-nexa-agent-cursor] stop')?.getAttribute('stop-color')}; })()").await?;
+                if cursor["duration"] != 0 || cursor["color"] != "rgb(63 71 79)" { return Err(format!("Pointer appearance reverted after navigation: {cursor}")); }
+                eprintln!("Native pointer theme: current Computer Use color and reduced motion survive tab reload.");
                 let ordinary = state.open_tab(&session.id, "about:blank", NavigationActor::User, None).await?;
                 if state.tab_profile_directory_for_test(&session.id, &ordinary.id)? != ordinary_storage {
                     return Err("Ordinary browsing was silently moved into a separate sign-in profile".into());

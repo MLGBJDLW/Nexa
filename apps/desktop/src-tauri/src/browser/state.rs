@@ -235,7 +235,7 @@ struct StoredObservation {
     url: String,
     dom_fingerprint: String,
     interaction_fingerprint: String,
-    coordinate_fingerprint: String,
+    coordinate_fingerprint: Option<String>,
     user_epoch: u64,
     lease_generation: u64,
     elements: Vec<BrowserElement>,
@@ -425,10 +425,7 @@ impl BrowserState {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let expression = format!(
-            "window.__NEXA_BROWSER_RUNTIME__?.setPointerAppearance({})",
-            nexa_core::agent_pointer::browser_appearance()
-        );
+        let expression = super::scripts::pointer_appearance_update_script();
         for webview in webviews {
             let _ = webview.eval(&expression);
         }
@@ -2217,7 +2214,6 @@ impl BrowserState {
             .map_err(|error| format!("Could not decode browser visual confirmation: {error}"))?;
         if confirmation.url != snapshot.url
             || confirmation.interaction_fingerprint != snapshot.interaction_fingerprint
-            || confirmation.coordinate_fingerprint != snapshot.coordinate_fingerprint
             || confirmation.user_epoch != snapshot.user_epoch
         {
             return Err(
@@ -2225,7 +2221,14 @@ impl BrowserState {
                     .to_string(),
             );
         }
-        let snapshot = confirmation;
+        // Unrelated animation can invalidate coordinates while leaving controls
+        // usable. Return ref evidence and mark only the coordinate limitation.
+        let coordinate_fingerprint = (confirmation.coordinate_fingerprint
+            == snapshot.coordinate_fingerprint)
+            .then(|| confirmation.coordinate_fingerprint.clone());
+        let mut snapshot = confirmation;
+        snapshot.viewport["coordinateInputAvailable"] =
+            serde_json::json!(coordinate_fingerprint.is_some());
         self.require_visible_focused_host_window()?;
         self.revalidate_agent_lease(session_id, tab_id, call_id, lease_generation)?;
         let content_hash = blake3::hash(snapshot.dom_fingerprint.as_bytes())
@@ -2268,7 +2271,7 @@ impl BrowserState {
                 url: snapshot.url.clone(),
                 dom_fingerprint: snapshot.dom_fingerprint.clone(),
                 interaction_fingerprint: snapshot.interaction_fingerprint.clone(),
-                coordinate_fingerprint: snapshot.coordinate_fingerprint.clone(),
+                coordinate_fingerprint,
                 user_epoch: snapshot.user_epoch,
                 lease_generation,
                 elements: snapshot.elements.clone(),
@@ -2419,6 +2422,11 @@ impl BrowserState {
             y: observation.viewport["height"].as_f64().unwrap_or(0.0) / 2.0,
         });
         let point = request.point.or(default_scroll_point);
+        if (point.is_some() || request.end_point.is_some())
+            && observation.coordinate_fingerprint.is_none()
+        {
+            return Err("stale observation: screenshot coordinate geometry changed during capture; use targetRef or observe again".into());
+        }
         for (coordinates, target) in [
             (point, &mut expected),
             (request.end_point, &mut expected_end),
@@ -2489,6 +2497,7 @@ impl BrowserState {
         let action_input = serde_json::to_string(&serde_json::json!({
             "action": request.action,
             "presentationId": progress.operation_id(),
+            "pointerAppearance": nexa_core::agent_pointer::browser_appearance(),
             "callId": request.call_id,
             "targetRef": expected.as_ref().map(|element| &element.element_ref),
             "endRef": expected_end.as_ref().map(|element| &element.element_ref),
