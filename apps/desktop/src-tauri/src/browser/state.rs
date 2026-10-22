@@ -2385,12 +2385,14 @@ impl BrowserState {
         };
         // Resolve screenshot pixels against the claimed observation before any
         // navigation authorization. A hit inside a link retains its real href.
-        let default_scroll_point =
-            (request.action == "scroll" && request.point.is_none() && request.target_ref.is_none())
-                .then_some(BrowserViewportPoint {
-                    x: observation.viewport["width"].as_f64().unwrap_or(0.0) / 2.0,
-                    y: observation.viewport["height"].as_f64().unwrap_or(0.0) / 2.0,
-                });
+        let default_scroll_point = (cfg!(windows)
+            && request.action == "scroll"
+            && request.point.is_none()
+            && request.target_ref.is_none())
+        .then_some(BrowserViewportPoint {
+            x: observation.viewport["width"].as_f64().unwrap_or(0.0) / 2.0,
+            y: observation.viewport["height"].as_f64().unwrap_or(0.0) / 2.0,
+        });
         let point = request.point.or(default_scroll_point);
         for (coordinates, target) in [
             (point, &mut expected),
@@ -2400,6 +2402,7 @@ impl BrowserState {
                 let input = serde_json::json!({
                     "action": request.action,
                     "userEpoch": observation.user_epoch,
+                    "domFingerprint": observation.dom_fingerprint,
                     "interactionFingerprint": observation.interaction_fingerprint,
                 });
                 let coordinates =

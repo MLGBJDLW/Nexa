@@ -113,7 +113,8 @@ pub fn browser_takeover_script(token: &str) -> String {
       const end = bridge?.resolveTargetRef(guard.expected.endRef);
       return Boolean(guard.target.isConnected && end?.isConnected
         && bridge.resolveTargetRef(guard.expected.targetRef) === guard.target
-        && (!finishingDrag || bridge.targetContextFingerprint(end) === guard.expected.endContext));
+        && (!finishingDrag || (bridge.targetContextFingerprint(end) === guard.expected.endContext
+          && hitMatchesTarget(end, deepElementFromPoint(document, guard.expected.endX, guard.expected.endY)))));
     }
     return Boolean(guard && guard.target.isConnected
       && bridge?.resolveTargetRef(guard.expected.targetRef) === guard.target
@@ -297,6 +298,7 @@ pub fn browser_takeover_script(token: &str) -> String {
         ? ['pointerdown','pointermove','pointerup','mousedown','mousemove','mouseup','click','dragstart','dragover','drop'].includes(type)
           && event.clientX >= Math.min(expected.x, expected.endX) - 2 && event.clientX <= Math.max(expected.x, expected.endX) + 2
           && event.clientY >= Math.min(expected.y, expected.endY) - 2 && event.clientY <= Math.max(expected.y, expected.endY) + 2
+          && (!finishingDrag || (Math.abs(event.clientX - expected.endX) <= 2 && Math.abs(event.clientY - expected.endY) <= 2))
         : expected.kind === 'wheel' ? type === 'wheel' && matchesTrustedInput(type, event)
         : expected.kind === 'pointer'
         ? ['pointerdown','pointerup','mousedown','mouseup','click','dblclick'].includes(type)

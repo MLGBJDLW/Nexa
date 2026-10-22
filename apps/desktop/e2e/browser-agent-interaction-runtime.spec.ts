@@ -956,7 +956,7 @@ test('Screenshot coordinates bind the exact hit target and retain link approval 
   expect(result.failures).toEqual([true, true, true, true, true]);
 });
 
-test('Native drag also delivers trusted HTML drop events', async ({ page }) => {
+for (const coverDestination of [false, true]) test(`Native drag ${coverDestination ? 'rejects a newly covered destination' : 'also delivers trusted HTML drop events'}`, async ({ page }) => {
   await page.setContent('<div draggable="true" style="position:absolute;left:20px;top:20px;width:80px;height:80px" ondragstart="event.dataTransfer.setData(\'text/plain\',\'fixture\')">Source</div><div data-dropzone style="position:absolute;left:220px;top:20px;width:100px;height:100px" ondragover="event.preventDefault()" ondrop="event.preventDefault();window.dropped=event.isTrusted&&event.dataTransfer.getData(\'text/plain\')===\'fixture\'">Destination</div>');
   await page.addScriptTag({ content: runtimeSource });
   await page.addScriptTag({ content: takeoverSource });
@@ -970,10 +970,47 @@ test('Native drag also delivers trusted HTML drop events', async ({ page }) => {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 60, y: 60 });
   await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 60, y: 60, button: 'left', buttons: 1, clickCount: 1 });
+  if (coverDestination) await page.evaluate(() => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:absolute;left:220px;top:20px;width:100px;height:100px;z-index:999';
+    overlay.ondragover = event => event.preventDefault();
+    overlay.ondrop = event => { event.preventDefault(); (window as unknown as { overlayDropped: boolean }).overlayDropped = true; };
+    document.body.append(overlay);
+  });
   for (let step = 1; step <= 16; step++) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 60 + 210 * step / 16, y: 60 + 10 * step / 16, button: 'left', buttons: 1 });
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 270, y: 70, button: 'left', buttons: 0, clickCount: 1 });
-  expect(await page.evaluate(() => (window as unknown as { dropped: boolean }).dropped)).toBe(true);
-  expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'html-drag'))).toBe(true);
+  if (coverDestination) {
+    expect(await page.evaluate(() => (window as unknown as { overlayDropped: boolean }).overlayDropped)).toBeUndefined();
+    expect(await page.evaluate(() => (window as unknown as { dropped: boolean }).dropped)).toBeUndefined();
+  } else expect(await page.evaluate(() => (window as unknown as { dropped: boolean }).dropped)).toBe(true);
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'html-drag'))).toBe(!coverDestination);
+});
+
+test('Screenshot coordinates reject an existing canvas moved under the old point', async ({ page }) => {
+  await page.setContent('<canvas id=first style="position:absolute;left:0;top:0;width:100px;height:100px"></canvas><canvas id=second style="position:absolute;left:200px;top:0;width:100px;height:100px"></canvas>');
+  await page.addScriptTag({ content: runtimeSource });
+  const rejected = await page.evaluate(() => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    const before = bridge.observe();
+    document.getElementById('first')!.style.left = '200px';
+    document.getElementById('second')!.style.left = '0';
+    try { bridge.resolvePointerTarget({ ...before, action: 'click', targetRef: '', button: 'left', modifiers: [] }, { x: 50, y: 50 }); return false; } catch { return true; }
+  });
+  expect(rejected).toBe(true);
+});
+
+test('Explicit drag points work within the visible part of a large canvas', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 600 });
+  await page.setContent('<body style="margin:0"><canvas width=1200 height=1200></canvas></body>');
+  await page.addScriptTag({ content: runtimeSource });
+  const bounds = await page.evaluate(() => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    const before = bridge.observe();
+    const input = { ...before, action: 'drag', targetRef: '', button: 'left', modifiers: [], point: { x: 40, y: 40 }, endPoint: { x: 150, y: 150 } };
+    const target = bridge.resolvePointerTarget(input, input.point);
+    return bridge.prepareTrustedDrag({ ...input, targetRef: target.ref, endRef: target.ref, expected: target, expectedEnd: target }).endBounds;
+  });
+  expect(bounds).toEqual({ x: 150, y: 150, width: 0, height: 0 });
 });
 
 test('Trusted wheel reaches the nested scroll area without surrendering browser control', async ({ page }) => {

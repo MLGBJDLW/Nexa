@@ -49,7 +49,9 @@
     cursorPoint: null,
     agentThread: null,
     observationOptions: { query: '', offset: 0 },
-    observedNodes: new WeakSet(),
+    geometryIds: new WeakMap(),
+    nextGeometryId: 0,
+    coordinateFingerprint: '',
   };
 
   const labelledByText = (el) => (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => {
@@ -398,6 +400,25 @@
     domFingerprint: domFingerprintOf(),
     observationOptions: { ...runtime.observationOptions },
   });
+  const coordinateFingerprintOf = (rootList = roots()) => {
+    const state = [];
+    for (const root of rootList) for (const element of root.querySelectorAll('*')) {
+      let feedback = false;
+      for (let ancestor = element; ancestor; ancestor = composedParent(ancestor)) {
+        if (feedbackNodes.has(ancestor)) { feedback = true; break; }
+      }
+      if (feedback) continue;
+      const rect = viewportBoundsOf(element);
+      if (!rect.width || !rect.height) continue;
+      let id = runtime.geometryIds.get(element);
+      if (!id) { id = ++runtime.nextGeometryId; runtime.geometryIds.set(element, id); }
+      const style = getComputedStyle(element);
+      state.push([id, rect.x, rect.y, rect.width, rect.height, style.display, style.visibility,
+        style.pointerEvents, style.position, style.zIndex, style.transform, style.clipPath,
+        style.borderRadius, style.overflowX, style.overflowY, element.scrollLeft, element.scrollTop].join('|'));
+    }
+    return hashText(state.join('\n'));
+  };
   runtime.observe = (options = {}) => {
     const query = typeof options.query === 'string' ? options.query.trim() : '';
     const offset = options.offset ?? 0;
@@ -406,7 +427,7 @@
     runtime.refs = new Map();
     let optionBudget = 400;
     const rootList = roots();
-    runtime.observedNodes = new WeakSet(rootList.flatMap(root => Array.from(root.querySelectorAll('*'))));
+    runtime.coordinateFingerprint = coordinateFingerprintOf(rootList);
     const matches = matchingElements(rootList);
     const selected = matches.slice(offset, offset + 300);
     const elements = selected.map((el) => {
@@ -722,10 +743,12 @@
   };
   runtime.resolvePointerTarget = (input, coordinates) => {
     validateAction(input);
+    if (runtime.coordinateFingerprint !== coordinateFingerprintOf()) {
+      throw new Error('stale observation: screenshot coordinate geometry changed');
+    }
     const point = viewportPoint(coordinates);
     let target = deepElementFromPoint(document, point.x, point.y);
     if (!target || target.tagName === 'IFRAME') throw new Error('Observe and use an element ref for a frame target');
-    if (!runtime.observedNodes.has(target)) throw new Error('stale observation: the coordinate target appeared after observation');
     // A screenshot may point at text inside a link or button. Bind the action
     // to that control so native navigation authorization sees its href/form.
     for (let ancestor = target; ancestor; ancestor = composedParent(ancestor)) {
@@ -754,7 +777,10 @@
       el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
       rect = el.getBoundingClientRect();
     }
-    const point = input.point ? viewportPoint(input.point) : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    const viewportBounds = viewportBoundsOf(el);
+    const requestedPoint = input.point ? viewportPoint(input.point) : null;
+    const point = requestedPoint ? { x: requestedPoint.x - viewportBounds.x + rect.x, y: requestedPoint.y - viewportBounds.y + rect.y }
+      : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     if (point.x < 0 || point.y < 0 || point.x >= ownerWindow.innerWidth || point.y >= ownerWindow.innerHeight) {
       throw new Error('Browser pointer target is outside the viewport');
     }
@@ -764,7 +790,7 @@
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
     return {
-      bounds: input.point ? { ...point, width: 0, height: 0 } : viewportBoundsOf(el),
+      bounds: requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBoundsOf(el),
       targetContext,
       targetRef: input.targetRef,
       verificationBaseline: actionVerificationBaseline(),
@@ -775,16 +801,9 @@
     if (!el || !end) throw new Error('Browser drag requires both source and destination');
     // Both points must remain visible together; scrolling one endpoint into
     // view can invalidate the other. Never silently drag to shifted pixels.
-    for (const element of [el, end]) {
-      const rect = element.getBoundingClientRect(), owner = element.ownerDocument.defaultView;
-      const visible = viewportBoundsOf(element);
-      if (rect.top < 0 || rect.left < 0 || rect.bottom > owner.innerHeight || rect.right > owner.innerWidth
-        || visible.x < 0 || visible.y < 0 || visible.x + visible.width > innerWidth || visible.y + visible.height > innerHeight) {
-        throw new Error('Both drag endpoints must be visible in the current viewport');
-      }
-    }
-    const start = runtime.prepareNativePointer(input);
-    const finish = runtime.prepareNativePointer({ ...input, targetRef: input.endRef, expected: input.expectedEnd, point: input.endPoint });
+    const viewportCenter = (element) => { const bounds = viewportBoundsOf(element); return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }; };
+    const start = runtime.prepareNativePointer({ ...input, point: input.point || viewportCenter(el) });
+    const finish = runtime.prepareNativePointer({ ...input, targetRef: input.endRef, expected: input.expectedEnd, point: input.endPoint || viewportCenter(end) });
     return { ...start, endBounds: finish.bounds, endRef: finish.targetRef, endContext: finish.targetContext };
   };
   runtime.prepareTrustedText = (input) => {
