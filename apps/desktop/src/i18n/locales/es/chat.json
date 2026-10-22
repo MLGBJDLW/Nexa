@@ -930,5 +930,22 @@
   "captureScreen": "Hacer una captura",
   "captureScreenHint": "Adjunta una imagen, revísala y envíala. La captura se detiene de inmediato.",
   "captureScreenLive": "Para grabación continua, abre Live",
-  "attachmentsNextMessage": "Los adjuntos están listos para el próximo mensaje al finalizar esta respuesta."
+  "attachmentsNextMessage": "Los adjuntos están listos para el próximo mensaje al finalizar esta respuesta.",
+  "fork": "Fork a una nueva ventana",
+  "forkNow": "Fork ahora",
+  "forking": "Pasando a una nueva ventana",
+  "forkQueued": "Esperando al modelo y las herramientas",
+  "forkComplete": "Nueva ventana lista",
+  "forkFailed": "Error de Fork",
+  "forkObserveFailed": "No se pudo consultar el Fork",
+  "forkCancelFailed": "No se pudo cancelar el Fork",
+  "forkMustBeAlone": "Envía /fork por separado.",
+  "forkDescription": "/fork · Abre una nueva ventana al terminar el modelo y las herramientas actuales. Conserva la tarea y el historial.",
+  "autoForked": "Contexto transferido a una nueva ventana",
+  "contextPolicySaveFork": "Aplicar y Fork",
+  "contextPolicyForkTitle": "Contexto y Fork",
+  "contextPolicyFork": "Fork automático",
+  "contextPolicyForkTiming": "Cuándo hacer Fork",
+  "contextPolicyForkTriggerAt": "Fork automático al superar {tokens} tokens de entrada.",
+  "contextPolicyForkCalculation": "El porcentaje se aplica a {input} tokens disponibles, tras reservar {reply} para la respuesta y {safety} de margen. Fork archiva el razonamiento anterior y conserva la tarea."
 }

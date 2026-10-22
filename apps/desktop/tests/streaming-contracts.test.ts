@@ -3700,7 +3700,7 @@ test('ordinary stream notifications coalesce by frame while urgent state flushes
   const flushed: string[] = [];
   const batcher = new ConversationFrameBatcher(
     conversationId => flushed.push(conversationId),
-    callback => queuedFrames.push(callback),
+    callback => { queuedFrames.push(callback); return () => {}; },
   );
 
   batcher.schedule('conversation-a');

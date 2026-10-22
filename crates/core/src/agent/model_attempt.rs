@@ -26,7 +26,7 @@ use crate::error::CoreError;
 use crate::llm::provider_turn::{ProviderReplayPayload, RouteSnapshot};
 use crate::llm::{
     CompletionRequest, CompletionResponse, LlmProvider, ProviderHostedToolEvent,
-    ProviderStreamEvent, ReplayHistoryProjection, StreamChunk,
+    ProviderStreamEvent, StreamChunk,
 };
 
 /// Immutable provenance for the provider sample whose output was accepted.
@@ -849,30 +849,10 @@ impl<'provider, 'events> ModelAttempt<'provider, 'events> {
     /// the provider's typed projection-ownership contract.
     fn request_for_invocation(&mut self) -> CompletionRequest {
         let mut request = self.original_request.clone();
-        // Legacy live-screen leases no longer exist. A restored request must
-        // never revive their transient pixels; explicit screenshot attachments
-        // are ordinary user content and remain available.
-        request.messages.retain(|message| {
-            !message
-                .name
-                .as_deref()
-                .is_some_and(|name| name.starts_with("nexa_screen_"))
-        });
-        let history_policy = match self.provider.replay_history_projection(&request) {
-            ReplayHistoryProjection::ProviderSelectedRoute => {
-                self.candidate_projection_omitted_units = None;
-                return request;
-            }
-            ReplayHistoryProjection::Caller(policy) => policy,
-        };
-        let mut route = self.provider.route_snapshot(&request);
-        route.replay_policy = history_policy;
-        let projection = crate::llm::reasoning_replay::prepare_provider_replay_history(
-            &request.messages,
-            &route,
-        );
-        self.candidate_projection_omitted_units = Some(projection.omitted_units);
-        request.messages = projection.messages;
+        let (messages, omitted) =
+            crate::llm::reasoning_replay::prepare_invocation_history(self.provider, &request);
+        self.candidate_projection_omitted_units = omitted;
+        request.messages = messages;
         request
     }
 

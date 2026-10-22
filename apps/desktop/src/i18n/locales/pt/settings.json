@@ -1016,7 +1016,7 @@
   "displayStreamingCost": "Uma exibição mais fluida pode aumentar o uso de CPU/GPU e bateria, sobretudo em respostas longas. Não altera a velocidade do modelo nem o texto salvo. Reduzir movimento desativa a revelação gradual.",
   "contextManagementMode": "Gestão de contexto",
   "contextModeSummary": "Compactação por resumo (padrão)",
-  "contextModeHistory": "Novo contexto com histórico arquivado",
+  "contextModeHistory": "Fork para nova janela",
   "contextSummaryHelp": "Um modelo resume conversas antigas e mantém os turnos recentes.",
   "contextHistoryHelp": "Arquiva o histórico concluído e limpa o raciocínio anterior. Mantém a tarefa e os arquivos; consulta notas e resultados originais quando necessário, sem gerar um resumo pelo modelo.",
   "contextModeScope": "Aplica-se a novos turnos de API do Nexa e à compactação manual. Os runtimes de assinatura gerenciam seu próprio contexto ativo.",

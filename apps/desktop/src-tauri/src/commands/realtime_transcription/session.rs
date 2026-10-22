@@ -557,6 +557,40 @@ async fn run_with_audio(
 mod tests {
     use super::*;
     #[test]
+    fn qwen_30_sentences_keep_streaming_after_the_first_final() {
+        let mut transcript = RealtimeTranscript::default();
+        for (begin_time, text, final_result) in [
+            (170, "第一句", false),
+            (170, "第一句。", true),
+            (1400, "第二句正在", false),
+            (1400, "第二句正在继续。", true),
+        ] {
+            // Qwen Audio 3.0 identifies sentences by begin_time; sentence_id
+            // is present in newer task dialects but is not universal.
+            let event = serde_json::json!({
+                "header": {"event": "result-generated"},
+                "payload": {"output": {"sentence": {
+                    "begin_time": begin_time, "text": text,
+                    "sentence_end": final_result
+                }}}
+            });
+            match parse_server_event(RealtimeDialect::DashScopeTask, &event) {
+                ParsedRealtimeServerEvent::Interim {
+                    utterance_id, text, ..
+                } => transcript.update(utterance_id.as_deref(), &text, false, false),
+                ParsedRealtimeServerEvent::Final { utterance_id, text } => {
+                    transcript.update(utterance_id.as_deref(), &text, false, true)
+                }
+                other => panic!("unexpected sentence event: {other:?}"),
+            }
+            if begin_time == 1400 {
+                assert_eq!(transcript.snapshot(), format!("第一句。 {text}"));
+            }
+        }
+        assert_eq!(transcript.finish().unwrap(), "第一句。 第二句正在继续。");
+    }
+
+    #[test]
     fn websocket_query_credentials_are_redacted_from_provider_diagnostics() {
         let config = nexa_core::app_settings::SpeechToTextConfig {
             api_key: "secret +value".into(),

@@ -1016,7 +1016,7 @@
   "displayStreamingCost": "なめらかな表示は CPU/GPU と電力の使用量を増やす場合があります。長文では特に影響します。生成速度や保存内容は変わりません。視差効果の低減時は段階表示を無効にします。",
   "contextManagementMode": "コンテキスト管理",
   "contextModeSummary": "要約による圧縮（標準）",
-  "contextModeHistory": "履歴を保存して新しいコンテキストへ",
+  "contextModeHistory": "新しいウィンドウに Fork",
   "contextSummaryHelp": "モデルが以前のやり取りを要約し、直近のターンはそのまま保持します。",
   "contextHistoryHelp": "完了した履歴を保存し、以前の推論を消去します。現在のタスクと作業成果は保持し、必要な場合のみノートや元の結果を参照します。要約モデルは呼び出しません。",
   "contextModeScope": "新しい Nexa API ターンと手動圧縮に適用します。サブスクリプションのランタイムは自身のコンテキストを管理します。",

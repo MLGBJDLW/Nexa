@@ -930,5 +930,22 @@
   "captureScreen": "截取屏幕",
   "captureScreenHint": "只截取一张图片，预览后发送。截图完成即停止采集。",
   "captureScreenLive": "持续录制请前往 Live",
-  "attachmentsNextMessage": "附件已保存在草稿中，可在本次回复结束后发送。"
+  "attachmentsNextMessage": "附件已保存在草稿中，可在本次回复结束后发送。",
+  "fork": "Fork 到新窗口",
+  "forkNow": "立即 Fork",
+  "forking": "正在交接到新窗口",
+  "forkQueued": "等待当前模型与工具完成",
+  "forkComplete": "已进入新窗口",
+  "forkFailed": "Fork 失败",
+  "forkObserveFailed": "无法获取 Fork 进度",
+  "forkCancelFailed": "无法取消 Fork",
+  "forkMustBeAlone": "/fork 必须单独发送。",
+  "forkDescription": "/fork · 随时开启新窗口；运行中会等待当前模型与工具完成。任务与历史记录会保留。",
+  "autoForked": "上下文已自动 Fork 到新窗口",
+  "contextPolicySaveFork": "应用并立即 Fork",
+  "contextPolicyForkTitle": "上下文与 Fork",
+  "contextPolicyFork": "自动 Fork",
+  "contextPolicyForkTiming": "何时 Fork",
+  "contextPolicyForkTriggerAt": "输入超过 {tokens} tokens 后自动 Fork。",
+  "contextPolicyForkCalculation": "比例基于可用输入 {input} tokens，已预留回复 {reply} 和安全余量 {safety}。Fork 会归档此前推理并保留当前任务。"
 }

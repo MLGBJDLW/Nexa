@@ -30,6 +30,12 @@ original file when an outage requires retry. No transcript character cutoff is
 applied. Disk failures and the WAV container's actual format boundary remain
 actionable storage failures.
 
+Short upload stalls batch contiguous microphone frames within the existing
+memory byte budget instead of permanently disabling live text after a small
+number of frames. Qwen task transcripts use sentence IDs when available and
+sentence start timestamps for older models, so the first finalized sentence
+cannot suppress later live hypotheses.
+
 OpenAI live transcription uses client commits. Gemini Transcribe Live uses its
 native text-only setup with manual activity boundaries; Qwen retains its native
 VAD/task protocols. A completed utterance advances the transcript checkpoint and

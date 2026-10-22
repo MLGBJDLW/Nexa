@@ -309,7 +309,18 @@ fn parse_server_event(dialect: RealtimeDialect, event: &Value) -> ParsedRealtime
                 if sentence["heartbeat"].as_bool() == Some(true) {
                     return ParsedRealtimeServerEvent::Other;
                 }
-                let utterance_id = sentence["sentence_id"].as_u64().map(|id| id.to_string());
+                // Qwen Audio 3.0 uses begin_time as the stable sentence key;
+                // newer models also provide sentence_id. Collapsing missing
+                // IDs into one finalized item suppresses every later interim.
+                let utterance_id = sentence["sentence_id"]
+                    .as_u64()
+                    .map(|id| id.to_string())
+                    .or_else(|| sentence["sentence_id"].as_str().map(str::to_owned))
+                    .or_else(|| {
+                        sentence["begin_time"]
+                            .as_u64()
+                            .map(|time| format!("at-{time}"))
+                    });
                 let text = sentence["text"].as_str().unwrap_or_default().to_string();
                 if sentence["sentence_end"].as_bool() == Some(true) {
                     ParsedRealtimeServerEvent::Final { utterance_id, text }

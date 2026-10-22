@@ -10,6 +10,7 @@ use crate::llm::{LlmProvider, ProviderType, Usage};
 #[serde(rename_all = "snake_case")]
 pub enum ContextCompactionPhase {
     Queued,
+    WaitingForBoundary,
     Planning,
     Summarizing,
     Validating,

@@ -31,6 +31,24 @@ pub(crate) struct HistoryHandoffPlan {
 
 impl HistoryHandoffPlan {
     pub fn prepare(messages: &[Message], active_request: Option<&Message>) -> Option<Self> {
+        Self::prepare_at_boundary(messages, active_request, true)
+    }
+
+    /// The caller has already fenced live execution (manual maintenance), or
+    /// validated its live window separately (automatic handoff). Historical
+    /// cancelled calls may remain unpaired in the durable transcript.
+    pub fn prepare_persisted(
+        messages: &[Message],
+        active_request: Option<&Message>,
+    ) -> Option<Self> {
+        Self::prepare_at_boundary(messages, active_request, false)
+    }
+
+    fn prepare_at_boundary(
+        messages: &[Message],
+        active_request: Option<&Message>,
+        live: bool,
+    ) -> Option<Self> {
         let active = active_request
             .and_then(|request| {
                 messages
@@ -50,7 +68,7 @@ impl HistoryHandoffPlan {
                     .rposition(|message| message.role == Role::User)
             })?;
         let mut pending = HashSet::new();
-        for message in messages {
+        for message in &messages[active..] {
             if let Some(calls) = &message.tool_calls {
                 pending.extend(calls.iter().map(|call| call.id.as_str()));
             }
@@ -62,7 +80,7 @@ impl HistoryHandoffPlan {
         }
         // Never flush an unresolved tool batch or the native replay state it
         // still needs. The normal post-tool boundary will try again.
-        if !pending.is_empty() {
+        if live && !pending.is_empty() {
             return None;
         }
         let retained = messages
@@ -289,10 +307,21 @@ impl Database {
     pub(crate) fn archive_context_history(
         &self,
         archive: &ContextHistoryArchive,
+        cancellations: &[&tokio_util::sync::CancellationToken],
     ) -> Result<(), CoreError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
+        if cancellations.iter().any(|token| token.is_cancelled()) {
+            return Err(CoreError::Cancelled(
+                "Context archive cancelled before write".into(),
+            ));
+        }
         archive.commit(&tx)?;
+        if cancellations.iter().any(|token| token.is_cancelled()) {
+            return Err(CoreError::Cancelled(
+                "Context archive cancelled before commit".into(),
+            ));
+        }
         tx.commit()?;
         Ok(())
     }
@@ -884,7 +913,7 @@ mod tests {
             "Continue the review; tests remain.",
         )
         .unwrap();
-        db.archive_context_history(&archive).unwrap();
+        db.archive_context_history(&archive, &[]).unwrap();
         drop(db);
         let db = Database::new(&path).unwrap();
         let found = db
@@ -920,7 +949,7 @@ mod tests {
             "Pending work",
         )
         .unwrap();
-        assert!(db.archive_context_history(&archive).is_err());
+        assert!(db.archive_context_history(&archive, &[]).is_err());
         assert_eq!(
             db.list_context_history(&id, None, 5).unwrap()["windows"],
             json!([])
@@ -953,7 +982,7 @@ mod tests {
             "",
         )
         .unwrap();
-        db.archive_context_history(&archive).unwrap();
+        db.archive_context_history(&archive, &[]).unwrap();
         db.conn()
             .execute(
                 "UPDATE messages SET content='new request' WHERE id='original'",

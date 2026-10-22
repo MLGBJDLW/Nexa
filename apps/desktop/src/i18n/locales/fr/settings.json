@@ -1016,7 +1016,7 @@
   "displayStreamingCost": "Un affichage plus fluide peut augmenter la charge CPU/GPU et la consommation de batterie, surtout pour les longues réponses. La vitesse du modèle et le texte enregistré restent identiques. La réduction des animations désactive la révélation progressive.",
   "contextManagementMode": "Gestion du contexte",
   "contextModeSummary": "Compression par résumé (défaut)",
-  "contextModeHistory": "Nouveau contexte avec historique archivé",
+  "contextModeHistory": "Fork vers une nouvelle fenêtre",
   "contextSummaryHelp": "Un modèle résume les échanges anciens tout en conservant les tours récents.",
   "contextHistoryHelp": "Archive les échanges terminés et efface les raisonnements précédents. La tâche et les fichiers sont conservés. Notes et résultats originaux sont consultés au besoin, sans appel de résumé.",
   "contextModeScope": "S’applique aux nouveaux tours API Nexa et à la compression manuelle. Les runtimes d’abonnement gèrent leur propre contexte actif.",

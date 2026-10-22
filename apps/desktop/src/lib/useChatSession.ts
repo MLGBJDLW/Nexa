@@ -265,6 +265,7 @@ function buildRuntimeProfile(
 /* ------------------------------------------------------------------ */
 
 export interface UseChatSessionOptions {
+  historyFork?: boolean;
   /** Active conversation id (externally controlled, e.g. from URL params) */
   conversationId?: string;
   /** Called when a new conversation is auto-created */
@@ -890,9 +891,9 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   /* ── Handle auto-compacted notification ──────────────────────────── */
   useEffect(() => {
     if (autoCompacted) {
-      toast.info(t('chat.autoCompacted'));
+      toast.info(t(options.historyFork ? 'chat.autoForked' : 'chat.autoCompacted'));
     }
-  }, [autoCompacted, t]);
+  }, [autoCompacted, options.historyFork, t]);
 
   /* ── Handlers ───────────────────────────────────────────────────── */
 

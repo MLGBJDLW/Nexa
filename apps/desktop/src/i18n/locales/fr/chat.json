@@ -930,5 +930,22 @@
   "captureScreen": "Prendre une capture",
   "captureScreenHint": "Joignez une image, vérifiez-la, puis envoyez. La capture s’arrête immédiatement.",
   "captureScreenLive": "Pour un enregistrement continu, ouvrez Live",
-  "attachmentsNextMessage": "Les pièces jointes sont prêtes pour le prochain message après cette réponse."
+  "attachmentsNextMessage": "Les pièces jointes sont prêtes pour le prochain message après cette réponse.",
+  "fork": "Fork vers une nouvelle fenêtre",
+  "forkNow": "Fork maintenant",
+  "forking": "Transfert vers une nouvelle fenêtre",
+  "forkQueued": "En attente de la fin du modèle et des outils",
+  "forkComplete": "Nouvelle fenêtre prête",
+  "forkFailed": "Échec du Fork",
+  "forkObserveFailed": "Impossible de suivre le Fork",
+  "forkCancelFailed": "Impossible d’annuler le Fork",
+  "forkMustBeAlone": "Envoyez /fork seul.",
+  "forkDescription": "/fork · Ouvre une nouvelle fenêtre après le modèle et les outils en cours. La tâche et l’historique sont conservés.",
+  "autoForked": "Contexte transféré vers une nouvelle fenêtre",
+  "contextPolicySaveFork": "Appliquer et Fork",
+  "contextPolicyForkTitle": "Contexte et Fork",
+  "contextPolicyFork": "Fork automatique",
+  "contextPolicyForkTiming": "Quand effectuer un Fork",
+  "contextPolicyForkTriggerAt": "Fork automatique au-delà de {tokens} tokens d’entrée.",
+  "contextPolicyForkCalculation": "Le pourcentage porte sur {input} tokens disponibles, après réserve de {reply} pour la réponse et {safety} pour la sécurité. Fork archive le raisonnement précédent et conserve la tâche."
 }

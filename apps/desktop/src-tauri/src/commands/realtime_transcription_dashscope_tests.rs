@@ -34,10 +34,13 @@ async fn server(listener: tokio::net::TcpListener, fail: bool) {
         }
     }
     assert_eq!(received, 3200);
-    for (sentence_id, text, final_result) in
-        [(1, "你", false), (1, "你好。", true), (2, "Hello.", true)]
-    {
-        socket.send(Message::Text(json!({"header":{"event":"result-generated","task_id":id},"payload":{"output":{"sentence":{"sentence_id":sentence_id,"text":text,"sentence_end":final_result}}}}).to_string().into())).await.unwrap();
+    for (begin_time, text, final_result) in [
+        (170, "你", false),
+        (170, "你好。", true),
+        (1400, "Hello", false),
+        (1400, "Hello.", true),
+    ] {
+        socket.send(Message::Text(json!({"header":{"event":"result-generated","task_id":id},"payload":{"output":{"sentence":{"begin_time":begin_time,"text":text,"sentence_end":final_result}}}}).to_string().into())).await.unwrap();
     }
     // Heartbeats must not become text, and a different task must not finish ours.
     socket.send(Message::Text(json!({"header":{"event":"result-generated","task_id":id},"payload":{"output":{"sentence":{"sentence_id":0,"heartbeat":true,"text":"heartbeat"}}}}).to_string().into())).await.unwrap();

@@ -930,5 +930,22 @@
   "captureScreen": "Сделать снимок экрана",
   "captureScreenHint": "Прикрепите один снимок, проверьте и отправьте. Захват сразу прекращается.",
   "captureScreenLive": "Для непрерывной записи откройте Live",
-  "attachmentsNextMessage": "Вложения сохранены для следующего сообщения после завершения ответа."
+  "attachmentsNextMessage": "Вложения сохранены для следующего сообщения после завершения ответа.",
+  "fork": "Fork в новое окно",
+  "forkNow": "Fork сейчас",
+  "forking": "Переход в новое окно",
+  "forkQueued": "Ожидание завершения модели и инструментов",
+  "forkComplete": "Новое окно готово",
+  "forkFailed": "Ошибка Fork",
+  "forkObserveFailed": "Не удалось получить статус Fork",
+  "forkCancelFailed": "Не удалось отменить Fork",
+  "forkMustBeAlone": "Отправьте /fork отдельно.",
+  "forkDescription": "/fork · Открывает новое окно после завершения текущей модели и инструментов. Задача и история сохраняются.",
+  "autoForked": "Контекст перенесён в новое окно",
+  "contextPolicySaveFork": "Применить и Fork",
+  "contextPolicyForkTitle": "Контекст и Fork",
+  "contextPolicyFork": "Автоматический Fork",
+  "contextPolicyForkTiming": "Когда выполнять Fork",
+  "contextPolicyForkTriggerAt": "Автоматический Fork при превышении {tokens} входных токенов.",
+  "contextPolicyForkCalculation": "Доля рассчитывается от {input} доступных токенов после резервирования {reply} для ответа и {safety} для запаса. Fork архивирует прежние рассуждения и сохраняет задачу."
 }

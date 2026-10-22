@@ -230,6 +230,18 @@ impl AgentSessionManager {
         turn.recover(control)
     }
 
+    /// Clone the live turn's control lane without interrupting its model sample.
+    pub async fn context_fork_target(
+        &self,
+        session_id: &str,
+    ) -> Option<tokio::sync::mpsc::UnboundedSender<AgentSteeringMessage>> {
+        let active = self.active.lock().await;
+        active
+            .get(session_id)
+            .filter(|turn| !turn.is_finished())
+            .map(|turn| turn.steering_tx.clone())
+    }
+
     pub async fn take(&self, session_id: &str) -> Option<ActiveAgentTurn> {
         let turn = self.active.lock().await.remove(session_id)?;
         (!turn.is_finished() || !turn.event_outbox.is_closed_for_submission()).then_some(turn)

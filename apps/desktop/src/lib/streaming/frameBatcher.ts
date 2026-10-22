@@ -1,16 +1,18 @@
-export type FrameRequest = (callback: () => void) => unknown;
+export type FrameRequest = (callback: () => void) => () => void;
 
-function requestBrowserFrame(callback: () => void): unknown {
+function requestBrowserFrame(callback: () => void): () => void {
   if (typeof globalThis.requestAnimationFrame === 'function') {
-    return globalThis.requestAnimationFrame(callback);
+    const frame = globalThis.requestAnimationFrame(callback);
+    return () => globalThis.cancelAnimationFrame(frame);
   }
-  return setTimeout(callback, 16);
+  const timer = setTimeout(callback, 16);
+  return () => clearTimeout(timer);
 }
 
 /** Coalesce ordinary stream mutations into one subscriber notification per frame. */
 export class ConversationFrameBatcher {
   private readonly pending = new Set<string>();
-  private scheduled: object | null = null;
+  private scheduled: { cancel: () => void } | null = null;
 
   constructor(
     private readonly flush: (conversationId: string) => void,
@@ -21,13 +23,13 @@ export class ConversationFrameBatcher {
     this.pending.add(conversationId);
     if (this.scheduled) return;
 
-    const batch = {};
+    const batch = { cancel: () => {} };
     this.scheduled = batch;
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const deliver = () => {
       if (this.scheduled !== batch) return;
       this.scheduled = null;
-      if (deadline !== undefined) clearTimeout(deadline);
+      batch.cancel();
       const conversations = [...this.pending];
       this.pending.clear();
       conversations.forEach(this.flush);
@@ -36,12 +38,22 @@ export class ConversationFrameBatcher {
     // timer keeps task state responsive, and the batch token rejects a late
     // callback when the WebView starts painting again.
     deadline = setTimeout(deliver, 100);
-    this.requestFrame(deliver);
+    const cancelFrame = this.requestFrame(deliver);
+    batch.cancel = () => {
+      clearTimeout(deadline);
+      cancelFrame();
+    };
+    // Also support synchronous schedulers without retaining their handles.
+    if (this.scheduled !== batch) batch.cancel();
   }
 
   /** Urgent state must be visible immediately and must not be replayed next frame. */
   flushNow(conversationId: string): void {
     this.pending.delete(conversationId);
+    if (this.pending.size === 0) {
+      this.scheduled?.cancel();
+      this.scheduled = null;
+    }
     this.flush(conversationId);
   }
 }

@@ -1770,19 +1770,22 @@ impl AgentExecutor {
                 effective_tool_defs,
                 context_window,
             );
-            // Publish the gate's current occupancy before compaction starts.
-            // Tool results appended since the last response are context, not
-            // newly billed tokens: keep cumulative provider usage unchanged.
-            let before_compaction =
-                self.context_budget_usage(model, &messages, effective_tool_defs, context_window);
-            let _ = tx
-                .send(AgentEvent::UsageUpdate {
-                    usage_total: total_usage.clone(),
-                    last_prompt_tokens: before_compaction.total_tokens,
-                    context_breakdown: Some(before_compaction),
-                })
-                .await;
-            prompt_was_compacted |= self
+            // Compaction checks canonical input conservatively. The HUD is
+            // published by model_step after route-specific replay projection,
+            // so archived/incompatible tool units never alternate with the
+            // provider's measured occupancy while the task streams.
+            prompt_was_compacted |= self.apply_pending_context_fork(
+                &mut messages,
+                model,
+                context_compaction::CompactionRunContext {
+                    db,
+                    conversation_id,
+                    turn_id,
+                    active_request: Some(&active_request),
+                },
+                false,
+            );
+            let preflight_compaction = self
                 .compact_before_model_step_if_needed(LongTaskCompactionContext {
                     db,
                     conversation_id,
@@ -1797,7 +1800,26 @@ impl AgentExecutor {
                     persisted_trace_items: &mut persisted_trace_items,
                     total_usage: &mut total_usage,
                 })
-                .await?;
+                .await;
+            match preflight_compaction {
+                Ok(changed) => prompt_was_compacted |= changed,
+                Err(error) => {
+                    let failed = self.context_budget_usage(
+                        model,
+                        &messages,
+                        effective_tool_defs,
+                        context_window,
+                    );
+                    let _ = tx
+                        .send(AgentEvent::UsageUpdate {
+                            usage_total: total_usage.clone(),
+                            last_prompt_tokens: failed.total_tokens,
+                            context_breakdown: Some(failed),
+                        })
+                        .await;
+                    return Err(error);
+                }
+            }
             let buffer_answer_projection = output_recovery.reserves_answer_channel();
             let force_answer_only = clean_final_retry_active
                 || buffer_answer_projection
@@ -1815,20 +1837,26 @@ impl AgentExecutor {
             let estimated_prompt = prepared_context.total_tokens;
             last_prompt_tokens = estimated_prompt;
             last_context_breakdown = Some(prepared_context.clone());
-            let _ = tx
-                .send(AgentEvent::UsageUpdate {
+            // Successful requests publish their wire projection in model_step.
+            // A rejected request still needs its failing preflight occupancy,
+            // without restoring canonical estimates during normal streaming.
+            let publish_rejected_usage = || {
+                tx.send(AgentEvent::UsageUpdate {
                     usage_total: total_usage.clone(),
-                    last_prompt_tokens,
-                    context_breakdown: Some(prepared_context),
+                    last_prompt_tokens: estimated_prompt,
+                    context_breakdown: Some(prepared_context.clone()),
                 })
-                .await;
+            };
             // Desktop context is attached after canonical projection. Check
             // the actual prepared input as well as the retained live window.
-            context_window.validate_request(
+            if let Err(error) = context_window.validate_request(
                 &request_messages,
                 Some(&active_request),
                 estimated_prompt,
-            )?;
+            ) {
+                let _ = publish_rejected_usage().await;
+                return Err(error);
+            }
             let Some(model_step_max_response_tokens) = cumulative_run_step_output_budget(
                 output_budget_plan
                     .wire_max_tokens_for_prompt(estimated_prompt)
@@ -1837,6 +1865,7 @@ impl AgentExecutor {
                 total_usage.total_tokens,
                 estimated_prompt,
             ) else {
+                let _ = publish_rejected_usage().await;
                 let actual_limit = self.config.max_actual_tokens_per_run.unwrap_or_default();
                 let remaining = actual_limit.saturating_sub(total_usage.total_tokens);
                 let trace_message = format!(
@@ -1902,6 +1931,9 @@ impl AgentExecutor {
                     buffer_answer_projection,
                     output_recovery: &output_recovery,
                     total_usage: &mut total_usage,
+                    context_window,
+                    last_prompt_tokens: &mut last_prompt_tokens,
+                    last_context_breakdown: &mut last_context_breakdown,
                 })
                 .await;
             let model_step = match model_step_result {
@@ -3066,6 +3098,19 @@ impl AgentExecutor {
                         return Err(error);
                     }
                 };
+                // The final answer is durable before a manual Fork archives
+                // this trajectory. It must not force another model sample.
+                self.apply_pending_context_fork(
+                    &mut messages,
+                    model,
+                    context_compaction::CompactionRunContext {
+                        db,
+                        conversation_id,
+                        turn_id,
+                        active_request: Some(&active_request),
+                    },
+                    true,
+                );
                 return Ok(assistant_msg);
             }
 

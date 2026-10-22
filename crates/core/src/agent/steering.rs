@@ -117,6 +117,10 @@ impl AgentExecutor {
 
         let mut steering_texts = Vec::with_capacity(drained.len());
         for steering in drained {
+            if let Some(fork) = steering.context_fork {
+                self.queue_context_fork(fork);
+                continue;
+            }
             if steering.recovery_control.is_some() {
                 continue;
             }

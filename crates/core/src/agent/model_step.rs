@@ -106,6 +106,9 @@ pub(super) struct ModelStepContext<'a> {
     pub(super) buffer_answer_projection: bool,
     pub(super) output_recovery: &'a super::output_recovery::OutputRecovery,
     pub(super) total_usage: &'a mut Usage,
+    pub(super) context_window: context_window::ContextWindow,
+    pub(super) last_prompt_tokens: &'a mut u32,
+    pub(super) last_context_breakdown: &'a mut Option<context::ContextUsageBreakdown>,
 }
 
 pub(super) enum ModelStepOutcome {
@@ -324,6 +327,9 @@ impl AgentExecutor {
             buffer_answer_projection,
             output_recovery,
             total_usage,
+            context_window,
+            last_prompt_tokens,
+            last_context_breakdown,
         } = ctx;
 
         // -- 4a. Project one model attempt -----------------------------------
@@ -408,6 +414,17 @@ impl AgentExecutor {
                 .and_then(crate::llm::prompt_cache::privacy_preserving_routing_session_id),
             parallel_tool_calls: true,
         };
+        let occupancy_route = self.provider.route_snapshot(&current_request);
+        let request_context = self.request_context_usage(&current_request, context_window, None);
+        *last_prompt_tokens = request_context.total_tokens;
+        *last_context_breakdown = Some(request_context.clone());
+        let _ = tx
+            .send(AgentEvent::UsageUpdate {
+                usage_total: total_usage.clone(),
+                last_prompt_tokens: *last_prompt_tokens,
+                context_breakdown: Some(request_context),
+            })
+            .await;
         // The attempt seam owns route-specific replay projection. Keep this
         // request unprojected so an automatic fallback can select a concrete
         // route without inheriting a lossy primary-route projection.
@@ -463,6 +480,30 @@ impl AgentExecutor {
                     );
                 }
                 let newly_bound = $first_for_sample || accepted_attempt.is_none() || sample_changed;
+                let previous_occupancy_route = accepted_attempt
+                    .as_ref()
+                    .map(|attempt| &attempt.route_snapshot)
+                    .unwrap_or(&occupancy_route);
+                if newly_bound
+                    && (!previous_occupancy_route.same_route_identity(&next.route_snapshot)
+                        || previous_occupancy_route.replay_policy
+                            != next.route_snapshot.replay_policy)
+                {
+                    let breakdown = self.request_context_usage(
+                        &current_request,
+                        context_window,
+                        Some(&next.route_snapshot),
+                    );
+                    *last_prompt_tokens = breakdown.total_tokens;
+                    *last_context_breakdown = Some(breakdown.clone());
+                    let _ = tx
+                        .send(AgentEvent::UsageUpdate {
+                            usage_total: total_usage.clone(),
+                            last_prompt_tokens: *last_prompt_tokens,
+                            context_breakdown: Some(breakdown),
+                        })
+                        .await;
+                }
                 if newly_bound && next.replay_projection_omitted_units > 0 {
                     append_developer_persisted_trace_status(
                         persisted_trace_items,
@@ -502,6 +543,10 @@ impl AgentExecutor {
 
             let progress = match signal {
                 ModelStepWaitSignal::Steering(Some(steering)) => {
+                    if let Some(fork) = steering.context_fork {
+                        self.queue_context_fork(fork);
+                        continue 'model_attempt;
+                    }
                     if steering.recovery_control
                         == Some(AgentRecoveryControl::LowerReasoningAndRetry)
                     {
@@ -1678,9 +1723,21 @@ impl AgentExecutor {
             current_request.tools.as_deref().unwrap_or_default(),
         );
         let primary_route = self.provider.route_snapshot(&current_request);
+        if primary_route.same_route_identity(&accepted_route_snapshot) {
+            self.observe_projected_context_input(
+                &current_request,
+                &primary_route,
+                chunk_usage
+                    .as_ref()
+                    .map(|usage| usage.context_input_tokens(accepted_route_snapshot.api_style)),
+            );
+        }
         let calibration_tokens = if primary_route.same_route_identity(&accepted_route_snapshot)
             && accepted_replay_omitted_units == 0
-        {
+            && matches!(
+                self.provider.replay_history_projection(&current_request),
+                crate::llm::ReplayHistoryProjection::Caller(_)
+            ) {
             chunk_usage
                 .as_ref()
                 .map(|usage| usage.context_input_tokens(accepted_route_snapshot.api_style))
