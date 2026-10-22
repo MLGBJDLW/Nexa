@@ -104,6 +104,8 @@ struct NewDreamArtifact {
 struct DreamScope {
     source_ids: Vec<String>,
     project_ids: Vec<String>,
+    source_scope_present: bool,
+    project_scope_present: bool,
 }
 
 impl DreamScope {
@@ -111,15 +113,20 @@ impl DreamScope {
         Self {
             source_ids: collect_scope_ids(value, "sourceIds", "sourceId"),
             project_ids: collect_scope_ids(value, "projectIds", "projectId"),
+            source_scope_present: value.get("sourceIds").is_some()
+                || value.get("sourceId").is_some(),
+            project_scope_present: value.get("projectIds").is_some()
+                || value.get("projectId").is_some(),
         }
     }
 
     fn source_limited(&self) -> bool {
-        !self.source_ids.is_empty()
+        // An explicit empty scope is a rejected intersection, not an omitted scope.
+        self.source_scope_present
     }
 
     fn project_limited(&self) -> bool {
-        !self.project_ids.is_empty()
+        self.project_scope_present
     }
 
     fn includes_source(&self, source_id: &str) -> bool {
@@ -1820,6 +1827,40 @@ mod tests {
             .expect("insert message b");
         }
 
+        let configured = crate::app_settings::DreamingConfig {
+            project_ids: vec![project_b.id.clone()],
+            ..Default::default()
+        };
+        for requested in [
+            json!({ "projectIds": [project_a.id.clone()] }),
+            json!({ "projectId": project_a.id.clone() }),
+        ] {
+            let merged =
+                crate::dreaming_scope::merge_configured_dream_scope(&configured, requested);
+            let parsed = DreamScope::from_json(&merged);
+            assert!(!parsed.includes_project(&project_a.id));
+            assert!(!parsed.includes_project(&project_b.id));
+            let rejected = db
+                .start_dream_run(StartDreamInput {
+                    scope_json: Some(merged),
+                    ..Default::default()
+                })
+                .expect("empty project intersection stays restricted");
+            assert_eq!(rejected.stats_json["projectMemoryArtifacts"], 0);
+        }
+        let mixed = crate::dreaming_scope::merge_configured_dream_scope(
+            &configured,
+            json!({ "projectId": project_a.id, "projectIds": [project_b.id] }),
+        );
+        let parsed = DreamScope::from_json(&mixed);
+        assert!(!parsed.includes_project(&project_a.id));
+        assert!(parsed.includes_project(&project_b.id));
+        let unrestricted = crate::dreaming_scope::merge_configured_dream_scope(
+            &crate::app_settings::DreamingConfig::default(),
+            json!({}),
+        );
+        assert!(DreamScope::from_json(&unrestricted).includes_project(&project_a.id));
+
         let run = db
             .start_dream_run(StartDreamInput {
                 trigger_kind: None,
@@ -2100,6 +2141,40 @@ mod tests {
             db.link_document_entity("doc-2", &b2.id, 0.9, "Delta appears with Cipher.")
                 .expect("link source two b");
         }
+
+        let configured = crate::app_settings::DreamingConfig {
+            source_ids: vec!["source-2".into()],
+            ..Default::default()
+        };
+        for requested in [
+            json!({ "sourceIds": ["source-1"] }),
+            json!({ "sourceId": "source-1" }),
+        ] {
+            let merged =
+                crate::dreaming_scope::merge_configured_dream_scope(&configured, requested);
+            let parsed = DreamScope::from_json(&merged);
+            assert!(!parsed.includes_source("source-1"));
+            assert!(!parsed.includes_source("source-2"));
+            let rejected = db
+                .start_dream_run(StartDreamInput {
+                    scope_json: Some(merged),
+                    ..Default::default()
+                })
+                .expect("empty source intersection stays restricted");
+            assert_eq!(rejected.stats_json["graphRelationArtifacts"], 0);
+        }
+        let mixed = crate::dreaming_scope::merge_configured_dream_scope(
+            &configured,
+            json!({ "sourceId": "source-1", "sourceIds": ["source-2"] }),
+        );
+        let parsed = DreamScope::from_json(&mixed);
+        assert!(!parsed.includes_source("source-1"));
+        assert!(parsed.includes_source("source-2"));
+        let unrestricted = crate::dreaming_scope::merge_configured_dream_scope(
+            &crate::app_settings::DreamingConfig::default(),
+            json!({}),
+        );
+        assert!(DreamScope::from_json(&unrestricted).includes_source("source-1"));
 
         let run = db
             .start_dream_run(StartDreamInput {

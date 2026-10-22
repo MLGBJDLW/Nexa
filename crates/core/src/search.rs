@@ -16,11 +16,25 @@ use crate::personalization;
 use crate::rag;
 
 // ---------------------------------------------------------------------------
-// Defaults (also exposed as AppConfig fields for configurability)
+// Search settings and query boundaries
 // ---------------------------------------------------------------------------
 
-/// Default search result limit when the caller doesn't specify one.
-const DEFAULT_SEARCH_LIMIT: u32 = 20;
+fn search_result_limit(db: &Database, requested: u32) -> Result<u32, CoreError> {
+    if requested == 0 {
+        Ok(db.load_app_config()?.default_search_limit.clamp(1, 100) as u32)
+    } else {
+        Ok(requested.min(200))
+    }
+}
+
+pub(crate) fn configured_min_similarity(db: &Database) -> Result<f32, CoreError> {
+    let configured = db.load_app_config()?.min_search_similarity;
+    Ok(if configured.is_finite() {
+        configured.clamp(0.0, 1.0)
+    } else {
+        crate::app_settings::AppConfig::default().min_search_similarity
+    })
+}
 
 /// A query-stable horizon; page size and offset never change candidate ranking.
 const SEARCH_CANDIDATE_LIMIT: usize = 200;
@@ -81,9 +95,6 @@ fn deduplicate_by_document(cards: Vec<EvidenceCard>) -> Vec<EvidenceCard> {
     result.sort_by_key(|(rank, _)| *rank);
     result.into_iter().map(|(_, card)| card).collect()
 }
-
-/// Minimum cosine similarity to include a vector search result.
-const DEFAULT_MIN_SEARCH_SIMILARITY: f32 = 0.2;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -171,11 +182,7 @@ fn search_internal(
         format!("({}) OR ({})", base_fts, extras)
     };
 
-    let limit = if query.limit == 0 {
-        DEFAULT_SEARCH_LIMIT
-    } else {
-        query.limit.min(200)
-    };
+    let limit = search_result_limit(db, query.limit)?;
     // All pages rank the same bounded prefix before applying their offset.
     let internal_limit = SEARCH_CANDIDATE_LIMIT;
     let terms = extract_terms(trimmed);
@@ -743,11 +750,7 @@ fn hybrid_search_packed(
         });
     }
 
-    let user_limit = if query.limit == 0 {
-        DEFAULT_SEARCH_LIMIT
-    } else {
-        query.limit.min(200)
-    } as usize;
+    let user_limit = search_result_limit(db, query.limit)? as usize;
     let internal_limit = SEARCH_CANDIDATE_LIMIT;
     let terms = extract_terms(trimmed);
 
@@ -1093,7 +1096,10 @@ pub(crate) fn vector_search_top_k_scoped(
     }
 
     const BATCH_SIZE: usize = 10_000;
-    let min_similarity = min_sim.unwrap_or(DEFAULT_MIN_SEARCH_SIMILARITY);
+    let min_similarity = match min_sim {
+        Some(explicit) => explicit,
+        None => configured_min_similarity(db)?,
+    };
     let mut top_k: Vec<(String, f32)> = Vec::with_capacity(k + 1);
     let lowest_ranked_index = |entries: &[(String, f32)]| {
         entries
@@ -1144,8 +1150,11 @@ pub(crate) fn vector_search_top_k_scoped(
         let batch_len = batch.len();
 
         for (chunk_id, vec) in batch {
+            if vec.len() != query_vec.len() || vec.iter().all(|value| *value == 0.0) {
+                continue;
+            }
             let sim = cosine_similarity(query_vec, &vec);
-            if sim <= min_similarity {
+            if !sim.is_finite() || sim < min_similarity {
                 continue;
             }
 
@@ -2642,6 +2651,20 @@ mod tests {
 
         let result = search(&db, &query).unwrap();
         assert_eq!(result.evidence_cards.len(), 2);
+
+        let mut config = db.load_app_config().unwrap();
+        config.default_search_limit = 3;
+        db.save_app_config(&config).unwrap();
+        query.limit = 0;
+        assert_eq!(search(&db, &query).unwrap().evidence_cards.len(), 3);
+        assert_eq!(hybrid_search(&db, &query).unwrap().evidence_cards.len(), 3);
+        // An explicit caller limit still takes precedence over the saved default.
+        query.limit = 1;
+        assert_eq!(hybrid_search(&db, &query).unwrap().evidence_cards.len(), 1);
+        config.default_search_limit = 4;
+        db.save_app_config(&config).unwrap();
+        query.limit = 0;
+        assert_eq!(search(&db, &query).unwrap().evidence_cards.len(), 4);
     }
 
     #[test]
@@ -2996,6 +3019,33 @@ mod tests {
 
         // First result should be the rust-related chunk.
         assert_eq!(results[0].0, chunk_ids[0]);
+
+        let mut config = db.load_app_config().unwrap();
+        config.min_search_similarity = 1.0;
+        db.save_app_config(&config).unwrap();
+        db.store_embedding(&chunk_ids[0], "boundary-fixture", &[1.0, 0.0])
+            .unwrap();
+        assert_eq!(
+            vector_search_top_k(&db, &[1.0, 0.0], "boundary-fixture", 1, None)
+                .unwrap()
+                .len(),
+            1
+        );
+        config.min_search_similarity = 0.99;
+        db.save_app_config(&config).unwrap();
+        assert!(vector_search_top_k(&db, &query_vec, "tfidf-v1", 3, None)
+            .unwrap()
+            .is_empty());
+        assert!(
+            !vector_search_top_k(&db, &query_vec, "tfidf-v1", 3, Some(0.0))
+                .unwrap()
+                .is_empty()
+        );
+        config.min_search_similarity = 0.0;
+        db.save_app_config(&config).unwrap();
+        assert!(!vector_search_top_k(&db, &query_vec, "tfidf-v1", 3, None)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

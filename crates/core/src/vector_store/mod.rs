@@ -126,6 +126,7 @@ pub(crate) fn cloud_candidates(
         .map(|hit| hit.chunk_id.clone())
         .collect::<Vec<_>>();
     let allowed = crate::search::scoped_chunk_ids(db, &ids, filters)?;
+    let min_similarity = crate::search::configured_min_similarity(db)?;
     let conn = db.conn();
     let mut result = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -134,10 +135,23 @@ pub(crate) fn cloud_candidates(
             continue;
         }
         use rusqlite::OptionalExtension;
-        let current:Option<(String,String)>=conn.query_row("SELECT e.id || ':' || e.revision,d.source_id FROM embeddings e JOIN chunks c ON c.id=e.chunk_id JOIN documents d ON d.id=c.document_id WHERE e.model=?1 AND e.chunk_id=?2",rusqlite::params![space,hit.chunk_id],|row|Ok((row.get(0)?,row.get(1)?))).optional()?;
+        let current:Option<(String,String,Vec<u8>)>=conn.query_row("SELECT e.id || ':' || e.revision,d.source_id,e.vector FROM embeddings e JOIN chunks c ON c.id=e.chunk_id JOIN documents d ON d.id=c.document_id WHERE e.model=?1 AND e.chunk_id=?2",rusqlite::params![space,hit.chunk_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
         if current
             .as_ref()
-            .is_some_and(|(version, source)| version == &hit.version && source == &hit.source_id)
+            .is_some_and(|(version, source, stored_vector)| {
+                if version != &hit.version || source != &hit.source_id {
+                    return false;
+                }
+                let stored_vector = crate::embed::blob_to_vector(stored_vector);
+                if stored_vector.len() != vector.len()
+                    || stored_vector.iter().all(|value| *value == 0.0)
+                    || vector.iter().all(|value| *value == 0.0)
+                {
+                    return false;
+                }
+                let similarity = crate::embed::cosine_similarity(vector, &stored_vector);
+                similarity.is_finite() && similarity >= min_similarity
+            })
         {
             let score = 1.0 / (60.0 + result.len() as f32);
             result.push((hit.chunk_id, score));
