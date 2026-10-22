@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.4...nexa-monorepo-v0.17.5) (2026-10-22)
+
+
+### Features
+
+* **agent:** stabilize context and unify interaction settings ([#497](https://github.com/MLGBJDLW/Nexa/issues/497)) ([6157b70](https://github.com/MLGBJDLW/Nexa/commit/6157b7083d1dcbe17556868968c6631430953144))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 6157b7083d1dcbe17556868968c6631430953144 -->
+
+### What's Changed
+* feat(agent): stabilize context and unify interaction settings by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/497
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.4...nexa-monorepo-v0.17.5
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.3...nexa-monorepo-v0.17.4) (2026-10-22)
 
 
