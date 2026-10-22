@@ -185,36 +185,52 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .nexa_tools()
         .definitions()
         .into_iter()
+        // Copilot owns discovery/loading for its loop. Its native search sees
+        // exactly this enabled custom catalog; do not expose a second search
+        // tool that cannot activate definitions inside the upstream runtime.
+        .filter(|definition| definition.name != "tool_search")
         .map(|definition| {
             Tool::new(definition.name)
                 .with_description(definition.description)
                 .with_parameters(definition.parameters)
-                // The CLI otherwise defers custom tools once its catalog exceeds
-                // 30 entries. Empty mode has no native search tool to load them.
-                .with_defer(DeferMode::Never)
+                // Register every callback without charging every schema to each
+                // request. Discovery is explicitly enabled below in Empty mode.
+                .with_defer(DeferMode::Auto)
+                // Deferred discovery can otherwise resolve names such as
+                // read_file to the CLI's built-in handler after loading our
+                // schema. Keep every advertised Nexa action on its callback.
+                .with_overrides_built_in_tool(true)
                 // Only this custom callback skips CLI permission prompts. Nexa's
                 // shared dispatcher performs the actual policy and user approval.
                 .with_skip_permission(true)
                 .with_handler(bridge.clone())
         })
         .collect::<Vec<_>>();
+    let has_tools = !tools.is_empty();
+    let mut available_tools = ToolSet::new().add_custom("*").map_err(protocol_error)?;
+    let mut system_prompt = turn.system_prompt.clone();
+    if has_tools {
+        available_tools = available_tools
+            .add_builtin("tool_search_tool")
+            .map_err(protocol_error)?;
+        system_prompt.push_str("\nFor this Copilot runtime, use tool_search_tool to discover and load enabled Nexa tools. It is the tool_search capability mentioned in these instructions. All discovered actions still execute through Nexa's tool dispatcher.");
+    }
     let mut config = SessionConfig::default()
         .with_client_name("Nexa")
         .with_model(&model_id)
         .with_context_tier(context_tier)
         .with_streaming(true)
         .with_tools(tools)
-        .with_tool_search(ToolSearchConfig::new().with_enabled(false))
-        .with_available_tools(
-            ToolSet::new()
-                .add_custom("*")
-                .map_err(protocol_error)?
-                .to_vec(),
+        .with_tool_search(
+            ToolSearchConfig::new()
+                .with_enabled(has_tools)
+                .with_defer_threshold(1),
         )
+        .with_available_tools(available_tools.to_vec())
         .with_system_message(
             SystemMessageConfig::new()
                 .with_mode("replace")
-                .with_content(&turn.system_prompt),
+                .with_content(system_prompt),
         )
         .deny_all_permissions();
     if let Some(effort) = turn.config.reasoning_effort.as_ref() {
@@ -585,6 +601,29 @@ async fn project_event(
                 return Err(protocol_error("Copilot upstream content filtering blocked or truncated this response (content_filter). Nexa did not receive a complete answer. The request was stopped without automatically retrying or switching models."));
             }
         }
+        "session.warning" => {
+            let message = data["message"]
+                .as_str()
+                .unwrap_or("Copilot reported a runtime warning")
+                .chars()
+                .take(2000)
+                .collect::<String>();
+            if data["warningType"].as_str() == Some("compaction_static_context_blocked") {
+                return Err(protocol_error(format!("Copilot: {message}")));
+            }
+            tx.send(AgentEvent::ControllerStatus {
+                code: "external_agent_warning".into(),
+                content: message,
+                tone: None,
+            })
+            .await
+            .map_err(protocol_error)?;
+        }
+        "session.error" if event.is_transient_error() => {
+            // The SDK keeps model_call errors inside its own retry lifecycle.
+            // Aborting here would discard the native retry's eventual answer.
+            projection.network_progress(tx).await?;
+        }
         "session.error" => {
             let details = [
                 "errorType",
@@ -651,6 +690,53 @@ async fn discard_reasoning(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn copilot_static_context_warning_reports_the_cause_before_empty_query_error() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        let error = project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "session.warning",
+            serde_json::json!({
+                "warningType":"compaction_static_context_blocked",
+                "message":"Static system messages and tool definitions exceed the model's usable context budget. Reduce static context or switch to a larger-context model."
+            }),
+        )
+        .await
+        .expect_err("the native static-context failure must not become a generic empty response");
+        assert!(error.to_string().contains("tool definitions"));
+        assert!(error.to_string().contains("context budget"));
+    }
+
+    #[tokio::test]
+    async fn copilot_transient_model_call_error_allows_the_native_retry_answer() {
+        let (tx, _rx) = mpsc::channel(16);
+        let mut projection = Projection::default();
+        let mut response = super::super::copilot_response::Response::default();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "session.error",
+            serde_json::json!({"errorType":"model_call","message":"upstream temporarily unavailable"}),
+        )
+        .await
+        .expect("the SDK explicitly defines model_call as non-terminal");
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.message",
+            serde_json::json!({"messageId":"retried","content":"Recovered answer"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(projection.answer, "Recovered answer");
+    }
 
     #[test]
     fn sdk_connection_loss_is_recoverable_without_retrying_agent_or_configuration_errors() {
@@ -1536,11 +1622,12 @@ mod tests {
             .await
             .unwrap();
         let models = client.list_models().await.unwrap();
+        let selected_model = std::env::var("NEXA_COPILOT_LIVE_MODEL")
+            .unwrap_or_else(|_| "claude-opus-5.5".to_string());
         let model = models
             .iter()
-            .find(|model| model.id == "claude-opus-5.5")
-            .or_else(|| models.first())
-            .unwrap()
+            .find(|model| model.id == selected_model)
+            .expect("explicitly selected live model must be available")
             .id
             .clone();
         client.stop().await.unwrap();
