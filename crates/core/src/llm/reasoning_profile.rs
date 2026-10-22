@@ -1093,7 +1093,7 @@ pub fn resolve_reasoning_profile(
     if is_zhipu_model_api_endpoint(provider, base_url) {
         if !matches!(
             model.as_str(),
-            "glm-5.3" | "glm-5.3-flash" | "glm-5.3-flashx"
+            "glm-5.3" | "glm-5.3-flash" | "glm-5.3-flashx" | "glm-5.3-flashx-legal"
         ) {
             return ReasoningProfile::unsupported(key);
         }
@@ -1222,7 +1222,11 @@ pub fn resolve_reasoning_profile(
                     | "stepfun/step-5-preview"
                     | "vanchin/deepseek-v4.1-flash"
             ))
-            || (qwen_payg && model == "deepseek-v4.1-flash")
+            || (qwen_payg
+                && matches!(
+                    model.as_str(),
+                    "deepseek-v4.1-flash" | "deepseek-v4.1-flash-1017"
+                ))
         {
             let mandatory = model.starts_with("zhipu/");
             let efforts = if model == "stepfun/step-5-preview" {
@@ -1254,7 +1258,9 @@ pub fn resolve_reasoning_profile(
                         Some(ReasoningEffort::Max)
                     } else if matches!(
                         model.as_str(),
-                        "deepseek-v4.1-flash" | "vanchin/deepseek-v4.1-flash"
+                        "deepseek-v4.1-flash"
+                            | "deepseek-v4.1-flash-1017"
+                            | "vanchin/deepseek-v4.1-flash"
                     ) {
                         Some(ReasoningEffort::High)
                     } else {
@@ -1550,6 +1556,30 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
+        if beijing_payg && model == "minimax/minimax-m3.1-flash" {
+            let mut value = profile(
+                key,
+                "alibaba-minimax-m31-flash-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::High,
+                        ReasoningEffort::XHigh,
+                        ReasoningEffort::Max,
+                    ],
+                    Some(ReasoningEffort::Max),
+                ),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.omit_temperature_when_reasoning = true;
+            value.omit_stop_when_reasoning = true;
+            return value;
+        }
         if model == "minimax/minimax-m3" {
             let mut value = profile(
                 key,
@@ -1570,6 +1600,7 @@ pub fn resolve_reasoning_profile(
         if matches!(
             model.as_str(),
             "tencent/hy4-preview"
+                | "deepseek-ai/deepseek-v4.1-flash"
                 | "zai-org/glm-5.3"
                 | "zai-org/glm-5.2"
                 | "moonshotai/kimi-k2.7-code"

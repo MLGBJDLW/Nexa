@@ -820,10 +820,12 @@ fn convert_message(
             .parts
             .iter()
             .filter_map(|p| match p {
-                ContentPart::Text { text } => Some(OaiContentPart::Text {
-                    text: text.clone(),
-                    cache_control: None,
-                }),
+                ContentPart::Text { text } if !text.trim().is_empty() => {
+                    Some(OaiContentPart::Text {
+                        text: text.clone(),
+                        cache_control: None,
+                    })
+                }
                 ContentPart::Image { media_type, data } => {
                     let url = format!("data:{media_type};base64,{data}");
                     Some(OaiContentPart::ImageUrl {
@@ -840,7 +842,7 @@ fn convert_message(
                         ),
                     },
                 }),
-                ContentPart::ProviderTurn { .. } => None,
+                ContentPart::Text { .. } | ContentPart::ProviderTurn { .. } => None,
             })
             .collect();
         if parts.is_empty() {
@@ -1051,6 +1053,8 @@ fn build_request_body_with_config(
     let openrouter_glm53_contract =
         is_openrouter_glm53_profile(&reasoning_profile.id, &request.model);
     let any_glm53_contract = native_glm53_contract || openrouter_glm53_contract;
+    let supports_parallel_tool_calls =
+        !any_glm53_contract && reasoning_profile.id != "alibaba-minimax-m31-flash-v1";
     let reasoning_history_encoding = reasoning_profile.reasoning_history_encoding;
     let needs_completion_tokens = reasoning_profile.use_max_completion_tokens
         && is_reasoning_model(&request.model, Some(&provider_type));
@@ -1205,10 +1209,12 @@ fn build_request_body_with_config(
                 .is_some_and(|tools| !tools.is_empty()))
         .then_some(true),
         parallel_tool_calls: match request.tools.as_ref() {
-            // These exact trusted GLM routes do not publish
+            // These exact trusted GLM and hosted MiniMax routes do not support
             // `parallel_tool_calls` in their current request contract.
             Some(tools)
-                if !tools.is_empty() && request.parallel_tool_calls && !any_glm53_contract =>
+                if !tools.is_empty()
+                    && request.parallel_tool_calls
+                    && supports_parallel_tool_calls =>
             {
                 Some(true)
             }
@@ -4384,6 +4390,74 @@ mod tests {
     }
 
     #[test]
+    fn hosted_minimax31_keeps_its_exact_effort_and_tool_replay_contract() {
+        let config = endpoint_config(
+            ProviderType::AlibabaModelStudio,
+            "https://workspace123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        );
+        let mut request = endpoint_reasoning_request("MiniMax/MiniMax-M3.1-Flash");
+        request.reasoning_enabled = Some(false);
+        request.reasoning_effort = Some(ReasoningEffort::High);
+        request.thinking_budget = Some(2048);
+        request.stop = Some(vec!["stop".into()]);
+        request.tools = Some(vec![ToolDefinition {
+            name: "read_file".into(),
+            description: "Read a file".into(),
+            parameters: serde_json::json!({"type": "object", "properties": {}}),
+        }]);
+        request.parallel_tool_calls = true;
+        request.messages = vec![Message::from(crate::llm::MessageData {
+            role: Role::Assistant,
+            parts: vec![ContentPart::Text {
+                text: "Checking a file".into(),
+            }],
+            reasoning_content: Some("Need the file contents first".into()),
+            name: None,
+            prompt_cache_hint: None,
+            tool_calls: Some(vec![ToolCallRequest {
+                id: "call-hosted-31".into(),
+                name: "read_file".into(),
+                arguments: "{}".into(),
+                thought_signature: None,
+            }]),
+        })];
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["reasoning_effort"], "high");
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("thinking_budget").is_none());
+        assert!(body.get("enable_thinking").is_none());
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("stop").is_none());
+        assert!(body.get("parallel_tool_calls").is_none());
+        assert_eq!(
+            body["messages"][0]["reasoning_content"],
+            "Need the file contents first"
+        );
+        assert_eq!(body["messages"][0]["tool_calls"][0]["id"], "call-hosted-31");
+        assert_eq!(body["tools"][0]["function"]["name"], "read_file");
+
+        let private = endpoint_config(
+            ProviderType::AlibabaModelStudio,
+            "https://private.example/compatible-mode/v1",
+        );
+        let private_body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&private),
+        ))
+        .unwrap();
+        assert!(private_body.get("temperature").is_some());
+        assert_eq!(private_body["stop"], serde_json::json!(["stop"]));
+        assert_eq!(private_body["parallel_tool_calls"], true);
+        assert!(private_body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
     fn september_hosted_routes_keep_their_own_thinking_dialects() {
         for model in ["zai-glm-5-3", "zai-glm-5-2"] {
             let config = endpoint_config(ProviderType::OpenAi, "https://api.mistral.ai/v1");
@@ -4418,6 +4492,7 @@ mod tests {
             "ZHIPU/GLM-5.3-Flash",
             "ZHIPU/GLM-5.3-FlashX",
             "deepseek-v4.1-flash",
+            "deepseek-v4.1-flash-1017",
             "vanchin/deepseek-v4.1-flash",
             "stepfun/step-5-preview",
         ] {
@@ -4465,6 +4540,24 @@ mod tests {
             .unwrap();
             assert!(body.get("enable_thinking").is_none());
             assert!(body.get("reasoning_effort").is_none());
+        }
+        for endpoint in [
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            "https://workspace123.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        ] {
+            let config = endpoint_config(ProviderType::AlibabaModelStudio, endpoint);
+            let mut request = endpoint_reasoning_request("deepseek-v4.1-flash-1017");
+            request.reasoning_enabled = Some(true);
+            request.reasoning_effort = Some(ReasoningEffort::Max);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["enable_thinking"], true, "{endpoint}");
+            assert_eq!(body["reasoning_effort"], "max", "{endpoint}");
+            assert!(body.get("thinking_budget").is_none(), "{endpoint}");
         }
         let doubao = endpoint_config(
             ProviderType::Doubao,
@@ -9191,6 +9284,32 @@ mod native_document_tests {
     use super::*;
     #[test]
     fn native_document_wire_responses_office_and_chat_pdf_are_not_images_or_duplicate_text() {
+        for text in ["", " \n\t"] {
+            // Old saved attachment-only messages may still contain an empty
+            // text part even after new messages omit it at construction time.
+            let mut message = Message::text(Role::User, "");
+            message.parts = vec![
+                ContentPart::Text { text: text.into() },
+                ContentPart::Image {
+                    media_type: "image/png".into(),
+                    data: "AQID".into(),
+                },
+            ];
+            let chat = serde_json::to_value(convert_message(
+                &message,
+                "user",
+                false,
+                ReasoningHistoryEncoding::ReasoningContent,
+                false,
+            ))
+            .unwrap();
+            assert_eq!(chat["content"].as_array().unwrap().len(), 1);
+            assert_eq!(chat["content"][0]["type"], "image_url");
+            let responses = responses_input_items(&[message]).unwrap();
+            assert_eq!(responses.len(), 1);
+            assert_eq!(responses[0]["content"].as_array().unwrap().len(), 1);
+            assert_eq!(responses[0]["content"][0]["type"], "input_image");
+        }
         for mime in [super::super::document::DOCX, super::super::document::PPTX] {
             let request = super::super::document::tests::office_request(mime);
             let projected = super::super::document::project_request(
