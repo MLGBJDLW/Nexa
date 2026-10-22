@@ -882,8 +882,8 @@ Windows WebView2 also supports these native interactions:
   accept a fresh `point: {x, y}` in viewport CSS pixels instead of `targetRef`.
   Scale coordinates from the displayed screenshot to its reported viewport.
   This supports canvas controls that have no semantic element ref. A drag uses
-  `endPoint` or `endRef`; both endpoints must be visible and at least eight CSS
-  pixels apart. Native held-button mouse events support canvas and HTML drag/drop.
+  `endPoint` or `endRef`; both endpoints must be visible in the same document and
+  at least eight CSS pixels apart. Native held-button mouse events support canvas and HTML drag/drop.
   The visible Agent cursor follows the requested points without moving the OS
   cursor. Frame targets still require element refs.
 - `scroll` sends a native wheel event at `point` or `targetRef`, so nested scroll

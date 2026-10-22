@@ -14,6 +14,7 @@ pub const USER_AGENT: &str = "nexa/1.0";
 
 pub mod activity;
 pub mod agent;
+pub mod agent_pointer;
 pub mod agent_run;
 pub mod agent_session;
 pub mod app_settings;

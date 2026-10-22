@@ -72,6 +72,7 @@ struct BrowserPageSnapshot {
     user_epoch: u64,
     dom_fingerprint: String,
     interaction_fingerprint: String,
+    coordinate_fingerprint: String,
     elements: Vec<BrowserElement>,
     #[serde(default)]
     observation_coverage: Option<BrowserObservationCoverage>,
@@ -234,6 +235,7 @@ struct StoredObservation {
     url: String,
     dom_fingerprint: String,
     interaction_fingerprint: String,
+    coordinate_fingerprint: String,
     user_epoch: u64,
     lease_generation: u64,
     elements: Vec<BrowserElement>,
@@ -411,6 +413,27 @@ impl Drop for InitializingSessionGuard {
 }
 
 impl BrowserState {
+    pub fn refresh_pointer_appearance(&self) {
+        let webviews = self
+            .inner
+            .lock()
+            .map(|runtime| {
+                runtime
+                    .sessions
+                    .values()
+                    .flat_map(|session| session.tabs.values().map(|tab| tab.webview.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let expression = format!(
+            "window.__NEXA_BROWSER_RUNTIME__?.setPointerAppearance({})",
+            nexa_core::agent_pointer::browser_appearance()
+        );
+        for webview in webviews {
+            let _ = webview.eval(&expression);
+        }
+    }
+
     pub fn new(app: AppHandle, profile_root: PathBuf) -> Self {
         Self {
             event_sequence: Arc::new(AtomicU64::new(0)),
@@ -2194,6 +2217,7 @@ impl BrowserState {
             .map_err(|error| format!("Could not decode browser visual confirmation: {error}"))?;
         if confirmation.url != snapshot.url
             || confirmation.interaction_fingerprint != snapshot.interaction_fingerprint
+            || confirmation.coordinate_fingerprint != snapshot.coordinate_fingerprint
             || confirmation.user_epoch != snapshot.user_epoch
         {
             return Err(
@@ -2244,6 +2268,7 @@ impl BrowserState {
                 url: snapshot.url.clone(),
                 dom_fingerprint: snapshot.dom_fingerprint.clone(),
                 interaction_fingerprint: snapshot.interaction_fingerprint.clone(),
+                coordinate_fingerprint: snapshot.coordinate_fingerprint.clone(),
                 user_epoch: snapshot.user_epoch,
                 lease_generation,
                 elements: snapshot.elements.clone(),
@@ -2404,6 +2429,7 @@ impl BrowserState {
                     "userEpoch": observation.user_epoch,
                     "domFingerprint": observation.dom_fingerprint,
                     "interactionFingerprint": observation.interaction_fingerprint,
+                    "coordinateFingerprint": observation.coordinate_fingerprint,
                 });
                 let coordinates =
                     serde_json::to_string(&coordinates).map_err(|error| error.to_string())?;
@@ -2481,6 +2507,7 @@ impl BrowserState {
             "userEpoch": observation.user_epoch,
             "domFingerprint": observation.dom_fingerprint,
             "interactionFingerprint": observation.interaction_fingerprint,
+            "coordinateFingerprint": observation.coordinate_fingerprint,
             "expected": expected,
             "expectedEnd": expected_end,
         }))

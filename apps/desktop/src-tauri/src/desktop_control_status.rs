@@ -398,11 +398,14 @@ pub fn set_desktop_control_appearance_cmd(
     if window.label() != "main" {
         return;
     }
-    #[cfg(target_os = "windows")]
-    nexa_core::tools::computer_use_tool::configure_desktop_feedback(accent, reduced_motion);
+    nexa_core::agent_pointer::configure(accent, reduced_motion);
+    if let Some(browser) = window
+        .app_handle()
+        .try_state::<crate::browser::state::BrowserState>()
+    {
+        browser.refresh_pointer_appearance();
+    }
     publish_status(window.app_handle());
-    #[cfg(not(target_os = "windows"))]
-    let _ = (accent, reduced_motion);
 }
 
 #[tauri::command]

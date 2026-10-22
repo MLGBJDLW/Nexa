@@ -496,7 +496,7 @@ fn picker_bridge_uses_a_per_webview_token_and_native_message_primitives() {
 
     assert!(script.contains("const pickMessageToken = \"picker-secret\""));
     assert!(!script.contains("__NEXA_PICK_TOKEN__"));
-    assert!(script.contains("Window.prototype.postMessage"));
+    assert!(script.contains("const nativePostMessage = window.postMessage"));
     assert!(script.contains("stopImmediatePropagation"));
 }
 

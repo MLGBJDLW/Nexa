@@ -11,7 +11,7 @@ pub fn browser_takeover_script(token: &str) -> String {
   const trustedInputMarker = '__NEXA_AUTHENTICATED_TRUSTED_INPUT__';
   const trustedInputToken = __NEXA_TAKEOVER_TOKEN__;
   const apply = Reflect.apply;
-  const nativePostMessage = Window.prototype.postMessage;
+  const nativePostMessage = window.postMessage;
   const nativeStopImmediatePropagation = Event.prototype.stopImmediatePropagation;
   let pending = false;
   let trustedInputGuard = null;
@@ -118,7 +118,11 @@ pub fn browser_takeover_script(token: &str) -> String {
     }
     return Boolean(guard && guard.target.isConnected
       && bridge?.resolveTargetRef(guard.expected.targetRef) === guard.target
-      && bridge.targetContextFingerprint(guard.target) === guard.expected.targetContext);
+      && bridge.targetContextFingerprint(guard.target) === guard.expected.targetContext
+      && (!['pointer', 'drag', 'wheel'].includes(guard.expected.kind)
+        || hitMatchesTarget(guard.target, deepElementFromPoint(document, guard.expected.x, guard.expected.y)))
+      && (!['key', 'text'].includes(guard.expected.kind)
+        || hitMatchesTarget(guard.target, deepActiveElement(document))));
   };
 
   const armTrustedInputLocal = (operationId, budget, expected) => {
@@ -308,8 +312,8 @@ pub fn browser_takeover_script(token: &str) -> String {
           || (activationKey && !guard.pointerCommitted && activationControl && ['keyup','keypress'].includes(type) && event.key === expected.key)
           || (activationKey && type === 'click' && event.detail === 0)
           || (type === 'beforeinput' && guard.keyDown === 0 && guard.input > 0 && eventTargetsArmedElement(event));
-      if (!matches) return;
-      if (guard.blocked || !guardContextMatches(finishingDrag)) {
+      if (!matches && !finishingDrag) return;
+      if (!matches || guard.blocked || !guardContextMatches(finishingDrag)) {
         guard.blocked = true;
         event.preventDefault();
         apply(nativeStopImmediatePropagation, event, []);
@@ -351,7 +355,12 @@ pub fn browser_takeover_script(token: &str) -> String {
 pub fn browser_init_script(pick_token: &str) -> String {
     let encoded_token =
         serde_json::to_string(pick_token).expect("browser picker token must be JSON serializable");
-    BROWSER_INIT_SCRIPT.replace("__NEXA_PICK_TOKEN__", &encoded_token)
+    BROWSER_INIT_SCRIPT
+        .replace("__NEXA_PICK_TOKEN__", &encoded_token)
+        .replace(
+            "__NEXA_POINTER_APPEARANCE__",
+            &nexa_core::agent_pointer::browser_appearance().to_string(),
+        )
 }
 
 pub const BROWSER_INIT_SCRIPT: &str = include_str!("interaction_runtime.js");

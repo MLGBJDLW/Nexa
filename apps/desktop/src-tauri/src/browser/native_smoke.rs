@@ -97,6 +97,21 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     }
                 }
                 eprintln!("Native browser controls: screenshot-coordinate canvas drag, nested wheel and Control+A all produced verified page effects.");
+                state.eval_action(&session.id, tab_id, "(() => { const other = document.createElement('canvas'); other.style.cssText = 'position:absolute;left:20px;top:300px;width:300px;height:120px'; document.body.append(other); return true; })()").await?;
+                state.acquire_agent_control(&session.id, "coordinate-race")?;
+                let stale = state.observe(&session.id, tab_id, "coordinate-race").await?;
+                state.eval_action(&session.id, tab_id, "(() => { const canvases = document.querySelectorAll('canvas'); canvases[0].style.top = '300px'; canvases[1].style.top = '150px'; return true; })()").await?;
+                let _fresh = state.observe(&session.id, tab_id, "coordinate-race").await?;
+                let stale_action = state.act(BrowserActRequest {
+                    call_id: "coordinate-race", session_id: &session.id, tab_id, observation_id: &stale.observation_id,
+                    action: "click", target_ref: None, end_ref: None, point: Some(BrowserViewportPoint { x: 40.0, y: 170.0 }), end_point: None,
+                    text: None, value: None, values: None, checked: None, upload: None, key: None, button: None,
+                    modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
+                }).await;
+                if !matches!(stale_action, Err(ref error) if error.contains("screenshot coordinate geometry changed")) {
+                    return Err("A new native observation reauthorized old screenshot coordinates".into());
+                }
+                eprintln!("Native coordinate binding: a later observation cannot authorize a stale canvas position.");
                 let first_storage = state.tab_profile_directory_for_test(&session.id, tab_id)?;
                 let ordinary_storage = profile.join(&session.profile_id);
                 if first_storage == ordinary_storage { return Err("A local preview occupied the ordinary sign-in profile".into()); }

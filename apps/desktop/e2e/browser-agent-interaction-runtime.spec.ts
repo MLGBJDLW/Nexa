@@ -4,7 +4,8 @@ import { expect, test } from '@playwright/test';
 
 const source = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'scripts.rs'), 'utf8');
 const runtimeSource = readFileSync(join(process.cwd(), 'src-tauri', 'src', 'browser', 'interaction_runtime.js'), 'utf8')
-  .replace('__NEXA_PICK_TOKEN__', JSON.stringify('playwright-picker-token'));
+  .replace('__NEXA_PICK_TOKEN__', JSON.stringify('playwright-picker-token'))
+  .replace('__NEXA_POINTER_APPEARANCE__', JSON.stringify({ size: 36, hotspot: 8, accent: 'rgb(20 184 166)', reducedMotion: false, svg: '<svg viewBox="0 0 36 36"><path d="M8 8L11 28L26 21Z" fill="#14b8a6" stroke="white"/></svg>' }));
 const takeoverSource = source.match(/pub fn browser_takeover_script[\s\S]*?\br#"\r?\n([\s\S]*?)\r?\n"#\r?\n\s*\.replace/)?.[1]
   .replace('__NEXA_TAKEOVER_URL__', JSON.stringify('nexa-user-input://playwright-takeover-token'))
   .replace('__NEXA_TAKEOVER_TOKEN__', JSON.stringify('playwright-takeover-token'));
@@ -881,6 +882,7 @@ function actionInput(
     userEpoch: observation.userEpoch,
     domFingerprint: observation.domFingerprint,
     interactionFingerprint: observation.interactionFingerprint,
+    coordinateFingerprint: observation.coordinateFingerprint,
     expected: observation.elements.find(element => element.ref === targetRef),
     expectedEnd: observation.elements.find(element => element.ref === endRef),
   };
@@ -902,6 +904,7 @@ interface BrowserObservation {
   userEpoch: number;
   domFingerprint: string;
   interactionFingerprint: string;
+  coordinateFingerprint: string;
   elements: BrowserElement[];
 }
 
@@ -927,6 +930,7 @@ interface BrowserActionInput {
   userEpoch: number;
   domFingerprint: string;
   interactionFingerprint: string;
+  coordinateFingerprint: string;
   expected?: BrowserElement;
   expectedEnd?: BrowserElement;
 }
@@ -994,9 +998,14 @@ test('Screenshot coordinates reject an existing canvas moved under the old point
     const before = bridge.observe();
     document.getElementById('first')!.style.left = '200px';
     document.getElementById('second')!.style.left = '0';
-    try { bridge.resolvePointerTarget({ ...before, action: 'click', targetRef: '', button: 'left', modifiers: [] }, { x: 50, y: 50 }); return false; } catch { return true; }
+    const rejectsOld = () => {
+      try { bridge.resolvePointerTarget({ ...before, action: 'click', targetRef: '', button: 'left', modifiers: [] }, { x: 50, y: 50 }); return false; } catch { return true; }
+    };
+    const immediate = rejectsOld();
+    bridge.observe();
+    return [immediate, rejectsOld()];
   });
-  expect(rejected).toBe(true);
+  expect(rejected).toEqual([true, true]);
 });
 
 test('Explicit drag points work within the visible part of a large canvas', async ({ page }) => {
@@ -1011,6 +1020,43 @@ test('Explicit drag points work within the visible part of a large canvas', asyn
     return bridge.prepareTrustedDrag({ ...input, targetRef: target.ref, endRef: target.ref, expected: target, expectedEnd: target }).endBounds;
   });
   expect(bounds).toEqual({ x: 150, y: 150, width: 0, height: 0 });
+});
+
+for (const shiftFrame of [false, true]) test(`Same-origin frame drag ${shiftFrame ? 'blocks a shifted-frame drop' : 'reaches the original destination'}`, async ({ page }) => {
+  await page.setContent('<iframe style="position:absolute;left:30px;top:30px;width:600px;height:300px;border:0"></iframe>');
+  const frame = page.frames()[1];
+  await frame.setContent('<div draggable="true" style="position:absolute;left:20px;top:20px;width:80px;height:80px" ondragstart="event.dataTransfer.setData(\'text/plain\',\'fixture\')">Frame source</div><div data-dropzone style="position:absolute;left:220px;top:20px;width:100px;height:100px" ondragover="event.preventDefault()" ondrop="event.preventDefault();window.dropped=\'original\'">Frame destination</div>');
+  await page.addScriptTag({ content: runtimeSource });
+  await page.addScriptTag({ content: takeoverSource });
+  await frame.addScriptTag({ content: takeoverSource });
+  const prepared = await page.evaluate(() => {
+    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
+    const before = bridge.observe();
+    const target = before.elements.find(el => el.name === 'Frame source')!, end = before.elements.find(el => el.name === 'Frame destination')!;
+    return bridge.prepareTrustedDrag({ ...before, action: 'drag', targetRef: target.ref, endRef: end.ref, expected: target, expectedEnd: end, button: 'left', modifiers: [] });
+  });
+  expect(await page.evaluate(prepared => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.arm('playwright-takeover-token', 'frame-drag', { pointerDown: 1, keyDown: 0, input: 0 }, { kind: 'drag', x: 90, y: 90, endX: 300, endY: 100, button: 'left', ...prepared }), prepared)).toBe(true);
+  // Let the authenticated arm relay reach the child before native input.
+  await frame.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+  expect(await frame.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: { expects(type: string, event: unknown): boolean } }).__NEXA_TRUSTED_INPUT_GUARD__.expects('pointerdown', { button: 0, clientX: 60, clientY: 60, target: document.querySelector('[draggable]') }))).toBe(true);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 90, y: 90 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 90, y: 90, button: 'left', buttons: 1, clickCount: 1 });
+  if (shiftFrame) {
+    await page.locator('iframe').evaluate(el => { (el as HTMLElement).style.left = '50px'; });
+    await frame.evaluate(() => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:absolute;left:200px;top:20px;width:100px;height:100px;z-index:999';
+      overlay.ondragover = event => event.preventDefault();
+      overlay.ondrop = event => { event.preventDefault(); (window as unknown as { dropped: string }).dropped = 'overlay'; };
+      document.body.append(overlay);
+    });
+  }
+  for (let step = 1; step <= 16; step++) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 90 + 210 * step / 16, y: 90 + 10 * step / 16, button: 'left', buttons: 1 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 300, y: 100, button: 'left', buttons: 0, clickCount: 1 });
+  if (shiftFrame) expect(await frame.evaluate(() => (window as unknown as { dropped: string }).dropped)).toBeUndefined();
+  else expect(await frame.evaluate(() => (window as unknown as { dropped: string }).dropped)).toBe('original');
+  expect(await page.evaluate(() => (window as unknown as { __NEXA_TRUSTED_INPUT_GUARD__: TrustedInputGuard }).__NEXA_TRUSTED_INPUT_GUARD__.disarm('playwright-takeover-token', 'frame-drag'))).toBe(!shiftFrame);
 });
 
 test('Trusted wheel reaches the nested scroll area without surrendering browser control', async ({ page }) => {
