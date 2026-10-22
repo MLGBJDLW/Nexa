@@ -97,6 +97,17 @@ AWS binary event stream, including late errors and trailing usage metadata.
 Native signed reasoning and tool-use IDs remain paired with their exact route.
 The same provider-neutral tool loop consumes these transports.
 
+Google Search uses the existing **Settings → Web Search** execution mode.
+Verified Gemini 3/4 Developer API models can combine native search and workspace
+tools; Nexa enables tool context circulation and retains the signed server-tool
+parts for replay. Vertex Gemini and Gemini 2.5 support native search in a
+search-only request. With workspace tools, **Auto/Hybrid** retains Nexa Router
+search, while **Provider Native** explains the unsupported combination instead
+of dropping tools or sending an invalid request. Capability checks follow the
+actual endpoint and model, including Vertex project/location routes. See
+[Gemini tool combinations](https://ai.google.dev/gemini-api/docs/generate-content/tool-combination)
+and [Vertex grounding limits](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/grounding/grounding-with-google-search).
+
 Bedrock model selection accepts regional or global inference-profile IDs and
 full profile ARNs without rewriting them. Curated global profiles are examples;
 account, source-region and model permissions still determine availability.

@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use super::{ProviderType, ToolDefinition};
 use crate::error::CoreError;
 use crate::model_catalog::NativeWebSearchCapability;
-use crate::provider_catalog::provider_presets;
-use crate::provider_registry::provider_type_from_key;
+use crate::provider_catalog::find_provider_preset;
+use crate::provider_registry::canonical_provider_key;
 
 pub use crate::model_catalog::NativeSearchDialect;
 
@@ -409,17 +409,7 @@ impl NativeSearchPlan {
         model: &str,
         provider_engine: ProviderNativeSearchEngine,
     ) -> Self {
-        let normalized = normalize_base_url(base_url);
-        let capability = provider_presets()
-            .ok()
-            .and_then(|presets| {
-                presets.iter().find(|preset| {
-                    provider_type_from_key(&preset.provider) == Some(provider_type)
-                        && normalized.as_deref().is_none_or(|actual| {
-                            normalize_base_url(Some(&preset.base_url)).as_deref() == Some(actual)
-                        })
-                })
-            })
+        let capability = find_provider_preset(canonical_provider_key(provider_type), base_url)
             // A provider endpoint may describe the protocol, but runtime use
             // is model-gated. This prevents older models and dynamically
             // discovered IDs from inheriting a server-tool contract that was
@@ -526,13 +516,6 @@ pub fn should_send_local_search(tools: &[ToolDefinition]) -> bool {
     marker_mode(tools).is_none_or(|mode| mode == SearchExecutionMode::Hybrid)
 }
 
-fn normalize_base_url(base_url: Option<&str>) -> Option<String> {
-    base_url
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.trim_end_matches('/').to_ascii_lowercase())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +542,28 @@ mod tests {
         );
         assert_eq!(custom.dialect, None);
         assert!(!custom.uses_provider_native());
+
+        for endpoint in [
+            "https://aiplatform.googleapis.com/v1/publishers/google",
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/global/publishers/google",
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google",
+        ] {
+            let plan = NativeSearchPlan::resolve(
+                SearchExecutionMode::Auto, ProviderType::Vertex, Some(endpoint), "gemini-3.8-flash",
+            );
+            assert!(plan.uses_provider_native(), "{endpoint}");
+            assert!(!plan.capability.unwrap().can_mix_client_tools);
+        }
+        for endpoint in [
+            "https://proxy.example.test/v1/projects/demo/locations/global/publishers/google",
+            "http://aiplatform.googleapis.com/v1/projects/demo/locations/global/publishers/google",
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/global/publishers/anthropic",
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/global/publishers/google?proxy=1",
+        ] {
+            assert!(!NativeSearchPlan::resolve(
+                SearchExecutionMode::Auto, ProviderType::Vertex, Some(endpoint), "gemini-3.8-flash",
+            ).uses_provider_native(), "{endpoint}");
+        }
     }
 
     #[test]
@@ -601,7 +606,7 @@ mod tests {
             SearchExecutionMode::Auto,
             ProviderType::Google,
             None,
-            "gemini-2.5-flash",
+            "gemini-unverified-private-model",
         );
         assert_eq!(plan.dialect, None);
         assert!(!plan.trusted_endpoint);

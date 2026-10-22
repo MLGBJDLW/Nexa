@@ -1667,6 +1667,13 @@ mod tests {
     fn app_config_encrypts_web_search_provider_keys() {
         let db = Database::open_memory().expect("open_memory");
         let mut config = AppConfig::default();
+        config.context_management_mode = crate::context_history::ContextManagementMode::History;
+        config.web_search.provider_mode = WebSearchProviderMode::CustomFirst;
+        // The settings UI persists drag order through the existing priority field.
+        config.web_search.custom_providers.reverse();
+        for (index, provider) in config.web_search.custom_providers.iter_mut().enumerate() {
+            provider.priority = (index + 1) as u32;
+        }
         let tavily = config
             .web_search
             .custom_providers
@@ -1678,6 +1685,29 @@ mod tests {
 
         db.save_app_config(&config).expect("save app config");
         let loaded = db.load_app_config().expect("load app config");
+        assert_eq!(
+            loaded.context_management_mode,
+            config.context_management_mode
+        );
+        assert_eq!(
+            loaded.web_search.provider_mode,
+            WebSearchProviderMode::CustomFirst
+        );
+        let expected_order: Vec<_> = config
+            .web_search
+            .custom_providers
+            .iter()
+            .map(|provider| (&provider.id, provider.priority))
+            .collect();
+        assert_eq!(
+            loaded
+                .web_search
+                .custom_providers
+                .iter()
+                .map(|provider| (&provider.id, provider.priority))
+                .collect::<Vec<_>>(),
+            expected_order
+        );
 
         let loaded_tavily = loaded
             .web_search
@@ -1686,6 +1716,29 @@ mod tests {
             .find(|provider| provider.preset == WebSearchCustomProviderPreset::Tavily)
             .expect("loaded tavily provider");
         assert_eq!(loaded_tavily.api_key, "tvly-dev-example");
+
+        let mut later_settings = loaded;
+        later_settings.confirm_destructive = !later_settings.confirm_destructive;
+        db.save_app_config(&later_settings)
+            .expect("save another setting");
+        let reloaded = db.load_app_config().expect("reload settings");
+        assert_eq!(
+            reloaded.context_management_mode,
+            config.context_management_mode
+        );
+        assert_eq!(
+            reloaded
+                .web_search
+                .custom_providers
+                .iter()
+                .map(|provider| (&provider.id, provider.priority))
+                .collect::<Vec<_>>(),
+            expected_order
+        );
+        assert_eq!(
+            reloaded.confirm_destructive,
+            later_settings.confirm_destructive
+        );
 
         let raw: String = db
             .conn()

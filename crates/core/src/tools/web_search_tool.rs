@@ -499,11 +499,13 @@ fn provider_parallelism(request: &SearchRequest) -> usize {
 }
 
 fn same_provider_tier(left: &SearchPlanItem, right: &SearchPlanItem) -> bool {
-    matches!(
-        (left, right),
-        (SearchPlanItem::Native(_), SearchPlanItem::Native(_))
-            | (SearchPlanItem::Custom(_), SearchPlanItem::Custom(_))
-    )
+    match (left, right) {
+        (SearchPlanItem::Native(_), SearchPlanItem::Native(_)) => true,
+        (SearchPlanItem::Custom(left), SearchPlanItem::Custom(right)) => {
+            left.priority == right.priority
+        }
+        _ => false,
+    }
 }
 
 fn next_provider_wave_end(
@@ -1953,6 +1955,68 @@ mod tests {
             next_provider_wave_end(&provider_plan, 1, provider_parallelism(&request)),
             4
         );
+
+        let mut preferred = runtime.custom_providers[0].clone();
+        preferred.id = "preferred".into();
+        let mut fallback = preferred.clone();
+        fallback.id = "fallback".into();
+        fallback.priority = preferred.priority + 1;
+        let mut ordered = vec![
+            SearchPlanItem::Custom(preferred),
+            SearchPlanItem::Custom(fallback),
+            SearchPlanItem::Native(SearchEngine::Bing),
+        ];
+        for (explicit_engines, provider_profile) in [
+            (false, WebSearchProviderProfile::Default),
+            (true, WebSearchProviderProfile::Default),
+            (false, WebSearchProviderProfile::MaxEvidence),
+        ] {
+            request.explicit_engines = explicit_engines;
+            request.provider_profile = provider_profile;
+            assert_eq!(
+                next_provider_wave_end(&ordered, 0, provider_parallelism(&request)),
+                1,
+                "lower-priority providers must wait for the preferred result"
+            );
+            assert_eq!(
+                next_provider_wave_end(&ordered, 1, provider_parallelism(&request)),
+                2
+            );
+            assert!(should_stop_after_success(&request, request.limit, 1));
+            assert!(!should_continue_to_fallback_provider(
+                &request,
+                &ordered[0],
+                &runtime,
+                request.limit,
+            ));
+            assert!(
+                !should_stop_after_success(&request, 0, 0),
+                "a failed preferred source must leave the fallback wave reachable"
+            );
+            assert!(
+                !should_stop_after_success(&request, 1, 1),
+                "a sparse preferred result must leave the fallback wave reachable"
+            );
+            if !explicit_engines && provider_profile == WebSearchProviderProfile::Default {
+                assert!(should_stop_after_success(&request, 2, 2));
+                assert!(should_continue_to_fallback_provider(
+                    &request,
+                    &ordered[1],
+                    &runtime,
+                    2,
+                ));
+            } else {
+                assert!(!should_stop_after_success(&request, 2, 2));
+            }
+        }
+        if let SearchPlanItem::Custom(fallback) = &mut ordered[1] {
+            fallback.priority = 1;
+        }
+        assert_eq!(
+            next_provider_wave_end(&ordered, 0, provider_parallelism(&request)),
+            2,
+            "equal priorities may share a parallel wave without mixing native sources"
+        );
     }
 
     #[test]
@@ -2055,6 +2119,14 @@ mod tests {
                 priority: 10,
             },
         ];
+        let mut disabled = config.custom_providers[2].clone();
+        disabled.id = "disabled".into();
+        disabled.enabled = false;
+        disabled.priority = 0;
+        config.custom_providers.push(disabled);
+        let mut same_priority = config.custom_providers[1].clone();
+        same_priority.id = "same-priority".into();
+        config.custom_providers.push(same_priority);
 
         let runtime = runtime_config_from_app_config(&config);
 
@@ -2064,7 +2136,32 @@ mod tests {
                 .iter()
                 .map(|provider| provider.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["brave", "tavily"]
+            vec!["brave", "tavily", "same-priority"]
+        );
+        let request = test_search_request();
+        let original_cache_key = cache_key_for_runtime(&request, &runtime);
+        config.custom_providers[1].priority = 1;
+        let reordered = runtime_config_from_app_config(&config);
+        assert_eq!(
+            reordered
+                .custom_providers
+                .iter()
+                .map(|provider| provider.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tavily", "brave", "same-priority"]
+        );
+        assert_ne!(
+            original_cache_key,
+            cache_key_for_runtime(&request, &reordered)
+        );
+        let reordered_plan = build_provider_plan(&request, &reordered);
+        assert!(matches!(
+            reordered_plan.first(),
+            Some(SearchPlanItem::Custom(provider)) if provider.id == "tavily"
+        ));
+        assert_eq!(
+            next_provider_wave_end(&reordered_plan, 0, provider_parallelism(&request)),
+            1
         );
     }
 

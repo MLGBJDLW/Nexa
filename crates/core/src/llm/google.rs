@@ -5,12 +5,13 @@
 //! and tool calls use `functionCall`/`functionResponse` parts.
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     time::Duration,
 };
 
 use async_trait::async_trait;
-use futures::stream::BoxStream;
+use futures::{stream::BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{error, info};
@@ -147,6 +148,8 @@ struct GeminiRequestV2 {
     system_instruction: Option<GeminiSystemInstructionV2>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     generation_config: Option<GeminiGenerationConfig>,
 }
@@ -708,11 +711,70 @@ fn clean_schema_for_gemini(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-fn convert_tools(tools: &[ToolDefinition]) -> Vec<serde_json::Value> {
-    let has_native_search = tools
+fn has_client_search_tools(
+    tools: &[ToolDefinition],
+    mode: super::native_search::SearchExecutionMode,
+) -> bool {
+    tools.iter().any(|tool| {
+        !super::native_search::is_native_marker(tool)
+            && (tool.name != super::native_search::LOCAL_WEB_SEARCH_TOOL
+                || mode == super::native_search::SearchExecutionMode::Hybrid)
+    })
+}
+
+/// Resolve the marker against the physical route, including automatic fallback.
+/// Vertex and Gemini 2.x cannot send search alongside client functions; retain
+/// the ordinary search tool for Auto/Hybrid instead of emitting an invalid mix.
+fn prepare_search_request<'a>(
+    request: &'a CompletionRequest,
+    config: &ProviderConfig,
+) -> Result<Cow<'a, CompletionRequest>, CoreError> {
+    use super::native_search::{NativeSearchPlan, SearchExecutionMode};
+    let tools = request.tools.as_deref().unwrap_or_default();
+    let Some(mode) = super::native_search::marker_mode(tools) else {
+        return Ok(Cow::Borrowed(request));
+    };
+    let plan = NativeSearchPlan::resolve_with_engine(
+        mode,
+        config.provider_type,
+        config.base_url.as_deref(),
+        normalized_model_name(&request.model),
+        super::native_search::marker_engine(tools),
+    );
+    plan.validate()?;
+    let supported_combination = plan.capability.is_some_and(|capability| {
+        capability.can_mix_client_tools || !has_client_search_tools(tools, mode)
+    });
+    if plan.uses_provider_native()
+        && !supported_combination
+        && mode == SearchExecutionMode::ProviderNative
+    {
+        return Err(CoreError::Llm(
+            "Provider-native Google Search cannot be combined with client tools on this model/endpoint. Use Auto, Hybrid, or Nexa Router for a task with workspace tools.".into(),
+        ));
+    }
+    let mut projected = request.clone();
+    let mut selected = tools
         .iter()
-        .any(crate::llm::native_search::is_native_marker);
-    let send_local_search = crate::llm::native_search::should_send_local_search(tools);
+        .filter(|tool| !super::native_search::is_native_marker(tool))
+        .cloned()
+        .collect::<Vec<_>>();
+    if supported_combination {
+        selected.extend(plan.marker());
+    }
+    projected.tools = (!selected.is_empty()).then_some(selected);
+    Ok(Cow::Owned(projected))
+}
+
+fn convert_tools(tools: &[ToolDefinition]) -> Vec<serde_json::Value> {
+    let mode = super::native_search::marker_mode(tools).unwrap_or_default();
+    let has_native_search =
+        super::native_search::marker_capability(tools).is_some_and(|capability| {
+            capability.dialect == super::native_search::NativeSearchDialect::GeminiGoogleSearch
+                && (capability.can_mix_client_tools || !has_client_search_tools(tools, mode))
+        });
+    let send_local_search =
+        !has_native_search || crate::llm::native_search::should_send_local_search(tools);
     let declarations = tools
         .iter()
         .filter(|tool| !crate::llm::native_search::is_native_marker(tool))
@@ -966,10 +1028,26 @@ fn build_request_body(
         None
     };
 
+    let tools = request.tools.as_ref().map(|tools| convert_tools(tools));
+    let mixed_search = tools.as_ref().is_some_and(|tools| {
+        tools.iter().any(|tool| tool.get("googleSearch").is_some())
+            && tools
+                .iter()
+                .any(|tool| tool.get("functionDeclarations").is_some())
+    });
     GeminiRequestV2 {
         contents,
         system_instruction,
-        tools: request.tools.as_ref().map(|t| convert_tools(t)),
+        tools,
+        // Gemini 3/4 GenerateContent requires tool context circulation for
+        // mixed built-in/client tools, with VALIDATED rather than AUTO mode.
+        // https://ai.google.dev/gemini-api/docs/generate-content/tool-combination
+        tool_config: mixed_search.then(|| {
+            serde_json::json!({
+                "includeServerSideToolInvocations": true,
+                "functionCallingConfig": {"mode": "VALIDATED"},
+            })
+        }),
         generation_config,
     }
 }
@@ -1050,6 +1128,52 @@ fn extract_search_evidence(resp: &GeminiResponse) -> Option<super::native_search
     })
 }
 
+// Signatures belong to every raw part, including provider-managed tools that
+// are intentionally opaque to Nexa's client tool dispatcher.
+fn gemini_thought_signatures(
+    content_parts: Vec<serde_json::Value>,
+    tool_calls: &[ToolCallRequest],
+) -> super::provider_turn::GeminiThoughtSignatureSet {
+    let fallback_call_id = tool_calls
+        .first()
+        .map(|call| call.id.as_str())
+        .unwrap_or_default();
+    let mut function_call_index = 0usize;
+    let signatures = content_parts
+        .iter()
+        .enumerate()
+        .filter_map(|(model_part_index, part)| {
+            let internal_call_id = part.get("functionCall").is_some().then(|| {
+                let id = tool_calls
+                    .get(function_call_index)
+                    .map(|call| call.id.as_str());
+                function_call_index += 1;
+                id
+            });
+            let signature = part
+                .get("thoughtSignature")
+                .and_then(serde_json::Value::as_str)
+                .filter(|signature| !signature.trim().is_empty())?;
+            let provider_call_id = part
+                .pointer("/functionCall/id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.trim().is_empty());
+            Some(super::provider_turn::GeminiThoughtSignature {
+                tool_call_id: provider_call_id
+                    .or_else(|| internal_call_id.flatten())
+                    .unwrap_or(fallback_call_id)
+                    .to_string(),
+                model_part_index: Some(model_part_index),
+                signature: signature.to_string(),
+            })
+        })
+        .collect();
+    super::provider_turn::GeminiThoughtSignatureSet {
+        signatures,
+        content_parts,
+    }
+}
+
 /// Extract text, tool calls, finish reason, and usage from a Gemini response.
 fn extract_response(resp: &GeminiResponse) -> Result<GeminiExtractedResponse, CoreError> {
     if resp
@@ -1067,7 +1191,6 @@ fn extract_response(resp: &GeminiResponse) -> Result<GeminiExtractedResponse, Co
     let mut thinking_parts = Vec::new();
     let mut tool_calls = Vec::new();
     let mut provider_content_parts = Vec::new();
-    let mut captured_signatures = Vec::<(usize, Option<String>, String)>::new();
     if let Some(candidate) = candidate {
         if let Some(ref content) = candidate.content {
             if let Some(ref parts) = content.parts {
@@ -1077,54 +1200,17 @@ fn extract_response(resp: &GeminiResponse) -> Result<GeminiExtractedResponse, Co
                     .collect::<Result<Vec<_>, _>>()?;
                 for (idx, part) in parts.iter().enumerate() {
                     match part {
-                        GeminiPartV2::Thought {
-                            text,
-                            thought,
-                            thought_signature,
-                        } if *thought => {
+                        GeminiPartV2::Thought { text, thought, .. } if *thought => {
                             thinking_parts.push(text.clone());
-                            if let Some(signature) = thought_signature
-                                .as_ref()
-                                .filter(|signature| !signature.trim().is_empty())
-                            {
-                                captured_signatures.push((idx, None, signature.clone()));
-                            }
                         }
-                        GeminiPartV2::Thought {
-                            text,
-                            thought_signature,
-                            ..
-                        }
-                        | GeminiPartV2::Text {
-                            text,
-                            thought_signature,
-                        } => {
+                        GeminiPartV2::Thought { text, .. } | GeminiPartV2::Text { text, .. } => {
                             text_parts.push(text.clone());
-                            if let Some(signature) = thought_signature
-                                .as_ref()
-                                .filter(|signature| !signature.trim().is_empty())
-                            {
-                                captured_signatures.push((idx, None, signature.clone()));
-                            }
                         }
-                        GeminiPartV2::FunctionCall {
-                            function_call,
-                            thought_signature,
-                        } => {
+                        GeminiPartV2::FunctionCall { function_call, .. } => {
                             let tool_call_id = function_call
                                 .id
                                 .clone()
                                 .unwrap_or_else(|| format!("{SYNTHETIC_CALL_ID_PREFIX}{idx}"));
-                            if let Some(signature) = thought_signature
-                                .as_ref()
-                                .filter(|signature| !signature.trim().is_empty())
-                            {
-                                captured_signatures.push((
-                                    idx,
-                                    Some(tool_call_id.clone()),
-                                    signature.clone(),
-                                ));
-                            }
                             tool_calls.push(ToolCallRequest {
                                 id: tool_call_id,
                                 name: function_call.name.clone(),
@@ -1135,8 +1221,8 @@ fn extract_response(resp: &GeminiResponse) -> Result<GeminiExtractedResponse, Co
                         }
                         GeminiPartV2::FunctionResponse { .. } | GeminiPartV2::InlineData { .. } => {
                         }
-                        GeminiPartV2::Unknown(value) => {
-                            tracing::debug!(part = %value, "Ignoring unsupported Gemini response part");
+                        GeminiPartV2::Unknown(_) => {
+                            tracing::debug!("Preserving provider-managed Gemini response part");
                         }
                     }
                 }
@@ -1144,23 +1230,9 @@ fn extract_response(resp: &GeminiResponse) -> Result<GeminiExtractedResponse, Co
         }
     }
 
-    if let Some(first_tool_call) = tool_calls.first_mut() {
-        if !provider_content_parts.is_empty() {
-            let fallback_tool_call_id = first_tool_call.id.clone();
-            let payload = super::provider_turn::GeminiThoughtSignatureSet {
-                signatures: captured_signatures
-                    .into_iter()
-                    .map(|(model_part_index, tool_call_id, signature)| {
-                        super::provider_turn::GeminiThoughtSignature {
-                            tool_call_id: tool_call_id
-                                .unwrap_or_else(|| fallback_tool_call_id.clone()),
-                            model_part_index: Some(model_part_index),
-                            signature,
-                        }
-                    })
-                    .collect(),
-                content_parts: provider_content_parts,
-            };
+    if !provider_content_parts.is_empty() {
+        let payload = gemini_thought_signatures(provider_content_parts, &tool_calls);
+        if let Some(first_tool_call) = tool_calls.first_mut() {
             first_tool_call.thought_signature =
                 super::provider_turn::encode_gemini_thought_signatures(&payload);
         }
@@ -1295,6 +1367,8 @@ async fn send_gemini_content_chunks(
     true
 }
 
+type GeminiReplaySlot = Arc<std::sync::Mutex<Option<super::provider_turn::ProviderReplayPayload>>>;
+
 #[derive(Default)]
 struct GeminiToolCallStreamState {
     pending: Vec<ToolCallRequest>,
@@ -1307,6 +1381,8 @@ struct GeminiToolCallStreamState {
     completed_hop_usage: Usage,
     last_hop_usage: Usage,
     first_prompt_tokens: Option<u32>,
+    replay_slot: Option<GeminiReplaySlot>,
+    terminal_replay_published: bool,
 }
 
 impl GeminiToolCallStreamState {
@@ -1441,59 +1517,39 @@ impl GeminiToolCallStreamState {
         Ok(())
     }
 
-    fn take_pending(&mut self) -> Vec<ToolCallRequest> {
-        if let Some(first_tool_call) = self.pending.first() {
-            let fallback_tool_call_id = first_tool_call.id.clone();
-            let mut function_call_index = 0usize;
-            let signatures = self
-                .provider_parts
-                .iter()
-                .enumerate()
-                .filter_map(|(model_part_index, part)| {
-                    let internal_call_id = part.get("functionCall").is_some().then(|| {
-                        let call_id = self
-                            .pending
-                            .get(function_call_index)
-                            .map(|call| call.id.clone());
-                        function_call_index += 1;
-                        call_id
-                    });
-                    let signature = part
-                        .get("thoughtSignature")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|signature| !signature.trim().is_empty())?;
-                    let provider_call_id = part
-                        .pointer("/functionCall/id")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|provider_id| !provider_id.trim().is_empty())
-                        .map(str::to_string);
-                    Some(super::provider_turn::GeminiThoughtSignature {
-                        tool_call_id: provider_call_id
-                            .or_else(|| internal_call_id.flatten())
-                            .unwrap_or_else(|| fallback_tool_call_id.clone()),
-                        model_part_index: Some(model_part_index),
-                        signature: signature.to_string(),
-                    })
-                })
-                .collect::<Vec<_>>();
-
-            if !self.provider_parts.is_empty() {
-                let payload = super::provider_turn::GeminiThoughtSignatureSet {
-                    signatures,
-                    content_parts: self.provider_parts.clone(),
-                };
-                if let Some(first_tool_call) = self.pending.first_mut() {
-                    first_tool_call.thought_signature =
-                        super::provider_turn::encode_gemini_thought_signatures(&payload);
-                }
+    fn take_turn(
+        &mut self,
+    ) -> (
+        Vec<ToolCallRequest>,
+        Option<super::provider_turn::ProviderReplayPayload>,
+    ) {
+        let payload =
+            gemini_thought_signatures(std::mem::take(&mut self.provider_parts), &self.pending);
+        if !payload.content_parts.is_empty() {
+            if let Some(first_tool_call) = self.pending.first_mut() {
+                first_tool_call.thought_signature =
+                    super::provider_turn::encode_gemini_thought_signatures(&payload);
             }
         }
-
+        let replay = super::provider_turn::ProviderReplayPayload::GeminiThoughtSignatures(payload);
+        let replay = replay.is_present().then_some(replay);
         self.provider_indices.clear();
         self.synthetic_indices.clear();
-        self.provider_parts.clear();
         self.provider_part_indices.clear();
-        std::mem::take(&mut self.pending)
+        (std::mem::take(&mut self.pending), replay)
+    }
+
+    fn take_pending(&mut self) -> Vec<ToolCallRequest> {
+        let (calls, replay) = self.take_turn();
+        // Usage-only tails may follow completion; the accepted sample's replay
+        // must remain the one captured at its first terminal boundary.
+        if !self.terminal_replay_published {
+            self.terminal_replay_published = true;
+            if let (Some(slot), Some(replay)) = (&self.replay_slot, replay) {
+                *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(replay);
+            }
+        }
+        calls
     }
 }
 
@@ -1580,6 +1636,9 @@ async fn emit_gemini_response_chunk(
     }
 
     if has_finish && tool_call_state.pending.is_empty() {
+        // Search can finish without requesting a client function. Preserve its
+        // signed parts through the same terminal replay channel as tool turns.
+        let _ = tool_call_state.take_pending();
         let usage = (usage.total_tokens > 0).then_some(usage);
         return Ok(send_gemini_content_chunks(
             tx,
@@ -2045,6 +2104,8 @@ impl LlmProvider for GeminiProvider {
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        let search_request = prepare_search_request(request, &self.config)?;
+        let request = search_request.as_ref();
         let transport = self.transport.for_request()?;
         let api_key = self.api_key()?;
         let url = format!(
@@ -2125,6 +2186,7 @@ impl LlmProvider for GeminiProvider {
                 })?;
             transport.record_transport_success();
 
+            hop_state.record_provider_parts(&resp)?;
             let (mut content, tool_calls, finish_reason, usage, thinking) =
                 extract_response(&resp)?;
             if let Some(evidence) = extract_search_evidence(&resp) {
@@ -2164,14 +2226,14 @@ impl LlmProvider for GeminiProvider {
                 hop_state.last_hop_usage = Usage::default();
                 continue;
             }
-            let tool_calls = hop_state.take_pending();
+            let (tool_calls, provider_replay) = hop_state.take_turn();
             return Ok(CompletionResponse {
                 content: full_content,
                 tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
                 finish_reason,
                 usage,
                 thinking: (!full_thinking.is_empty()).then_some(full_thinking),
-                provider_replay: None,
+                provider_replay,
             });
         }
     }
@@ -2180,6 +2242,8 @@ impl LlmProvider for GeminiProvider {
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        let search_request = prepare_search_request(request, &self.config)?;
+        let request = search_request.as_ref();
         let transport = self.transport.for_request()?;
         let api_key = self.api_key()?;
         let url = format!(
@@ -2233,6 +2297,8 @@ impl LlmProvider for GeminiProvider {
         };
 
         let (tx, rx) = mpsc::channel(64);
+        let replay_slot: GeminiReplaySlot = Arc::default();
+        let parser_replay_slot = Arc::clone(&replay_slot);
         info!("Gemini SSE stream started");
 
         let stream_idle_timeout = self
@@ -2251,7 +2317,10 @@ impl LlmProvider for GeminiProvider {
         tokio::spawn(async move {
             let operation = async {
                 let mut response = response;
-                let mut hop_state = GeminiToolCallStreamState::default();
+                let mut hop_state = GeminiToolCallStreamState {
+                    replay_slot: Some(parser_replay_slot),
+                    ..Default::default()
+                };
                 let mut tokens = HashSet::new();
                 loop {
                     let Some(token) =
@@ -2304,7 +2373,24 @@ impl LlmProvider for GeminiProvider {
             rx.recv().await.map(|item| (item, rx))
         });
 
-        Ok(super::stream_chunks_to_provider_events(Box::pin(stream)))
+        let events = super::stream_chunks_to_provider_events(Box::pin(stream));
+        Ok(Box::pin(events.flat_map(move |event| {
+            // Keep the existing parser and error mapping; inject the native
+            // replay before the terminal chunk accepts this single sample.
+            let replay = match &event {
+                ProviderStreamEvent::Chunk { chunk } if chunk.finish_reason.is_some() => {
+                    replay_slot
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .take()
+                        .map(|replay| ProviderStreamEvent::ReplayState {
+                            replay: Box::new(replay),
+                        })
+                }
+                _ => None,
+            };
+            futures::stream::iter(replay.into_iter().chain(std::iter::once(event)))
+        })))
     }
 
     async fn health_check(&self) -> Result<(), CoreError> {
@@ -2720,11 +2806,71 @@ mod tests {
         .marker()
         .unwrap();
 
-        let tools = convert_tools(&[local, shell, marker]);
+        let definitions = vec![local, shell, marker];
+        let tools = convert_tools(&definitions);
 
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[0]["functionDeclarations"][0]["name"], "run_shell");
         assert_eq!(tools[1], serde_json::json!({"googleSearch": {}}));
+        let request = CompletionRequest {
+            model: "gemini-3.8-flash".into(),
+            tools: Some(definitions),
+            ..Default::default()
+        };
+        let body = serde_json::to_value(build_request_body(&request, None, Vec::new())).unwrap();
+        assert_eq!(body["toolConfig"]["includeServerSideToolInvocations"], true);
+        assert_eq!(
+            body["toolConfig"]["functionCallingConfig"]["mode"],
+            "VALIDATED"
+        );
+    }
+
+    #[test]
+    fn native_search_resolves_the_actual_endpoint_and_preserves_client_tools() {
+        use super::super::native_search::{NativeSearchPlan, SearchExecutionMode};
+        for (provider_type, endpoint, model) in [
+            (ProviderType::Google, DEFAULT_BASE_URL, "gemini-2.5-flash"),
+            (ProviderType::Vertex, super::super::vertex::DEFAULT_BASE_URL, "gemini-3.8-flash"),
+            (ProviderType::Vertex, "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google", "gemini-4-argon"),
+        ] {
+            let config = ProviderConfig {
+                provider_type,
+                base_url: Some(endpoint.into()),
+                api_key: None,
+                org_id: None,
+                timeout_secs: None,
+                streaming: Default::default(),
+            };
+            for mode in [SearchExecutionMode::Auto, SearchExecutionMode::Hybrid, SearchExecutionMode::ProviderNative] {
+                // Simulate a fallback from a direct Gemini route that permits
+                // mixing. The actual endpoint must replace this capability.
+                let marker = NativeSearchPlan::resolve(mode, ProviderType::Google, None, "gemini-3.8-flash").marker().unwrap();
+                let tool = |name: &str| ToolDefinition {
+                    name: name.into(), description: name.into(), parameters: serde_json::json!({"type":"object"}),
+                };
+                let mut request = CompletionRequest {
+                    model: model.into(),
+                    tools: Some(vec![tool("web_search"), tool("read_file"), marker]),
+                    ..Default::default()
+                };
+                let result = prepare_search_request(&request, &config);
+                if mode == SearchExecutionMode::ProviderNative {
+                    assert!(result.is_err());
+                    request.tools.as_mut().unwrap().retain(|tool| tool.name != "read_file");
+                    let search_only = prepare_search_request(&request, &config).unwrap();
+                    let body = serde_json::to_value(build_request_body(&search_only, None, Vec::new())).unwrap();
+                    assert_eq!(body["tools"], serde_json::json!([{"googleSearch":{}}]));
+                    assert!(body.get("toolConfig").is_none());
+                } else {
+                    let safe = result.unwrap();
+                    let tools = convert_tools(safe.tools.as_deref().unwrap());
+                    assert_eq!(tools.len(), 1);
+                    assert_eq!(tools[0]["functionDeclarations"].as_array().unwrap().len(), 2);
+                    assert_eq!(tools[0]["functionDeclarations"][0]["name"], "web_search");
+                    assert_eq!(tools[0]["functionDeclarations"][1]["name"], "read_file");
+                }
+            }
+        }
     }
 
     #[test]
@@ -3508,6 +3654,8 @@ mod tests {
             "candidates": [{
                 "content": {"parts": [
                     {"text": "I will inspect."},
+                    {"toolCall":{"id":"search-1","toolType":"GOOGLE_SEARCH_WEB","args":{"queries":["readme"]}},"thoughtSignature":"search-call-sig"},
+                    {"toolResponse":{"id":"search-1","toolType":"GOOGLE_SEARCH_WEB","response":{"search_suggestions":"result"}},"thoughtSignature":"search-result-sig"},
                     {
                         "functionCall": {
                             "id": "fc_provider_1",
@@ -3531,15 +3679,37 @@ mod tests {
         )
         .expect("typed signature metadata");
 
-        assert_eq!(captured.signatures[0].tool_call_id, "fc_provider_1");
+        assert!(
+            super::super::provider_turn::ProviderReplayPayload::GeminiThoughtSignatures(
+                captured.clone()
+            )
+            .is_present(),
+            "every signed provider part must be represented in replay metadata"
+        );
+        assert_eq!(captured.signatures.len(), 3);
         assert_eq!(captured.signatures[0].model_part_index, Some(1));
-        assert_eq!(captured.signatures[0].signature, "opaque-signature");
-        assert_eq!(captured.content_parts.len(), 2);
+        assert_eq!(captured.signatures[1].model_part_index, Some(2));
+        assert_eq!(captured.signatures[2].tool_call_id, "fc_provider_1");
+        assert_eq!(captured.signatures[2].model_part_index, Some(3));
+        assert_eq!(captured.signatures[2].signature, "opaque-signature");
+        assert_eq!(captured.content_parts.len(), 4);
         assert_eq!(captured.content_parts[0]["text"], "I will inspect.");
         assert_eq!(
-            captured.content_parts[1]["functionCall"]["id"],
+            captured.content_parts[3]["functionCall"]["id"],
             "fc_provider_1"
         );
+
+        let mut streamed = GeminiToolCallStreamState::default();
+        streamed.record_provider_parts(&response).unwrap();
+        for call in &tool_calls {
+            streamed.record_snapshot(call.clone()).unwrap();
+        }
+        let streamed_calls = streamed.take_pending();
+        let streamed_replay = super::super::provider_turn::decode_gemini_thought_signatures(
+            streamed_calls[0].thought_signature.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(streamed_replay, captured);
 
         let mut assistant =
             Message::text(Role::Assistant, "normalized text must not replace parts");
@@ -3563,6 +3733,7 @@ mod tests {
             tool_calls,
             true,
         );
+        assert!(envelope.authorizes_tool_dispatch());
         assistant.set_provider_turn(envelope);
         let (_, replayed) = convert_messages(&[Message::text(Role::User, "inspect"), assistant]);
         let replayed = serde_json::to_value(replayed).expect("replayed Gemini contents");
@@ -3570,6 +3741,8 @@ mod tests {
             replayed[1]["parts"],
             serde_json::json!([
                 {"text": "I will inspect."},
+                {"toolCall":{"id":"search-1","toolType":"GOOGLE_SEARCH_WEB","args":{"queries":["readme"]}},"thoughtSignature":"search-call-sig"},
+                {"toolResponse":{"id":"search-1","toolType":"GOOGLE_SEARCH_WEB","response":{"search_suggestions":"result"}},"thoughtSignature":"search-result-sig"},
                 {
                     "functionCall": {
                         "id": "fc_provider_1",
@@ -3611,6 +3784,134 @@ mod tests {
             "signed-context"
         );
         assert!(replay.content_parts[1]["thoughtSignature"].is_null());
+    }
+
+    #[tokio::test]
+    async fn signed_search_only_hops_replay_in_the_next_request() {
+        use futures::StreamExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for streaming in [false, true] {
+            let parts = serde_json::json!([
+                {"toolCall":{"id":"search-1","toolType":"GOOGLE_SEARCH_WEB","args":{"queries":["release"]}},"thoughtSignature":"search-call-sig"},
+                {"toolResponse":{"id":"search-1","toolType":"GOOGLE_SEARCH_WEB","response":{"search_suggestions":"result"}},"thoughtSignature":"search-result-sig"},
+                {"text":"Answer","thoughtSignature":"answer-sig"}
+            ]);
+            let expected = parts.clone();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                for hop in 0..3 {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut bytes = Vec::new();
+                    let (head, length) = loop {
+                        let mut buffer = [0; 4096];
+                        let count = socket.read(&mut buffer).await.unwrap();
+                        assert!(count > 0);
+                        bytes.extend_from_slice(&buffer[..count]);
+                        if let Some(head) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                            let headers = String::from_utf8_lossy(&bytes[..head]).to_lowercase();
+                            let length = headers
+                                .lines()
+                                .find_map(|line| line.strip_prefix("content-length:"))
+                                .unwrap()
+                                .trim()
+                                .parse::<usize>()
+                                .unwrap();
+                            break (head + 4, length);
+                        }
+                    };
+                    while bytes.len() < head + length {
+                        let mut buffer = [0; 4096];
+                        let count = socket.read(&mut buffer).await.unwrap();
+                        assert!(count > 0);
+                        bytes.extend_from_slice(&buffer[..count]);
+                    }
+                    let body: serde_json::Value =
+                        serde_json::from_slice(&bytes[head..head + length]).unwrap();
+                    if hop == 2 {
+                        assert_eq!(body["contents"][1]["parts"], expected);
+                    }
+                    let candidate = match hop {
+                        0 => {
+                            serde_json::json!({"content":{"parts":[expected[0],expected[1]]},"finishReason":"CONTINUATION","continuationToken":"signed-hop"})
+                        }
+                        1 => {
+                            serde_json::json!({"content":{"parts":[expected[2]]},"finishReason":"STOP"})
+                        }
+                        _ => {
+                            serde_json::json!({"content":{"parts":[{"text":"Follow-up"}]},"finishReason":"STOP"})
+                        }
+                    };
+                    let response = serde_json::json!({"candidates":[candidate]});
+                    let (content_type, response) = if streaming && hop < 2 {
+                        ("text/event-stream", format!("data: {response}\n\n"))
+                    } else {
+                        ("application/json", response.to_string())
+                    };
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).as_bytes()).await.unwrap();
+                }
+            });
+            let provider = GeminiProvider::new(ProviderConfig {
+                provider_type: ProviderType::Google,
+                base_url: Some(format!("http://{address}")),
+                api_key: Some("fixture".into()),
+                org_id: None,
+                timeout_secs: Some(5),
+                streaming: Default::default(),
+            })
+            .unwrap();
+            let mut request = CompletionRequest {
+                model: "gemini-4-argon".into(),
+                messages: vec![Message::text(Role::User, "Search the release")],
+                ..Default::default()
+            };
+            let replay = if streaming {
+                let mut events = provider.stream_events(&request).await.unwrap();
+                let mut replay = None;
+                while let Some(event) = events.next().await {
+                    match event {
+                        ProviderStreamEvent::ReplayState { replay: payload } => {
+                            replay = Some(*payload)
+                        }
+                        ProviderStreamEvent::Chunk { chunk } if chunk.finish_reason.is_some() => {
+                            assert!(
+                                replay.is_some(),
+                                "signed replay must precede the terminal chunk"
+                            );
+                        }
+                        ProviderStreamEvent::TerminalError { failure } => panic!("{failure:?}"),
+                        _ => {}
+                    }
+                }
+                replay
+            } else {
+                let response = provider.complete(&request).await.unwrap();
+                assert!(response.tool_calls.is_none());
+                response.provider_replay
+            }
+            .expect("a search-only answer still carries exact signed provider parts");
+            assert!(replay.is_present());
+            let mut assistant = Message::text(Role::Assistant, "Answer");
+            assistant.set_provider_turn(
+                super::super::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
+                    "turn",
+                    "sample",
+                    provider.route_snapshot(&request),
+                    "Answer",
+                    None,
+                    None,
+                    Vec::new(),
+                    false,
+                    Some(replay),
+                ),
+            );
+            request.messages.push(assistant);
+            request
+                .messages
+                .push(Message::text(Role::User, "Explain the source"));
+            provider.complete(&request).await.unwrap();
+            server.await.unwrap();
+        }
     }
 
     #[test]

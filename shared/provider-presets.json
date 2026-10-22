@@ -22272,6 +22272,16 @@
               "enabled": false
             }
           }
+        },
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
         }
       },
       {
@@ -22308,6 +22318,16 @@
               "enabled": false
             }
           }
+        },
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
         }
       },
       {
@@ -22344,6 +22364,16 @@
               "enabled": false
             }
           }
+        },
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
         }
       },
       {
@@ -22380,6 +22410,16 @@
               "enabled": false
             }
           }
+        },
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
         }
       },
       {
@@ -22393,7 +22433,7 @@
           "supportsLocation": false,
           "supportsCitations": true,
           "supportsStreamEvents": true,
-          "canMixClientTools": true
+          "canMixClientTools": false
         },
         "tagKey": "providers.tagLatest",
         "contextTokens": 1048576,
@@ -22449,7 +22489,7 @@
           "supportsLocation": false,
           "supportsCitations": true,
           "supportsStreamEvents": true,
-          "canMixClientTools": true
+          "canMixClientTools": false
         },
         "tagKey": "providers.tagBestBalance",
         "contextTokens": 1048576,
@@ -22506,7 +22546,7 @@
           "supportsLocation": false,
           "supportsCitations": true,
           "supportsStreamEvents": true,
-          "canMixClientTools": true
+          "canMixClientTools": false
         },
         "tagKey": "providers.tagFast",
         "contextTokens": 1048576,
@@ -22553,7 +22593,17 @@
         ],
         "deprecationDate": "2026-11-19"
       }
-    ]
+    ],
+    "nativeWebSearch": {
+      "dialect": "geminiGoogleSearch",
+      "supportsDomains": false,
+      "supportsRecency": false,
+      "supportsLocale": false,
+      "supportsLocation": false,
+      "supportsCitations": true,
+      "supportsStreamEvents": true,
+      "canMixClientTools": false
+    }
   },
   {
     "id": "vertex-anthropic",
@@ -23208,7 +23258,17 @@
         },
         "access": "account_enablement",
         "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://ai.google.dev/gemini-api/docs/models"
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/models",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        }
       },
       {
         "id": "gemini-2.5-flash",
@@ -23229,7 +23289,17 @@
         },
         "access": "account_enablement",
         "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://ai.google.dev/gemini-api/docs/models"
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/models",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        }
       },
       {
         "id": "gemini-2.5-flash-lite",
@@ -23249,7 +23319,17 @@
         },
         "access": "account_enablement",
         "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://ai.google.dev/gemini-api/docs/models"
+        "documentationRef": "https://ai.google.dev/gemini-api/docs/models",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        }
       },
       {
         "id": "gemini-3-flash-preview",
