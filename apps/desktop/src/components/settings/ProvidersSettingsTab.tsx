@@ -285,7 +285,7 @@ export function ProvidersSettingsTab({
               })}
             </Badge>
           </div>
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2">
             {providerPresetResults.map((preset) => {
               const isConfigured = configuredPresetIds.has(preset.id);
               return (

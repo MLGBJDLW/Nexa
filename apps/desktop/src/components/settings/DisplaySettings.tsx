@@ -1,3 +1,4 @@
+import { SettingsRow, settingsSelectClass } from './SettingsRow';
 import { useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Trash2, Upload } from 'lucide-react';
@@ -44,14 +45,13 @@ export function DisplaySettings() {
     } catch (cause) { setError(String(cause)); }
     finally { setBusy(false); }
   }
-  return <div data-testid="display-settings" className="space-y-6 border-t border-border pt-5">
+  return <div data-testid="display-settings" className="space-y-3">
     <div className="space-y-3">
       <p className="text-sm font-medium text-text-primary">{t('settings.displayFonts')}</p>
       <p className="text-xs leading-relaxed text-text-tertiary">{t('settings.displayFontsDesc')}</p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {(['uiFontId', 'codeFontId'] as const).map(slot => <label key={slot} className="space-y-2 text-xs text-text-secondary">
-          <span className="block">{t(slot === 'uiFontId' ? 'settings.displayUiFont' : 'settings.displayCodeFont')}</span>
-          <select data-testid={slot === 'uiFontId' ? 'ui-font-select' : 'code-font-select'} value={preferences[slot]} onChange={event => updateDisplayPreferences({ [slot]: event.target.value })} className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary">
+      <div className="divide-y divide-border/50">
+        {(['uiFontId', 'codeFontId'] as const).map(slot => <SettingsRow key={slot} label={t(slot === 'uiFontId' ? 'settings.displayUiFont' : 'settings.displayCodeFont')} htmlFor={`settings-${slot}`}>
+          <select id={`settings-${slot}`} data-testid={slot === 'uiFontId' ? 'ui-font-select' : 'code-font-select'} value={preferences[slot]} onChange={event => updateDisplayPreferences({ [slot]: event.target.value })} className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary">
             <option value="theme">{t('settings.displayThemeFont')}</option>
             {(['cjk', 'text', 'mono'] as const).map(kind => <optgroup key={kind} label={t(`settings.displayFontGroup.${kind}`)}>
               {FONT_PRESETS.filter(font => font.kind === kind).map(font => <option key={font.id} value={font.id}>{font.name}</option>)}
@@ -59,7 +59,7 @@ export function DisplaySettings() {
             {assets.length > 0 && <optgroup label={t('settings.displayImportedFonts')}>{assets.map(font => <option key={font.id} value={font.id}>{font.name}</option>)}</optgroup>}
             {preferences[slot] !== 'theme' && !FONT_PRESETS.some(font => font.id === preferences[slot]) && !assets.some(font => font.id === preferences[slot]) && <option value={preferences[slot]}>{t('settings.displayFontUnavailable')}</option>}
           </select>
-        </label>)}
+        </SettingsRow>)}
       </div>
       <div className="space-y-2 rounded-xl border border-border bg-surface-1 px-4 py-3" data-testid="font-preview">
         <p className="text-base">{t('settings.displayFontSample')}</p>
@@ -75,14 +75,12 @@ export function DisplaySettings() {
       </li>)}</ul>}
       {(error || fontError) && <p role="alert" className="break-words text-xs text-error">{t('settings.displayFontError')} {error || fontError}</p>}
     </div>
-    <div className="space-y-3 border-t border-border pt-5">
-      <p className="text-sm font-medium text-text-primary">{t('settings.displayStreaming')}</p>
-      <div className="grid gap-2 sm:grid-cols-3" role="group" aria-label={t('settings.displayStreaming')}>
-        {(['chunked', 'balanced', 'smooth'] as StreamingMode[]).map(mode => <button type="button" key={mode} data-testid={`streaming-mode-${mode}`} aria-pressed={preferences.streamingMode === mode} onClick={() => updateDisplayPreferences({ streamingMode: mode })} className={`rounded-xl border p-3 text-left ${preferences.streamingMode === mode ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-1 hover:bg-surface-2'}`}>
-          <span className="block text-sm font-medium text-text-primary">{t(`settings.displayStreaming.${mode}`)}</span>
-          <span className="mt-1 block text-xs leading-relaxed text-text-tertiary">{t(`settings.displayStreaming.${mode}Desc`)}</span>
-        </button>)}
-      </div>
+    <div className="space-y-3 border-t border-border pt-3">
+      <SettingsRow label={t('settings.displayStreaming')} description={t(`settings.displayStreaming.${preferences.streamingMode}Desc`)} htmlFor="settings-streaming-mode">
+        <select id="settings-streaming-mode" data-testid="streaming-mode-select" value={preferences.streamingMode} onChange={event => updateDisplayPreferences({ streamingMode: event.target.value as StreamingMode })} className={settingsSelectClass}>
+          {(['chunked', 'balanced', 'smooth'] as StreamingMode[]).map(mode => <option key={mode} value={mode}>{t(`settings.displayStreaming.${mode}`)}</option>)}
+        </select>
+      </SettingsRow>
       <p className="text-xs leading-relaxed text-text-tertiary">{t('settings.displayStreamingCost')}</p>
     </div>
   </div>;

@@ -102,6 +102,29 @@ omitted because all selectable levels already appear immediately below.
 
 ### 1. Show the user what matters, not what the model felt
 
+Settings use shared label/control rows for ordinary choices and inputs. Large
+previews, model downloads, evidence and rule lists keep the space they need.
+Advanced provider controls have separate groups for streaming, summarization and
+subagents; Appearance groups search, file limits, agent behavior, background work
+and permissions independently. Layout changes retain existing config fields and
+save handlers. Verification includes saving, reopening and consuming the setting,
+particularly context mode and search priority.
+An initial settings-read failure leaves saving unavailable and offers retry;
+fabricated defaults must never replace an unread saved configuration. Compact
+save controls also remain clear of the floating assistant in narrow windows.
+Knowledge search uses the saved default page size, while an explicit caller
+limit takes precedence. The saved cosine floor applies to local vectors and
+cloud candidate IDs checked against their current local embeddings.
+Background organization keeps configured source/project restrictions when a
+request matches none of them; an empty intersection never means all sources.
+
+Search sources are ordered by drag handles with a keyboard equivalent. Reordering
+updates the existing priority field and preserves credentials and endpoints;
+credentials expand within each source row. Native search follows the current
+model's verified capabilities and credentials. Google Grounding and the OpenRouter
+engine selector are distinct controls, and provider restrictions on combining
+native search with local tools remain visible.
+
 Default UI should prioritize:
 
 - what task is being worked on

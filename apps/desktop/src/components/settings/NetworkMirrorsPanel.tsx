@@ -1,3 +1,4 @@
+import { SettingsRow } from './SettingsRow';
 import type { AppConfig } from '../../types/conversation';
 import { useTranslation } from '../../i18n';
 import { Button } from '../ui/Button';
@@ -28,30 +29,32 @@ export function NetworkMirrorsPanel({
     >
       <div className="space-y-3">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text-primary">{t('settings.hfMirrorLabel')}</label>
-          <Input
-            value={appConfig.hfMirrorBaseUrl ?? ''}
-            onChange={(e) => {
-              onChange({ ...appConfig, hfMirrorBaseUrl: e.target.value });
-              onMarkDirty();
-            }}
-            placeholder="https://hf-mirror.com"
-          />
+          <SettingsRow label={t('settings.hfMirrorLabel')}>
+            <Input aria-label={t('settings.hfMirrorLabel')}
+              value={appConfig.hfMirrorBaseUrl ?? ''}
+              onChange={(e) => {
+                onChange({ ...appConfig, hfMirrorBaseUrl: e.target.value });
+                onMarkDirty();
+              }}
+              placeholder="https://hf-mirror.com"
+            />
+          </SettingsRow>
           <p className="text-xs text-text-tertiary">{t('settings.hfMirrorHint')}</p>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text-primary">{t('settings.ghproxyLabel')}</label>
-          <Input
-            value={appConfig.ghproxyBaseUrl ?? ''}
-            onChange={(e) => {
-              onChange({ ...appConfig, ghproxyBaseUrl: e.target.value });
-              onMarkDirty();
-            }}
-            placeholder="https://mirror.ghproxy.com"
-          />
+          <SettingsRow label={t('settings.ghproxyLabel')}>
+            <Input aria-label={t('settings.ghproxyLabel')}
+              value={appConfig.ghproxyBaseUrl ?? ''}
+              onChange={(e) => {
+                onChange({ ...appConfig, ghproxyBaseUrl: e.target.value });
+                onMarkDirty();
+              }}
+              placeholder="https://mirror.ghproxy.com"
+            />
+          </SettingsRow>
           <p className="text-xs text-text-tertiary">{t('settings.ghproxyHint')}</p>
         </div>
-        <div className="flex justify-end">
+        <div data-settings-actions className="flex justify-end">
           <Button
             size="sm"
             onClick={onSave}

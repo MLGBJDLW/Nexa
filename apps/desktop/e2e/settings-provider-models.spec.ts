@@ -9,13 +9,38 @@ const imageProviderPresets = JSON.parse(
 
 test('expanded settings keep compact spacing and controls inside narrow content', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
-  await page.setViewportSize({ width: 680, height: 820 });
+  await page.setViewportSize({ width: 480, height: 900 });
   await page.goto('/settings');
   const settings = page.getByTestId('settings-page');
   for (const tabName of ['Appearance', 'Theme', 'Models & Embedding', 'AI Providers', 'Media Processing', 'Data & Privacy', 'Extensions']) {
     await page.getByRole('tab', { name: tabName, exact: true }).click();
     const disclosures = settings.locator('section > button[aria-expanded="false"]');
     while (await disclosures.count()) await disclosures.first().click();
+    if (tabName === 'Appearance') {
+      for (const id of ['search-preferences', 'file-size-preferences', 'agent-behavior-preferences', 'dreaming-preferences', 'permissions-preferences']) {
+        const toggle = page.getByTestId(`${id}-trigger`);
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await toggle.click();
+      }
+      const search = page.getByTestId('search-preferences-panel');
+      await search.getByLabel('Default Search Limit').fill('37');
+      await search.getByLabel('Min Search Similarity').fill('0');
+      await page.getByTestId('agent-behavior-preferences-panel').getByRole('switch', { name: 'Dynamic Tool Visibility', exact: true }).click();
+      await page.getByTestId('appearance-runtime-settings').getByRole('button', { name: 'Save', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { defaultSearchLimit?: number } }).__savedAppConfig?.defaultSearchLimit)).toBe(37);
+      await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.minSearchSimilarity)).toBe(0);
+      await page.reload();
+      await page.getByTestId('search-preferences-trigger').click();
+      await page.getByTestId('agent-behavior-preferences-trigger').click();
+      await expect(search.getByLabel('Default Search Limit')).toHaveValue('37');
+      await expect(search.getByLabel('Min Search Similarity')).toHaveValue('0');
+      await expect(page.getByTestId('agent-behavior-preferences-panel').getByRole('switch', { name: 'Dynamic Tool Visibility', exact: true })).toBeChecked();
+      await page.getByLabel('Context management', { exact: true }).selectOption('history');
+      await page.getByTestId('appearance-runtime-settings').getByRole('button', { name: 'Save', exact: true }).click();
+      await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig)).toMatchObject({ defaultSearchLimit: 37, minSearchSimilarity: 0, dynamicToolVisibility: true, contextManagementMode: 'history' });
+      await page.reload();
+      for (const id of ['search-preferences', 'file-size-preferences', 'agent-behavior-preferences', 'dreaming-preferences', 'permissions-preferences']) await page.getByTestId(`${id}-trigger`).click();
+    }
     await expect.poll(() => settings.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
     // All tabs share the 12px form rhythm already used by Appearance.
     const bodyStacks = settings.locator('section > div:last-child > div[class*="space-y-"], section > [role="region"] > div > div[class*="space-y-"]');
@@ -98,7 +123,7 @@ test('structured decisions save opt-in settings and clear credentials across pro
   await expect(save).toBeDisabled();
   await panel.locator('input[type="password"]').fill('router-fixture-key');
   await save.click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'openrouter', model: 'jev-latest', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'router-fixture-key' });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'openrouter', model: 'perplexity/pplx-decider-flash-v1.2', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'router-fixture-key' });
   await page.setViewportSize({ width: 680, height: 820 });
   await expect.poll(() => panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
   await panel.screenshot({ path: testInfo.outputPath('system-one-settings.png') });
@@ -289,6 +314,8 @@ test.beforeEach(async ({ page }) => {
         speed: 1,
       },
     };
+    const savedAppConfig = localStorage.getItem('nexa-e2e-saved-app-config');
+    if (savedAppConfig) Object.assign(appConfig, JSON.parse(savedAppConfig));
 
     let registryReadMode = "registry";
     let registryRevision = 3;
@@ -784,6 +811,7 @@ test.beforeEach(async ({ page }) => {
           localEmbeddingReady = false;
           return null;
         case "get_app_config_cmd":
+          if (localStorage.getItem('fail-app-config-read') === '1') throw new Error('Config read unavailable');
           return clone(appConfig);
         case "get_capability_registry_projection_cmd":
           return clone(registryProjection());
@@ -801,6 +829,8 @@ test.beforeEach(async ({ page }) => {
           (window as unknown as { __savedAppConfig?: unknown }).__savedAppConfig = clone(
             _args.config,
           );
+          Object.assign(appConfig, clone(_args.config));
+          localStorage.setItem('nexa-e2e-saved-app-config', JSON.stringify(appConfig));
           return null;
         case "list_capability_packages_cmd":
           return [
@@ -1035,7 +1065,18 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('settings persists the selected context management mode and keeps summary as the default', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('app-config-failure-seeded')) {
+      sessionStorage.setItem('app-config-failure-seeded', '1');
+      localStorage.setItem('fail-app-config-read', '1');
+    }
+  });
   await page.goto('/settings');
+  await expect(page.getByTestId('app-config-load-error')).toBeVisible();
+  await expect(page.getByTestId('context-management-settings')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__savedAppConfig)).toBeUndefined();
+  await page.evaluate(() => localStorage.removeItem('fail-app-config-read'));
+  await page.getByTestId('app-config-load-error').getByRole('button', { name: 'Retry', exact: true }).click();
   await page.getByRole('tab', { name:'Appearance', exact:true }).click();
   const mode = page.getByLabel('Context management', { exact:true });
   await expect(mode).toBeVisible();
@@ -1045,9 +1086,14 @@ test('settings persists the selected context management mode and keeps summary a
   const panel = page.getByTestId('context-management-settings');
   await panel.getByRole('button', { name:'Save', exact:true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('history');
+  await page.reload();
+  await expect(mode).toHaveValue('history');
+  await expect(panel).toContainText('no summary-model call');
   await mode.selectOption('summary');
   await panel.getByRole('button', { name:'Save', exact:true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('summary');
+  await page.reload();
+  await expect(mode).toHaveValue('summary');
 });
 
 test('retired Kimi stays editable and a stale cache cannot restore it to model choices', async ({ page }, testInfo) => {
@@ -1287,7 +1333,7 @@ test("subagent tool inheritance remains distinct from an explicit empty allowlis
   await page.getByTitle('Edit').first().click();
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   const inherit = form.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' });
-  if (!await inherit.isVisible()) await form.getByRole('button', { name: /Advanced/i }).click();
+  if (!await inherit.isVisible()) await form.getByRole('button', { name: /^Subagents/ }).click();
   await inherit.check();
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig?.subagentAllowedTools)).toBeNull();
@@ -1295,7 +1341,7 @@ test("subagent tool inheritance remains distinct from an explicit empty allowlis
   await page.getByTitle('Edit').first().click();
   const edited = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   if (!await edited.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' }).isVisible()) {
-    await edited.getByRole('button', { name: /Advanced/i }).click();
+    await edited.getByRole('button', { name: /^Subagents/ }).click();
   }
   await edited.getByRole('button', { name: 'Disable all', exact: true }).first().click();
   await expect(edited.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' })).not.toBeChecked();
@@ -1309,14 +1355,13 @@ test("legacy provider output caps are retired without manual cleanup", async ({ 
   await page.getByTitle("Edit").first().click();
 
   await expect(page.getByText('Per-request output limit', { exact: true })).toHaveCount(0);
-  const toolRoundsInput = page
-    .locator("label")
-    .filter({ hasText: "Max Verified Tool Rounds" })
-    .locator("xpath=..")
-    .getByRole("spinbutton");
+  const toolRoundsInput = page.getByRole("spinbutton", { name: "Max Verified Tool Rounds" });
   await toolRoundsInput.fill("0");
 
   const form = toolRoundsInput.locator("xpath=ancestor::form");
+  await expect(form.getByRole('button', { name: /^Provider streaming/ })).toHaveAttribute('aria-expanded', 'false');
+  await expect(form.getByRole('button', { name: /^Summarization \(Cost Saving\)/ })).toHaveAttribute('aria-expanded', 'false');
+  await expect(form.getByRole('button', { name: /^Subagents/ })).toHaveAttribute('aria-expanded', 'false');
   const invalidInputs = await form.locator("input:invalid").evaluateAll((inputs) =>
     inputs.map((input) => {
       const element = input as HTMLInputElement;
@@ -2046,11 +2091,7 @@ test("settings discards a stale voice preview after synthesis settings change", 
 });
 
 test("settings never reuses a provider key for a user-edited endpoint", async ({ page }) => {
-  const baseUrlInput = (panel: Locator) => panel
-    .locator("label")
-    .filter({ hasText: "Base URL" })
-    .locator("xpath=..")
-    .getByRole("textbox");
+  const baseUrlInput = (panel: Locator) => panel.getByRole('textbox', { name: 'Base URL', exact: true });
 
   await page.goto("/settings");
   await page.getByRole("tab", { name: "AI Providers" }).click();
@@ -2248,7 +2289,8 @@ test("appearance installs the backend-normalized theme draft only after explicit
   })).toEqual({ name: "Generated Ocean", active: "theme-generated-ocean" });
 });
 
-test("web search settings expose native provider support and persist OpenRouter engine priority", async ({ page }) => {
+test("web search settings keep model-native search distinct and persist sortable source priority", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   await page.goto("/settings");
   await page.getByRole("tab", { name: "Extensions", exact: true }).click();
 
@@ -2261,17 +2303,111 @@ test("web search settings expose native provider support and persist OpenRouter 
   await expect(support).toContainText("OpenAI");
   await expect(support).toContainText("xAI");
   await expect(support).toContainText("OpenRouter");
-  await expect(support).toContainText("openRouterServerTool");
+  await expect(support.getByTestId('native-search-source-google')).toContainText('Google Search grounding');
+  await expect(support.getByTestId('native-search-source-vertex')).toContainText('Google Search grounding');
+  await expect(support).toContainText('current chat model');
+  await expect(support.getByRole('combobox')).toHaveCount(1);
 
   const engineField = section.locator("label").filter({ hasText: "Provider-native engine" });
   await selectNexaOption(engineField.locator("[data-nexa-select-trigger]"), "exa");
+  await selectNexaOption(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'hybrid');
+  await selectNexaOption(section.getByRole('combobox', { name: 'Provider priority', exact: true }), 'custom_first');
+
+  const sources = section.getByTestId('web-search-sources');
+  const rows = sources.locator(':scope > [data-testid^="web-search-source-"]');
+  await expect(rows).toHaveCount(6);
+  await expect(sources.locator('input[type="number"]')).toHaveCount(0);
+  const brave = sources.getByTestId('web-search-source-brave');
+  await expect(brave.locator('input')).toHaveCount(0);
+  await selectNexaOption(brave.getByRole('combobox'), 'enabled');
+  await brave.getByRole('button', { name: 'Expand: Brave Search API', exact: true }).click();
+  await brave.getByLabel('API key', { exact: true }).fill('brave-search-test-key');
+  await expect(brave.getByLabel('Instance URL')).toHaveValue('https://api.search.brave.com/res/v1/web/search');
+  await brave.getByRole('button', { name: 'Collapse: Brave Search API', exact: true }).click();
+
+  const braveHandle = brave.getByRole('button', { name: 'Reorder Brave Search API', exact: true });
+  await braveHandle.focus();
+  await page.keyboard.press('Space');
+  await expect(braveHandle).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('ArrowDown');
+  await expect(section.getByRole('status')).toContainText('over droppable area deepseek');
+  await page.keyboard.press('Space');
+  await expect(rows.first()).toHaveAttribute('data-testid', 'web-search-source-deepseek');
+  await expect(rows.nth(1)).toHaveAttribute('data-testid', 'web-search-source-brave');
+
+  const tavilyHandle = sources.getByRole('button', { name: 'Reorder Tavily Search', exact: true });
+  await tavilyHandle.scrollIntoViewIfNeeded();
+  const start = await tavilyHandle.boundingBox();
+  const target = await sources.getByRole('button', { name: 'Reorder DeepSeek Search & Fetch', exact: true }).boundingBox();
+  expect(start).not.toBeNull();
+  expect(target).not.toBeNull();
+  await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2 - 8);
+  await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(rows.first()).toHaveAttribute('data-testid', 'web-search-source-tavily');
+  await section.locator('summary').filter({ hasText: 'Advanced Settings' }).click();
+  await selectNexaOption(section.getByRole('combobox', { name: 'Reranker', exact: true }), 'research');
   await section.getByRole("button", { name: "Save", exact: true }).click();
 
-  await expect.poll(() => page.evaluate(() => (
-    window as unknown as {
-      __savedAppConfig?: { webSearch?: { providerNativeEngine?: string } };
-    }
-  ).__savedAppConfig?.webSearch?.providerNativeEngine)).toBe("exa");
+  await expect.poll(() => page.evaluate(() => {
+    const saved = (window as unknown as {
+      __savedAppConfig?: { webSearch?: { customProviders: Array<{ priority: number }> } };
+    }).__savedAppConfig?.webSearch;
+    return saved ? { ...saved, customProviders: [...saved.customProviders].sort((left, right) => left.priority - right.priority) } : null;
+  })).toMatchObject({
+    executionMode: 'hybrid', providerMode: 'custom_first', providerNativeEngine: 'exa', reranker: 'research',
+    customProviders: [
+      { preset: 'tavily', priority: 1 },
+      { preset: 'deepseek', priority: 2 },
+      { preset: 'brave', priority: 3, enabled: true, apiKey: 'brave-search-test-key', baseUrl: 'https://api.search.brave.com/res/v1/web/search' },
+      { preset: 'anysearch', priority: 4 },
+      { preset: 'serpapi_google', priority: 5 },
+      { preset: 'searxng', priority: 6 },
+    ],
+  });
+  await page.reload();
+  await page.getByRole('tab', { name: 'Extensions', exact: true }).click();
+  await section.getByRole('button').first().click();
+  await expect.poll(() => rows.evaluateAll(elements => elements.map(element => element.getAttribute('data-testid')))).toEqual([
+    'web-search-source-tavily', 'web-search-source-deepseek', 'web-search-source-brave',
+    'web-search-source-anysearch', 'web-search-source-serpapi_google', 'web-search-source-searxng',
+  ]);
+  await expectNexaValue(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'hybrid');
+  await expectNexaValue(section.getByRole('combobox', { name: 'Provider-native engine', exact: true }), 'exa');
+  await expectNexaValue(brave.getByRole('combobox'), 'enabled');
+  await brave.getByRole('button', { name: 'Expand: Brave Search API', exact: true }).click();
+  await expect(brave.getByLabel('API key', { exact: true })).toHaveValue('brave-search-test-key');
+  await brave.getByRole('button', { name: 'Collapse: Brave Search API', exact: true }).click();
+  await section.getByRole('combobox', { name: 'Search execution', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('search-settings-desktop.png') });
+  await page.setViewportSize({ width: 480, height: 900 });
+  await expect.poll(() => section.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await sources.scrollIntoViewIfNeeded();
+  const save = section.getByRole('button', { name: 'Save', exact: true });
+  await save.evaluate(button => button.scrollIntoView({ block: 'end' }));
+  await expect.poll(() => save.evaluate(button => {
+    const rect = button.getBoundingClientRect();
+    return [rect.left + 4, rect.right - 4].every(x => [rect.top + 4, rect.bottom - 4].every(y => {
+      const hit = document.elementFromPoint(x, y);
+      return hit === button || (hit !== null && button.contains(hit));
+    }));
+  })).toBe(true);
+  await save.click();
+  await page.screenshot({ path: testInfo.outputPath('search-settings-narrow.png') });
+  await selectNexaOption(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'nexaRouter');
+  await page.evaluate(() => localStorage.setItem('fail-app-config-read', '1'));
+  await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(page.getByTestId('app-config-load-error')).toBeVisible();
+  await expectNexaValue(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'nexaRouter');
+  await page.evaluate(() => localStorage.removeItem('fail-app-config-read'));
+  await page.getByRole('dialog').getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('tab', { name: 'Extensions', exact: true }).click();
+  await section.getByRole('button').first().click();
+  await expectNexaValue(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'hybrid');
 });
 
 test("Theme Studio isolates a dark draft from the active light palette", async ({ page }) => {
@@ -2926,18 +3062,18 @@ test('image generation source follows chat or explicitly selects subscription an
   const panel = page.getByTestId('image-generation-settings-panel');
   await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
   const source = panel.getByTestId('image-source-selector');
-  await expect(source.getByRole('button', { name: 'Follow chat', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await source.getByRole('button', { name: 'Codex subscription', exact: true }).click();
+  await expect(source.getByRole('combobox')).toHaveValue('auto');
+  await source.getByRole('combobox').selectOption('subscription');
   await expect(panel.locator('input[type=password]')).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { source?: string } } }).__savedAppConfig?.imageGeneration?.source)).toBe('subscription');
   await source.scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('image-subscription-source.png') });
-  await source.getByRole('button', { name: 'API Key', exact: true }).click();
+  await source.getByRole('combobox').selectOption('apiKey');
   await expectNexaValue(panel.locator('[data-nexa-select-trigger]').first(), 'qwen-dashscope-cn');
   await expect(panel.locator('input[type=password]')).toHaveValue('sk-qwen-demo');
-  await source.getByRole('button', { name: 'Follow chat', exact: true }).click();
+  await source.getByRole('combobox').selectOption('auto');
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { source?: string } } }).__savedAppConfig?.imageGeneration?.source)).toBe('auto');
   expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
@@ -2971,11 +3107,15 @@ test('bottom-edge model and provider menus stay inside the viewport and reach th
     return Boolean(box && box.y >= 8 && box.y + box.height <= 292);
   }).toBe(true);
   await expect(select.locator('[role="option"][data-value="openai"]')).toBeFocused();
+  const lastOption = select.getByRole('option').last();
+  const lastValue = await lastOption.getAttribute('data-value');
+  expect(lastValue).toBeTruthy();
   await page.keyboard.press('End');
   // Radix moves keyboard focus in a timeout; Enter must target the settled item.
-  await expect(select.locator('[role="option"][data-value="custom-openai-images"]')).toBeFocused();
+  await expect(lastOption).toBeFocused();
+  await expect(lastOption).toBeInViewport();
   await page.keyboard.press('Enter');
-  await expectNexaValue(triggers.first(), 'custom-openai-images');
+  await expectNexaValue(triggers.first(), lastValue!);
   await page.screenshot({ path: testInfo.outputPath('bottom-edge-selection.png') });
 });
 

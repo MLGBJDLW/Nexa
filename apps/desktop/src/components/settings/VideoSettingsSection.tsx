@@ -1,3 +1,4 @@
+import { SettingsRow } from './SettingsRow';
 import {
   AlertTriangle,
   CheckCircle,
@@ -78,19 +79,10 @@ export function VideoSettingsSection({
       {videoConfig ? (
         <div className="min-w-0 space-y-3">
           {/* Enable toggle */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-primary">{t('settings.videoEnabled')}</p>
-              <p className="text-xs text-text-tertiary">{t('settings.videoEnabledDesc')}</p>
-            </div>
-            <SettingsToggle label={t('settings.videoEnabled')} checked={videoConfig.enabled} onChange={enabled => updateConfig({ enabled })} />
-          </div>
+          <SettingsRow label={t('settings.videoEnabled')} description={t('settings.videoEnabledDesc')}><SettingsToggle label={t('settings.videoEnabled')} checked={videoConfig.enabled} onChange={enabled => updateConfig({ enabled })} /></SettingsRow>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <p className="mb-1 text-sm font-medium text-text-primary">{t('settings.videoTranscriptionMode')}</p>
-              <p className="mb-2 text-xs text-text-tertiary">{t('settings.videoTranscriptionModeDesc')}</p>
-              <NexaSelect
+          <div className="divide-y divide-border/50">
+            <SettingsRow label={t('settings.videoTranscriptionMode')} description={t('settings.videoTranscriptionModeDesc')}><NexaSelect aria-label={t('settings.videoTranscriptionMode')}
                 value={videoConfig.transcriptionMode}
                 onChange={(event) => updateConfig({
                   transcriptionMode: event.target.value as VideoConfig['transcriptionMode'],
@@ -100,12 +92,8 @@ export function VideoSettingsSection({
                 <option value="inherit_speech_to_text">{t('settings.videoTranscriptionInherit')}</option>
                 <option value="local_whisper">{t('settings.videoTranscriptionLocal')}</option>
                 <option value="disabled">{t('settings.videoTranscriptionDisabled')}</option>
-              </NexaSelect>
-            </div>
-            <div>
-              <p className="mb-1 text-sm font-medium text-text-primary">{t('settings.videoFailurePolicy')}</p>
-              <p className="mb-2 text-xs text-text-tertiary">{t('settings.videoFailurePolicyDesc')}</p>
-              <NexaSelect
+              </NexaSelect></SettingsRow>
+            <SettingsRow label={t('settings.videoFailurePolicy')} description={t('settings.videoFailurePolicyDesc')}><NexaSelect aria-label={t('settings.videoFailurePolicy')}
                 value={videoConfig.failurePolicy}
                 onChange={(event) => updateConfig({
                   failurePolicy: event.target.value as VideoConfig['failurePolicy'],
@@ -114,8 +102,7 @@ export function VideoSettingsSection({
               >
                 <option value="best_effort">{t('settings.videoFailureBestEffort')}</option>
                 <option value="require_transcript">{t('settings.videoFailureRequireTranscript')}</option>
-              </NexaSelect>
-            </div>
+              </NexaSelect></SettingsRow>
           </div>
 
           {/* FFmpeg Status */}
@@ -169,95 +156,56 @@ export function VideoSettingsSection({
           )}
 
           {/* Local Whisper language */}
-          {videoConfig.transcriptionMode === 'local_whisper' && <div>
-            <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoLanguage')}</p>
-            <p className="text-xs text-text-tertiary mb-2">{t('settings.videoLanguageDesc')}</p>
-            <Input
+          {videoConfig.transcriptionMode === 'local_whisper' && <SettingsRow label={t('settings.videoLanguage')} description={t('settings.videoLanguageDesc')}><Input aria-label={t('settings.videoLanguage')}
               type="text"
               value={videoConfig.language ?? ''}
               onChange={(e) => updateConfig({ language: e.target.value || null })}
               placeholder="en, zh, ja..."
-              className="w-40"
-            />
-          </div>}
+              className="w-full"
+            /></SettingsRow>}
 
           {/* Translate to English */}
-          {videoConfig.transcriptionMode === 'local_whisper' && <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-primary">{t('settings.videoTranslate')}</p>
-              <p className="text-xs text-text-tertiary">{t('settings.videoTranslateDesc')}</p>
-            </div>
-            <button
-              onClick={() => updateConfig({ translateToEnglish: !videoConfig.translateToEnglish })}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
-                videoConfig.translateToEnglish ? 'bg-accent' : 'bg-surface-3'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-fast ${
-                  videoConfig.translateToEnglish ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>}
+          {videoConfig.transcriptionMode === 'local_whisper' && <SettingsRow label={t('settings.videoTranslate')} description={t('settings.videoTranslateDesc')}>
+            <SettingsToggle label={t('settings.videoTranslate')} checked={videoConfig.translateToEnglish} onChange={translateToEnglish => updateConfig({ translateToEnglish })} />
+          </SettingsRow>}
 
           {/* Frame Extraction */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-primary">{t('settings.videoFrameExtraction')}</p>
-              <p className="text-xs text-text-tertiary">{t('settings.videoFrameExtractionDesc')}</p>
-            </div>
-            <SettingsToggle label={t('settings.videoFrameExtraction')} checked={videoConfig.frameExtractionEnabled} onChange={frameExtractionEnabled => updateConfig({ frameExtractionEnabled })} />
-          </div>
+          <SettingsRow label={t('settings.videoFrameExtraction')} description={t('settings.videoFrameExtractionDesc')}><SettingsToggle label={t('settings.videoFrameExtraction')} checked={videoConfig.frameExtractionEnabled} onChange={frameExtractionEnabled => updateConfig({ frameExtractionEnabled })} /></SettingsRow>
 
           {/* Frame Interval */}
           {videoConfig.frameExtractionEnabled && (
-            <div>
-              <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoFrameInterval')}</p>
-              <p className="text-xs text-text-tertiary mb-2">{t('settings.videoFrameIntervalDesc')}</p>
-              <Input
+            <SettingsRow label={t('settings.videoFrameInterval')} description={t('settings.videoFrameIntervalDesc')}><Input aria-label={t('settings.videoFrameInterval')}
                 type="number"
                 value={videoConfig.frameIntervalSecs}
                 onChange={(e) => updateConfig({ frameIntervalSecs: parseInt(e.target.value) || 30 })}
-                className="w-32"
-              />
-            </div>
+                className="w-full"
+              /></SettingsRow>
           )}
 
           <CollapsiblePanel title={t('settings.videoAdvanced')} open={showAdvancedVideo} onOpenChange={onAdvancedToggle}>
               <div className="space-y-3">
                 {/* Prefer Embedded Subtitles */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-text-primary">{t('settings.videoPreferSubtitles')}</p>
-                    <p className="text-xs text-text-tertiary">{t('settings.videoPreferSubtitlesDesc')}</p>
-                  </div>
-                  <SettingsToggle label={t('settings.videoPreferSubtitles')} checked={videoConfig.preferEmbeddedSubtitles} onChange={preferEmbeddedSubtitles => updateConfig({ preferEmbeddedSubtitles })} />
-                </div>
+                <SettingsRow label={t('settings.videoPreferSubtitles')} description={t('settings.videoPreferSubtitlesDesc')}><SettingsToggle label={t('settings.videoPreferSubtitles')} checked={videoConfig.preferEmbeddedSubtitles} onChange={preferEmbeddedSubtitles => updateConfig({ preferEmbeddedSubtitles })} /></SettingsRow>
 
                 {/* Scene Detection Threshold */}
-                <div>
-                  <p className="text-sm font-medium text-text-primary mb-1">{t('settings.videoSceneThreshold')}</p>
-                  <p className="text-xs text-text-tertiary mb-2">{t('settings.videoSceneThresholdDesc')}</p>
-                  <div className="flex items-center gap-3">
-                    <input
+                <SettingsRow label={t('settings.videoSceneThreshold')} description={t('settings.videoSceneThresholdDesc')}><div className="flex items-center gap-3">
+                    <input aria-label={t('settings.videoSceneThreshold')}
                       type="range"
                       min={10}
                       max={90}
                       step={5}
                       value={Math.round(videoConfig.sceneThreshold * 100)}
                       onChange={(e) => updateConfig({ sceneThreshold: parseInt(e.target.value) / 100 })}
-                      className="flex-1 accent-accent"
+                      className="min-w-0 flex-1 accent-accent"
                     />
                     <span className="text-xs text-text-secondary w-10 text-right">{videoConfig.sceneThreshold.toFixed(2)}</span>
-                  </div>
-                </div>
+                  </div></SettingsRow>
 
               </div>
           </CollapsiblePanel>
 
           {/* Save button */}
-          <div className="flex items-center justify-between pt-2">
+          <div data-settings-actions className="flex items-center justify-between pt-2">
             {whisperModelExists && (
               <Button
                 variant="ghost"

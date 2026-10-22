@@ -1,3 +1,4 @@
+import { SettingsRow } from './SettingsRow';
 import { useMemo, useState } from 'react';
 import { NexaSelect } from '../ui/overlay';
 import { ChevronDown, Cloud, Eye, EyeOff, Laptop, Mic2, RefreshCw, Save } from 'lucide-react';
@@ -190,29 +191,30 @@ export function SpeechToTextSettingsPanel({
       {expanded && (
         <div className="border-t border-border px-4 py-4">
           <p className="mb-4 text-xs text-text-tertiary">{t('settings.speechToTextDesc')}</p>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1">
             <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium text-text-primary">{t('settings.provider')}</label>
-              <NexaSelect
-                data-testid="stt-provider-select"
-                value={scopeActive ? activePreset.id : ''}
-                onChange={(event) => applyPreset(event.target.value)}
-                className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-              >
-                {!scopeActive && <option value="" disabled>{t('settings.selectSpeechProvider')}</option>}
-                {groupedCatalog ? (
-                  <>
-                    <optgroup label={t('settings.speechProviderGroupCloud')}>
-                      {cloudPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-                    </optgroup>
-                    <optgroup label={t('settings.speechProviderGroupLocal')}>
-                      {localPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-                    </optgroup>
-                  </>
-                ) : (
-                  scopedPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)
-                )}
-              </NexaSelect>
+              <SettingsRow label={t('settings.provider')}>
+                <NexaSelect aria-label={t('settings.provider')}
+                  data-testid="stt-provider-select"
+                  value={scopeActive ? activePreset.id : ''}
+                  onChange={(event) => applyPreset(event.target.value)}
+                  className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                >
+                  {!scopeActive && <option value="" disabled>{t('settings.selectSpeechProvider')}</option>}
+                  {groupedCatalog ? (
+                    <>
+                      <optgroup label={t('settings.speechProviderGroupCloud')}>
+                        {cloudPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                      </optgroup>
+                      <optgroup label={t('settings.speechProviderGroupLocal')}>
+                        {localPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                      </optgroup>
+                    </>
+                  ) : (
+                    scopedPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)
+                  )}
+                </NexaSelect>
+              </SettingsRow>
               {groupedCatalog && (
                 <p className="text-[11px] leading-5 text-text-tertiary">{t('settings.speechProviderCatalogHint')}</p>
               )}
@@ -225,13 +227,12 @@ export function SpeechToTextSettingsPanel({
             {!runsOnDevice && (
               <>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.apiKey')}</label>
-                  <div className="relative">
-                    <Input type={showKey ? 'text' : 'password'} value={config.apiKey} onChange={(event) => update({ apiKey: event.target.value })} className="pr-10" />
-                    <button type="button" onClick={() => setShowKey((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary" aria-label={showKey ? t('settings.hideKey') : t('settings.showKey')}>
-                      {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                  </div>
+                  <SettingsRow label={t('settings.apiKey')}><div className="relative">
+                      <Input aria-label={t('settings.apiKey')} type={showKey ? 'text' : 'password'} value={config.apiKey} onChange={(event) => update({ apiKey: event.target.value })} className="pr-10" />
+                      <button type="button" onClick={() => setShowKey((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary" aria-label={showKey ? t('settings.hideKey') : t('settings.showKey')}>
+                        {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div></SettingsRow>
                   <SharedCredentialNotice
                     source={sharedKeySource}
                     hasOwnKey={Boolean(config.apiKey.trim())}
@@ -240,8 +241,9 @@ export function SpeechToTextSettingsPanel({
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.baseUrl')}</label>
-                  <Input value={config.baseUrl ?? ''} onChange={(event) => update({ baseUrl: event.target.value || null })} />
+                  <SettingsRow label={t('settings.baseUrl')}>
+                    <Input aria-label={t('settings.baseUrl')} value={config.baseUrl ?? ''} onChange={(event) => update({ baseUrl: event.target.value || null })} />
+                  </SettingsRow>
                 </div>
               </>
             )}
@@ -260,8 +262,9 @@ export function SpeechToTextSettingsPanel({
             )}
             {!isWhisper && (
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{t('settings.sttLanguage')}</label>
-                <Input value={config.language ?? ''} onChange={(event) => update({ language: event.target.value || null })} placeholder={isSherpa ? 'auto' : 'zh / en'} />
+                <SettingsRow label={t('settings.sttLanguage')}>
+                  <Input aria-label={t('settings.sttLanguage')} value={config.language ?? ''} onChange={(event) => update({ language: event.target.value || null })} placeholder={isSherpa ? 'auto' : 'zh / en'} />
+                </SettingsRow>
               </div>
             )}
 
@@ -274,31 +277,36 @@ export function SpeechToTextSettingsPanel({
             {isSherpa && (
               <>
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.sttSherpaExecutable')}</label>
-                  <Input data-testid="stt-sherpa-executable" value={config.executablePath ?? ''} onChange={(event) => update({ executablePath: event.target.value || null })} />
+                  <SettingsRow label={t('settings.sttSherpaExecutable')}>
+                    <Input aria-label={t('settings.sttSherpaExecutable')} data-testid="stt-sherpa-executable" value={config.executablePath ?? ''} onChange={(event) => update({ executablePath: event.target.value || null })} />
+                  </SettingsRow>
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.sttTokensPath')}</label>
-                  <Input value={config.tokensPath ?? ''} onChange={(event) => update({ tokensPath: event.target.value || null })} />
+                  <SettingsRow label={t('settings.sttTokensPath')}>
+                    <Input aria-label={t('settings.sttTokensPath')} value={config.tokensPath ?? ''} onChange={(event) => update({ tokensPath: event.target.value || null })} />
+                  </SettingsRow>
                 </div>
                 {isZipformer ? (
                   <>
                     {(['encoderPath', 'decoderPath', 'joinerPath'] as const).map((field) => (
                       <div key={field} className="space-y-2">
-                        <label className="text-sm font-medium capitalize text-text-primary">{field.replace('Path', '')}</label>
-                        <Input value={config[field] ?? ''} onChange={(event) => update({ [field]: event.target.value || null })} />
+                        <SettingsRow label={field.replace('Path', '')}>
+                          <Input aria-label={field.replace('Path', '')} value={config[field] ?? ''} onChange={(event) => update({ [field]: event.target.value || null })} />
+                        </SettingsRow>
                       </div>
                     ))}
                   </>
                 ) : (
                   <div className="space-y-2 md:col-span-2">
-                    <label className="text-sm font-medium text-text-primary">{t('settings.sttModelPath')}</label>
-                    <Input value={config.modelPath ?? ''} onChange={(event) => update({ modelPath: event.target.value || null })} />
+                    <SettingsRow label={t('settings.sttModelPath')}>
+                      <Input aria-label={t('settings.sttModelPath')} value={config.modelPath ?? ''} onChange={(event) => update({ modelPath: event.target.value || null })} />
+                    </SettingsRow>
                   </div>
                 )}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ttsThreads')}</label>
-                  <Input type="number" min={1} max={32} value={config.numThreads ?? 2} onChange={(event) => update({ numThreads: Math.min(32, Math.max(1, Number(event.target.value) || 2)) })} />
+                  <SettingsRow label={t('settings.ttsThreads')}>
+                    <Input aria-label={t('settings.ttsThreads')} type="number" min={1} max={32} value={config.numThreads ?? 2} onChange={(event) => update({ numThreads: Math.min(32, Math.max(1, Number(event.target.value) || 2)) })} />
+                  </SettingsRow>
                 </div>
               </>
             )}
@@ -333,7 +341,7 @@ export function SpeechToTextSettingsPanel({
             </div>
             <MicrophoneTestPanel deviceId={micDeviceId} />
           </div>
-          <div className="mt-4 flex justify-end border-t border-border pt-3">
+          <div data-settings-actions className="mt-4 flex justify-end border-t border-border pt-3">
             <Button type="button" variant="primary" size="sm" icon={<Save size={14} />} loading={loading} onClick={() => void onSave({ ...appConfig, speechToText: materializedConfig })} disabled={!configured}>
               {t('common.save')}
             </Button>

@@ -426,8 +426,8 @@ test('appearance fonts and streaming preferences apply, import, survive reload a
   await code.selectOption('jetbrains-mono');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Noto Sans SC');
   await expect.poll(() => page.getByTestId('font-preview').locator('code').evaluate(el => getComputedStyle(el).fontFamily)).toContain('JetBrains Mono');
-  await page.getByTestId('streaming-mode-smooth').click();
-  await expect(page.getByTestId('streaming-mode-smooth')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('streaming-mode-select').selectOption('smooth');
+  await expect(page.getByTestId('streaming-mode-select')).toHaveValue('smooth');
   await page.getByRole('button', { name: 'Import fonts', exact: true }).click();
   await expect(ui.locator('option')).toHaveCount(18);
   await ui.selectOption('font-custom');
@@ -436,15 +436,15 @@ test('appearance fonts and streaming preferences apply, import, survive reload a
   await page.getByTestId('display-preferences-trigger').click();
   await expect(ui).toHaveValue('font-custom');
   await expect(code).toHaveValue('jetbrains-mono');
-  await expect(page.getByTestId('streaming-mode-smooth')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('streaming-mode-select')).toHaveValue('smooth');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('ImportedNexa');
   await page.getByTestId('display-settings').screenshot({ path: testInfo.outputPath('display-settings.png') });
   await page.getByRole('button', { name: 'Remove My imported font' }).click();
   await expect(ui).toHaveValue('theme');
   await expect(ui.locator('option')).toHaveCount(17);
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).not.toContain('ImportedNexa');
-  await page.getByTestId('streaming-mode-chunked').click();
-  await expect(page.getByTestId('streaming-mode-chunked')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('streaming-mode-select').selectOption('chunked');
+  await expect(page.getByTestId('streaming-mode-select')).toHaveValue('chunked');
 });
 
 test('model search excludes provider metadata in global and provider results', async ({ page }) => {
@@ -473,7 +473,7 @@ test('model search stays within the selected provider until returning to provide
   await expect(page.getByTestId('agent-model-option-cfg-large-gpt-5.5')).toBeVisible();
 });
 
-test('followup JSONL recommendations preview in the composer and Tab completes without sending', async ({ page }, testInfo) => {
+test('followup recommendations accept JSONL in the composer and Tab completes without sending', async ({ page }, testInfo) => {
   await page.addInitScript(() => {
     localStorage.setItem('e2e-change-fixture', '1');
     localStorage.setItem('e2e-render-content', 'The result is ready.\n\n```nexa-followups\n' + [

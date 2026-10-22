@@ -4,12 +4,12 @@ import type { ReactNode } from 'react';
 export function SettingsRow({ label, description, children, htmlFor }: {
   label: string; description?: string; children: ReactNode; htmlFor?: string;
 }) {
-  return <div className="flex min-w-0 flex-col gap-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+  return <div className="flex min-w-0 items-center justify-between gap-3 py-2 sm:gap-6" data-settings-row>
     <div className="min-w-0 flex-1">
       <label htmlFor={htmlFor} className="text-sm font-medium text-text-primary">{label}</label>
       {description && <p className="mt-0.5 text-xs leading-relaxed text-text-tertiary">{description}</p>}
     </div>
-    <div className="min-w-0 sm:w-56 sm:shrink-0">{children}</div>
+    <div className="flex min-w-0 w-[42%] max-w-56 shrink-0 flex-col items-stretch [&>button[role=switch]]:self-end">{children}</div>
   </div>;
 }
 

@@ -1,3 +1,4 @@
+import { SettingsRow } from './SettingsRow';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { NexaSelect } from '../ui/overlay';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -275,29 +276,30 @@ export function TextToSpeechSettingsPanel({
               className="h-4 w-4 accent-accent"
             />
           </label>}
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">{t('settings.provider')}</label>
-              <NexaSelect
-                data-testid="tts-provider-select"
-                value={scopeActive ? activePreset.id : ''}
-                onChange={(event) => applyPreset(event.target.value)}
-                className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-              >
-                {!scopeActive && <option value="" disabled>{t('settings.selectSpeechProvider')}</option>}
-                {groupedCatalog ? (
-                  <>
-                    <optgroup label={t('settings.speechProviderGroupCloud')}>
-                      {cloudPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-                    </optgroup>
-                    <optgroup label={t('settings.speechProviderGroupLocal')}>
-                      {localPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-                    </optgroup>
-                  </>
-                ) : (
-                  scopedPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)
-                )}
-              </NexaSelect>
+              <SettingsRow label={t('settings.provider')}>
+                <NexaSelect aria-label={t('settings.provider')}
+                  data-testid="tts-provider-select"
+                  value={scopeActive ? activePreset.id : ''}
+                  onChange={(event) => applyPreset(event.target.value)}
+                  className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                >
+                  {!scopeActive && <option value="" disabled>{t('settings.selectSpeechProvider')}</option>}
+                  {groupedCatalog ? (
+                    <>
+                      <optgroup label={t('settings.speechProviderGroupCloud')}>
+                        {cloudPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                      </optgroup>
+                      <optgroup label={t('settings.speechProviderGroupLocal')}>
+                        {localPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                      </optgroup>
+                    </>
+                  ) : (
+                    scopedPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)
+                  )}
+                </NexaSelect>
+              </SettingsRow>
               {groupedCatalog && (
                 <p className="text-[11px] leading-5 text-text-tertiary">{t('settings.speechProviderCatalogHint')}</p>
               )}
@@ -309,23 +311,22 @@ export function TextToSpeechSettingsPanel({
 
             {!localProvider && (
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{t('settings.apiKey')}</label>
-                <div className="relative">
-                  <Input
-                    type={showKey ? 'text' : 'password'}
-                    value={config.apiKey}
-                    onChange={(event) => update({ apiKey: event.target.value })}
-                    className="pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowKey((value) => !value)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
-                    aria-label={showKey ? t('settings.hideKey') : t('settings.showKey')}
-                  >
-                    {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
+                <SettingsRow label={t('settings.apiKey')}><div className="relative">
+                    <Input aria-label={t('settings.apiKey')}
+                      type={showKey ? 'text' : 'password'}
+                      value={config.apiKey}
+                      onChange={(event) => update({ apiKey: event.target.value })}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowKey((value) => !value)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
+                      aria-label={showKey ? t('settings.hideKey') : t('settings.showKey')}
+                    >
+                      {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div></SettingsRow>
                 {sharedKeySource && (
                   <SharedCredentialNotice
                     source={sharedKeySource}
@@ -339,8 +340,9 @@ export function TextToSpeechSettingsPanel({
 
             {!localProvider && (
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{t('settings.baseUrl')}</label>
-                <Input value={config.baseUrl ?? ''} placeholder={config.apiStyle === 'dashscope_audio_generation' ? 'https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer' : undefined} onChange={(event) => update({ baseUrl: event.target.value || null })} />
+                <SettingsRow label={t('settings.baseUrl')}>
+                  <Input aria-label={t('settings.baseUrl')} value={config.baseUrl ?? ''} placeholder={config.apiStyle === 'dashscope_audio_generation' ? 'https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer' : undefined} onChange={(event) => update({ baseUrl: event.target.value || null })} />
+                </SettingsRow>
               </div>
             )}
 
@@ -426,74 +428,83 @@ export function TextToSpeechSettingsPanel({
             </div>}
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">{t('settings.ttsOutputFormat')}</label>
-              <NexaSelect
-                value={config.outputFormat}
-                onChange={(event) => update({ outputFormat: event.target.value })}
-                className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-              >
-                {activePreset.outputFormats.map((format) => (
-                  <option key={format} value={format}>{format.toUpperCase()}</option>
-                ))}
-              </NexaSelect>
+              <SettingsRow label={t('settings.ttsOutputFormat')}>
+                <NexaSelect aria-label={t('settings.ttsOutputFormat')}
+                  value={config.outputFormat}
+                  onChange={(event) => update({ outputFormat: event.target.value })}
+                  className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                >
+                  {activePreset.outputFormats.map((format) => (
+                    <option key={format} value={format}>{format.toUpperCase()}</option>
+                  ))}
+                </NexaSelect>
+              </SettingsRow>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">{t('settings.ttsSpeed')}</label>
-              <Input
-                type="number"
-                min={minSpeed}
-                max={maxSpeed}
-                disabled={minSpeed === maxSpeed}
-                step={0.05}
-                value={config.speed}
-                onChange={(event) => update({ speed: Math.min(maxSpeed, Math.max(minSpeed, Number(event.target.value) || 1)) })}
-              />
+              <SettingsRow label={t('settings.ttsSpeed')}>
+                <Input aria-label={t('settings.ttsSpeed')}
+                  type="number"
+                  min={minSpeed}
+                  max={maxSpeed}
+                  disabled={minSpeed === maxSpeed}
+                  step={0.05}
+                  value={config.speed}
+                  onChange={(event) => update({ speed: Math.min(maxSpeed, Math.max(minSpeed, Number(event.target.value) || 1)) })}
+                />
+              </SettingsRow>
             </div>
 
             {localProvider && (
               <>
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ttsLocalExecutable')}</label>
-                  <Input
-                    data-testid="tts-local-executable"
-                    value={config.executablePath ?? ''}
-                    onChange={(event) => update({ executablePath: event.target.value || null })}
-                    placeholder="sherpa-onnx-offline-tts"
-                  />
+                  <SettingsRow label={t('settings.ttsLocalExecutable')}>
+                    <Input aria-label={t('settings.ttsLocalExecutable')}
+                      data-testid="tts-local-executable"
+                      value={config.executablePath ?? ''}
+                      onChange={(event) => update({ executablePath: event.target.value || null })}
+                      placeholder="sherpa-onnx-offline-tts"
+                    />
+                  </SettingsRow>
                   <p className="text-[11px] leading-5 text-text-tertiary">{t('settings.ttsSherpaHint')}</p>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ttsModelPath')}</label>
-                  <Input data-testid="tts-local-model" value={config.modelPath ?? ''} onChange={(event) => update({ modelPath: event.target.value || null })} />
+                  <SettingsRow label={t('settings.ttsModelPath')}>
+                    <Input aria-label={t('settings.ttsModelPath')} data-testid="tts-local-model" value={config.modelPath ?? ''} onChange={(event) => update({ modelPath: event.target.value || null })} />
+                  </SettingsRow>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ttsTokensPath')}</label>
-                  <Input value={config.tokensPath ?? ''} onChange={(event) => update({ tokensPath: event.target.value || null })} />
+                  <SettingsRow label={t('settings.ttsTokensPath')}>
+                    <Input aria-label={t('settings.ttsTokensPath')} value={config.tokensPath ?? ''} onChange={(event) => update({ tokensPath: event.target.value || null })} />
+                  </SettingsRow>
                 </div>
                 {localFamilyNeedsVoices && (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-text-primary">{t('settings.ttsVoicesPath')}</label>
-                    <Input value={config.voicesPath ?? ''} onChange={(event) => update({ voicesPath: event.target.value || null })} />
+                    <SettingsRow label={t('settings.ttsVoicesPath')}>
+                      <Input aria-label={t('settings.ttsVoicesPath')} value={config.voicesPath ?? ''} onChange={(event) => update({ voicesPath: event.target.value || null })} />
+                    </SettingsRow>
                   </div>
                 )}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ttsDataDir')}</label>
-                  <Input value={config.dataDir ?? ''} onChange={(event) => update({ dataDir: event.target.value || null })} />
+                  <SettingsRow label={t('settings.ttsDataDir')}>
+                    <Input aria-label={t('settings.ttsDataDir')} value={config.dataDir ?? ''} onChange={(event) => update({ dataDir: event.target.value || null })} />
+                  </SettingsRow>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ttsLexiconPath')}</label>
-                  <Input value={config.lexiconPath ?? ''} onChange={(event) => update({ lexiconPath: event.target.value || null })} />
+                  <SettingsRow label={t('settings.ttsLexiconPath')}>
+                    <Input aria-label={t('settings.ttsLexiconPath')} value={config.lexiconPath ?? ''} onChange={(event) => update({ lexiconPath: event.target.value || null })} />
+                  </SettingsRow>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-primary">{t('settings.ttsThreads')}</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={32}
-                    value={config.numThreads ?? 2}
-                    onChange={(event) => update({ numThreads: Math.min(32, Math.max(1, Number(event.target.value) || 2)) })}
-                  />
+                  <SettingsRow label={t('settings.ttsThreads')}>
+                    <Input aria-label={t('settings.ttsThreads')}
+                      type="number"
+                      min={1}
+                      max={32}
+                      value={config.numThreads ?? 2}
+                      onChange={(event) => update({ numThreads: Math.min(32, Math.max(1, Number(event.target.value) || 2)) })}
+                    />
+                  </SettingsRow>
                 </div>
               </>
             )}
@@ -517,7 +528,7 @@ export function TextToSpeechSettingsPanel({
               {previewError && <p className="text-[11px] text-danger">{previewError}</p>}
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+          <div data-settings-actions className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
             <div className="flex items-center gap-3">
               <Button
                 type="button"

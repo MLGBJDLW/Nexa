@@ -50,7 +50,7 @@ export function SubscriptionAgentConfigForm({ preset, config, onSave, onCancel, 
     </label>
     <p className="text-sm text-text-secondary">{t('settings.subscriptionModelsInChat')}</p>
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-    <div className="flex gap-2">
+    <div data-settings-actions className="flex gap-2">
       <Button variant="secondary" loading={loading} onClick={() => void refresh(true)}>{t('settings.subscriptionRefresh')}</Button>
       <Button loading={isSaving} disabled={!canSave} onClick={() => void save()}>{t('common.save')}</Button>
       <Button variant="secondary" onClick={onCancel}>{t('common.cancel')}</Button>

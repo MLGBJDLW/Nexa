@@ -1,3 +1,5 @@
+import { SettingsRow, settingsSelectClass } from './SettingsRow';
+import { NexaSelect } from '../ui/overlay';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -159,35 +161,11 @@ export function ToolApprovalControl({ mode, onChange }: ToolApprovalControlProps
 
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium text-text-primary">{t('settings.toolApproval')}</label>
-      <p className="text-xs text-text-tertiary">
-        {t('settings.toolApprovalDesc')}
-      </p>
-      <div className="grid gap-2 md:grid-cols-3">
-        {options.map((o) => (
-          <label
-            key={o.value}
-            className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-              mode === o.value ? 'border-accent bg-accent/10' : 'border-border bg-surface-2'
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <input
-                type="radio"
-                name="tool-approval-mode"
-                value={o.value}
-                checked={mode === o.value}
-                onChange={() => onChange(o.value)}
-                className="mt-1"
-              />
-              <div className="space-y-1">
-                <div className="text-sm font-medium text-text-primary">{o.label}</div>
-                <div className="text-xs text-text-tertiary">{o.desc}</div>
-              </div>
-            </div>
-          </label>
-        ))}
-      </div>
+      <SettingsRow label={t('settings.toolApproval')} description={options.find(option => option.value === mode)?.desc} htmlFor="tool-approval-mode">
+        <NexaSelect id="tool-approval-mode" value={mode} onChange={event => onChange(event.target.value as ToolApprovalMode)} className={settingsSelectClass}>
+          {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </NexaSelect>
+      </SettingsRow>
 
       <div className="mt-3 rounded-lg border border-border bg-surface-2 p-3 space-y-2">
         <div className="flex items-center justify-between">

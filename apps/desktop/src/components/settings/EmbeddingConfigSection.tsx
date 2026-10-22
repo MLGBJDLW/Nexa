@@ -1,3 +1,4 @@
+import { SettingsRow } from './SettingsRow';
 import { AlertTriangle, Brain, CheckCircle, KeyRound, Loader2, RefreshCw, Save, XCircle, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -193,17 +194,18 @@ export function EmbeddingConfigSection({
           {embedConfig.provider === 'api' && (
             <div className="rounded-lg border border-border bg-surface-2 p-4 space-y-3">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{t('settings.provider')}</label>
-                <NexaSelect
-                  aria-label={t('settings.provider')}
-                  value={activeApiPreset?.id ?? 'custom'}
-                  onChange={(event) => applyApiPreset(event.target.value)}
-                  className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-                >
-                  {EMBEDDING_PROVIDER_PRESETS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>{preset.name}</option>
-                  ))}
-                </NexaSelect>
+                <SettingsRow label={t('settings.provider')}>
+                  <NexaSelect
+                    aria-label={t('settings.provider')}
+                    value={activeApiPreset?.id ?? 'custom'}
+                    onChange={(event) => applyApiPreset(event.target.value)}
+                    className="h-10 w-full cursor-pointer rounded-md border border-border bg-surface-1 px-3.5 text-sm text-text-primary transition-colors hover:border-border-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
+                  >
+                    {EMBEDDING_PROVIDER_PRESETS.map((preset) => (
+                      <option key={preset.id} value={preset.id}>{preset.name}</option>
+                    ))}
+                  </NexaSelect>
+                </SettingsRow>
                 {activeApiPreset && (
                   <div className="flex items-start gap-2 rounded-md border border-border/60 bg-surface-1/60 p-2.5">
                     <ProviderIcon
@@ -237,13 +239,14 @@ export function EmbeddingConfigSection({
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{t('settings.embeddingBaseUrl')}</label>
-                <Input
-                  value={embedConfig.apiBaseUrl}
-                  aria-label={t('settings.embeddingBaseUrl')}
-                  onChange={(e) => updateConfig({ apiBaseUrl: e.target.value })}
-                  placeholder="https://api.openai.com/v1"
-                />
+                <SettingsRow label={t('settings.embeddingBaseUrl')}>
+                  <Input
+                    value={embedConfig.apiBaseUrl}
+                    aria-label={t('settings.embeddingBaseUrl')}
+                    onChange={(e) => updateConfig({ apiBaseUrl: e.target.value })}
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </SettingsRow>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-primary">{t('settings.embeddingModel')}</label>
@@ -268,23 +271,22 @@ export function EmbeddingConfigSection({
                 )}
                 <ModelDescriptorBadges descriptor={selectedModelDescriptor} surface="embedding" />
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{t('settings.embeddingDimensions')}</label>
-                {selectedModel?.allowedDimensions?.length ? <NexaSelect
-                  value={String(embedConfig.vectorDimensions)}
-                  onChange={event => updateConfig({ vectorDimensions: Number(event.target.value) })}
-                  className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm"
-                  aria-label={t('settings.embeddingDimensions')}
-                >{selectedModel.allowedDimensions.map(dimension => <option key={dimension} value={dimension}>{dimension}</option>)}</NexaSelect> : <Input
-                  type="number"
-                  aria-label={t('settings.embeddingDimensions')}
-                  min={selectedModel?.minDimensions ?? 1}
-                  value={embedConfig.vectorDimensions}
-                  onChange={(event) => updateConfig({ vectorDimensions: Math.max(1, Number(event.target.value) || 1) })}
-                  disabled={Boolean(selectedModel && !selectedModel.supportsDimensionOverride)}
-                  max={selectedModel?.supportsDimensionOverride ? selectedModel.maxDimensions ?? selectedModel.dimensions : undefined}
-                />}
-              </div>
+              <SettingsRow label={t('settings.embeddingDimensions')}>
+                  {selectedModel?.allowedDimensions?.length ? <NexaSelect
+                    value={String(embedConfig.vectorDimensions)}
+                    onChange={event => updateConfig({ vectorDimensions: Number(event.target.value) })}
+                    className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm"
+                    aria-label={t('settings.embeddingDimensions')}
+                  >{selectedModel.allowedDimensions.map(dimension => <option key={dimension} value={dimension}>{dimension}</option>)}</NexaSelect> : <Input
+                    type="number"
+                    aria-label={t('settings.embeddingDimensions')}
+                    min={selectedModel?.minDimensions ?? 1}
+                    value={embedConfig.vectorDimensions}
+                    onChange={(event) => updateConfig({ vectorDimensions: Math.max(1, Number(event.target.value) || 1) })}
+                    disabled={Boolean(selectedModel && !selectedModel.supportsDimensionOverride)}
+                    max={selectedModel?.supportsDimensionOverride ? selectedModel.maxDimensions ?? selectedModel.dimensions : undefined}
+                  />}
+                </SettingsRow>
               <Button
                 variant="secondary"
                 size="sm"
@@ -317,7 +319,7 @@ export function EmbeddingConfigSection({
               <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
               <p className="text-sm text-warning">{t('settings.embeddingProviderChangeWarning')}</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div data-settings-actions className="flex items-center gap-3">
               <Button
                 variant="primary"
                 size="sm"

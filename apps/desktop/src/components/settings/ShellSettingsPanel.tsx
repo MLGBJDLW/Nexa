@@ -40,7 +40,7 @@ export function ShellSettingsPanel({ config, saving, onChange, onSave }: {
     {config.shellAccessMode === 'restricted' && <p className="mb-2 text-xs text-text-tertiary">{t('settings.shellRestrictedHint')}</p>}
     {(failed || (discovery?.warnings.length ?? 0) > 0) && <p role="status" className="mb-2 text-xs text-warning">{t('settings.shellDiscoveryFailed')}</p>}
     {missing && !loading && <p role="status" className="mb-2 text-xs text-warning">{t('settings.shellMissingHint')}</p>}
-    <div className="flex items-center justify-end gap-2">
+    <div data-settings-actions className="flex items-center justify-end gap-2">
       <Button size="sm" variant="ghost" icon={<RefreshCw size={13} />} disabled={loading || saving} onClick={() => setRefresh(value => value + 1)}>
         {loading ? t('common.loading') : t('settings.shellRefresh')}
       </Button>

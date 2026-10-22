@@ -8,11 +8,13 @@ test.beforeEach(async ({ page }) => {
       status: {localVectors:3,uploadedVectors:0,pendingUploads:3,pendingDeletes:1,syncing:false,paused:false,lastError:null},
       tests:0,syncs:0,complete:null as null | (()=>void),
     };
+    const persisted = localStorage.getItem('vector-fixture-config');
+    if (persisted) fixture.config = JSON.parse(persisted);
     Object.assign(window,{vectorFixture:fixture,__TAURI_INTERNALS__:{invoke:async (command:string,args:any)=>{
       switch(command){
-        case 'get_vector_store_config_cmd':return structuredClone(fixture.config);
+        case 'get_vector_store_config_cmd':if (localStorage.getItem('fail-vector-read') === '1') throw new Error('Vector configuration unavailable');return structuredClone(fixture.config);
         case 'get_vector_store_status_cmd':return structuredClone(fixture.status);
-        case 'save_vector_store_config_cmd':fixture.config=structuredClone(args.config);return null;
+        case 'save_vector_store_config_cmd':fixture.config=structuredClone(args.config);localStorage.setItem('vector-fixture-config',JSON.stringify(fixture.config));return null;
         case 'test_vector_store_connection_cmd':fixture.tests+=1;return null;
         case 'sync_vector_store_cmd':fixture.syncs+=1;fixture.status.syncing=true;fixture.status.paused=false;await new Promise<void>(resolve=>{fixture.complete=resolve;});return {uploaded:3,deleted:1,busy:false};
         case 'cancel_vector_store_sync_cmd':fixture.status.syncing=false;fixture.status.paused=true;fixture.complete?.();return null;
@@ -44,6 +46,19 @@ test('local stays default and all five cloud protocols are optional with isolate
   await page.getByRole('button',{name:'Save Config',exact:true}).click();
   await expect(page.getByTestId('vector-store-sync-status')).toContainText('0/3');
   expect(await page.evaluate(()=>(window as any).vectorFixture.config.provider)).toBe('tencent');
+  await page.evaluate(() => localStorage.setItem('fail-vector-read', '1'));
+  await page.reload();
+  await page.getByRole('button',{name:'Vector storage',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Save Config',exact:true})).toBeDisabled();
+  await expect(page.getByRole('combobox',{name:'Retrieval mode'})).toBeDisabled();
+  await expect(page.getByRole('alert')).toContainText('Vector configuration unavailable');
+  expect(await page.evaluate(()=>(window as any).vectorFixture.config.mode)).toBe('hybrid');
+  await page.evaluate(() => localStorage.removeItem('fail-vector-read'));
+  await page.getByRole('button',{name:'Retry',exact:true}).click();
+  await expect(page.getByRole('combobox',{name:'Retrieval mode'})).toContainText('Local + cloud fusion');
+  await expect(page.getByLabel('Cloud instance / index endpoint',{exact:true})).toHaveValue('https://vector.example');
+  await expect(page.getByLabel('Vector store API key',{exact:true})).toHaveValue('fixture-secret');
+  await expect(page.getByRole('button',{name:'Save Config',exact:true})).toBeEnabled();
   await page.setViewportSize({width:390,height:840});
   await expect.poll(()=>page.getByTestId('vector-store-settings').evaluate(e=>e.scrollWidth-e.clientWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({path:testInfo.outputPath('cloud-vector-stores.png'),fullPage:true});

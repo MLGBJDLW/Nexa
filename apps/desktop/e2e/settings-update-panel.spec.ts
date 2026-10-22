@@ -311,15 +311,14 @@ test("settings agent behavior controls use the selected locale", async ({ page }
   await page.goto("/settings");
   await page.getByRole("tab", { name: "Appearance" }).click();
   await page.getByLabel("Language", { exact: true }).selectOption("zh-CN");
-  await page
-    .locator("button")
-    .filter({ has: page.getByRole("heading", { name: "高级设置" }) })
-    .click();
+  await page.getByTestId('permissions-preferences-trigger').click();
 
   await expect(page.getByText("Shell 权限模式")).toBeVisible();
   await expect(page.getByText("工具审批")).toBeVisible();
-  await expect(page.getByText("全部允许")).toBeVisible();
-  await expect(page.getByText("全部拒绝")).toBeVisible();
+  await page.getByRole('combobox', { name: '工具审批', exact: true }).click();
+  await expect(page.getByRole('option', { name: '全部允许', exact: true })).toBeVisible();
+  await expect(page.getByRole('option', { name: '全部拒绝', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
   await expect(page.getByText("已记住的决定")).toBeVisible();
   await expect(page.getByText("暂无已记住的审批决定。")).toBeVisible();
   await expect(page.getByText("Tool Approval")).toHaveCount(0);

@@ -47,6 +47,7 @@ import {
   SUBAGENT_TOOL_GROUPS,
 } from "../../lib/subagentTools";
 import { CollapsiblePanel } from "./SettingsSection";
+import { SettingsRow, settingsSelectClass } from "./SettingsRow";
 import {
   endpointIdForSavedSelection,
   selectImplicitDefault,
@@ -1073,278 +1074,89 @@ export function AgentConfigForm({
         description={t("settings.advancedSettingsDesc")}
         open={showAdvanced}
         onOpenChange={setShowAdvanced}
-        summary={
-          <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
-            {t("settings.capabilityRegistryAdvancedDesc")}
-          </span>
-        }
       >
-
-      {showAdvanced && (
-        <div className="space-y-4 rounded-lg border border-border bg-surface-2 p-4">
-          {/* Temperature + Max Tokens — side by side */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">
-                {t("settings.temperature")}
-              </label>
-              <Input
-                type="number"
-                value={temperature}
-                onChange={(e) =>
-                  setTemperature(parseFloat(e.target.value) || 0)
-                }
-                min={0}
-                max={2}
-                step={0.1}
-              />
-            </div>
-          </div>
-
-          {/* Context Window Override */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-text-primary">
-              {t("settings.contextWindow")}
-            </label>
-            {config ? <ContextPolicyPopover
-              config={config}
-              isStreaming={false}
-              isCompacting={false}
-              onSaved={(snapshot) => setContextWindow(snapshot.policy.contextWindow)}
-            >
+        <div className="divide-y divide-border/50">
+          <SettingsRow label={t("settings.temperature")}>
+            <Input type="number" aria-label={t("settings.temperature")} value={temperature}
+              onChange={(event) => setTemperature(parseFloat(event.target.value) || 0)} min={0} max={2} step={0.1} />
+          </SettingsRow>
+          <SettingsRow label={t("settings.contextWindow")}
+            description={config ? t('chat.contextPolicySettingsHelp') : t("settings.contextWindowHelp")}>
+            {config ? <ContextPolicyPopover config={config} isStreaming={false} isCompacting={false}
+              onSaved={(snapshot) => setContextWindow(snapshot.policy.contextWindow)}>
               {(openPolicy) => <button type="button"
                 disabled={provider !== config.provider || normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(config.baseUrl ?? '') || model !== config.model}
                 onClick={openPolicy}
-                className="w-full rounded-lg border border-border bg-surface-1 px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-2 disabled:opacity-40"
+                className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-left text-sm text-text-secondary hover:bg-surface-3 disabled:opacity-40"
               >{t('chat.contextPolicyTitle')}</button>}
-            </ContextPolicyPopover> : <Input
-              type="number"
-              value={contextWindow ?? ""}
-              onChange={(e) => {
-                const val = e.target.value.trim();
-                setContextWindow(val ? parseInt(val) || null : null);
-              }}
-              placeholder={t("settings.contextWindowPlaceholder")}
-              min={1024}
-              step={1}
-            />}
-            <p className="text-xs text-text-tertiary">
-              {config ? t('chat.contextPolicySettingsHelp') : t("settings.contextWindowHelp")}
-            </p>
-          </div>
-
-          <div className="space-y-2 border-t border-border/70 pt-4">
-            <div>
-              <p className="text-sm font-medium text-text-primary">
-                {t("settings.providerStreaming")}
-              </p>
-              <p className="text-xs text-text-tertiary">
-                {t("settings.providerStreamingHelp")}
-              </p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-secondary">
-                  {t("settings.streamIdleTimeoutMs")}
-                </label>
-                <Input
-                  type="number"
-                  value={streamIdleTimeoutMs ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value.trim();
-                    setStreamIdleTimeoutMs(value ? Number.parseInt(value, 10) || null : null);
-                  }}
-                  placeholder="300000"
-                  min={1000}
-                  max={3600000}
-                  step={1000}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-secondary">
-                  {t("settings.connectTimeoutMs")}
-                </label>
-                <Input
-                  type="number"
-                  value={connectTimeoutMs ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value.trim();
-                    setConnectTimeoutMs(value ? Number.parseInt(value, 10) || null : null);
-                  }}
-                  placeholder="10000"
-                  min={1000}
-                  max={300000}
-                  step={1000}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-text-secondary">
-                  {t("settings.streamMaxRetries")}
-                </label>
-                <Input
-                  type="number"
-                  value={streamMaxRetries ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value.trim();
-                    setStreamMaxRetries(value ? Number.parseInt(value, 10) || 0 : null);
-                  }}
-                  placeholder="2"
-                  min={0}
-                  max={10}
-                  step={1}
-                />
-              </div>
-            </div>
-          </div>
+            </ContextPolicyPopover> : <Input type="number" aria-label={t("settings.contextWindow")} value={contextWindow ?? ""}
+              onChange={(event) => { const value = event.target.value.trim(); setContextWindow(value ? parseInt(value) || null : null); }}
+              placeholder={t("settings.contextWindowPlaceholder")} min={1024} step={1} />}
+          </SettingsRow>
+          <SettingsRow label={t("settings.maxIterations")} description={t("settings.maxIterationsHelp")}>
+            <Input type="number" aria-label={t("settings.maxIterations")} value={maxIterations ?? ""}
+              onChange={(event) => { const value = event.target.value.trim(); const parsed = Number.parseInt(value, 10); setMaxIterations(value === "" || Number.isNaN(parsed) ? null : parsed); }}
+              min={0} max={4294967295} step={1} />
+          </SettingsRow>
         </div>
-      )}
+      </CollapsiblePanel>
 
-      {/* Optional verified tool-round budget */}
-      {showAdvanced && (
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-text-primary">
-            {t("settings.maxIterations")}
-          </label>
-          <Input
-            type="number"
-            value={maxIterations ?? ""}
-            onChange={(e) => {
-              const value = e.target.value.trim();
-              const parsed = Number.parseInt(value, 10);
-              setMaxIterations(value === "" || Number.isNaN(parsed) ? null : parsed);
-            }}
-            min={0}
-            max={4294967295}
-            step={1}
-          />
-          <p className="text-xs text-text-tertiary">
-            {t("settings.maxIterationsHelp")}
-          </p>
+      <CollapsiblePanel title={t("settings.providerStreaming")} description={t("settings.providerStreamingHelp")}>
+        <div className="divide-y divide-border/50">
+          <SettingsRow label={t("settings.streamIdleTimeoutMs")}>
+            <Input type="number" aria-label={t("settings.streamIdleTimeoutMs")} value={streamIdleTimeoutMs ?? ""}
+              onChange={(event) => { const value = event.target.value.trim(); setStreamIdleTimeoutMs(value ? Number.parseInt(value, 10) || null : null); }}
+              placeholder="300000" min={1000} max={3600000} step={1000} />
+          </SettingsRow>
+          <SettingsRow label={t("settings.connectTimeoutMs")}>
+            <Input type="number" aria-label={t("settings.connectTimeoutMs")} value={connectTimeoutMs ?? ""}
+              onChange={(event) => { const value = event.target.value.trim(); setConnectTimeoutMs(value ? Number.parseInt(value, 10) || null : null); }}
+              placeholder="10000" min={1000} max={300000} step={1000} />
+          </SettingsRow>
+          <SettingsRow label={t("settings.streamMaxRetries")}>
+            <Input type="number" aria-label={t("settings.streamMaxRetries")} value={streamMaxRetries ?? ""}
+              onChange={(event) => { const value = event.target.value.trim(); setStreamMaxRetries(value ? Number.parseInt(value, 10) || 0 : null); }}
+              placeholder="2" min={0} max={10} step={1} />
+          </SettingsRow>
         </div>
-      )}
+      </CollapsiblePanel>
 
-      {/* Summarization Model (cost optimization) */}
-      {showAdvanced && (
-        <div className="space-y-3 border-t border-border pt-4">
-          <h4 className="text-sm font-semibold text-text-primary">
-            {t("settings.summarizationSection")}
-          </h4>
-          <p className="text-xs text-text-tertiary">
-            {t("settings.summarizationHelp")}
-          </p>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-text-primary">
-              {t("settings.summarizationModel")}
-            </label>
-            <Input
-              value={summarizationModel ?? ""}
-              onChange={(e) => setSummarizationModel(e.target.value || null)}
-              placeholder={t("settings.summarizationModelPlaceholder")}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-text-primary">
-              {t("settings.summarizationProvider")}
-            </label>
-            <NexaSelect
-              value={summarizationProvider ?? ""}
-              onChange={(e) => setSummarizationProvider(e.target.value || null)}
-              className="w-full h-10 bg-surface-1 border border-border rounded-md text-sm text-text-primary px-3.5 transition-all duration-fast ease-out hover:border-border-hover focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none cursor-pointer"
-            >
+      <CollapsiblePanel title={t("settings.summarizationSection")} description={t("settings.summarizationHelp")}>
+        <div className="divide-y divide-border/50">
+          <SettingsRow label={t("settings.summarizationModel")}>
+            <Input aria-label={t("settings.summarizationModel")} value={summarizationModel ?? ""}
+              onChange={(event) => setSummarizationModel(event.target.value || null)} placeholder={t("settings.summarizationModelPlaceholder")} />
+          </SettingsRow>
+          <SettingsRow label={t("settings.summarizationProvider")} description={t("settings.summarizationProviderHelp")}>
+            <NexaSelect aria-label={t("settings.summarizationProvider")} value={summarizationProvider ?? ""}
+              onChange={(event) => setSummarizationProvider(event.target.value || null)} className={settingsSelectClass}>
               <option value="">{t("settings.sameAsMain")}</option>
-              {PROVIDER_LABEL_KEYS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.labelKey as any)}
-                </option>
-              ))}
+              {PROVIDER_LABEL_KEYS.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey as TranslationKey)}</option>)}
             </NexaSelect>
-            <p className="text-xs text-text-tertiary">
-              {t("settings.summarizationProviderHelp")}
-            </p>
-          </div>
+          </SettingsRow>
         </div>
-      )}
+      </CollapsiblePanel>
 
-      {showAdvanced && (
-        <div className="space-y-3 border-t border-border pt-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h4 className="text-sm font-semibold text-text-primary">
-                {t("settings.subagents")}
-              </h4>
-              <p className="text-xs text-text-tertiary">
-                {t("settings.subagentsDesc")}
-              </p>
-            </div>
-            <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
-              {inheritSubagentTools ? t("settings.inheritSubagentTools") : t("settings.selectedToolsSummary", {
-                selected: String(visibleSelectedToolCount),
-                total: String(subagentToolCatalog.length),
-              })}
-            </span>
+      <CollapsiblePanel title={t("settings.subagents")} description={t("settings.subagentsDesc")}
+        summary={<span className="text-[11px] text-text-tertiary">{inheritSubagentTools ? t("settings.inheritSubagentTools") : t("settings.selectedToolsSummary", {
+          selected: String(visibleSelectedToolCount), total: String(subagentToolCatalog.length),
+        })}</span>}>
+        <div className="space-y-3">
+          <div className="divide-y divide-border/50">
+            <SettingsRow label={t("settings.maxParallelWorkers")} description={t("settings.maxParallelWorkersDesc")}>
+              <Input type="number" aria-label={t("settings.maxParallelWorkers")} value={subagentMaxParallel ?? ""}
+                onChange={(event) => { const value = event.target.value.trim(); setSubagentMaxParallel(value ? parseInt(value) || null : null); }} min={1} max={12} step={1} />
+            </SettingsRow>
+            <SettingsRow label={t("settings.maxWorkerCallsPerTurn")} description={t("settings.maxWorkerCallsPerTurnDesc")}>
+              <Input type="number" aria-label={t("settings.maxWorkerCallsPerTurn")} value={subagentMaxCallsPerTurn ?? ""}
+                onChange={(event) => { const value = event.target.value.trim(); setSubagentMaxCallsPerTurn(value ? parseInt(value) || null : null); }} min={1} step={1} />
+            </SettingsRow>
+            <SettingsRow label={t("settings.tokenBudgetPerTurn")} description={t("settings.tokenBudgetPerTurnDesc")}>
+              <Input type="number" aria-label={t("settings.tokenBudgetPerTurn")} value={subagentTokenBudget ?? ""}
+                onChange={(event) => { const value = event.target.value.trim(); setSubagentTokenBudget(value ? parseInt(value) || null : null); }} min={256} step={256} />
+            </SettingsRow>
           </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">
-                {t("settings.maxParallelWorkers")}
-              </label>
-              <Input
-                type="number"
-                value={subagentMaxParallel ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value.trim();
-                  setSubagentMaxParallel(val ? parseInt(val) || null : null);
-                }}
-                min={1}
-                max={12}
-                step={1}
-              />
-              <p className="text-xs text-text-tertiary">
-                {t("settings.maxParallelWorkersDesc")}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">
-                {t("settings.maxWorkerCallsPerTurn")}
-              </label>
-              <Input
-                type="number"
-                value={subagentMaxCallsPerTurn ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value.trim();
-                  setSubagentMaxCallsPerTurn(
-                    val ? parseInt(val) || null : null,
-                  );
-                }}
-                min={1}
-                step={1}
-              />
-              <p className="text-xs text-text-tertiary">
-                {t("settings.maxWorkerCallsPerTurnDesc")}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-text-primary">
-                {t("settings.tokenBudgetPerTurn")}
-              </label>
-              <Input
-                type="number"
-                value={subagentTokenBudget ?? ""}
-                onChange={(e) => {
-                  const val = e.target.value.trim();
-                  setSubagentTokenBudget(val ? parseInt(val) || null : null);
-                }}
-                min={256}
-                step={256}
-              />
-              <p className="text-xs text-text-tertiary">
-                {t("settings.tokenBudgetPerTurnDesc")}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="divide-y divide-border/50">
             {[
               {
                 label: "Worker model context capacity",
@@ -1419,10 +1231,10 @@ export function AgentConfigForm({
                 placeholder: "Unlimited",
               },
             ].map(({ label, value, setValue, min, step, placeholder }) => (
-              <div key={label} className="space-y-2">
-                <label className="text-sm font-medium text-text-primary">{label}</label>
+              <SettingsRow key={label} label={label}>
                 <Input
                   type="number"
+                  aria-label={label}
                   value={value ?? ""}
                   onChange={(event) => {
                     const raw = event.target.value.trim();
@@ -1432,7 +1244,7 @@ export function AgentConfigForm({
                   step={step}
                   placeholder={placeholder}
                 />
-              </div>
+              </SettingsRow>
             ))}
           </div>
 
@@ -1506,7 +1318,7 @@ export function AgentConfigForm({
                         {t("common.clearGroup")}
                       </Button>
                     </div>
-                    <div className="grid gap-2 md:grid-cols-2">
+                    <div className="grid gap-2">
                       {group.tools.map((tool) => {
                         const checked = subagentAllowedTools.includes(tool.name);
                         return (
@@ -1589,7 +1401,7 @@ export function AgentConfigForm({
               </div>
 
               {enabledSkills.length > 0 ? (
-                <div className="grid gap-2 md:grid-cols-2">
+                <div className="grid gap-2">
                 {enabledSkills.map((skill) => {
                   const checked = subagentAllowedSkillIds.includes(skill.id);
                   return (
@@ -1640,8 +1452,6 @@ export function AgentConfigForm({
             </div>
           </CollapsiblePanel>
         </div>
-      )}
-
       </CollapsiblePanel>
 
       {/* Set as Default */}
@@ -1687,7 +1497,7 @@ export function AgentConfigForm({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
+      <div data-settings-actions className="flex items-center justify-end gap-3 border-t border-border pt-4">
         <Button type="button" variant="ghost" size="md" onClick={onCancel}>
           {t("common.cancel")}
         </Button>

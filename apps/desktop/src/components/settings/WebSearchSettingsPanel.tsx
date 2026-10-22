@@ -1,4 +1,8 @@
-import { RefreshCw, SearchCheck } from 'lucide-react';
+import { ChevronDown, GripVertical, RefreshCw, SearchCheck } from 'lucide-react';
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import { CSS } from '@dnd-kit/utilities';
 import { NexaSelect } from '../ui/overlay';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation, type TranslationKey } from '../../i18n';
@@ -19,6 +23,7 @@ import type {
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Section } from './SettingsSection';
+import { SettingsRow, settingsSelectClass } from './SettingsRow';
 import { PROVIDER_PRESETS } from '../../lib/providerPresets';
 import type { NativeWebSearchCapability } from '../../lib/modelCatalog';
 
@@ -137,31 +142,26 @@ type NativeSearchSupportEntry = {
   name: string;
   capability: NativeWebSearchCapability;
   modelCount: number;
+  supportsGoogleGrounding: boolean;
+  separatesClientTools: boolean;
 };
 
 const NATIVE_SEARCH_SUPPORT: NativeSearchSupportEntry[] = PROVIDER_PRESETS.flatMap((preset) => {
   const modelCapabilities = preset.models.flatMap((model) => {
-    const capability = model.descriptor.capabilities.nativeWebSearch;
+    const capability = model.descriptor.capabilities.nativeWebSearch ?? preset.nativeWebSearch;
     return capability ? [capability] : [];
   });
-  const capability = preset.nativeWebSearch ?? modelCapabilities[0];
+  const capability = modelCapabilities[0] ?? preset.nativeWebSearch;
   if (!capability) return [];
   return [{
     id: preset.id,
     name: preset.name,
     capability,
-    modelCount: preset.nativeWebSearch ? preset.models.length : modelCapabilities.length,
+    modelCount: modelCapabilities.length,
+    supportsGoogleGrounding: capability.dialect === 'geminiGoogleSearch' || modelCapabilities.some(model => model.dialect === 'geminiGoogleSearch'),
+    separatesClientTools: modelCapabilities.some(model => !model.canMixClientTools),
   }];
 });
-
-const CUSTOM_PROVIDER_PRESETS: WebSearchCustomProviderPreset[] = [
-  'deepseek',
-  'brave',
-  'tavily',
-  'anysearch',
-  'serpapi_google',
-  'searxng',
-];
 
 const PROFILE_LABEL_KEYS: Record<WebSearchProviderProfile, TranslationKey> = {
   default: 'settings.webSearchProfile.default',
@@ -287,6 +287,65 @@ function isCustomProviderConfigured(provider: WebSearchCustomProviderConfig): bo
   return Boolean(provider.apiKey.trim());
 }
 
+const SELECT_CLASS = settingsSelectClass;
+
+function SearchProviderRow({ provider, status, expanded, onExpand, onChange }: {
+  provider: WebSearchCustomProviderConfig;
+  status?: WebSearchProviderStatus;
+  expanded: boolean;
+  onExpand: () => void;
+  onChange: (patch: Partial<WebSearchCustomProviderConfig>) => void;
+}) {
+  const { t } = useTranslation();
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: provider.id });
+  const label = t(CUSTOM_PROVIDER_LABEL_KEYS[provider.preset]);
+  const health = !provider.enabled ? 'disabled' : status?.health;
+  return <div
+    ref={setNodeRef}
+    style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 10 : undefined }}
+    className={`relative min-w-0 bg-surface-1 ${isDragging ? 'rounded-lg shadow-lg ring-1 ring-accent/40' : ''}`}
+    data-testid={`web-search-source-${provider.preset}`}
+  >
+    <div className="flex min-h-12 min-w-0 items-center gap-2 px-2 py-1.5">
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={t('settings.webSearchReorder', { name: label })}
+        className="flex h-8 w-7 shrink-0 touch-none cursor-grab items-center justify-center rounded text-text-tertiary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent active:cursor-grabbing"
+      ><GripVertical size={15} /></button>
+      <button type="button" onClick={onExpand} aria-expanded={expanded} aria-controls={`web-search-config-${provider.preset}`} className="min-w-0 flex-1 rounded py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        <span className="block truncate text-sm font-medium text-text-primary">{label}</span>
+        <span className="block truncate text-[11px] text-text-tertiary">
+          {provider.enabled && !isCustomProviderConfigured(provider)
+            ? t('settings.webSearchProviderNeedsConfig')
+            : health ? t(HEALTH_LABEL_KEYS[health]) : t('settings.webSearchCredentials')}
+        </span>
+      </button>
+      <NexaSelect aria-label={`${label}: ${t('settings.webSearchSourceState')}`} value={provider.enabled ? 'enabled' : 'disabled'} onChange={event => onChange({ enabled: event.target.value === 'enabled' })} className={`${SELECT_CLASS} !w-28`}>
+        <option value="enabled">{t('settings.packageHost.state.enabled')}</option>
+        <option value="disabled">{t('settings.packageHost.state.disabled')}</option>
+      </NexaSelect>
+      <button type="button" onClick={onExpand} aria-expanded={expanded} aria-controls={`web-search-config-${provider.preset}`} aria-label={`${expanded ? t('common.collapse') : t('common.expand')}: ${label}`} className="flex h-8 w-7 shrink-0 items-center justify-center rounded text-text-tertiary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        <ChevronDown size={15} className={expanded ? 'rotate-180' : ''} />
+      </button>
+    </div>
+    {expanded && <div id={`web-search-config-${provider.preset}`} className="space-y-3 px-4 pb-4 pt-1 sm:pl-11">
+      <p className="text-xs leading-relaxed text-text-tertiary">{t(CUSTOM_PROVIDER_DESC_KEYS[provider.preset])}</p>
+      {provider.preset !== 'searxng' && <label className="block space-y-1.5 text-xs text-text-secondary">
+        <span>{t('settings.webSearchProviderApiKey')}</span>
+        <Input type="password" autoComplete="off" value={provider.apiKey} placeholder={t('settings.webSearchProviderApiKeyPlaceholder')} onChange={event => onChange({ apiKey: event.target.value })} />
+      </label>}
+      <label className="block space-y-1.5 text-xs text-text-secondary">
+        <span>{t('settings.webSearchProviderBaseUrl')}</span>
+        <Input value={provider.baseUrl ?? ''} placeholder={provider.preset === 'searxng' ? 'https://searx.example.org' : undefined} onChange={event => onChange({ baseUrl: event.target.value })} />
+      </label>
+      {status?.lastErrorCode && <p className="text-xs text-text-tertiary">{t('settings.webSearchLastError')}: {status.lastErrorCode}{status.nextRetrySeconds ? `, ${t('settings.webSearchRetryIn', { seconds: status.nextRetrySeconds })}` : ''}</p>}
+    </div>}
+  </div>;
+}
+
 export function WebSearchSettingsPanel({
   appConfig,
   loading,
@@ -297,7 +356,13 @@ export function WebSearchSettingsPanel({
   const { t } = useTranslation();
   const [status, setStatus] = useState<WebSearchProviderStatus[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const config = useMemo(() => webSearchConfig(appConfig), [appConfig]);
+  const orderedProviders = useMemo(() => [...config.customProviders].sort((left, right) => left.priority - right.priority), [config.customProviders]);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const refreshStatus = async () => {
     setRefreshing(true);
@@ -333,6 +398,16 @@ export function WebSearchSettingsPanel({
 
   const statusById = new Map(status.map((provider) => [provider.id, provider]));
   const configuredProviderCount = config.customProviders.filter(isCustomProviderConfigured).length;
+  const reorderProviders = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = orderedProviders.findIndex(provider => provider.id === active.id);
+    const to = orderedProviders.findIndex(provider => provider.id === over.id);
+    if (from < 0 || to < 0) return;
+    updateConfig({
+      ...config,
+      customProviders: arrayMove(orderedProviders, from, to).map((provider, index) => ({ ...provider, priority: index + 1 })),
+    });
+  };
 
   return (
     <Section
@@ -341,383 +416,100 @@ export function WebSearchSettingsPanel({
       description={t('settings.webSearchDesc')}
       collapsible
       defaultOpen={false}
-      summary={
-        <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
-          {configuredProviderCount}/{config.customProviders.length}
-        </span>
-      }
+      summary={<span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">{configuredProviderCount}/{config.customProviders.length}</span>}
     >
-      <div className="min-w-0 space-y-3">
-        <div className="space-y-2">
-          <div>
-            <p className="text-sm font-medium text-text-primary">
-              {t('settings.webSearchExecutionMode')}
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-text-tertiary">
-              {t('settings.webSearchExecutionMode.desc')}
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {EXECUTION_MODE_OPTIONS.map((mode) => (
-              <label
-                key={mode}
-                className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-                  config.executionMode === mode
-                    ? 'border-accent bg-accent/10'
-                    : 'border-border bg-surface-2 hover:border-border-strong'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="web-search-execution-mode"
-                    value={mode}
-                    checked={config.executionMode === mode}
-                    onChange={() => updateConfig({ ...config, executionMode: mode })}
-                    className="mt-1"
-                  />
-                  <span className="min-w-0 space-y-1">
-                    <span className="block text-sm font-medium text-text-primary">
-                      {t(EXECUTION_MODE_LABEL_KEYS[mode])}
-                    </span>
-                    <span className="block text-xs leading-relaxed text-text-tertiary">
-                      {t(EXECUTION_MODE_DESC_KEYS[mode])}
-                    </span>
-                  </span>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
+      <div className="min-w-0 space-y-3" data-testid="web-search-settings">
+        <SettingsRow label={t('settings.webSearchExecutionMode')} description={t(EXECUTION_MODE_DESC_KEYS[config.executionMode])}>
+          <NexaSelect aria-label={t('settings.webSearchExecutionMode')} value={config.executionMode} onChange={event => updateConfig({ ...config, executionMode: event.target.value as WebSearchExecutionMode })} className={SELECT_CLASS}>
+            {EXECUTION_MODE_OPTIONS.map(mode => <option key={mode} value={mode}>{t(EXECUTION_MODE_LABEL_KEYS[mode])}</option>)}
+          </NexaSelect>
+        </SettingsRow>
 
         <div className="space-y-2" data-testid="provider-native-search-support">
           <div>
-            <p className="text-sm font-medium text-text-primary">
-              {t('settings.webSearchNativeSupport')}
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-text-tertiary">
-              {t('settings.webSearchNativeSupport.desc')}
-            </p>
+            <p className="text-sm font-medium text-text-primary">{t('settings.webSearchNativeSupport')}</p>
+            <p className="mt-1 text-xs leading-relaxed text-text-tertiary">{t('settings.webSearchNativeSupport.desc')}</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {NATIVE_SEARCH_SUPPORT.map(({ id, name, capability, modelCount }) => (
-              <div key={id} className="rounded-lg border border-border bg-surface-2 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-text-primary">{name}</p>
-                    <p className="mt-0.5 text-[11px] text-text-tertiary">
-                      {capability.dialect} · {modelCount} models
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
-                    {capability.dialect === 'openRouterServerTool' ? 'Hosted · Beta' : 'Native'}
-                  </span>
+          <div className="divide-y divide-border/50 overflow-hidden rounded-lg border border-border/60">
+            {NATIVE_SEARCH_SUPPORT.map(({ id, name, capability, modelCount, supportsGoogleGrounding, separatesClientTools }) => (
+              <div key={id} data-testid={`native-search-source-${id}`} className="flex min-w-0 items-center justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-text-primary">{name}</p>
+                  <p className="mt-0.5 text-[11px] text-text-tertiary">
+                    {supportsGoogleGrounding ? t('settings.webSearchGrounding') : t('settings.webSearchExecutionMode.providerNative')}
+                    {' · '}{t('settings.webSearchSupportedModels', { count: modelCount })}
+                    {separatesClientTools && <span className="block">{t('settings.webSearchSeparateTools')}</span>}
+                  </p>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-text-secondary">
-                  {capability.supportsCitations && (
-                    <span className="rounded border border-border/70 bg-surface-1 px-1.5 py-0.5">Citations</span>
-                  )}
-                  {capability.supportsDomains && (
-                    <span className="rounded border border-border/70 bg-surface-1 px-1.5 py-0.5">Domains</span>
-                  )}
-                  {capability.supportsLocation && (
-                    <span className="rounded border border-border/70 bg-surface-1 px-1.5 py-0.5">Location</span>
-                  )}
-                  {capability.canMixClientTools && (
-                    <span className="rounded border border-border/70 bg-surface-1 px-1.5 py-0.5">Client tools</span>
-                  )}
-                </div>
+                {capability.dialect === 'openRouterServerTool' && <label className="w-36 max-w-[42%] shrink-0">
+                  <span className="sr-only">{t('settings.webSearchProviderNativeEngine')}</span>
+                  <NexaSelect aria-label={t('settings.webSearchProviderNativeEngine')} title={t('settings.webSearchProviderNativeEngine.desc')} value={config.providerNativeEngine} onChange={event => updateConfig({ ...config, providerNativeEngine: event.target.value as ProviderNativeSearchEngine })} className={SELECT_CLASS}>
+                    {PROVIDER_NATIVE_ENGINE_OPTIONS.map(engine => <option key={engine} value={engine}>{PROVIDER_NATIVE_ENGINE_LABELS[engine]}</option>)}
+                  </NexaSelect>
+                </label>}
               </div>
             ))}
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-text-primary">
-              {t('settings.webSearchProfile')}
-            </span>
-            <NexaSelect
-              value={config.providerProfile}
-              onChange={(event) =>
-                updateConfig({
-                  ...config,
-                  providerProfile: event.target.value as WebSearchProviderProfile,
-                })
-              }
-              className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-            >
-              {PROFILE_OPTIONS.map((profile) => (
-                <option key={profile} value={profile}>
-                  {t(PROFILE_LABEL_KEYS[profile])}
-                </option>
-              ))}
-            </NexaSelect>
-            <span className="block text-xs leading-relaxed text-text-tertiary">
-              {t(PROFILE_DESC_KEYS[config.providerProfile])}
-            </span>
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-text-primary">
-              {t('settings.webSearchReranker')}
-            </span>
-            <NexaSelect
-              value={config.reranker}
-              onChange={(event) =>
-                updateConfig({
-                  ...config,
-                  reranker: event.target.value as WebSearchReranker,
-                })
-              }
-              className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-            >
-              {RERANKER_OPTIONS.map((reranker) => (
-                <option key={reranker} value={reranker}>
-                  {t(RERANKER_LABEL_KEYS[reranker])}
-                </option>
-              ))}
-            </NexaSelect>
-            <span className="block text-xs leading-relaxed text-text-tertiary">
-              {t(RERANKER_DESC_KEYS[config.reranker])}
-            </span>
-          </label>
-
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-text-primary">
-              {t('settings.webSearchProviderNativeEngine')}
-            </span>
-            <NexaSelect
-              value={config.providerNativeEngine}
-              onChange={(event) =>
-                updateConfig({
-                  ...config,
-                  providerNativeEngine: event.target.value as ProviderNativeSearchEngine,
-                })
-              }
-              className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-            >
-              {PROVIDER_NATIVE_ENGINE_OPTIONS.map((engine) => (
-                <option key={engine} value={engine}>
-                  {PROVIDER_NATIVE_ENGINE_LABELS[engine]}
-                </option>
-              ))}
-            </NexaSelect>
-            <span className="block text-xs leading-relaxed text-text-tertiary">
-              {t('settings.webSearchProviderNativeEngine.desc')}
-            </span>
-          </label>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-text-primary">
-            {t('settings.webSearchProviderMode')}
-          </label>
-          <div className="grid gap-2 md:grid-cols-3">
-            {PROVIDER_MODE_OPTIONS.map((mode) => (
-              <label
-                key={mode}
-                className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-                  config.providerMode === mode
-                    ? 'border-accent bg-accent/10'
-                    : 'border-border bg-surface-2'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="web-search-provider-mode"
-                    value={mode}
-                    checked={config.providerMode === mode}
-                    onChange={() => updateConfig({ ...config, providerMode: mode })}
-                    className="mt-1"
-                  />
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium text-text-primary">
-                      {t(PROVIDER_MODE_LABEL_KEYS[mode])}
-                    </div>
-                    <div className="text-xs leading-relaxed text-text-tertiary">
-                      {t(PROVIDER_MODE_DESC_KEYS[mode])}
-                    </div>
-                  </div>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <p className="text-sm font-medium text-text-primary">
-              {t('settings.webSearchCustomProviders')}
-            </p>
-            <p className="mt-1 text-xs text-text-tertiary">
-              {t('settings.webSearchCustomProvidersDesc')}
-            </p>
-          </div>
-          <div className="space-y-2">
-            {CUSTOM_PROVIDER_PRESETS.map((preset) => {
-              const provider = config.customProviders.find((item) => item.preset === preset);
-              if (!provider) return null;
-              const providerStatus = statusById.get(provider.id);
-              const needsBaseUrl = preset === 'searxng';
-              return (
-                <div
-                  key={preset}
-                  className="rounded-lg border border-border bg-surface-2 p-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={provider.enabled}
-                        onChange={(event) =>
-                          updateCustomProvider(preset, { enabled: event.target.checked })
-                        }
-                        className="mt-1 rounded border-border"
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-text-primary">
-                          {t(CUSTOM_PROVIDER_LABEL_KEYS[preset])}
-                        </span>
-                        <span className="mt-1 block text-xs leading-relaxed text-text-tertiary">
-                          {t(CUSTOM_PROVIDER_DESC_KEYS[preset])}
-                        </span>
-                      </span>
-                    </label>
-                    {providerStatus && (
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${healthClass(
-                          providerStatus.health,
-                        )}`}
-                      >
-                        {providerStatus.configured
-                          ? t(HEALTH_LABEL_KEYS[providerStatus.health])
-                          : t('settings.webSearchProviderNeedsConfig')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_7rem]">
-                    <div className="space-y-2">
-                      {needsBaseUrl ? (
-                        <>
-                          <label className="text-xs font-medium text-text-secondary">
-                            {t('settings.webSearchProviderBaseUrl')}
-                          </label>
-                          <Input
-                            value={provider.baseUrl ?? ''}
-                            placeholder="https://searx.example.org"
-                            onChange={(event) =>
-                              updateCustomProvider(preset, { baseUrl: event.target.value })
-                            }
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <label className="text-xs font-medium text-text-secondary">
-                            {t('settings.webSearchProviderApiKey')}
-                          </label>
-                          <Input
-                            type="password"
-                            value={provider.apiKey}
-                            placeholder={t('settings.webSearchProviderApiKeyPlaceholder')}
-                            onChange={(event) =>
-                              updateCustomProvider(preset, { apiKey: event.target.value })
-                            }
-                          />
-                        </>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-text-secondary">
-                        {t('settings.webSearchProviderPriority')}
-                      </label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={100}
-                        value={provider.priority}
-                        onChange={(event) =>
-                          updateCustomProvider(preset, {
-                            priority: Math.max(
-                              1,
-                              Math.min(
-                                100,
-                                Number.parseInt(event.target.value, 10) || provider.priority,
-                              ),
-                            ),
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-text-primary">
-              {t('settings.webSearchProviderStatus')}
-            </span>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              icon={<RefreshCw size={14} />}
-              loading={refreshing}
-              onClick={() => void refreshStatus()}
-            >
-              {t('settings.webSearchRefresh')}
-            </Button>
+            <p className="text-sm font-medium text-text-primary">{t('settings.webSearchCustomProviders')}</p>
+            <Button type="button" variant="ghost" size="sm" icon={<RefreshCw size={14} />} loading={refreshing} onClick={() => void refreshStatus()}>{t('settings.webSearchRefresh')}</Button>
           </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {status.map((provider) => (
-              <div
-                key={provider.engine}
-                className="rounded-lg border border-border bg-surface-2 p-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-text-primary">
-                      {provider.label}
-                    </div>
-                    <div className="mt-1 text-xs text-text-tertiary">
-                      {provider.enabledByProfile
-                        ? t('settings.webSearchProviderActive')
-                        : t('settings.webSearchProviderFallback')}
-                    </div>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${healthClass(
-                      provider.health,
-                    )}`}
-                  >
-                    {t(HEALTH_LABEL_KEYS[provider.health])}
-                  </span>
-                </div>
-                {provider.lastErrorCode && (
-                  <p className="mt-2 text-xs text-text-tertiary">
-                    {t('settings.webSearchLastError')}: {provider.lastErrorCode}
-                    {provider.nextRetrySeconds
-                      ? `, ${t('settings.webSearchRetryIn', {
-                          seconds: provider.nextRetrySeconds,
-                        })}`
-                      : ''}
-                  </p>
-                )}
+          <SettingsRow label={t('settings.webSearchProviderMode')} description={t(PROVIDER_MODE_DESC_KEYS[config.providerMode])}>
+            <NexaSelect aria-label={t('settings.webSearchProviderMode')} value={config.providerMode} onChange={event => updateConfig({ ...config, providerMode: event.target.value as WebSearchProviderMode })} className={SELECT_CLASS}>
+              {PROVIDER_MODE_OPTIONS.map(mode => <option key={mode} value={mode}>{t(PROVIDER_MODE_LABEL_KEYS[mode])}</option>)}
+            </NexaSelect>
+          </SettingsRow>
+          <p className="text-xs leading-relaxed text-text-tertiary">{t('settings.webSearchCustomProvidersDesc')}</p>
+          <p className="text-[11px] leading-relaxed text-text-tertiary">{t('settings.webSearchReorderHint')}</p>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={reorderProviders} accessibility={{ screenReaderInstructions: { draggable: t('settings.webSearchReorderHint') } }}>
+            <SortableContext items={orderedProviders.map(provider => provider.id)} strategy={verticalListSortingStrategy}>
+              <div className="divide-y divide-border/50 rounded-lg border border-border/60" data-testid="web-search-sources">
+                {orderedProviders.map(provider => <SearchProviderRow
+                  key={provider.id}
+                  provider={provider}
+                  status={statusById.get(provider.id)}
+                  expanded={expandedProvider === provider.id}
+                  onExpand={() => setExpandedProvider(current => current === provider.id ? null : provider.id)}
+                  onChange={patch => updateCustomProvider(provider.preset, patch)}
+                />)}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
         </div>
 
-        <div className="flex justify-end">
-          <Button size="sm" onClick={onSave} disabled={loading}>
-            {loading ? '...' : t('common.save')}
-          </Button>
-        </div>
+        <details className="group rounded-lg border border-border/60">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-sm font-medium text-text-secondary">{t('settings.advancedSettings')}<ChevronDown size={15} className="group-open:rotate-180" /></summary>
+          <div className="divide-y divide-border/50 px-3 pb-2">
+            <SettingsRow label={t('settings.webSearchProfile')} description={t(PROFILE_DESC_KEYS[config.providerProfile])}>
+              <NexaSelect aria-label={t('settings.webSearchProfile')} value={config.providerProfile} onChange={event => updateConfig({ ...config, providerProfile: event.target.value as WebSearchProviderProfile })} className={SELECT_CLASS}>
+                {PROFILE_OPTIONS.map(profile => <option key={profile} value={profile}>{t(PROFILE_LABEL_KEYS[profile])}</option>)}
+              </NexaSelect>
+            </SettingsRow>
+            <SettingsRow label={t('settings.webSearchReranker')} description={t(RERANKER_DESC_KEYS[config.reranker])}>
+              <NexaSelect aria-label={t('settings.webSearchReranker')} value={config.reranker} onChange={event => updateConfig({ ...config, reranker: event.target.value as WebSearchReranker })} className={SELECT_CLASS}>
+                {RERANKER_OPTIONS.map(reranker => <option key={reranker} value={reranker}>{t(RERANKER_LABEL_KEYS[reranker])}</option>)}
+              </NexaSelect>
+            </SettingsRow>
+          </div>
+        </details>
+
+        {status.some(provider => provider.builtIn) && <details className="group rounded-lg border border-border/60">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-sm font-medium text-text-secondary">{t('settings.webSearchProviderStatus')}<ChevronDown size={15} className="group-open:rotate-180" /></summary>
+          <div className="divide-y divide-border/50">
+            {status.filter(provider => provider.builtIn).map(provider => <div key={provider.id} className="flex min-w-0 items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0 text-xs">
+                <p className="font-medium text-text-primary">{provider.label}</p>
+                <p className="mt-0.5 text-text-tertiary">{t(provider.enabledByProfile ? 'settings.webSearchProviderActive' : 'settings.webSearchProviderFallback')}</p>
+                {provider.lastErrorCode && <p className="mt-0.5 text-text-tertiary">{t('settings.webSearchLastError')}: {provider.lastErrorCode}{provider.nextRetrySeconds ? `, ${t('settings.webSearchRetryIn', { seconds: provider.nextRetrySeconds })}` : ''}</p>}
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ${healthClass(provider.health)}`}>{t(HEALTH_LABEL_KEYS[provider.health])}</span>
+            </div>)}
+          </div>
+        </details>}
+        <div data-settings-actions className="flex justify-end"><Button size="sm" onClick={onSave} disabled={loading}>{loading ? '...' : t('common.save')}</Button></div>
       </div>
     </Section>
   );
