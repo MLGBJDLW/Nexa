@@ -389,7 +389,10 @@ fn convert_messages(
                     .parts
                     .iter()
                     .filter_map(|p| match p {
-                        ContentPart::Text { text } if !text.trim().is_empty() => {
+                        ContentPart::Text { text }
+                            if !text.trim().is_empty()
+                                || !(msg.has_images() || msg.has_documents()) =>
+                        {
                             Some(GeminiPartV2::Text {
                                 text: text.clone(),
                                 thought_signature: None,

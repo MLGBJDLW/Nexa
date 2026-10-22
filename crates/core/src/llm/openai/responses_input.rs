@@ -172,7 +172,7 @@ pub(super) fn responses_input_items(
         let mut content = Vec::new();
         for part in &message.parts {
             match part {
-                ContentPart::Text { text } if !text.trim().is_empty() => content.push(serde_json::json!({
+                ContentPart::Text { text } if !text.trim().is_empty() || !(message.has_images() || message.has_documents()) => content.push(serde_json::json!({
                     "type": if message.role == Role::Assistant { "output_text" } else { "input_text" },
                     "text": text,
                 })),

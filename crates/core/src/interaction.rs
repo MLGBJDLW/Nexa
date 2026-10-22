@@ -1751,6 +1751,10 @@ mod tests {
         let mut request = created.request;
         let skipped = InteractionAnswers::from([("scope".into(), vec![])]);
         assert_eq!(validate_answers(&request, &skipped).unwrap(), skipped);
+        fixture
+            .db
+            .mark_interaction_presented(&request.interaction_id)
+            .unwrap();
         let response = fixture
             .db
             .submit_interaction_response(&SubmitInteractionResponse {

@@ -2640,6 +2640,21 @@ impl BrowserState {
                     .await?
                     .content_hash,
             );
+            // Capturing the preparation baseline crosses the WebView boundary.
+            // Reuse pointer preparation's target/context/hit checks before
+            // sending a hover to the previously prepared coordinates.
+            let revalidate_expression = format!(
+                "window.__NEXA_BROWSER_RUNTIME__.prepareNativePointer({action_input}, {prepared})"
+            );
+            self.dispatch_agent_action(
+                request.session_id,
+                request.tab_id,
+                request.observation_id,
+                request.call_id,
+                &revalidate_expression,
+            )?
+            .resolve()
+            .await?;
             self.require_visible_focused_host_window()?;
             #[cfg(windows)]
             {

@@ -428,11 +428,11 @@
     return `v4|${location.href}|${scrollX}|${scrollY}|${innerWidth}|${innerHeight}|${hashText(interactiveState)}`;
   };
   const observedTextOf = (rootList = roots()) => {
-    const visible = (element) => {
+    const rendered = (element) => {
       if (!element) return false;
       for (let ancestor = element; ancestor; ancestor = composedParent(ancestor)) {
         const style = getComputedStyle(ancestor);
-        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        if (style.display === 'none') return false;
       }
       return true;
     };
@@ -447,11 +447,14 @@
       }
       if (!included) continue;
       if (root.nodeType === Node.DOCUMENT_NODE) {
-        if (visible(root.body)) text.push(root.body.innerText || '');
-      } else if (visible(root.host)) {
+        if (rendered(root.body)) text.push(root.body.innerText || '');
+      } else if (rendered(root.host)) {
         for (const child of root.childNodes) {
-          if (child.nodeType === Node.TEXT_NODE) text.push(child.textContent || '');
-          else if (child.nodeType === Node.ELEMENT_NODE && visible(child)
+          // Visibility is inherited but descendants can override it. innerText
+          // already follows those rendered descendant values; display:none
+          // on any ancestor still suppresses the entire subtree.
+          if (child.nodeType === Node.TEXT_NODE && getComputedStyle(root.host).visibility === 'visible') text.push(child.textContent || '');
+          else if (child.nodeType === Node.ELEMENT_NODE && rendered(child)
             && !child.matches('script,style,noscript,template')) text.push(child.innerText || '');
         }
       }
@@ -814,8 +817,16 @@
     runtime.refs.set(ref, target);
     return describe(target, ref);
   };
-  runtime.prepareNativePointer = (input) => {
-    const { el } = validateAction(input);
+  runtime.prepareNativePointer = (input, prepared = null) => {
+    let el;
+    if (prepared) {
+      if (input.userEpoch !== runtime.userEpoch) throw new Error('stale observation: user interacted with the page');
+      el = runtime.refs.get(input.targetRef);
+      if (!el?.isConnected || prepared.targetRef !== input.targetRef
+        || !enabledOf(el) || targetContextFingerprint(el) !== prepared.targetContext) {
+        throw new Error('stale observation: prepared pointer target changed');
+      }
+    } else ({ el } = validateAction(input));
     if (!el) throw new Error('Browser pointer action requires a target');
     if (input.action === 'set_checked' && checkedStateMatches(el, input)) {
       return { stateMatched: true, verificationBaseline: actionVerificationBaseline() };
@@ -824,12 +835,16 @@
     const ownerDocument = el.ownerDocument || document;
     const ownerWindow = ownerDocument.defaultView || window;
     let rect = el.getBoundingClientRect();
-    if (!input.point && (rect.top < 0 || rect.left < 0 || rect.bottom > ownerWindow.innerHeight || rect.right > ownerWindow.innerWidth)) {
+    if (!prepared && !input.point && (rect.top < 0 || rect.left < 0 || rect.bottom > ownerWindow.innerHeight || rect.right > ownerWindow.innerWidth)) {
       el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
       rect = el.getBoundingClientRect();
     }
     const viewportBounds = viewportBoundsOf(el, true);
-    const requestedPoint = input.point ? viewportPoint(input.point) : null;
+    if (prepared && !input.point && ['x', 'y', 'width', 'height'].some(key => Math.abs(viewportBounds[key] - prepared.bounds[key]) > 4)) {
+      throw new Error('stale observation: prepared pointer bounds changed');
+    }
+    const requestedPoint = input.point ? viewportPoint(input.point) : prepared
+      ? viewportPoint({ x: prepared.bounds.x + prepared.bounds.width / 2, y: prepared.bounds.y + prepared.bounds.height / 2 }) : null;
     const point = requestedPoint ? pointInOwnerDocument(el, requestedPoint)
       : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     if (point.x < 0 || point.y < 0 || point.x >= ownerWindow.innerWidth || point.y >= ownerWindow.innerHeight) {
@@ -841,7 +856,7 @@
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
     return {
-      bounds: requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBounds,
+      bounds: prepared ? prepared.bounds : requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBounds,
       targetContext,
       targetRef: input.targetRef,
       verificationBaseline: actionVerificationBaseline(),
@@ -1155,7 +1170,7 @@
     validateAction: (input) => runtime.validateAction(input),
     resolvePointerTarget: (input, point) => runtime.resolvePointerTarget(input, point),
     prepareTrustedDrag: (input) => runtime.prepareTrustedDrag(input),
-    prepareNativePointer: (input) => runtime.prepareNativePointer(input),
+    prepareNativePointer: (input, prepared) => runtime.prepareNativePointer(input, prepared),
     prepareTrustedText: (input) => runtime.prepareTrustedText(input),
     prepareTrustedKey: (input) => runtime.prepareTrustedKey(input),
     prepareTrustedUpload: (input) => runtime.prepareTrustedUpload(input),

@@ -353,6 +353,13 @@ test('Agent pointer preparation scrolls targets into view and rejects covered el
   expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
   expect(prepared.bounds.y).toBeGreaterThanOrEqual(0);
   expect(prepared.bounds.y + prepared.bounds.height).toBeLessThanOrEqual(600);
+  await page.screenshot();
+  const revalidated = await page.evaluate(({ input, prepared }) => (
+    window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+  ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input, prepared), {
+    input: actionInput(observation, 'hover', targetRef), prepared,
+  });
+  expect(revalidated.bounds).toEqual(prepared.bounds);
 
   await page.setContent(`
     <!doctype html>
@@ -366,6 +373,33 @@ test('Agent pointer preparation scrolls targets into view and rejects covered el
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
   ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(value), actionInput(coveredObservation, 'hover', coveredRef)))
     .rejects.toThrow(/covered by another element/);
+});
+
+test('prepared hover rejects target changes during the screenshot baseline', async ({ page }) => {
+  for (const change of ['move', 'replace', 'cover', 'takeover']) {
+    await page.setContent('<button id="target" style="position:absolute;left:20px;top:20px">Target</button>');
+    await page.addScriptTag({ content: runtimeSource });
+    const observation = await observe(page);
+    const input = actionInput(observation, 'hover', observation.elements.find(element => element.name === 'Target')!.ref);
+    const prepared = await page.evaluate(input => (
+      window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+    ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input), input);
+    await page.evaluate(change => {
+      const target = document.querySelector<HTMLButtonElement>('#target')!;
+      if (change === 'move') target.style.left = '500px';
+      else if (change === 'replace') target.replaceWith(target.cloneNode(true));
+      else if (change === 'cover') {
+        const cover = document.createElement('div');
+        cover.style.cssText = 'position:fixed;inset:0;z-index:100';
+        document.body.appendChild(cover);
+      } else (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.invalidateForUserTakeover();
+    }, change);
+    await page.screenshot();
+    await expect(page.evaluate(({ input, prepared }) => (
+      window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
+    ).__NEXA_BROWSER_RUNTIME__.prepareNativePointer(input, prepared), { input, prepared }))
+      .rejects.toThrow(/stale observation|covered by another element/);
+  }
 });
 
 test('pointer preparation establishes the post-scroll baseline for noop effect verification', async ({ page }) => {
@@ -385,7 +419,7 @@ test('pointer preparation establishes the post-scroll baseline for noop effect v
     url: afterPreparation.url,
     domFingerprint: afterPreparation.domFingerprint,
     userEpoch: afterPreparation.userEpoch,
-    observationOptions: { query: '', offset: 0 },
+    observationOptions: { query: '', offset: 0, textQuery: null },
   });
 
   const bounds = await page.locator('#target').boundingBox();
@@ -1152,7 +1186,7 @@ interface BrowserBridge {
   beginCapture(id: string): { id: string };
   captureStatus(id: string): { id: string; status: string };
   endCapture(id: string): boolean;
-  prepareNativePointer(input: BrowserActionInput): {
+  prepareNativePointer(input: BrowserActionInput, prepared?: { targetRef: string; targetContext: string; bounds: { x: number; y: number; width: number; height: number } }): {
     targetRef: string;
     targetContext: string;
     stateMatched?: boolean;
