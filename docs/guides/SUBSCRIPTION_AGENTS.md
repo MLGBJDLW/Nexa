@@ -19,8 +19,8 @@ user-managed and need a version that supports the selected model.
 
 Nexa explicitly requests concise reasoning summaries and enables their events.
 Readable deltas and final summaries share the same ordered thinking block. Some
-Copilot models return only opaque reasoning even when summary visibility is
-enabled. Nexa never renders that opaque data: the status row keeps showing model
+Copilot models return only opaque reasoning, or omit summaries entirely, even
+when summary visibility is enabled. Nexa never renders opaque data: the status row keeps showing model
 progress and explains when a response did not include a readable summary.
 Reasoning strength does not guarantee that the provider exposes its reasoning.
 The pinned [CLI 1.0.103](https://github.com/github/copilot-cli/releases/tag/v1.0.103)

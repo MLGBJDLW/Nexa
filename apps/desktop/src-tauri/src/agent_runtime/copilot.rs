@@ -283,6 +283,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     let mut steering = VecDeque::new();
     let mut steering_closed = false;
     let mut completion_repairs = super::CompletionRepairState::default();
+    let expects_reasoning = turn.config.reasoning_enabled != Some(false)
+        && !crate::commands::subscription_accounts::copilot_reasoning_efforts(&model).is_empty();
     let run = async {
         let mut next = initial;
         loop {
@@ -378,7 +380,14 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     let _ = tokio::time::timeout(Duration::from_secs(5), session.disconnect()).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), client.stop()).await;
     match run {
-        Ok(()) => projection.finish(&turn).await,
+        Ok(()) => {
+            // Some reasoning-capable models emit neither readable summaries
+            // nor an opaque marker. Only judge absence after reconciliation.
+            if expects_reasoning {
+                projection.reasoning_unavailable(&turn.events).await?;
+            }
+            projection.finish(&turn).await
+        }
         Err(error) => Err(error),
     }
 }
@@ -1092,6 +1101,26 @@ mod tests {
             notices, 1,
             "opaque-only responses need one honest visibility notice"
         );
+        for snapshot in [false, true] {
+            let mut readable = Projection::default();
+            if snapshot {
+                readable
+                    .complete_reasoning(&tx, "r", "visible summary")
+                    .await
+                    .unwrap();
+            } else {
+                readable
+                    .delta(&tx, "r", StreamBlockChannel::Thinking, "visible summary")
+                    .await
+                    .unwrap();
+            }
+            readable.reasoning_unavailable(&tx).await.unwrap();
+            while let Ok(event) = rx.try_recv() {
+                assert!(
+                    !matches!(event, AgentEvent::ControllerStatus {code, ..} if code == "external_agent_reasoning_unavailable")
+                );
+            }
+        }
     }
 
     #[tokio::test]
@@ -1211,7 +1240,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "uses an explicitly selected opaque-only Copilot model for one synthetic inference"]
+    #[ignore = "uses an explicitly selected Copilot model without readable summaries for one synthetic inference"]
     async fn native_copilot_reports_unavailable_readable_reasoning() {
         native_copilot_stream_probe(false).await;
     }
@@ -1276,7 +1305,7 @@ mod tests {
             assert_eq!(thinking_deltas + snapshots, 0);
             assert_eq!(
                 opaque_notices, 1,
-                "upstream opaque reasoning must be explained, never shown as readable thoughts"
+                "missing upstream summaries must be explained, never shown as readable thoughts"
             );
         }
     }

@@ -31,6 +31,7 @@ pub(super) struct Projection {
     last_network_progress: Option<std::time::Instant>,
     pub(super) retrying: bool,
     reasoning_unavailable_notified: bool,
+    readable_reasoning_seen: bool,
 }
 
 impl Projection {
@@ -38,7 +39,7 @@ impl Projection {
         &mut self,
         tx: &mpsc::Sender<AgentEvent>,
     ) -> Result<(), CoreError> {
-        if self.reasoning_unavailable_notified {
+        if self.reasoning_unavailable_notified || self.readable_reasoning_seen {
             return Ok(());
         }
         tx.send(AgentEvent::ControllerStatus {
@@ -289,6 +290,9 @@ impl Projection {
         .await
         .map_err(protocol_error)?;
         *offset += delta.len();
+        if channel == StreamBlockChannel::Thinking {
+            self.readable_reasoning_seen = true;
+        }
         if channel == StreamBlockChannel::Answer {
             if !self.drafts.contains_key(id) {
                 self.draft_order.push(id.to_string());
@@ -444,6 +448,9 @@ impl Projection {
         .map_err(protocol_error)?;
         self.offsets.insert(id.to_string(), text.len());
         self.completed.insert(id.to_string());
+        if !text.is_empty() {
+            self.readable_reasoning_seen = true;
+        }
         Ok(())
     }
 
