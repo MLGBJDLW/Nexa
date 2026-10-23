@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.6...nexa-monorepo-v0.17.7) (2026-10-23)
+
+
+### Performance Improvements
+
+* **runtime:** reduce snapshot and desktop rendering overhead ([#502](https://github.com/MLGBJDLW/Nexa/issues/502)) ([2b577d7](https://github.com/MLGBJDLW/Nexa/commit/2b577d7e17cdaf02dbde873c8e604ba31080c423))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 2b577d7e17cdaf02dbde873c8e604ba31080c423 -->
+
+### What's Changed
+* perf(runtime): reduce snapshot and desktop rendering overhead by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/502
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.6...nexa-monorepo-v0.17.7
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.5...nexa-monorepo-v0.17.6) (2026-10-23)
 
 
