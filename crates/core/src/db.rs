@@ -113,7 +113,7 @@ impl Database {
             "PRAGMA cache_size = -32000",
             "PRAGMA mmap_size = 268435456",
         ] {
-            let _ = conn.prepare(pragma)?.query([])?;
+            apply_connection_pragma(&conn, pragma)?;
         }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -210,9 +210,6 @@ impl Database {
     }
 
     fn configure_connection(conn: &Connection) -> Result<(), CoreError> {
-        // Use prepare + query for each PRAGMA individually.
-        // Some PRAGMAs return result rows (journal_mode, journal_size_limit)
-        // while others don't — query() handles both cases gracefully.
         for pragma in [
             "PRAGMA journal_mode = WAL",
             "PRAGMA busy_timeout = 5000",
@@ -223,10 +220,19 @@ impl Database {
             "PRAGMA mmap_size = 268435456",
             "PRAGMA journal_size_limit = 67108864",
         ] {
-            let _ = conn.prepare(pragma)?.query([])?;
+            apply_connection_pragma(conn, pragma)?;
         }
         Ok(())
     }
+}
+
+fn apply_connection_pragma(conn: &Connection, pragma: &str) -> rusqlite::Result<()> {
+    // query() only binds parameters. Step through completion so PRAGMAs such
+    // as journal_mode take effect, including those that return result rows.
+    let mut statement = conn.prepare(pragma)?;
+    let mut rows = statement.query([])?;
+    while rows.next()?.is_some() {}
+    Ok(())
 }
 
 fn disable_registry_reads(conn: &Connection, _error: &CoreError) {
@@ -507,6 +513,20 @@ impl Database {
 // Durable agent run event persistence
 // ---------------------------------------------------------------------------
 
+const AGENT_RUN_EVENT_HEAD_SQL: &str = "SELECT COALESCE(MAX(event_seq), 0),
+            (EXISTS(
+               SELECT 1 FROM agent_run_events terminal
+               WHERE terminal.run_id = ?1
+                 AND (terminal.kind = 'error'
+                      OR (terminal.kind = 'done' AND COALESCE(terminal.status, '') <> 'paused'))
+             )
+             OR EXISTS(
+               SELECT 1 FROM agent_task_runs task
+               WHERE task.id = ?1
+                 AND task.status IN ('completed', 'failed', 'timed_out', 'cancelled')
+             ))
+     FROM agent_run_events WHERE run_id = ?1";
+
 impl Database {
     pub(crate) fn agent_run_event_head(&self, run_id: &str) -> Result<(u64, bool), CoreError> {
         let conn = self.conn();
@@ -517,31 +537,10 @@ impl Database {
         connection: &rusqlite::Connection,
         run_id: &str,
     ) -> Result<(u64, bool), CoreError> {
-        let (sequence, closed): (i64, bool) = connection.query_row(
-            "SELECT COALESCE(MAX(event_seq), 0),
-                    (EXISTS(
-                       SELECT 1
-                       FROM agent_run_events terminal
-                       WHERE terminal.run_id = ?1
-                         AND (
-                           terminal.kind = 'error'
-                           OR (
-                             terminal.kind = 'done'
-                             AND COALESCE(terminal.status, '') <> 'paused'
-                           )
-                         )
-                     )
-                     OR EXISTS(
-                       SELECT 1
-                       FROM agent_task_runs task
-                       WHERE task.id = ?1
-                         AND task.status IN ('completed', 'failed', 'timed_out', 'cancelled')
-                     ))
-             FROM agent_run_events
-             WHERE run_id = ?1",
-            rusqlite::params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
+        let (sequence, closed): (i64, bool) =
+            connection.query_row(AGENT_RUN_EVENT_HEAD_SQL, rusqlite::params![run_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
         let sequence = u64::try_from(sequence).map_err(|_| {
             CoreError::Internal(format!(
                 "Agent run {run_id} has an invalid negative event sequence"
@@ -1085,6 +1084,49 @@ mod tests {
     }
 
     #[test]
+    fn file_connections_apply_wal_and_read_lane_pragmas() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::new(directory.path().join("read-lane.db")).unwrap();
+        let reader = db.read_only_lane().unwrap();
+        for connection in [db.conn(), reader.conn()] {
+            assert_eq!(
+                connection
+                    .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                    .unwrap(),
+                "wal"
+            );
+            assert!(connection
+                .pragma_query_value(None, "foreign_keys", |row| row.get::<_, bool>(0))
+                .unwrap());
+        }
+        assert!(reader
+            .conn()
+            .pragma_query_value(None, "query_only", |row| row.get::<_, bool>(0))
+            .unwrap());
+        // A live reader retains its snapshot while the WAL writer commits.
+        db.conn().execute_batch("CREATE TABLE read_lane_probe(value TEXT); INSERT INTO read_lane_probe VALUES('before');").unwrap();
+        let read_connection = reader.conn();
+        read_connection.execute_batch("BEGIN").unwrap();
+        let read_value = || {
+            read_connection
+                .query_row("SELECT value FROM read_lane_probe", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(read_value(), "before");
+        db.conn()
+            .execute("UPDATE read_lane_probe SET value='after'", [])
+            .unwrap();
+        assert_eq!(read_value(), "before");
+        read_connection.execute_batch("COMMIT").unwrap();
+        assert_eq!(read_value(), "after");
+        assert!(read_connection
+            .execute("UPDATE read_lane_probe SET value='forbidden'", [])
+            .is_err());
+    }
+
+    #[test]
     fn agent_trace_errors_are_redacted_before_insert() {
         let db = Database::open_memory().unwrap();
         let mut trace = crate::trace::AgentTrace::begin(
@@ -1571,6 +1613,51 @@ mod tests {
         assert_eq!(query_text, "how to deploy?");
         assert_eq!(result_count, 5);
         assert_eq!(duration, 42);
+    }
+
+    #[test]
+    fn agent_run_head_work_does_not_grow_with_stream_ledger() {
+        let db = Database::open_memory().unwrap();
+        let conn = db.conn();
+        conn.execute_batch(
+            "WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM seq WHERE n < 4096)
+             INSERT INTO agent_run_events(run_id, turn_id, event_seq, version, kind, phase, payload_json)
+             SELECT 'head-scale', 'turn', n * 2, 2, 'outputDelta', 'responding', '{}' FROM seq;",
+        ).unwrap();
+        let mut statement = conn.prepare(AGENT_RUN_EVENT_HEAD_SQL).unwrap();
+        let head: (i64, bool) = statement
+            .query_row(["head-scale"], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap();
+        assert_eq!(head, (8192, false), "ephemeral sequence gaps remain valid");
+        let steps = statement.get_status(rusqlite::StatementStatus::VmStep);
+        println!("Run head: 4096 sparse output events, {steps} SQLite VM steps");
+        assert!(
+            steps < 200,
+            "ledger head scanned stream history: {steps} VM steps"
+        );
+    }
+
+    #[test]
+    fn agent_run_head_keeps_legacy_pause_and_terminal_semantics() {
+        let db = Database::open_memory().unwrap();
+        assert_eq!(db.agent_run_event_head("missing").unwrap(), (0, false));
+        {
+            let conn = db.conn();
+            conn.execute_batch(
+                "INSERT INTO agent_run_events(run_id, turn_id, event_seq, version, kind, phase, status, payload_json)
+                 VALUES ('head-pause', 'turn', 3, 2, 'done', 'paused', 'paused', '{}'),
+                        ('head-null', 'turn', 1, 2, 'done', 'completed', NULL, '{}'),
+                        ('head-error', 'turn', 2, 2, 'error', 'failed', 'paused', '{}'),
+                        ('head-completed', 'turn', 4, 2, 'done', 'completed', 'completed', '{}');",
+            ).unwrap();
+        }
+        assert_eq!(db.agent_run_event_head("head-pause").unwrap(), (3, false));
+        assert_eq!(db.agent_run_event_head("head-null").unwrap(), (1, true));
+        assert_eq!(db.agent_run_event_head("head-error").unwrap(), (2, true));
+        assert_eq!(
+            db.agent_run_event_head("head-completed").unwrap(),
+            (4, true)
+        );
     }
 
     #[test]
