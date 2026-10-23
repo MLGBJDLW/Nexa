@@ -75,5 +75,12 @@
   "operation.qualityEvaluation": "Quality Evaluation",
   "operation.workflow": "Workflow",
   "operation.other": "Other",
-  "operation.legacyUnclassified": "Legacy / Unclassified"
+  "operation.legacyUnclassified": "Legacy / Unclassified",
+  "groupBy": "Group by",
+  "byProvider": "Provider",
+  "byModel": "Model",
+  "groupHint": "Group providers together, or compare one model across providers. Expand a row for details.",
+  "searchModels": "Filter providers or models",
+  "clearFilters": "Clear filters",
+  "activityYear": "Past 365 days · daily activity"
 }

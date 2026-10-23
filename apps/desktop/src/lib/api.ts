@@ -1550,6 +1550,7 @@ export interface UsageAnalyticsFilter {
   providerId?: string | null;
   modelId?: string | null;
   operationKind?: string | null;
+  modelIds?: string[] | null;
   timeBucket?: 'day' | 'week' | 'month' | null;
 }
 
@@ -1595,6 +1596,7 @@ export interface UsageTimeSeriesPoint {
   promptTokens: number;
   completionTokens: number;
   thinkingTokens: number;
+  totalTokens?: number;
   cacheReadTokens: number;
   cacheMissTokens: number;
   cacheCreationTokens: number;
@@ -1606,6 +1608,7 @@ export interface UsageAnalytics {
   byModel: UsageBreakdownRow[];
   byOperation: UsageBreakdownRow[];
   timeSeries: UsageTimeSeriesPoint[];
+  availableFilters?: { providers: string[]; models: string[]; operations: string[] };
 }
 
 export const getAiUsageAnalytics = (filter: UsageAnalyticsFilter) =>

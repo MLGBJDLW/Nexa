@@ -6,8 +6,10 @@ import { toast } from 'sonner';
 
 import * as api from '../../lib/api';
 import { useUsageAnalytics } from '../../features/usage/useUsageAnalytics';
+import { usageModelIdentity } from '../../features/usage/modelIdentity';
 import { useTranslation } from '../../i18n';
 import { UsageContributionHeatmap } from './UsageContributionHeatmap';
+import { UsageModelBreakdown, usageProviderLabel } from './UsageModelBreakdown';
 
 type RangePreset = 'today' | '7d' | '30d' | '90d' | 'year' | 'all' | 'custom';
 
@@ -26,30 +28,36 @@ export function UsageAnalyticsSettingsTab() {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [chartMode, setChartMode] = useState<'tokens' | 'requests'>('tokens');
-  const providers = useMemo(() => Array.from(new Set(
-    [...(data?.byModel ?? []), ...(activityData?.byModel ?? [])]
-      .map((row) => row.providerId)
-      .filter(Boolean) as string[],
-  )), [activityData, data]);
-  const models = useMemo(() => Array.from(new Set(
-    [...(data?.byModel ?? []), ...(activityData?.byModel ?? [])]
-      .map((row) => row.modelId)
-      .filter(Boolean) as string[],
-  )), [activityData, data]);
-  const operations = useMemo(() => Array.from(new Set(
-    [...(data?.byOperation ?? []), ...(activityData?.byOperation ?? [])]
-      .map((row) => row.key),
-  )), [activityData, data]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const options = useMemo(() => {
+    const snapshots = [data, activityData];
+    const unique = (values: (string | null | undefined)[]) => [...new Set(values.filter(Boolean) as string[])].sort();
+    return {
+      providers: unique([filter.providerId, ...snapshots.flatMap((snapshot) => snapshot?.availableFilters?.providers ?? snapshot?.byModel.map((row) => row.providerId) ?? [])]),
+      models: unique([filter.modelId, ...(filter.modelIds ?? []), ...snapshots.flatMap((snapshot) => snapshot?.availableFilters?.models ?? snapshot?.byModel.map((row) => row.modelId) ?? [])]),
+      operations: unique([filter.operationKind, ...snapshots.flatMap((snapshot) => snapshot?.availableFilters?.operations ?? snapshot?.byOperation.map((row) => row.key) ?? [])]),
+    };
+  }, [activityData, data, filter.providerId, filter.modelId, filter.modelIds, filter.operationKind]);
+  const modelChoices = useMemo(() => [...new Set(options.models.map(usageModelIdentity))].sort(), [options.models]);
+
+  useEffect(() => {
+    if (!selectedModel) return;
+    const ids = options.models.filter((id) => usageModelIdentity(id) === selectedModel);
+    if (JSON.stringify(ids) !== JSON.stringify(filter.modelIds)) {
+      setFilter((previous) => ({ ...previous, modelId: null, modelIds: ids }));
+    }
+  }, [selectedModel, options.models, filter.modelIds, setFilter]);
 
   useEffect(() => {
     setActivityFilter({
       ...contributionActivityFilter(),
       providerId: filter.providerId ?? null,
       modelId: filter.modelId ?? null,
+      modelIds: filter.modelIds ?? null,
       operationKind: filter.operationKind ?? null,
       timeBucket: 'day',
     });
-  }, [filter.modelId, filter.operationKind, filter.providerId, setActivityFilter]);
+  }, [filter.modelId, filter.modelIds, filter.operationKind, filter.providerId, setActivityFilter]);
 
   const reloadAll = () => {
     reload();
@@ -61,15 +69,19 @@ export function UsageAnalyticsSettingsTab() {
       ...rangeFilter(preset),
       providerId: filter.providerId ?? null,
       modelId: filter.modelId ?? null,
+      modelIds: filter.modelIds ?? null,
       operationKind: filter.operationKind ?? null,
       timeBucket: filter.timeBucket ?? 'day',
     });
   };
-  const applyCustom = () => setFilter({
-    ...filter,
-    startAt: customStart ? new Date(`${customStart}T00:00:00`).toISOString() : null,
-    endAt: customEnd ? new Date(`${customEnd}T23:59:59.999`).toISOString() : null,
-  });
+  const applyCustom = () => {
+    const end = customEnd ? new Date(`${customEnd}T00:00:00`) : null;
+    if (end) end.setDate(end.getDate() + 1); // The ledger uses an exclusive end.
+    setFilter({ ...filter,
+      startAt: customStart ? new Date(`${customStart}T00:00:00`).toISOString() : null,
+      endAt: end?.toISOString() ?? null,
+    });
+  };
   const exportData = async (format: 'csv' | 'json') => {
     const path = await save({ defaultPath: `nexa-ai-usage.${format}`, filters: [{ name: format.toUpperCase(), extensions: [format] }] });
     if (!path) return;
@@ -90,12 +102,9 @@ export function UsageAnalyticsSettingsTab() {
   if (error && !data) return <div className="rounded-xl border border-danger/30 bg-danger/10 p-5 text-sm text-danger">{t('usage.loadFailed')}</div>;
   if (!data) return null;
   const totals = data.totals;
-  const maxTrendValue = Math.max(1, ...data.timeSeries.map((point) => chartMode === 'tokens'
-    ? point.promptTokens + point.completionTokens + point.thinkingTokens
-    : point.requestCount));
 
   return (
-    <div className="min-w-0 space-y-3" data-testid="usage-analytics-tab">
+    <div className="min-w-0 space-y-3" data-testid="usage-analytics-tab" aria-busy={loading || activityLoading}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-text-primary">{t('usage.title')}</h2>
@@ -109,13 +118,17 @@ export function UsageAnalyticsSettingsTab() {
         {(['today', '7d', '30d', '90d', 'year', 'all', 'custom'] as RangePreset[]).map((preset) => (
           <button key={preset} type="button" onClick={() => chooseRange(preset)} className={`rounded-md px-2.5 py-1.5 text-xs ${range === preset ? 'bg-accent text-text-inverse' : 'text-text-secondary hover:bg-surface-2'}`}>{rangeLabel(preset, t)}</button>
         ))}
-        <NexaSelect value={filter.providerId ?? ''} onChange={(event) => setFilter({ ...filter, providerId: event.target.value || null })} className="ml-auto rounded-md border border-border bg-surface-0 px-2 py-1.5 text-xs text-text-primary"><option value="">{t('usage.allProviders')}</option>{providers.map((provider) => <option key={provider}>{provider}</option>)}</NexaSelect>
-        <NexaSelect value={filter.modelId ?? ''} onChange={(event) => setFilter({ ...filter, modelId: event.target.value || null })} className="rounded-md border border-border bg-surface-0 px-2 py-1.5 text-xs text-text-primary"><option value="">{t('usage.allModels')}</option>{models.map((model) => <option key={model}>{model}</option>)}</NexaSelect>
-        <NexaSelect value={filter.operationKind ?? ''} onChange={(event) => setFilter({ ...filter, operationKind: event.target.value || null })} className="rounded-md border border-border bg-surface-0 px-2 py-1.5 text-xs text-text-primary"><option value="">{t('usage.allOperations')}</option>{operations.map((operation) => <option key={operation} value={operation}>{operationLabel(operation, t)}</option>)}</NexaSelect>
       </div>
+      <div className="grid gap-2 sm:grid-cols-3" data-testid="usage-filters">
+        <NexaSelect aria-label={t('usage.allProviders')} value={filter.providerId ?? ''} onChange={(event) => setFilter({ ...filter, providerId: event.target.value || null })} className="w-full min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-2 text-xs text-text-primary"><option value="">{t('usage.allProviders')}</option>{options.providers.map((provider) => <option key={provider} value={provider}>{usageProviderLabel(provider)}</option>)}</NexaSelect>
+        <NexaSelect aria-label={t('usage.allModels')} value={selectedModel} onChange={(event) => { const model = event.target.value; setSelectedModel(model); setFilter({ ...filter, modelId: null, modelIds: model ? options.models.filter((id) => usageModelIdentity(id) === model) : null }); }} className="w-full min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-2 text-xs text-text-primary"><option value="">{t('usage.allModels')}</option>{modelChoices.map((model) => <option key={model}>{model}</option>)}</NexaSelect>
+        <NexaSelect aria-label={t('usage.allOperations')} value={filter.operationKind ?? ''} onChange={(event) => setFilter({ ...filter, operationKind: event.target.value || null })} className="w-full min-w-0 rounded-lg border border-border bg-surface-1 px-3 py-2 text-xs text-text-primary"><option value="">{t('usage.allOperations')}</option>{options.operations.map((operation) => <option key={operation} value={operation}>{operationLabel(operation, t)}</option>)}</NexaSelect>
+      </div>
+      {(filter.providerId || selectedModel || filter.operationKind) && <button type="button" className="text-xs text-accent hover:underline" onClick={() => { setSelectedModel(''); setFilter({ ...filter, providerId: null, modelId: null, modelIds: null, operationKind: null }); }}>{t('usage.clearFilters')}</button>}
+      {(error || activityError) && <p role="alert" className="text-xs text-danger">{t('usage.loadFailed')}</p>}
       {range === 'custom' && <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-surface-1 p-3"><label className="text-xs text-text-secondary">{t('usage.from')}<input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="ml-2 rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary" /></label><label className="text-xs text-text-secondary">{t('usage.to')}<input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="ml-2 rounded-md border border-border bg-surface-0 px-2 py-1.5 text-text-primary" /></label><button type="button" onClick={applyCustom} className="rounded-md bg-accent px-3 py-1.5 text-xs text-text-inverse">{t('usage.apply')}</button></div>}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Metric label={t('usage.totalTokens')} value={formatNumber(totals.totalTokens, locale)} />
         <Metric label={t('usage.inputTokens')} value={formatNumber(totals.promptTokens, locale)} />
         <Metric label={t('usage.outputTokens')} value={formatNumber(totals.completionTokens, locale)} />
@@ -140,7 +153,7 @@ export function UsageAnalyticsSettingsTab() {
       </section>
 
       <section className="rounded-xl border border-border bg-surface-1 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold text-text-primary">{t('usage.trend')}</h3><span className="text-[11px] text-text-tertiary">{t('usage.range.year')} · {chartMode === 'tokens' ? t('usage.tokens') : t('usage.requests')}</span></div><div className="flex gap-2"><NexaSelect value={filter.timeBucket ?? 'day'} onChange={(event) => setFilter({ ...filter, timeBucket: event.target.value as 'day' | 'week' | 'month' })} className="rounded-md border border-border bg-surface-0 px-2 py-1 text-[11px] text-text-primary"><option value="day">{t('usage.daily')}</option><option value="week">{t('usage.weekly')}</option><option value="month">{t('usage.monthly')}</option></NexaSelect><NexaSelect value={chartMode} onChange={(event) => setChartMode(event.target.value as 'tokens' | 'requests')} className="rounded-md border border-border bg-surface-0 px-2 py-1 text-[11px] text-text-primary"><option value="tokens">{t('usage.tokens')}</option><option value="requests">{t('usage.requests')}</option></NexaSelect></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold text-text-primary">{t('usage.trend')}</h3><span className="text-[11px] text-text-tertiary">{t('usage.activityYear')}</span></div><NexaSelect aria-label={t('usage.trend')} value={chartMode} onChange={(event) => setChartMode(event.target.value as 'tokens' | 'requests')} className="rounded-md border border-border bg-surface-0 px-2 py-1 text-[11px] text-text-primary"><option value="tokens">{t('usage.tokens')}</option><option value="requests">{t('usage.requests')}</option></NexaSelect></div>
         {activityLoading && !activityData ? (
           <div className="mt-4 h-28 animate-pulse rounded-lg bg-surface-2" />
         ) : activityError && !activityData ? (
@@ -155,18 +168,10 @@ export function UsageAnalyticsSettingsTab() {
             endAt={activityFilter.endAt}
           />
         )}
-        <div className="mt-4 border-t border-border/70 pt-4">
-          <div className="mb-3 flex items-center justify-between gap-2 text-[11px] text-text-tertiary"><span>{rangeLabel(range, t)}</span><span>{filter.timeBucket === 'week' ? t('usage.weekly') : filter.timeBucket === 'month' ? t('usage.monthly') : t('usage.daily')}</span></div>
-          {data.timeSeries.length === 0 ? <Empty t={t} /> : <div className="space-y-2">{data.timeSeries.map((point) => (
-            <div key={point.date} className="grid grid-cols-[5.5rem_1fr_5rem] items-center gap-2 text-[11px]"><span className="text-text-tertiary">{point.date}</span><div className="flex h-3 overflow-hidden rounded-full bg-surface-3">{chartMode === 'tokens' ? <><span className="bg-accent" style={{ width: `${point.promptTokens / maxTrendValue * 100}%` }} /><span className="bg-info" style={{ width: `${point.completionTokens / maxTrendValue * 100}%` }} /><span className="bg-[var(--context-overhead)]" style={{ width: `${point.thinkingTokens / maxTrendValue * 100}%` }} /></> : <span className="bg-accent" style={{ width: `${point.requestCount / maxTrendValue * 100}%` }} />}</div><span className="text-right tabular-nums text-text-secondary">{formatNumber(chartMode === 'tokens' ? point.promptTokens + point.completionTokens + point.thinkingTokens : point.requestCount, locale)}</span></div>
-          ))}</div>}
-        </div>
       </section>
 
-      <div className="grid min-w-0 gap-3 xl:grid-cols-2">
-        <Breakdown title={t('usage.providerModel')} rows={data.byModel} totals={totals} t={t} locale={locale} />
-        <Breakdown title={t('usage.operation')} rows={data.byOperation} totals={totals} t={t} locale={locale} />
-      </div>
+      <UsageModelBreakdown rows={data.byModel} />
+      <Breakdown title={t('usage.operation')} rows={data.byOperation} totals={totals} t={t} locale={locale} />
 
       <div className="flex flex-wrap justify-between gap-2 rounded-xl border border-border bg-surface-1 p-4">
         <div className="flex gap-2"><button type="button" onClick={() => void exportData('csv')} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary"><Download size={13} /> {t('usage.exportCsv')}</button><button type="button" onClick={() => void exportData('json')} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-text-secondary"><Download size={13} /> {t('usage.exportJson')}</button></div>

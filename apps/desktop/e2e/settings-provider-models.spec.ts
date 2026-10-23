@@ -7,6 +7,78 @@ const imageProviderPresets = JSON.parse(
   readFileSync(new URL("../../../shared/image-provider-presets.json", import.meta.url), "utf8"),
 ) as unknown[];
 
+test('usage groups providers and compares models without collapsing filter choices', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    const records = [
+      { providerId: 'open_ai', modelId: 'shared-model', totalTokens: 1200, requestCount: 3 },
+      { providerId: 'open_ai', modelId: 'small-model', totalTokens: 300, requestCount: 2 },
+      { providerId: 'open_router', modelId: 'openai/shared-model', totalTokens: 800, requestCount: 4 },
+      { providerId: 'anthropic', modelId: 'claude-test', totalTokens: 500, requestCount: 1 },
+    ].map((row) => ({ ...row, key: `${row.providerId} / ${row.modelId}`, agentRunCount: 1, turnCount: 1,
+      successCount: row.requestCount, promptTokens: row.totalTokens * 0.6, completionTokens: row.totalTokens * 0.4,
+      thinkingTokens: row.totalTokens * 0.1, cacheReadTokens: 100, cacheMissTokens: 50, estimatedCostMicros: null }));
+    host.invoke = async (command: string, args: any) => {
+      if (command !== 'get_ai_usage_analytics_cmd') return original(command, args);
+      const filter = args.filter;
+      const rows = records.filter((row) => (!filter.providerId || row.providerId === filter.providerId)
+        && (!filter.modelId || row.modelId === filter.modelId)
+        && (!filter.modelIds || filter.modelIds.includes(row.modelId)));
+      const sum = (key: string) => rows.reduce((total, row) => total + (row as any)[key], 0);
+      const totals = { requestCount: sum('requestCount'), agentRunCount: rows.length, totalTokens: sum('totalTokens'),
+        promptTokens: sum('promptTokens'), completionTokens: sum('completionTokens'), thinkingTokens: sum('thinkingTokens'),
+        cacheReadTokens: sum('cacheReadTokens'), cacheMissTokens: sum('cacheMissTokens'), cacheCreationTokens: 0,
+        providerReportedPercent: 100, normalizedPercent: 0, estimatedPercent: 0, unknownPercent: 0, estimatedCostMicros: null };
+      return { totals, byModel: rows, byOperation: [],
+        timeSeries: [{ date: new Date().toISOString().slice(0, 10), ...totals }],
+        availableFilters: { providers: ['open_ai', 'open_router', 'anthropic'], models: ['shared-model', 'openai/shared-model', 'small-model', 'claude-test'], operations: ['agent_main'] } };
+    };
+  });
+  await page.getByRole('tab', { name: 'AI Usage', exact: true }).click();
+  const tab = page.getByTestId('usage-analytics-tab');
+  const breakdown = page.getByTestId('usage-model-breakdown');
+  await expect(page.getByTestId('usage-contribution-heatmap')).toBeVisible();
+  await expect(page.getByTestId('usage-model-group')).toHaveCount(3);
+  await expect(page.getByTestId('usage-model-row')).toHaveCount(4);
+  await expect(page.getByRole('option', { name: 'Weekly', exact: true })).toHaveCount(0);
+  await breakdown.getByRole('button', { name: 'Model', exact: true }).click();
+  const shared = page.getByTestId('usage-model-group').filter({ hasText: 'shared-model' });
+  await expect(shared.getByTestId('usage-group-total')).toContainText('2,000');
+  await expect(shared.getByTestId('usage-group-total')).toContainText('7');
+  await selectNexaOption(page.getByRole('combobox', { name: 'All models', exact: true }), 'shared-model');
+  await expect(page.getByTestId('usage-model-group')).toHaveCount(1);
+  await expect(shared.getByTestId('usage-model-row')).toHaveCount(2);
+  await expect(page.getByTestId('usage-contribution-heatmap').getByRole('gridcell', { name: /2K Tokens/ })).toHaveCount(1);
+  await selectNexaOption(page.getByRole('combobox', { name: 'All providers', exact: true }), 'anthropic');
+  await expect(breakdown.getByText('No usage records in this range.', { exact: true })).toBeVisible();
+  await page.getByRole('combobox', { name: 'All models', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveCount(4);
+  await page.keyboard.press('Escape');
+  await page.getByRole('combobox', { name: 'All providers', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveCount(4);
+  await page.keyboard.press('Escape');
+  await selectNexaOption(page.getByRole('combobox', { name: 'All providers', exact: true }), 'open_ai');
+  await expect(page.getByTestId('usage-model-row')).toHaveCount(1);
+  await tab.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await expect(page.getByTestId('usage-model-row')).toHaveCount(4);
+  await breakdown.getByLabel('Filter providers or models').fill('small');
+  await expect(page.getByTestId('usage-model-row')).toHaveCount(1);
+  await breakdown.getByLabel('Filter providers or models').fill('');
+  await breakdown.getByRole('button', { name: 'Provider', exact: true }).click();
+  await page.getByTestId('usage-model-row').first().locator('summary').click();
+  await expect(page.getByTestId('usage-model-row').first().getByText('Avg/request', { exact: true })).toBeVisible();
+  await breakdown.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('usage-wide.png') });
+  await page.setViewportSize({ width: 480, height: 1200 });
+  await page.getByTestId('usage-contribution-heatmap').scrollIntoViewIfNeeded();
+  await expect(page.getByTestId('usage-contribution-heatmap').locator('[role="gridcell"][tabindex="0"]').last()).toBeInViewport();
+  await expect.poll(() => breakdown.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await breakdown.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('usage-narrow.png') });
+});
+
 test('expanded settings keep compact spacing and controls inside narrow content', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 480, height: 900 });
