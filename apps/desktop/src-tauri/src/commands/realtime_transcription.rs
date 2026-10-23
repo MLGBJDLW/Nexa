@@ -1218,10 +1218,19 @@ mod tests {
         wav
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn long_silent_replay_reaches_speech_without_a_recording_duration_timeout() {
         use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
         use std::time::Duration;
+        // Real socket readiness must not race Tokio's automatic clock jumps.
+        // A blocking guard holds the paused clock while the server advances one
+        // packet duration after receiving each packet. Its real-time deadline
+        // releases the clock if I/O stalls so the existing timeout still fails.
+        let (release_clock, hold_clock) = std::sync::mpsc::channel::<()>();
+        let clock_guard = tokio::task::spawn_blocking(move || {
+            let _ = hold_clock.recv_timeout(Duration::from_secs(30));
+        });
+        let started = tokio::time::Instant::now();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let silence_bytes = 181 * 16_000 * 2;
@@ -1236,9 +1245,11 @@ mod tests {
                     "session.update" => Some(serde_json::json!({"type":"session.updated"})),
                     "input_audio_buffer.append" => {
                         let bytes = BASE64.decode(event["audio"].as_str().unwrap()).unwrap();
+                        assert_eq!(bytes.len(), 3_200, "retain the 100 ms PCM packet cadence");
                         received += bytes.len();
                         if bytes.iter().any(|byte| *byte != 0) {
                             assert!(received > silence_bytes);
+                            assert!(started.elapsed() >= Duration::from_secs(181));
                             heard_speech = true;
                             Some(
                                 serde_json::json!({"type":"conversation.item.input_audio_transcription.completed", "item_id":"late-speech", "transcript":"Speech after silence."}),
@@ -1261,6 +1272,9 @@ mod tests {
                 }
                 if event["type"] == "session.finish" {
                     break;
+                }
+                if event["type"] == "input_audio_buffer.append" {
+                    tokio::time::advance(Duration::from_millis(100)).await;
                 }
             }
             assert_eq!(received, silence_bytes + 3_200);
@@ -1293,6 +1307,9 @@ mod tests {
         );
         assert_eq!(std::fs::read(file.path()).unwrap(), wav);
         server.await.unwrap();
+        assert!(started.elapsed() >= Duration::from_secs(181));
+        drop(release_clock);
+        clock_guard.await.unwrap();
     }
 
     #[tokio::test]
