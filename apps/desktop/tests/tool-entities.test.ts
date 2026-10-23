@@ -2,6 +2,7 @@ import { createDefaultState, capStreamCollections } from '../src/lib/streaming/s
 import { applyToolRunEvent, createToolCall } from '../src/lib/streaming/toolProjection';
 import { applyStreamResetProjection, applyTerminalProjection } from '../src/lib/streaming/terminalProjection';
 import { extractMcpResult, mcpExternalLink, mcpInlineMedia } from '../src/lib/mcpResult';
+import { applyStreamBlockDelta, applyStreamBlockSnapshot } from '../src/lib/streaming/blockProjection';
 import type { ToolRunItem } from '../src/types/conversation';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -47,6 +48,22 @@ assert(reused.streamRounds[0] === retiredRound && retiredRound.toolCalls[0].stat
 assert(reused.traceEvents[0] === retiredTrace && reused.traceEvents.filter(event=>event.kind==='tool').length === 2,'each provider sample retains its own tool trace occurrence');
 assert(reused.toolCalls[0].arguments === 'new-file' && reused.toolCalls[0].status === 'done','active call ID resolves the new occurrence');
 assert(reused._tools.byId.get(reused._tools.key(retiredRound.toolCalls[0])!) === retiredRound.toolCalls[0],'an occurrence subscription resolves the retired card even while the same call ID is active again');
+
+const streamed = createDefaultState();
+applyToolRunEvent(streamed,{ ...run,callId:'stream-tool',arguments:'input' });
+applyStreamBlockDelta(streamed,'answer','answer',0,'中');
+const published = streamed.traceEvents;
+const publishedReply = published[1];
+applyStreamBlockDelta(streamed,'thinking','thought',0,'think');
+applyStreamBlockDelta(streamed,'answer','answer',3,'😀');
+applyToolRunEvent(streamed,{ ...run,callId:'stream-tool',status:'completed',content:'result' });
+const updatedTrace = streamed.traceEvents;
+assert(published.length === 2 && published[1] === publishedReply && publishedReply.kind === 'reply' && publishedReply.text === '中','text updates cannot mutate a published trace array or event');
+assert(updatedTrace[1].kind === 'reply' && updatedTrace[1].text === '中😀' && updatedTrace[1].nextOffset === 7,'interleaved Unicode deltas retain exact UTF-8 offsets after entity refresh');
+assert(updatedTrace[0].kind === 'tool' && updatedTrace[0].toolCall.status === 'done','text updates preserve tool identity for subsequent progress');
+applyStreamBlockSnapshot(streamed,'answer','answer','修正');
+applyStreamBlockDelta(streamed,'answer','answer',6,'!');
+assert(streamed.traceEvents[1].kind === 'reply' && streamed.traceEvents[1].text === '修正!','snapshot replacement and subsequent text updates share one trace');
 
 assert(mcpExternalLink('javascript:alert(1)') === null && mcpExternalLink('file:///private') === null,'MCP links must not execute code or open local resources');
 assert(mcpExternalLink('https://example.org/result') === 'https://example.org/result','explicit remote resource link remains usable');

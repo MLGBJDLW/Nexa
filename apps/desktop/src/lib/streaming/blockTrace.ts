@@ -1,36 +1,38 @@
 import type { TraceEvent, TraceReplyEvent, TraceThinkingEvent } from './protocol';
 
-type TextTraceEvent = TraceReplyEvent | TraceThinkingEvent;
+export type TextTraceEvent = TraceReplyEvent | TraceThinkingEvent;
 type TextTraceKind = TextTraceEvent['kind'];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+export function utf8ByteLength(text: string): number {
+  return encoder.encode(text).length;
+}
+
 export function blockTraceText(events: TraceEvent[], kind: TextTraceKind, blockId: string): string {
-  return events.filter((event): event is TextTraceEvent => event.kind === kind && event.blockId === blockId)
-    .map(event => event.text).join('');
+  let text = '';
+  for (const event of events) if (event.kind === kind && event.blockId === blockId) text += event.text;
+  return text;
 }
 
 /** One wire block may span several chronological presentation segments. */
-export function appendBlockTraceDelta(
+export function blockTraceDelta(
   events: TraceEvent[], kind: TextTraceKind, blockId: string,
-  offset: number, delta: string, newId: () => string,
-): TraceEvent[] {
+  offset: number, nextOffset: number, delta: string, newId: () => string,
+): { index: number; event: TextTraceEvent } | null {
   let index = -1;
+  let crossedBoundary = false;
   for (let candidate = events.length - 1; candidate >= 0; candidate--) {
     const event = events[candidate];
     if (event.kind === kind && event.blockId === blockId) { index = candidate; break; }
+    if (event.kind === 'tool' || (event.kind === 'status' && event.displayKind === 'steering')) crossedBoundary = true;
   }
   const previous = index >= 0 ? events[index] as TextTraceEvent : undefined;
-  if (previous && offset < (previous.nextOffset ?? 0)) return events;
-  const nextOffset = offset + encoder.encode(delta).length;
-  const crossedBoundary = events.slice(index + 1).some(event => event.kind === 'tool'
-    || (event.kind === 'status' && event.displayKind === 'steering'));
+  if (previous && offset < (previous.nextOffset ?? 0)) return null;
   if (previous && !crossedBoundary) {
-    const next = [...events];
-    next[index] = { ...previous, text: previous.text + delta, nextOffset };
-    return next;
+    return { index, event: { ...previous, text: previous.text + delta, nextOffset } };
   }
-  return [...events, { id: newId(), kind, blockId, startOffset: offset, nextOffset, text: delta }];
+  return { index: events.length, event: { id: newId(), kind, blockId, startOffset: offset, nextOffset, text: delta } };
 }
 
 function characterBoundary(bytes: Uint8Array, offset: number): number {
@@ -45,7 +47,11 @@ function characterBoundary(bytes: Uint8Array, offset: number): number {
 export function replaceBlockTraceText(
   events: TraceEvent[], kind: TextTraceKind, blockId: string, text: string,
 ): TraceEvent[] {
-  const indices = events.flatMap((event, index) => event.kind === kind && event.blockId === blockId ? [index] : []);
+  const indices: number[] = [];
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index];
+    if (event.kind === kind && event.blockId === blockId) indices.push(index);
+  }
   if (indices.length === 0) return events;
   const bytes = encoder.encode(text);
   const next = [...events];
