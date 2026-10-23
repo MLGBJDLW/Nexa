@@ -470,8 +470,8 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
         super::super::AgentRuntimeKind::Acp("github_copilot_acp".into()),
         "@nexa/agent-default",
     );
-    let probe = workspace.join("delayed_read.py");
-    std::fs::write(&probe, "import pathlib, time\ntime.sleep(12)\nprint(pathlib.Path('原生写入验证.txt').read_text(encoding='utf-8'))\nprint('LONG_COMMAND_COMPLETE')\n").unwrap();
+    let probe_script = workspace.join("delayed_read.py");
+    std::fs::write(&probe_script, "import pathlib, time\ntime.sleep(12)\nprint(pathlib.Path('原生写入验证.txt').read_text(encoding='utf-8'))\nprint('LONG_COMMAND_COMPLETE')\n").unwrap();
     let launch = ExternalAgentLaunch {
         executable: Some(
             crate::commands::subscription_accounts::resolve_copilot_binary()
