@@ -1023,6 +1023,36 @@ mod tests {
         }
         assert_eq!(visible["copilot:reasoning:r"], "");
         assert_eq!(visible["copilot:reasoning:new"], "fresh");
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.turn_retry",
+            serde_json::json!({"turnId":"t"}),
+        )
+        .await
+        .unwrap();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.message",
+            serde_json::json!({"messageId":"answer", "content":"retry succeeded"}),
+        )
+        .await
+        .unwrap();
+        projection.reasoning_unavailable(&tx).await.unwrap();
+        let mut unavailable = 0;
+        while let Ok(event) = rx.try_recv() {
+            if matches!(event, AgentEvent::ControllerStatus {code, ..} if code == "external_agent_reasoning_unavailable")
+            {
+                unavailable += 1;
+            }
+        }
+        assert_eq!(
+            unavailable, 1,
+            "discarded thinking cannot suppress the final visibility notice"
+        );
         // A long tool-driven session must release reasoning bookkeeping at
         // genuine inference boundaries, even when there was no answer draft.
         for index in 0..2100 {

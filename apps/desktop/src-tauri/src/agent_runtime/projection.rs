@@ -31,7 +31,8 @@ pub(super) struct Projection {
     last_network_progress: Option<std::time::Instant>,
     pub(super) retrying: bool,
     reasoning_unavailable_notified: bool,
-    readable_reasoning_seen: bool,
+    readable_reasoning_blocks: HashSet<String>,
+    settled_readable_reasoning: bool,
 }
 
 impl Projection {
@@ -39,7 +40,10 @@ impl Projection {
         &mut self,
         tx: &mpsc::Sender<AgentEvent>,
     ) -> Result<(), CoreError> {
-        if self.reasoning_unavailable_notified || self.readable_reasoning_seen {
+        if self.reasoning_unavailable_notified
+            || self.settled_readable_reasoning
+            || !self.readable_reasoning_blocks.is_empty()
+        {
             return Ok(());
         }
         tx.send(AgentEvent::ControllerStatus {
@@ -290,8 +294,8 @@ impl Projection {
         .await
         .map_err(protocol_error)?;
         *offset += delta.len();
-        if channel == StreamBlockChannel::Thinking {
-            self.readable_reasoning_seen = true;
+        if channel == StreamBlockChannel::Thinking && !delta.trim().is_empty() {
+            self.readable_reasoning_blocks.insert(id.to_string());
         }
         if channel == StreamBlockChannel::Answer {
             if !self.drafts.contains_key(id) {
@@ -398,6 +402,9 @@ impl Projection {
     }
 
     pub(super) fn mark_persisted(&mut self, id: &str) {
+        // Successful earlier inferences remain visible, but need no per-block
+        // bookkeeping. Retries first clear their snapshots and do not settle.
+        self.settled_readable_reasoning |= self.readable_reasoning_blocks.remove(id);
         if let Some(text) = self.drafts.remove(id) {
             self.draft_bytes -= text.len();
         }
@@ -417,6 +424,14 @@ impl Projection {
     pub(super) fn finish_reasoning(&mut self, item_id: &str) {
         let prefix = format!("reasoning:{item_id}:");
         self.offsets.retain(|id, _| !id.starts_with(&prefix));
+        self.readable_reasoning_blocks.retain(|id| {
+            if id.starts_with(&prefix) {
+                self.settled_readable_reasoning = true;
+                false
+            } else {
+                true
+            }
+        });
     }
 
     pub(super) async fn complete_reasoning(
@@ -448,8 +463,10 @@ impl Projection {
         .map_err(protocol_error)?;
         self.offsets.insert(id.to_string(), text.len());
         self.completed.insert(id.to_string());
-        if !text.is_empty() {
-            self.readable_reasoning_seen = true;
+        if text.trim().is_empty() {
+            self.readable_reasoning_blocks.remove(id);
+        } else {
+            self.readable_reasoning_blocks.insert(id.to_string());
         }
         Ok(())
     }
