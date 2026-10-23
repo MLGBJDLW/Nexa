@@ -11,6 +11,32 @@ OpenRouter audits cover text, embeddings, images and decisions separately.
 Anthropic discovery and health checks read authenticated `/v1/models` pages;
 failure uses the curated fallback without claiming live discovery succeeded.
 
+The current catalog also includes Mistral-hosted GLM 5.3 Flash, the paid
+OpenRouter MiniMax M3.1 Flash route, and Qwen Audio 3.1 TTS Plus on the existing
+speech transport. Flash TTS accepts the documented Beijing and Singapore
+endpoints; Plus keeps its own voice list. The OpenRouter MiniMax free route
+currently has no serving endpoints and stays as an unavailable historical ID,
+with no automatic replacement by a paid model. Public catalogs and documentation
+establish route metadata, not account entitlement or successful inference.
+
+## Usage statistics
+
+Settings → AI Usage shows a daily contribution heatmap for the past 365 days.
+Provider, model and operation filters apply to it; the date range controls the
+summary metrics and breakdown below. The separate horizontal trend is removed.
+Heatmap intensity uses the canonical total, so reported reasoning details are not
+counted again on top of an inclusive provider total.
+
+The breakdown can group by provider or compare a model across providers. Public
+vendor prefixes and Anthropic version punctuation are normalized for comparison,
+while dated versions, private namespaces and route suffixes remain distinct.
+Requests, tokens, exports and selected-range deletion use the same exact set of
+underlying model IDs. Expand a row for cache, success, cost and per-request detail;
+search narrows the displayed breakdown without changing the accounting filters.
+Filter choices remain available after a selection returns no records.
+
+## Connection and model identity
+
 Gemini Argon uses native thinking levels and preserves the exact request across
 `CONTINUATION` hops through the top-level `continuationToken`. A hop can contain
 only thinking. Usage snapshots are cumulative inside a hop and additive across

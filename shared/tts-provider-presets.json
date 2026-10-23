@@ -159,7 +159,8 @@
       {"id": "cosyvoice-v3.5-plus", "name": "CosyVoice v3.5 Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
       {"id": "cosyvoice-v3-flash", "name": "CosyVoice v3 Flash", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
       {"id": "cosyvoice-v3-plus", "name": "CosyVoice v3 Plus", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
-      {"id": "qwen-audio-3.1-tts-flash", "name": "Qwen Audio 3.1 TTS Flash (Beijing)", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-10-08", "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-flash", "maxInputCharacters": 200000}
+      {"id": "qwen-audio-3.1-tts-flash", "name": "Qwen Audio 3.1 TTS Flash", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-10-23", "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-flash", "maxInputCharacters": 200000},
+      {"id": "qwen-audio-3.1-tts-plus", "name": "Qwen Audio 3.1 TTS Plus", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-10-23", "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen-audio-3-1-tts-plus", "maxInputCharacters": 200000}
     ],
     "voices": [
       {"id": "longanhuan_v3.6", "name": "龙安欢 V3.6 (普通话/English)", "recommended": true, "modelIds": ["qwen-audio-3.0-tts-flash"]},
@@ -173,10 +174,10 @@
       {"id": "longanlingxi", "name": "龙安灵汐 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
       {"id": "longanxiaoxin", "name": "龙安小新 (Qwen Audio Flash)", "modelIds": ["qwen-audio-3.0-tts-flash"]},
       {"id": "longanyang", "name": "龙安阳 (CosyVoice v3)", "recommended": true, "modelIds": ["cosyvoice-v3-flash", "cosyvoice-v3-plus"]},
-      {"id": "longanhuan_v3.1", "name": "longanhuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "longanlingxin_v3.1", "name": "longanlingxin_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "longanfengyue_v3.1", "name": "longanfengyue_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
-      {"id": "xunanchuan_v3.1", "name": "xunanchuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
+      {"id": "longanhuan_v3.1", "name": "longanhuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus"]},
+      {"id": "longanlingxin_v3.1", "name": "longanlingxin_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus"]},
+      {"id": "longanfengyue_v3.1", "name": "longanfengyue_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus"]},
+      {"id": "xunanchuan_v3.1", "name": "xunanchuan_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash", "qwen-audio-3.1-tts-plus"]},
       {"id": "Emily_v3.1", "name": "Emily_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]},
       {"id": "Andy_v3.1", "name": "Andy_v3.1", "modelIds": ["qwen-audio-3.1-tts-flash"]}
     ],

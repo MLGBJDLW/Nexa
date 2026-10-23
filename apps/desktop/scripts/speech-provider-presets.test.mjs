@@ -59,6 +59,8 @@ test('TTS model changes replace incompatible system voices and preserve private 
   const qwen = tts.TTS_PROVIDER_PRESETS.find(p => p.id === 'dashscope-cosyvoice');
   assert.equal(tts.ttsVoiceForModel(qwen, 'qwen-audio-3.0-tts-flash'), 'longanhuan_v3.6');
   assert.equal(tts.ttsVoiceForModel(qwen, 'qwen-audio-3.0-tts-plus', 'longanhuan_v3.6'), 'longanlingxin');
+  assert.equal(tts.ttsVoiceForModel(qwen, 'qwen-audio-3.1-tts-plus', 'Emily_v3.1'), 'longanhuan_v3.1');
+  assert.equal(tts.ttsVoiceForModel(qwen, 'qwen-audio-3.1-tts-plus', 'longanlingxin_v3.1'), 'longanlingxin_v3.1');
   assert.equal(tts.ttsVoiceForModel(qwen, 'cosyvoice-v3-flash', 'longanhuan_v3.6'), 'longanyang');
   assert.equal(tts.ttsVoiceForModel(qwen, 'cosyvoice-v3.5-flash', 'longanhuan_v3.6'), '');
   assert.equal(tts.ttsVoiceForModel(qwen, 'cosyvoice-v3.5-flash', 'my-cloned-voice'), 'my-cloned-voice');
