@@ -298,6 +298,41 @@ async fn opaque_chat_reasoning_reaches_native_prompt_and_unadvertised_values_fai
 }
 
 #[tokio::test]
+async fn copilot_low_effort_preserves_summaries_across_tools_and_explains_only_absence() {
+    for readable in [true, false] {
+        let (mut request, mut rx, _, _) = super::super::tests::fixture(
+            super::super::AgentRuntimeKind::Acp("github_copilot_acp".into()),
+            "vendor/模型",
+        );
+        request.config.reasoning_effort = Some(nexa_core::llm::ReasoningEffort::Low);
+        let drain = tokio::spawn(async move {
+            let mut events = Vec::new();
+            while let Some(event) = rx.recv().await {
+                events.push(event);
+            }
+            events
+        });
+        let mode = if readable {
+            "readable_low"
+        } else {
+            "opaque_low"
+        };
+        run_connected("github_copilot_acp", request, wire(mode), "fixture")
+            .await
+            .unwrap();
+        let events = drain.await.unwrap();
+        assert_eq!(events.iter().any(|event| matches!(event,
+            AgentEvent::StreamBlockDelta { channel: nexa_core::agent::StreamBlockChannel::Thinking, delta, .. }
+            if delta == "thinking-私密")), readable);
+        assert_eq!(events.iter().filter(|event| matches!(event,
+            AgentEvent::ControllerStatus { code, .. } if code == "external_agent_reasoning_unavailable")).count(), usize::from(!readable));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Done { .. })));
+    }
+}
+
+#[tokio::test]
 async fn custom_launch_overrides_arguments_and_environment_without_shell_interpretation() {
     let directory = tempfile::tempdir().unwrap();
     let marker = directory.path().join("launch.json");
@@ -502,7 +537,26 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
         launch,
         reasoning_effort: std::env::var("NEXA_COPILOT_ACP_PROBE_EFFORT").ok(),
     });
-    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let drain = tokio::spawn(async move {
+        let mut thinking_chunks = 0;
+        let mut absence_notices = 0;
+        while let Some(event) = rx.recv().await {
+            match event {
+                AgentEvent::StreamBlockDelta {
+                    channel: nexa_core::agent::StreamBlockChannel::Thinking,
+                    delta,
+                    ..
+                } if !delta.trim().is_empty() => thinking_chunks += 1,
+                AgentEvent::ControllerStatus { code, .. }
+                    if code == "external_agent_reasoning_unavailable" =>
+                {
+                    absence_notices += 1
+                }
+                _ => {}
+            }
+        }
+        (thinking_chunks, absence_notices)
+    });
     let answer = tokio::time::timeout(Duration::from_secs(180), run("github_copilot_acp", request))
         .await
         .unwrap()
@@ -512,9 +566,15 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
     assert!(answer.text_content().contains("LONG_COMMAND_COMPLETE"));
     assert!(answer.text_content().contains(&nonce));
     assert_eq!(effects.load(Ordering::SeqCst), 0);
-    drain.await.unwrap();
+    let (thinking_chunks, absence_notices) = drain.await.unwrap();
     shutdown();
-    eprintln!("Live Copilot ACP model={model}: Unicode workspace, native edit, 12-second command and final answer verified");
+    eprintln!("Live Copilot ACP model={model}: Unicode workspace, native edit, 12-second command and final answer verified; thinking_chunks={thinking_chunks}, absence_notices={absence_notices}");
+    match std::env::var("NEXA_COPILOT_ACP_PROBE_EXPECT_SUMMARY").as_deref() {
+        Ok("readable") => assert!(thinking_chunks > 0),
+        Ok("absent") => assert_eq!((thinking_chunks, absence_notices), (0, 1)),
+        Ok(other) => panic!("Unsupported summary expectation: {other}"),
+        Err(_) => {}
+    }
 }
 
 fn client_wire(root: &std::path::Path, mode: &str) -> Wire {

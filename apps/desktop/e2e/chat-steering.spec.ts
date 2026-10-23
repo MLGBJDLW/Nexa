@@ -938,6 +938,14 @@ test('ACP external agent progress replaces one compact status and keeps cancella
   }));
   await expect(progress).toContainText('Receiving model output');
   await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_activity', content: 'Checking project files and the entry script.',
+  }));
+  await expect(progress).toContainText('Checking project files and the entry script.');
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_network_progress', content: 'Receiving model bytes',
+  }));
+  await expect(progress).toContainText('Checking project files and the entry script.');
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
     conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_reasoning_unavailable', content: 'This response does not include a readable reasoning summary.',
   }));
   await expect(page.getByTestId('external-agent-reasoning-unavailable')).toBeVisible();

@@ -408,6 +408,20 @@ async fn project_event(
     let data = &event.data;
     match event.event_type.as_str() {
         "assistant.streaming_delta" => projection.network_progress(tx).await?,
+        "assistant.intent" => {
+            if let Some(intent) = data["intent"]
+                .as_str()
+                .filter(|text| !text.trim().is_empty())
+            {
+                tx.send(AgentEvent::ControllerStatus {
+                    code: "external_agent_activity".into(),
+                    content: intent.chars().take(2000).collect(),
+                    tone: None,
+                })
+                .await
+                .map_err(protocol_error)?;
+            }
+        }
         "assistant.message_delta" => {
             let id = data
                 .get("messageId")
@@ -1097,6 +1111,15 @@ mod tests {
         )
         .await
         .unwrap();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.intent",
+            serde_json::json!({"intent":"Checking project files"}),
+        )
+        .await
+        .unwrap();
         project_test_event(&mut projection, &mut response, &tx, "assistant.message",
             serde_json::json!({"messageId":"a", "content":"answer", "reasoningOpaque":"secret", "encryptedContent":"secret"})).await.unwrap();
         project_test_event(
@@ -1109,8 +1132,12 @@ mod tests {
         .await
         .unwrap();
         let mut notices = 0;
+        let mut saw_activity = false;
         while let Ok(event) = rx.try_recv() {
             if let AgentEvent::ControllerStatus { code, content, .. } = &event {
+                if code == "external_agent_activity" && content == "Checking project files" {
+                    saw_activity = true;
+                }
                 if code == "external_agent_reasoning_unavailable" {
                     notices += 1;
                 }
@@ -1127,6 +1154,10 @@ mod tests {
                 }
             ));
         }
+        assert!(
+            saw_activity,
+            "native intent must remain visible as activity, independently of reasoning"
+        );
         assert_eq!(
             notices, 1,
             "opaque-only responses need one honest visibility notice"

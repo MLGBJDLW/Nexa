@@ -23,8 +23,11 @@ test('Copilot network-only progress stays visible when the provider omits readab
     { id: 'network', kind: 'status', code: 'external_agent_network_progress', text: 'Receiving' },
   ];
   assert.equal(externalAgentProgress(events, true).stage, 'receiving');
+  events.push({ id: 'intent', kind: 'status', code: 'external_agent_activity', text: 'Checking project files' });
+  events.push({ id: 'heartbeat', kind: 'status', code: 'external_agent_network_progress', text: 'Receiving' });
+  assert.equal(externalAgentProgress(events, true).latest?.text, 'Checking project files');
   events.push({ id: 'opaque', kind: 'status', code: 'external_agent_reasoning_unavailable', text: 'Not shared' });
-  assert.equal(externalAgentProgress(events, true).stage, 'receiving');
+  assert.equal(externalAgentProgress(events, true).stage, 'activity');
   assert.equal(externalAgentProgress(events, true).reasoningUnavailable, true);
   events.push({ id: 'thought', kind: 'thinking', text: 'A readable summary' });
   assert.equal(externalAgentProgress(events, true).reasoningUnavailable, false);

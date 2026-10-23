@@ -27,11 +27,27 @@ the model cannot provide summaries. When comparing clients, use the same model,
 reasoning effort, prompt and native runtime version. In particular, an unset
 Copilot effort uses the runtime's default; Nexa does not silently raise it to make
 summaries appear.
+Both Copilot connections preserve readable summaries independently of the selected
+effort. The SDK's native activity/intent is shown as progress, separately from
+thinking. Copilot ACP also reports when a completed reasoning-enabled response
+contains no readable summary; a summary delivered before a tool call remains valid.
+This message describes the response, not model support or whether reasoning ran.
 Reasoning strength does not guarantee that the provider exposes its reasoning.
 The pinned [CLI 1.0.103](https://github.com/github/copilot-cli/releases/tag/v1.0.103)
 also includes Gemini tool-schema and native ACP sandbox corrections, following
 the long-command and overload-retry fixes in
 [1.0.102](https://github.com/github/copilot-cli/releases/tag/v1.0.102).
+
+The two Nexa Copilot entries currently both use the official CLI: the SDK entry
+exposes Nexa tools, while the ACP entry uses native Copilot tools. Zed also offers
+a distinct direct Copilot API provider with its own OAuth account owner. Changing
+to that architecture would transfer the model loop, tool replay and compaction to
+Nexa; it is not a summary-visibility setting. Direct API comparisons must preserve
+the actual wire effort, model route and task. In particular, the Chat Completions
+request in [Zed's inspected implementation](https://github.com/zed-industries/zed/blob/9e84b066b55bc3609a30dd965075c12255b38b45/crates/copilot_chat/src/model.rs#L774)
+does not serialize the UI effort selection. [Google's summary contract](https://ai.google.dev/gemini-api/docs/thinking)
+also permits a thought signature without a readable summary. Nexa neither displays
+encrypted state as text nor changes effort to force a summary.
 
 The gauge beside the Chat model and reasoning controls opens **Account usage**.
 It shows provider-reported used and remaining percentages, individual quota
