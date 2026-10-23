@@ -189,7 +189,10 @@ test('CI scopes source boundaries and always validates release metadata and aggr
 
 test('CI avoids duplicate checks and retains large-history stress in nightly coverage', () => {
   const nightly = fs.readFileSync(path.join(repositoryRoot, '.github/workflows/nightly-eval.yml'), 'utf8');
+  const browserConfig = fs.readFileSync(path.join(repositoryRoot, 'apps/desktop/playwright.ci.config.ts'), 'utf8');
   assert.doesNotMatch(ciWorkflow, /name: Agent eval smoke|name: Verify release workflow recovery contract/);
   assert.match(nightly, /cargo test -p nexa-core --lib timeline_stress_ -- --ignored/);
-  assert.match(ciWorkflow, /e2e\/chat-tool-stream-pressure\.spec\.ts/);
+  assert.match(browserConfig, /e2e\/chat-tool-stream-pressure\.spec\.ts/);
+  assert.equal([...ciWorkflow.matchAll(/run: npx playwright test/g)].length, 1);
+  assert.match(ciWorkflow, /npx playwright test --config playwright\.ci\.config\.ts/);
 });
