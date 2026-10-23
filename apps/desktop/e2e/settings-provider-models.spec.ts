@@ -7,6 +7,49 @@ const imageProviderPresets = JSON.parse(
   readFileSync(new URL("../../../shared/image-provider-presets.json", import.meta.url), "utf8"),
 ) as unknown[];
 
+test('Copilot API imports an account and discovers its models independently of CLI runtimes', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = async (command: string, args: any) => {
+      if (command === 'import_github_copilot_api_token_cmd') return 'test-github-account-token';
+      if (command !== 'refresh_provider_model_catalog_cmd' || args.config.provider !== 'github_copilot_api') return original(command, args);
+      return { provider:'github_copilot_api', baseUrl:args.config.baseUrl, refreshedAt:new Date().toISOString(), liveDiscoverySucceeded:true,
+        models:[{id:'claude-opus-5.5',name:'Claude Opus 5.5',recommended:false,source:'discovered',status:'active',modalities:['text','image'],supportsTools:true,reasoningEfforts:['low','medium','high'],
+          capabilities:{vision:true,reasoning:{mode:'optional',defaultEnabled:true,defaultEffort:'low',effortLevels:['low','medium','high'],effortBudgetExclusive:true}}}] };
+    };
+  });
+  await page.getByRole('tab', { name:'AI Providers', exact:true }).click();
+  await page.getByRole('button', { name:'Add Provider', exact:true }).click();
+  await page.getByRole('button', { name:/GitHub Copilot API/ }).click();
+  const form = page.locator('form').filter({ has:page.getByRole('button', { name:'Save', exact:true }) });
+  await expect(form.getByTestId('copilot-api-account')).toBeVisible();
+  await form.getByRole('button', { name:'Use GitHub CLI account', exact:true }).click();
+  await expect(form.locator('input[type="password"]')).toHaveValue('test-github-account-token');
+  await form.getByTestId('refresh-provider-models').click();
+  await selectNexaOption(form.getByTestId('default-model-picker'), 'claude-opus-5.5');
+  await expect(form.getByTestId('default-model-picker')).toContainText('Claude Opus 5.5');
+  await expect(form.getByTestId('provider-model-catalog-status')).toBeVisible();
+  await form.screenshot({ path:testInfo.outputPath('copilot-api-provider.png') });
+  await form.getByRole('button', { name:'Save', exact:true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({provider:'github_copilot_api',model:'claude-opus-5.5',apiKey:'test-github-account-token',reasoningEnabled:true,reasoningEffort:'low'});
+  await page.getByRole('button', { name:'Add Provider', exact:true }).click();
+  await page.getByRole('button', { name:/GitHub Copilot API/ }).click();
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: any) => command === 'import_github_copilot_api_token_cmd'
+      ? new Promise(resolve => { (window as any).__finishGithubImport = () => resolve('late-account-token'); })
+      : original(command, args);
+  });
+  await form.getByRole('button', { name:'Use GitHub CLI account', exact:true }).click();
+  const providerField = form.locator('label').filter({ hasText:'Provider Type' }).locator('xpath=..');
+  await selectNexaOption(providerField.locator('[data-nexa-select-trigger]'), 'open_ai');
+  await page.evaluate(() => (window as any).__finishGithubImport());
+  await expect(form.locator('input[type="password"]')).toHaveValue('');
+});
+
 test('usage groups providers and compares models without collapsing filter choices', async ({ page }, testInfo) => {
   await page.goto('/settings');
   await page.evaluate(() => {

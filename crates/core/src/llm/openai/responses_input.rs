@@ -8,6 +8,7 @@ fn replayable_responses_reasoning(message: &Message) -> Vec<serde_json::Value> {
     if let Some(envelope) = message.provider_turn() {
         match &envelope.replay_payload {
             crate::llm::provider_turn::ProviderReplayPayload::DeepSeekResponseItems(payload)
+            | crate::llm::provider_turn::ProviderReplayPayload::CopilotResponseItems(payload)
             | crate::llm::provider_turn::ProviderReplayPayload::OpenAiResponseItems(payload) => {
                 return payload.items.clone();
             }
@@ -154,7 +155,14 @@ pub(super) fn responses_input_items(
         let mut replay_items = Vec::new();
         if message.role == Role::Assistant {
             replay_items = replayable_responses_reasoning(message);
-            replayed_message = replay_items.iter().any(|item| {
+            // Copilot captures the entire authoritative output, including
+            // function-only turns. Do not inject an extra empty assistant item.
+            replayed_message = message.provider_turn().is_some_and(|turn| {
+                matches!(
+                    turn.replay_payload,
+                    crate::llm::provider_turn::ProviderReplayPayload::CopilotResponseItems(_)
+                )
+            }) || replay_items.iter().any(|item| {
                 item.get("type").and_then(serde_json::Value::as_str) == Some("message")
             });
             replayed_call_ids.extend(replay_items.iter().filter_map(|item| {

@@ -1149,6 +1149,9 @@ export const setCapabilityRegistryReadMode = (
 export const testAgentConnection = (config: SaveAgentConfigInput) =>
   invoke<ProviderModelCatalogSnapshot>('test_agent_connection_cmd', { config });
 
+export const importGithubCopilotApiToken = () =>
+  invoke<string>('import_github_copilot_api_token_cmd');
+
 export const refreshProviderModelCatalog = (config: SaveAgentConfigInput) =>
   invoke<ProviderModelCatalogSnapshot>('refresh_provider_model_catalog_cmd', { config });
 

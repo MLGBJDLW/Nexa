@@ -836,6 +836,7 @@ export interface SpeechToTextConfig {
 }
 
 export type ProviderType =
+  | 'github_copilot_api'
   | 'open_ai'
   | 'openrouter'
   | 'anthropic'

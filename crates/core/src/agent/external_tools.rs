@@ -1265,6 +1265,7 @@ impl ExternalToolSession {
             native_vision: Some(self.input.native_vision),
             tools: &self.input.tools,
             config: &self.input.config,
+            context_window_resolution: self.input.config.context_window_resolution,
             cancel_token: &self.input.cancellation,
             confirmation_callback: &None,
             approval_callback: &approval,

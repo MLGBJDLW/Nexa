@@ -560,6 +560,12 @@ impl LlmProvider for MoaProvider {
         Ok(vec![format!("moa/{}", self.preset.id.as_str())])
     }
 
+    async fn model_catalog_snapshot(
+        &self,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        self.aggregator.model_catalog_snapshot().await
+    }
+
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
         let (aggregator_request, advisor_usage) = self.aggregator_request(request).await?;
         let mut response = self.aggregator.complete(&aggregator_request).await?;

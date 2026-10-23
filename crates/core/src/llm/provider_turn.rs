@@ -128,6 +128,13 @@ pub struct ResponsesReplayPayload {
     pub items: Vec<serde_json::Value>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResponsesReplayContract {
+    OpenAi,
+    DeepSeek,
+    Copilot,
+}
+
 impl ResponsesReplayPayload {
     /// A provider-confirmed output limit can leave read-only reasoning state.
     /// It is useful for continuation, but never authorizes a client tool.
@@ -197,6 +204,14 @@ impl ResponsesReplayPayload {
     }
 
     fn is_structurally_complete(&self, encrypted_reasoning_required: bool) -> bool {
+        self.is_complete(if encrypted_reasoning_required {
+            ResponsesReplayContract::OpenAi
+        } else {
+            ResponsesReplayContract::DeepSeek
+        })
+    }
+
+    fn is_complete(&self, contract: ResponsesReplayContract) -> bool {
         if self.response_status != "completed" || self.items.is_empty() {
             return false;
         }
@@ -204,7 +219,7 @@ impl ResponsesReplayPayload {
         for item in &self.items {
             match item.get("type").and_then(serde_json::Value::as_str) {
                 Some("reasoning") => {
-                    let has_state = if encrypted_reasoning_required {
+                    let has_state = if contract != ResponsesReplayContract::DeepSeek {
                         item.get("encrypted_content")
                             .and_then(serde_json::Value::as_str)
                             .is_some_and(|content| !content.trim().is_empty())
@@ -213,7 +228,14 @@ impl ResponsesReplayPayload {
                             .and_then(serde_json::Value::as_array)
                             .is_some_and(|content| !content.is_empty())
                     };
-                    if !Self::completed_item(item) || !has_state {
+                    let completed = Self::completed_item(item)
+                        || (contract == ResponsesReplayContract::Copilot
+                            && item.get("status").is_none()
+                            && item
+                                .get("id")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|id| !id.is_empty()));
+                    if !completed || !has_state {
                         return false;
                     }
                     saw_reasoning = true;
@@ -249,7 +271,7 @@ impl ResponsesReplayPayload {
                             serde_json::from_str::<serde_json::Value>(arguments).ok()
                         })
                         .is_some_and(|arguments| arguments.is_object());
-                    if !saw_reasoning
+                    if (!saw_reasoning && contract != ResponsesReplayContract::Copilot)
                         || !Self::completed_item(item)
                         || !call_id
                         || !name
@@ -261,7 +283,7 @@ impl ResponsesReplayPayload {
                 _ => return false,
             }
         }
-        saw_reasoning
+        saw_reasoning || contract == ResponsesReplayContract::Copilot
     }
 
     fn authorizes_tool_calls(
@@ -269,7 +291,22 @@ impl ResponsesReplayPayload {
         tool_calls: &[ToolCallRequest],
         encrypted_reasoning_required: bool,
     ) -> bool {
-        if !self.is_structurally_complete(encrypted_reasoning_required) {
+        self.authorizes_calls(
+            tool_calls,
+            if encrypted_reasoning_required {
+                ResponsesReplayContract::OpenAi
+            } else {
+                ResponsesReplayContract::DeepSeek
+            },
+        )
+    }
+
+    fn authorizes_calls(
+        &self,
+        tool_calls: &[ToolCallRequest],
+        contract: ResponsesReplayContract,
+    ) -> bool {
+        if !self.is_complete(contract) {
             return false;
         }
         let provider_calls = self
@@ -513,6 +550,7 @@ pub enum ProviderReplayPayload {
     AnthropicPausedTurnBlocks(Vec<serde_json::Value>),
     AnthropicAssistantBlocks(AnthropicAssistantReplay),
     OpenAiResponseItems(ResponsesReplayPayload),
+    CopilotResponseItems(ResponsesReplayPayload),
     GeminiThoughtSignatures(GeminiThoughtSignatureSet),
     BedrockAssistantBlocks(BedrockAssistantReplay),
     OpenAiCompatibleReasoningContent {
@@ -523,6 +561,11 @@ pub enum ProviderReplayPayload {
     /// Ark Chat returns the complete opaque reasoning state separately from
     /// the visible summary. It is never a textual reasoning fragment.
     ArkEncryptedContent(String),
+    /// Copilot Chat's opaque state and optional provider-authored summary.
+    CopilotReasoning {
+        opaque: Option<String>,
+        text: Option<String>,
+    },
     #[default]
     None,
 }
@@ -539,11 +582,18 @@ impl ProviderReplayPayload {
             Self::AnthropicAssistantBlocks(payload) => payload.is_present(),
             Self::OpenRouterReasoningDetails(details) => !details.is_empty(),
             Self::ArkEncryptedContent(content) => !content.trim().is_empty(),
+            Self::CopilotReasoning { opaque, text } => [opaque, text]
+                .iter()
+                .any(|s| s.as_ref().is_some_and(|s| !s.trim().is_empty())),
             Self::DeepSeekResponseItems(payload) => {
                 payload.is_structurally_complete(false) || payload.is_output_continuation(false)
             }
             Self::OpenAiResponseItems(payload) => {
                 payload.is_structurally_complete(true) || payload.is_output_continuation(true)
+            }
+            Self::CopilotResponseItems(payload) => {
+                payload.is_complete(ResponsesReplayContract::Copilot)
+                    || payload.is_output_continuation(true)
             }
             Self::GeminiThoughtSignatures(payload) => {
                 !payload.signatures.is_empty() && payload.has_valid_signature_positions()
@@ -591,6 +641,11 @@ impl ProviderReplayPayload {
 
     fn authorizes_tool_calls(&self, route: &RouteSnapshot, tool_calls: &[ToolCallRequest]) -> bool {
         match self {
+            Self::CopilotReasoning { opaque, .. }
+                if route.replay_policy == ReasoningReplayPolicy::OpaqueSignature =>
+            {
+                opaque.as_ref().is_some_and(|s| !s.trim().is_empty())
+            }
             Self::BedrockAssistantBlocks(payload) => {
                 self.is_present()
                     && super::bedrock::valid_replay(&payload.content, Some(tool_calls))
@@ -601,6 +656,9 @@ impl ProviderReplayPayload {
                 payload.authorizes_tool_calls(tool_calls, false)
             }
             Self::OpenAiResponseItems(payload) => payload.authorizes_tool_calls(tool_calls, true),
+            Self::CopilotResponseItems(payload) => {
+                payload.authorizes_calls(tool_calls, ResponsesReplayContract::Copilot)
+            }
             Self::AnthropicPausedTurnBlocks(_) => tool_calls.is_empty() && self.is_present(),
             Self::AnthropicAssistantBlocks(payload) => payload.authorizes_tool_calls(tool_calls),
             Self::GeminiThoughtSignatures(payload) => payload.authorizes_tool_calls(
@@ -706,6 +764,7 @@ pub enum ProviderReplayItem {
     AnthropicPausedTurnBlock(serde_json::Value),
     AnthropicAssistantBlock(serde_json::Value),
     OpenAiResponseItem(serde_json::Value),
+    CopilotResponseItem(serde_json::Value),
     GeminiContentPart(serde_json::Value),
     BedrockContentBlock(serde_json::Value),
     OpenAiCompatibleReasoningContent {
@@ -714,6 +773,10 @@ pub enum ProviderReplayItem {
     },
     OpenRouterReasoningDetail(serde_json::Value),
     ArkEncryptedContent(String),
+    CopilotReasoning {
+        opaque: Option<String>,
+        text: Option<String>,
+    },
 }
 
 impl ProviderReplayItem {
@@ -750,6 +813,12 @@ impl ProviderReplayItem {
                 .cloned()
                 .map(Self::OpenAiResponseItem)
                 .collect(),
+            ProviderReplayPayload::CopilotResponseItems(payload) => payload
+                .items
+                .iter()
+                .cloned()
+                .map(Self::CopilotResponseItem)
+                .collect(),
             ProviderReplayPayload::GeminiThoughtSignatures(payload) => payload
                 .content_parts
                 .iter()
@@ -770,6 +839,12 @@ impl ProviderReplayItem {
                 .collect(),
             ProviderReplayPayload::ArkEncryptedContent(content) => {
                 vec![Self::ArkEncryptedContent(content.clone())]
+            }
+            ProviderReplayPayload::CopilotReasoning { opaque, text } => {
+                vec![Self::CopilotReasoning {
+                    opaque: opaque.clone(),
+                    text: text.clone(),
+                }]
             }
             ProviderReplayPayload::BedrockAssistantBlocks(payload) => payload
                 .content
@@ -922,6 +997,7 @@ impl ProviderTurnEnvelope {
                 .filter_map(|block| block["name"].as_str())
                 .any(crate::tool_argument_projection::is_sensitive_computer_control_name),
             ProviderReplayPayload::DeepSeekResponseItems(payload)
+            | ProviderReplayPayload::CopilotResponseItems(payload)
             | ProviderReplayPayload::OpenAiResponseItems(payload) => {
                 payload.items.iter().any(|item| {
                     item.get("type").and_then(serde_json::Value::as_str) == Some("function_call")
@@ -979,6 +1055,7 @@ impl ProviderTurnEnvelope {
                 })
             }
             ProviderReplayPayload::DeepSeekResponseItems(payload)
+            | ProviderReplayPayload::CopilotResponseItems(payload)
             | ProviderReplayPayload::OpenAiResponseItems(payload) => {
                 payload.items.iter().any(|item| {
                     if item.get("type").and_then(serde_json::Value::as_str) != Some("function_call")

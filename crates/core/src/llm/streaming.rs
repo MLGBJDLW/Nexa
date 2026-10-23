@@ -18,6 +18,9 @@ struct SseOutput {
     channel: SseChannel,
     capture_ark: bool,
     ark_content: Option<String>,
+    capture_copilot: bool,
+    copilot_opaque: Option<String>,
+    copilot_text: String,
 }
 
 impl SseOutput {
@@ -32,6 +35,35 @@ impl SseOutput {
     }
 
     fn capture(&mut self, choice: Option<&SseChoice>) {
+        if self.capture_copilot {
+            if let Some(choice) = choice {
+                let delta = &choice.delta;
+                if let Some(opaque) = delta.reasoning_opaque.as_ref().filter(|s| !s.is_empty()) {
+                    self.copilot_opaque = Some(opaque.clone());
+                }
+                if let Some(text) = delta
+                    .reasoning_text
+                    .as_ref()
+                    .and_then(serde_json::Value::as_str)
+                {
+                    self.copilot_text.push_str(text);
+                }
+                if let Some(message) = &choice.message {
+                    if let Some(opaque) =
+                        message.reasoning_opaque.as_ref().filter(|s| !s.is_empty())
+                    {
+                        self.copilot_opaque = Some(opaque.clone());
+                    }
+                    if let Some(text) = message
+                        .reasoning_text
+                        .as_ref()
+                        .and_then(serde_json::Value::as_str)
+                    {
+                        self.copilot_text = text.to_owned();
+                    }
+                }
+            }
+        }
         if !self.capture_ark {
             return;
         }
@@ -52,6 +84,23 @@ impl SseOutput {
     }
 
     async fn finish(&mut self) {
+        if self.capture_copilot && (self.copilot_opaque.is_some() || !self.copilot_text.is_empty())
+        {
+            if let SseChannel::Events(tx) = &self.channel {
+                let text =
+                    (!self.copilot_text.is_empty()).then(|| std::mem::take(&mut self.copilot_text));
+                let _ = tx
+                    .send(super::ProviderStreamEvent::ReplayState {
+                        replay: Box::new(
+                            super::provider_turn::ProviderReplayPayload::CopilotReasoning {
+                                opaque: self.copilot_opaque.take(),
+                                text,
+                            },
+                        ),
+                    })
+                    .await;
+            }
+        }
         if let (SseChannel::Events(tx), Some(content)) = (&self.channel, self.ark_content.take()) {
             let _ = tx
                 .send(super::ProviderStreamEvent::ReplayState {
@@ -85,6 +134,8 @@ struct SseChoice {
 
 #[derive(serde::Deserialize, Default)]
 struct SseDelta {
+    #[serde(default)]
+    reasoning_opaque: Option<String>,
     #[serde(default)]
     encrypted_content: Option<String>,
     content: Option<serde_json::Value>,
@@ -945,6 +996,9 @@ pub async fn parse_sse_stream_with_idle_timeout(
         channel: SseChannel::Chunks(tx),
         capture_ark: false,
         ark_content: None,
+        capture_copilot: false,
+        copilot_opaque: None,
+        copilot_text: String::new(),
     };
     parse_sse_with_output(response, &mut output, stream_idle_timeout).await
 }
@@ -954,11 +1008,15 @@ pub(crate) async fn parse_sse_events_with_idle_timeout(
     tx: mpsc::Sender<super::ProviderStreamEvent>,
     stream_idle_timeout: std::time::Duration,
     capture_ark: bool,
+    capture_copilot: bool,
 ) -> Result<(), CoreError> {
     let mut output = SseOutput {
         channel: SseChannel::Events(tx),
         capture_ark,
         ark_content: None,
+        capture_copilot,
+        copilot_opaque: None,
+        copilot_text: String::new(),
     };
     parse_sse_with_output(response, &mut output, stream_idle_timeout).await?;
     output.finish().await;
@@ -977,6 +1035,9 @@ async fn process_sse_line(
         channel: SseChannel::Chunks(tx.clone()),
         capture_ark: false,
         ark_content: None,
+        capture_copilot: false,
+        copilot_opaque: None,
+        copilot_text: String::new(),
     };
     process_sse_line_with_output(
         line,
@@ -1359,6 +1420,7 @@ mod tests {
                 tx,
                 std::time::Duration::from_secs(2),
                 enabled,
+                false,
             )
             .await
             .unwrap();
@@ -1383,6 +1445,67 @@ mod tests {
                 }
             }
             assert_eq!(count, usize::from(enabled));
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn copilot_opaque_state_is_committed_only_after_terminal_and_never_rendered() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for terminal in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 2048];
+                socket.read(&mut request).await.unwrap();
+                let mut body = concat!(
+                    "data: {\"choices\":[{\"delta\":{\"reasoning_text\":\"Visible summary\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{\"reasoning_opaque\":\"opaque/+=private-state\"}}]}\n\n"
+                ).to_owned();
+                if terminal {
+                    body.push_str("data: {\"choices\":[{\"delta\":{\"content\":\"Done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+                }
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            });
+            let response = reqwest::get(format!("http://{address}/chat/completions"))
+                .await
+                .unwrap();
+            let (tx, mut rx) = mpsc::channel(16);
+            let result = parse_sse_events_with_idle_timeout(
+                response,
+                tx,
+                std::time::Duration::from_secs(2),
+                false,
+                true,
+            )
+            .await;
+            assert_eq!(result.is_ok(), terminal);
+            let mut replay_count = 0;
+            let mut summary = String::new();
+            while let Some(event) = rx.recv().await {
+                match event {
+                    super::super::ProviderStreamEvent::ReplayState { replay } => {
+                        replay_count += 1;
+                        assert_eq!(
+                            *replay,
+                            super::super::provider_turn::ProviderReplayPayload::CopilotReasoning {
+                                opaque: Some("opaque/+=private-state".into()),
+                                text: Some("Visible summary".into())
+                            }
+                        );
+                    }
+                    super::super::ProviderStreamEvent::Chunk { chunk } => {
+                        assert!(!serde_json::to_string(&chunk)
+                            .unwrap()
+                            .contains("private-state"));
+                        summary.push_str(chunk.thinking_delta.as_deref().unwrap_or_default());
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(replay_count, usize::from(terminal));
+            assert_eq!(summary, "Visible summary");
             server.await.unwrap();
         }
     }
@@ -1882,6 +2005,9 @@ mod tests {
                     channel: SseChannel::Chunks(tx.clone()),
                     capture_ark: false,
                     ark_content: None,
+                    capture_copilot: false,
+                    copilot_opaque: None,
+                    copilot_text: String::new(),
                 },
                 &mut in_think_block,
                 &mut think_tag_buffer,

@@ -1,5 +1,15 @@
 [
   {
+    "id": "github-copilot-api",
+    "name": "GitHub Copilot API",
+    "provider": "github_copilot_api",
+    "baseUrl": "https://api.githubcopilot.com",
+    "requiresApiKey": true,
+    "icon": "copilot",
+    "description": "Account-scoped Copilot API models with Nexa tools and context",
+    "models": []
+  },
+  {
     "id": "openai",
     "name": "OpenAI",
     "provider": "open_ai",

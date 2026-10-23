@@ -201,6 +201,7 @@ const PROVIDER_ICON_META: Record<string, ProviderIconMeta> = {
 
 const PROVIDER_TYPE_TO_ICON: Record<string, string> = {
   github_copilot: 'copilot',
+  github_copilot_api: 'copilot',
   openai_codex: 'openai',
   open_ai: 'openai',
   openrouter: 'openrouter',

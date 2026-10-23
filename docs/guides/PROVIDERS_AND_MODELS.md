@@ -53,6 +53,16 @@ protocol, context limit, reasoning control, or credential route.
 
 ## Choose a connection
 
+**GitHub Copilot API** is available in API models, separately from the SDK and ACP
+external agents. It accepts a Copilot-enabled GitHub account token or an explicit
+import from `gh auth login`. Refresh models after importing: available IDs, tools,
+vision, reasoning levels and context limits come from the current account.
+The saved token uses the normal encrypted provider credential store. Requests use
+official Copilot HTTPS endpoints; arbitrary gateways are not accepted for this
+credential type. Nexa owns execution, history and compaction for this direct entry.
+See [External agents and subscriptions](SUBSCRIPTION_AGENTS.md) for ownership and
+the distinction between readable summaries and opaque reasoning state.
+
 The chat toolbar separates the provider icon, model, and reasoning controls.
 Choose a provider to restore that connection's saved model and reasoning settings;
 choose the model label to browse only its models. Subscription and ACP catalogs

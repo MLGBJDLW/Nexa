@@ -307,6 +307,15 @@ impl LlmProvider for AutomaticFallbackProvider {
             .await
     }
 
+    async fn model_catalog_snapshot(
+        &self,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        self.routes[self.active_position()]
+            .provider
+            .model_catalog_snapshot()
+            .await
+    }
+
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
         self.complete_with_route(request)
             .await

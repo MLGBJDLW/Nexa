@@ -768,6 +768,7 @@ pub struct AgentExecutor {
     summarization_provider: Option<Box<dyn LlmProvider>>,
     tools: ToolRegistry,
     config: AgentConfig,
+    live_catalog_limits: std::sync::OnceLock<crate::llm::model_contract::ResolvedCatalogLimits>,
     skills_override: Option<Vec<Skill>>,
     auto_loaded_skills_override: Option<Vec<Skill>>,
     cancel_token: CancellationToken,
@@ -789,6 +790,37 @@ pub struct AgentExecutor {
 }
 
 impl AgentExecutor {
+    fn context_window_resolution(
+        &self,
+    ) -> Option<crate::conversation::memory::ResolvedContextWindow> {
+        if self.config.context_window.is_none() {
+            if let Some(capacity_tokens) = self
+                .live_catalog_limits
+                .get()
+                .and_then(|limits| limits.limits.context_tokens)
+                .and_then(|n| u32::try_from(n).ok())
+            {
+                return Some(crate::conversation::memory::ResolvedContextWindow {
+                    capacity_tokens: Some(capacity_tokens),
+                    authority: crate::conversation::memory::ContextWindowAuthority::Catalog,
+                });
+            }
+        }
+        self.config.context_window_resolution
+    }
+
+    fn resolved_output_budget(&self, model: &str) -> output_budget::OutputBudgetPlan {
+        if let Some(limits) = self.live_catalog_limits.get() {
+            let mut config = self.config.clone();
+            config.catalog_limits_authoritative = Some(true);
+            config.resolved_catalog_limits = Some(limits.clone());
+            config.context_window_resolution = self.context_window_resolution();
+            config.resolved_output_budget(model)
+        } else {
+            self.config.resolved_output_budget(model)
+        }
+    }
+
     /// Create a new executor from a provider, tool registry, and config.
     pub fn new(provider: Box<dyn LlmProvider>, tools: ToolRegistry, config: AgentConfig) -> Self {
         Self {
@@ -796,6 +828,7 @@ impl AgentExecutor {
             summarization_provider: None,
             tools,
             config,
+            live_catalog_limits: std::sync::OnceLock::new(),
             skills_override: None,
             auto_loaded_skills_override: None,
             cancel_token: CancellationToken::new(),

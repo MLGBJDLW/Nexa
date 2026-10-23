@@ -496,6 +496,7 @@ fn default_endpoint(provider_type: ProviderType) -> &'static str {
         ProviderType::Yi => "https://api.lingyiwanwu.com/v1",
         ProviderType::Baichuan => "https://api.baichuan-ai.com/v1",
         ProviderType::Custom => "custom://endpoint",
+        ProviderType::GithubCopilotApi => super::copilot::DEFAULT_BASE_URL,
     }
 }
 

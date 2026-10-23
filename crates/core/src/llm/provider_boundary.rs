@@ -14,6 +14,7 @@ fn provider_metadata(provider: ProviderType) -> ProviderMetadata {
     let (id, default_endpoint) = match provider {
         ProviderType::OpenAi => ("openai", "https://api.openai.com/v1"),
         ProviderType::OpenRouter => ("openrouter", "https://openrouter.ai/api/v1"),
+        ProviderType::GithubCopilotApi => ("github_copilot_api", super::copilot::DEFAULT_BASE_URL),
         ProviderType::Anthropic => ("anthropic", "https://api.anthropic.com/v1"),
         ProviderType::Google => ("google", "https://generativelanguage.googleapis.com/v1beta"),
         ProviderType::Vertex => ("vertex", super::vertex::DEFAULT_BASE_URL),
@@ -76,6 +77,20 @@ fn endpoint_matches(
         return false;
     };
     hosts.contains(&url.host_str().unwrap_or_default()) && path_is(&url, paths)
+}
+
+pub(super) fn is_copilot_endpoint(base_url: Option<&str>) -> bool {
+    endpoint_matches(
+        ProviderType::GithubCopilotApi,
+        base_url,
+        &[
+            "api.githubcopilot.com",
+            "api.individual.githubcopilot.com",
+            "api.business.githubcopilot.com",
+            "api.enterprise.githubcopilot.com",
+        ],
+        &[""],
+    )
 }
 
 pub(crate) fn is_openai_public_endpoint(provider: ProviderType, base_url: Option<&str>) -> bool {

@@ -1191,6 +1191,15 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             };
             DesktopAgentBackend::Nexa(provider)
             };
+            let live_model_catalog = if let DesktopAgentBackend::Nexa(provider) = &backend {
+                tokio::select! {
+                    biased;
+                    _ = cancel_token_clone.cancelled() => return Err("Agent execution cancelled during initialization.".to_string()),
+                    result = provider.model_catalog_snapshot() => result.map_err(|error| error.to_string())?,
+                }
+            } else { None };
+            let live_model = live_model_catalog.as_ref().and_then(|catalog| catalog.descriptors.iter().find(|model| model.id == effective_db_config.model));
+            let primary_native_vision_allowed = live_model.map(|model| model.capabilities.vision).unwrap_or(primary_native_vision_allowed);
             let has_input_images = attachments.as_ref().is_some_and(|attachments| {
                 attachments
                     .iter()
@@ -1244,7 +1253,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             );
 
             let context_started = Instant::now();
-            let desktop_turn_config =
+            let mut desktop_turn_config =
                 build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
                     db: &db,
                     conversation: &conv,
@@ -1261,6 +1270,15 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     orchestration_profile,
                     custom_orchestration: custom_orchestration.clone(),
                 });
+            if effective_db_config.context_window.is_none() {
+                if let Some(capacity) = live_model.and_then(|model| model.limits.context_tokens).and_then(|n| u32::try_from(n).ok()) {
+                    let resolution = nexa_core::conversation::memory::ResolvedContextWindow {
+                        capacity_tokens: Some(capacity), authority: nexa_core::conversation::memory::ContextWindowAuthority::Catalog,
+                    };
+                    desktop_turn_config.context_window_resolution = resolution;
+                    desktop_turn_config.executor_config.context_window_resolution = Some(resolution);
+                }
+            }
             apply_desktop_agent_turn_config_effects(&db, &desktop_turn_config.effects);
             record_turn_launch_metric(
                 &db,

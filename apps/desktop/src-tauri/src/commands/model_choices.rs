@@ -78,18 +78,26 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
     } else {
         let provider = create_provider(db_config_to_provider_config(&config, Some(12)))
             .map_err(|e| e.to_string())?;
+        let rich_snapshot =
+            tokio::time::timeout(Duration::from_secs(12), provider.model_catalog_snapshot())
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
         let live = tokio::time::timeout(Duration::from_secs(12), provider.list_models())
             .await
             .ok()
             .and_then(Result::ok);
-        let discovered = live.is_some();
-        let snapshot = build_effective_model_catalog(
-            &config.provider,
-            config.base_url.as_deref(),
-            live,
-            None,
-            chrono::Utc::now().to_rfc3339(),
-        );
+        let discovered = live.is_some() || rich_snapshot.is_some();
+        let snapshot = rich_snapshot.unwrap_or_else(|| {
+            build_effective_model_catalog(
+                &config.provider,
+                config.base_url.as_deref(),
+                live,
+                None,
+                chrono::Utc::now().to_rfc3339(),
+            )
+        });
         (
             snapshot
                 .models

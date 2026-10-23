@@ -1,4 +1,8 @@
 {
+  "copilotApiAccountToken": "GitHub アカウントトークン",
+  "providerGithubCopilotApi": "GitHub Copilot API",
+  "copilotApiImportAccount": "GitHub CLI のアカウントを使用",
+  "copilotApiHelp": "ログイン済みの GitHub CLI アカウントを取り込むか、Copilot が使えるアカウントのトークンを入力してください。モデルを更新すると利用可能な機能を取得します。ツールとコンテキストは Nexa が管理します。",
   "configLoadError": "設定を読み込めませんでした。再試行して保存済みの設定を読み込んでください。",
   "webSearchCustomProvider.deepseek": "DeepSeek 検索と取得",
   "webSearchCustomProvider.deepseek.desc": "DeepSeek API キーでウェブを検索し、Markdown を取得します。",

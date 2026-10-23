@@ -70,6 +70,7 @@ interface AgentConfigFormProps {
 }
 
 const PROVIDER_LABEL_KEYS: { value: ProviderType; labelKey: string }[] = [
+  { value: "github_copilot_api", labelKey: "settings.providerGithubCopilotApi" },
   { value: "open_ai", labelKey: "settings.providerOpenAI" },
   { value: "openrouter", labelKey: "settings.providerOpenRouter" },
   { value: "anthropic", labelKey: "settings.providerAnthropic" },
@@ -92,6 +93,7 @@ const PROVIDER_LABEL_KEYS: { value: ProviderType; labelKey: string }[] = [
 ];
 
 const BASE_URL_PLACEHOLDERS: Record<ProviderType, string> = {
+  github_copilot_api: "https://api.githubcopilot.com",
   open_ai: "https://api.openai.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
   anthropic: "https://api.anthropic.com/v1",
@@ -253,6 +255,12 @@ export function AgentConfigForm({
     ReturnType<typeof buildMcpSubagentToolDescriptors>
   >([]);
   const [showKey, setShowKey] = useState(false);
+  const [importingGithubAccount, setImportingGithubAccount] = useState(false);
+  const githubImportRevision = useRef(0);
+  useEffect(() => {
+    githubImportRevision.current += 1;
+    return () => { githubImportRevision.current += 1; };
+  }, [provider, baseUrl]);
   const [testLoading, setTestLoading] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -367,8 +375,8 @@ export function AgentConfigForm({
   const selectedPresetModel =
     activePreset?.models.find((candidate) => candidate.id === model) ?? null;
   const reasoningCapability = useMemo(
-    () => getReasoningCapability({ provider, baseUrl, model }),
-    [provider, baseUrl, model],
+    () => selectedPresetModel?.capabilities?.reasoning ?? getReasoningCapability({ provider, baseUrl, model }),
+    [provider, baseUrl, model, selectedPresetModel],
   );
   const reasoningEffortOptions = reasoningCapability?.effortLevels ?? [];
   const thinkingBudgetCapability = reasoningCapability?.thinkingBudget;
@@ -914,8 +922,8 @@ export function AgentConfigForm({
             <Input
               type={showKey ? "text" : "password"}
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={provider === "bedrock" ? "Bedrock API key" : provider === "vertex" ? "API key / OAuth access token" : "sk-..."}
+              onChange={(e) => { githubImportRevision.current += 1; setApiKey(e.target.value); }}
+              placeholder={provider === "github_copilot_api" ? t("settings.copilotApiAccountToken") : provider === "bedrock" ? "Bedrock API key" : provider === "vertex" ? "API key / OAuth access token" : "sk-..."}
               className="pr-10"
             />
             <button
@@ -933,6 +941,25 @@ export function AgentConfigForm({
       )}
 
       {/* Base URL */}
+      {provider === "github_copilot_api" && (
+        <div className="space-y-2" data-testid="copilot-api-account">
+          <p className="text-xs leading-relaxed text-text-secondary">{t("settings.copilotApiHelp")}</p>
+          <Button type="button" variant="secondary" disabled={importingGithubAccount} onClick={async () => {
+            const revision = ++githubImportRevision.current;
+            setImportingGithubAccount(true);
+            try {
+              const token = await api.importGithubCopilotApiToken();
+              if (githubImportRevision.current === revision) setApiKey(token);
+            }
+            catch (error) { toast.error(String(error)); }
+            finally { setImportingGithubAccount(false); }
+          }}>
+            {importingGithubAccount && <Loader2 size={14} className="animate-spin" />}
+            {t("settings.copilotApiImportAccount")}
+          </Button>
+        </div>
+      )}
+
       <div className="space-y-2">
         <label className="text-sm font-medium text-text-primary">
           {t("settings.baseUrl")}
@@ -1012,6 +1039,10 @@ export function AgentConfigForm({
           <label className="text-sm font-medium text-text-primary">
             {t("settings.defaultModel")}
           </label>
+          <button type="button" onClick={() => void handleCatalogRefresh()} disabled={catalogLoading || (!isLocal && !apiKey.trim())}
+            className="flex items-center gap-1 text-xs text-accent disabled:opacity-50" data-testid="refresh-provider-models">
+            <RefreshCw size={12} className={catalogLoading ? "animate-spin" : ""} />{t("settings.refreshModelCatalog")}
+          </button>
           <Input
             value={model}
             onChange={(e) => {
