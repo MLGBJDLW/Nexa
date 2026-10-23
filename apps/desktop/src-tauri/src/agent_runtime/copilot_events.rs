@@ -1,31 +1,16 @@
 //! A bounded duplicate window plus a durable replay cursor. The number of
 //! already-delivered events is not a lifetime execution budget.
-use super::{protocol_error, CoreError};
+use super::{event_inbox::EventInbox, protocol_error, CoreError};
 use futures::{Stream, StreamExt};
 use github_copilot_sdk::SessionEvent;
-use nexa_core::runtime_receipts::RuntimeReceipts;
 use std::collections::{HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
-use tokio::{sync::Notify, task::JoinHandle};
+use tokio::task::JoinHandle;
 
-/// Keep the SDK's small broadcast queue draining while the UI or a tool's
-/// transcript lock is busy. Unread events spill to a private temporary SQLite
-/// database; consumed rows are reclaimed. Ephemeral usage/filter/idle events
-/// receive the same ordering guarantee as persistent assistant messages.
+/// Drain the SDK subscriber independently of UI/database work, preserving even
+/// ephemeral usage, filter and idle events in the shared native-event inbox.
 pub(super) struct EventStream {
-    buffer: Arc<Mutex<EventBuffer>>,
-    ready: Arc<Notify>,
+    inbox: EventInbox<SessionEvent>,
     task: JoinHandle<()>,
-    cursor: u64,
-}
-struct EventBuffer {
-    receipts: RuntimeReceipts,
-    count: u64,
-    closed: Option<EventStreamFailure>,
-}
-enum EventStreamFailure {
-    Transport(String),
-    Storage(String),
 }
 impl Drop for EventStream {
     fn drop(&mut self) {
@@ -41,84 +26,32 @@ impl EventStream {
     fn from_stream(
         stream: impl Stream<Item = Result<SessionEvent, String>> + Send + 'static,
     ) -> Result<Self, CoreError> {
-        let buffer = Arc::new(Mutex::new(EventBuffer {
-            receipts: RuntimeReceipts::new()?,
-            count: 0,
-            closed: None,
-        }));
-        let ready = Arc::new(Notify::new());
-        let producer = buffer.clone();
-        let notify = ready.clone();
+        let (writer, inbox) = EventInbox::new()?;
         let task = tokio::spawn(async move {
             let mut stream = Box::pin(stream);
             while let Some(event) = stream.next().await {
-                let failed = {
-                    let mut state = producer.lock().unwrap_or_else(|e| e.into_inner());
-                    match event {
-                        Ok(event) => {
-                            let index = state.count;
-                            match state.receipts.insert(&index.to_string(), "", &event) {
-                                Ok(()) => {
-                                    state.count += 1;
-                                    false
-                                }
-                                Err(error) => {
-                                    state.closed =
-                                        Some(EventStreamFailure::Storage(error.to_string()));
-                                    true
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            state.closed = Some(EventStreamFailure::Transport(error));
-                            true
-                        }
-                    }
-                };
-                notify.notify_one();
-                if failed {
+                let failed = event.is_err();
+                if writer
+                    .send(event.map_err(CoreError::StreamIncomplete))
+                    .is_err()
+                    || failed
+                {
                     return;
                 }
                 tokio::task::yield_now().await;
             }
-            producer.lock().unwrap_or_else(|e| e.into_inner()).closed = Some(
-                EventStreamFailure::Transport("Copilot event stream closed".into()),
-            );
-            notify.notify_one();
+            let _ = writer.send(Err(CoreError::StreamIncomplete(
+                "Copilot event stream closed".into(),
+            )));
         });
-        Ok(Self {
-            buffer,
-            ready,
-            task,
-            cursor: 0,
-        })
+        Ok(Self { inbox, task })
     }
     pub(super) async fn recv(&mut self) -> Result<SessionEvent, CoreError> {
-        loop {
-            let notified = self.ready.notified();
-            {
-                let state = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
-                if self.cursor < state.count {
-                    let id = self.cursor.to_string();
-                    let (_, event) = state
-                        .receipts
-                        .get(&id)?
-                        .ok_or_else(|| protocol_error("Copilot event spool lost its next event"))?;
-                    state.receipts.remove(&id)?;
-                    self.cursor += 1;
-                    return Ok(event);
-                }
-                if let Some(error) = &state.closed {
-                    return Err(match error {
-                        EventStreamFailure::Transport(message) => {
-                            CoreError::StreamIncomplete(message.clone())
-                        }
-                        EventStreamFailure::Storage(message) => protocol_error(message),
-                    });
-                }
-            }
-            notified.await;
-        }
+        self.inbox.recv().await.unwrap_or_else(|| {
+            Err(CoreError::StreamIncomplete(
+                "Copilot event stream closed".into(),
+            ))
+        })
     }
 }
 
@@ -200,7 +133,7 @@ mod tests {
         let mut stream = EventStream::from_stream(futures::stream::iter(events)).unwrap();
         // Force the producer to finish before the consumer catches up.
         loop {
-            if stream.buffer.lock().unwrap().closed.is_some() {
+            if stream.inbox.is_closed() {
                 break;
             }
             tokio::task::yield_now().await;

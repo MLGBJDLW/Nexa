@@ -1572,7 +1572,13 @@ fn ensure_manual_compaction_supported(provider: &str) -> Result<(), nexa_core::e
 mod subscription_compaction_tests {
     #[test]
     fn native_routes_are_rejected_before_constructing_an_http_summarizer() {
-        for provider in ["github_copilot", "openai_codex"] {
+        for provider in [
+            "github_copilot",
+            "openai_codex",
+            "github_copilot_acp",
+            "hermes",
+            "acp_pi_acp",
+        ] {
             assert!(super::ensure_manual_compaction_supported(provider).is_err());
         }
         assert!(super::ensure_manual_compaction_supported("open_ai").is_ok());

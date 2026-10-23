@@ -957,5 +957,7 @@
   "interactionChanged": "Alteração observada",
   "interactionTargetClosed": "Destino fechado",
   "interactionMatched": "Condição atendida",
-  "interactionObserved": "Observação recebida"
+  "interactionObserved": "Observação recebida",
+  "agentReceiving": "Recebendo a resposta do modelo",
+  "agentReasoningUnavailable": "Esta resposta não inclui um resumo legível do raciocínio."
 }

@@ -17,3 +17,15 @@ test('foreground progress and background compaction remain independent until the
   assert.equal(externalAgentProgress(events, true).stage, 'active');
   assert.equal(externalAgentProgress(events.slice(0, 4), false).compacting, false);
 });
+
+test('Copilot network-only progress stays visible when the provider omits readable thoughts', () => {
+  const events: TraceEvent[] = [
+    { id: 'network', kind: 'status', code: 'external_agent_network_progress', text: 'Receiving' },
+  ];
+  assert.equal(externalAgentProgress(events, true).stage, 'receiving');
+  events.push({ id: 'opaque', kind: 'status', code: 'external_agent_reasoning_unavailable', text: 'Not shared' });
+  assert.equal(externalAgentProgress(events, true).stage, 'receiving');
+  assert.equal(externalAgentProgress(events, true).reasoningUnavailable, true);
+  events.push({ id: 'thought', kind: 'thinking', text: 'A readable summary' });
+  assert.equal(externalAgentProgress(events, true).reasoningUnavailable, false);
+});

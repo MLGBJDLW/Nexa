@@ -1,6 +1,7 @@
 use super::copilot_events::{EventLedger, EventStream};
 use super::projection::Projection;
 use super::*;
+use github_copilot_sdk::session_events::ReasoningSummary;
 use github_copilot_sdk::types::{
     DeferMode, ToolBinaryResult, ToolInvocation, ToolResult, ToolResultExpanded, ToolSearchConfig,
 };
@@ -220,6 +221,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .with_model(&model_id)
         .with_context_tier(context_tier)
         .with_streaming(true)
+        .with_reasoning_summary(ReasoningSummary::Concise)
         .with_tools(tools)
         .with_tool_search(
             ToolSearchConfig::new()
@@ -252,6 +254,18 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot session creation".into())),
         result = tokio::time::timeout(Duration::from_secs(30), client.create_session(config)) => result.map_err(|_| CoreError::TransientLlm("Copilot session creation timed out".into()))?.map_err(sdk_error)?,
     };
+    // Empty-mode sessions do not inherit the interactive CLI's presentation
+    // settings. Summary verbosity and emitting readable summary events are
+    // separate options; effort alone does not enable Gemini/Claude thoughts.
+    tokio::select! {
+        _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot configuration".into())),
+        result = tokio::time::timeout(Duration::from_secs(30), async { session.rpc().options().update(
+            github_copilot_sdk::rpc::SessionUpdateOptionsParams {
+                enable_reasoning_summaries: Some(true),
+                ..Default::default()
+            }
+        ).await }) => { result.map_err(|_| CoreError::TransientLlm("Copilot reasoning configuration timed out".into()))?.map_err(sdk_error)?; },
+    }
     let mut events = EventStream::start(session.subscribe())?;
     let initial = MessageOptions::new(&turn.prompt).with_attachments(
         turn.images
@@ -434,6 +448,16 @@ async fn project_event(
             projection.complete_reasoning(tx, &id, text).await?;
         }
         "assistant.message" => {
+            if data
+                .get("reasoningOpaque")
+                .is_some_and(|value| !value.is_null())
+                && data
+                    .get("reasoningText")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(str::is_empty)
+            {
+                projection.reasoning_unavailable(tx).await?;
+            }
             let text = data
                 .get("content")
                 .and_then(serde_json::Value::as_str)
@@ -1036,7 +1060,23 @@ mod tests {
         .unwrap();
         project_test_event(&mut projection, &mut response, &tx, "assistant.message",
             serde_json::json!({"messageId":"a", "content":"answer", "reasoningOpaque":"secret", "encryptedContent":"secret"})).await.unwrap();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.message",
+            serde_json::json!({"messageId":"b", "content":"continued", "reasoningOpaque":"secret"}),
+        )
+        .await
+        .unwrap();
+        let mut notices = 0;
         while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::ControllerStatus { code, content, .. } = &event {
+                if code == "external_agent_reasoning_unavailable" {
+                    notices += 1;
+                }
+                assert!(!content.contains("secret"));
+            }
             assert!(!matches!(
                 event,
                 AgentEvent::StreamBlockDelta {
@@ -1048,6 +1088,10 @@ mod tests {
                 }
             ));
         }
+        assert_eq!(
+            notices, 1,
+            "opaque-only responses need one honest visibility notice"
+        );
     }
 
     #[tokio::test]
@@ -1163,6 +1207,16 @@ mod tests {
     #[tokio::test]
     #[ignore = "uses an explicitly selected official Copilot model for one synthetic streaming inference"]
     async fn native_copilot_streams_readable_reasoning_and_answer_before_done() {
+        native_copilot_stream_probe(true).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "uses an explicitly selected opaque-only Copilot model for one synthetic inference"]
+    async fn native_copilot_reports_unavailable_readable_reasoning() {
+        native_copilot_stream_probe(false).await;
+    }
+
+    async fn native_copilot_stream_probe(expect_readable: bool) {
         let model = std::env::var("NEXA_COPILOT_STREAM_PROBE_MODEL")
             .expect("set the intended reasoning model explicitly");
         let (mut request, mut rx, _, _) =
@@ -1184,6 +1238,7 @@ mod tests {
         let mut thinking_deltas = 0;
         let mut answer_deltas = 0;
         let mut snapshots = 0;
+        let mut opaque_notices = 0;
         let mut visible = std::collections::HashMap::<String, String>::new();
         let timeout = tokio::time::sleep(Duration::from_secs(180));
         tokio::pin!(timeout);
@@ -1205,15 +1260,25 @@ mod tests {
                         visible.insert(block_id, text);
                     }
                     AgentEvent::Done {..} => done = true,
+                    AgentEvent::ControllerStatus { code, .. } if code == "external_agent_reasoning_unavailable" => opaque_notices += 1,
                     _ => {}
                 }
             }
         }
-        eprintln!("Copilot live projection: model={model} elapsed_ms={} thinking_deltas={thinking_deltas} answer_deltas={answer_deltas} thinking_snapshots={snapshots}", started.elapsed().as_millis());
+        eprintln!("Copilot live projection: model={model} elapsed_ms={} thinking_deltas={thinking_deltas} answer_deltas={answer_deltas} thinking_snapshots={snapshots} opaque_notices={opaque_notices}", started.elapsed().as_millis());
         // Live models may return only a readable full snapshot on a given
         // request. Deterministic regressions above enforce delta continuity;
         // this probe verifies actual readable thinking and streamed answers.
-        assert!(thinking_deltas + snapshots > 0 && answer_deltas > 1);
+        assert!(answer_deltas > 1, "the answer must stream before Done");
+        if expect_readable {
+            assert!(thinking_deltas + snapshots > 0);
+        } else {
+            assert_eq!(thinking_deltas + snapshots, 0);
+            assert_eq!(
+                opaque_notices, 1,
+                "upstream opaque reasoning must be explained, never shown as readable thoughts"
+            );
+        }
     }
 
     #[tokio::test]

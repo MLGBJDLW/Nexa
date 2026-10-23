@@ -30,9 +30,27 @@ pub(super) struct Projection {
     compactions: HashSet<String>,
     last_network_progress: Option<std::time::Instant>,
     pub(super) retrying: bool,
+    reasoning_unavailable_notified: bool,
 }
 
 impl Projection {
+    pub(super) async fn reasoning_unavailable(
+        &mut self,
+        tx: &mpsc::Sender<AgentEvent>,
+    ) -> Result<(), CoreError> {
+        if self.reasoning_unavailable_notified {
+            return Ok(());
+        }
+        tx.send(AgentEvent::ControllerStatus {
+            code: "external_agent_reasoning_unavailable".into(),
+            content: "This response does not include a readable reasoning summary.".into(),
+            tone: None,
+        })
+        .await
+        .map_err(protocol_error)?;
+        self.reasoning_unavailable_notified = true;
+        Ok(())
+    }
     pub(super) async fn resume_after_retry(
         &mut self,
         tx: &mpsc::Sender<AgentEvent>,

@@ -957,5 +957,7 @@
   "interactionChanged": "Изменение обнаружено",
   "interactionTargetClosed": "Целевое окно закрыто",
   "interactionMatched": "Условие выполнено",
-  "interactionObserved": "Наблюдение получено"
+  "interactionObserved": "Наблюдение получено",
+  "agentReceiving": "Получение ответа модели",
+  "agentReasoningUnavailable": "Этот ответ не содержит читаемого резюме рассуждений."
 }

@@ -462,12 +462,16 @@ async fn provider_switch_replaces_catalog_before_model_and_model_dependent_reaso
 #[ignore = "uses the official Copilot CLI ACP login to edit one disposable temporary file"]
 async fn native_copilot_acp_reads_and_edits_with_native_tools() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("native-acp-edit.txt");
+    let workspace = directory.path().join("中文工作区");
+    std::fs::create_dir(&workspace).unwrap();
+    let path = workspace.join("原生写入验证.txt");
     std::fs::write(&path, "old value\n").unwrap();
     let (mut request, mut rx, effects, nonce) = super::super::tests::fixture(
         super::super::AgentRuntimeKind::Acp("github_copilot_acp".into()),
         "@nexa/agent-default",
     );
+    let probe = workspace.join("delayed_read.py");
+    std::fs::write(&probe, "import pathlib, time\ntime.sleep(12)\nprint(pathlib.Path('原生写入验证.txt').read_text(encoding='utf-8'))\nprint('LONG_COMMAND_COMPLETE')\n").unwrap();
     let launch = ExternalAgentLaunch {
         executable: Some(
             crate::commands::subscription_accounts::resolve_copilot_binary()
@@ -475,26 +479,28 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
                 .to_string_lossy()
                 .into(),
         ),
-        working_directory: directory.path().to_string_lossy().into(),
+        working_directory: workspace.to_string_lossy().into(),
         ..Default::default()
     };
     let catalog = probe("github_copilot_acp", &launch, &request.db, None)
         .await
         .unwrap();
+    let requested_model = std::env::var("NEXA_COPILOT_STREAM_PROBE_MODEL")
+        .unwrap_or_else(|_| "claude-opus-5.5".into());
     let model = catalog
         .models
         .iter()
-        .find(|model| model.id == "claude-opus-5.5")
-        .unwrap_or(&catalog.models[0])
+        .find(|model| model.id == requested_model)
+        .expect("the requested live probe model must be available")
         .id
         .clone();
     request.config.model = Some(model.clone());
     request.user_parts = vec![nexa_core::llm::ContentPart::Text { text: format!(
-        "Read {} with your native tools, edit it by replacing old value with {}, then read it to verify. This is a disposable test file. Reply ACP_EDIT_VERIFIED and the exact new value.", path.display(), nonce) }];
+        "Read {} with your native tools, edit it by replacing old value with {}, then run python delayed_read.py in the current directory to verify. The helper intentionally waits 12 seconds before printing the saved value; let it complete. These are disposable test files. Reply ACP_EDIT_VERIFIED, LONG_COMMAND_COMPLETE and the exact saved value only after the command completes.", path.display(), nonce) }];
     request.external = Some(super::super::ExternalAgentBinding {
         profile_id: uuid::Uuid::new_v4().to_string(),
         launch,
-        reasoning_effort: None,
+        reasoning_effort: std::env::var("NEXA_COPILOT_ACP_PROBE_EFFORT").ok(),
     });
     let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
     let answer = tokio::time::timeout(Duration::from_secs(180), run("github_copilot_acp", request))
@@ -503,11 +509,12 @@ async fn native_copilot_acp_reads_and_edits_with_native_tools() {
         .unwrap();
     assert_eq!(std::fs::read_to_string(path).unwrap().trim(), nonce);
     assert!(answer.text_content().contains("ACP_EDIT_VERIFIED"));
+    assert!(answer.text_content().contains("LONG_COMMAND_COMPLETE"));
     assert!(answer.text_content().contains(&nonce));
     assert_eq!(effects.load(Ordering::SeqCst), 0);
     drain.await.unwrap();
     shutdown();
-    eprintln!("Live Copilot ACP model={model}: native edit and final answer verified");
+    eprintln!("Live Copilot ACP model={model}: Unicode workspace, native edit, 12-second command and final answer verified");
 }
 
 fn client_wire(root: &std::path::Path, mode: &str) -> Wire {

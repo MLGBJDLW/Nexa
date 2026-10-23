@@ -10,12 +10,23 @@ then appear in the Chat model picker. Reasoning levels come from that account's
 model catalog. Signing in does not automatically create a provider.
 
 Copilot discovery and execution use the same editor integration catalog through
-the official SDK. The bundled CLI is pinned to `1.0.100` with upstream archive
+the official SDK. The bundled CLI is pinned to `1.0.103` with upstream archive
 hashes; `status.get` reports the actual SDK runtime version (a standalone
 `--version` command may follow a newer locally installed CLI). Gemini 4 Argon's
 reasoning levels are read from the account catalog and passed to the session;
 Nexa does not infer them from the model name. Explicit CLI path overrides remain
 user-managed and need a version that supports the selected model.
+
+Nexa explicitly requests concise reasoning summaries and enables their events.
+Readable deltas and final summaries share the same ordered thinking block. Some
+Copilot models return only opaque reasoning even when summary visibility is
+enabled. Nexa never renders that opaque data: the status row keeps showing model
+progress and explains when a response did not include a readable summary.
+Reasoning strength does not guarantee that the provider exposes its reasoning.
+The pinned [CLI 1.0.103](https://github.com/github/copilot-cli/releases/tag/v1.0.103)
+also includes Gemini tool-schema and native ACP sandbox corrections, following
+the long-command and overload-retry fixes in
+[1.0.102](https://github.com/github/copilot-cli/releases/tag/v1.0.102).
 
 The gauge beside the Chat model and reasoning controls opens **Account usage**.
 It shows provider-reported used and remaining percentages, individual quota
@@ -42,6 +53,13 @@ Background compaction and foreground streaming can coexist. ACP negotiates
 from answer/tool activity. Compaction summaries never become assistant answers;
 notices do not terminate prompts. Native model changes update usage identity,
 while the composer selection only configures the next request.
+
+Copilot SDK and ACP stdio share a temporary event inbox backed by the existing
+receipt store. Slow UI or database consumers cannot fill a small in-memory queue
+and stop the native process from writing. Unread events, including completion and
+usage, retain their order; consumed rows are reclaimed and the private store is
+removed with the connection. Failed or cancelled prompts are still reconciled
+from durable evidence rather than automatically replayed.
 
 | Connection | Account quota source |
 | --- | --- |
@@ -366,9 +384,10 @@ the runtime does not silently switch to an in-memory journal.
   Empty mode's forced keychain-disable environment setting is overridden with
   the caller's original setting, so enrollment and execution use the same
   system-keychain or explicitly selected file credential backend.
-  Nexa disables SDK tool deferral/search for this route and explicitly registers
-  the complete tool inventory; editing tools remain callable above the SDK's
-  default 30-tool deferral threshold. The separately labelled Copilot CLI ACP
+  Nexa registers the complete custom tool inventory and explicitly enables the
+  SDK's deferred discovery. Discovered definitions keep their Nexa callbacks,
+  and editing tools remain callable above the SDK's default deferral threshold.
+  The separately labelled Copilot CLI ACP
   route uses native tools and native permissions instead.
 - Codex uses a fresh ephemeral app-server thread, no executor environments,
   read-only policy and disabled shell, web, plugins, hooks, agents and automation.
@@ -409,6 +428,10 @@ the runtime does not silently switch to an in-memory journal.
   summarizer cannot consume an official subscription login; the action is hidden
   and direct requests fail before constructing an HTTP provider. The native
   runtime continues to manage context inside each active turn.
+  This also excludes Nexa's history-mode context Fork for every external-agent
+  route. A copied Nexa conversation is not a fork of hidden native runtime state;
+  ACP only reuses a completed session when its conversation-history fingerprint
+  still matches. A changed history starts a fresh native connection.
 
 ## Reconciliation and microphone behavior
 
