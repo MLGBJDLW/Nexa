@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.17.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.5...nexa-monorepo-v0.17.6) (2026-10-23)
+
+
+### Features
+
+* **copilot:** add account-scoped direct API connections ([#501](https://github.com/MLGBJDLW/Nexa/issues/501)) ([1b85ed8](https://github.com/MLGBJDLW/Nexa/commit/1b85ed8004939d4b27b49efc3abedf437e49f7d5))
+* **desktop:** refine usage analytics and speed up Copilot streaming ([#499](https://github.com/MLGBJDLW/Nexa/issues/499)) ([8a46179](https://github.com/MLGBJDLW/Nexa/commit/8a46179bed9c048808d612bf58c2fc0f6abe7799))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 1b85ed8004939d4b27b49efc3abedf437e49f7d5 -->
+
+### What's Changed
+* feat(desktop): refine usage analytics and speed up Copilot streaming by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/499
+* feat(copilot): add account-scoped direct API connections by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/501
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.5...nexa-monorepo-v0.17.6
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.4...nexa-monorepo-v0.17.5) (2026-10-22)
 
 
