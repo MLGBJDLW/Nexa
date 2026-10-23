@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import './components/knowledge/knowledgeGraph.css';
 @import "@fontsource-variable/inter";
-@import "katex/dist/katex.min.css";
 @import "./components/ui/overlay/overlayTokens.css";
 
 .nexa-logo-mark {
@@ -1349,16 +1348,9 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
   }
 }
 
-@property --chat-tool-card-flow-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
-@keyframes chat-tool-card-border-flow {
-  to {
-    --chat-tool-card-flow-angle: 360deg;
-  }
+@keyframes chat-tool-card-border-glow {
+  0%, 100% { opacity: 0.36; }
+  50% { opacity: 1; }
 }
 
 .chat-image-panel {
@@ -1705,37 +1697,27 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
   );
 }
 
-@supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
-  .chat-tool-card[data-tool-state='running']::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding: 1px;
-    pointer-events: none;
-    z-index: 3;
-    background: conic-gradient(
-      from var(--chat-tool-card-flow-angle),
-      transparent 0deg,
-      transparent 268deg,
-      color-mix(in srgb, var(--tool-tone) 18%, transparent) 286deg,
-      color-mix(in srgb, var(--tool-tone) 82%, transparent) 310deg,
-      color-mix(in srgb, white 88%, var(--tool-tone)) 324deg,
-      color-mix(in srgb, var(--tool-tone) 76%, transparent) 338deg,
-      transparent 354deg,
-      transparent 360deg
-    );
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--tool-tone) 58%, transparent));
-    animation: chat-tool-card-border-flow 2.4s linear infinite;
-  }
+.chat-tool-card[data-tool-state='running']::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: 0.5rem;
+  left: 0.5rem;
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 3;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--tool-tone) 76%, transparent) 38%,
+    color-mix(in srgb, white 88%, var(--tool-tone)) 50%,
+    color-mix(in srgb, var(--tool-tone) 76%, transparent) 62%,
+    transparent
+  );
+  /* A slim compositor glow preserves running feedback without repainting a
+     conic gradient or retaining a masked texture the size of the whole card. */
+  animation: chat-tool-card-border-glow 2.4s ease-in-out infinite;
 }
 
 .chat-tool-card[data-tool-state='error'] {
@@ -1796,6 +1778,14 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
 
 .thinking-trace[data-trace-active='true'] .thinking-trace-node {
   background: var(--color-accent);
+}
+
+.thinking-trace[data-trace-active='true'] .thinking-trace-node::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 13px color-mix(in srgb, var(--color-accent) 38%, transparent);
   animation: thinking-node-breathe 2.4s ease-in-out infinite;
 }
 
@@ -1847,14 +1837,12 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
 
 @keyframes thinking-node-breathe {
   0%, 100% {
-    box-shadow:
-      0 0 0 3px var(--color-surface-0),
-      0 0 6px color-mix(in srgb, var(--color-accent) 16%, transparent);
+    opacity: 0.42;
+    transform: scale(0.8);
   }
   50% {
-    box-shadow:
-      0 0 0 3px var(--color-surface-0),
-      0 0 13px color-mix(in srgb, var(--color-accent) 38%, transparent);
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -1882,6 +1870,7 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
 
 .thinking-status-text-active {
   color: var(--color-thinking-text, var(--color-accent-hover));
+  text-shadow: 0 0 10px var(--color-accent-subtle);
   animation: thinking-text-breathe 2.8s ease-in-out infinite;
 }
 
@@ -1898,11 +1887,9 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
 @keyframes thinking-text-breathe {
   0%, 100% {
     opacity: 0.78;
-    text-shadow: 0 0 0 transparent;
   }
   50% {
     opacity: 1;
-    text-shadow: 0 0 10px var(--color-accent-subtle);
   }
 }
 
@@ -1923,11 +1910,10 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
   .chat-compact-status-text::after,
   .chat-tool-card[data-tool-state='running']::after {
     animation: none;
-    --chat-tool-card-flow-angle: 318deg;
     filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-accent) 48%, transparent));
   }
 
-  .thinking-trace[data-trace-active='true'] .thinking-trace-node {
+  .thinking-trace[data-trace-active='true'] .thinking-trace-node::after {
     animation: none;
   }
 }

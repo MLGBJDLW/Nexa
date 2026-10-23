@@ -1033,6 +1033,8 @@ test('reasoning slider supports pointer drag and reduced motion in the dark them
   await expect(panel).toBeVisible();
   await expect(panel.locator('.nexa-intensity-bond path').first()).toHaveCSS('animation-name', 'none');
   await expect(panel.locator('.nexa-intensity-bond animate')).toHaveCount(0);
+  await expect(panel.locator('.nexa-intensity-strands')).toHaveCSS('animation-name', 'none');
+  await expect(panel.locator('.nexa-intensity-rung').first()).toHaveCSS('animation-name', 'none');
   await expect(panel.locator('.nexa-intensity-meter')).toHaveCount(0);
   await expect.poll(() => panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
   await panel.screenshot({ path: testInfo.outputPath('reasoning-bond-dark.png') });
@@ -1048,9 +1050,15 @@ test.describe('reasoning slider motion', () => {
     await page.getByRole('button', { name: 'Intensity slider', exact: true }).click();
     const slider = page.getByRole('slider', { name: 'Reasoning Effort' });
     await expect(slider).toBeVisible();
-    const firstRung = page.locator('.nexa-intensity-bond line').first();
-    const initialY = await firstRung.evaluate(element => (element as SVGLineElement).y1.animVal.value);
-    await expect.poll(() => firstRung.evaluate(element => (element as SVGLineElement).y1.animVal.value)).not.toBe(initialY);
+    const firstRung = page.locator('.nexa-intensity-rung').first();
+    const initialTransform = await firstRung.evaluate(element => getComputedStyle(element).transform);
+    await expect.poll(() => firstRung.evaluate(element => getComputedStyle(element).transform)).not.toBe(initialTransform);
+    const strands = page.locator('.nexa-intensity-strands');
+    const initialStrands = await strands.evaluate(element => getComputedStyle(element).transform);
+    const path = await strands.locator('path').first().getAttribute('d');
+    await expect.poll(() => strands.evaluate(element => getComputedStyle(element).transform)).not.toBe(initialStrands);
+    await expect(strands.locator('path').first()).toHaveAttribute('d', path!);
+    await expect(page.locator('.nexa-intensity-bond animate')).toHaveCount(0);
 
     const box = (await slider.boundingBox())!;
     await page.mouse.move(box.x + 19, box.y + box.height / 2);

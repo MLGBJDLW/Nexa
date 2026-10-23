@@ -483,7 +483,7 @@ test('keeps live thinking and file edit badges mounted until persisted messages 
   await expect(liveCreateFile.locator('.animate-spin')).toHaveCount(0);
   await expect.poll(() => liveCreateFile.evaluate((element) =>
     getComputedStyle(element, '::after').animationName,
-  )).toBe('chat-tool-card-border-flow');
+  )).toBe('chat-tool-card-border-glow');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect.poll(() => liveCreateFile.evaluate((element) =>
     getComputedStyle(element, '::after').animationName,

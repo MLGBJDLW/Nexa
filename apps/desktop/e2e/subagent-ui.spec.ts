@@ -585,7 +585,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test('uses a compact flowing border for a stable running subagent', async ({ page }) => {
+test('uses a compact glowing border for a stable running subagent', async ({ page }) => {
   await page.goto('/chat/conv-subagent');
 
   await page.getByTestId('chat-input-textarea').fill('Keep running while I inspect the subagent card.');
@@ -608,7 +608,7 @@ test('uses a compact flowing border for a stable running subagent', async ({ pag
   }).toBeLessThanOrEqual(48);
   await expect.poll(() => subagentShell.evaluate((element) =>
     getComputedStyle(element, '::after').animationName,
-  )).toBe('chat-tool-card-border-flow');
+  )).toBe('chat-tool-card-border-glow');
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect.poll(() => subagentShell.evaluate((element) =>

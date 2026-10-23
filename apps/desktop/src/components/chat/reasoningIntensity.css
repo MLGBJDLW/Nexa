@@ -5,11 +5,13 @@
 .nexa-intensity-rail { position: relative; height: 32px; border-radius: 999px; user-select: none; isolation: isolate; }
 .nexa-intensity-track { position: absolute; inset: 7px 0; overflow: hidden; border-radius: inherit; background: var(--color-surface-3); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 30%, transparent); }
 .nexa-intensity-fill { position: absolute; inset: 0 auto 0 0; background: var(--intensity-color); transition: background-color 260ms ease; }
-.nexa-intensity-bond { position: absolute; inset: 0 13px; width: calc(100% - 26px); height: 18px; pointer-events: none; }
+.nexa-intensity-bond { position: absolute; inset: 0 13px; height: 18px; overflow: hidden; pointer-events: none; }
+.nexa-intensity-strands { position: absolute; inset: 0 auto 0 0; width: 150%; height: 18px; animation: nexa-intensity-strands 8s linear infinite; }
 .nexa-intensity-bond path { fill: none; stroke: color-mix(in srgb, var(--color-text-primary) 40%, var(--intensity-color)); stroke-width: 1.2; stroke-linecap: round; opacity: .45; transition: stroke 260ms ease; }
 .nexa-intensity-bond path + path { stroke: #fff; opacity: .42; }
-.nexa-intensity-bond line { stroke: var(--color-text-primary); stroke-width: .8; opacity: .12; }
-.nexa-intensity-bond circle { fill: #fff; opacity: .6; }
+.nexa-intensity-rung { position: absolute; top: 3.9375px; width: .8px; height: 10.125px; background: var(--color-text-primary); opacity: .12; animation: nexa-intensity-rung 8s linear infinite; }
+.nexa-intensity-spark { position: absolute; top: 8px; width: 2px; height: 2px; margin-left: -1px; border-radius: 50%; background: #fff; opacity: .6; animation: nexa-intensity-spark 8s linear infinite; }
+.nexa-intensity-bond[data-reduced-motion='true'] > * { animation: none; }
 .nexa-intensity-sheen { position: absolute; inset: 0; background: linear-gradient(110deg, transparent 38%, #ffffff12 50%, transparent 62%); transform: translateX(-100%); animation: nexa-intensity-sheen 9s ease-in-out infinite; pointer-events: none; }
 .nexa-intensity-thumb { position: absolute; top: 3px; z-index: 2; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 1px solid #0000000d; background: linear-gradient(145deg, #fff 50%, #f5f6f9); box-shadow: 0 2px 5px #0002, 0 0 0 0 transparent; pointer-events: none; transition: box-shadow 220ms ease; }
 .nexa-intensity-thumb > span { width: 5px; height: 5px; border-radius: 50%; background: var(--intensity-color); opacity: .5; transition: background-color 220ms ease; }
@@ -31,6 +33,29 @@
 .nexa-intensity-options button[aria-pressed='true'] { color: var(--color-text-primary); }
 .nexa-intensity-option-highlight { position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: color-mix(in srgb, var(--intensity-color) 17%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--intensity-color) 22%, transparent); transition: background-color 220ms ease, box-shadow 220ms ease; }
 @keyframes nexa-intensity-sheen { 0%, 25% { transform: translateX(-100%); } 75%, 100% { transform: translateX(100%); } }
+@keyframes nexa-intensity-strands { to { transform: translateX(-33.333333%); } }
+@keyframes nexa-intensity-rung {
+  0%, 50%, 100% { transform: scaleY(0); }
+  6.25%, 43.75% { transform: scaleY(.382683); }
+  12.5%, 37.5% { transform: scaleY(.707107); }
+  18.75%, 31.25% { transform: scaleY(.92388); }
+  25% { transform: scaleY(1); }
+  56.25%, 93.75% { transform: scaleY(-.382683); }
+  62.5%, 87.5% { transform: scaleY(-.707107); }
+  68.75%, 81.25% { transform: scaleY(-.92388); }
+  75% { transform: scaleY(-1); }
+}
+@keyframes nexa-intensity-spark {
+  0%, 50%, 100% { transform: translateY(0); opacity: .6; }
+  6.25%, 43.75% { transform: translateY(1.93733px); }
+  12.5%, 37.5% { transform: translateY(3.57973px); }
+  18.75%, 31.25% { transform: translateY(4.67714px); }
+  25% { transform: translateY(5.0625px); opacity: .8; }
+  56.25%, 93.75% { transform: translateY(-1.93733px); }
+  62.5%, 87.5% { transform: translateY(-3.57973px); }
+  68.75%, 81.25% { transform: translateY(-4.67714px); }
+  75% { transform: translateY(-5.0625px); opacity: .2; }
+}
 @media (prefers-reduced-motion: reduce) {
   .nexa-intensity *, .nexa-intensity *::before { transition: none !important; animation: none !important; }
   .nexa-intensity-sheen { display: none; }
