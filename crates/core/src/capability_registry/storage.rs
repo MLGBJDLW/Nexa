@@ -1810,8 +1810,10 @@ mod tests {
             fallback.native_image_input = true;
             route.snapshot.fallback_targets.push(fallback);
             assert_eq!(route.supports_native_images(), expected);
+            assert!(route.fallbacks_support_native_images());
             route.snapshot.fallback_targets[0].native_image_input = false;
             assert!(!route.supports_native_images());
+            assert!(!route.fallbacks_support_native_images());
         }
     }
 

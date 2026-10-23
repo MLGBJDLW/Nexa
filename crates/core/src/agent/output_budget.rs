@@ -198,6 +198,69 @@ mod route_limit_tests {
     use super::*;
 
     #[test]
+    fn account_catalog_limits_drive_budgeting_and_preserve_explicit_context() {
+        let provider = crate::llm::create_provider(crate::llm::ProviderConfig {
+            provider_type: ProviderType::GithubCopilotApi,
+            api_key: Some("fixture-account".into()),
+            base_url: None,
+            org_id: None,
+            timeout_secs: None,
+            streaming: Default::default(),
+        })
+        .unwrap();
+        let mut executor = AgentExecutor::new(
+            provider,
+            ToolRegistry::new(),
+            AgentConfig {
+                provider_type: Some(ProviderType::GithubCopilotApi),
+                model: Some("account-model".into()),
+                catalog_limits_authoritative: Some(false),
+                ..Default::default()
+            },
+        );
+        executor
+            .live_catalog_limits
+            .set(crate::llm::model_contract::ResolvedCatalogLimits {
+                model_id: "account-model".into(),
+                provider_type: ProviderType::GithubCopilotApi,
+                endpoint_id: "account-endpoint".into(),
+                limits: crate::model_catalog::ModelLimits {
+                    context_tokens: Some(200_000),
+                    max_output_tokens: Some(64_000),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        assert_eq!(
+            executor
+                .context_window_resolution()
+                .unwrap()
+                .capacity_tokens,
+            Some(200_000)
+        );
+        let plan = executor.resolved_output_budget("account-model");
+        assert_eq!(plan.catalog_cap, Some(64_000));
+        assert_eq!(plan.wire_max_tokens_for_prompt(170_000), Some(22_000));
+        executor.config.context_window = Some(100_000);
+        executor.config.context_window_resolution =
+            Some(crate::conversation::memory::ResolvedContextWindow {
+                capacity_tokens: Some(100_000),
+                authority: crate::conversation::memory::ContextWindowAuthority::UserOverride,
+            });
+        assert_eq!(
+            executor
+                .context_window_resolution()
+                .unwrap()
+                .capacity_tokens,
+            Some(100_000)
+        );
+        assert_eq!(
+            executor.resolved_output_budget("account-model").context_cap,
+            Some(100_000)
+        );
+    }
+
+    #[test]
     fn changing_model_or_provider_does_not_reuse_cached_route_limits() {
         let mut config = AgentConfig {
             provider_type: Some(ProviderType::Moonshot),

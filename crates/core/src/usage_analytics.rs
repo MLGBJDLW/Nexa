@@ -671,6 +671,7 @@ pub fn provider_type_id(provider_type: Option<ProviderType>) -> &'static str {
         Some(ProviderType::Yi) => "yi",
         Some(ProviderType::Baichuan) => "baichuan",
         Some(ProviderType::Custom) => "custom",
+        Some(ProviderType::GithubCopilotApi) => "github_copilot_api",
         None => "unknown",
     }
 }

@@ -656,7 +656,27 @@ impl AgentExecutor {
             .redact_context_messages(std::slice::from_mut(&mut user));
         user_parts = user.parts.clone();
         let model = self.config.model.as_deref().unwrap_or(DEFAULT_MODEL);
-        let output_budget_plan = self.config.resolved_output_budget(model);
+        if self.live_catalog_limits.get().is_none() {
+            let snapshot = tokio::select! {
+                _ = self.cancel_token.cancelled() => None,
+                result = self.provider.model_catalog_snapshot() => result?,
+            };
+            if let Some(snapshot) = snapshot {
+                if let Some(descriptor) = snapshot.descriptors.into_iter().find(|d| d.id == model) {
+                    if let Some(provider_type) = self.config.provider_type {
+                        let _ = self.live_catalog_limits.set(
+                            crate::llm::model_contract::ResolvedCatalogLimits {
+                                model_id: descriptor.id,
+                                provider_type,
+                                endpoint_id: snapshot.endpoint_id,
+                                limits: descriptor.limits,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        let output_budget_plan = self.resolved_output_budget(model);
         let max_response_tokens = output_budget_plan.effective_tokens;
         // Establish tool authority before schema selection or prompt
         // accounting. Answer-only turns must not pay context for a tool
@@ -737,8 +757,7 @@ impl AgentExecutor {
 
         // --- Trace: initialize ------------------------------------------------
         let ctx_window_for_trace = self
-            .config
-            .context_window_resolution
+            .context_window_resolution()
             .and_then(|resolved| resolved.capacity_tokens)
             .or(self.config.context_window)
             .unwrap_or(0) as usize;
@@ -996,8 +1015,7 @@ impl AgentExecutor {
             &cache_profile,
         );
         let effective_context_capacity = self
-            .config
-            .context_window_resolution
+            .context_window_resolution()
             .and_then(|resolved| resolved.capacity_tokens)
             .or(self.config.context_window);
         let tools_allowed_initially = turn_budget.can_dispatch_tool_round();
@@ -1107,7 +1125,7 @@ impl AgentExecutor {
         let document_window = ContextWindow::new_with_resolution(
             model,
             self.config.context_window,
-            self.config.context_window_resolution,
+            self.context_window_resolution(),
             max_response_tokens,
         );
         let mut document_inputs = history.clone();
@@ -1137,7 +1155,7 @@ impl AgentExecutor {
                 evidence_sections: &[],
                 controller_state_sections: &controller_state_sections,
                 append_volatile_system_prompt_to_tail: layout.append_volatile_system_prompt_to_tail,
-                endpoint_context_resolution: self.config.context_window_resolution,
+                endpoint_context_resolution: self.context_window_resolution(),
                 // Admission owns reduction after route projection and tool
                 // assembly. A canonical-only trim here can discard history
                 // even when the selected provider's request already fits.
@@ -1342,7 +1360,7 @@ impl AgentExecutor {
         let context_window = ContextWindow::new_with_resolution(
             model,
             self.config.context_window,
-            self.config.context_window_resolution,
+            self.context_window_resolution(),
             max_response_tokens,
         )
         .with_compact_percent(self.config.auto_compact_percent);

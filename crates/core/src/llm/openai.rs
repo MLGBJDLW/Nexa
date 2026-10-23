@@ -282,6 +282,10 @@ struct OaiResponseMessage {
     reasoning_details: Option<serde_json::Value>,
     #[serde(default)]
     encrypted_content: Option<String>,
+    #[serde(default)]
+    reasoning_text: Option<String>,
+    #[serde(default)]
+    reasoning_opaque: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -909,6 +913,7 @@ fn convert_message(
                 | ReasoningHistoryEncoding::ArkEncryptedContent => {
                     oai.reasoning_content = Some(reasoning);
                 }
+                ReasoningHistoryEncoding::CopilotReasoning => {}
                 ReasoningHistoryEncoding::ThinkTags => {
                     let answer = msg.text_content();
                     oai.content = Some(OaiContent::Text(format!(
@@ -1564,6 +1569,15 @@ fn parse_responses_completion(
     dialect: super::native_search::NativeSearchDialect,
     capability: crate::model_catalog::NativeWebSearchCapability,
 ) -> Result<CompletionResponse, CoreError> {
+    parse_responses_completion_with_copilot(value, dialect, capability, false)
+}
+
+fn parse_responses_completion_with_copilot(
+    value: serde_json::Value,
+    dialect: super::native_search::NativeSearchDialect,
+    capability: crate::model_catalog::NativeWebSearchCapability,
+    copilot: bool,
+) -> Result<CompletionResponse, CoreError> {
     let response_status = value
         .get("status")
         .and_then(serde_json::Value::as_str)
@@ -1589,8 +1603,8 @@ fn parse_responses_completion(
         // items. Attest completion from that trusted dialect's outer response
         // only when the field is absent; explicit incomplete/unknown states
         // retain the existing rejection behavior. Ciphertext is unchanged.
-        let normalized_reasoning = (dialect
-            == super::native_search::NativeSearchDialect::OpenRouterServerTool
+        let normalized_reasoning = ((copilot
+            || dialect == super::native_search::NativeSearchDialect::OpenRouterServerTool)
             && response_completed
             && item["type"] == "reasoning"
             && item.get("status").is_none())
@@ -1859,6 +1873,23 @@ fn parse_responses_completion(
             replay.is_present().then_some(replay)
         });
 
+    let provider_replay = if copilot {
+        let payload = super::provider_turn::ProviderReplayPayload::CopilotResponseItems(
+            super::provider_turn::ResponsesReplayPayload {
+                response_status: response_status.clone(),
+                items: output.clone(),
+            },
+        );
+        if response_completed && !tool_calls.is_empty() && !payload.is_present() {
+            return Err(CoreError::StreamIncomplete(
+                "Copilot Responses returned incomplete native tool state".into(),
+            ));
+        }
+        payload.is_present().then_some(payload)
+    } else {
+        provider_replay
+    };
+
     if capability.supports_citations && !citations.is_empty() {
         content.push_str(&super::native_search::render_citation_appendix(
             &super::native_search::SearchEvidence {
@@ -1933,6 +1964,7 @@ fn responses_usage_from_value(usage_value: serde_json::Value) -> Usage {
 /// object and confirms that the streamed prefix was authoritative.
 #[derive(Default)]
 struct ResponsesAssembler {
+    copilot: bool,
     answer: String,
     thinking: String,
     terminal_seen: bool,
@@ -2092,6 +2124,24 @@ fn project_responses_client_tool_event(
                 .and_then(serde_json::Value::as_str)
                 .filter(|id| !id.trim().is_empty())
                 .map(str::to_string)
+        })
+        .or_else(|| {
+            if !projection.copilot {
+                return None;
+            }
+            // Copilot encrypts item IDs independently in each frame. Only the
+            // stable output slot of an already announced call can resolve it;
+            // final call_id/name/arguments still pass the normal integrity gate.
+            let index = value
+                .get("output_index")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())?;
+            let mut matches = projection
+                .client_tools
+                .iter()
+                .filter(|(_, call)| call.index == Some(index));
+            let (id, _) = matches.next()?;
+            matches.next().is_none().then(|| id.clone())
         });
     let Some(call_id) = call_id else {
         return Err(CoreError::StreamIncomplete(format!(
@@ -2598,7 +2648,12 @@ fn project_responses_stream_event(
             })?;
             let mut events = project_terminal_provider_hosted_tools(&response, projection, dialect);
             events.extend(finalize_terminal_client_tools(&mut response, projection)?);
-            let mut completed = parse_responses_completion(response, dialect, capability)?;
+            let mut completed = parse_responses_completion_with_copilot(
+                response,
+                dialect,
+                capability,
+                projection.copilot,
+            )?;
             if let Some(tool_calls) = completed.tool_calls.as_mut() {
                 for call in tool_calls {
                     if let Some(streamed) = projection.client_tools.get(&call.id) {
@@ -2720,11 +2775,15 @@ async fn parse_responses_sse_stream(
     dialect: super::native_search::NativeSearchDialect,
     capability: crate::model_catalog::NativeWebSearchCapability,
     stream_idle_timeout: Duration,
+    copilot: bool,
 ) -> Result<(), CoreError> {
     let mut byte_stream = response.bytes_stream();
     let mut buffer = Vec::new();
     let mut data_lines = Vec::new();
-    let mut projection = ResponsesAssembler::default();
+    let mut projection = ResponsesAssembler {
+        copilot,
+        ..Default::default()
+    };
 
     while let Some(chunk_result) = next_stream_item_with_idle_timeout(
         &mut byte_stream,
@@ -2795,6 +2854,7 @@ pub struct OpenAiProvider {
     transport: Arc<HttpTransport>,
     config: ProviderConfig,
     request_timeout: Option<Duration>,
+    copilot_model: Option<Arc<super::copilot::Model>>,
 }
 
 impl OpenAiProvider {
@@ -2808,7 +2868,43 @@ impl OpenAiProvider {
             transport,
             config,
             request_timeout,
+            copilot_model: None,
         })
+    }
+
+    pub(super) fn with_copilot_model(mut self, model: Arc<super::copilot::Model>) -> Self {
+        self.copilot_model = Some(model);
+        self
+    }
+
+    fn uses_copilot_responses(&self) -> bool {
+        self.copilot_model
+            .as_ref()
+            .is_some_and(|m| m.api_style() == ReasoningApiStyle::OpenAiResponses)
+    }
+
+    fn request_headers(
+        &self,
+        builder: reqwest::RequestBuilder,
+        request: Option<&CompletionRequest>,
+    ) -> reqwest::RequestBuilder {
+        if self.copilot_model.is_some() {
+            super::copilot::headers(builder, request)
+        } else {
+            apply_openrouter_headers(builder, &self.config)
+        }
+    }
+
+    fn wire_body<T: Serialize>(
+        &self,
+        body: &T,
+        request: &CompletionRequest,
+    ) -> Result<bytes::Bytes, CoreError> {
+        if let Some(model) = &self.copilot_model {
+            model.wire_body(body, request, &self.config)
+        } else {
+            serialized_json_body(body, "OpenAI request")
+        }
     }
 
     fn base_url(&self) -> &str {
@@ -2891,21 +2987,21 @@ impl OpenAiProvider {
             }
             None => build_generic_responses_request(request, dialect)?,
         };
-        let body_bytes = serialized_json_body(&body, "Responses request")?;
+        let body_bytes = self.wire_body(&body, request)?;
         let api_key = self.api_key()?;
         info!(
             "Responses request to {url}, model={}, dialect={dialect:?}",
             request.model
         );
         let response = with_request_timeout(
-            apply_openrouter_headers(
+            self.request_headers(
                 transport
                     .client()
                     .post(&url)
                     .header("Authorization", format!("Bearer {api_key}"))
                     .header("Content-Type", "application/json")
                     .body(body_bytes),
-                &self.config,
+                Some(request),
             ),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
@@ -2953,7 +3049,11 @@ impl OpenAiProvider {
                     CoreError::Llm(message)
                 }
             })?;
-        let parsed = parse_responses_completion(value, dialect, capability)?;
+        let parsed = if self.copilot_model.is_some() {
+            parse_responses_completion_with_copilot(value, dialect, capability, true)?
+        } else {
+            parse_responses_completion(value, dialect, capability)?
+        };
         transport.record_transport_success();
         Ok(parsed)
     }
@@ -2980,21 +3080,21 @@ impl OpenAiProvider {
             None => build_generic_responses_request(request, dialect)?,
         };
         body["stream"] = serde_json::json!(true);
-        let body_bytes = serialized_json_body(&body, "Responses streaming request")?;
+        let body_bytes = self.wire_body(&body, request)?;
         let api_key = self.api_key()?;
         info!(
             "Responses streaming request to {url}, model={}, dialect={dialect:?}",
             request.model
         );
         let response = send_stream_start_request(
-            apply_openrouter_headers(
+            self.request_headers(
                 transport
                     .client()
                     .post(&url)
                     .header("Authorization", format!("Bearer {api_key}"))
                     .header("Content-Type", "application/json")
                     .body(body_bytes),
-                &self.config,
+                Some(request),
             ),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "Responses streaming request",
@@ -3021,12 +3121,13 @@ impl OpenAiProvider {
             .config
             .streaming
             .stream_idle_timeout_for_model(&request.model);
+        let copilot = self.copilot_model.is_some();
         tokio::spawn(async move {
             let parser_tx = tx.clone();
             let result = tokio::select! {
                 biased;
                 _ = tx.closed() => return,
-                result = parse_responses_sse_stream(response, parser_tx, dialect, capability, stream_idle_timeout) => result,
+                result = parse_responses_sse_stream(response, parser_tx, dialect, capability, stream_idle_timeout, copilot) => result,
             };
             if let Err(error) = result {
                 transport.record_transport_failure(&error);
@@ -3126,6 +3227,9 @@ impl LlmProvider for OpenAiProvider {
     }
 
     fn route_snapshot(&self, request: &CompletionRequest) -> super::provider_turn::RouteSnapshot {
+        if let Some(model) = &self.copilot_model {
+            return model.route(&self.config, request);
+        }
         let api_style = match hosted_search_context(request) {
             Some((_dialect, mode, capability))
                 if !capability.can_mix_client_tools
@@ -3138,7 +3242,9 @@ impl LlmProvider for OpenAiProvider {
             None if is_direct_deepseek_responses_request(&self.config, request) => {
                 ReasoningApiStyle::OpenAiResponses
             }
-            None if is_direct_gpt6_responses_model(&self.config, &request.model) => {
+            None if self.uses_copilot_responses()
+                || is_direct_gpt6_responses_model(&self.config, &request.model) =>
+            {
                 ReasoningApiStyle::OpenAiResponses
             }
             None => ReasoningApiStyle::OpenAiChatCompletions,
@@ -3158,12 +3264,12 @@ impl LlmProvider for OpenAiProvider {
         let api_key = self.api_key()?;
 
         let response = with_request_timeout(
-            apply_openrouter_headers(
+            self.request_headers(
                 transport
                     .client()
                     .get(&url)
                     .header("Authorization", format!("Bearer {api_key}")),
-                &self.config,
+                None,
             ),
             self.request_timeout,
         )
@@ -3247,7 +3353,9 @@ impl LlmProvider for OpenAiProvider {
                     Err(error) => return Err(error),
                 }
             }
-        } else if is_direct_gpt6_responses_model(&self.config, &request.model) {
+        } else if self.uses_copilot_responses()
+            || is_direct_gpt6_responses_model(&self.config, &request.model)
+        {
             return self
                 .complete_responses(
                     request,
@@ -3277,17 +3385,17 @@ impl LlmProvider for OpenAiProvider {
         let url = format!("{}/chat/completions", self.base_url());
         let api_key = self.api_key()?;
         let body = build_request_body_with_config(request, false, Some(&self.config));
-        let body_bytes = serialized_json_body(&body, "OpenAI completion request")?;
+        let body_bytes = self.wire_body(&body, request)?;
 
         let response = with_request_timeout(
-            apply_openrouter_headers(
+            self.request_headers(
                 transport
                     .client()
                     .post(&url)
                     .header("Authorization", format!("Bearer {api_key}"))
                     .header("Content-Type", "application/json")
                     .body(body_bytes),
-                &self.config,
+                Some(request),
             ),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
         )
@@ -3406,10 +3514,18 @@ impl LlmProvider for OpenAiProvider {
             .as_ref()
             .map(super::streaming::partition_openai_content)
             .unwrap_or_default();
+        let copilot_replay = self.copilot_model.as_ref().and_then(|_| {
+            let payload = super::provider_turn::ProviderReplayPayload::CopilotReasoning {
+                opaque: choice.message.reasoning_opaque.clone(),
+                text: choice.message.reasoning_text.clone(),
+            };
+            payload.is_present().then_some(payload)
+        });
         let (content, tagged_thinking) = super::streaming::partition_complete_think_tags(&content);
         let thinking = choice
             .message
             .reasoning_content
+            .or(choice.message.reasoning_text)
             .or_else(|| choice.message.reasoning.and_then(reasoning_value_to_text))
             .or_else(|| {
                 choice
@@ -3428,7 +3544,8 @@ impl LlmProvider for OpenAiProvider {
             thinking,
             provider_replay: openrouter_reasoning_details
                 .map(super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails)
-                .or(ark_replay),
+                .or(ark_replay)
+                .or(copilot_replay),
         })
     }
 
@@ -3500,7 +3617,9 @@ impl LlmProvider for OpenAiProvider {
                 completion_response_to_provider_events(response),
             )));
         }
-        if is_direct_gpt6_responses_model(&self.config, &request.model) {
+        if self.uses_copilot_responses()
+            || is_direct_gpt6_responses_model(&self.config, &request.model)
+        {
             return self
                 .stream_responses_events(
                     request,
@@ -3536,20 +3655,20 @@ impl LlmProvider for OpenAiProvider {
         let url = format!("{}/chat/completions", self.base_url());
         let api_key = self.api_key()?;
         let body = build_request_body_with_config(request, true, Some(&self.config));
-        let body_bytes = serialized_json_body(&body, "OpenAI stream request")?;
+        let body_bytes = self.wire_body(&body, request)?;
 
         info!("OpenAI stream request to {url}, model={}", request.model);
         debug!("Request body: {} bytes", body_bytes.len());
 
         let response = send_stream_start_request(
-            apply_openrouter_headers(
+            self.request_headers(
                 transport
                     .client()
                     .post(&url)
                     .header("Authorization", format!("Bearer {api_key}"))
                     .header("Content-Type", "application/json")
                     .body(body_bytes),
-                &self.config,
+                Some(request),
             ),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
             "OpenAI stream request",
@@ -3592,12 +3711,13 @@ impl LlmProvider for OpenAiProvider {
         )
         .reasoning_history_encoding
             == ReasoningHistoryEncoding::ArkEncryptedContent;
+        let capture_copilot = self.copilot_model.is_some();
         tokio::spawn(async move {
             let parser_tx = tx.clone();
             let result = tokio::select! {
                 biased;
                 _ = tx.closed() => return,
-                result = parse_sse_events_with_idle_timeout(response, parser_tx, stream_idle_timeout, capture_ark) => result,
+                result = parse_sse_events_with_idle_timeout(response, parser_tx, stream_idle_timeout, capture_ark, capture_copilot) => result,
             };
             if let Err(e) = result {
                 transport.record_transport_failure(&e);
@@ -3630,6 +3750,84 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn copilot_responses_resolves_rotating_item_ids_and_replays_terminal_native_state() {
+        let dialect = super::super::native_search::NativeSearchDialect::OpenAiResponses;
+        let capability = generic_responses_capability(dialect);
+        let added = serde_json::json!({"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"opaque-added","call_id":"call-stable","name":"read_problem","arguments":"","status":"in_progress"}});
+        let delta = serde_json::json!({"type":"response.function_call_arguments.delta","output_index":0,"item_id":"opaque-delta","delta":"{}"});
+        let mut ordinary = ResponsesAssembler::default();
+        project_responses_stream_event(added.clone(), &mut ordinary, dialect, capability).unwrap();
+        assert!(
+            project_responses_stream_event(delta.clone(), &mut ordinary, dialect, capability)
+                .is_err()
+        );
+        let mut copilot = ResponsesAssembler {
+            copilot: true,
+            ..Default::default()
+        };
+        project_responses_stream_event(added, &mut copilot, dialect, capability).unwrap();
+        project_responses_stream_event(delta, &mut copilot, dialect, capability).unwrap();
+        project_responses_stream_event(serde_json::json!({"type":"response.function_call_arguments.done","output_index":0,"item_id":"opaque-done","arguments":"{}"}), &mut copilot, dialect, capability).unwrap();
+        let terminal_item = serde_json::json!({"type":"function_call","id":"opaque-terminal","call_id":"call-stable","name":"read_problem","arguments":"{}","status":"completed"});
+        let events = project_responses_stream_event(serde_json::json!({"type":"response.completed","response":{"status":"completed","output":[terminal_item.clone()]}}), &mut copilot, dialect, capability).unwrap();
+        let replay = events
+            .into_iter()
+            .find_map(|event| match event {
+                ProviderStreamEvent::ReplayState { replay } => Some(*replay),
+                _ => None,
+            })
+            .unwrap();
+        assert!(replay.is_present());
+        let mut route = super::super::provider_turn::RouteSnapshot::unknown(
+            "github_copilot_api",
+            "gpt-test",
+            ReasoningReplayPolicy::NotRequired,
+        );
+        route.api_style = ReasoningApiStyle::OpenAiResponses;
+        let call = ToolCallRequest {
+            id: "call-stable".into(),
+            name: "read_problem".into(),
+            arguments: "{}".into(),
+            thought_signature: None,
+        };
+        let envelope =
+            super::super::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
+                "turn",
+                "sample",
+                route,
+                "",
+                None,
+                None,
+                vec![call.clone()],
+                true,
+                Some(replay),
+            );
+        assert!(envelope.authorizes_tool_dispatch());
+        let mut assistant = Message::text(Role::Assistant, "");
+        assistant.tool_calls = Some(vec![call]);
+        assistant.set_provider_turn(envelope);
+        let mut result = Message::text(Role::Tool, "problem");
+        result.name = Some("call-stable".into());
+        let input = responses_input_items(&[assistant, result]).unwrap();
+        assert_eq!(input[0], terminal_item);
+        assert_eq!(input[1]["call_id"], "call-stable");
+        let completion = parse_responses_completion_with_copilot(serde_json::json!({"status":"completed","output":[
+            {"type":"reasoning","id":"opaque-reasoning","encrypted_content":"native-state","summary":[{"type":"summary_text","text":"Visible summary"}]},
+            {"type":"message","id":"opaque-answer","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Answer"}]}
+        ]}),dialect,capability,true).unwrap();
+        assert_eq!(completion.thinking.as_deref(), Some("Visible summary"));
+        let Some(super::super::provider_turn::ProviderReplayPayload::CopilotResponseItems(payload)) =
+            completion.provider_replay
+        else {
+            panic!("missing Copilot replay")
+        };
+        assert!(
+            payload.items[0].get("status").is_none(),
+            "raw replay must retain original fields"
+        );
+    }
 
     #[test]
     fn october_openrouter_reasoning_switches_match_chat_and_native_search() {

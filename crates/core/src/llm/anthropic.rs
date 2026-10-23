@@ -1553,6 +1553,7 @@ pub struct AnthropicProvider {
     transport: Arc<HttpTransport>,
     config: ProviderConfig,
     request_timeout: Option<Duration>,
+    copilot_model: Option<Arc<super::copilot::Model>>,
 }
 
 impl AnthropicProvider {
@@ -1565,7 +1566,13 @@ impl AnthropicProvider {
             transport,
             config,
             request_timeout,
+            copilot_model: None,
         })
+    }
+
+    pub(super) fn with_copilot_model(mut self, model: Arc<super::copilot::Model>) -> Self {
+        self.copilot_model = Some(model);
+        self
     }
 
     fn base_url(&self) -> &str {
@@ -1574,10 +1581,12 @@ impl AnthropicProvider {
 
     fn messages_url(&self) -> String {
         let base_url = self.base_url().trim_end_matches('/');
-        if super::provider_boundary::is_deepseek_anthropic_endpoint(
-            self.config.provider_type,
-            self.config.base_url.as_deref(),
-        ) {
+        if self.copilot_model.is_some()
+            || super::provider_boundary::is_deepseek_anthropic_endpoint(
+                self.config.provider_type,
+                self.config.base_url.as_deref(),
+            )
+        {
             // DeepSeek documents an Anthropic SDK base URL. The SDK posts to
             // `/v1/messages` relative to that base rather than `/messages`.
             format!("{base_url}/v1/messages")
@@ -1598,20 +1607,29 @@ impl AnthropicProvider {
         &self,
         request: reqwest::RequestBuilder,
         api_key: &str,
-        model: &str,
+        completion: &CompletionRequest,
     ) -> reqwest::RequestBuilder {
-        if super::vertex::is_anthropic(&self.config) {
+        if self.copilot_model.is_some() {
+            super::copilot::headers(request.bearer_auth(api_key), Some(completion))
+                .header("anthropic-version", ANTHROPIC_VERSION)
+        } else if super::vertex::is_anthropic(&self.config) {
             request.bearer_auth(api_key)
         } else {
             request
                 .header("x-api-key", api_key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("anthropic-beta", anthropic_beta_headers(model))
+                .header("anthropic-beta", anthropic_beta_headers(&completion.model))
         }
     }
 
-    fn wire_body<T: serde::Serialize>(&self, body: &T) -> Result<bytes::Bytes, CoreError> {
-        if super::vertex::is_anthropic(&self.config) {
+    fn wire_body<T: serde::Serialize>(
+        &self,
+        body: &T,
+        request: &CompletionRequest,
+    ) -> Result<bytes::Bytes, CoreError> {
+        if let Some(model) = &self.copilot_model {
+            model.wire_body(body, request, &self.config)
+        } else if super::vertex::is_anthropic(&self.config) {
             serialized_json_body(
                 &super::vertex::anthropic_body(body)?,
                 "Vertex Claude request",
@@ -1637,7 +1655,9 @@ impl AnthropicProvider {
             )
             .max_output_tokens;
         }
-        validate_thinking_request(&resolved)?;
+        if self.copilot_model.is_none() {
+            validate_thinking_request(&resolved)?;
+        }
         Ok(resolved)
     }
 
@@ -2620,6 +2640,9 @@ impl LlmProvider for AnthropicProvider {
     }
 
     fn route_snapshot(&self, request: &CompletionRequest) -> super::provider_turn::RouteSnapshot {
+        if let Some(model) = &self.copilot_model {
+            return model.route(&self.config, request);
+        }
         let contract = resolve_model_contract(
             self.config.provider_type,
             self.config.base_url.as_deref(),
@@ -2744,10 +2767,10 @@ impl LlmProvider for AnthropicProvider {
         let (system, messages) = convert_messages(&request.messages);
         let resolved_request = self.resolve_output_capacity(request)?;
         let body = build_request_body(&resolved_request, system, messages, false);
-        let body_bytes = self.wire_body(&body)?;
+        let body_bytes = self.wire_body(&body, request)?;
 
         let response = with_request_timeout(
-            self.authorize(transport.client().post(&url), api_key, &request.model)
+            self.authorize(transport.client().post(&url), api_key, request)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),
@@ -2971,12 +2994,12 @@ impl LlmProvider for AnthropicProvider {
         let resolved_request = self.resolve_output_capacity(request)?;
         let body = build_request_body(&resolved_request, system, messages, true);
         let request_prefix = sonnet55::request_prefix(&body);
-        let body_bytes = self.wire_body(&body)?;
+        let body_bytes = self.wire_body(&body, request)?;
 
         info!("Anthropic stream request to {url}, model={}", request.model);
 
         let response = send_stream_start_request(
-            self.authorize(transport.client().post(&url), api_key, &request.model)
+            self.authorize(transport.client().post(&url), api_key, request)
                 .header("Content-Type", "application/json")
                 .body(body_bytes),
             super::request_timeout::for_model(&self.config, &request.model, DEFAULT_TIMEOUT_SECS),

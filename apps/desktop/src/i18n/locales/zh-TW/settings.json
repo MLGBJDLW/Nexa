@@ -1,4 +1,8 @@
 {
+  "copilotApiAccountToken": "GitHub 帳戶權杖",
+  "providerGithubCopilotApi": "GitHub Copilot API",
+  "copilotApiImportAccount": "使用 GitHub CLI 帳戶",
+  "copilotApiHelp": "匯入已登入的 GitHub CLI 帳戶，或填入具有 Copilot 權限的帳戶權杖。重新整理模型以讀取帳戶能力；工具與上下文由 Nexa 管理。",
   "configLoadError": "無法讀取設定，請重試以載入已儲存的設定。",
   "webSearchCustomProvider.deepseek": "DeepSeek 搜尋與擷取",
   "webSearchCustomProvider.deepseek.desc": "使用 DeepSeek API 金鑰搜尋網頁並擷取 Markdown 內容。",

@@ -66,14 +66,49 @@ pub(super) async fn prepare_subagent_worker(
     // Workflow roles describe the work, not permission to switch models.
     // Only an explicit route.model overrides the inherited account/model.
     let model_route_fallback = false;
-    let catalog_authoritative = native_runtime.is_none()
-        && config.model.as_deref().is_some_and(|model| {
-            nexa_core::provider_catalog::endpoint_model_catalog_limits_are_authoritative(
-                provider_catalog_key(provider_config.provider_type),
-                provider_config.base_url.as_deref(),
-                model,
-            )
-        });
+    let provider = if let Some(kind) = native_runtime.clone() {
+        crate::desktop_agent_session::DesktopAgentBackend::Runtime {
+            kind,
+            external: None,
+        }
+    } else {
+        crate::desktop_agent_session::DesktopAgentBackend::Nexa(
+            create_provider(provider_config.clone()).map_err(|error| {
+                subagent_preflight_failure(
+                    SubagentPreflightStage::Provider,
+                    "provider_configuration_invalid",
+                    false,
+                    error.to_string(),
+                )
+            })?,
+        )
+    };
+    let live_catalog = if let crate::desktop_agent_session::DesktopAgentBackend::Nexa(provider) =
+        &provider
+    {
+        tokio::select! {
+            biased;
+            _ = worker_cancel_token.cancelled() => return Err(CoreError::Cancelled("Worker initialization cancelled".into())),
+            result = provider.model_catalog_snapshot() => result?,
+        }
+    } else {
+        None
+    };
+    let live_model = live_catalog.as_ref().and_then(|catalog| {
+        catalog
+            .descriptors
+            .iter()
+            .find(|model| Some(model.id.as_str()) == config.model.as_deref())
+    });
+    let catalog_authoritative = live_model.is_some()
+        || native_runtime.is_none()
+            && config.model.as_deref().is_some_and(|model| {
+                nexa_core::provider_catalog::endpoint_model_catalog_limits_are_authoritative(
+                    provider_catalog_key(provider_config.provider_type),
+                    provider_config.base_url.as_deref(),
+                    model,
+                )
+            });
     config.catalog_limits_authoritative = Some(catalog_authoritative);
     // A worker may select a different model from the parent's image-capable
     // route. Keep exact inherited eligibility only while its identity matches.
@@ -106,15 +141,20 @@ pub(super) async fn prepare_subagent_worker(
             .map(|route| route.snapshot.native_image_input);
         // Workers instantiate a direct provider, so the selected descriptor
         // applies independently of any fallback plan on the parent or preset.
-        config.native_vision = Some(selected_image_support.unwrap_or_else(|| {
-            catalog_authoritative
-                && config.model.as_deref().is_some_and(|model| {
-                    nexa_core::llm::model_declares_vision_support(
-                        &provider_config.provider_type,
-                        model,
-                    )
-                })
-        }));
+        config.native_vision = Some(
+            live_model
+                .map(|model| model.capabilities.vision)
+                .or(selected_image_support)
+                .unwrap_or_else(|| {
+                    catalog_authoritative
+                        && config.model.as_deref().is_some_and(|model| {
+                            nexa_core::llm::model_declares_vision_support(
+                                &provider_config.provider_type,
+                                model,
+                            )
+                        })
+                }),
+        );
     }
     if let Some(policy) = &config.native_image_policy {
         config.native_vision = Some(policy.allows(
@@ -158,23 +198,6 @@ pub(super) async fn prepare_subagent_worker(
             )
         })?
         .to_string();
-    let provider = if let Some(kind) = native_runtime.clone() {
-        crate::desktop_agent_session::DesktopAgentBackend::Runtime {
-            kind,
-            external: None,
-        }
-    } else {
-        crate::desktop_agent_session::DesktopAgentBackend::Nexa(
-            create_provider(provider_config.clone()).map_err(|error| {
-                subagent_preflight_failure(
-                    SubagentPreflightStage::Provider,
-                    "provider_configuration_invalid",
-                    false,
-                    error.to_string(),
-                )
-            })?,
-        )
-    };
     let effective_provider_type = config
         .provider_type
         .unwrap_or(provider_config.provider_type);
@@ -185,10 +208,24 @@ pub(super) async fn prepare_subagent_worker(
         .map(|kind| kind.provider())
         .unwrap_or_else(|| provider_catalog_key(effective_provider_type))
         .to_string();
-    let catalog_limits = effective_model
-        .as_deref()
-        .filter(|_| catalog_authoritative)
-        .and_then(|model| model_limits_from_catalog(effective_provider_type, model));
+    let catalog_limits = live_model.map(|model| model.limits.clone()).or_else(|| {
+        effective_model
+            .as_deref()
+            .filter(|_| catalog_authoritative)
+            .and_then(|model| model_limits_from_catalog(effective_provider_type, model))
+    });
+    if let Some(model) = live_model {
+        config.resolved_catalog_limits =
+            Some(nexa_core::llm::model_contract::ResolvedCatalogLimits {
+                model_id: model.id.clone(),
+                provider_type: effective_provider_type,
+                endpoint_id: live_catalog
+                    .as_ref()
+                    .map(|catalog| catalog.endpoint_id.clone())
+                    .unwrap_or_default(),
+                limits: model.limits.clone(),
+            });
+    }
     let mut delegation_limits = runtime.budget.limits().await;
     if runtime.base_config.delegation_limits_v2.is_none()
         && (args.route.agent_config_id.is_some()
@@ -212,6 +249,14 @@ pub(super) async fn prepare_subagent_worker(
         ResolvedContextWindow {
             capacity_tokens: None,
             authority: ContextWindowAuthority::ProviderManaged,
+        }
+    } else if let Some(capacity) = live_model
+        .and_then(|model| model.limits.context_tokens)
+        .and_then(|n| u32::try_from(n).ok())
+    {
+        ResolvedContextWindow {
+            capacity_tokens: Some(capacity),
+            authority: ContextWindowAuthority::Catalog,
         }
     } else {
         resolve_endpoint_model_context_window(

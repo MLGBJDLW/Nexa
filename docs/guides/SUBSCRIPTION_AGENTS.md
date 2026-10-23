@@ -38,16 +38,29 @@ also includes Gemini tool-schema and native ACP sandbox corrections, following
 the long-command and overload-retry fixes in
 [1.0.102](https://github.com/github/copilot-cli/releases/tag/v1.0.102).
 
-The two Nexa Copilot entries currently both use the official CLI: the SDK entry
-exposes Nexa tools, while the ACP entry uses native Copilot tools. Zed also offers
-a distinct direct Copilot API provider with its own OAuth account owner. Changing
-to that architecture would transfer the model loop, tool replay and compaction to
-Nexa; it is not a summary-visibility setting. Direct API comparisons must preserve
+The two external-agent Copilot entries use the official CLI: the SDK entry
+exposes Nexa tools, while the ACP entry uses native Copilot tools. **GitHub Copilot
+API**, under API models, is a separate direct connection: Nexa owns its model loop,
+tool replay, Fork and compaction. Import an explicitly selected GitHub CLI account
+or enter a Copilot-enabled GitHub account token, refresh its model catalog and
+save the connection. Importing does not read Zed's credentials or change either
+external agent's login. Zed's own direct provider has a separate OAuth account owner.
+This architecture is not a summary-visibility setting. Direct API comparisons must preserve
 the actual wire effort, model route and task. In particular, the Chat Completions
 request in [Zed's inspected implementation](https://github.com/zed-industries/zed/blob/9e84b066b55bc3609a30dd965075c12255b38b45/crates/copilot_chat/src/model.rs#L774)
 does not serialize the UI effort selection. [Google's summary contract](https://ai.google.dev/gemini-api/docs/thinking)
 also permits a thought signature without a readable summary. Nexa neither displays
 encrypted state as text nor changes effort to force a summary.
+
+Direct API discovery selects the account's official Copilot endpoint and advertised
+protocol for each model: Messages first, then Responses, then Chat Completions.
+Claude adaptive thinking explicitly requests summarized output; Responses requests
+reasoning summaries. Supported efforts are passed exactly. Chat's `reasoning_text`
+is visible, while `reasoning_opaque` is retained only as account-, endpoint- and
+model-scoped replay state. The API entry uses the normal Nexa cancellation and
+tool-integrity gates and starts no Copilot CLI process. Its context and capability
+metadata comes from authenticated discovery; neither discovery nor a successful
+response guarantees a readable summary on every subsequent response.
 
 The gauge beside the Chat model and reasoning controls opens **Account usage**.
 It shows provider-reported used and remaining percentages, individual quota

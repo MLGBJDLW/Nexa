@@ -23,6 +23,40 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const LOGIN_MAX_AGE: Duration = Duration::from_secs(15 * 60);
 const COPILOT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Explicit account import for the API provider. Never reads another editor's
+/// credentials or changes the SDK/ACP authentication store.
+#[tauri::command]
+pub async fn import_github_copilot_api_token_cmd() -> Result<String, String> {
+    let mut command = tokio::process::Command::new("gh");
+    command
+        .args(["auth", "token", "--hostname", "github.com"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    let output = tokio::time::timeout(Duration::from_secs(10), command.output())
+        .await
+        .map_err(|_| "GitHub CLI account lookup timed out".to_string())?
+        .map_err(|_| {
+            "GitHub CLI is unavailable. Sign in with gh auth login or paste an account token."
+                .to_string()
+        })?;
+    if !output.status.success() {
+        return Err(
+            "GitHub CLI has no signed-in github.com account. Run gh auth login first.".into(),
+        );
+    }
+    let token = String::from_utf8(output.stdout)
+        .map_err(|_| "Invalid GitHub CLI account token".to_string())?
+        .trim()
+        .to_owned();
+    if token.is_empty() {
+        return Err("GitHub CLI returned an empty account token".into());
+    }
+    Ok(token)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexRateLimitWindow {

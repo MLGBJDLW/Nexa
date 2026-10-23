@@ -106,7 +106,9 @@ pub fn resolve_configured_model_contract(
         ReasoningApiStyle::AnthropicMessages
     } else {
         match provider_adapter_for_type(provider) {
-            ProviderAdapterKind::OpenAiCompatible => ReasoningApiStyle::OpenAiChatCompletions,
+            ProviderAdapterKind::OpenAiCompatible | ProviderAdapterKind::Copilot => {
+                ReasoningApiStyle::OpenAiChatCompletions
+            }
             ProviderAdapterKind::Anthropic => ReasoningApiStyle::AnthropicMessages,
             ProviderAdapterKind::Bedrock => ReasoningApiStyle::BedrockConverse,
             ProviderAdapterKind::Google => ReasoningApiStyle::GeminiGenerateContent,

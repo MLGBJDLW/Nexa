@@ -1,4 +1,8 @@
 {
+  "copilotApiAccountToken": "GitHub account token",
+  "providerGithubCopilotApi": "GitHub Copilot API",
+  "copilotApiImportAccount": "Use GitHub CLI account",
+  "copilotApiHelp": "Import your signed-in GitHub CLI account or enter a Copilot-enabled account token. Refresh models to load your account’s capabilities. Nexa manages tools and context.",
   "configLoadError": "Settings could not be loaded. Retry to read your saved configuration.",
   "webSearchCustomProvider.deepseek": "DeepSeek Search & Fetch",
   "webSearchCustomProvider.deepseek.desc": "Search the web and fetch Markdown pages with your DeepSeek API key.",

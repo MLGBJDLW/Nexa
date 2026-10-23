@@ -204,6 +204,25 @@ impl Tool for SubagentModelsTool {
                         Vec::new()
                     }
                 }
+            } else if supported && config.provider == "github_copilot_api" {
+                let cancellation = context.cancel_token.cloned().unwrap_or_default();
+                let discovered = match create_provider(
+                    crate::desktop_agent_session::desktop_provider_config(&config),
+                ) {
+                    Ok(provider) => tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Model discovery cancelled".into())),
+                        result = provider.list_models() => result,
+                    },
+                    Err(error) => Err(error),
+                };
+                match discovered {
+                    Ok(models) => models,
+                    Err(error) => {
+                        catalog_error = Some(error.to_string());
+                        Vec::new()
+                    }
+                }
             } else if supported {
                 nexa_core::provider_catalog::preset_model_ids(
                     &config.provider,

@@ -713,6 +713,8 @@ pub(super) struct ToolDispatchRuntime<'a> {
     pub(super) native_vision: Option<bool>,
     pub(super) tools: &'a ToolRegistry,
     pub(super) config: &'a AgentConfig,
+    pub(super) context_window_resolution:
+        Option<crate::conversation::memory::ResolvedContextWindow>,
     pub(super) cancel_token: &'a CancellationToken,
     pub(super) confirmation_callback: &'a Option<ConfirmationCallback>,
     pub(super) approval_callback: &'a Option<ApprovalCallback>,
@@ -733,6 +735,7 @@ impl AgentExecutor {
             native_vision: self.config.native_vision,
             tools: &self.tools,
             config: &self.config,
+            context_window_resolution: self.context_window_resolution(),
             cancel_token: &self.cancel_token,
             confirmation_callback: &self.confirmation_callback,
             approval_callback: &self.approval_callback,
@@ -1836,8 +1839,7 @@ impl ToolDispatchRuntime<'_> {
                         let (max_definitions, max_tool_tokens) =
                             prompt_layout::cache_stable_tool_surface_limits(
                                 model,
-                                self.config
-                                    .context_window_resolution
+                                self.context_window_resolution
                                     .and_then(|resolved| resolved.capacity_tokens)
                                     .or(self.config.context_window),
                                 self.config.resolved_max_response_tokens(model),

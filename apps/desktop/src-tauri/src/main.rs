@@ -1082,6 +1082,7 @@ fn main() {
             commands::set_capability_registry_read_mode_cmd,
             commands::test_agent_connection_cmd,
             commands::refresh_provider_model_catalog_cmd,
+            commands::import_github_copilot_api_token_cmd,
             commands::get_model_context_policy_cmd,
             commands::discover_openrouter_image_models_cmd,
             commands::save_model_context_policy_cmd,

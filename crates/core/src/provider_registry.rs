@@ -13,6 +13,7 @@ pub enum ProviderAdapterKind {
     Google,
     Bedrock,
     Ollama,
+    Copilot,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +25,12 @@ pub struct ProviderRegistryEntry {
 }
 
 const PROVIDER_REGISTRY: &[ProviderRegistryEntry] = &[
+    ProviderRegistryEntry {
+        provider_type: ProviderType::GithubCopilotApi,
+        canonical_key: "github_copilot_api",
+        aliases: &["github_copilot_api", "githubcopilotapi"],
+        adapter: ProviderAdapterKind::Copilot,
+    },
     ProviderRegistryEntry {
         provider_type: ProviderType::OpenAi,
         canonical_key: "open_ai",

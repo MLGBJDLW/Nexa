@@ -224,7 +224,7 @@ impl AgentExecutor {
         let window = ContextWindow::new_with_resolution(
             model,
             self.config.context_window,
-            self.config.context_window_resolution,
+            self.context_window_resolution(),
             max_response_tokens,
         )
         .with_compact_percent(self.config.auto_compact_percent);
@@ -334,8 +334,8 @@ impl AgentExecutor {
         let window = ContextWindow::new_with_resolution(
             model,
             self.config.context_window,
-            self.config.context_window_resolution,
-            self.config.resolved_max_response_tokens(model),
+            self.context_window_resolution(),
+            self.resolved_output_budget(model).effective_tokens,
         )
         .with_compact_percent(self.config.auto_compact_percent);
         // A provider can reject a prompt below the configured capacity. An

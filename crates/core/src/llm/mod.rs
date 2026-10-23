@@ -11,6 +11,7 @@ use crate::provider_registry::{provider_adapter_for_type, ProviderAdapterKind};
 
 pub mod anthropic;
 pub mod bedrock;
+pub mod copilot;
 pub mod document;
 pub mod fallback;
 pub mod google;
@@ -813,6 +814,7 @@ where
 pub enum ProviderType {
     OpenAi,
     OpenRouter,
+    GithubCopilotApi,
     Anthropic,
     Google,
     Vertex,
@@ -936,6 +938,13 @@ pub trait LlmProvider: Send + Sync {
 
     /// List available models from this provider.
     async fn list_models(&self) -> Result<Vec<String>, CoreError>;
+
+    /// Account-scoped capability discovery when model IDs alone are insufficient.
+    async fn model_catalog_snapshot(
+        &self,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        Ok(None)
+    }
 
     /// Send a completion request and return the full response.
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError>;
@@ -1068,6 +1077,12 @@ impl LlmProvider for MessageValidatingProvider {
         Ok(models)
     }
 
+    async fn model_catalog_snapshot(
+        &self,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        self.inner.model_catalog_snapshot().await
+    }
+
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
         self.validate(request)?;
         self.inner.complete(request).await
@@ -1143,6 +1158,7 @@ pub fn create_provider(mut config: ProviderConfig) -> Result<Box<dyn LlmProvider
         ProviderAdapterKind::Google => Box::new(google::GeminiProvider::new(config)?),
         ProviderAdapterKind::Bedrock => Box::new(bedrock::BedrockProvider::new(config)?),
         ProviderAdapterKind::Ollama => Box::new(ollama::OllamaProvider::new(config)?),
+        ProviderAdapterKind::Copilot => Box::new(copilot::CopilotProvider::new(config)?),
     };
     Ok(Box::new(MessageValidatingProvider::new(
         provider,
@@ -1187,7 +1203,7 @@ pub fn model_supports_vision(provider_type: &ProviderType, model: &str) -> bool 
         ProviderType::Google | ProviderType::Vertex => true,
         // Bedrock discovery filters output modality, not image input. Only
         // the verified catalog above may enable vision for this mixed fleet.
-        ProviderType::Bedrock => false,
+        ProviderType::Bedrock | ProviderType::GithubCopilotApi => false,
         ProviderType::DeepSeek => false,
         ProviderType::Zhipu => {
             // Most models support vision; deny embedding/cogview

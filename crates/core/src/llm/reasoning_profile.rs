@@ -89,6 +89,7 @@ pub enum ReasoningHistoryEncoding {
     ThinkTags,
     MistralContentChunks,
     ArkEncryptedContent,
+    CopilotReasoning,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -401,6 +402,19 @@ pub fn resolve_reasoning_profile(
         api_style,
         model_id: model.to_string(),
     };
+    if provider == ProviderType::GithubCopilotApi
+        && super::provider_boundary::is_copilot_endpoint(base_url)
+    {
+        let mut value = ReasoningProfile::unsupported(key);
+        value.id = "github-copilot-api-v1".into();
+        value.mode_control = ThinkingModeControl::ProviderDefault;
+        value.preserve_reasoning_history = true;
+        value.replay_policy = ReasoningReplayPolicy::NotRequired;
+        value.reasoning_history_encoding = ReasoningHistoryEncoding::CopilotReasoning;
+        value.confidence = CapabilityConfidence::Verified;
+        // Live discovery validates exact controls before the codec is invoked.
+        return value;
+    }
     if api_style == ReasoningApiStyle::OpenAiResponses {
         let mut value = ReasoningProfile::unsupported(key);
         let trusted_codec = match provider {
