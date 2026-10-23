@@ -83,6 +83,10 @@ struct Limits {
 }
 
 impl Model {
+    fn requires_reasoning(&self) -> bool {
+        self.api_style() == ReasoningApiStyle::OpenAiChatCompletions
+            && self.id.starts_with("gemini-")
+    }
     fn available(&self) -> bool {
         self.model_picker_enabled
             && self.capabilities.kind == "chat"
@@ -119,9 +123,7 @@ impl Model {
             &self.id,
         );
         let mut route = RouteSnapshot::from_profile_for_request(&profile, request);
-        if self.api_style() == ReasoningApiStyle::OpenAiChatCompletions
-            && self.id.starts_with("gemini-")
-        {
+        if self.requires_reasoning() {
             route.replay_policy = super::reasoning_profile::ReasoningReplayPolicy::OpaqueSignature;
         }
         route.provider_endpoint_id.push(':');
@@ -133,6 +135,15 @@ impl Model {
         let mut request = request.clone();
         request.provider_type = Some(ProviderType::GithubCopilotApi);
         let supports = &self.capabilities.supports;
+        if request.reasoning_enabled == Some(false)
+            && (self.requires_reasoning()
+                || request
+                    .reasoning_effort
+                    .as_ref()
+                    .is_some_and(|effort| *effort != super::ReasoningEffort::None))
+        {
+            return Err(CoreError::InvalidInput("The selected Copilot reasoning controls conflict; choose an advertised effort without disabling reasoning".into()));
+        }
         if let Some(effort) = request.reasoning_effort.as_ref() {
             let effort = serde_json::to_value(effort)?
                 .as_str()
@@ -383,12 +394,34 @@ impl CopilotProvider {
         )
         .send()
         .await
-        .map_err(|e| CoreError::TransientLlm(super::transport::describe_http_error(&e)))?;
+        .map_err(|e| {
+            let message = super::transport::describe_http_error(&e);
+            if super::transport::is_retriable_http_error(&e) {
+                CoreError::TransientLlm(message)
+            } else {
+                CoreError::Llm(message)
+            }
+        })?;
         if !response.status().is_success() {
-            return Err(CoreError::Llm(format!(
-                "GitHub Copilot model discovery failed (HTTP {})",
-                response.status()
-            )));
+            let status = response.status();
+            let message = format!("GitHub Copilot model discovery failed (HTTP {status})");
+            return Err(if status.as_u16() == 429 {
+                CoreError::RateLimited {
+                    retry_after_secs: response
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|h| h.to_str().ok())
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(60),
+                }
+            } else if status.is_server_error() {
+                CoreError::ProviderUnavailable {
+                    status: status.as_u16(),
+                    message,
+                }
+            } else {
+                CoreError::Llm(message)
+            });
         }
         #[derive(Deserialize)]
         struct Models {
@@ -523,7 +556,7 @@ impl LlmProvider for CopilotProvider {
                 entry.modalities.push("image".into());
             }
             let reasoning = (!s.reasoning_effort.is_empty() || s.thinking || s.adaptive_thinking).then(|| json!({
-                "mode": if model.api_style() == ReasoningApiStyle::OpenAiChatCompletions && model.id.starts_with("gemini-") { "always" } else { "optional" }, "effortLevels":s.reasoning_effort, "defaultEnabled":true,
+                "mode": if model.requires_reasoning() { "always" } else { "optional" }, "effortLevels":s.reasoning_effort, "defaultEnabled":true,
                 "effortBudgetExclusive":true,
                 "thinkingBudget": if s.thinking && !s.adaptive_thinking { json!({"enabled":true, "minTokens":model.capabilities.limits.min_thinking_budget, "maxTokens":model.capabilities.limits.max_thinking_budget}) } else { Value::Null }
             }));

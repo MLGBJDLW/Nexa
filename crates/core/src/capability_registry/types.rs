@@ -328,12 +328,16 @@ pub struct RuntimeCapabilityResolution {
 impl RuntimeCapabilityResolution {
     /// An automatic retry must never send pixels to a text-only fallback.
     pub fn supports_native_images(&self) -> bool {
-        self.snapshot.native_image_input
-            && self
-                .snapshot
-                .fallback_targets
-                .iter()
-                .filter(|target| target.fallback_index > self.snapshot.fallback_index)
-                .all(|target| target.native_image_input)
+        self.snapshot.native_image_input && self.fallbacks_support_native_images()
+    }
+
+    /// Live discovery may refine the primary model without relaxing the frozen
+    /// image eligibility of any route that can receive an automatic retry.
+    pub fn fallbacks_support_native_images(&self) -> bool {
+        self.snapshot
+            .fallback_targets
+            .iter()
+            .filter(|target| target.fallback_index > self.snapshot.fallback_index)
+            .all(|target| target.native_image_input)
     }
 }

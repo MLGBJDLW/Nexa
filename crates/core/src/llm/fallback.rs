@@ -310,10 +310,19 @@ impl LlmProvider for AutomaticFallbackProvider {
     async fn model_catalog_snapshot(
         &self,
     ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
-        self.routes[self.active_position()]
+        let position = self.active_position();
+        match self.routes[position]
             .provider
             .model_catalog_snapshot()
             .await
+        {
+            // Only invocation may advance a route and commit its provenance.
+            // Discovery must not preempt an already authorized fallback chain.
+            Err(error) if position + 1 < self.routes.len() && automatic_fallback_error(&error) => {
+                Ok(None)
+            }
+            result => result,
+        }
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
@@ -578,6 +587,19 @@ mod tests {
 
         async fn list_models(&self) -> Result<Vec<String>, CoreError> {
             Ok(Vec::new())
+        }
+
+        async fn model_catalog_snapshot(
+            &self,
+        ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError>
+        {
+            match self.behavior {
+                Behavior::CompleteTransient => Err(CoreError::TransientLlm(
+                    "catalog transport unavailable".into(),
+                )),
+                Behavior::StreamCancelled => Err(CoreError::Cancelled("catalog cancelled".into())),
+                _ => Ok(None),
+            }
         }
 
         async fn complete(
@@ -1338,6 +1360,8 @@ mod tests {
         )
         .unwrap();
 
+        assert!(wrapper.model_catalog_snapshot().await.unwrap().is_none());
+        assert_eq!(wrapper.active_position(), 0);
         let response = wrapper.complete(&request()).await.unwrap();
         assert_eq!(response.content, "fallback-model");
         assert_eq!(*primary_models.lock().unwrap(), vec!["primary-model"]);

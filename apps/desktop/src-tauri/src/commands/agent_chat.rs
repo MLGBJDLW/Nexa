@@ -1075,9 +1075,11 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 primary_egress_id,
                 primary_routes_local,
                 primary_native_vision_allowed,
+                fallback_native_vision_allowed,
             ) = match registry_resolution {
                 Some(resolution) => {
                     let primary_native_vision_allowed = resolution.supports_native_images();
+                    let fallback_native_vision_allowed = resolution.fallbacks_support_native_images();
                     effective_db_config.provider = resolution.provider_id;
                     effective_db_config.provider_endpoint_id = Some(resolution.endpoint_id);
                     effective_db_config.base_url = resolution.provider_config.base_url.clone();
@@ -1116,6 +1118,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                         egress_id,
                         primary_routes_local,
                         primary_native_vision_allowed,
+                        fallback_native_vision_allowed,
                     )
                 }
                 None => {
@@ -1124,7 +1127,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     let primary_routes_local = provider_config_is_local(&provider_config);
                     {
                         let native = runtime_kind.is_some() || nexa_core::llm::model_declares_vision_support(&provider_config.provider_type, &db_config.model);
-                        (provider_config, None, egress_id, primary_routes_local, native)
+                        (provider_config, None, egress_id, primary_routes_local, native, true)
                     }
                 }
             };
@@ -1199,7 +1202,8 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                 }
             } else { None };
             let live_model = live_model_catalog.as_ref().and_then(|catalog| catalog.descriptors.iter().find(|model| model.id == effective_db_config.model));
-            let primary_native_vision_allowed = live_model.map(|model| model.capabilities.vision).unwrap_or(primary_native_vision_allowed);
+            let primary_native_vision_allowed = live_model.map(|model| model.capabilities.vision).unwrap_or(primary_native_vision_allowed)
+                && fallback_native_vision_allowed;
             let has_input_images = attachments.as_ref().is_some_and(|attachments| {
                 attachments
                     .iter()

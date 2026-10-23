@@ -205,14 +205,16 @@ impl Tool for SubagentModelsTool {
                     }
                 }
             } else if supported && config.provider == "github_copilot_api" {
-                let provider = create_provider(
-                    crate::desktop_agent_session::desktop_provider_config(&config),
-                )?;
                 let cancellation = context.cancel_token.cloned().unwrap_or_default();
-                let discovered = tokio::select! {
-                    biased;
-                    _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Model discovery cancelled".into())),
-                    result = provider.list_models() => result,
+                let discovered = match create_provider(
+                    crate::desktop_agent_session::desktop_provider_config(&config),
+                ) {
+                    Ok(provider) => tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Model discovery cancelled".into())),
+                        result = provider.list_models() => result,
+                    },
+                    Err(error) => Err(error),
                 };
                 match discovered {
                     Ok(models) => models,

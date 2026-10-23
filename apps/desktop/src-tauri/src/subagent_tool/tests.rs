@@ -527,6 +527,10 @@ async fn explicit_same_model_worker_recomputes_parent_fallback_image_policy() {
 #[tokio::test]
 async fn route_catalog_is_secret_free_and_conflicting_or_missing_routes_fail() {
     let db = Database::open_memory().unwrap();
+    db.save_agent_config(&serde_json::from_value(serde_json::json!({
+        "name":"Broken Copilot API", "provider":"github_copilot_api", "apiKey":"test-secret-never-expose",
+        "baseUrl":"https://untrusted.example/v1", "model":"private-model", "isDefault":false,
+    })).unwrap()).unwrap();
     let saved = db
         .save_agent_config(
             &serde_json::from_value(serde_json::json!({
@@ -558,6 +562,8 @@ async fn route_catalog_is_secret_free_and_conflicting_or_missing_routes_fail() {
         .await
         .unwrap();
     assert!(result.content.contains("anthropic"));
+    assert!(result.content.contains("Broken Copilot API"));
+    assert!(result.content.contains("official HTTPS API endpoint"));
     assert!(!result.content.contains("test-secret-never-expose"));
     assert!(!result.content.contains("apiKey"));
     let native_parent =

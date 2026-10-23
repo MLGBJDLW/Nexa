@@ -951,7 +951,7 @@ export function AgentConfigForm({
               const token = await api.importGithubCopilotApiToken();
               if (githubImportRevision.current === revision) setApiKey(token);
             }
-            catch (error) { toast.error(String(error)); }
+            catch (error) { if (githubImportRevision.current === revision) toast.error(String(error)); }
             finally { setImportingGithubAccount(false); }
           }}>
             {importingGithubAccount && <Loader2 size={14} className="animate-spin" />}
