@@ -23,6 +23,8 @@ test('live aggregate replaces the current run across repeated reads and reconnec
 test('cross-provider usage keeps exact versions and private model identities separate', () => {
   assert.equal(usageModelIdentity('anthropic/claude-sonnet-5.5'), usageModelIdentity('claude-sonnet-5-5'));
   assert.equal(usageModelIdentity('minimax/minimax-m3.1-flash'), usageModelIdentity('MiniMax-M3.1-Flash'));
+  assert.equal(usageModelIdentity('mistralai/mistral-medium-3-5'), usageModelIdentity('mistral-medium-3-5'));
+  assert.equal(usageModelIdentity('cohere/command-a-plus-05-2026'), usageModelIdentity('command-a-plus-05-2026'));
   assert.notEqual(usageModelIdentity('anthropic/claude-sonnet-5.5-20261001'), usageModelIdentity('claude-sonnet-5.5'));
   assert.notEqual(usageModelIdentity('minimax/minimax-m3.1-flash:free'), usageModelIdentity('MiniMax-M3.1-Flash'));
   assert.notEqual(usageModelIdentity('private-team/model'), usageModelIdentity('another-team/model'));
