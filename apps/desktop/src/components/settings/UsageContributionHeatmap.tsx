@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 
 import type { UsageTimeSeriesPoint } from '../../lib/api';
 
@@ -43,6 +43,8 @@ export function UsageContributionHeatmap({
   startAt,
   endAt,
 }: UsageContributionHeatmapProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const projection = useMemo(
     () => buildHeatmapProjection(points, mode, startAt, endAt),
     [endAt, mode, points, startAt],
@@ -67,11 +69,27 @@ export function UsageContributionHeatmap({
     }),
     [locale],
   );
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const revealLatest = () => {
+      if (followLatest.current) element.scrollLeft = element.scrollWidth - element.clientWidth;
+    };
+    revealLatest();
+    const observer = new ResizeObserver(revealLatest);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [projection.weeks.length]);
 
   if (projection.weeks.length === 0) return null;
 
   return (
     <div
+      ref={scrollRef}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        followLatest.current = element.scrollWidth - element.clientWidth - element.scrollLeft < 2;
+      }}
       className="mt-4 overflow-x-auto pb-1"
       data-testid="usage-contribution-heatmap"
       role="group"
@@ -146,7 +164,7 @@ function buildHeatmapProjection(
   for (const point of points) {
     const key = point.date.slice(0, 10);
     const value = mode === 'tokens'
-      ? point.promptTokens + point.completionTokens + point.thinkingTokens
+      ? point.totalTokens ?? point.promptTokens + point.completionTokens + point.thinkingTokens
       : point.requestCount;
     valueByDate.set(key, (valueByDate.get(key) ?? 0) + value);
   }

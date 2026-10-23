@@ -326,6 +326,13 @@ async fn run_configured(
     ])
     .to_string();
     let warm = !connection.history.is_empty() && !connection.context.is_empty();
+    let expects_reasoning = provider == "github_copilot_acp"
+        && request.config.reasoning_enabled != Some(false)
+        && connection
+            .session
+            .config_options
+            .iter()
+            .any(config::is_thought);
     if warm {
         request.history.clear();
     }
@@ -348,6 +355,9 @@ async fn run_configured(
         Ok(context_delivered) => {
             if context_delivered {
                 connection.context = context;
+            }
+            if expects_reasoning {
+                output.reasoning_unavailable(&turn.events).await?;
             }
             output.finish(&turn).await
         }

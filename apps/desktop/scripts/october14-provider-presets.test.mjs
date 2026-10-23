@@ -55,6 +55,9 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
 });
 
 test('confirmed route removals remain tombstones while future retirements remain deprecated', () => {
+  assert.equal(model('openrouter', 'minimax/minimax-m3.1-flash:free').status, 'removed');
+  assert.equal(model('openrouter', 'minimax/minimax-m3.1-flash:free').replacementModelId, undefined, 'an unavailable free route must never migrate into billing');
+  assert.equal(model('openrouter', 'minimax/minimax-m3.1-flash').status, 'active');
   assert.equal(model('alibaba-model-studio', 'xiaomi/mimo-v2.5-pro').status, 'removed');
   assert.equal(model('alibaba-model-studio', 'xiaomi/mimo-v2.5-pro').replacementModelId, 'xiaomi/mimo-v2.6-pro-ultraspeed');
   for (const id of ['apodex/apodex-1.1-mini:free', 'inclusionai/ling-3.0-flash-fin', 'inclusionai/ling-3.0-flash-sante']) assert.equal(model('openrouter', id).status, 'removed');

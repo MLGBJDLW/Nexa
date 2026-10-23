@@ -13,6 +13,11 @@ async fn dashscope_tts_waits_for_ack_collects_binary_and_requires_finish() {
             "longanhuan_v3.1",
             "task-finished",
         ),
+        (
+            "qwen-audio-3.1-tts-plus",
+            "longanlingxin_v3.1",
+            "task-finished",
+        ),
         ("qwen-audio-3.1-tts-flash", "Emily_v3.1", "task-failed"),
         ("qwen-audio-3.1-tts-flash", "Andy_v3.1", "close"),
     ] {

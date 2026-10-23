@@ -14,6 +14,7 @@ pub struct UsageAnalyticsFilter {
     pub end_at: Option<String>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
+    pub model_ids: Option<Vec<String>>,
     pub operation_kind: Option<String>,
     pub time_bucket: Option<String>,
 }
@@ -100,6 +101,7 @@ pub struct UsageTimeSeriesPoint {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub thinking_tokens: u64,
+    pub total_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_miss_tokens: u64,
     pub cache_creation_tokens: u64,
@@ -113,6 +115,15 @@ pub struct UsageAnalytics {
     pub by_model: Vec<UsageBreakdownRow>,
     pub by_operation: Vec<UsageBreakdownRow>,
     pub time_series: Vec<UsageTimeSeriesPoint>,
+    pub available_filters: UsageFilterOptions,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageFilterOptions {
+    pub providers: Vec<String>,
+    pub models: Vec<String>,
+    pub operations: Vec<String>,
 }
 
 pub(crate) fn record_ai_usage_on_connection(
@@ -445,11 +456,38 @@ impl Database {
         let by_model = query_breakdown(&conn, filter, "provider_id || ' / ' || model_id", true)?;
         let by_operation = query_breakdown(&conn, filter, "operation_kind", false)?;
         let time_series = query_time_series(&conn, filter)?;
+        // Facets share the date range but never collapse to the selected
+        // provider/model. Users can switch directly even after an empty result.
+        let mut facets = conn.prepare(
+            "SELECT DISTINCT provider_id, model_id, operation_kind FROM ai_usage_records
+             WHERE (?1 IS NULL OR datetime(occurred_at) >= datetime(?1))
+               AND (?2 IS NULL OR datetime(occurred_at) < datetime(?2))",
+        )?;
+        let mut providers = std::collections::BTreeSet::new();
+        let mut models = std::collections::BTreeSet::new();
+        let mut operations = std::collections::BTreeSet::new();
+        for row in facets.query_map(params![filter.start_at, filter.end_at], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })? {
+            let (provider, model, operation) = row?;
+            providers.insert(provider);
+            models.insert(model);
+            operations.insert(operation);
+        }
         Ok(UsageAnalytics {
             totals,
             by_model,
             by_operation,
             time_series,
+            available_filters: UsageFilterOptions {
+                providers: providers.into_iter().collect(),
+                models: models.into_iter().collect(),
+                operations: operations.into_iter().collect(),
+            },
         })
     }
 
@@ -565,7 +603,8 @@ fn query_time_series(
                 COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(thinking_tokens), 0),
                 COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_miss_tokens), 0),
                 COALESCE(SUM(cache_creation_tokens), 0),
-                CASE WHEN COUNT(estimated_cost_micros) = 0 THEN NULL ELSE SUM(estimated_cost_micros) END
+                CASE WHEN COUNT(estimated_cost_micros) = 0 THEN NULL ELSE SUM(estimated_cost_micros) END,
+                COALESCE(SUM(total_tokens), 0)
          FROM ai_usage_records WHERE {} GROUP BY {bucket_expression} ORDER BY {bucket_expression}",
         usage_where_clause()
     ))?;
@@ -581,6 +620,7 @@ fn query_time_series(
                 cache_miss_tokens: nonnegative(row.get(6)?),
                 cache_creation_tokens: nonnegative(row.get(7)?),
                 estimated_cost_micros: row.get::<_, Option<i64>>(8)?.map(nonnegative),
+                total_tokens: nonnegative(row.get(9)?),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -592,17 +632,22 @@ fn usage_where_clause() -> &'static str {
      AND (?2 IS NULL OR datetime(occurred_at) < datetime(?2))
      AND (?3 IS NULL OR provider_id = ?3)
      AND (?4 IS NULL OR model_id = ?4)
-     AND (?5 IS NULL OR operation_kind = ?5)"
+     AND (?5 IS NULL OR operation_kind = ?5)
+     AND (?6 IS NULL OR model_id IN (SELECT value FROM json_each(?6)))"
 }
 
-fn filter_params(filter: &UsageAnalyticsFilter) -> [&dyn rusqlite::ToSql; 5] {
-    [
-        &filter.start_at,
-        &filter.end_at,
-        &filter.provider_id,
-        &filter.model_id,
-        &filter.operation_kind,
-    ]
+fn filter_params(filter: &UsageAnalyticsFilter) -> impl rusqlite::Params {
+    rusqlite::params_from_iter([
+        filter.start_at.clone(),
+        filter.end_at.clone(),
+        filter.provider_id.clone(),
+        filter.model_id.clone(),
+        filter.operation_kind.clone(),
+        filter
+            .model_ids
+            .as_ref()
+            .map(|ids| serde_json::json!(ids).to_string()),
+    ])
 }
 
 pub fn provider_type_id(provider_type: Option<ProviderType>) -> &'static str {
@@ -772,8 +817,62 @@ mod tests {
             .unwrap();
         assert_eq!(analytics.totals.request_count, 2);
         assert_eq!(analytics.totals.total_tokens, 150);
+        assert_eq!(analytics.time_series[0].total_tokens, 150);
         assert_eq!(analytics.by_model.len(), 2);
         assert_eq!(analytics.totals.cache_hit_rate, Some(80.0));
+    }
+
+    #[test]
+    fn analytics_model_filter_spans_providers_and_preserves_switchable_facets() {
+        let db = Database::open_memory().unwrap();
+        let raw = serde_json::json!({});
+        for (id, provider, model, date) in [
+            ("a", "open_ai", "shared", "2026-10-22T12:00:00Z"),
+            ("b", "open_router", "openai/shared", "2026-10-22T13:00:00Z"),
+            ("c", "anthropic", "other", "2026-10-22T14:00:00Z"),
+            (
+                "outside",
+                "old-provider",
+                "old-model",
+                "2026-10-23T00:00:00Z",
+            ),
+        ] {
+            let mut record = input(id, &raw);
+            record.provider_id = provider;
+            record.model_id = model;
+            record.occurred_at = Some(date);
+            db.record_ai_usage(&record).unwrap();
+        }
+        let mut filter = UsageAnalyticsFilter {
+            start_at: Some("2026-10-22T00:00:00Z".into()),
+            end_at: Some("2026-10-23T00:00:00Z".into()),
+            model_ids: Some(vec!["shared".into(), "openai/shared".into()]),
+            ..Default::default()
+        };
+        let combined = db.get_usage_analytics(&filter).unwrap();
+        assert_eq!(combined.by_model.len(), 2);
+        assert_eq!(combined.totals.total_tokens, 240);
+        assert_eq!(
+            combined.available_filters.models,
+            ["openai/shared", "other", "shared"]
+        );
+        assert_eq!(
+            combined.available_filters.providers,
+            ["anthropic", "open_ai", "open_router"]
+        );
+        filter.provider_id = Some("anthropic".into());
+        let empty = db.get_usage_analytics(&filter).unwrap();
+        assert_eq!(empty.totals.request_count, 0);
+        assert_eq!(empty.available_filters, combined.available_filters);
+        filter.provider_id = None;
+        assert_eq!(db.delete_usage_records(&filter).unwrap(), 2);
+        assert_eq!(
+            db.get_usage_analytics(&UsageAnalyticsFilter::default())
+                .unwrap()
+                .totals
+                .request_count,
+            2
+        );
     }
 
     #[test]

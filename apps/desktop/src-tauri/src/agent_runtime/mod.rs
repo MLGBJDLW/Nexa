@@ -7,6 +7,7 @@ mod copilot;
 mod copilot_events;
 pub(crate) mod copilot_options;
 mod copilot_response;
+mod event_inbox;
 mod projection;
 #[cfg(test)]
 mod tests;

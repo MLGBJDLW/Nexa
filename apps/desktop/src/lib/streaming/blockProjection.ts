@@ -1,44 +1,44 @@
 import type { StreamTerminalProjectionState } from './terminalProjection';
-import { appendBlockTraceDelta, blockTraceText, replaceBlockTraceText } from './blockTrace';
+import { blockTraceDelta, blockTraceText, replaceBlockTraceText, utf8ByteLength, type TextTraceEvent } from './blockTrace';
+
+function setTextTrace(state: StreamTerminalProjectionState, index: number, event: TextTraceEvent): void {
+  if (state._tools) {
+    state._tools.setTextTrace(index, event);
+  } else {
+    const next = state.traceEvents.slice();
+    next[index] = event;
+    state.traceEvents = next;
+  }
+}
 
 export function appendThinkingTraceEvent(state: StreamTerminalProjectionState, delta: string): void {
   if (!delta) return;
   const last = state.traceEvents[state.traceEvents.length - 1];
   if (last?.kind === 'thinking') {
-    state.traceEvents = [
-      ...state.traceEvents.slice(0, -1),
-      { ...last, text: last.text + delta },
-    ];
+    setTextTrace(state, state.traceEvents.length - 1, { ...last, text: last.text + delta });
     return;
   }
 
-  state.traceEvents = [...state.traceEvents, {
+  setTextTrace(state, state.traceEvents.length, {
     id: `trace-thinking-${Date.now()}-${state._traceSeq++}`,
     kind: 'thinking',
     text: delta,
-  }];
+  });
 }
 
 export function appendReplyTraceEvent(state: StreamTerminalProjectionState, delta: string): void {
   if (!delta) return;
   const last = state.traceEvents[state.traceEvents.length - 1];
   if (last?.kind === 'reply') {
-    state.traceEvents = [
-      ...state.traceEvents.slice(0, -1),
-      { ...last, text: last.text + delta },
-    ];
+    setTextTrace(state, state.traceEvents.length - 1, { ...last, text: last.text + delta });
     return;
   }
 
-  state.traceEvents = [...state.traceEvents, {
+  setTextTrace(state, state.traceEvents.length, {
     id: `trace-reply-${Date.now()}-${state._traceSeq++}`,
     kind: 'reply',
     text: delta,
-  }];
-}
-
-function utf8ByteLength(text: string): number {
-  return new TextEncoder().encode(text).length;
+  });
 }
 
 function pendingBlocks(
@@ -83,10 +83,12 @@ function upsertBlockTraceEvent(
   kind: 'reply' | 'thinking',
   blockId: string,
   offset: number,
+  nextOffset: number,
   delta: string,
 ): void {
-  state.traceEvents = appendBlockTraceDelta(state.traceEvents, kind, blockId, offset, delta,
+  const update = blockTraceDelta(state.traceEvents, kind, blockId, offset, nextOffset, delta,
     () => `trace-${kind}-${Date.now()}-${state._traceSeq++}`);
+  if (update) setTextTrace(state, update.index, update.event);
 }
 
 export function applyStreamBlockDelta(
@@ -131,7 +133,7 @@ export function applyStreamBlockDelta(
       const nextOffset = state._activeAnswerOffset;
       state.streamText += nextDelta;
       state._activeAnswerOffset = nextOffset + utf8ByteLength(nextDelta);
-      upsertBlockTraceEvent(state, 'reply', blockId, nextOffset, nextDelta);
+      upsertBlockTraceEvent(state, 'reply', blockId, nextOffset, state._activeAnswerOffset, nextDelta);
       nextDelta = takeBufferedBlockDelta(
         state,
         channel,
@@ -165,7 +167,7 @@ export function applyStreamBlockDelta(
     const nextOffset = state._activeThinkingOffset;
     state.thinkingText += nextDelta;
     state._activeThinkingOffset = nextOffset + utf8ByteLength(nextDelta);
-    upsertBlockTraceEvent(state, 'thinking', blockId, nextOffset, nextDelta);
+    upsertBlockTraceEvent(state, 'thinking', blockId, nextOffset, state._activeThinkingOffset, nextDelta);
     nextDelta = takeBufferedBlockDelta(
       state,
       channel,

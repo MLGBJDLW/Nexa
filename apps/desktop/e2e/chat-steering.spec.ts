@@ -934,6 +934,28 @@ test('ACP external agent progress replaces one compact status and keeps cancella
   await expect.poll(async () => (await page.getByTestId('chat-history-sidebar').boundingBox())?.width ?? 0).toBe(0);
   await page.screenshot({ path: testInfo.outputPath('external-agent-startup.png') });
   await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_network_progress', content: 'Receiving model bytes',
+  }));
+  await expect(progress).toContainText('Receiving model output');
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_activity', content: 'Checking project files and the entry script.',
+  }));
+  await expect(progress).toContainText('Checking project files and the entry script.');
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_network_progress', content: 'Receiving model bytes',
+  }));
+  await expect(progress).toContainText('Checking project files and the entry script.');
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_reasoning_unavailable', content: 'This response does not include a readable reasoning summary.',
+  }));
+  await expect(page.getByTestId('external-agent-reasoning-unavailable')).toBeVisible();
+  await expect(page.getByTestId('chat-stop')).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('copilot-opaque-reasoning-progress.png') });
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
+    conversationId: 'conv-steering', type: 'thinking', content: 'A readable provider summary arrived.',
+  }));
+  await expect(page.getByTestId('external-agent-reasoning-unavailable')).toHaveCount(0);
+  await page.evaluate(() => (window as any).__EMIT_AGENT_PROGRESS__('agent://run-event', {
     conversationId: 'conv-steering', type: 'controllerStatus', code: 'external_agent_active', content: 'External agent: active',
   }));
   await expect(progress).toHaveCount(0);

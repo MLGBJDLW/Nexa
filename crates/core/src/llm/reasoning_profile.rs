@@ -830,7 +830,7 @@ pub fn resolve_reasoning_profile(
                 (&[ReasoningEffort::None, ReasoningEffort::High], None),
                 ReasoningBudgetField::None,
             ),
-            "zai-glm-5-3" | "zai-glm-5-2" => profile(
+            "zai-glm-5-3-flash" | "zai-glm-5-3" | "zai-glm-5-2" => profile(
                 key,
                 "mistral-hosted-glm-v1",
                 ThinkingModeControl::ProviderDefault,
@@ -1887,6 +1887,19 @@ mod tests {
             ReasoningApiStyle::OpenAiChatCompletions,
             "muse-spark-1.3",
         );
+        for model in ["zai-glm-5-3", "zai-glm-5-3-flash"] {
+            let hosted_glm = resolve_reasoning_profile(
+                ProviderType::OpenAi,
+                Some("https://api.mistral.ai/v1"),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            );
+            assert_eq!(
+                hosted_glm.reasoning_history_encoding,
+                ReasoningHistoryEncoding::MistralContentChunks
+            );
+            assert_eq!(hosted_glm.effort_field, ReasoningEffortField::None);
+        }
         assert_eq!(meta.key.endpoint_id, "meta-model-api-public");
         assert_eq!(meta.mode_control, ThinkingModeControl::AlwaysOn);
         assert_eq!(

@@ -957,5 +957,7 @@
   "interactionChanged": "변화 확인됨",
   "interactionTargetClosed": "대상 닫힘",
   "interactionMatched": "조건 충족",
-  "interactionObserved": "화면 확인됨"
+  "interactionObserved": "화면 확인됨",
+  "agentReceiving": "모델 출력 수신 중",
+  "agentReasoningUnavailable": "이 응답에는 읽을 수 있는 추론 요약이 포함되어 있지 않습니다."
 }

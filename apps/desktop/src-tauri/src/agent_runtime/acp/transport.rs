@@ -1,4 +1,5 @@
 //! ACP v1: one UTF-8 JSON-RPC 2.0 message per line on stdio.
+use super::super::event_inbox::{EventInbox, EventWriter};
 use super::{error, Result};
 use nexa_core::{
     external_agent::{ExternalAgentLaunch, ExternalAgentPreset},
@@ -15,34 +16,29 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::{Child, ChildStdin},
-    sync::mpsc,
 };
 
 pub(super) const RPC_TIMEOUT: Duration = Duration::from_secs(25);
 const MAX_FRAME: usize = 8 * 1024 * 1024;
 
-async fn read_messages(source: impl tokio::io::AsyncRead + Unpin, tx: mpsc::Sender<Result<Value>>) {
+async fn read_messages(source: impl tokio::io::AsyncRead + Unpin, tx: EventWriter<Value>) {
     let mut reader = BufReader::new(source);
     let mut frame = Vec::new();
     loop {
         let chunk = match reader.fill_buf().await {
             Ok([]) => {
                 if !frame.is_empty() {
-                    let _ = tx
-                        .send(Err(nexa_core::error::CoreError::StreamIncomplete(
-                            "Truncated ACP frame".into(),
-                        )))
-                        .await;
+                    let _ = tx.send(Err(nexa_core::error::CoreError::StreamIncomplete(
+                        "Truncated ACP frame".into(),
+                    )));
                 }
                 break;
             }
             Ok(chunk) => chunk,
             Err(cause) => {
-                let _ = tx
-                    .send(Err(nexa_core::error::CoreError::StreamIncomplete(
-                        cause.to_string(),
-                    )))
-                    .await;
+                let _ = tx.send(Err(nexa_core::error::CoreError::StreamIncomplete(
+                    cause.to_string(),
+                )));
                 break;
             }
         };
@@ -51,7 +47,7 @@ async fn read_messages(source: impl tokio::io::AsyncRead + Unpin, tx: mpsc::Send
             .position(|byte| *byte == b'\n')
             .map_or(chunk.len(), |index| index + 1);
         if frame.len() + length > MAX_FRAME {
-            let _ = tx.send(Err(error("ACP frame too large"))).await;
+            let _ = tx.send(Err(error("ACP frame too large")));
             break;
         }
         let complete = chunk[length - 1] == b'\n';
@@ -74,10 +70,11 @@ async fn read_messages(source: impl tokio::io::AsyncRead + Unpin, tx: mpsc::Send
                     }
                 });
             let invalid = parsed.is_err();
-            if tx.send(parsed).await.is_err() || invalid {
+            if tx.send(parsed).is_err() || invalid {
                 break;
             }
             frame.clear();
+            tokio::task::yield_now().await;
         }
     }
 }
@@ -157,7 +154,7 @@ pub(super) struct Wire {
     child: Child,
     _tree: ProcessTree,
     stdin: ChildStdin,
-    messages: mpsc::Receiver<Result<Value>>,
+    messages: EventInbox<Value>,
     reader: tokio::task::JoinHandle<()>,
     stderr_reader: Option<tokio::task::JoinHandle<()>>,
     diagnostics: Arc<Mutex<Vec<u8>>>,
@@ -301,7 +298,7 @@ impl Wire {
             .stdout
             .take()
             .ok_or_else(|| error("ACP stdout unavailable"))?;
-        let (tx, messages) = mpsc::channel(16);
+        let (tx, messages) = EventInbox::new()?;
         let reader = tokio::spawn(read_messages(stdout, tx));
         Ok(Self {
             child,
@@ -492,6 +489,33 @@ fn rpc_result(message: Value, method: &str, secrets: &[String]) -> Result<Value>
 mod launch_tests {
     use super::*;
 
+    #[tokio::test]
+    async fn paused_projection_does_not_block_native_stdout() {
+        use tokio::io::AsyncWriteExt;
+        let (mut writer, source) = tokio::io::duplex(2048);
+        let (tx, mut rx) = EventInbox::new().unwrap();
+        let reader = tokio::spawn(read_messages(source, tx));
+        let producer = tokio::spawn(async move {
+            for index in 0..128 {
+                let frame = json!({"jsonrpc":"2.0","method":"session/update","params":{"index":index,"text":"x".repeat(1024)}});
+                writer
+                    .write_all(format!("{frame}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+        // Slow database/UI consumption must not stop a native agent from
+        // draining its model response or reaching a client-service request.
+        tokio::time::timeout(Duration::from_secs(1), producer)
+            .await
+            .expect("a paused UI must not fill the external agent's stdout pipe")
+            .unwrap();
+        for index in 0..128 {
+            assert_eq!(rx.recv().await.unwrap().unwrap()["params"]["index"], index);
+        }
+        reader.await.unwrap();
+    }
+
     #[test]
     fn prompt_transport_failures_reach_the_existing_recovery_boundary() {
         for message in [
@@ -536,7 +560,7 @@ mod launch_tests {
             (b"{\"jsonrpc\":\"2.0\",\"result\":".as_slice(), true),
             (b"{\"jsonrpc\":\"2.0\",\"result\":\n".as_slice(), false),
         ] {
-            let (tx, mut rx) = mpsc::channel(2);
+            let (tx, mut rx) = EventInbox::new().unwrap();
             read_messages(bytes, tx).await;
             let error = rx.recv().await.unwrap().unwrap_err();
             assert_eq!(

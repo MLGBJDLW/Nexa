@@ -1,4 +1,5 @@
 import type { StreamRoundEvent, ToolCallEvent, TraceEvent } from './protocol';
+import type { TextTraceEvent } from './blockTrace';
 
 type RoundRef = Omit<StreamRoundEvent,'toolCalls'> & { toolIds: string[] };
 type TraceRef = Exclude<TraceEvent,{ kind: 'tool' }> | { id: string; kind: 'tool'; toolId: string };
@@ -109,10 +110,24 @@ export class StreamToolEntities {
   }
   set traceEvents(events: TraceEvent[]) {
     this.trace = events.map(event => { if (event.kind !== 'tool') return event; return { id: event.id, kind: 'tool', toolId: this.reference(event.toolCall) }; });
-    for (const event of events) this.traceViews.set(event.id,event);
-    const ids = new Set(events.map(event => event.id));
+    const ids = new Set<string>();
+    for (const event of events) if (event.kind === 'tool') { this.traceViews.set(event.id,event); ids.add(event.id); }
     for (const id of this.traceViews.keys()) if (!ids.has(id)) this.traceViews.delete(id);
     this.traceView = events;
+    this.traceRevision = this.revision;
+  }
+
+  /** Text deltas change one presentation segment, never tool membership.
+   * Keep published arrays immutable without rebuilding every tool reference. */
+  setTextTrace(index: number, event: TextTraceEvent): void {
+    if (index < 0 || index > this.trace.length || (index < this.trace.length
+      && (this.trace[index].kind === 'tool' || this.trace[index].id !== event.id))) {
+      throw new Error('Invalid text trace update');
+    }
+    const view = this.traceEvents.slice();
+    this.trace[index] = event;
+    view[index] = event;
+    this.traceView = view;
     this.traceRevision = this.revision;
   }
 

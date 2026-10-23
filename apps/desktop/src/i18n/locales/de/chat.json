@@ -957,5 +957,7 @@
   "interactionChanged": "Änderung erkannt",
   "interactionTargetClosed": "Ziel geschlossen",
   "interactionMatched": "Bedingung erfüllt",
-  "interactionObserved": "Beobachtung erhalten"
+  "interactionObserved": "Beobachtung erhalten",
+  "agentReceiving": "Modellausgabe wird empfangen",
+  "agentReasoningUnavailable": "Diese Antwort enthält keine lesbare Zusammenfassung der Überlegungen."
 }

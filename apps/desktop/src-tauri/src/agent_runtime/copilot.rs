@@ -1,6 +1,7 @@
 use super::copilot_events::{EventLedger, EventStream};
 use super::projection::Projection;
 use super::*;
+use github_copilot_sdk::session_events::ReasoningSummary;
 use github_copilot_sdk::types::{
     DeferMode, ToolBinaryResult, ToolInvocation, ToolResult, ToolResultExpanded, ToolSearchConfig,
 };
@@ -220,6 +221,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         .with_model(&model_id)
         .with_context_tier(context_tier)
         .with_streaming(true)
+        .with_reasoning_summary(ReasoningSummary::Concise)
         .with_tools(tools)
         .with_tool_search(
             ToolSearchConfig::new()
@@ -252,6 +254,18 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot session creation".into())),
         result = tokio::time::timeout(Duration::from_secs(30), client.create_session(config)) => result.map_err(|_| CoreError::TransientLlm("Copilot session creation timed out".into()))?.map_err(sdk_error)?,
     };
+    // Empty-mode sessions do not inherit the interactive CLI's presentation
+    // settings. Summary verbosity and emitting readable summary events are
+    // separate options; effort alone does not enable Gemini/Claude thoughts.
+    tokio::select! {
+        _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Copilot configuration".into())),
+        result = tokio::time::timeout(Duration::from_secs(30), async { session.rpc().options().update(
+            github_copilot_sdk::rpc::SessionUpdateOptionsParams {
+                enable_reasoning_summaries: Some(true),
+                ..Default::default()
+            }
+        ).await }) => { result.map_err(|_| CoreError::TransientLlm("Copilot reasoning configuration timed out".into()))?.map_err(sdk_error)?; },
+    }
     let mut events = EventStream::start(session.subscribe())?;
     let initial = MessageOptions::new(&turn.prompt).with_attachments(
         turn.images
@@ -269,6 +283,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     let mut steering = VecDeque::new();
     let mut steering_closed = false;
     let mut completion_repairs = super::CompletionRepairState::default();
+    let expects_reasoning = turn.config.reasoning_enabled != Some(false)
+        && !crate::commands::subscription_accounts::copilot_reasoning_efforts(&model).is_empty();
     let run = async {
         let mut next = initial;
         loop {
@@ -364,7 +380,14 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
     let _ = tokio::time::timeout(Duration::from_secs(5), session.disconnect()).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), client.stop()).await;
     match run {
-        Ok(()) => projection.finish(&turn).await,
+        Ok(()) => {
+            // Some reasoning-capable models emit neither readable summaries
+            // nor an opaque marker. Only judge absence after reconciliation.
+            if expects_reasoning {
+                projection.reasoning_unavailable(&turn.events).await?;
+            }
+            projection.finish(&turn).await
+        }
         Err(error) => Err(error),
     }
 }
@@ -385,6 +408,20 @@ async fn project_event(
     let data = &event.data;
     match event.event_type.as_str() {
         "assistant.streaming_delta" => projection.network_progress(tx).await?,
+        "assistant.intent" => {
+            if let Some(intent) = data["intent"]
+                .as_str()
+                .filter(|text| !text.trim().is_empty())
+            {
+                tx.send(AgentEvent::ControllerStatus {
+                    code: "external_agent_activity".into(),
+                    content: intent.chars().take(2000).collect(),
+                    tone: None,
+                })
+                .await
+                .map_err(protocol_error)?;
+            }
+        }
         "assistant.message_delta" => {
             let id = data
                 .get("messageId")
@@ -434,6 +471,16 @@ async fn project_event(
             projection.complete_reasoning(tx, &id, text).await?;
         }
         "assistant.message" => {
+            if data
+                .get("reasoningOpaque")
+                .is_some_and(|value| !value.is_null())
+                && data
+                    .get("reasoningText")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(str::is_empty)
+            {
+                projection.reasoning_unavailable(tx).await?;
+            }
             let text = data
                 .get("content")
                 .and_then(serde_json::Value::as_str)
@@ -990,6 +1037,36 @@ mod tests {
         }
         assert_eq!(visible["copilot:reasoning:r"], "");
         assert_eq!(visible["copilot:reasoning:new"], "fresh");
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.turn_retry",
+            serde_json::json!({"turnId":"t"}),
+        )
+        .await
+        .unwrap();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.message",
+            serde_json::json!({"messageId":"answer", "content":"retry succeeded"}),
+        )
+        .await
+        .unwrap();
+        projection.reasoning_unavailable(&tx).await.unwrap();
+        let mut unavailable = 0;
+        while let Ok(event) = rx.try_recv() {
+            if matches!(event, AgentEvent::ControllerStatus {code, ..} if code == "external_agent_reasoning_unavailable")
+            {
+                unavailable += 1;
+            }
+        }
+        assert_eq!(
+            unavailable, 1,
+            "discarded thinking cannot suppress the final visibility notice"
+        );
         // A long tool-driven session must release reasoning bookkeeping at
         // genuine inference boundaries, even when there was no answer draft.
         for index in 0..2100 {
@@ -1034,9 +1111,38 @@ mod tests {
         )
         .await
         .unwrap();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.intent",
+            serde_json::json!({"intent":"Checking project files"}),
+        )
+        .await
+        .unwrap();
         project_test_event(&mut projection, &mut response, &tx, "assistant.message",
             serde_json::json!({"messageId":"a", "content":"answer", "reasoningOpaque":"secret", "encryptedContent":"secret"})).await.unwrap();
+        project_test_event(
+            &mut projection,
+            &mut response,
+            &tx,
+            "assistant.message",
+            serde_json::json!({"messageId":"b", "content":"continued", "reasoningOpaque":"secret"}),
+        )
+        .await
+        .unwrap();
+        let mut notices = 0;
+        let mut saw_activity = false;
         while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::ControllerStatus { code, content, .. } = &event {
+                if code == "external_agent_activity" && content == "Checking project files" {
+                    saw_activity = true;
+                }
+                if code == "external_agent_reasoning_unavailable" {
+                    notices += 1;
+                }
+                assert!(!content.contains("secret"));
+            }
             assert!(!matches!(
                 event,
                 AgentEvent::StreamBlockDelta {
@@ -1047,6 +1153,34 @@ mod tests {
                     ..
                 }
             ));
+        }
+        assert!(
+            saw_activity,
+            "native intent must remain visible as activity, independently of reasoning"
+        );
+        assert_eq!(
+            notices, 1,
+            "opaque-only responses need one honest visibility notice"
+        );
+        for snapshot in [false, true] {
+            let mut readable = Projection::default();
+            if snapshot {
+                readable
+                    .complete_reasoning(&tx, "r", "visible summary")
+                    .await
+                    .unwrap();
+            } else {
+                readable
+                    .delta(&tx, "r", StreamBlockChannel::Thinking, "visible summary")
+                    .await
+                    .unwrap();
+            }
+            readable.reasoning_unavailable(&tx).await.unwrap();
+            while let Ok(event) = rx.try_recv() {
+                assert!(
+                    !matches!(event, AgentEvent::ControllerStatus {code, ..} if code == "external_agent_reasoning_unavailable")
+                );
+            }
         }
     }
 
@@ -1163,17 +1297,39 @@ mod tests {
     #[tokio::test]
     #[ignore = "uses an explicitly selected official Copilot model for one synthetic streaming inference"]
     async fn native_copilot_streams_readable_reasoning_and_answer_before_done() {
+        native_copilot_stream_probe(true).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "uses an explicitly selected Copilot model without readable summaries for one synthetic inference"]
+    async fn native_copilot_reports_unavailable_readable_reasoning() {
+        native_copilot_stream_probe(false).await;
+    }
+
+    async fn native_copilot_stream_probe(expect_readable: bool) {
         let model = std::env::var("NEXA_COPILOT_STREAM_PROBE_MODEL")
             .expect("set the intended reasoning model explicitly");
         let (mut request, mut rx, _, _) =
             super::super::tests::fixture(AgentRuntimeKind::Copilot, &model);
+        if let Ok(effort) = std::env::var("NEXA_COPILOT_STREAM_PROBE_EFFORT") {
+            request.config.reasoning_effort = Some(
+                serde_json::from_value(serde_json::Value::String(effort))
+                    .expect("set a supported reasoning effort explicitly"),
+            );
+        }
         request.dependencies.tools = nexa_core::tools::ToolRegistry::new();
         request.config.system_prompt =
-            "Answer the arithmetic check concisely. Do not use tools.".into();
+            "Solve the synthetic arithmetic problem accurately and concisely. Do not use tools."
+                .into();
         request.user_parts = vec![ContentPart::Text {
-            text:
+            text: if expect_readable {
+                // A trivial arithmetic prompt can legitimately skip adaptive
+                // thinking. Match the selected model/effort with a task that
+                // exercises reasoning rather than infer support from absence.
+                "Count the triples of nonnegative integers x,y,z satisfying x+2y+3z=47, x<=17 and y+z<=20. Return the count and a concise explanation."
+            } else {
                 "What is 137 times 263? Give the result and a brief explanation in three sentences."
-                    .into(),
+            }.into(),
         }];
         let cancellation = request.cancellation.clone();
         let started = std::time::Instant::now();
@@ -1184,6 +1340,7 @@ mod tests {
         let mut thinking_deltas = 0;
         let mut answer_deltas = 0;
         let mut snapshots = 0;
+        let mut opaque_notices = 0;
         let mut visible = std::collections::HashMap::<String, String>::new();
         let timeout = tokio::time::sleep(Duration::from_secs(180));
         tokio::pin!(timeout);
@@ -1205,15 +1362,25 @@ mod tests {
                         visible.insert(block_id, text);
                     }
                     AgentEvent::Done {..} => done = true,
+                    AgentEvent::ControllerStatus { code, .. } if code == "external_agent_reasoning_unavailable" => opaque_notices += 1,
                     _ => {}
                 }
             }
         }
-        eprintln!("Copilot live projection: model={model} elapsed_ms={} thinking_deltas={thinking_deltas} answer_deltas={answer_deltas} thinking_snapshots={snapshots}", started.elapsed().as_millis());
+        eprintln!("Copilot live projection: model={model} elapsed_ms={} thinking_deltas={thinking_deltas} answer_deltas={answer_deltas} thinking_snapshots={snapshots} opaque_notices={opaque_notices}", started.elapsed().as_millis());
         // Live models may return only a readable full snapshot on a given
         // request. Deterministic regressions above enforce delta continuity;
         // this probe verifies actual readable thinking and streamed answers.
-        assert!(thinking_deltas + snapshots > 0 && answer_deltas > 1);
+        assert!(answer_deltas > 1, "the answer must stream before Done");
+        if expect_readable {
+            assert!(thinking_deltas + snapshots > 0);
+        } else {
+            assert_eq!(thinking_deltas + snapshots, 0);
+            assert_eq!(
+                opaque_notices, 1,
+                "missing upstream summaries must be explained, never shown as readable thoughts"
+            );
+        }
     }
 
     #[tokio::test]

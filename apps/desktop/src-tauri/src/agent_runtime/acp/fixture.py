@@ -8,8 +8,10 @@ import os
 mode = sys.argv[1]
 session = "会话-Δ"
 config = [{"id": "model-id", "category": "model", "type": "select", "name": "Model", "currentValue": "first", "options": [{"value": "first", "name": "First"}, {"value": "vendor/模型", "name": "Model"}]}]
-if mode in ("opaque_effort", "opaque_record"):
+if mode in ("opaque_effort", "opaque_record", "readable_low", "opaque_low"):
     config.append({"id":"custom-effort" if mode == "opaque_record" else "reasoning_effort","category":"thought_level","type":"select","name":"Reasoning","currentValue":"balanced","options":[{"value":value,"name":value} for value in ["eco","balanced","deep"]]})
+if mode in ("readable_low", "opaque_low"):
+    config[1].update(currentValue="high", options=[{"value":level,"name":level} for level in ["low","medium","high"]])
 if mode == "opaque_record":
     config.append({"id":"effort","category":"model_config","type":"select","name":"Other configuration","currentValue":"default","options":[{"value":value,"name":value} for value in ["default","fast"]]})
 if mode == "dependent":
@@ -89,7 +91,7 @@ for line in sys.stdin:
         assert mode == "legacy" and message["params"]["modelId"] == "vendor/模型"
         reply(message, {})
     elif method == "session/set_config_option":
-        if mode in ("opaque_effort", "opaque_record"):
+        if mode in ("opaque_effort", "opaque_record", "readable_low", "opaque_low"):
             option = next(option for option in config if option["id"] == message["params"]["configId"])
             value = message["params"]["value"]
             assert any(choice["value"] == value for choice in option["options"])
@@ -115,6 +117,8 @@ for line in sys.stdin:
             config[0]["currentValue"] = message["params"]["value"]
         reply(message, {"configOptions": config})
     elif method == "session/prompt":
+        if mode in ("readable_low", "opaque_low"):
+            assert config[1]["currentValue"] == "low", "the selected effort must not be raised to obtain summaries"
         if mode == "opaque_effort":
             assert config[1]["currentValue"] == "deep", "opaque chat effort was lost before prompt"
         if mode == "opaque_record":
@@ -133,7 +137,8 @@ for line in sys.stdin:
         if mode == "wrong_session":
             emit({"method": "session/update", "params": {"sessionId": "wrong", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "bad"}}}})
             continue
-        update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking-私密"}})
+        if mode != "opaque_low":
+            update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking-私密"}})
         update({"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Native read", "kind": "read", "status": "pending"})
         emit({"id": "permission-1", "method": "session/request_permission", "params": {"sessionId": session, "toolCall": {"toolCallId": "call-1", "title": "Native read", "rawInput": {"path": "safe-fixture"}}, "options": [{"optionId": "permanent", "kind": "allow_always", "name": "Always"}, {"optionId": "once", "kind": "allow_once", "name": "Once"}, {"optionId": "deny", "kind": "reject_once", "name": "Deny"}]}})
     elif method == "session/cancel":

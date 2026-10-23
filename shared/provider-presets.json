@@ -21381,10 +21381,10 @@
         "id": "minimax/minimax-m3.1-flash:free",
         "name": "MiniMax: MiniMax M3.1 Flash (free)",
         "source": "official",
-        "status": "active",
+        "status": "removed",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-20",
-        "documentationRef": "https://openrouter.ai/minimax/minimax-m3.1-flash:free",
+        "lastVerifiedAt": "2026-10-23",
+        "documentationRef": "https://openrouter.ai/api/v1/models/minimax/minimax-m3.1-flash:free/endpoints",
         "contextTokens": 1000000,
         "maxOutputTokens": 524288,
         "inputModalities": [
@@ -21520,6 +21520,59 @@
         "source": "official",
         "lastVerifiedAt": "2026-10-22",
         "productReadiness": "known"
+      },
+      {
+        "id": "minimax/minimax-m3.1-flash",
+        "name": "MiniMax: MiniMax M3.1 Flash",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-23",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 524288,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "defaultEnabled": true,
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://openrouter.ai/api/v1/models/minimax/minimax-m3.1-flash/endpoints"
       }
     ]
   },
@@ -24593,6 +24646,32 @@
             "effortBudgetExclusive": true
           }
         }
+      },
+      {
+        "id": "zai-glm-5-3-flash",
+        "name": "Z.ai GLM 5.3 Flash",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-23",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": null
+        },
+        "documentationRef": "https://docs.mistral.ai/models/zai-glm-5-3-flash"
       }
     ]
   },

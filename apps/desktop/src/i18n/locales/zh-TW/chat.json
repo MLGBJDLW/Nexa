@@ -957,5 +957,7 @@
   "interactionChanged": "已觀察到變化",
   "interactionTargetClosed": "目標已關閉",
   "interactionMatched": "條件已滿足",
-  "interactionObserved": "已取得觀察"
+  "interactionObserved": "已取得觀察",
+  "agentReceiving": "正在接收模型輸出",
+  "agentReasoningUnavailable": "此回應未提供可讀的思考摘要。"
 }

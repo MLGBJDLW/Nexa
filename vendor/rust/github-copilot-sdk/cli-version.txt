@@ -1,9 +1,9 @@
-# Nexa runtime pin: GitHub Copilot CLI v1.0.100 (JSON-RPC protocol 3).
+# Nexa runtime pin: GitHub Copilot CLI v1.0.103 (JSON-RPC protocol 3).
 # SHA-256 digests published by github/copilot-cli for this immutable release.
-version=1.0.100
-copilot-darwin-arm64.tar.gz=4af0815e798158641bdd8e76e622fee0975e24ef91c5f0daf9ada4d9e0eac5a0
-copilot-darwin-x64.tar.gz=dedf0a0b57ef845067d28195ac1ba9668269de45d521a72bb81f74a3f13a5a7b
-copilot-linux-arm64.tar.gz=e7eee160da29e47fe471997f43366cc0606e3a8a1ae97ac74df612f1894dde6a
-copilot-linux-x64.tar.gz=65dfb019192afebed7abb385323a232a5ac32fa8c40a230880d4013cffb6b0b3
-copilot-win32-arm64.zip=d2fa14db0da65735daca2a690c254380614d5630840a431c98f39dbcaad4ae23
-copilot-win32-x64.zip=28c02a668474305f765c285d8dcc529e66ae93da31537c92c7467df7714e73e0
+version=1.0.103
+copilot-darwin-arm64.tar.gz=33e6553b23d1e15946685df297cac12e0b3efe98102009d5e7093453ecc6e60b
+copilot-darwin-x64.tar.gz=dffbc934dd277186e17c49130aefc54d7e9215bbde8a478a26d5d80bb356f05c
+copilot-linux-arm64.tar.gz=728a91dffb9a02817bd98c5b01bf2f9cb08c4fdac3c0ca8c48d7f1ccbfe282a1
+copilot-linux-x64.tar.gz=9aeb4430e9ac9523546db07b227c7aba179a4710a55f9ac29ad143b0f9e1b325
+copilot-win32-arm64.zip=b78a94d4964622916857017002e38bb8c25a1789fcd49f7e9c01897ce3199fae
+copilot-win32-x64.zip=e63b81a1a9e2bfd3d6fbf69b6c58cc51725df30bb38654ded018f5d8a6e80a5f

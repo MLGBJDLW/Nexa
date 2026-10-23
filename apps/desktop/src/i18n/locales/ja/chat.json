@@ -957,5 +957,7 @@
   "interactionChanged": "変化を確認",
   "interactionTargetClosed": "対象が閉じました",
   "interactionMatched": "条件を満たしました",
-  "interactionObserved": "画面を取得済み"
+  "interactionObserved": "画面を取得済み",
+  "agentReceiving": "モデルの出力を受信中",
+  "agentReasoningUnavailable": "この応答には読める推論の要約が含まれていません。"
 }

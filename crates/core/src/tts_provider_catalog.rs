@@ -201,16 +201,6 @@ pub fn validate_tts_selection(
     let Some(selected_model) = preset.models.iter().find(|item| item.id == model.trim()) else {
         return Ok(());
     };
-    if model == "qwen-audio-3.1-tts-flash" {
-        let url = reqwest::Url::parse(&tts_api_base_url(config))
-            .map_err(|_| CoreError::InvalidInput("Invalid speech endpoint.".into()))?;
-        let host = url.host_str().unwrap_or_default();
-        if host == "dashscope-intl.aliyuncs.com"
-            || host.ends_with(".ap-southeast-1.maas.aliyuncs.com")
-        {
-            return Err(CoreError::InvalidInput("Qwen Audio 3.1 TTS Flash requires the Beijing speech endpoint and a matching API key.".into()));
-        }
-    }
     if let Some(limit) = selected_model.max_input_characters {
         if text.chars().count() > limit {
             return Err(CoreError::InvalidInput(format!(
@@ -831,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn qwen_audio31_enforces_region_and_voice_identity() {
+    fn qwen_audio31_supports_beijing_and_singapore_with_model_specific_voices() {
         let mut config = TextToSpeechConfig {
             provider: "qwen".into(),
             api_style: "dashscope_speech".into(),
@@ -851,7 +841,21 @@ mod tests {
             "https://workspace.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/inference",
         ] {
             config.base_url = Some(base.into());
-            assert!(validate_tts_selection(&config, &config.model, "Emily_v3.1", "hello").is_err());
+            validate_tts_selection(&config, &config.model, "Emily_v3.1", "hello").unwrap();
+            validate_tts_selection(
+                &config,
+                "qwen-audio-3.1-tts-plus",
+                "longanlingxin_v3.1",
+                "hello",
+            )
+            .unwrap();
+            assert!(validate_tts_selection(
+                &config,
+                "qwen-audio-3.1-tts-plus",
+                "Emily_v3.1",
+                "hello"
+            )
+            .is_err());
         }
     }
 
