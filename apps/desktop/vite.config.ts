@@ -19,19 +19,9 @@ function manualChunks(id: string) {
   if (id.includes("@tauri-apps")) {
     return "vendor-tauri";
   }
-  if (
-    id.includes("react-markdown") ||
-    id.includes("remark-") ||
-    id.includes("rehype-") ||
-    id.includes("micromark") ||
-    id.includes("unified") ||
-    id.includes("mdast") ||
-    id.includes("hast") ||
-    id.includes("unist") ||
-    id.includes("vfile")
-  ) {
-    return "vendor-markdown";
-  }
+  // Let Rollup split Markdown by its actual consumers. Startup speech metadata
+  // uses the small AST parser; grouping all Markdown dependencies together also
+  // loads React rendering, HTML sanitization and math before a chat is opened.
   if (id.includes("@dnd-kit") || id.includes("cmdk")) {
     return "vendor-interactions";
   }

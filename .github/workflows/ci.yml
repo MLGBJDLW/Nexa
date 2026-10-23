@@ -133,7 +133,6 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
@@ -166,6 +165,16 @@ jobs:
         run: |
           cargo clippy -p nexa-remote --all-targets -- -D warnings
           cargo test -p nexa-remote
+
+      # Native jobs share the registry cache and can save it before this job
+      # installs cargo-audit. Cache the pinned executable independently so an
+      # immutable registry cache cannot cause a fresh tool build on every PR.
+      - name: Cache cargo-audit executable
+        if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-audit-0.22.2-v1
 
       - name: Install cargo-audit
         if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
@@ -306,12 +315,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            apps/desktop/package-lock.json
-
-      - name: Install root dependencies
-        run: npm ci
+          cache-dependency-path: apps/desktop/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
@@ -335,9 +339,11 @@ jobs:
         working-directory: apps/desktop
         run: npx vite build
 
+      # Root packages are Office/image build tools; the frontend contracts use
+      # only Node built-ins. Audit that lock without installing unrelated tools.
       - name: Root dependency audit
         if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
-        run: npm audit --audit-level=moderate
+        run: npm audit --package-lock-only --audit-level=moderate
 
       - name: Frontend dependency audit
         if: ${{ !cancelled() && needs.classify.outputs.scope == 'full' }}
@@ -379,83 +385,9 @@ jobs:
         run: |
           node --input-type=module -e "import { chromium } from '@playwright/test'; import { accessSync } from 'node:fs'; accessSync(chromium.executablePath()); const browser = await chromium.launch(); await browser.close();"
 
-      - name: Critical chat UI regressions
+      - name: Critical browser regressions
         working-directory: apps/desktop
-        run: >-
-          npx playwright test
-          e2e/chat-conversation-archive.spec.ts
-          e2e/chat-slash-commands.spec.ts
-          e2e/chat-stream-markdown-throttle.spec.ts
-          e2e/chat-stream-rounds.spec.ts
-          e2e/chat-tool-stream-pressure.spec.ts
-          e2e/chat-steering.spec.ts
-          e2e/settings-update-panel.spec.ts
-          e2e/chat-done-preview-persistence.spec.ts
-          e2e/chat-mermaid-rendering.spec.ts
-          e2e/chat-model-switch-context.spec.ts
-          e2e/external-agent-identity.spec.ts
-          e2e/notifications.spec.ts
-          e2e/chat-browser-workspace.spec.ts
-          e2e/browser-agent-interaction-runtime.spec.ts
-          e2e/chat-terminal-dock.spec.ts
-          e2e/chat-turn-navigation.spec.ts
-          e2e/context-usage-persistence.spec.ts
-          e2e/chat-plan-progress-panel.spec.ts
-          e2e/chat-recording-dock.spec.ts
-          e2e/settings-provider-models.spec.ts
-          --grep "web search settings keep|settings persists the selected context|followup recommendations|provider icon restores|attachment-only messages|manual compact keeps canonical|manual compact resumes|history Fork remains|model search stays|provider-managed reasoning|thoughts and replies commit|stop drains retained audio|SVG identity|SVG assets|account quota|late account|notifications|reasoning slider|reasoning toggle-only|ACP reasoning|registry agents|settings-update-panel|expanded settings keep compact|chat-steering|chat-mermaid-rendering|themed window frame|browser-agent-interaction-runtime|conversation actions offer archive and delete|conversation quick actions remain individually clickable|archived conversations can be restored|a direct archived conversation link|retries a persisted user message|edits a persisted user message through the durable retry boundary|restores the persisted reply suffix|reconciles the durable reply suffix|generates the initial empty chat title once|reload preserves partial output|keeps long streaming markdown advancing|keeps sidebar interaction urgent|preserves multiple thinking and tool rounds|wraps an unbroken live thinking token|context HUD refreshes confirmed|live conversation cache totals|live cache refresh|Git capsule|browser action trail|browser trail separates invocations|browser waits share|project editor portal|model selector|shared Browser Workspace|interactive terminal dock|floating plan capsule|only the Plan capsule drags|Mermaid|hub labels inside nodes|theme CSS connector metrics|turn timeline|right-side timeline|sparse turn timeline|virtualizes a 10000-message conversation|file edit badges|recording dock exposes responsive|Claude Sonnet 5.5|current Qwen3.8 Token Plan|public GLM-5.3 flagship|Meta Model API|Codex subscription account|Codex device-code|stale account refresh|GitHub Copilot subscription|Copilot CLI browser login|ACP |creating a project opens|project editor stays above|read aloud reports|Nexus|live turn timing|speech preset defaults|new chat cannot accept input|project drafts remain separate|project workspace exposes|stalled account read|recorded runtime|new turn does not inherit|Copilot context policy|Copilot quotas remain|login polling recovers|cancelled login cannot"
-
-      - name: Generative chat UI and HTML isolation
-        working-directory: apps/desktop
-        run: npx playwright test e2e/chat-generative-ui.spec.ts
-
-      - name: App resources and agent browser competence
-        working-directory: apps/desktop
-        run: >-
-          npx playwright test
-          e2e/app-resource-lifecycle.spec.ts
-          e2e/task-center.spec.ts
-          e2e/workflow-recorder.spec.ts
-          e2e/browser-agent-competence.spec.ts
-          e2e/browser-preview-rendering.spec.ts
-          e2e/git-workspace.spec.ts
-          e2e/embedding-settings.spec.ts
-          e2e/vector-store.spec.ts
-
-      - name: Streaming scroll, questions, and desktop approval regressions
-        working-directory: apps/desktop
-        run: >-
-          npx playwright test
-          e2e/thinking-follow.spec.ts
-          e2e/chat-scroll-behavior.spec.ts
-          e2e/chat-decision-tray.spec.ts
-          e2e/desktop-approval-scope.spec.ts
-          e2e/attention-inbox.spec.ts
-          e2e/conversation-timeline.spec.ts
-          e2e/tool-entities.spec.ts
-          e2e/history-markdown-rendering.spec.ts
-          e2e/desktop-control-status.spec.ts
-          e2e/computer-use-trace.spec.ts
-          e2e/subagent-ui.spec.ts
-          e2e/subagent-batch-judge-ui.spec.ts
-          e2e/subagent-parent-lifecycle.spec.ts
-
-      - name: Live, phone pairing, startup, and local preview regressions
-        working-directory: apps/desktop
-        run: >-
-          npx playwright test
-          e2e/live-observation.spec.ts
-          e2e/remote-phone.spec.ts
-          e2e/remote-setup.spec.ts
-          e2e/file-preview-agent-edit.spec.ts
-          e2e/chat-image-preview.spec.ts
-          e2e/chat-managed-process.spec.ts
-          e2e/knowledge-evidence.spec.ts
-          e2e/research-unavailable.spec.ts
-          e2e/search-ask-ai-scope.spec.ts
-          e2e/knowledge-graph-filters.spec.ts
-          e2e/knowledge-graph-dark-theme.spec.ts
-          e2e/app-window-frame.spec.ts
+        run: npx playwright test --config playwright.ci.config.ts
 
       - name: Upload browser regression diagnostics
         if: ${{ failure() }}
@@ -501,7 +433,6 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/

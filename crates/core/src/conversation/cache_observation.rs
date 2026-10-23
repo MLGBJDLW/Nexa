@@ -11,7 +11,7 @@ impl Database {
         let conn = self.conn();
         let mut statement = conn.prepare(
             "WITH recent AS MATERIALIZED (
-                SELECT id, trace_json, created_at, rowid AS ordinal
+                SELECT id, nexa_snapshot_json_v1(trace_json) AS trace_json, created_at, rowid AS ordinal
                 FROM conversation_turns
                 WHERE conversation_id = ?1 AND (?2 IS NULL OR id <> ?2)
                     AND finished_at IS NOT NULL AND trace_json IS NOT NULL

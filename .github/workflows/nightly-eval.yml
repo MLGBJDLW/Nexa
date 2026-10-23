@@ -33,7 +33,6 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
@@ -58,6 +57,13 @@ jobs:
           NEXA_EVAL_CONFIG: ${{ vars.NEXA_EVAL_CONFIG }}
           NEXA_EVAL_API_KEY: ${{ secrets.NEXA_EVAL_API_KEY }}
         run: node scripts/run-live-task-eval.mjs
+
+      - name: Cache cargo-audit executable
+        if: ${{ !cancelled() }}
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-audit-0.22.2-v1
 
       - name: Current dependency advisories
         if: ${{ !cancelled() }}

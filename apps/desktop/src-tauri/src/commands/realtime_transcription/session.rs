@@ -2,8 +2,8 @@
 //! PCM is journaled on disk and replayed after reconnect; utterance commits
 //! advance the audio checkpoint, never stop the microphone.
 use super::*;
-use std::time::Instant;
 use tokio::io::AsyncWriteExt;
+use tokio::time::Instant;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;

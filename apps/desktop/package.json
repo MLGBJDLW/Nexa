@@ -18,7 +18,7 @@
     "test:media-source-scope": "node --test ./scripts/media-source-scope.test.mts",
     "test:office-artifact-evidence": "node --test ./scripts/office-artifact-evidence.test.mts",
     "test:image-provider-catalog": "node --test ./scripts/image-provider-capability-catalog.test.mts",
-    "test:theme-resource-plugin": "node --test ./scripts/theme-resource-plugin.test.mts",
+    "test:theme-resource-plugin": "node --test ./scripts/theme-resource-plugin.test.mts ./scripts/fontsource-assets.test.mjs",
     "preview": "vite preview",
     "tauri": "node ./scripts/tauri-cli.mjs",
     "e2e": "playwright test",

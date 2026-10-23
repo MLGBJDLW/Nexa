@@ -123,7 +123,7 @@ pub(crate) fn parameters_schema() -> Value {
                 "items": { "type": "string" },
                 "default": [],
                 "description": format!(
-                    "Arguments passed directly as argv when using program (no shell interpretation). Defaults to []. Do not use args with command. For generated HTML/PPTX specs, use args like [\".../edit_doc.py\", \"--path\", \".../deck.pptx\", \"create_html_pptx\", \"--spec\", \"-\", \"--outdir\", \".../html_deck_project\", \"--mode\", \"hybrid\", \"--screenshot\", \"auto\"] and put the JSON spec in stdin. In restricted mode, git first arg must be a read-only subcommand ({git_subcommands}), and filesystem-command paths are resolved relative to cwd and must stay inside registered source roots.",
+                    "Exact argv for program, without shell interpretation; do not combine with command. Pass generated HTML/PPTX JSON through stdin with --spec -. In restricted mode, git first arg must be a read-only subcommand ({git_subcommands}); filesystem-command paths resolve from cwd and must stay inside registered source roots.",
                     git_subcommands = GIT_READONLY_SUBCOMMANDS.join(", ")
                 )
             },

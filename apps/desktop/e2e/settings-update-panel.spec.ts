@@ -265,6 +265,10 @@ test("unsupported stored update source falls back to GitHub", async ({ page }) =
 });
 
 test("release notes include every GitHub release between current and latest", async ({ page }) => {
+  const rendererRequests: string[] = [];
+  page.on('request', request => {
+    if (request.url().includes('ReleaseNotesMarkdown')) rendererRequests.push(request.url());
+  });
   await page.addInitScript(() => {
     localStorage.setItem("e2e-update-available", "1");
   });
@@ -274,10 +278,23 @@ test("release notes include every GitHub release between current and latest", as
   await page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" }).click();
 
   await expect(page.locator("p").filter({ hasText: /^v0\.10\.2$/ })).toBeVisible();
+  await expect(page.getByText("First ranged release note.")).toHaveCount(0);
+  expect(rendererRequests).toEqual([]);
   await page.getByText("Release notes").click();
   await expect(page.getByText("First ranged release note.")).toBeVisible();
   await expect(page.getByText("Second ranged release note.")).toBeVisible();
   await expect(page.getByText("Already installed release note.")).toHaveCount(0);
+  expect(rendererRequests.some(url => url.includes('ReleaseNotesMarkdown'))).toBe(true);
+  await page.getByText("Release notes").click();
+  await expect(page.getByText("First ranged release note.")).toHaveCount(0);
+  await page.getByText("Release notes").click();
+  await expect(page.getByText("First ranged release note.")).toBeVisible();
+  const panel = page.getByTestId('sidebar-update-panel');
+  await panel.getByRole('combobox', { name: 'Update source' }).selectOption('ghfast');
+  await expect(page.getByText('Release notes')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Check for Updates' }).click();
+  await expect(page.getByText('Release notes')).toBeVisible();
+  await expect(panel.locator('details > div')).toBeEmpty();
 });
 
 test('mirror updates show the complete installed-to-target release history without GitHub', async ({ page }) => {

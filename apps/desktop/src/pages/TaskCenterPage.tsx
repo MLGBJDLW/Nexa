@@ -49,6 +49,7 @@ import type {
   AgentExecutionGraph,
   AgentTaskArtifact,
   AgentTaskArtifactSummary,
+  AgentTaskArtifactMetadata,
   AgentTaskArtifactVersion,
   AgentTaskRunListItem,
   AgentTaskRunPageCursor,
@@ -69,7 +70,7 @@ interface TaskDetailCacheEntry {
   graph?: AgentExecutionGraph | null;
   investigationGraph?: InvestigationGraph | null;
   resumeCheckpoints?: TaskResumeCheckpoint[];
-  artifacts?: AgentTaskArtifactSummary[];
+  artifacts?: AgentTaskArtifactMetadata[];
   savedArtifacts?: AgentTaskArtifact[];
   toolAccess?: ToolAccessInfo[];
   approvalPolicies?: ToolPermissionPolicyList;
@@ -394,7 +395,7 @@ export function TaskCenterPage() {
   const [graph, setGraph] = useState<AgentExecutionGraph | null>(null);
   const [investigationGraph, setInvestigationGraph] = useState<InvestigationGraph | null>(null);
   const [resumeCheckpoints, setResumeCheckpoints] = useState<TaskResumeCheckpoint[]>([]);
-  const [artifacts, setArtifacts] = useState<AgentTaskArtifactSummary[]>([]);
+  const [artifacts, setArtifacts] = useState<AgentTaskArtifactMetadata[]>([]);
   const [savedArtifacts, setSavedArtifacts] = useState<AgentTaskArtifact[]>([]);
   const [artifactVersions, setArtifactVersions] = useState<Record<string, AgentTaskArtifactVersion[]>>({});
   const [editingArtifactId, setEditingArtifactId] = useState<string | null>(null);
@@ -533,7 +534,7 @@ export function TaskCenterPage() {
         patch.investigationGraph = await api.getInvestigationGraph(runId).catch(() => null);
       } else if (panel === 'artifacts') {
         const [nextArtifacts, nextSavedArtifacts] = await Promise.all([
-          api.getAgentTaskArtifacts(runId),
+          api.listAgentTaskArtifactSummaries(runId),
           api.listPersistedAgentTaskArtifacts(runId),
         ]);
         patch.artifacts = Array.isArray(nextArtifacts) ? nextArtifacts : [];
@@ -707,20 +708,29 @@ export function TaskCenterPage() {
     }
   }, [copy.failureReason, copy.savedMemory, selected]);
 
-  const handleCreateEditableArtifact = useCallback(async (artifact: AgentTaskArtifactSummary) => {
+  const handleCreateEditableArtifact = useCallback(async (artifact: AgentTaskArtifactMetadata) => {
     if (!selected) return;
+    const runId = selected.run.id;
+    const generation = detailGenerationRef.current;
     setSavingArtifactId(artifact.id);
     try {
-      const created = await api.createAgentTaskArtifact(selected.run.id, {
-        kind: artifact.kind || 'artifact',
-        title: artifact.title || artifact.kind || copy.artifactFallbackTitle,
-        summary: artifact.summary ?? null,
-        content: artifactSummaryContent(artifact),
-        paths: artifact.paths,
-        payload: artifact.payload,
-        source: artifact.source || 'task_center',
+      if (artifact.runId !== runId) throw new Error('Task artifact does not belong to the selected task.');
+      const detail = await api.getAgentTaskArtifactDetail(runId, artifact.id);
+      if (generation !== detailGenerationRef.current) return;
+      if (detail.runId !== runId || detail.id !== artifact.id) {
+        throw new Error('Task artifact does not belong to the selected task.');
+      }
+      const created = await api.createAgentTaskArtifact(runId, {
+        kind: detail.kind || 'artifact',
+        title: detail.title || detail.kind || copy.artifactFallbackTitle,
+        summary: detail.summary ?? null,
+        content: artifactSummaryContent(detail),
+        paths: detail.paths,
+        payload: detail.payload,
+        source: detail.source || 'task_center',
       });
       const versions = await api.listAgentTaskArtifactVersions(created.id);
+      if (generation !== detailGenerationRef.current) return;
       setSavedArtifacts((current) => [
         created,
         ...current.filter((item) => item.id !== created.id),
@@ -730,9 +740,9 @@ export function TaskCenterPage() {
       setArtifactDraft(artifactDraftFromSaved(created));
       toast.success(copy.artifactSaved);
     } catch (error) {
-      toast.error(String(error));
+      if (generation === detailGenerationRef.current) toast.error(String(error));
     } finally {
-      setSavingArtifactId(null);
+      setSavingArtifactId(current => current === artifact.id ? null : current);
     }
   }, [copy.artifactFallbackTitle, copy.artifactSaved, selected]);
 

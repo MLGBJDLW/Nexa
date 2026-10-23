@@ -1000,6 +1000,8 @@ fn main() {
             commands::control_subagent_workspace_cmd,
             commands::get_agent_execution_graph_cmd,
             commands::get_agent_task_artifacts_cmd,
+            commands::list_agent_task_artifact_summaries_cmd,
+            commands::get_agent_task_artifact_detail_cmd,
             commands::list_persisted_agent_task_artifacts_cmd,
             commands::create_agent_task_artifact_cmd,
             commands::update_agent_task_artifact_cmd,

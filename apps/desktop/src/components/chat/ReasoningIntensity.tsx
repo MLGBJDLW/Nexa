@@ -23,36 +23,30 @@ const EFFORT_COLORS: Record<string, string> = {
 };
 const SPRING = { type: 'spring' as const, stiffness: 380, damping: 32, mass: 0.6 };
 const RANGE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
-const PHASES = Array.from({ length: 17 }, (_, index) => index * Math.PI / 8);
-const helixY = (x: number, phase: number) => 16 + Math.sin(x / 280 * Math.PI * 4 + phase) * 9;
-const helixPath = (phase: number) => Array.from({ length: 49 }, (_, index) => {
+const HELIX_PERIOD = 140;
+const helixY = (x: number, phase = 0) => 16 + Math.sin(x / HELIX_PERIOD * Math.PI * 2 + phase) * 9;
+// One extra period lets the browser translate a fixed drawing seamlessly. The
+// previous SMIL paths and endpoints rebuilt SVG geometry on every frame.
+const helixPath = (phase: number) => Array.from({ length: 73 }, (_, index) => {
   const x = index / 48 * 280;
   return `${index ? 'L' : 'M'}${x.toFixed(2)},${helixY(x, phase).toFixed(2)}`;
 }).join(' ');
-const STRANDS = [0, Math.PI].map(offset => PHASES.map(phase => helixPath(phase + offset)));
+const STRANDS = [0, Math.PI].map(helixPath);
 const RUNGS = Array.from({ length: 15 }, (_, index) => {
   const x = 10 + index * 260 / 14;
-  return { x, front: PHASES.map(phase => helixY(x, phase)), back: PHASES.map(phase => helixY(x, phase + Math.PI)) };
+  return { left: `${x / 280 * 100}%`, delay: `${-x / HELIX_PERIOD * 8}s`, scale: Math.sin(x / HELIX_PERIOD * Math.PI * 2) };
 });
 
 function ReasoningBond({ reducedMotion }: { reducedMotion: boolean }) {
-  return <svg className="nexa-intensity-bond" viewBox="0 0 280 32" preserveAspectRatio="none" aria-hidden="true">
-    {RUNGS.map(({ x, front, back }, index) => <line key={index} x1={x} x2={x} y1={front[0]} y2={back[0]}>
-      {!reducedMotion && <>
-        <animate attributeName="y1" values={front.join(';')} dur="8s" repeatCount="indefinite" />
-        <animate attributeName="y2" values={back.join(';')} dur="8s" repeatCount="indefinite" />
-      </>}
-    </line>)}
-    {STRANDS.map((frames, index) => <path key={index} d={frames[0]}>
-      {!reducedMotion && <animate attributeName="d" values={frames.join(';')} dur="8s" repeatCount="indefinite" />}
-    </path>)}
-    {RUNGS.filter((_, index) => index % 4 === 1).map(({ x, front }, index) => <circle key={index} cx={x} cy={front[0]} r="1.8">
-      {!reducedMotion && <>
-        <animate attributeName="cy" values={front.join(';')} dur="8s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values=".2;.8;.2" dur="4s" begin={`${index * -1}s`} repeatCount="indefinite" />
-      </>}
-    </circle>)}
-  </svg>;
+  return <span className="nexa-intensity-bond" data-reduced-motion={reducedMotion} aria-hidden="true">
+    {RUNGS.map(({ left, delay, scale }, index) => <span key={index} className="nexa-intensity-rung"
+      style={{ left, animationDelay: delay, transform: `scaleY(${scale})` }} />)}
+    <svg className="nexa-intensity-strands" viewBox="0 0 420 32" preserveAspectRatio="none">
+      {STRANDS.map((path, index) => <path key={index} d={path} />)}
+    </svg>
+    {RUNGS.filter((_, index) => index % 4 === 1).map(({ left, delay, scale }, index) => <span key={index}
+      className="nexa-intensity-spark" style={{ left, animationDelay: delay, transform: `translateY(${scale * 5.0625}px)` }} />)}
+  </span>;
 }
 
 export function ReasoningIntensity({ options, selectedKey, onSelect, children }: {

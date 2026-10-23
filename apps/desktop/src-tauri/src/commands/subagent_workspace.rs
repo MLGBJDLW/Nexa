@@ -31,7 +31,7 @@ fn resolve_worker(
 ) -> Result<(Option<String>, Option<AgentSubtaskRun>), CoreError> {
     db.get_conversation(conversation_id)?;
     if let Ok(row) = db.get_agent_subtask_run(id) {
-        let parent = db.get_agent_task_run(&row.parent_run_id)?;
+        let parent = db.get_agent_task_run_presentation(&row.parent_run_id)?;
         if parent.conversation_id != conversation_id {
             return Err(CoreError::NotFound("Subagent".into()));
         }

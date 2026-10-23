@@ -5,6 +5,7 @@ pub mod goal;
 pub mod memory;
 mod model_selection;
 mod remote_views;
+mod task_artifact_metadata;
 mod task_history;
 mod timeline;
 pub use model_selection::TurnModelSelection;
@@ -1308,6 +1309,52 @@ fn serialize_optional_string_list(value: Option<&[String]>) -> Result<Option<Str
     }
 }
 
+fn task_run_select(presentation: bool, suffix: &str) -> String {
+    let artifacts = if presentation {
+        "CASE WHEN artifacts_preview_json IS NOT NULL THEN json_extract(artifacts_preview_json, '$.display') END"
+    } else {
+        "nexa_snapshot_json_v1(artifacts_json)"
+    };
+    format!("SELECT id,conversation_id,turn_id,user_message_id,status,phase,title,route_kind,summary,error_message,provider,model,plan_json,{artifacts},created_at,updated_at,started_at,finished_at FROM agent_task_runs {suffix}")
+}
+
+fn agent_task_run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTaskRun> {
+    Ok(AgentTaskRun {
+        id: row.get(0)?,
+        conversation_id: row.get(1)?,
+        turn_id: row.get(2)?,
+        user_message_id: row.get(3)?,
+        status: row.get(4)?,
+        phase: row.get(5)?,
+        title: row.get(6)?,
+        route_kind: row.get(7)?,
+        summary: row.get(8)?,
+        error_message: row.get(9)?,
+        provider: row.get(10)?,
+        model: row.get(11)?,
+        plan: json_value_from_sql(row.get(12)?, 12)?,
+        artifacts: json_value_from_sql(row.get(13)?, 13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
+        started_at: row.get(16)?,
+        finished_at: row.get(17)?,
+    })
+}
+
+fn find_agent_task_run(
+    connection: &rusqlite::Connection,
+    column: &str,
+    value: &str,
+    presentation: bool,
+) -> Result<Option<AgentTaskRun>, CoreError> {
+    // The selected column is an internal id/turn-id selector, never user SQL.
+    let sql = task_run_select(presentation, &format!("WHERE {column}=?1"));
+    Ok(connection
+        .prepare_cached(&sql)?
+        .query_row([value], agent_task_run_from_row)
+        .optional()?)
+}
+
 fn parse_optional_string_list(value: Option<String>) -> Option<Vec<String>> {
     value.and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
 }
@@ -1446,13 +1493,13 @@ fn collect_artifact_paths(value: &serde_json::Value, paths: &mut BTreeSet<String
     }
 }
 
-fn artifact_paths(value: &serde_json::Value) -> Vec<String> {
+pub(crate) fn artifact_paths(value: &serde_json::Value) -> Vec<String> {
     let mut paths = BTreeSet::new();
     collect_artifact_paths(value, &mut paths);
     paths.into_iter().collect()
 }
 
-fn value_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+pub(crate) fn value_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
     value
         .get(key)
         .and_then(|value| value.as_str())
@@ -1461,11 +1508,11 @@ fn value_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn artifact_kind_for_key(key: &str, value: &serde_json::Value) -> String {
+pub(crate) fn artifact_kind_for_key(key: &str, value: &serde_json::Value) -> String {
     value_string_field(value, "kind").unwrap_or_else(|| key.to_string())
 }
 
-fn title_from_artifact_key(key: &str) -> String {
+pub(crate) fn title_from_artifact_key(key: &str) -> String {
     key.replace(['_', '-'], " ")
         .split_whitespace()
         .map(|part| {
@@ -1479,7 +1526,7 @@ fn title_from_artifact_key(key: &str) -> String {
         .join(" ")
 }
 
-fn artifact_summary(value: &serde_json::Value) -> Option<String> {
+pub(crate) fn artifact_summary(value: &serde_json::Value) -> Option<String> {
     value_string_field(value, "summary")
         .or_else(|| value_string_field(value, "description"))
         .or_else(|| value_string_field(value, "result"))
@@ -2233,7 +2280,7 @@ impl Database {
     pub fn get_conversation_turn(&self, id: &str) -> Result<ConversationTurn, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, conversation_id, launch_project_id, user_message_id, assistant_message_id, status, route_kind, trace_json, created_at, updated_at, finished_at
+            "SELECT id, conversation_id, launch_project_id, user_message_id, assistant_message_id, status, route_kind, nexa_snapshot_json_v1(trace_json), created_at, updated_at, finished_at
              FROM conversation_turns
              WHERE id = ?1",
             rusqlite::params![id],
@@ -2292,7 +2339,7 @@ impl Database {
     ) -> Result<Vec<ConversationTurn>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, conversation_id, launch_project_id, user_message_id, assistant_message_id, status, route_kind, trace_json, created_at, updated_at, finished_at
+            "SELECT id, conversation_id, launch_project_id, user_message_id, assistant_message_id, status, route_kind, nexa_snapshot_json_v1(trace_json), created_at, updated_at, finished_at
              FROM conversation_turns
              WHERE conversation_id = ?1
              ORDER BY created_at ASC",
@@ -3089,136 +3136,64 @@ impl Database {
     }
 
     pub fn get_agent_task_run(&self, run_id: &str) -> Result<AgentTaskRun, CoreError> {
-        let connection = self.conn();
-        Self::get_agent_task_run_on_connection(&connection, run_id)
+        Self::get_agent_task_run_on_connection(&self.conn(), run_id)
+    }
+
+    /// Read the precomputed presentation without loading the full snapshot.
+    pub fn get_agent_task_run_presentation(&self, run_id: &str) -> Result<AgentTaskRun, CoreError> {
+        Self::get_agent_task_run_presentation_on_connection(&self.conn(), run_id)
     }
 
     pub(crate) fn get_agent_task_run_on_connection(
         connection: &rusqlite::Connection,
         run_id: &str,
     ) -> Result<AgentTaskRun, CoreError> {
-        connection
-            .query_row(
-                "SELECT id, conversation_id, turn_id, user_message_id, status, phase, title,
-                    route_kind, summary, error_message, provider, model, plan_json,
-                    artifacts_json, created_at, updated_at, started_at, finished_at
-             FROM agent_task_runs
-             WHERE id = ?1",
-                rusqlite::params![run_id],
-                |row| {
-                    Ok(AgentTaskRun {
-                        id: row.get(0)?,
-                        conversation_id: row.get(1)?,
-                        turn_id: row.get(2)?,
-                        user_message_id: row.get(3)?,
-                        status: row.get(4)?,
-                        phase: row.get(5)?,
-                        title: row.get(6)?,
-                        route_kind: row.get(7)?,
-                        summary: row.get(8)?,
-                        error_message: row.get(9)?,
-                        provider: row.get(10)?,
-                        model: row.get(11)?,
-                        plan: json_value_from_sql(row.get(12)?, 12)?,
-                        artifacts: json_value_from_sql(row.get(13)?, 13)?,
-                        created_at: row.get(14)?,
-                        updated_at: row.get(15)?,
-                        started_at: row.get(16)?,
-                        finished_at: row.get(17)?,
-                    })
-                },
-            )
-            .map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    CoreError::NotFound(format!("Agent task run {run_id}"))
-                }
-                other => CoreError::Database(other),
-            })
+        find_agent_task_run(connection, "id", run_id, false)?
+            .ok_or_else(|| CoreError::NotFound(format!("Agent task run {run_id}")))
+    }
+
+    pub(crate) fn get_agent_task_run_presentation_on_connection(
+        connection: &rusqlite::Connection,
+        run_id: &str,
+    ) -> Result<AgentTaskRun, CoreError> {
+        find_agent_task_run(connection, "id", run_id, true)?
+            .ok_or_else(|| CoreError::NotFound(format!("Agent task run {run_id}")))
     }
 
     pub fn get_agent_task_run_by_turn(
         &self,
         turn_id: &str,
     ) -> Result<Option<AgentTaskRun>, CoreError> {
-        let conn = self.conn();
-        let result = conn.query_row(
-            "SELECT id, conversation_id, turn_id, user_message_id, status, phase, title,
-                    route_kind, summary, error_message, provider, model, plan_json,
-                    artifacts_json, created_at, updated_at, started_at, finished_at
-             FROM agent_task_runs
-             WHERE turn_id = ?1",
-            rusqlite::params![turn_id],
-            |row| {
-                Ok(AgentTaskRun {
-                    id: row.get(0)?,
-                    conversation_id: row.get(1)?,
-                    turn_id: row.get(2)?,
-                    user_message_id: row.get(3)?,
-                    status: row.get(4)?,
-                    phase: row.get(5)?,
-                    title: row.get(6)?,
-                    route_kind: row.get(7)?,
-                    summary: row.get(8)?,
-                    error_message: row.get(9)?,
-                    provider: row.get(10)?,
-                    model: row.get(11)?,
-                    plan: json_value_from_sql(row.get(12)?, 12)?,
-                    artifacts: json_value_from_sql(row.get(13)?, 13)?,
-                    created_at: row.get(14)?,
-                    updated_at: row.get(15)?,
-                    started_at: row.get(16)?,
-                    finished_at: row.get(17)?,
-                })
-            },
-        );
-        match result {
-            Ok(run) => Ok(Some(run)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(err) => Err(CoreError::Database(err)),
-        }
+        find_agent_task_run(&self.conn(), "turn_id", turn_id, false)
     }
 
     pub fn get_agent_task_runs_for_conversation(
         &self,
         conversation_id: &str,
     ) -> Result<Vec<AgentTaskRun>, CoreError> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, conversation_id, turn_id, user_message_id, status, phase, title,
-                    route_kind, summary, error_message, provider, model, plan_json,
-                    artifacts_json, created_at, updated_at, started_at, finished_at
-             FROM agent_task_runs
-             WHERE conversation_id = ?1
-             ORDER BY created_at ASC",
-        )?;
-        let rows = stmt.query_map(rusqlite::params![conversation_id], |row| {
-            Ok(AgentTaskRun {
-                id: row.get(0)?,
-                conversation_id: row.get(1)?,
-                turn_id: row.get(2)?,
-                user_message_id: row.get(3)?,
-                status: row.get(4)?,
-                phase: row.get(5)?,
-                title: row.get(6)?,
-                route_kind: row.get(7)?,
-                summary: row.get(8)?,
-                error_message: row.get(9)?,
-                provider: row.get(10)?,
-                model: row.get(11)?,
-                plan: json_value_from_sql(row.get(12)?, 12)?,
-                artifacts: json_value_from_sql(row.get(13)?, 13)?,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
-                started_at: row.get(16)?,
-                finished_at: row.get(17)?,
-            })
-        })?;
+        self.task_runs_for_conversation(conversation_id, false)
+    }
 
-        let mut results = Vec::new();
-        for row in rows {
-            results.push(row?);
-        }
-        Ok(results)
+    pub fn get_agent_task_run_presentations_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<AgentTaskRun>, CoreError> {
+        self.task_runs_for_conversation(conversation_id, true)
+    }
+
+    fn task_runs_for_conversation(
+        &self,
+        conversation_id: &str,
+        presentation: bool,
+    ) -> Result<Vec<AgentTaskRun>, CoreError> {
+        let conn = self.conn();
+        let sql = task_run_select(
+            presentation,
+            "WHERE conversation_id=?1 ORDER BY created_at ASC",
+        );
+        let mut statement = conn.prepare_cached(&sql)?;
+        let rows = statement.query_map([conversation_id], agent_task_run_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(CoreError::from)
     }
 
     pub fn conversation_has_active_agent_task_run(
@@ -3247,7 +3222,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT r.id, r.conversation_id, r.turn_id, r.user_message_id, r.status, r.phase,
                     r.title, r.route_kind, r.summary, r.error_message, r.provider, r.model,
-                    r.plan_json, r.artifacts_json, r.created_at, r.updated_at, r.started_at,
+                    r.plan_json, nexa_snapshot_json_v1(r.artifacts_json), r.created_at, r.updated_at, r.started_at,
                     r.finished_at,
                     NULLIF(c.title, '') AS conversation_title,
                     t.launch_project_id,

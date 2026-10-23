@@ -32,6 +32,7 @@ test.beforeEach(async ({ page }) => {
         plan: null,
         artifacts: {
           kind: 'brief',
+          authoritativeDetail: 'Full artifact body fetched on demand',
           verification: { kind: 'verification' },
           files: [{ path: 'board-brief.docx' }],
         },
@@ -184,6 +185,13 @@ test.beforeEach(async ({ page }) => {
           return clone(graph);
         case 'get_agent_task_artifacts_cmd':
           return clone(artifactSummaries);
+        case 'list_agent_task_artifact_summaries_cmd':
+          return artifactSummaries.map(({ payload: _payload, ...metadata }) => clone(metadata));
+        case 'get_agent_task_artifact_detail_cmd': {
+          const artifact = artifactSummaries.find(item => item.runId === args.runId && item.id === args.artifactId);
+          if (!artifact) throw new Error('Task artifact not found');
+          return clone(artifact);
+        }
         case 'list_persisted_agent_task_artifacts_cmd':
           return clone(savedArtifacts.filter((artifact) => artifact.runId === String(args.runId ?? '')));
         case 'list_agent_task_artifact_versions_cmd':
@@ -373,8 +381,14 @@ test('task center manages runs, graph, project memory, artifacts, and risk map',
   );
   await expect(page.getByText('Saved Artifacts', { exact: true })).toBeVisible();
   await expect(page.getByText('Editable board brief')).toBeVisible();
+  const beforeSaveCalls = await page.evaluate(() => (window as any).__taskCenterInvokeCalls);
+  expect(beforeSaveCalls.filter((call: { cmd: string }) => call.cmd === 'get_agent_task_artifacts_cmd' || call.cmd === 'get_agent_task_artifact_detail_cmd')).toHaveLength(0);
+  expect(beforeSaveCalls.some((call: { cmd: string }) => call.cmd === 'list_agent_task_artifact_summaries_cmd')).toBe(true);
   await page.getByRole('button', { name: 'Save as editable' }).first().click();
   await expect(page.getByLabel('Title')).toHaveValue('Prepare board brief');
+  const savedArtifactCalls = await page.evaluate(() => (window as any).__taskCenterInvokeCalls);
+  expect(savedArtifactCalls.find((call: { cmd: string }) => call.cmd === 'get_agent_task_artifact_detail_cmd')?.args).toEqual({ runId: 'run-live', artifactId: 'run-live:root' });
+  expect(savedArtifactCalls.find((call: { cmd: string }) => call.cmd === 'create_agent_task_artifact_cmd')?.args.input.payload.authoritativeDetail).toBe('Full artifact body fetched on demand');
   await page.getByLabel('Content').fill('Updated board brief content');
   await page.getByRole('button', { name: 'Save artifact' }).click();
   await page.waitForFunction(
@@ -415,6 +429,34 @@ test('task center manages runs, graph, project memory, artifacts, and risk map',
     undefined,
     { timeout: 5000 },
   );
+});
+
+test('task center does not save a late artifact detail after selecting another task', async ({ page }) => {
+  await page.goto('/tasks');
+  await page.getByRole('button', { name: /Prepare board brief/ }).click();
+  await page.getByRole('button', { name: 'Artifacts', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save as editable' }).first()).toBeVisible();
+  await page.evaluate(() => {
+    const state = window as any;
+    const original = state.__TAURI_INTERNALS__.invoke;
+    state.__TAURI_INTERNALS__.invoke = async (cmd: string, args: Record<string, unknown>) => {
+      const result = await original(cmd, args);
+      if (cmd === 'get_agent_task_artifact_detail_cmd') {
+        state.__artifactReadPending = true;
+        await new Promise<void>(resolve => { state.__releaseArtifactDetail = resolve; });
+        state.__artifactReadResolved = true;
+      }
+      return result;
+    };
+  });
+  await page.getByRole('button', { name: 'Save as editable' }).first().click();
+  await expect.poll(() => page.evaluate(() => (window as any).__artifactReadPending)).toBe(true);
+  await page.getByRole('button', { name: /Verify market claims/ }).click();
+  await expect(page.getByRole('heading', { name: 'Verify market claims' })).toBeVisible();
+  await page.evaluate(() => (window as any).__releaseArtifactDetail());
+  await expect.poll(() => page.evaluate(() => (window as any).__artifactReadResolved)).toBe(true);
+  const calls = await page.evaluate(() => (window as any).__taskCenterInvokeCalls);
+  expect(calls.filter((call: { cmd: string }) => call.cmd === 'create_agent_task_artifact_cmd')).toHaveLength(0);
 });
 
 test('task center bounds history transfer before long tool and output payloads reach the renderer', async ({ page }) => {

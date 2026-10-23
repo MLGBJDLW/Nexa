@@ -105,6 +105,7 @@ import type {
   AgentExecutionGraph,
   AgentTaskArtifact,
   AgentTaskArtifactSummary,
+  AgentTaskArtifactMetadata,
   AgentTaskArtifactVersion,
   CreateAgentTaskArtifactInput,
   UpdateAgentTaskArtifactInput,
@@ -1631,6 +1632,12 @@ export const getAgentExecutionGraph = (runId: string) =>
 
 export const getAgentTaskArtifacts = (runId: string) =>
   invoke<AgentTaskArtifactSummary[]>('get_agent_task_artifacts_cmd', { runId });
+
+export const listAgentTaskArtifactSummaries = (runId: string) =>
+  invoke<AgentTaskArtifactMetadata[]>('list_agent_task_artifact_summaries_cmd', { runId });
+
+export const getAgentTaskArtifactDetail = (runId: string, artifactId: string) =>
+  invoke<AgentTaskArtifactSummary>('get_agent_task_artifact_detail_cmd', { runId, artifactId });
 
 export const listPersistedAgentTaskArtifacts = (runId: string) =>
   invoke<AgentTaskArtifact[]>('list_persisted_agent_task_artifacts_cmd', { runId });

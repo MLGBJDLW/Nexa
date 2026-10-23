@@ -2899,6 +2899,8 @@ Every answer that uses knowledge base search results.
     ("v153_endpoint_model_definitions", include_str!("v153_endpoint_model_definitions.sql")),
     ("v154_embedding_performance", include_str!("v154_embedding_performance.sql")),
     ("v155_delegated_conversations", include_str!("v155_delegated_conversations.sql")),
+    ("v156_run_event_lookup_indexes", include_str!("v156_run_event_lookup_indexes.sql")),
+    ("v157_owned_snapshot_storage", include_str!("v157_owned_snapshot_storage.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3113,6 +3115,7 @@ fn ensure_workflow_definition_revision_schema(
 pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
     crate::lexical::register(conn)?;
     crate::privacy::chat::register(conn)?;
+    crate::snapshot_store::register(conn)?;
     ensure_migrations_table(conn)?;
 
     let migration_count: i64 =
@@ -3241,6 +3244,10 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
                     migration_count != 0,
                 )?;
             }
+            if *name == "v157_owned_snapshot_storage" {
+                crate::privacy::chat_store::install_snapshot_projections(&transaction)?;
+                crate::snapshot_store::backfill(&transaction)?;
+            }
             transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
             transaction.commit()?;
             continue;
@@ -3265,6 +3272,36 @@ fn total_migration_count() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_event_lookup_indexes_upgrade_without_rewriting_ledger() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        super::run_migrations(&conn).unwrap();
+        conn.execute_batch(
+            "DROP INDEX idx_agent_run_events_terminal;
+             DROP INDEX idx_agent_run_events_history;
+             DELETE FROM _migrations WHERE name = 'v156_run_event_lookup_indexes';
+             INSERT INTO agent_run_events(run_id, turn_id, event_seq, version, kind, phase, status, payload_json)
+             VALUES ('lookup-upgrade', 'turn', 2, 2, 'done', 'paused', 'paused', '{\"original\": true}'),
+                    ('lookup-upgrade', 'turn', 9, 2, 'done', 'completed', NULL, '{ \"original\" : true }');",
+        ).unwrap();
+        let snapshot = || {
+            conn.prepare("SELECT event_seq, status, payload_json FROM agent_run_events WHERE run_id = 'lookup-upgrade' ORDER BY event_seq")
+            .unwrap().query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?)))
+            .unwrap().collect::<Result<Vec<_>, _>>().unwrap()
+        };
+        // Existing privacy INSERT triggers may normalize JSON. Compare the
+        // already-persisted bytes, rather than bypassing those protections.
+        let original = snapshot();
+        super::run_migrations(&conn).unwrap();
+        super::run_migrations(&conn).unwrap();
+        assert_eq!(snapshot(), original);
+        let indexes: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_agent_run_events_terminal', 'idx_agent_run_events_history')",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(indexes, 2);
+    }
 
     #[test]
     fn endpoint_definition_upgrade_preserves_references_and_foreign_keys() {

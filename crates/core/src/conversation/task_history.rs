@@ -5,6 +5,15 @@ use serde::Serialize;
 
 use crate::{db::Database, error::CoreError};
 
+const CANONICAL_HISTORY_SQL: &str = "SELECT run_id || ':' || event_seq, run_id, kind, label,
+            COALESCE(status, CASE kind WHEN 'done' THEN 'completed' WHEN 'error' THEN 'failed' END),
+            created_at, event_seq
+     FROM agent_run_events
+     WHERE run_id = ?1
+       AND kind NOT IN ('outputDelta', 'outputSnapshot', 'thinking', 'usageUpdated')
+       AND visibility != 'internal' AND (?2 OR visibility != 'developer')
+     ORDER BY julianday(created_at) DESC, event_seq DESC LIMIT 50";
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTaskHistoryItem {
@@ -28,16 +37,7 @@ impl Database {
         include_developer: bool,
     ) -> Result<Vec<AgentTaskHistoryItem>, CoreError> {
         let conn = self.conn();
-        let mut canonical = conn.prepare(
-            "SELECT run_id || ':' || event_seq, run_id, kind, label,
-                    COALESCE(status, CASE kind WHEN 'done' THEN 'completed' WHEN 'error' THEN 'failed' END),
-                    created_at, event_seq
-             FROM agent_run_events
-             WHERE run_id = ?1
-               AND kind NOT IN ('outputDelta', 'outputSnapshot', 'thinking', 'usageUpdated')
-               AND visibility != 'internal' AND (?2 OR visibility != 'developer')
-             ORDER BY julianday(created_at) DESC, event_seq DESC LIMIT 50",
-        )?;
+        let mut canonical = conn.prepare(CANONICAL_HISTORY_SQL)?;
         let mut items = canonical
             .query_map(params![run_id, include_developer], |row| {
                 history_from_row(row, "agentRun")
@@ -91,6 +91,63 @@ fn history_from_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn task_history_query_skips_stream_payload_rows_and_sorting() {
+        let db = Database::open_memory().unwrap();
+        let conn = db.conn();
+        conn.execute_batch(
+            "WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n + 1 FROM seq WHERE n < 4096)
+             INSERT INTO agent_run_events(run_id, turn_id, event_seq, version, kind, phase, visibility, payload_json)
+             SELECT 'history-scale', 'turn', n, 2, CASE WHEN n <= 100 THEN 'status' ELSE 'outputDelta' END,
+                    'responding', 'user', '{}' FROM seq;",
+        ).unwrap();
+        for developer in [false, true] {
+            let mut statement = conn.prepare(CANONICAL_HISTORY_SQL).unwrap();
+            let seqs = statement
+                .query_map(params!["history-scale", developer], |row| {
+                    row.get::<_, i64>(6)
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(seqs, (51..=100).rev().collect::<Vec<_>>());
+            let steps = statement.get_status(rusqlite::StatementStatus::VmStep);
+            println!(
+                "Task history: 4096 ledger rows, developer={developer}, {steps} SQLite VM steps"
+            );
+            assert!(
+                steps < 2000,
+                "history scanned streamed output rows: {steps} VM steps"
+            );
+            assert_eq!(statement.get_status(rusqlite::StatementStatus::Sort), 0);
+        }
+    }
+
+    #[test]
+    fn task_history_preserves_timestamp_order_before_sequence_and_visibility() {
+        let db = Database::open_memory().unwrap();
+        {
+            let conn = db.conn();
+            conn.execute_batch(
+                "INSERT INTO agent_run_events(run_id, turn_id, event_seq, version, kind, phase, visibility, payload_json, created_at)
+                 VALUES ('history-dates', 'turn', 1, 2, 'status', 'responding', 'user', '{}', '2026-10-23T08:00:00+08:00'),
+                        ('history-dates', 'turn', 2, 2, 'status', 'responding', 'user', '{}', '2026-10-22 23:59:59'),
+                        ('history-dates', 'turn', 3, 2, 'status', 'responding', 'user', '{}', '2026-10-23 00:00:00'),
+                        ('history-dates', 'turn', 4, 2, 'status', 'responding', 'developer', '{}', '2026-10-23 00:00:01'),
+                        ('history-dates', 'turn', 5, 2, 'status', 'responding', 'internal', '{}', '2026-10-23 00:00:02');",
+            ).unwrap();
+        }
+        let sequences = |developer| {
+            db.get_agent_task_history("history-dates", developer)
+                .unwrap()
+                .into_iter()
+                .map(|item| item.event_seq.unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(sequences(false), vec![3, 1, 2]);
+        assert_eq!(sequences(true), vec![4, 3, 1, 2]);
+    }
 
     #[test]
     fn task_history_filters_before_limit_and_does_not_materialize_large_payloads() {

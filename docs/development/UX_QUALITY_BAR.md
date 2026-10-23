@@ -100,6 +100,15 @@ default, disabled, effort, and token-budget semantics. The 18px visual rail and
 26px thumb sit inside a 32px interaction area; duplicate endpoint labels are
 omitted because all selectable levels already appear immediately below.
 
+The helix moves fixed geometry with transforms. Running tool cards use a narrow
+edge glow, and thinking indicators animate opacity over a fixed glow. Continuous
+effects must avoid rebuilding SVG paths or animating shadows and gradients every
+frame. Check compositor layer area as well as paint/layout work; replacing a
+repaint with an oversized texture is not automatically an improvement.
+
+Release-note rendering loads when the update disclosure is expanded. The idle
+sidebar and collapsed notes do not load or parse the rich chat renderer.
+
 ### 1. Show the user what matters, not what the model felt
 
 Settings use shared label/control rows for ordinary choices and inputs. Large

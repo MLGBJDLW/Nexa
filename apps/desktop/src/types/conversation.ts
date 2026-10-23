@@ -391,6 +391,8 @@ export interface AgentTaskArtifactSummary {
   payload: Record<string, unknown> | unknown[] | string | number | boolean | null;
 }
 
+export type AgentTaskArtifactMetadata = Omit<AgentTaskArtifactSummary, 'payload'>;
+
 export interface AgentTaskArtifact {
   id: string;
   runId: string;

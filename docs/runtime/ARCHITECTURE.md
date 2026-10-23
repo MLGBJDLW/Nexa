@@ -391,8 +391,42 @@ native request therefore does not create an expanding queue of retries.
 Task Center history uses a bounded summary projection rather than loading full
 run payloads: visibility filtering precedes each timeline's 50-row limit, and
 tool outputs, snapshots and trace bodies are not sent through this history IPC.
-The canonical replay APIs retain complete records. The summary query can still
-scan and sort event metadata; its row limit is not a database scan bound.
+The canonical replay APIs retain complete records. A partial index orders
+visible canonical event metadata by run, timestamp and sequence, excluding
+high-volume text, thinking, usage and internal events from the history scan.
+Developer filtering can still skip indexed metadata; the legacy task-event
+summary still scans and sorts metadata, so the row limit is not an unconditional
+database scan bound. A separate partial terminal-event index makes the outbox's
+closed-run check independent of the number of streamed events. Paused completion
+events do not close a run. Both indexes contain derived data only; building them
+once on upgrade reads existing events without rewriting their payloads.
+
+Connection setup consumes each PRAGMA result through completion, including
+row-returning settings such as `journal_mode`. File-backed stores therefore
+activate WAL before opening their query-only read lanes; readers retain their
+snapshot while the serialized writer commits.
+
+Large turn traces and task artifacts use versioned, row-owned snapshot storage.
+Schema v157 accepts existing TEXT/NULL values and stores compressible JSON from
+32 KiB through 256 MiB as a zlib frame with its original byte length and BLAKE3
+digest. A frame is used only when it saves at least one eighth of the input;
+larger or incompressible values remain complete text. Decoding checks the frame
+version, bounded output length, complete stream, digest and UTF-8 before exposing
+JSON. Deleting or replacing an owning row removes its stored bytes without a
+separate reference table or garbage collector. Event ledgers, resume checkpoints
+and provider replay records keep their existing representation.
+
+Privacy projection runs before packing and before deriving task previews in the
+same guarded write. Existing sanitized snapshots are converted transactionally
+without applying redaction rules again. Task lists, timeline task cards and
+snapshot notifications read the stored presentation; artifact cards read a
+metadata catalog. Canonical task envelopes with an explicit subtask array retain
+skill and subtask identity, status and short previews, while explicit detail APIs
+hydrate complete content. Older canonical and custom envelopes retain their
+existing presentation shape. Saving an
+editable artifact fetches that artifact's full detail and checks task identity
+and request generation before using it. New snapshot frames require a v157-aware
+reader; restoring an older application requires a compatible database backup.
 
 ## Normative runtime contracts
 

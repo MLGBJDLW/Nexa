@@ -1116,7 +1116,11 @@ fn read_turn(
     anchor_id: &str,
     details: bool,
 ) -> Result<Option<TimelineTurn>, CoreError> {
-    let trace_column = if details { "trace_json" } else { "NULL" };
+    let trace_column = if details {
+        "nexa_snapshot_json_v1(trace_json)"
+    } else {
+        "NULL"
+    };
     let sql = format!("SELECT id,conversation_id,launch_project_id,user_message_id,assistant_message_id,status,route_kind,{trace_column},created_at,updated_at,finished_at,trace_json IS NOT NULL,display_revision,display_trace_flags FROM conversation_turns WHERE conversation_id=?1 AND user_message_id=?2 ORDER BY created_at DESC,id DESC LIMIT 1");
     let row = connection
         .query_row(&sql, params![conversation_id, anchor_id], |row| {
@@ -1572,7 +1576,7 @@ impl Database {
         let run_ids = transaction.prepare(&format!("WITH latest_users AS (SELECT id,sort_order FROM messages INDEXED BY idx_messages_timeline_roots WHERE conversation_id=?1 AND {ROOT_PREDICATE} ORDER BY sort_order DESC,id DESC LIMIT 2) SELECT r.id FROM latest_users u JOIN agent_task_runs r ON r.conversation_id=?1 AND r.user_message_id=u.id ORDER BY u.sort_order DESC,u.id DESC,r.created_at DESC,r.id DESC LIMIT 2"))?.query_map([conversation_id], |row|row.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
         let mut task_runs = run_ids
             .into_iter()
-            .map(|id| Database::get_agent_task_run_on_connection(&transaction, &id))
+            .map(|id| Database::get_agent_task_run_presentation_on_connection(&transaction, &id))
             .collect::<Result<Vec<_>, _>>()?;
         task_runs.reverse();
         let range = oldest_cursor.clone().map(|from| ConversationTimelineRange {

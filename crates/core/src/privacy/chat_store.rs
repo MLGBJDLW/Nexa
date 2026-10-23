@@ -43,7 +43,7 @@ const PROJECTIONS: &[Projection] = &[
     Projection { name: "knowledge_excerpt", table: "knowledge_evidence", condition: "{row}document_id IS NOT NULL", scope_columns: &["document_id"], fields: &[("excerpt","text")] },
 ];
 
-fn assignments(projection: &Projection, row: &str, update: bool) -> String {
+fn assignments(projection: &Projection, row: &str, update: bool, snapshots: bool) -> String {
     projection
         .fields
         .iter()
@@ -54,11 +54,36 @@ fn assignments(projection: &Projection, row: &str, update: bool) -> String {
                 "event_payload" => format!("json_object('kind',{row}kind,'stale',COALESCE((SELECT privacy_revision FROM agent_task_runs WHERE id={row}run_id),'initial')!=(SELECT revision FROM privacy_chat_state WHERE id=1))"),
                 _ => "NULL".to_owned(),
             };
-            let safe = format!("nexa_chat_privacy_v1({POLICY},'{kind}',{row}{column},{extra})");
-            if update {
+            let packed = snapshots && crate::snapshot_store::packed_field(projection.table, column);
+            let raw = if packed { format!("nexa_snapshot_json_v1({row}{column})") } else { format!("{row}{column}") };
+            let safe = format!("nexa_chat_privacy_v1({POLICY},'{kind}',{raw},{extra})");
+            let unchanged = if update {
                 let was_in_scope = projection.condition.replace("{row}", "OLD.");
-                format!("{column}=CASE WHEN OLD.{column} IS NEW.{column} AND COALESCE(({was_in_scope}),0) THEN NEW.{column} ELSE {safe} END")
-            } else { format!("{column}={safe}") }
+                let same = if packed {
+                    format!("CASE WHEN OLD.{column} IS NEW.{column} THEN 1 ELSE nexa_snapshot_same_v1(OLD.{column},NEW.{column}) END")
+                } else { format!("OLD.{column} IS NEW.{column}") };
+                format!("({same}) AND COALESCE(({was_in_scope}),0)")
+            } else { "0".to_owned() };
+            let retained = if update && packed { format!("OLD.{column}") } else { format!("{row}{column}") };
+            let preview = if snapshots {
+                match (projection.table, *column) {
+                    ("agent_task_runs", "artifacts_json") => Some(("artifacts_preview_json", "nexa_task_artifacts_preview_v1")),
+                    ("agent_subtask_runs", "output_json") => Some(("output_preview_json", "nexa_subtask_output_preview_v1")),
+                    _ => None,
+                }
+            } else { None };
+            if let Some((preview_column, preview_function)) = preview {
+                // Materialize the privacy projection once. Non-idempotent rules
+                // must not be applied again to derive the presentation copy.
+                // An unrelated status update preserves both snapshot and preview
+                // without inflating, parsing, or recompressing the old payload.
+                let stored = if packed { "nexa_snapshot_pack_v1(snapshot.json)" } else { "snapshot.json" };
+                let retained_preview = if update && packed { format!("OLD.{preview_column}") } else { format!("{row}{preview_column}") };
+                format!("({column},{preview_column})=(WITH snapshot AS MATERIALIZED (SELECT CASE WHEN {unchanged} THEN NULL ELSE {safe} END AS json) SELECT CASE WHEN {unchanged} THEN {retained} ELSE {stored} END, CASE WHEN {unchanged} THEN {retained_preview} ELSE {preview_function}(snapshot.json) END FROM snapshot)")
+            } else {
+                let stored = if packed { format!("nexa_snapshot_pack_v1({safe})") } else { safe };
+                format!("{column}=CASE WHEN {unchanged} THEN {retained} ELSE {stored} END")
+            }
         })
         .collect::<Vec<_>>()
         .join(",")
@@ -150,8 +175,9 @@ fn install_trigger(
 }
 
 fn install_projection(conn: &Connection, projection: &Projection) -> Result<(), CoreError> {
+    let snapshots = crate::snapshot_store::enabled(conn)?;
     let condition = projection.condition.replace("{row}", "NEW.");
-    let insert_assignments = assignments(projection, "NEW.", false);
+    let insert_assignments = assignments(projection, "NEW.", false, snapshots);
     install_trigger(
         conn,
         projection.name,
@@ -184,8 +210,23 @@ fn install_projection(conn: &Connection, projection: &Projection) -> Result<(), 
             .collect::<Vec<_>>()
             .join(","),
         &format!("({condition}) AND (({changed}) OR NOT COALESCE(({was_in_scope}),0))"),
-        &assignments(projection, "NEW.", true),
+        &assignments(projection, "NEW.", true, snapshots),
     )?;
+    Ok(())
+}
+
+pub(crate) fn install_snapshot_projections(conn: &Connection) -> Result<(), CoreError> {
+    for projection in PROJECTIONS
+        .iter()
+        .filter(|projection| matches!(projection.name, "turn_trace" | "run" | "subtask"))
+    {
+        conn.execute_batch(&format!(
+            "DROP TRIGGER IF EXISTS privacy_chat_{}_INSERT;
+             DROP TRIGGER IF EXISTS privacy_chat_{}_UPDATE;",
+            projection.name, projection.name,
+        ))?;
+        install_projection(conn, projection)?;
+    }
     Ok(())
 }
 
@@ -239,6 +280,7 @@ pub(crate) fn install(conn: &Connection, is_upgrade: bool) -> Result<(), CoreErr
 }
 
 pub(crate) fn revoke(conn: &Connection) -> Result<(), CoreError> {
+    let snapshots = crate::snapshot_store::enabled(conn)?;
     conn.execute(
         "UPDATE privacy_chat_state SET revision=lower(hex(randomblob(16))),guard=1 WHERE id=1",
         [],
@@ -248,7 +290,7 @@ pub(crate) fn revoke(conn: &Connection) -> Result<(), CoreError> {
             &format!(
                 "UPDATE {} SET {} WHERE {}",
                 projection.table,
-                assignments(projection, "", false),
+                assignments(projection, "", false, snapshots),
                 projection
                     .condition
                     .replace("{row}", &format!("{}.", projection.table))

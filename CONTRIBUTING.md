@@ -118,8 +118,11 @@ npm run e2e -- e2e/remote-phone.spec.ts e2e/remote-setup.spec.ts
 
 Playwright starts the frontend on port 4173. These tests use mocked desktop
 boundaries where appropriate; they do not prove native device or provider
-acceptance. The critical CI spec sets are listed in
-[ci.yml](.github/workflows/ci.yml).
+acceptance. The critical CI selections are defined in
+[playwright.ci.config.ts](apps/desktop/playwright.ci.config.ts). Run
+`npx playwright test --config playwright.ci.config.ts` from `apps/desktop` to
+execute the same browser gate locally. Its named projects retain the selected
+specs and filters while sharing one server and diagnostic report.
 
 Browser CI uses the [official Playwright container](https://playwright.dev/docs/docker)
 with preinstalled browsers and system dependencies. Its version and digest are
@@ -138,6 +141,10 @@ services. Release candidates always receive
 full CI for their immutable tag. The final gate rejects failed or unexpectedly
 skipped required jobs.
 
+The pinned `cargo-audit` executable has a separate versioned cache; shared
+registry caches do not include build tools. The frontend job audits the root
+lockfile without installing its unrelated Office and image build tools.
+
 For a transient release failure, rerun the failed jobs in the existing Actions
 run first: successful jobs remain reusable for that immutable candidate. Use the
 existing draft-release resume input when a new run is necessary. A retry never
@@ -150,6 +157,10 @@ which can also be selected with
 `cargo test -p nexa-core --lib timeline_stress_ -- --ignored`.
 `npm run build` already checks TypeScript, so a separate typecheck is optional
 when a full build is being run.
+
+Long audio replay tests advance Tokio's virtual clock while preserving the full
+audio and packet cadence. Keep replay time and elapsed-time checks on the same
+clock; do not reintroduce minutes of wall-clock silence or shorten the coverage.
 
 For Rust changes, from the repository root:
 
