@@ -2900,6 +2900,7 @@ Every answer that uses knowledge base search results.
     ("v154_embedding_performance", include_str!("v154_embedding_performance.sql")),
     ("v155_delegated_conversations", include_str!("v155_delegated_conversations.sql")),
     ("v156_run_event_lookup_indexes", include_str!("v156_run_event_lookup_indexes.sql")),
+    ("v157_owned_snapshot_storage", include_str!("v157_owned_snapshot_storage.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.
@@ -3114,6 +3115,7 @@ fn ensure_workflow_definition_revision_schema(
 pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
     crate::lexical::register(conn)?;
     crate::privacy::chat::register(conn)?;
+    crate::snapshot_store::register(conn)?;
     ensure_migrations_table(conn)?;
 
     let migration_count: i64 =
@@ -3241,6 +3243,10 @@ pub fn run_migrations(conn: &Connection) -> Result<(), CoreError> {
                     &transaction,
                     migration_count != 0,
                 )?;
+            }
+            if *name == "v157_owned_snapshot_storage" {
+                crate::privacy::chat_store::install_snapshot_projections(&transaction)?;
+                crate::snapshot_store::backfill(&transaction)?;
             }
             transaction.execute("INSERT INTO _migrations (name) VALUES (?1)", [name])?;
             transaction.commit()?;

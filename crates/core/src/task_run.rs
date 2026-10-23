@@ -211,7 +211,7 @@ impl<'a> AgentTaskRuntime<'a> {
         let mut snapshots = Vec::new();
         for event in events {
             if Self::update_progress_from_event_on_connection(&transaction, run_id, event)? {
-                snapshots.push(Database::get_agent_task_run_on_connection(
+                snapshots.push(Database::get_agent_task_run_presentation_on_connection(
                     &transaction,
                     run_id,
                 )?);
@@ -311,7 +311,8 @@ impl<'a> AgentTaskRuntime<'a> {
                 "Conversation turn {turn_id} changed while its pause was being committed"
             )));
         }
-        let snapshot = Database::get_agent_task_run_on_connection(&transaction, run_id)?;
+        let snapshot =
+            Database::get_agent_task_run_presentation_on_connection(&transaction, run_id)?;
         transaction.commit()?;
         Ok((checkpoint, event, snapshot))
     }
@@ -346,7 +347,8 @@ impl<'a> AgentTaskRuntime<'a> {
             Some(failure_reason),
             Some(&failure_payload),
         )?;
-        let snapshot = Database::get_agent_task_run_on_connection(&transaction, run_id)?;
+        let snapshot =
+            Database::get_agent_task_run_presentation_on_connection(&transaction, run_id)?;
         if snapshot.status != TaskRunStatus::Failed.as_str() {
             return Err(CoreError::Conflict(format!(
                 "Agent Run {run_id} closed while the outbox failure claim was in progress"
@@ -447,10 +449,20 @@ impl<'a> AgentTaskRuntime<'a> {
         ) && !(event.kind == AgentRunEventKind::Status
             && (event.phase == crate::agent_run::AgentRunPhase::AwaitingUserInput
                 || event.status.as_deref() == Some("cancelling")));
-        if preserves_awaiting_status
-            && Database::get_agent_task_run_on_connection(connection, run_id)?.status
-                == TaskRunStatus::AwaitingUserInput.as_str()
-        {
+        let awaiting_user_input: bool = preserves_awaiting_status
+            && connection
+                .query_row(
+                    "SELECT status='awaiting_user_input' FROM agent_task_runs WHERE id=?1",
+                    [run_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| match error {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        CoreError::NotFound(format!("Agent task run {run_id}"))
+                    }
+                    other => CoreError::Database(other),
+                })?;
+        if awaiting_user_input {
             return Ok(emits_snapshot);
         }
 

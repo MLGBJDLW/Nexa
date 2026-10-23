@@ -458,7 +458,15 @@ pub async fn get_conversation_timeline_page_cmd(
             )
         })
         .await
-        .map(|execution| execution.value)
+        .map(|execution| {
+            let mut page = execution.value;
+            page.task_runs = page
+                .task_runs
+                .into_iter()
+                .map(crate::agent_task_events::prepare_task_run_for_frontend)
+                .collect();
+            page
+        })
         .map_err(|error| error.to_string())
 }
 
@@ -633,9 +641,15 @@ pub async fn get_agent_task_runs_cmd(
 ) -> Result<Vec<AgentTaskRun>, String> {
     state
         .db_executor
-        .read(move |db| db.get_agent_task_runs_for_conversation(&conversation_id))
+        .read(move |db| db.get_agent_task_run_presentations_for_conversation(&conversation_id))
         .await
-        .map(|execution| execution.value)
+        .map(|execution| {
+            execution
+                .value
+                .into_iter()
+                .map(crate::agent_task_events::prepare_task_run_for_frontend)
+                .collect()
+        })
         .map_err(|e| e.to_string())
 }
 
@@ -894,6 +908,33 @@ pub async fn get_agent_task_artifacts_cmd(
     state
         .db_executor
         .read(move |db| db.list_agent_task_artifacts(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_agent_task_artifact_summaries_cmd(
+    state: tauri::State<'_, AppState>,
+    run_id: String,
+) -> Result<Vec<crate::agent_task_events::AgentTaskArtifactMetadata>, String> {
+    state
+        .db_executor
+        .read(move |db| db.list_agent_task_artifact_metadata(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_agent_task_artifact_detail_cmd(
+    state: tauri::State<'_, AppState>,
+    run_id: String,
+    artifact_id: String,
+) -> Result<AgentTaskArtifactSummary, String> {
+    state
+        .db_executor
+        .read(move |db| db.get_agent_task_artifact_detail(&run_id, &artifact_id))
         .await
         .map(|execution| execution.value)
         .map_err(|error| error.to_string())

@@ -2503,7 +2503,7 @@ pub async fn agent_stop_cmd(
         let lookup_run = run_id.clone();
         let run = state
             .db_executor
-            .read_control(move |db| db.get_agent_task_run(&lookup_run))
+            .read_control(move |db| db.get_agent_task_run_presentation(&lookup_run))
             .await
             .map_err(|error| error.to_string())?
             .value;

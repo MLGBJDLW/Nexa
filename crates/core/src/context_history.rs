@@ -543,7 +543,7 @@ const CONTEXT_TOOL_RESULT_QUERY: &str = "
            COALESCE(json_extract(i.value,'$.toolCall.providerExecuted'),0) AS provider_executed,
            json_type(i.value,'$.toolCall.content') AS content_type,
            json_type(i.value,'$.toolCall.toolName') AS tool_name_type
-    FROM conversation_turns t,json_each(t.trace_json,'$.items') i
+    FROM conversation_turns t,json_each(nexa_snapshot_json_v1(t.trace_json),'$.items') i
     WHERE t.conversation_id=?1 AND t.id=?2
       AND json_extract(i.value,'$.kind')='tool'
       AND json_extract(i.value,'$.toolCall.callId')=?3

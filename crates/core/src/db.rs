@@ -106,6 +106,7 @@ impl Database {
         )?;
         crate::lexical::register(&conn)?;
         crate::privacy::chat::register(&conn)?;
+        crate::snapshot_store::register(&conn)?;
         for pragma in [
             "PRAGMA busy_timeout = 5000",
             "PRAGMA foreign_keys = ON",

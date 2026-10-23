@@ -6,6 +6,8 @@ use nexa_core::agent_run::{
 use nexa_core::conversation::AgentTaskRun;
 use nexa_core::db::Database;
 use nexa_core::runtime::AgentRunEventOutbox;
+pub(crate) use nexa_core::task_run_presentation::prepare_task_run_for_frontend;
+pub use nexa_core::task_run_presentation::AgentTaskArtifactMetadata;
 use serde::Serialize;
 use tauri::AppHandle;
 
@@ -26,7 +28,7 @@ pub(crate) fn emit_agent_task_run_update(
     conversation_id: &str,
     task_run_id: &str,
 ) {
-    match db.get_agent_task_run(task_run_id) {
+    match db.get_agent_task_run_presentation(task_run_id) {
         Ok(task_run) => emit_agent_task_run_snapshot(app_handle, conversation_id, task_run),
         Err(err) => warn!("Failed to load task run {task_run_id} for event: {err}"),
     }
@@ -41,7 +43,7 @@ pub(crate) fn emit_agent_task_run_snapshot(
     let payload = AgentTaskRunUpdatedEvent {
         conversation_id: conversation_id.to_string(),
         event_type: "taskRunUpdated",
-        task_run,
+        task_run: prepare_task_run_for_frontend(task_run),
     };
     emit_main_window_event(app_handle, "agent://task-snapshot", &payload);
     emit_window_event(
