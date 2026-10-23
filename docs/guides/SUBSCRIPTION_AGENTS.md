@@ -18,10 +18,15 @@ Nexa does not infer them from the model name. Explicit CLI path overrides remain
 user-managed and need a version that supports the selected model.
 
 Nexa explicitly requests concise reasoning summaries and enables their events.
-Readable deltas and final summaries share the same ordered thinking block. Some
-Copilot models return only opaque reasoning, or omit summaries entirely, even
-when summary visibility is enabled. Nexa never renders opaque data: the status row keeps showing model
-progress and explains when a response did not include a readable summary.
+Readable deltas and final summaries share the same ordered thinking block. An
+individual response can contain only opaque reasoning, or omit summaries, even
+when summary visibility is enabled. Nexa never renders opaque data: the status
+row keeps showing model progress and explains when that response did not include
+a readable summary. Absence on one prompt or effort setting is not evidence that
+the model cannot provide summaries. When comparing clients, use the same model,
+reasoning effort, prompt and native runtime version. In particular, an unset
+Copilot effort uses the runtime's default; Nexa does not silently raise it to make
+summaries appear.
 Reasoning strength does not guarantee that the provider exposes its reasoning.
 The pinned [CLI 1.0.103](https://github.com/github/copilot-cli/releases/tag/v1.0.103)
 also includes Gemini tool-schema and native ACP sandbox corrections, following

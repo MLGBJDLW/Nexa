@@ -1280,13 +1280,25 @@ mod tests {
             .expect("set the intended reasoning model explicitly");
         let (mut request, mut rx, _, _) =
             super::super::tests::fixture(AgentRuntimeKind::Copilot, &model);
+        if let Ok(effort) = std::env::var("NEXA_COPILOT_STREAM_PROBE_EFFORT") {
+            request.config.reasoning_effort = Some(
+                serde_json::from_value(serde_json::Value::String(effort))
+                    .expect("set a supported reasoning effort explicitly"),
+            );
+        }
         request.dependencies.tools = nexa_core::tools::ToolRegistry::new();
         request.config.system_prompt =
-            "Answer the arithmetic check concisely. Do not use tools.".into();
+            "Solve the synthetic arithmetic problem accurately and concisely. Do not use tools."
+                .into();
         request.user_parts = vec![ContentPart::Text {
-            text:
+            text: if expect_readable {
+                // A trivial arithmetic prompt can legitimately skip adaptive
+                // thinking. Match the selected model/effort with a task that
+                // exercises reasoning rather than infer support from absence.
+                "Count the triples of nonnegative integers x,y,z satisfying x+2y+3z=47, x<=17 and y+z<=20. Return the count and a concise explanation."
+            } else {
                 "What is 137 times 263? Give the result and a brief explanation in three sentences."
-                    .into(),
+            }.into(),
         }];
         let cancellation = request.cancellation.clone();
         let started = std::time::Instant::now();
