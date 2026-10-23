@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle,
@@ -10,15 +9,12 @@ import {
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { useUpdater, type UpdateSource } from '../../lib/useUpdater';
-import {
-  markdownComponents,
-  markdownRemarkPlugins,
-  rehypePlugins,
-} from '../chat/markdownComponents';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 
 type UpdaterState = ReturnType<typeof useUpdater>;
+
+const ReleaseNotesMarkdown = lazy(() => import('./ReleaseNotesMarkdown'));
 
 function formatUpdateTimestamp(value: string | undefined, locale: string): string {
   if (!value) return '';
@@ -35,6 +31,7 @@ interface UpdateSettingsPanelProps {
 export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanelProps) {
   const { t, locale } = useTranslation();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const {
     status,
     version,
@@ -53,6 +50,10 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
     downloadAndInstall,
     restart,
   } = updater;
+  useEffect(() => {
+    // Switching sources removes the disclosure; its replacement starts closed.
+    if (!notes) setNotesOpen(false);
+  }, [notes]);
   const sourceSwitchDisabled = status === 'checking' || status === 'downloading';
 
   const statusMeta = (() => {
@@ -228,18 +229,19 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
       )}
 
       {notes && (
-        <details className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+        <details
+          className="rounded-lg border border-border bg-surface-2 px-4 py-3"
+          onToggle={event => setNotesOpen(event.currentTarget.open)}
+        >
           <summary className="cursor-pointer text-sm font-medium text-text-primary">
             {t('update.releaseNotes')}
           </summary>
           <div className="mt-2 max-h-72 overflow-auto rounded-md border border-border/60 bg-surface-1/70 px-3 py-2 text-xs leading-relaxed text-text-secondary">
-            <ReactMarkdown
-              remarkPlugins={markdownRemarkPlugins}
-              rehypePlugins={rehypePlugins}
-              components={markdownComponents}
-            >
-              {notes}
-            </ReactMarkdown>
+            {notesOpen && (
+              <Suspense fallback={<p role="status">{t('common.loading')}</p>}>
+                <ReleaseNotesMarkdown content={notes} />
+              </Suspense>
+            )}
           </div>
         </details>
       )}

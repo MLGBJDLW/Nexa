@@ -1,5 +1,6 @@
 import { runLocalStorageMigrations } from "./lib/localStorageMigrations";
 import "@fontsource-variable/inter";
+import "katex/dist/katex.min.css";
 import "./index.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
