@@ -695,10 +695,25 @@ async fn four_default_workers_inherit_the_parent_route_and_failed_requests_do_no
             .expect("all four inherited workers must reach the endpoint concurrently");
     server.await.unwrap();
     assert_eq!(
-        outcomes.iter().filter(|outcome| outcome.is_ok()).count(),
+        outcomes
+            .iter()
+            .filter(|outcome| outcome.as_ref().is_ok_and(|run| !run.is_error))
+            .count(),
         3,
         "a failed sibling must not cancel successful workers"
     );
+    let failed = outcomes
+        .iter()
+        .filter_map(|outcome| outcome.as_ref().ok())
+        .find(|run| run.is_error)
+        .expect("a provider failure must retain a settled error artifact");
+    assert_eq!(failed.status, "failed");
+    assert!(failed
+        .error_message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("invalid request fixture"));
+    assert_eq!(failed.usage_total.total_tokens, 0);
     let snapshot = runtime.budget.snapshot().await;
     assert_eq!(snapshot.calls_started, 4);
     assert_eq!(snapshot.tokens_reserved, 0);
