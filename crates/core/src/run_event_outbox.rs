@@ -1507,11 +1507,13 @@ async fn commit_and_deliver(
     }
     let events = std::mem::take(pending);
     let durable_high_water = events.last().expect("nonempty batch").event_seq;
-    let durable_events = events
-        .iter()
-        .cloned()
-        .map(approval_event_for_persistence)
-        .collect::<Vec<_>>();
+    let durable_events = coalesce_stream_deltas(
+        events
+            .iter()
+            .cloned()
+            .map(approval_event_for_persistence)
+            .collect(),
+    );
     let durable_run_id = run_id.to_string();
     let snapshots = database
         .write_control(move |database| {
@@ -1530,6 +1532,64 @@ async fn commit_and_deliver(
         delivery.deliver_task_run_snapshot(conversation_id, snapshot);
     }
     Ok(())
+}
+
+/// Compact only adjacent, offset-contiguous canonical fragments in one commit.
+/// Live delivery keeps every original sequence; recovery reads the equivalent
+/// combined fragment at its last sequence and may trim an already-seen prefix.
+/// Lifecycle boundaries and unknown payload extensions are never compacted.
+fn coalesce_stream_deltas(events: Vec<AgentRunEvent>) -> Vec<AgentRunEvent> {
+    let mut compacted: Vec<AgentRunEvent> = Vec::with_capacity(events.len());
+    for event in events {
+        let merge = compacted.last().is_some_and(|previous| {
+            previous.kind == AgentRunEventKind::OutputDelta
+                && event.kind == previous.kind
+                && event.event_seq == previous.event_seq.saturating_add(1)
+                && event.run_id == previous.run_id
+                && event.turn_id == previous.turn_id
+                && event.phase == previous.phase
+                && event.status == previous.status
+                && event.label == previous.label
+                && event.visibility == previous.visibility
+                && event.persistence == previous.persistence
+                && event.display_kind == previous.display_kind
+                && event.importance == previous.importance
+                && previous
+                    .payload
+                    .as_object()
+                    .is_some_and(|payload| payload.len() == 4)
+                && event
+                    .payload
+                    .as_object()
+                    .is_some_and(|payload| payload.len() == 4)
+                && event.payload["blockId"] == previous.payload["blockId"]
+                && event.payload["channel"] == previous.payload["channel"]
+                && previous.payload["offset"]
+                    .as_u64()
+                    .zip(previous.payload["delta"].as_str())
+                    .is_some_and(|(offset, delta)| {
+                        event.payload["offset"].as_u64()
+                            == Some(offset.saturating_add(delta.len() as u64))
+                            && event.payload["delta"].as_str().is_some_and(|next| {
+                                delta.len().saturating_add(next.len()) <= 64 * 1024
+                            })
+                    })
+        });
+        if merge {
+            let previous = compacted.last_mut().expect("merge requires previous event");
+            let mut text = previous.payload["delta"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            text.push_str(event.payload["delta"].as_str().unwrap_or_default());
+            previous.payload["delta"] = serde_json::Value::String(text);
+            previous.event_seq = event.event_seq;
+            previous.created_at = event.created_at;
+        } else {
+            compacted.push(event);
+        }
+    }
+    compacted
 }
 
 fn approval_event_for_persistence(mut event: AgentRunEvent) -> AgentRunEvent {
@@ -1651,6 +1711,39 @@ mod tests {
         events: Mutex<Vec<AgentRunEvent>>,
     }
 
+    #[test]
+    fn durable_stream_compaction_preserves_unicode_offsets_and_lifecycle_boundaries() {
+        use crate::agent::StreamBlockChannel;
+        let delta = |seq, offset, text| {
+            AgentRunEvent::output_delta(
+                "run",
+                Some("turn"),
+                seq,
+                "answer",
+                StreamBlockChannel::Answer,
+                offset,
+                text,
+            )
+        };
+        let reset = AgentRunEvent::from_agent_event(&AgentEvent::TextDelta {
+            delta: "legacy".into(),
+        });
+        let events = coalesce_stream_deltas(vec![
+            delta(1, 0, "你"),
+            delta(2, 3, "🙂"),
+            reset.clone(),
+            delta(4, 7, "好"),
+            delta(5, 99, "gap"),
+        ]);
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].event_seq, 2);
+        assert_eq!(events[0].payload["offset"], 0);
+        assert_eq!(events[0].payload["delta"], "你🙂");
+        assert_eq!(events[1].payload, reset.payload);
+        assert_eq!(events[2].payload["offset"], 7);
+        assert_eq!(events[3].payload["offset"], 99);
+    }
+
     impl AgentRunEventDelivery for CaptureDelivery {
         fn deliver_run_event(&self, _conversation_id: &str, event: &AgentRunEvent) {
             self.events
@@ -1705,6 +1798,48 @@ mod tests {
             .mark_agent_task_run_started(&run.id, "responding")
             .expect("started task run");
         (conversation.id, turn.id, run.id)
+    }
+
+    #[tokio::test]
+    async fn durable_compaction_reduces_rows_without_changing_live_delivery_or_cursor() {
+        let database = Database::open_memory().unwrap();
+        let (conversation_id, turn_id, run_id) = create_started_run(&database);
+        let executor = DatabaseExecutor::new(database.clone(), 8).unwrap();
+        let delivery = CaptureDelivery::default();
+        let mut pending = (1..=100)
+            .map(|seq| {
+                AgentRunEvent::output_delta(
+                    &run_id,
+                    Some(&turn_id),
+                    seq,
+                    "answer",
+                    crate::agent::StreamBlockChannel::Answer,
+                    ((seq - 1) * 3) as usize,
+                    "好",
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut durable_sequence = 0;
+        commit_and_deliver(
+            &executor,
+            &delivery,
+            &conversation_id,
+            &run_id,
+            &mut pending,
+            &mut durable_sequence,
+        )
+        .await
+        .unwrap();
+        assert!(pending.is_empty());
+        assert_eq!(durable_sequence, 100);
+        let stored = database.list_agent_run_events(&run_id).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].event_seq, 100);
+        assert_eq!(stored[0].payload["delta"], "好".repeat(100));
+        let live = delivery.events.lock().unwrap();
+        assert_eq!(live.len(), 100);
+        assert_eq!(live[49].event_seq, 50);
+        assert_eq!(live[49].payload["offset"], 147);
     }
 
     #[tokio::test]

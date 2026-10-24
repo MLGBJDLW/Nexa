@@ -116,7 +116,12 @@ export function applyStreamBlockDelta(
       state._activeAnswerOffset = 0;
       state.streamText = '';
     }
-    if (normalizedOffset < state._activeAnswerOffset) return;
+    if (normalizedOffset < state._activeAnswerOffset) {
+      const suffix = recoveredDeltaSuffix(blockTraceText(state.traceEvents, 'reply', blockId) || state.streamText, normalizedOffset, state._activeAnswerOffset, delta);
+      if (!suffix) return;
+      applyStreamBlockDelta(state, channel, blockId, state._activeAnswerOffset, suffix);
+      return;
+    }
     if (normalizedOffset > state._activeAnswerOffset) {
       bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
       return;
@@ -154,7 +159,12 @@ export function applyStreamBlockDelta(
     state._activeThinkingOffset = 0;
     state.thinkingText = '';
   }
-  if (normalizedOffset < state._activeThinkingOffset) return;
+  if (normalizedOffset < state._activeThinkingOffset) {
+    const suffix = recoveredDeltaSuffix(blockTraceText(state.traceEvents, 'thinking', blockId) || state.thinkingText, normalizedOffset, state._activeThinkingOffset, delta);
+    if (!suffix) return;
+    applyStreamBlockDelta(state, channel, blockId, state._activeThinkingOffset, suffix);
+    return;
+  }
   if (normalizedOffset > state._activeThinkingOffset) {
     bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
     return;
@@ -175,6 +185,21 @@ export function applyStreamBlockDelta(
       state._activeThinkingOffset,
     );
   }
+}
+
+/** A compacted durable fragment can overlap text already delivered live. Only
+ * accept its suffix when every overlapping UTF-8 byte agrees with that block. */
+function recoveredDeltaSuffix(text: string, offset: number, consumedThrough: number, delta: string): string | null {
+  const incoming = new TextEncoder().encode(delta);
+  const overlap = consumedThrough - offset;
+  if (overlap <= 0 || overlap >= incoming.length) return null;
+  const existing = new TextEncoder().encode(text);
+  if (consumedThrough > existing.length) return null;
+  for (let index = 0; index < overlap; index++) {
+    if (incoming[index] !== existing[offset + index]) return null;
+  }
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(incoming.subarray(overlap)); }
+  catch { return null; }
 }
 
 /** A full upstream record supersedes only its block, including any stale gaps. */

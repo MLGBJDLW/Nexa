@@ -19,6 +19,16 @@ the outbox still sequences and orders the event, but deliberately omits it from
 SQLite. Lifecycle, approval, resumable, result, error, and terminal events must
 remain durable and use the normal submission interface.
 
+Within one durable commit, adjacent canonical `outputDelta` events for the same
+block/channel and metadata may be coalesced up to 64 KiB. Their UTF-8 offsets
+must be contiguous; lifecycle boundaries and extended payloads are never merged.
+The combined row retains the last event sequence. Live delivery retains every
+original event after commit, so the durable cursor can contain intentional gaps.
+Recovery from a cursor inside a combined row returns that row; the renderer
+verifies an already-seen UTF-8 prefix and applies only its missing suffix. A
+mismatching overlap remains a protocol gap. Provider replay envelopes and final
+messages are unaffected.
+
 `flush()` is a processed-through barrier: when an ephemeral publication has
 been delivered or intentionally dropped, its sequence advances that barrier
 after every earlier durable event is committed. It must not wait for a row that

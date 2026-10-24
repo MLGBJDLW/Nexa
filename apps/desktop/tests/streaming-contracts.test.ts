@@ -3478,6 +3478,18 @@ test('block projection buffers future UTF-8 byte offsets for answer and thinking
   assertEqual(state.thinkingText, '你🙂完', 'thinking fragments drain by UTF-8 byte offset');
 });
 
+test('compacted recovery fragments append only an identical unseen UTF-8 suffix', () => {
+  for (const channel of ['answer', 'thinking'] as const) {
+    const state = createDefaultState();
+    applyStreamBlockDelta(state, channel, 'recovered', 0, '你🙂');
+    applyStreamBlockDelta(state, channel, 'recovered', 0, '你🙂好');
+    assertEqual(channel === 'answer' ? state.streamText : state.thinkingText, '你🙂好', 'partial live delivery recovers the compacted suffix once');
+    applyStreamBlockDelta(state, channel, 'recovered', 0, '你🙂好');
+    applyStreamBlockDelta(state, channel, 'recovered', 0, '错🙂好坏');
+    assertEqual(channel === 'answer' ? state.streamText : state.thinkingText, '你🙂好', 'duplicates and conflicting replay cannot corrupt the block');
+  }
+});
+
 test('block snapshots repair missed deltas in live and replay projections', () => {
   const conversationId = 'snapshot-correction';
   const events = [

@@ -19,6 +19,19 @@ downloads. See [embedding providers](EMBEDDING_PROVIDERS.md).
 globalized or copied into the user home. Child rules keep directory scope, and
 external agents retain their own native discovery. See [workspace rules](WORKSPACE_RULES.md).
 
+## Database storage
+
+Settings → Data & Privacy also reports SQLite allocated, used and reusable page
+bytes, plus the main database and WAL file sizes. Reusable space can serve future
+writes without shrinking the main file. The diagnostic is read-only and does not
+run VACUUM or delete conversation history.
+
+Repeated knowledge-health scans update a stable finding identity instead of
+inserting duplicates. The migration retains resolved state and one canonical
+finding. Stream deltas are coalesced within durable commits; original live token
+delivery remains unchanged. These changes reduce future row amplification, not
+the size of every existing database immediately.
+
 ## Existing downloads
 
 Fresh downloads use the shared model home. Populated legacy model folders remain
