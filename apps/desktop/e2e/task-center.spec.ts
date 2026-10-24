@@ -1,4 +1,14 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function enableTaskToolsComposer(page: Page) {
+  await page.addInitScript(() => {
+    const native = (window as unknown as { __TAURI_INTERNALS__: { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const invoke = native.invoke;
+    native.invoke = async (cmd, args) => cmd === 'list_agent_configs_cmd'
+      ? [{ id: 'task-tools-config', name: 'Task tools', provider: 'open_ai', model: 'gpt-4.1', apiKey: '', isDefault: true, temperature: 0.3, maxTokens: 4096 }]
+      : invoke(cmd, args);
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -457,8 +467,12 @@ test('task center manages runs, graph, project memory, artifacts, and risk map',
 });
 
 test('task home groups recent work and continues a task in one click', async ({ page }, testInfo) => {
+  await enableTaskToolsComposer(page);
   await page.goto('/chat');
   const home = page.getByTestId('task-home');
+  await expect(home).toHaveCount(0);
+  await page.getByTestId('chat-more-options').click();
+  await page.getByTestId('chat-task-tools-trigger').click();
   await expect(home).toBeVisible();
   await expect(home).toContainText('Launch plan');
   await expect(home).toContainText('Missing citations');
@@ -472,9 +486,12 @@ test('task home groups recent work and continues a task in one click', async ({ 
 });
 
 test('task home refreshes the head after paging while an earlier task is active', async ({ page }) => {
+  await enableTaskToolsComposer(page);
   await page.clock.install();
   await page.goto('/chat');
   await page.evaluate(() => { (window as unknown as { __taskHomeState: { pagination: boolean } }).__taskHomeState.pagination = true; });
+  await page.getByTestId('chat-more-options').click();
+  await page.getByTestId('chat-task-tools-trigger').click();
   const home = page.getByTestId('task-home');
   await home.getByRole('button', { name: 'Refresh', exact: true }).click();
   await home.getByRole('button', { name: 'Load more', exact: true }).click();
@@ -483,6 +500,22 @@ test('task home refreshes the head after paging while an earlier task is active'
   await page.clock.fastForward(15_100);
   await expect(home.getByRole('button', { name: /Prepare board brief/ })).toContainText('Completed');
   await expect(home).not.toContainText('Older completed task');
+  await page.evaluate(() => { (window as unknown as { __taskHomeState: { completed: boolean } }).__taskHomeState.completed = false; });
+  await home.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(home.getByRole('button', { name: /Prepare board brief/ })).toContainText('Running');
+  await page.keyboard.press('Escape');
+  await expect(home).toHaveCount(0);
+  const summaryReads = () => page.evaluate(() => (window as unknown as { __taskCenterInvokeCalls: Array<{ cmd: string }> }).__taskCenterInvokeCalls.filter(call => call.cmd === 'list_agent_task_run_summaries_cmd').length);
+  const closedReads = await summaryReads();
+  await page.clock.fastForward(30_000);
+  expect(await summaryReads()).toBe(closedReads);
+});
+
+test('unconfigured chat leaves task tools in the navigation', async ({ page }) => {
+  await page.goto('/chat');
+  await expect(page.getByRole('button', { name: 'Configure Provider' })).toBeVisible();
+  await expect(page.getByTestId('task-home')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __taskCenterInvokeCalls: Array<{ cmd: string }> }).__taskCenterInvokeCalls.filter(call => call.cmd === 'list_agent_task_run_summaries_cmd'))).toEqual([]);
 });
 
 test('task center does not save a late artifact detail after selecting another task', async ({ page }) => {

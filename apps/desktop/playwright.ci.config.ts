@@ -134,6 +134,7 @@ export default defineConfig({
       testMatch: [
         "**/e2e/app-resource-lifecycle.spec.ts",
         "**/e2e/task-center.spec.ts",
+        "**/e2e/chat-workflow-catalog.spec.ts",
         "**/e2e/workflow-recorder.spec.ts",
         "**/e2e/browser-agent-competence.spec.ts",
         "**/e2e/browser-preview-rendering.spec.ts",

@@ -28,7 +28,6 @@ import type { SubtaskRunArtifact } from '../lib/taskArtifacts';
 import { useApprovalQueue } from '../lib/useApprovalQueue';
 import { useTranslation } from '../i18n';
 import { EmptyState } from '../components/ui/EmptyState';
-import { TaskHome } from '../features/chat/TaskHome';
 import { Button } from '../components/ui/Button';
 import { useOverlayRoot } from '../components/ui/overlay';
 import { useChatSession } from '../lib/useChatSession';
@@ -1739,7 +1738,6 @@ export function ChatPage() {
             onClick: () => navigate('/settings'),
           }}
         />
-        <div className="w-full max-w-4xl"><TaskHome projectId={initialProjectId} /></div>
       </div>
     );
   }
@@ -2114,7 +2112,7 @@ export function ChatPage() {
                 <ProjectConversationStart projectId={initialProjectId} onStart={() => navigate('/chat', {
                   replace: true, flushSync: true, state: { ...routeState, projectId: initialProjectId, startConversation: true } satisfies ChatRouteState,
                 })} />
-              ) : <>{centerComposer && !chat.activeId && <TaskHome projectId={initialProjectId} />}<ExternalAgentProgress events={chat.traceEvents} active={chat.isStreaming} /><ChatInput
+              ) : <><ExternalAgentProgress events={chat.traceEvents} active={chat.isStreaming} /><ChatInput
               agentRuntime={selectedAgentConfig && findProviderPreset(selectedAgentConfig)?.runtime === 'acp' ? 'acp' : manualCompactionAvailable ? 'api' : 'subscription'}
               onSend={handleComposerSend}
               onStop={chat.stop}
