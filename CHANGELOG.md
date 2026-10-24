@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.7...nexa-monorepo-v0.17.8) (2026-10-24)
+
+
+### Features
+
+* **workflows:** improve task reliability, workflow authoring and current model support ([#504](https://github.com/MLGBJDLW/Nexa/issues/504)) ([0483c14](https://github.com/MLGBJDLW/Nexa/commit/0483c1448868d7cfa6e746c500c0cced978df2a3))
+
 ## [0.17.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.6...nexa-monorepo-v0.17.7) (2026-10-23)
 
 
