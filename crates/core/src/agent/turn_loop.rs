@@ -795,8 +795,15 @@ impl AgentExecutor {
                     .flatten()
             })
             .unwrap_or(user_query_text_for_tools.as_str());
-        let route_plan =
-            route_user_turn(routing_objective, &self.config.system_prompt, has_sources);
+        // A filesystem workspace is tool authority, not an indexed evidence
+        // collection. Conflating them made ordinary questions demand RAG
+        // citations from sources that do not exist.
+        let has_indexed_sources = !source_scope.is_empty();
+        let route_plan = route_user_turn(
+            routing_objective,
+            &self.config.system_prompt,
+            has_indexed_sources,
+        );
         let mut loop_recorder = TurnLoopRecorder::new(route_plan.kind, self.config.max_iterations);
         let mut task_plan = resumed_execution
             .as_ref()
@@ -805,7 +812,7 @@ impl AgentExecutor {
                 build_task_plan(TaskPlanningInput::for_requirements(
                     routing_objective,
                     &route_plan.requirements,
-                    has_sources,
+                    has_indexed_sources,
                     source_scope.len(),
                 ))
             });
