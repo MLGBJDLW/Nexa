@@ -3361,18 +3361,34 @@ impl AgentExecutor {
                 }
             }
             if let Some(workflow) = workflow_ir.as_mut() {
-                let verification_stable = workflow.reconcile_verification_source(
-                    verification_capture
-                        .capture(
-                            db,
-                            conversation_id,
-                            turn_id,
-                            &execution_source_scope,
-                            self.tools.workspace(),
-                            verification_mode,
-                        )
-                        .await?,
-                );
+                let source = match verification_capture
+                    .capture(
+                        db,
+                        conversation_id,
+                        turn_id,
+                        &execution_source_scope,
+                        self.tools.workspace(),
+                        verification_mode,
+                    )
+                    .await
+                {
+                    Ok(source) => source,
+                    Err(CoreError::Cancelled(_)) if self.cancel_token.is_cancelled() => {
+                        // Tool cancellation still owns its normal settlement.
+                        // Retain an unverified source boundary instead of losing
+                        // the cancelled tool receipt to a follow-up scan error.
+                        crate::workflow_verification::VerificationSourceState {
+                            digest: workflow
+                                .verification_source
+                                .as_ref()
+                                .map(|source| source.digest.clone())
+                                .unwrap_or_default(),
+                            pending: true,
+                        }
+                    }
+                    Err(error) => return Err(error),
+                };
+                let verification_stable = workflow.reconcile_verification_source(source);
                 for call in &tool_calls {
                     if let Some(summary) = dispatch_summaries
                         .iter()
