@@ -162,6 +162,15 @@ Deep/Custom/Ultra, or scheduled-isolation policy. In those modes the
 controller's tool results, checkpoints, and verification records are
 authoritative; model-authored plan prose is only a projection.
 
+Balanced code and evidence-required tasks also compile an IR. For code tasks,
+the controller detects test/lint/typecheck/build tooling in the selected project
+workspace before consulting indexed sources. Ordinary read-only inspection does
+not require those commands: the host's first source inventory establishes a
+baseline, and a subsequent change or unsettled effect activates the applicable
+checks. Later changes invalidate earlier receipts. Missing tooling is explicitly
+not applicable. Strict and scheduled-isolation policies retain their stronger
+gates; Plan Mode still produces a non-executing handoff.
+
 For non-trivial Nexus turns, the runtime automatically dispatches the first two
 ready reconnaissance nodes through `spawn_subagent_batch`. This is a controller
 action, not prompt advice. The wave is read-only, each worker has a stable node
@@ -402,6 +411,20 @@ transport writes and cleanup keep separate bounded deadlines. Effectful calls
 are never replayed during recovery. MoA presets choose advisor roles, concurrency, and
 fanout cadence without manufacturing cumulative call or per-answer token caps.
 Explicit caller-supplied advisor budgets remain authoritative.
+
+Quiet delegated workers emit a heartbeat every 60 seconds through the existing
+event pump. A heartbeat reports liveness and does not extend an explicit budget.
+Failure and timeout settlement retain accepted partial answer text, usage,
+tool receipts and action-reconciliation requirements. Completed answer rounds
+survive a later stream reset; uncommitted response tails do not. The parent
+handoff retains a UTF-8-safe 64 KiB suffix while the durable ledger remains the
+full evidence source. Resuming an incomplete worker marks the result incomplete
+and requires reconciling prior effects before repeating writes. An error artifact
+cannot publish a successful lifecycle or independent-verification receipt.
+
+`update_plan` no longer rejects plans after twelve steps. Acceptance criteria,
+return sections and evidence IDs are not silently truncated by entry count.
+Model context limits, explicit budgets and resource backpressure still apply.
 
 The same budget owner is created before any controller shortcut. A zero value
 therefore blocks direct tool dispatch, knowledge prefetch, Nexus/Ultra

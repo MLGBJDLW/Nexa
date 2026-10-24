@@ -261,7 +261,7 @@ impl Tool for JudgeSubagentResultsTool {
                 nexa_core::workflow_verification::CaptureMode::Authoritative,
             )
             .await?;
-        args.rubric = normalize_string_list(args.rubric.take(), 8);
+        args.rubric = normalize_string_list(args.rubric.take());
         let (raw_response, usage_total, mut subtask) = if self.runtime.parent_runtime.is_some() {
             let (runtime, worker_args) = native_judge_worker(&self.runtime, &args)?;
             let run = run_subagent_once(

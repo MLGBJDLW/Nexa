@@ -87,11 +87,6 @@ impl Tool for UpdatePlanTool {
                 "update_plan requires at least one step".into(),
             ));
         }
-        if args.steps.len() > 12 {
-            return Err(CoreError::InvalidInput(
-                "update_plan supports at most 12 steps".into(),
-            ));
-        }
 
         let title = args.title.map(|value| value.trim().to_string());
         let title = title.filter(|value| !value.is_empty());
@@ -232,5 +227,28 @@ mod tests {
         assert_eq!(artifact["counts"]["completed"], 1);
         assert_eq!(artifact["counts"]["inProgress"], 1);
         assert_eq!(artifact["counts"]["pending"], 1);
+    }
+
+    #[tokio::test]
+    async fn long_plans_preserve_every_step() {
+        let db = Database::open_memory().unwrap();
+        let args = serde_json::json!({"steps": (0..40).map(|index| {
+            serde_json::json!({"title": format!("Stage {index}"), "status": "pending"})
+        }).collect::<Vec<_>>()})
+        .to_string();
+        let result = UpdatePlanTool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "long-plan",
+                &args,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            result.artifacts.unwrap()["steps"].as_array().unwrap().len(),
+            40
+        );
+        assert!(result.content.contains("Stage 39"));
     }
 }

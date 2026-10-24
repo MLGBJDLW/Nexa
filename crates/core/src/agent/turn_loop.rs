@@ -860,7 +860,16 @@ impl AgentExecutor {
         } else if workflow_ir.as_ref().is_some_and(|workflow| {
             workflow.completion_contract.require_verification_gates || requires_workspace_isolation
         }) {
-            let verification_roots = if source_scope.is_empty() {
+            // Project workspace authority is independent from indexed knowledge
+            // sources. Never validate an unrelated knowledge folder while code
+            // tools are operating in the project's selected checkout.
+            let verification_roots = if let Some(workspace) = self.tools.workspace() {
+                workspace
+                    .roots
+                    .iter()
+                    .map(std::path::PathBuf::from)
+                    .collect()
+            } else if source_scope.is_empty() {
                 let sources = db.list_sources()?;
                 if sources.len() == 1 {
                     sources
