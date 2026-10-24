@@ -104,6 +104,7 @@ pub async fn synthesize_speech_preview(
         "elevenlabs_speech" => {
             synthesize_elevenlabs(&client, config, text, &model, &voice, speed).await?
         }
+        "mistral_speech" => synthesize_mistral(&client, config, text, &model, &voice).await?,
         "minimax_speech" => {
             synthesize_minimax(&client, config, text, &model, &voice, speed).await?
         }
@@ -261,6 +262,36 @@ async fn synthesize_openai(
             CoreError::TransientLlm(format!("OpenAI speech request failed: {error}"))
         })?;
     binary_response(response, "OpenAI Speech", media_type_for_format(format)).await
+}
+
+async fn synthesize_mistral(
+    client: &reqwest::Client,
+    config: &TextToSpeechConfig,
+    text: &str,
+    model: &str,
+    voice: &str,
+) -> Result<GeneratedSpeech, CoreError> {
+    let format = normalize_format(&config.output_format);
+    let response = client.post(format!("{}/audio/speech", base_url(config).trim_end_matches('/')))
+        .bearer_auth(config.api_key.trim())
+        .json(&json!({"model": model, "input": text, "voice_id": voice, "response_format": format, "stream": false}))
+        .send().await.map_err(|error| CoreError::TransientLlm(format!("Mistral speech request failed: {error}")))?;
+    let status = response.status();
+    let bytes =
+        read_bounded_response(response, "Mistral Speech", MAX_MINIMAX_RESPONSE_BYTES).await?;
+    if !status.is_success() {
+        return Err(provider_error("Mistral Speech", status, &bytes));
+    }
+    let payload: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| CoreError::Llm(format!("Invalid Mistral speech response: {error}")))?;
+    let encoded = payload
+        .get("audio_data")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CoreError::Llm("Mistral Speech returned no audio_data".into()))?;
+    Ok(GeneratedSpeech {
+        bytes: decode_base64_audio(encoded, "Mistral Speech")?,
+        media_type: media_type_for_format(format).into(),
+    })
 }
 
 async fn synthesize_elevenlabs(
@@ -740,6 +771,9 @@ fn decode_base64_audio(value: &str, provider: &str) -> Result<Vec<u8>, CoreError
             "{provider} returned malformed base64 audio: {error}"
         ))
     })?;
+    if bytes.is_empty() {
+        return Err(CoreError::Llm(format!("{provider} returned empty audio.")));
+    }
     if bytes.len() > MAX_GENERATED_AUDIO_BYTES {
         return Err(CoreError::Llm(format!(
             "{provider} audio exceeds the {MAX_GENERATED_AUDIO_BYTES}-byte safety limit."
@@ -947,6 +981,8 @@ mod tests {
     fn decodes_bounded_base64_audio() {
         assert_eq!(decode_base64_audio("SUQz", "test").unwrap(), b"ID3");
         assert!(decode_base64_audio("not base64", "test").is_err());
+        assert!(decode_base64_audio("", "Mistral Speech").is_err());
+        assert!(decode_base64_audio("  \n\t", "Mistral Speech").is_err());
     }
 }
 

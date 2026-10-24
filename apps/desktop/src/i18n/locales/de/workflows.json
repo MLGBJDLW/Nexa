@@ -179,5 +179,14 @@
   "authoringSettings": "Auslöser und Berechtigungen",
   "schedulesSubtitle": "Wiederkehrende Aufgaben erstellen, nächste Ausführungen prüfen und pausieren oder fortsetzen. Nexa muss für lokale Zeitpläne laufen.",
   "savedAutomations": "Gespeicherte Aufgaben ({count})",
-  "noAutomations": "Noch keine Aufgaben. Erstellen Sie einen Zeitplan."
+  "noAutomations": "Noch keine Aufgaben. Erstellen Sie einen Zeitplan.",
+  "runTimeline": "Ausführungsverlauf",
+  "verificationGates": "Prüfungen",
+  "gateRequired": "Für den Abschluss erforderlich",
+  "gateAdvisory": "Hinweis / nicht zutreffend",
+  "stageAdd": "Schritt hinzufügen",
+  "stageRole": "Rolle",
+  "stageTask": "Aufgabe",
+  "stageOutput": "Erwartetes Ergebnis",
+  "stageParallelism": "Parallele Worker"
 }

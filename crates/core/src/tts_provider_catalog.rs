@@ -123,6 +123,7 @@ pub fn tts_api_base_url(config: &TextToSpeechConfig) -> String {
                 "https://generativelanguage.googleapis.com/v1beta".to_string()
             }
             "minimax_speech" => "https://api.minimax.io/v1".to_string(),
+            "mistral_speech" => "https://api.mistral.ai/v1".to_string(),
             "azure_speech" => {
                 "https://eastus.tts.speech.microsoft.com/cognitiveservices/v1".to_string()
             }

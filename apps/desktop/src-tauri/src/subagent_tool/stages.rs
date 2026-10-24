@@ -782,9 +782,8 @@ impl Drop for NativeWorkerTurnOwner {
 
 pub(super) async fn execute_subagent_worker(
     input: SubagentExecutionInput<'_>,
-    subtask: &mut SubtaskRecorder,
     reservation: &mut crate::delegation_scheduler::WorkerBudgetReservation,
-) -> Result<(Message, EventCapture), CoreError> {
+) -> Result<(Result<Message, CoreError>, EventCapture), CoreError> {
     let SubagentExecutionInput {
         runtime,
         db,
@@ -1012,50 +1011,45 @@ pub(super) async fn execute_subagent_worker(
     // A local protocol rejection or failed request may report no usage at all.
     // Charging the reservation here poisoned every subsequent worker admission.
     reservation.settle(&capture.usage_total, estimated_cost_micros);
-    match final_result {
-        Ok(message) => Ok((message, capture)),
-        Err(err) => {
-            let error_text = err.to_string();
-            let failure_status = delegated_failure_status(&error_text);
-            let output = serde_json::json!({
-                "kind": "subagent_run_error",
-                "callLabel": call_label,
-                "error": &error_text,
-                "recoveryRequired": err.recovery_requirement(),
-                "emittedError": capture.error_message,
-                "usageTotal": capture.usage_total,
-                "usageIncomplete": capture.usage_total.total_tokens == 0,
-                "toolEvents": capture.tool_events,
-            });
-            subtask.finish(
-                failure_status,
-                Some(&output),
-                Some(&error_text),
-                Some(format!("Subagent {failure_status}: {call_label}")),
-            );
-            Err(err)
-        }
-    }
+    // Settlement owns both outcomes. Returning an error here used to discard
+    // the accepted answer, usage and tool receipts before the parent saw them.
+    Ok((final_result, capture))
 }
 
 pub(super) fn settle_subagent_artifact(
     runtime: &DelegationRuntime,
     input: SubagentSettlementInput,
-    final_message: Message,
+    final_message: Result<Message, CoreError>,
     capture: EventCapture,
     subtask: &mut SubtaskRecorder,
 ) -> SubagentRunArtifact {
-    let result_text = final_message.text_content().trim().to_string();
+    let error = final_message.as_ref().err();
+    let error_message = error.map(ToString::to_string);
+    let recovery_required = error.and_then(CoreError::recovery_requirement);
+    let failure_status = error_message.as_deref().map(delegated_failure_status);
+    let result_text = final_message
+        .as_ref()
+        .map(|message| message.text_content())
+        .unwrap_or_else(|_| capture.partial_output.clone())
+        .trim()
+        .to_string();
     let result_text = if result_text.is_empty() {
-        "(Subagent returned no text.)".to_string()
+        error_message
+            .as_ref()
+            .map(|error| format!("Subagent interrupted: {error}"))
+            .unwrap_or_else(|| "(Subagent returned no text.)".to_string())
     } else {
         result_text
     };
     let args = input.args;
     let run = SubagentRunArtifact {
         runtime_identity: capture.runtime_identity,
-        recovery_required: None,
-        verification_source: input.verification_source,
+        recovery_required,
+        verification_source: if failure_status.is_none() {
+            input.verification_source
+        } else {
+            None
+        },
         name: args.name.clone(),
         id: input.worker_id.unwrap_or_else(|| input.call_label.clone()),
         session_id: input.session_id.clone(),
@@ -1064,7 +1058,7 @@ pub(super) fn settle_subagent_artifact(
             .clone()
             .filter(|_| input.previous_session.is_some()),
         previous_session: input.previous_session,
-        status: "done".to_string(),
+        status: failure_status.unwrap_or("done").to_string(),
         depends_on: args.stage_handoff.depends_on.clone(),
         predecessor_results: args.stage_handoff.evidence(),
         task: args.task,
@@ -1098,8 +1092,8 @@ pub(super) fn settle_subagent_artifact(
             Some(vec![capture.thinking.join("")])
         },
         source_scope_applied: input.source_scope_applied,
-        is_error: false,
-        error_message: None,
+        is_error: failure_status.is_some(),
+        error_message,
         preflight_failure: None,
         preflight: Some(input.preflight),
         context_snapshot: Some(input.context_snapshot_artifact),
@@ -1112,7 +1106,12 @@ pub(super) fn settle_subagent_artifact(
         task: run.task.clone(),
         role_id: run.role_id.clone(),
         role_name: run.role_name.clone(),
-        result: run.result.clone(),
+        result: resumable_worker_result(
+            &run.result,
+            &run.status,
+            run.error_message.as_deref(),
+            run.is_error,
+        ),
         finish_reason: run.finish_reason.clone(),
         usage_total: run.usage_total.clone(),
         tool_event_count: run.tool_events.len(),
@@ -1122,10 +1121,14 @@ pub(super) fn settle_subagent_artifact(
         "run": &run,
     });
     subtask.finish(
-        "completed",
+        failure_status.unwrap_or("completed"),
         Some(&output),
-        None,
-        Some(format!("Subagent completed: {}", run.id)),
+        run.error_message.as_deref(),
+        Some(format!(
+            "Subagent {}: {}",
+            failure_status.unwrap_or("completed"),
+            run.id
+        )),
     );
     run
 }

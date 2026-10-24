@@ -737,7 +737,7 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
 function subagentRunStatus(status: string | null | undefined): SubagentRun['status'] | null {
   if (status === 'running' || status === 'queued' || status === 'cancelling') return 'running';
   if (status === 'done' || status === 'completed') return 'done';
-  if (status === 'error' || status === 'failed') return 'error';
+  if (status === 'error' || status === 'failed' || status === 'timed_out') return 'error';
   if (status === 'cancelled' || status === 'orphaned' || status === 'interrupted') return 'cancelled';
   return null;
 }

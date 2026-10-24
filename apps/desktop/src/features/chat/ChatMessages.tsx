@@ -860,11 +860,12 @@ export function ChatMessages(props: ChatMessagesProps) {
       content: string,
       isStreaming = false,
       citationLookup?: { getCard: (id: string) => CitationCardData | undefined },
+      finalAnswer = false,
     ) => {
       const effectiveCitationLookup = citationLookup ?? allToolCitationLookup;
       return (
         <div key={key} className="flex justify-start mb-4">
-          <div className="chat-assistant-reply w-full min-w-0 text-sm leading-relaxed">
+          <div className={`chat-assistant-reply w-full min-w-0 text-sm leading-relaxed ${finalAnswer ? 'rounded-xl border border-border/60 bg-surface-1/65 px-4 py-3' : ''}`}>
             <StreamingMarkdown
               content={content}
               isStreaming={isStreaming}
@@ -894,7 +895,7 @@ export function ChatMessages(props: ChatMessagesProps) {
             content=""
             sections={sections}
             isStreaming={isStreaming}
-            defaultExpanded={isStreaming || forceExpanded}
+            defaultExpanded={forceExpanded}
             collapseOnFinish={!forceExpanded}
           />
         </div>
@@ -2413,6 +2414,7 @@ export function ChatMessages(props: ChatMessagesProps) {
             collapsedLiveTrace.finalItem.content,
             collapsedLiveTrace.finalItem.isStreaming,
             streamingCitationLookup,
+            true,
           )}
         </>
       )}
@@ -2488,7 +2490,6 @@ export function ChatMessages(props: ChatMessagesProps) {
               content=""
               sections={renderTimelineSections(currentTimelineSections, isStreaming, liveFileToolGroups)}
               isStreaming={currentTraceActive}
-              defaultExpanded={currentTraceActive}
               collapseOnFinish
             />
           </div>

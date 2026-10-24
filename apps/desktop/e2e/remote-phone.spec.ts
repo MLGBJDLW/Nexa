@@ -577,6 +577,19 @@ test('phone replays durable events across missing ephemeral sequence numbers', a
   expect(app.counts().resumeCalls).toBeLessThan(8);
 });
 
+test('phone applies repeated compacted replay overlaps without losing UTF-8 suffixes', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: '你' });
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: '你🙂' });
+  await expect(page.getByText('你🙂', { exact: true })).toBeVisible();
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 7, delta: '好' });
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 7, delta: '好！' });
+  app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 13, delta: '完成' });
+  await expect(page.getByText('你🙂好！完成', { exact: true })).toBeVisible();
+});
+
 test('phone dictation pauses and recovers the same session after a stalled audio route', async ({ page, context }) => {
   await context.grantPermissions(['microphone']);
   const app = await fixture(page, 0, 6000);

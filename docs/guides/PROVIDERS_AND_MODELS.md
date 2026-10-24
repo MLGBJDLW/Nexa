@@ -68,6 +68,33 @@ Choose a provider to restore that connection's saved model and reasoning setting
 choose the model label to browse only its models. Subscription and ACP catalogs
 still determine which saved choices are currently available.
 
+### October 24, 2026 additions
+
+- Direct Moonshot `kimi-k3.1-pro` and `kimi-k3.1-pro-highspeed` use
+  `max_completion_tokens`, always-on reasoning with `low`/`high`/`max`, and the
+  provider's `max` default. Fixed sampling fields are omitted. OpenRouter's
+  `moonshotai/kimi-k3.1-pro` retains its normalized router contract. Existing K3
+  saved/default effort remains unchanged. K2.6/K2.7 entries are deprecated,
+  not removed before their announced December retirement.
+  [Moonshot models](https://platform.kimi.ai/docs/models),
+  [K3.1 guide](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart).
+- TypeSafe's latest alias now resolves to stable Jev 1.14. OpenRouter adds its
+  public latest alias and three decision-only models; they do not become chat
+  models. NVIDIA Nemotron 3.5 embedding entries keep distinct 2,048/4,096-vector
+  identities without inventing a dimension-override request option.
+  [TypeSafe models](https://docs.typesafe.ai/models),
+  [OpenRouter catalog](https://openrouter.ai/api/v1/models).
+- Mistral's public-preview Voxtral 3 file-transcription models and TTS use their
+  native request fields. Transcription omits the unsupported OpenAI response
+  format field on the official endpoint. TTS uses `voice_id` and decodes the
+  bounded `audio_data` response. These presets do not imply support for Mistral's
+  different realtime protocol, vector-image output or another provider's video
+  transport. [Mistral changelog](https://docs.mistral.ai/resources/changelogs).
+
+The audit covers all static endpoint projections and anonymous public catalogs
+where available. Account-specific entitlement and paid live inference are
+separate checks; an inaccessible lifecycle page is not evidence of retirement.
+
 ### October 22, 2026 catalog audit
 
 The shared catalog validates 85 endpoints and 1,126 model projections. The public

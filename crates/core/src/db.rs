@@ -25,6 +25,15 @@ pub struct StoredDocumentChunk {
     pub metadata_json: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseStorageStats {
+    pub allocated_bytes: u64,
+    pub reusable_bytes: u64,
+    pub main_file_bytes: Option<u64>,
+    pub wal_bytes: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredDocumentMetadata {
     pub mime_type: String,
@@ -139,6 +148,33 @@ impl Database {
     /// Return the file path of the database, if file-backed.
     pub fn db_path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// Constant-size metadata queries; never scan payload tables or VACUUM an
+    /// active database merely because a settings panel was opened.
+    pub fn storage_stats(&self) -> Result<DatabaseStorageStats, CoreError> {
+        let conn = self.conn();
+        let page_size: u64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        let page_count: u64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let free_pages: u64 = conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        let main_file_bytes = self
+            .path
+            .as_ref()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .map(|meta| meta.len());
+        let wal_bytes = self.path.as_ref().map(|path| {
+            let mut wal = path.as_os_str().to_os_string();
+            wal.push("-wal");
+            std::fs::metadata(PathBuf::from(wal))
+                .map(|meta| meta.len())
+                .unwrap_or(0)
+        });
+        Ok(DatabaseStorageStats {
+            allocated_bytes: page_count.saturating_mul(page_size),
+            reusable_bytes: free_pages.saturating_mul(page_size),
+            main_file_bytes,
+            wal_bytes,
+        })
     }
 
     pub(crate) fn runtime_identity(&self) -> usize {

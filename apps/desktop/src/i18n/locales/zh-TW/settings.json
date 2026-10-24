@@ -1157,5 +1157,10 @@
   "webSearchReorderHint": "拖曳調整優先順序。鍵盤：空白鍵選取，方向鍵移動，再按空白鍵放下。",
   "agentBehaviorGroup": "Agent 行為",
   "dreamingTriggers": "執行時機",
-  "dreamingScope": "執行限制與來源"
+  "dreamingScope": "執行限制與來源",
+  "storageDatabase": "資料庫空間",
+  "storageAllocated": "已配置頁面",
+  "storageReusable": "可重用空間",
+  "storageWal": "預寫日誌",
+  "storageReuseHint": "刪除記錄後，空閒頁面會用於後續寫入。可重用空間不代表資料遺失；縮小資料庫檔案需要離線重建。"
 }

@@ -36,6 +36,7 @@ import {
   taskRunIsActive,
 } from '../lib/streaming/runReconciliation';
 import { useDeveloperMode } from '../lib/developerMode';
+import { WorkflowRunInspector } from '../features/workflows/WorkflowRunInspector';
 import {
   invalidateTaskCheckpointLoadState,
   resumableCheckpointForTask,
@@ -388,6 +389,14 @@ export function TaskCenterPage() {
   const linkedRunId = searchParams.get('runId');
   const copy = useMemo(() => createCopy(t), [t]);
   const [tasks, setTasks] = useState<AgentTaskRunListItem[]>([]);
+  const updateLiveTask = useCallback((task: AgentTaskRunListItem) => {
+    setTasks(current => {
+      const previous = current.find(item => item.run.id === task.run.id);
+      if (!previous || (previous.run.updatedAt === task.run.updatedAt && previous.run.status === task.run.status && previous.run.phase === task.run.phase
+        && previous.subtaskCompleted === task.subtaskCompleted && previous.subtaskFailed === task.subtaskFailed && previous.subtaskRunning === task.subtaskRunning)) return current;
+      return current.map(item => item.run.id === task.run.id ? task : item);
+    });
+  }, []);
   const [selectedId, setSelectedId] = useState<string | null>(() => linkedRunId ?? localStorage.getItem(TASK_CENTER_SELECTION_KEY));
   const [nextCursor, setNextCursor] = useState<AgentTaskRunPageCursor | null>(null);
   const [events, setEvents] = useState<TaskCenterHistoryItem[]>([]);
@@ -1039,6 +1048,7 @@ export function TaskCenterPage() {
                 </div>
               </section>
 
+              <WorkflowRunInspector key={selected.run.id} runId={selected.run.id} active={taskRunCanAcceptStop(selected.run)} onTaskUpdate={updateLiveTask} />
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
                 <div className="space-y-4">
                   <section className="rounded-lg border border-border/70 bg-surface-1/70 p-4">

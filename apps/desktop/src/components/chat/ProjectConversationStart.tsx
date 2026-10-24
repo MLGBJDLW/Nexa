@@ -5,6 +5,7 @@ import { ProjectIcon } from '../../lib/projectIcons';
 import type { Project } from '../../types/project';
 import { Plus } from 'lucide-react';
 import { Button } from '../ui/Button';
+import { TaskHome } from '../../features/chat/TaskHome';
 
 export function ProjectConversationStart({ projectId, onStart }: { projectId: string; onStart: () => void }) {
   const { t } = useTranslation();
@@ -24,6 +25,7 @@ export function ProjectConversationStart({ projectId, onStart }: { projectId: st
         <span className="min-w-0 break-words">{selected ? t('project.welcomeTitle', { name: selected.name }) : t('project.newConversationTitle')}</span>
       </h1>
       <Button size="sm" icon={<Plus size={15} />} onClick={onStart} data-testid="project-start-chat">{t('chat.newChat')}</Button>
+      <TaskHome projectId={projectId} />
     </div>
   );
 }

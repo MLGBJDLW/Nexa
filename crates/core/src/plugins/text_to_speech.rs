@@ -219,7 +219,12 @@ mod tests {
     fn provider_catalog_is_exposed_through_manifest_data() {
         let catalog = provider_catalog();
         assert_eq!(catalog.id, "ttsProviders");
-        assert_eq!(catalog.items.len(), 10);
+        let mistral = catalog
+            .items
+            .iter()
+            .find(|item| item["provider"] == "mistral")
+            .expect("native Mistral speech must be selectable through the package manifest");
+        assert_eq!(mistral["apiStyle"], "mistral_speech");
         assert!(catalog
             .items
             .iter()

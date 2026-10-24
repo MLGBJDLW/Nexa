@@ -975,6 +975,48 @@
         "outputModalities": [
           "embedding"
         ]
+      },
+      {
+        "id": "nvidia/nemotron-3.5-embed-1b:free",
+        "name": "NVIDIA: Nemotron 3.5 Embed 1B (free)",
+        "dimensions": 2048,
+        "contextTokens": 32768,
+        "documentationRef": "https://openrouter.ai/nvidia/nemotron-3.5-embed-1b:free",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-24",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "nvidia/nemotron-3.5-embed-8b:free",
+        "name": "NVIDIA: Nemotron 3.5 Embed 8B (free)",
+        "dimensions": 4096,
+        "contextTokens": 32768,
+        "documentationRef": "https://openrouter.ai/nvidia/nemotron-3.5-embed-8b:free",
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-10-24",
+        "availableToCredential": null,
+        "recommended": false,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
       }
     ],
     "documentationUrl": "https://openrouter.ai/docs/guides/overview/multimodal/embeddings"

@@ -278,7 +278,6 @@ pub(super) async fn run_subagent_once(
             steering_rx,
             lifecycle_events,
         },
-        &mut subtask,
         &mut reservation,
     )
     .await?;
@@ -343,6 +342,15 @@ pub(super) async fn settle_worker_lifecycle(
     outcome: Result<&SubagentRunArtifact, &CoreError>,
 ) -> Result<(), CoreError> {
     let (status, result, error) = match outcome {
+        Ok(run) if run.is_error => (
+            if run.status == "cancelled" {
+                SubagentLifecycleStatus::Cancelled
+            } else {
+                SubagentLifecycleStatus::Failed
+            },
+            serde_json::to_value(run).ok(),
+            run.error_message.clone(),
+        ),
         Ok(run) => (
             SubagentLifecycleStatus::Completed,
             serde_json::to_value(run).ok(),

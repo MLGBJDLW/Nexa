@@ -74,7 +74,9 @@ export const STT_PROVIDER_PRESETS: SttProviderPreset[] =
   }));
 
 export function defaultSttItem(items: SttCatalogItem[]): SttCatalogItem | null {
-  const eligible = items.filter(({ descriptor }) => descriptor.lifecycle === 'active'
+  // Selecting a provider is an explicit settings action, just like TTS. A
+  // documented public preview can be chosen without claiming account access.
+  const eligible = items.filter(({ descriptor }) => (descriptor.lifecycle === 'active' || descriptor.lifecycle === 'preview')
     && descriptor.access === 'public' && descriptor.availableToCredential !== false);
   return selectImplicitDefault(items)
     ?? eligible.find((item) => item.recommended) ?? eligible[0] ?? null;

@@ -206,17 +206,17 @@ pub(super) fn normalize_spawn_args(
             "timeout_secs must be positive".into(),
         ));
     }
-    args.acceptance_criteria = normalize_string_list(args.acceptance_criteria.take(), 8);
-    args.evidence_chunk_ids = normalize_string_list(args.evidence_chunk_ids.take(), 8);
+    args.acceptance_criteria = normalize_string_list(args.acceptance_criteria.take());
+    args.evidence_chunk_ids = normalize_string_list(args.evidence_chunk_ids.take());
     args.source_ids = args
         .source_ids
         .take()
-        .map(|ids| normalize_string_list(Some(ids), 16).unwrap_or_default());
+        .map(|ids| normalize_string_list(Some(ids)).unwrap_or_default());
     args.allowed_tools = args
         .allowed_tools
         .take()
-        .map(|tools| normalize_string_list(Some(tools), usize::MAX).unwrap_or_default());
-    args.return_sections = normalize_string_list(args.return_sections.take(), 8);
+        .map(|tools| normalize_string_list(Some(tools)).unwrap_or_default());
+    args.return_sections = normalize_string_list(args.return_sections.take());
     Ok(args)
 }
 pub(super) fn normalize_batch_task_args(
@@ -298,6 +298,8 @@ pub(super) struct SubagentTranscript {
     legacy: std::collections::HashMap<String, (String, String)>,
     blocks: std::collections::HashMap<String, (nexa_core::agent::StreamBlockChannel, String)>,
     dirty: Vec<String>,
+    block_order: Vec<String>,
+    completed_output: String,
     next_id: u64,
 }
 
@@ -313,9 +315,51 @@ impl SubagentTranscript {
     }
 
     pub(super) fn boundary(&mut self) {
+        let output = self.current_output();
+        if !output.is_empty() {
+            if !self.completed_output.is_empty() {
+                self.completed_output.push_str("\n\n");
+            }
+            self.completed_output.push_str(&output);
+            retain_partial_output_tail(&mut self.completed_output);
+        }
+        self.reset();
+    }
+    pub(super) fn reset(&mut self) {
         self.legacy.clear();
         self.blocks.clear();
         self.dirty.clear();
+        self.block_order.clear();
+    }
+    fn current_output(&self) -> String {
+        let answers = self
+            .block_order
+            .iter()
+            .filter_map(|id| {
+                let (channel, text) = self.blocks.get(id)?;
+                (*channel == nexa_core::agent::StreamBlockChannel::Answer).then_some(text.as_str())
+            })
+            .collect::<Vec<_>>();
+        if answers.is_empty() {
+            self.legacy
+                .get("answer")
+                .map(|(_, text)| text.clone())
+                .unwrap_or_default()
+        } else {
+            answers.join("\n")
+        }
+    }
+    pub(super) fn partial_output(&self) -> String {
+        let mut output = self.completed_output.clone();
+        let current = self.current_output();
+        if !current.is_empty() {
+            if !output.is_empty() {
+                output.push_str("\n\n");
+            }
+            output.push_str(&current);
+        }
+        retain_partial_output_tail(&mut output);
+        output
     }
     pub(super) fn has_pending(&self) -> bool {
         !self.dirty.is_empty()
@@ -361,6 +405,9 @@ impl SubagentTranscript {
             }
             _ => return,
         };
+        if !self.block_order.contains(&id) {
+            self.block_order.push(id.clone());
+        }
         if !self.dirty.contains(&id) {
             self.dirty.push(id);
         }
@@ -371,5 +418,67 @@ impl SubagentTranscript {
             let (channel, text) = self.blocks.get(&id)?;
             Some(serde_json::json!({ "event": { "type": "streamBlockSnapshot", "channel": channel, "blockId": id, "text": text } }))
         }).collect()
+    }
+}
+
+// The complete transcript remains in the durable activity history. Keep the
+// recovery handoff bounded without splitting Unicode or retaining every token
+// twice for the lifetime of a long-running worker.
+fn retain_partial_output_tail(output: &mut String) {
+    const MAX_BYTES: usize = 64 * 1024;
+    if output.len() > MAX_BYTES {
+        let mut boundary = output.len() - MAX_BYTES;
+        while !output.is_char_boundary(boundary) {
+            boundary += 1;
+        }
+        output.drain(..boundary);
+    }
+}
+
+/// The same incomplete-result boundary must survive both live and durable restore.
+pub(super) fn resumable_worker_result(
+    result: &str,
+    status: &str,
+    error: Option<&str>,
+    is_error: bool,
+) -> String {
+    if is_error {
+        format!("Incomplete worker result ({status}): {}\nReconcile completed tool effects before continuing; do not blindly repeat writes.\n\n{result}", error.unwrap_or_default())
+    } else {
+        result.to_string()
+    }
+}
+
+#[cfg(test)]
+mod transcript_tests {
+    use super::*;
+    use nexa_core::agent::StreamBlockChannel;
+
+    #[test]
+    fn failed_worker_handoff_keeps_completed_rounds_but_discards_reset_tail() {
+        let mut transcript = SubagentTranscript::default();
+        transcript.legacy_snapshot("answer", "duplicate legacy projection");
+        transcript.note_canonical(AgentEvent::StreamBlockSnapshot {
+            block_id: "a".into(),
+            channel: StreamBlockChannel::Answer,
+            text: "已完成检查".into(),
+        });
+        transcript.boundary();
+        transcript.note_canonical(AgentEvent::StreamBlockSnapshot {
+            block_id: "b".into(),
+            channel: StreamBlockChannel::Answer,
+            text: "discard this uncommitted response".into(),
+        });
+        transcript.reset();
+        transcript.legacy_snapshot("answer", "最后的部分结果🙂");
+        assert_eq!(
+            transcript.partial_output(),
+            "已完成检查\n\n最后的部分结果🙂"
+        );
+        transcript.boundary();
+        transcript.legacy_snapshot("answer", &"长🙂".repeat(20_000));
+        let partial = transcript.partial_output();
+        assert!(partial.len() <= 64 * 1024);
+        assert!(partial.ends_with("长🙂"));
     }
 }

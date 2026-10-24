@@ -110,6 +110,20 @@ observed file cutoff, so waiting for approval does not consume later changes.
 
 ## Stage dependencies
 
+The authoring panel edits this same recipe DAG: add/remove stages, choose roles,
+edit task/output/acceptance criteria, select predecessors and set concurrency.
+Preview uses the server's existing graph validation before saving. Removing a
+stage also removes references to it; cycles are rejected rather than executed.
+
+Task Center reads each run's durable `plan_json` to show node dependencies,
+status, deliverables and the actual enforced/advisory verification gates.
+It refreshes active visible runs without overlapping requests. Artifacts, actors,
+history and checkpoints remain in the existing Task Center panels. Chat Home
+shows paginated summaries grouped by project, with running/attention/failure
+filters that can reach older tasks and direct chat continuation; opening it
+does not load task transcripts. Reasoning starts
+collapsed and follows the user's explicit expansion state.
+
 Template tasks declare `dependsOn` IDs. Drafting precedes review, report
 research precedes outlining and drafting, and extraction/comparison precedes
 verification. Independent tasks can run concurrently. The existing subagent

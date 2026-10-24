@@ -26,7 +26,7 @@ test('read-aloud excludes followup metadata while keeping answer text and recomm
   }
 });
 
-test('explicit speech presets select documented active models without claiming credential acceptance', () => {
+test('explicit speech presets select documented usable models without claiming credential acceptance', () => {
   for (const [presets, select] of [
     [tts.TTS_PROVIDER_PRESETS, tts.defaultTtsItem],
     [stt.STT_PROVIDER_PRESETS, stt.defaultSttItem],

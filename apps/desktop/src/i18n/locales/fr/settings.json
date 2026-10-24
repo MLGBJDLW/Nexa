@@ -1157,5 +1157,10 @@
   "webSearchReorderHint": "Glissez pour modifier la priorité. Clavier : espace pour saisir, flèches pour déplacer, espace pour déposer.",
   "agentBehaviorGroup": "Comportement de l’agent",
   "dreamingTriggers": "Quand exécuter",
-  "dreamingScope": "Limites et sources"
+  "dreamingScope": "Limites et sources",
+  "storageDatabase": "Stockage de la base",
+  "storageAllocated": "Pages allouées",
+  "storageReusable": "Espace réutilisable",
+  "storageWal": "Journal d’écriture",
+  "storageReuseHint": "Les pages libérées sont réutilisées lors des prochaines écritures. Cela ne signifie pas une perte de données. Réduire le fichier nécessite une reconstruction hors ligne."
 }

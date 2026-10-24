@@ -695,10 +695,25 @@ async fn four_default_workers_inherit_the_parent_route_and_failed_requests_do_no
             .expect("all four inherited workers must reach the endpoint concurrently");
     server.await.unwrap();
     assert_eq!(
-        outcomes.iter().filter(|outcome| outcome.is_ok()).count(),
+        outcomes
+            .iter()
+            .filter(|outcome| outcome.as_ref().is_ok_and(|run| !run.is_error))
+            .count(),
         3,
         "a failed sibling must not cancel successful workers"
     );
+    let failed = outcomes
+        .iter()
+        .filter_map(|outcome| outcome.as_ref().ok())
+        .find(|run| run.is_error)
+        .expect("a provider failure must retain a settled error artifact");
+    assert_eq!(failed.status, "failed");
+    assert!(failed
+        .error_message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("invalid request fixture"));
+    assert_eq!(failed.usage_total.total_tokens, 0);
     let snapshot = runtime.budget.snapshot().await;
     assert_eq!(snapshot.calls_started, 4);
     assert_eq!(snapshot.tokens_reserved, 0);
@@ -1452,6 +1467,37 @@ async fn delegated_recovery_requirement_survives_lifecycle_wait_observe_and_batc
 }
 
 #[tokio::test]
+async fn timed_out_worker_keeps_partial_result_and_is_never_reported_completed() {
+    let runtime = test_runtime();
+    let registration = register_test_worker(&runtime, "partial-worker");
+    registration.events.start().await.unwrap();
+    let mut run = failed_subagent_run_artifact(
+        "partial-worker".into(),
+        serde_json::from_value(serde_json::json!({"task":"Inspect"})).unwrap(),
+        None,
+        &CoreError::Agent("Worker timed out".into()),
+    );
+    run.status = "timed_out".into();
+    run.result = "已验证的部分结果".into();
+    run.usage_total.total_tokens = 42;
+    registration.cancel_token.cancel();
+    settle_worker_lifecycle(
+        &runtime.lifecycle,
+        &registration.agent_id,
+        &registration.cancel_token,
+        Ok(&run),
+    )
+    .await
+    .unwrap();
+    let snapshot = runtime.lifecycle.snapshot(&registration.agent_id).unwrap();
+    assert_eq!(snapshot.status, SubagentLifecycleStatus::Failed);
+    let result = snapshot.result.unwrap();
+    assert_eq!(result["result"], "已验证的部分结果");
+    assert_eq!(result["usageTotal"]["totalTokens"], 42);
+    assert_eq!(result["isError"], true);
+}
+
+#[tokio::test]
 async fn queued_worker_cancel_and_collector_abort_settle_without_spawning_or_spending() {
     for abort_collector in [false, true] {
         let mut runtime = test_runtime();
@@ -2089,6 +2135,25 @@ fn test_runtime_saves_subagent_session_snapshot() {
     assert_eq!(snapshot.last_run_id, "run-1");
     assert_eq!(snapshot.result, "Prior result");
     assert_eq!(snapshot.tool_event_count, 2);
+}
+
+#[test]
+fn delegated_handoff_never_silently_drops_late_acceptance_or_scope_entries() {
+    let entries = (0..40)
+        .map(|index| format!("entry-{index}"))
+        .collect::<Vec<_>>();
+    let args = normalize_spawn_args(
+        serde_json::from_value(serde_json::json!({
+            "task":"Complete every required check", "acceptance_criteria":entries,
+            "evidence_chunk_ids":entries,"source_ids":entries,"return_sections":entries,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(args.acceptance_criteria.as_ref(), Some(&entries));
+    assert_eq!(args.evidence_chunk_ids.as_ref(), Some(&entries));
+    assert_eq!(args.source_ids.as_ref(), Some(&entries));
+    assert_eq!(build_return_sections(&args, None), entries);
 }
 
 #[test]

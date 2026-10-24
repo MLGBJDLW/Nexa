@@ -179,5 +179,14 @@
   "authoringSettings": "Déclenchement et autorisations",
   "schedulesSubtitle": "Créez des tâches récurrentes, consultez les prochaines exécutions et suspendez-les ou reprenez-les. Nexa doit rester ouvert pour les exécutions locales.",
   "savedAutomations": "Tâches enregistrées ({count})",
-  "noAutomations": "Aucune tâche. Créez une planification pour commencer."
+  "noAutomations": "Aucune tâche. Créez une planification pour commencer.",
+  "runTimeline": "Chronologie de l’exécution",
+  "verificationGates": "Contrôles de validation",
+  "gateRequired": "Requis pour terminer",
+  "gateAdvisory": "Indicatif / sans objet",
+  "stageAdd": "Ajouter une étape",
+  "stageRole": "Rôle",
+  "stageTask": "Tâche",
+  "stageOutput": "Résultat attendu",
+  "stageParallelism": "Agents parallèles"
 }

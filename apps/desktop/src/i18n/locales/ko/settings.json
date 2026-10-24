@@ -1157,5 +1157,10 @@
   "webSearchReorderHint": "드래그하여 우선순위를 변경하세요. 키보드: 스페이스로 선택, 방향키로 이동, 스페이스로 놓기.",
   "agentBehaviorGroup": "에이전트 동작",
   "dreamingTriggers": "실행 시점",
-  "dreamingScope": "한도 및 소스"
+  "dreamingScope": "한도 및 소스",
+  "storageDatabase": "데이터베이스 저장 공간",
+  "storageAllocated": "할당된 페이지",
+  "storageReusable": "재사용 가능한 공간",
+  "storageWal": "미리 쓰기 로그",
+  "storageReuseHint": "삭제 후 빈 페이지는 이후 쓰기에 재사용됩니다. 데이터 손실을 의미하지 않습니다. 파일 축소를 위한 재구축은 오프라인 작업입니다."
 }

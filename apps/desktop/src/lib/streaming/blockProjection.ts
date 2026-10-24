@@ -1,5 +1,5 @@
 import type { StreamTerminalProjectionState } from './terminalProjection';
-import { blockTraceDelta, blockTraceText, replaceBlockTraceText, utf8ByteLength, type TextTraceEvent } from './blockTrace';
+import { blockTraceDelta, blockTraceText, recoveredDeltaSuffix, replaceBlockTraceText, utf8ByteLength, type TextTraceEvent } from './blockTrace';
 
 function setTextTrace(state: StreamTerminalProjectionState, index: number, event: TextTraceEvent): void {
   if (state._tools) {
@@ -116,7 +116,12 @@ export function applyStreamBlockDelta(
       state._activeAnswerOffset = 0;
       state.streamText = '';
     }
-    if (normalizedOffset < state._activeAnswerOffset) return;
+    if (normalizedOffset < state._activeAnswerOffset) {
+      const suffix = recoveredDeltaSuffix(blockTraceText(state.traceEvents, 'reply', blockId) || state.streamText, normalizedOffset, state._activeAnswerOffset, delta);
+      if (!suffix) return;
+      applyStreamBlockDelta(state, channel, blockId, state._activeAnswerOffset, suffix);
+      return;
+    }
     if (normalizedOffset > state._activeAnswerOffset) {
       bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
       return;
@@ -154,7 +159,12 @@ export function applyStreamBlockDelta(
     state._activeThinkingOffset = 0;
     state.thinkingText = '';
   }
-  if (normalizedOffset < state._activeThinkingOffset) return;
+  if (normalizedOffset < state._activeThinkingOffset) {
+    const suffix = recoveredDeltaSuffix(blockTraceText(state.traceEvents, 'thinking', blockId) || state.thinkingText, normalizedOffset, state._activeThinkingOffset, delta);
+    if (!suffix) return;
+    applyStreamBlockDelta(state, channel, blockId, state._activeThinkingOffset, suffix);
+    return;
+  }
   if (normalizedOffset > state._activeThinkingOffset) {
     bufferBlockDelta(state, channel, blockId, normalizedOffset, delta);
     return;

@@ -52,21 +52,21 @@ impl Database {
     /// `check_contradictions()` separately.
     pub fn run_health_check(&self, stale_days: u32) -> Result<HealthReport, CoreError> {
         let now = chrono::Utc::now().to_rfc3339();
-        let stale = self.check_stale_documents(stale_days)?;
-        let orphans = self.check_orphan_documents()?;
-        let low_coverage = self.check_low_coverage_entities()?;
-        let duplicates = self.check_duplicate_candidates()?;
+        let mut stale = self.check_stale_documents(stale_days)?;
+        let mut orphans = self.check_orphan_documents()?;
+        let mut low_coverage = self.check_low_coverage_entities()?;
+        let mut duplicates = self.check_duplicate_candidates()?;
 
         let total = stale.len() + orphans.len() + low_coverage.len() + duplicates.len();
 
         // Persist results
         for issue in stale
-            .iter()
-            .chain(orphans.iter())
-            .chain(low_coverage.iter())
-            .chain(duplicates.iter())
+            .iter_mut()
+            .chain(orphans.iter_mut())
+            .chain(low_coverage.iter_mut())
+            .chain(duplicates.iter_mut())
         {
-            self.save_health_issue(issue)?;
+            issue.id = self.save_health_issue(issue)?;
         }
 
         Ok(HealthReport {
@@ -190,7 +190,7 @@ impl Database {
         Ok(issues)
     }
 
-    fn save_health_issue(&self, issue: &HealthIssue) -> Result<(), CoreError> {
+    fn save_health_issue(&self, issue: &HealthIssue) -> Result<String, CoreError> {
         let conn = self.conn();
         let check_type = serde_json::to_value(&issue.check_type)
             .ok()
@@ -200,8 +200,13 @@ impl Database {
             .ok()
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_default();
-        conn.execute(
-            "INSERT OR REPLACE INTO health_checks (id, check_type, severity, target_doc_id, target_entity_id, description, suggestion) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        // A repeated finding refreshes its diagnostics, not its identity or the
+        // user's resolved decision. RETURNING keeps report actions bound to the
+        // durable row even when this scan proposed a fresh UUID.
+        Ok(conn.query_row(
+            "INSERT INTO health_checks (id, check_type, severity, target_doc_id, target_entity_id, description, suggestion) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT DO UPDATE SET severity=excluded.severity, suggestion=excluded.suggestion, checked_at=datetime('now')
+             RETURNING id",
             rusqlite::params![
                 issue.id,
                 check_type,
@@ -211,8 +216,8 @@ impl Database {
                 issue.description,
                 issue.suggestion
             ],
-        )?;
-        Ok(())
+            |row| row.get(0),
+        )?)
     }
 
     pub fn get_unresolved_health_issues(&self) -> Result<Vec<HealthIssue>, CoreError> {
@@ -364,4 +369,62 @@ pub async fn check_contradictions(
             ),
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn finding(description: &str) -> HealthIssue {
+        HealthIssue {
+            id: uuid::Uuid::new_v4().to_string(),
+            check_type: CheckType::Gap,
+            severity: Severity::Info,
+            target_doc_id: None,
+            target_entity_id: None,
+            description: description.into(),
+            suggestion: "Inspect sources".into(),
+        }
+    }
+
+    #[test]
+    fn health_findings_refresh_identity_without_reopening_resolved_work() {
+        let db = Database::open_memory().unwrap();
+        let id = db.save_health_issue(&finding("Missing evidence")).unwrap();
+        db.resolve_health_issue(&id).unwrap();
+        for _ in 0..100 {
+            assert_eq!(
+                db.save_health_issue(&finding("Missing evidence")).unwrap(),
+                id
+            );
+        }
+        assert!(db.get_unresolved_health_issues().unwrap().is_empty());
+        let different = db.save_health_issue(&finding("Changed evidence")).unwrap();
+        assert_ne!(different, id);
+        assert_eq!(db.get_unresolved_health_issues().unwrap().len(), 1);
+        let count: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM health_checks", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn health_finding_migration_keeps_resolved_receipt_and_distinct_findings() {
+        let db = Database::open_memory().unwrap();
+        let conn = db.conn();
+        conn.execute_batch("DROP INDEX idx_health_finding_identity;
+            INSERT INTO health_checks(id,check_type,description,resolved) VALUES
+            ('old','gap','same',0),('resolved','gap','same',1),('latest','gap','same',0),('different','gap','other',0);").unwrap();
+        conn.execute_batch(include_str!("migrations/v157_health_finding_identity.sql"))
+            .unwrap();
+        let ids = conn
+            .prepare("SELECT id FROM health_checks ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(ids, vec!["different", "resolved"]);
+    }
 }

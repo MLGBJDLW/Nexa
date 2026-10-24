@@ -4,10 +4,7 @@ pub(super) fn trim_optional(value: Option<String>) -> Option<String> {
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty())
 }
-pub(super) fn normalize_string_list(
-    value: Option<Vec<String>>,
-    limit: usize,
-) -> Option<Vec<String>> {
+pub(super) fn normalize_string_list(value: Option<Vec<String>>) -> Option<Vec<String>> {
     let mut normalized = Vec::new();
     let mut seen = BTreeSet::new();
     for item in value.unwrap_or_default() {
@@ -16,9 +13,6 @@ pub(super) fn normalize_string_list(
             continue;
         }
         normalized.push(trimmed.to_string());
-        if normalized.len() >= limit {
-            break;
-        }
     }
     if normalized.is_empty() {
         None
@@ -347,7 +341,7 @@ pub(super) fn build_return_sections(
     args: &SpawnSubagentArgs,
     role_profile: Option<&SubagentRoleProfile>,
 ) -> Vec<String> {
-    normalize_string_list(args.return_sections.clone(), 8)
+    normalize_string_list(args.return_sections.clone())
         .unwrap_or_else(|| role_sections(role_profile))
 }
 pub(super) fn resolve_source_scope(
@@ -676,7 +670,6 @@ pub(super) fn build_evidence_handoff(
     chunk_ids
         .unwrap_or(&[])
         .iter()
-        .take(8)
         .map(|chunk_id| {
             let card = search::get_evidence_card(db, chunk_id)?;
             if source_scope

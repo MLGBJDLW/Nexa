@@ -2900,6 +2900,7 @@ Every answer that uses knowledge base search results.
     ("v154_embedding_performance", include_str!("v154_embedding_performance.sql")),
     ("v155_delegated_conversations", include_str!("v155_delegated_conversations.sql")),
     ("v156_run_event_lookup_indexes", include_str!("v156_run_event_lookup_indexes.sql")),
+    ("v157_health_finding_identity", include_str!("v157_health_finding_identity.sql")),
     ("v157_owned_snapshot_storage", include_str!("v157_owned_snapshot_storage.sql")),
 ];
 

@@ -432,10 +432,16 @@ fn clamp_objective(query: &str) -> String {
     trimmed.chars().take(220).collect::<String>()
 }
 
-fn knowledge_evidence_policy(has_sources: bool) -> EvidencePolicy {
+fn knowledge_evidence_policy(has_sources: bool, source_scope_count: usize) -> EvidencePolicy {
     EvidencePolicy {
         mode: EvidenceMode::Required,
-        min_sources: if has_sources { 2 } else { 1 },
+        // A single selected evidence scope must not acquire an impossible
+        // two-source completion floor. Explicit strict profiles may raise it.
+        min_sources: if has_sources && source_scope_count > 1 {
+            2
+        } else {
+            1
+        },
         require_citations: true,
         require_verification: true,
         contradiction_check: true,
@@ -513,7 +519,7 @@ fn knowledge_plan(input: TaskPlanningInput<'_>, objective: String) -> AgentTaskP
         objective: objective.clone(),
         source_scope_policy: SourceScopePolicy::LinkedSourcesFirst,
         source_scope_count: input.source_scope_count,
-        evidence_policy: knowledge_evidence_policy(input.has_sources),
+        evidence_policy: knowledge_evidence_policy(input.has_sources, input.source_scope_count),
         tool_budget: default_tool_budget(5),
         delegation: knowledge_delegation_plan(),
         steps: vec![

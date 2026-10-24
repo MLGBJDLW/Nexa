@@ -372,7 +372,9 @@ function MessageBubbleInner({ msg, chunkIds, queryText, citationLookup, isLastAs
               ? goalMessage
                 ? 'bg-transparent px-0 py-0 text-text-primary'
                 : 'rounded-lg bg-accent/20 px-3.5 py-2.5 text-text-primary'
-              : 'chat-assistant-reply bg-transparent px-0 py-0'
+              : msg.toolCalls.length === 0
+                ? 'chat-assistant-reply rounded-xl border border-border/60 bg-surface-1/65 px-4 py-3'
+                : 'chat-assistant-reply bg-transparent px-0 py-0'
             }`}
         >
           {msg.tokenCount > 0 && !isEditing && !goalMessage && (

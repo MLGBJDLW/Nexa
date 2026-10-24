@@ -428,6 +428,18 @@ pub async fn get_index_stats(state: tauri::State<'_, AppState>) -> Result<IndexS
 }
 
 #[tauri::command]
+pub async fn get_database_storage_stats_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<nexa_core::db::DatabaseStorageStats, String> {
+    state
+        .db_executor
+        .read(|db| db.storage_stats())
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn rebuild_index(
     state: tauri::State<'_, AppState>,
     app_handle: AppHandle,

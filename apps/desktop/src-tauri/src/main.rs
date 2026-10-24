@@ -848,6 +848,7 @@ fn main() {
             commands::get_evidence_cards,
             // Index
             commands::get_index_stats,
+            commands::get_database_storage_stats_cmd,
             commands::rebuild_index,
             // Playbooks
             commands::create_playbook,
@@ -981,6 +982,7 @@ fn main() {
             commands::list_recent_agent_task_runs_cmd,
             commands::list_agent_task_run_summaries_cmd,
             commands::get_agent_task_run_summary_cmd,
+            commands::get_agent_task_run_plan_cmd,
             commands::get_agent_task_run_events_cmd,
             commands::get_agent_task_history_cmd,
             commands::get_agent_run_events_cmd,

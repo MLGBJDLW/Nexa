@@ -386,6 +386,7 @@ test('keeps timing above the composer, animates the brain and smoothly reveals p
 test('keeps a live stream active when keepalive events arrive during a long silent phase', async ({ page }) => {
   await page.goto('/chat');
 
+  await page.getByTestId('thinking-trace-toggle').first().click();
   await expect(page.getByText('Reasoning through the timeout path.').first()).toBeVisible();
   await page.waitForTimeout(220);
   await expect(page.getByText('Connection lost')).toHaveCount(0);

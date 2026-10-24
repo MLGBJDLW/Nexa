@@ -465,6 +465,7 @@ test('keeps live thinking and file edit badges mounted until persisted messages 
 
   await page.waitForTimeout(120);
   const chatLog = page.getByLabel('Chat messages');
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(page.getByText('Checking the retry note first.')).toBeVisible();
   const thinkingTrace = chatLog.locator('.thinking-trace').first();
   await expect(thinkingTrace).toHaveAttribute('data-trace-active', 'true');

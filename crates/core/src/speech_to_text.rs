@@ -292,6 +292,8 @@ fn transcription_form_fields(config: &SpeechToTextConfig) -> Vec<(&'static str, 
     let gpt_transcribe = config.provider == "open_ai"
         && model == "gpt-transcribe"
         && is_official_transcription_endpoint(config, "api.openai.com");
+    let mistral = config.provider == "mistral"
+        && is_official_transcription_endpoint(config, "api.mistral.ai");
     if config.provider == "siliconflow"
         && is_official_transcription_endpoint(config, "api.siliconflow.cn")
     {
@@ -299,7 +301,7 @@ fn transcription_form_fields(config: &SpeechToTextConfig) -> Vec<(&'static str, 
     }
     // GPT Transcribe defaults to JSON; do not assume that its supported
     // response_format set is identical to the older GPT-4o models.
-    if !gpt_transcribe {
+    if !gpt_transcribe && !mistral {
         fields.push(("response_format", "json".to_string()));
     }
     if let Some(language) = config
@@ -312,6 +314,9 @@ fn transcription_form_fields(config: &SpeechToTextConfig) -> Vec<(&'static str, 
             for hint in transcription_language_hints(Some(language)) {
                 fields.push(("languages[]", hint));
             }
+        } else if mistral {
+            let language = language.split(['-', '_']).next().unwrap_or(language);
+            fields.push(("language", language.to_ascii_lowercase()));
         } else {
             fields.push(("language", language.to_string()));
         }

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Loader2, Play, Save, X } from 'lucide-react';
-import { NexaSelect } from '../../components/ui/overlay';
+import { NexaSelect, OverlayPortal } from '../../components/ui/overlay';
+import { WorkflowStageEditor } from './WorkflowStageEditor';
 import * as api from '../../lib/api';
 import type { WorkflowCatalogTemplate } from '../../lib/api';
 import type { Source } from '../../types';
@@ -31,6 +32,8 @@ export function WorkflowAuthoringPanel({ template, automation, mode, sources, tr
   const [inputs, setInputs] = useState<WorkflowInputs>(() => structuredClone(existingRecipe?.inputs ?? defaultInputs()));
   const [constraints, setConstraints] = useState(inputs.constraints.join('\n'));
   const [instructions, setInstructions] = useState(existingRecipe?.customInstructions ?? '');
+  const [templateSnapshot, setTemplateSnapshot] = useState(() => structuredClone(existingRecipe?.templateSnapshot ?? { ...template, version: template.version ?? 1 }));
+  const [stagesEdited, setStagesEdited] = useState(false);
   const [sourceScope, setSourceScope] = useState(automation?.sourceScope ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,12 +42,12 @@ export function WorkflowAuthoringPanel({ template, automation, mode, sources, tr
   const runOnly = mode === 'run';
   const recipe = useMemo<WorkflowRecipe>(() => ({
     version: 1,
-    kind: existingRecipe?.kind ?? (instructions.trim() ? 'custom' : 'template'),
-    templateSnapshot: existingRecipe?.templateSnapshot ?? { ...template, version: template.version ?? 1 },
+    kind: existingRecipe?.kind === 'recorded' ? 'recorded' : stagesEdited || instructions.trim() ? 'custom' : existingRecipe?.kind ?? 'template',
+    templateSnapshot,
     inputs: { ...inputs, constraints: constraints.split(/\r?\n/).filter(line => line.trim()) },
     customInstructions: instructions,
     recording: existingRecipe?.recording ?? null,
-  }), [existingRecipe, constraints, inputs, instructions, template]);
+  }), [existingRecipe, constraints, inputs, instructions, templateSnapshot, stagesEdited]);
   const candidate = (copy = false): SaveWorkflowAutomationInput => ({
     id: copy ? null : automation?.id,
     name, description: automation?.description ?? inputs.goal,
@@ -81,7 +84,7 @@ export function WorkflowAuthoringPanel({ template, automation, mode, sources, tr
   };
   const supported = !automation?.recipe || automation.recipe.version === 1;
 
-  return <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+  return <OverlayPortal><div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
     <section role="dialog" aria-modal="true" aria-labelledby="workflow-authoring-title" data-testid="workflow-authoring" className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-surface-1 shadow-2xl">
       <header className="flex items-start justify-between border-b border-border px-5 py-4">
         <div><h2 id="workflow-authoring-title" className="font-semibold text-text-primary">{runOnly ? tr('authoringRunInputs') : tr('authoringTitle')}</h2><p className="mt-1 text-xs text-text-secondary">{template.label}{automation?.definitionRevision ? ` · rev ${automation.definitionRevision}` : ''}</p></div>
@@ -100,6 +103,7 @@ export function WorkflowAuthoringPanel({ template, automation, mode, sources, tr
             </div>
             {recipe.recording && <label className="block text-xs text-text-secondary">{tr('recordingReplayValues')}<textarea className={`${inputClass} mt-1`} value={inputs.replayValues.join('\n')} onChange={event => updateInputs({ replayValues: event.target.value.split(/\r?\n/) })} /></label>}
             {!runOnly && <label className="block text-xs text-text-secondary">{tr('authoringInstructions')}<textarea className={`${inputClass} mt-1 min-h-20`} value={instructions} onChange={event => { setInstructions(event.target.value); setPreview(null); }} /></label>}
+            {!runOnly && !recipe.recording && <WorkflowStageEditor value={templateSnapshot} tr={tr} onChange={value => { setTemplateSnapshot(value); setStagesEdited(true); setPreview(null); }} />}
           </div>
           <aside className="space-y-4">
             <div className="rounded-xl border border-border bg-surface-0 p-3"><h3 className="text-xs font-semibold text-text-primary">{tr('authoringStages')}</h3><ol className="mt-2 space-y-2">{recipe.recording
@@ -119,5 +123,5 @@ export function WorkflowAuthoringPanel({ template, automation, mode, sources, tr
         <button type="button" className={`${actionClass} bg-accent text-white`} disabled={busy || !supported || !inputs.goal.trim()} onClick={() => void submit(true)}>{busy ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{runOnly ? tr('run') : tr('authoringSaveRun')}</button>
       </footer>
     </section>
-  </div>;
+  </div></OverlayPortal>;
 }

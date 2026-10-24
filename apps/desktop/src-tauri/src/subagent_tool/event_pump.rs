@@ -120,6 +120,7 @@ mod tests {
         .unwrap();
         drop(tx);
         let capture = pump.task.await.unwrap();
+        assert_eq!(capture.partial_output, "你好，完成");
         assert_eq!(
             capture.runtime_identity.as_ref().unwrap().model,
             "observed-model"
@@ -193,6 +194,10 @@ impl SubagentEventPump {
         let mut canonical_output = false;
         let mut last_delta_flush = Instant::now();
         let mut worker_token_limit_exceeded = false;
+        let mut last_activity = Instant::now();
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(60));
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        heartbeat.tick().await;
         loop {
             // Dormant workers sleep on their channel. A flush timer exists
             // only while a delta is buffered, eliminating ten idle wakeups
@@ -201,7 +206,24 @@ impl SubagentEventPump {
                 && pending_output.is_empty()
                 && !transcript.has_pending()
             {
-                Ok(event_rx.recv().await)
+                tokio::select! {
+                    event = event_rx.recv() => Ok(event),
+                    _ = heartbeat.tick() => {
+                        if last_activity.elapsed() >= Duration::from_secs(60) {
+                            emit_subagent_lifecycle_event(
+                                lifecycle_capture.as_ref(),
+                                SubagentLifecycleEventKind::Progress,
+                                serde_json::json!({
+                                    "phase": "heartbeat", "status": "running",
+                                    "elapsedMs": instant_elapsed_ms(launch_started),
+                                    "idleMs": instant_elapsed_ms(last_activity),
+                                    "content": "Worker is still active; waiting for provider or tool output.",
+                                }),
+                            ).await;
+                        }
+                        continue;
+                    }
+                }
             } else {
                 let remaining =
                     Duration::from_millis(100).saturating_sub(last_delta_flush.elapsed());
@@ -231,6 +253,7 @@ impl SubagentEventPump {
                     continue;
                 }
             };
+            last_activity = Instant::now();
             let provider_connected = matches!(
                 &event,
                 AgentEvent::ControllerStatus { code, .. } if code == "provider_connected"
@@ -586,7 +609,7 @@ impl SubagentEventPump {
                 | AgentEvent::ApprovalResolved { .. }
                 | AgentEvent::PlanUpdated { .. }) => {
                     if matches!(event, AgentEvent::StreamReset { .. }) {
-                        transcript.boundary();
+                        transcript.reset();
                     }
                     emit_subagent_lifecycle_event(
                         lifecycle_capture.as_ref(),
@@ -617,6 +640,7 @@ impl SubagentEventPump {
                 last_delta_flush = Instant::now();
             }
         }
+        capture.partial_output = transcript.partial_output();
         capture
     }
 }

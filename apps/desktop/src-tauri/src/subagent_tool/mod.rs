@@ -380,7 +380,16 @@ impl DelegationRuntime {
                 .get("roleName")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string),
-            result: run.get("result")?.as_str()?.to_string(),
+            result: resumable_worker_result(
+                run.get("result")?.as_str()?,
+                run.get("status")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown"),
+                run.get("errorMessage").and_then(serde_json::Value::as_str),
+                run.get("isError")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
+            ),
             finish_reason: run
                 .get("finishReason")
                 .and_then(serde_json::Value::as_str)
@@ -797,6 +806,7 @@ struct SubagentRuntimeIdentity {
 
 #[derive(Default)]
 struct EventCapture {
+    partial_output: String,
     runtime_identity: Option<SubagentRuntimeIdentity>,
     usage_total: Usage,
     finish_reason: Option<String>,

@@ -226,6 +226,10 @@ pub struct ProjectVerificationSupport {
 pub struct WorkflowIr {
     #[serde(default)]
     pub verification_source: Option<crate::workflow_verification::VerificationSourceState>,
+    /// Balanced code inspection does not require project commands until the
+    /// host observes a source change. Legacy and strict workflows stay enforced.
+    #[serde(default)]
+    pub project_verification_pending_mutation: bool,
     pub version: u8,
     pub id: String,
     pub route_kind: String,
@@ -249,6 +253,9 @@ impl WorkflowIr {
         // Legacy checkpoints have no source attestation. Their green gates
         // cannot be adopted as verification of whatever is on disk now.
         let changed = self.verification_source.as_ref() != Some(&state);
+        if state.pending || (changed && self.verification_source.is_some()) {
+            self.project_verification_pending_mutation = false;
+        }
         if changed || state.pending {
             for gate in &mut self.verification_gates {
                 if gate.required
@@ -1353,6 +1360,14 @@ impl WorkflowIr {
 
     fn completion_gate_is_enforced(&self, gate: &VerificationGate) -> bool {
         gate.required
+            && !(self.project_verification_pending_mutation
+                && matches!(
+                    gate.kind,
+                    VerificationGateKind::Tests
+                        | VerificationGateKind::Lint
+                        | VerificationGateKind::Typecheck
+                        | VerificationGateKind::Build
+                ))
             && (self.completion_contract.require_verification_gates
                 || (self.completion_contract.require_interaction_gates
                     && gate.kind.is_interaction_observation()))
@@ -1454,6 +1469,7 @@ impl WorkflowIr {
     /// controller-owned independent patch review authoritative even when the
     /// planner underpredicts mutation.
     pub fn configure_for_scheduled_isolated_patch(&mut self) {
+        self.project_verification_pending_mutation = false;
         self.completion_contract.controller_owned_review = true;
         let removed_reconnaissance = self
             .nodes
@@ -2577,6 +2593,11 @@ pub fn compile_workflow_ir(
 
     let mut workflow = WorkflowIr {
         verification_source: None,
+        project_verification_pending_mutation: code_route
+            && !nexus_enabled
+            && profile.profile == OrchestrationProfile::Balanced
+            && !profile.require_independent_verifier
+            && !profile.require_isolated_writes,
         version: WORKFLOW_IR_VERSION,
         id: uuid::Uuid::new_v4().to_string(),
         route_kind: plan.route_kind.clone(),
@@ -2608,7 +2629,9 @@ pub fn compile_workflow_ir(
             // again in configure_for_scheduled_isolated_patch().
             require_all_nodes_succeeded: nexus_enabled
                 || profile.profile != OrchestrationProfile::Balanced,
-            require_verification_gates: nexus_enabled || profile.require_independent_verifier,
+            require_verification_gates: code_route
+                || nexus_enabled
+                || profile.require_independent_verifier,
             require_evidence_ledger: plan.evidence_policy.mode == EvidenceMode::Required,
             require_interaction_gates: plan.interaction_requirements.requires_completion_gate(),
             browser_terminal_closure_evidence: plan
@@ -2635,6 +2658,8 @@ pub fn compile_turn_workflow_ir(
     let requires_workflow = nexus_enabled
         || profile.profile != OrchestrationProfile::Balanced
         || requires_workspace_isolation
+        || plan.route_kind.eq_ignore_ascii_case("CodebaseOperation")
+        || plan.evidence_policy.mode == EvidenceMode::Required
         || plan.interaction_requirements.requires_completion_gate();
     if !requires_workflow {
         return Ok(None);
@@ -3242,6 +3267,106 @@ mod tests {
     }
 
     #[test]
+    fn balanced_codebase_turn_enforces_only_detected_project_checks() {
+        let plan = build_task_plan(TaskPlanningInput::for_route(
+            "Fix the parser",
+            "CodebaseOperation",
+            false,
+            0,
+        ));
+        let mut workflow = compile_turn_workflow_ir(&plan, &balanced_profile(), false, false)
+            .unwrap()
+            .expect("code changes require a workflow even in Balanced mode");
+        workflow.configure_project_verification_support(ProjectVerificationSupport {
+            tests: true,
+            ..Default::default()
+        });
+        assert!(!workflow.completion_contract.require_all_nodes_succeeded);
+        assert!(workflow.completion_contract.require_verification_gates);
+        assert!(
+            workflow.completion_allowed(),
+            "read-only code inspection needs no build"
+        );
+        workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "before".into(),
+                pending: false,
+            },
+        );
+        assert!(
+            workflow.completion_allowed(),
+            "the initial source inventory is not a mutation"
+        );
+        workflow.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "after".into(),
+                pending: false,
+            },
+        );
+        assert!(!workflow.completion_allowed());
+        workflow.record_gate(
+            "tests",
+            true,
+            "Controller recorded a successful project test command",
+        );
+        assert!(workflow.completion_allowed());
+        workflow.record_gate("tests", false, "Regression failed");
+        assert!(!workflow.completion_allowed());
+        workflow.record_gate("tests", true, "Repaired");
+        let mut restored: WorkflowIr =
+            serde_json::from_value(serde_json::to_value(workflow).unwrap()).unwrap();
+        restored.reconcile_verification_source(
+            crate::workflow_verification::VerificationSourceState {
+                digest: "changed-again".into(),
+                pending: false,
+            },
+        );
+        assert!(
+            !restored.completion_allowed(),
+            "resumed checks cannot attest later changes"
+        );
+    }
+
+    #[test]
+    fn balanced_single_source_answer_requires_one_real_receipt_not_an_extra_source() {
+        let plan = build_task_plan(TaskPlanningInput::for_route(
+            "What does this note say?",
+            "KnowledgeRetrieval",
+            true,
+            1,
+        ));
+        let mut workflow = compile_turn_workflow_ir(&plan, &balanced_profile(), false, false)
+            .unwrap()
+            .expect("evidence-required turns retain an evidence ledger");
+        assert!(!workflow.completion_allowed());
+        workflow.observe_tool_result(
+            "read-evidence",
+            "retrieve_evidence",
+            false,
+            Some(&serde_json::json!({"sourceId":"only-source"})),
+            "Verified note",
+        );
+        assert!(workflow.completion_allowed());
+        let wider = build_task_plan(TaskPlanningInput::for_route(
+            "Compare these sources",
+            "KnowledgeRetrieval",
+            true,
+            2,
+        ));
+        let mut workflow = compile_turn_workflow_ir(&wider, &balanced_profile(), false, false)
+            .unwrap()
+            .unwrap();
+        workflow.observe_tool_result(
+            "read-evidence",
+            "retrieve_evidence",
+            false,
+            Some(&serde_json::json!({"sourceId":"only-source"})),
+            "One side only",
+        );
+        assert!(!workflow.completion_allowed());
+    }
+
+    #[test]
     fn late_computer_control_dynamically_establishes_a_desktop_completion_gate() {
         let direct = build_task_plan(TaskPlanningInput::for_route(
             "在微信里点击发送按钮",
@@ -3358,6 +3483,8 @@ mod tests {
         let plan = interaction_plan("帮我用html写一个黑洞演示图");
         let mut workflow =
             compile_workflow_ir(&plan, &balanced_profile(), false).expect("visual workflow");
+        // A standalone HTML artifact has no project test/build commands.
+        workflow.configure_project_verification_support(ProjectVerificationSupport::default());
 
         workflow.observe_tool_result("write", "create_file", false, None, "created index.html");
         workflow.observe_tool_result(

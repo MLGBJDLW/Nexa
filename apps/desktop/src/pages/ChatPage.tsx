@@ -28,6 +28,7 @@ import type { SubtaskRunArtifact } from '../lib/taskArtifacts';
 import { useApprovalQueue } from '../lib/useApprovalQueue';
 import { useTranslation } from '../i18n';
 import { EmptyState } from '../components/ui/EmptyState';
+import { TaskHome } from '../features/chat/TaskHome';
 import { Button } from '../components/ui/Button';
 import { useOverlayRoot } from '../components/ui/overlay';
 import { useChatSession } from '../lib/useChatSession';
@@ -995,6 +996,7 @@ export function ChatPage() {
       : { conversationId, statuses: { ...(current.conversationId === conversationId ? current.statuses : {}), [id]: status } });
   }, [chat.activeId]);
   const [browserStatus, setBrowserStatus] = useState<BrowserDockStatus>({ tabCount: 0, state: 'empty' });
+  const [advancedControlsOpened, setAdvancedControlsOpened] = useState(false);
   const handleToggleBrowser = useCallback(() => { setSubagentView(null); setBrowserOpen((value) => !value); }, []);
   const handleBrowserOpenChange = useCallback((open: boolean) => { if (open) setSubagentView(null); setBrowserOpen(open); }, []);
   useAppCommand({ id: 'chat.browser', label: 'shortcuts.toggleBrowser', keywords: 'browser workspace 浏览器', run: handleToggleBrowser });
@@ -1724,7 +1726,7 @@ export function ChatPage() {
   if (!chat.loadingConfig && !chat.agentConfig) {
     return (
       <div
-        className="flex items-center justify-center h-full"
+        className="flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto"
         data-testid="chat-reading-surface"
         data-theme-surface="content"
       >
@@ -1737,6 +1739,7 @@ export function ChatPage() {
             onClick: () => navigate('/settings'),
           }}
         />
+        <div className="w-full max-w-4xl"><TaskHome projectId={initialProjectId} /></div>
       </div>
     );
   }
@@ -1866,6 +1869,9 @@ export function ChatPage() {
                           onSelectionChange={handleSourceSelectionChange}
                           onUpdate={handleSourcesUpdated}
                         />
+                        <details className="relative" data-testid="chat-advanced-controls" onToggle={event => { if (event.currentTarget.open) setAdvancedControlsOpened(true); }}>
+                          <summary className="cursor-pointer rounded-md px-2 py-1 text-xs text-text-tertiary hover:bg-surface-2 hover:text-text-primary">{t('settings.advanced')}</summary>
+                          {advancedControlsOpened && <div className="absolute left-0 top-full z-50 mt-2 flex min-w-64 flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-1 p-3 shadow-lg">
                         <SystemPromptEditor
                           conversationId={chat.activeId}
                           systemPrompt={chat.customSystemPrompt}
@@ -1874,6 +1880,8 @@ export function ChatPage() {
                         <ActiveExtensions
                           conversationId={chat.activeId ?? undefined}
                         />
+                          </div>}
+                        </details>
                       </div>
                       <button
                         type="button"
@@ -2106,7 +2114,7 @@ export function ChatPage() {
                 <ProjectConversationStart projectId={initialProjectId} onStart={() => navigate('/chat', {
                   replace: true, flushSync: true, state: { ...routeState, projectId: initialProjectId, startConversation: true } satisfies ChatRouteState,
                 })} />
-              ) : <><ExternalAgentProgress events={chat.traceEvents} active={chat.isStreaming} /><ChatInput
+              ) : <>{centerComposer && !chat.activeId && <TaskHome projectId={initialProjectId} />}<ExternalAgentProgress events={chat.traceEvents} active={chat.isStreaming} /><ChatInput
               agentRuntime={selectedAgentConfig && findProviderPreset(selectedAgentConfig)?.runtime === 'acp' ? 'acp' : manualCompactionAvailable ? 'api' : 'subscription'}
               onSend={handleComposerSend}
               onStop={chat.stop}

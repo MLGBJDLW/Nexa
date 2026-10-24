@@ -1157,5 +1157,10 @@
   "webSearchReorderHint": "Drag to change priority. Keyboard: Space to pick up, arrow keys to move, Space to drop.",
   "agentBehaviorGroup": "Agent behavior",
   "dreamingTriggers": "When to run",
-  "dreamingScope": "Limits and sources"
+  "dreamingScope": "Limits and sources",
+  "storageDatabase": "Database storage",
+  "storageAllocated": "Allocated pages",
+  "storageReusable": "Reusable space",
+  "storageWal": "Write-ahead log",
+  "storageReuseHint": "Deleted records leave reusable pages for future writes. Reusable space is not lost data; rebuilding the database to shrink the file is an offline operation."
 }

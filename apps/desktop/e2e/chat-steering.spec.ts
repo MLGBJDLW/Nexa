@@ -645,6 +645,7 @@ test('does not send stale restored running chats as steering messages', async ({
   await textbox.fill('start a new turn after restart');
   await page.getByTestId('chat-send').click();
 
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(page.getByText('Working on the first request.')).toBeVisible();
 
   const diagnostics = await page.evaluate(() => (window as unknown as {
@@ -665,6 +666,7 @@ test('keeps pasted images in the draft while the current reply is streaming', as
   const input = page.locator('textarea').first();
   await input.fill('Work on the first request');
   await input.press('Enter');
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(page.getByText('Working on the first request.')).toBeVisible();
   await input.fill('Use this screenshot next');
   await input.evaluate(element => {
@@ -688,6 +690,7 @@ test('retries a persisted user message after reopening a conversation', async ({
 
   await expect(page.getByText('Persisted answer before retry.')).toBeVisible();
   await page.getByRole('button', { name: 'Retry' }).first().click();
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(page.getByText('Working on the first request.')).toBeVisible();
 
   const diagnostics = await page.evaluate(() => (window as unknown as {
@@ -721,6 +724,7 @@ test('edits a persisted user message through the durable retry boundary', async 
   await expect(page.getByText('Edited persisted prompt')).toHaveCount(1);
   await expect(page.getByText('Persisted retry prompt')).toHaveCount(0);
   await expect(page.getByText('Persisted answer before retry.')).toHaveCount(0);
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(page.getByText('Working on the first request.')).toBeVisible();
 
   const diagnostics = await page.evaluate(() => (window as unknown as {
@@ -875,6 +879,7 @@ test('sends steering while an agent stream is running without stopping it', asyn
   await textbox.fill('start with a broad answer');
   await page.getByTestId('chat-send').click();
 
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(page.getByText('Working on the first request.')).toBeVisible();
 
   await textbox.fill('focus on edge cases instead');

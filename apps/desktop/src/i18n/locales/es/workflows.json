@@ -179,5 +179,14 @@
   "authoringSettings": "Activadores y permisos",
   "schedulesSubtitle": "Crea tareas recurrentes, consulta próximas ejecuciones y páusalas o reanúdalas. Nexa debe estar abierto para ejecutar tareas locales.",
   "savedAutomations": "Tareas guardadas ({count})",
-  "noAutomations": "Aún no hay tareas. Crea una programación para empezar."
+  "noAutomations": "Aún no hay tareas. Crea una programación para empezar.",
+  "runTimeline": "Cronología de ejecución",
+  "verificationGates": "Controles de verificación",
+  "gateRequired": "Obligatorio para finalizar",
+  "gateAdvisory": "Orientativo / no aplicable",
+  "stageAdd": "Añadir etapa",
+  "stageRole": "Rol",
+  "stageTask": "Tarea",
+  "stageOutput": "Resultado esperado",
+  "stageParallelism": "Agentes en paralelo"
 }

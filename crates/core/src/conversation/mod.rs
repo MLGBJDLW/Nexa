@@ -1094,7 +1094,12 @@ const AGENT_TASK_RUN_SUMMARY_QUERY: &str = r#"WITH event_counts AS (
      LEFT JOIN subtask_counts sc ON sc.run_id = r.id
      LEFT JOIN artifact_kinds ak ON ak.run_id = r.id
      WHERE (?2 IS NULL OR (r.updated_at, r.created_at, r.id) < (?2, ?3, ?4))
-       AND (?5 IS NULL OR r.status = ?5)
+       AND (?5 IS NULL OR r.status = ?5
+            OR (?5 = 'active' AND r.status IN ('queued', 'running', 'cancelling')
+                AND r.phase NOT IN ('paused', 'awaiting_user_input', 'approval'))
+            OR (?5 = 'attention' AND (r.status IN ('paused', 'awaiting_user_input', 'waiting_approval')
+                OR r.phase IN ('paused', 'awaiting_user_input', 'approval')))
+            OR (?5 = 'errors' AND r.status IN ('failed', 'timed_out')))
        AND (?6 IS NULL OR t.launch_project_id = ?6)
        AND (?7 IS NULL OR r.id = ?7)
      ORDER BY r.updated_at DESC, r.created_at DESC, r.id DESC
@@ -3309,6 +3314,20 @@ impl Database {
             .ok_or_else(|| CoreError::NotFound(format!("Agent task run {run_id}")))
     }
 
+    /// Inspect one workflow without materializing historical tool artifacts.
+    pub fn get_agent_task_run_plan(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<serde_json::Value>, CoreError> {
+        let plan: Option<String> = self.conn().query_row(
+            "SELECT plan_json FROM agent_task_runs WHERE id = ?1",
+            [run_id],
+            |row| row.get(0),
+        )?;
+        plan.map(|value| serde_json::from_str(&value).map_err(CoreError::from))
+            .transpose()
+    }
+
     fn query_agent_task_run_summaries(
         &self,
         limit: u32,
@@ -3591,10 +3610,17 @@ impl Database {
     ) -> Result<std::collections::BTreeMap<String, crate::error::AgentRecoveryRequirement>, CoreError>
     {
         let conn = self.conn();
+        // Legacy early failures store the receipt at the top level; settled
+        // partial-result artifacts retain it under `run`. Either form must
+        // fence the parent, including when both are present and only one is true.
         let mut statement = conn.prepare(
-            "SELECT id, json_extract(output_json, '$.recoveryRequired')
+            "SELECT id, CASE
+                 WHEN json_extract(output_json, '$.recoveryRequired.actionReconciliation')=1
+                 THEN json_extract(output_json, '$.recoveryRequired')
+                 ELSE json_extract(output_json, '$.run.recoveryRequired') END
              FROM agent_subtask_runs WHERE parent_run_id=?1
-             AND json_extract(output_json, '$.recoveryRequired.actionReconciliation')=1",
+             AND (json_extract(output_json, '$.recoveryRequired.actionReconciliation')=1
+                  OR json_extract(output_json, '$.run.recoveryRequired.actionReconciliation')=1)",
         )?;
         let rows = statement.query_map([parent_run_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -7137,6 +7163,20 @@ mod tests {
                 .all(|item| !first_ids.contains(item.run.id.as_str())),
             "adjacent keyset pages must not overlap"
         );
+
+        // Status discovery must reach work older than the recent page, including
+        // suspended phases whose materialized status is still `running`.
+        db.conn().execute("UPDATE agent_task_runs SET status = 'running', phase = 'paused' WHERE id = 'perf-run-00001'", []).unwrap();
+        let attention = db
+            .list_agent_task_run_summaries(12, None, Some("attention"), None)
+            .unwrap();
+        assert_eq!(attention.items.len(), 1);
+        assert_eq!(attention.items[0].run.id, "perf-run-00001");
+        assert!(db
+            .list_agent_task_run_summaries(12, None, Some("active"), None)
+            .unwrap()
+            .items
+            .is_empty());
 
         let mut samples = Vec::with_capacity(20);
         for _ in 0..20 {

@@ -460,6 +460,7 @@ test('preserves multiple thinking and tool rounds during a single streamed respo
   ).__EMIT_STREAM_STEP__());
 
   await emitNext();
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(page.getByText('Need to search the knowledge base first.')).toBeVisible();
   await emitNext();
   await expect(page.getByTestId('tool-call-card')).toHaveCount(1);
@@ -513,6 +514,7 @@ test('wraps an unbroken live thinking token inside the chat boundary', async ({ 
   ).__EMIT_STREAM_STEP__());
 
   const liveThinking = page.getByTestId('thinking-stream-content').last();
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(liveThinking).toBeVisible();
   const geometry = await liveThinking.evaluate((node) => ({
     clientWidth: node.clientWidth,

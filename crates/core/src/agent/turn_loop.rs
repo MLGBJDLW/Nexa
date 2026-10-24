@@ -795,8 +795,15 @@ impl AgentExecutor {
                     .flatten()
             })
             .unwrap_or(user_query_text_for_tools.as_str());
-        let route_plan =
-            route_user_turn(routing_objective, &self.config.system_prompt, has_sources);
+        // A filesystem workspace is tool authority, not an indexed evidence
+        // collection. Conflating them made ordinary questions demand RAG
+        // citations from sources that do not exist.
+        let has_indexed_sources = !source_scope.is_empty();
+        let route_plan = route_user_turn(
+            routing_objective,
+            &self.config.system_prompt,
+            has_indexed_sources,
+        );
         let mut loop_recorder = TurnLoopRecorder::new(route_plan.kind, self.config.max_iterations);
         let mut task_plan = resumed_execution
             .as_ref()
@@ -805,7 +812,7 @@ impl AgentExecutor {
                 build_task_plan(TaskPlanningInput::for_requirements(
                     routing_objective,
                     &route_plan.requirements,
-                    has_sources,
+                    has_indexed_sources,
                     source_scope.len(),
                 ))
             });
@@ -860,7 +867,16 @@ impl AgentExecutor {
         } else if workflow_ir.as_ref().is_some_and(|workflow| {
             workflow.completion_contract.require_verification_gates || requires_workspace_isolation
         }) {
-            let verification_roots = if source_scope.is_empty() {
+            // Project workspace authority is independent from indexed knowledge
+            // sources. Never validate an unrelated knowledge folder while code
+            // tools are operating in the project's selected checkout.
+            let verification_roots = if let Some(workspace) = self.tools.workspace() {
+                workspace
+                    .roots
+                    .iter()
+                    .map(std::path::PathBuf::from)
+                    .collect()
+            } else if source_scope.is_empty() {
                 let sources = db.list_sources()?;
                 if sources.len() == 1 {
                     sources
@@ -3345,18 +3361,34 @@ impl AgentExecutor {
                 }
             }
             if let Some(workflow) = workflow_ir.as_mut() {
-                let verification_stable = workflow.reconcile_verification_source(
-                    verification_capture
-                        .capture(
-                            db,
-                            conversation_id,
-                            turn_id,
-                            &execution_source_scope,
-                            self.tools.workspace(),
-                            verification_mode,
-                        )
-                        .await?,
-                );
+                let source = match verification_capture
+                    .capture(
+                        db,
+                        conversation_id,
+                        turn_id,
+                        &execution_source_scope,
+                        self.tools.workspace(),
+                        verification_mode,
+                    )
+                    .await
+                {
+                    Ok(source) => source,
+                    Err(CoreError::Cancelled(_)) if self.cancel_token.is_cancelled() => {
+                        // Tool cancellation still owns its normal settlement.
+                        // Retain an unverified source boundary instead of losing
+                        // the cancelled tool receipt to a follow-up scan error.
+                        crate::workflow_verification::VerificationSourceState {
+                            digest: workflow
+                                .verification_source
+                                .as_ref()
+                                .map(|source| source.digest.clone())
+                                .unwrap_or_default(),
+                            pending: true,
+                        }
+                    }
+                    Err(error) => return Err(error),
+                };
+                let verification_stable = workflow.reconcile_verification_source(source);
                 for call in &tool_calls {
                     if let Some(summary) = dispatch_summaries
                         .iter()
