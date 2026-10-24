@@ -771,6 +771,9 @@ fn decode_base64_audio(value: &str, provider: &str) -> Result<Vec<u8>, CoreError
             "{provider} returned malformed base64 audio: {error}"
         ))
     })?;
+    if bytes.is_empty() {
+        return Err(CoreError::Llm(format!("{provider} returned empty audio.")));
+    }
     if bytes.len() > MAX_GENERATED_AUDIO_BYTES {
         return Err(CoreError::Llm(format!(
             "{provider} audio exceeds the {MAX_GENERATED_AUDIO_BYTES}-byte safety limit."
@@ -978,6 +981,8 @@ mod tests {
     fn decodes_bounded_base64_audio() {
         assert_eq!(decode_base64_audio("SUQz", "test").unwrap(), b"ID3");
         assert!(decode_base64_audio("not base64", "test").is_err());
+        assert!(decode_base64_audio("", "Mistral Speech").is_err());
+        assert!(decode_base64_audio("  \n\t", "Mistral Speech").is_err());
     }
 }
 
