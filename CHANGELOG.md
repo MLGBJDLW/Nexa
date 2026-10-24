@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.8...nexa-monorepo-v0.17.9) (2026-10-24)
+
+
+### Bug Fixes
+
+* **chat:** keep task and workflow tools behind composer options ([#506](https://github.com/MLGBJDLW/Nexa/issues/506)) ([3ac9789](https://github.com/MLGBJDLW/Nexa/commit/3ac9789bccdde1e10c77e1c97449661f85bb6aae))
+
 ## [0.17.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.7...nexa-monorepo-v0.17.8) (2026-10-24)
 
 
