@@ -14,6 +14,8 @@ test.beforeEach(async ({ page }) => {
     let stopCount = 0;
     let openFileCount = 0;
     const invokeCalls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+    const homeState = { pagination: false, completed: false };
+    (window as unknown as { __taskHomeState: typeof homeState }).__taskHomeState = homeState;
 
     const runningTask = {
       run: {
@@ -174,6 +176,10 @@ test.beforeEach(async ({ page }) => {
         case 'list_personas_cmd':
           return [];
         case 'list_agent_task_run_summaries_cmd':
+          if (homeState.pagination) {
+            if (args.cursor) return { items: [{ ...clone(failedTask), run: { ...clone(failedTask.run), title: 'Older completed task', status: 'completed' } }], nextCursor: null };
+            return { items: [{ ...clone(runningTask), run: { ...clone(runningTask.run), status: homeState.completed ? 'completed' : 'running' } }], nextCursor: { updatedAt: nowIso, createdAt: nowIso, id: 'run-live' } };
+          }
           if (args.status === 'attention') return { items: [{ ...clone(failedTask), run: { ...clone(failedTask.run), id: 'old-paused-run', title: 'Older task needs input', status: 'running', phase: 'paused' } }], nextCursor: null };
           return { items: [clone(runningTask), clone(failedTask)], nextCursor: null };
         case 'get_agent_task_run_summary_cmd':
@@ -463,6 +469,20 @@ test('task home groups recent work and continues a task in one click', async ({ 
   await home.screenshot({ path: testInfo.outputPath('task-home.png') });
   await home.getByRole('button', { name: /Prepare board brief/ }).click();
   await expect(page).toHaveURL(/\/chat\/conv-live/);
+});
+
+test('task home refreshes the head after paging while an earlier task is active', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/chat');
+  await page.evaluate(() => { (window as unknown as { __taskHomeState: { pagination: boolean } }).__taskHomeState.pagination = true; });
+  const home = page.getByTestId('task-home');
+  await home.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await home.getByRole('button', { name: 'Load more', exact: true }).click();
+  await expect(home).toContainText('Older completed task');
+  await page.evaluate(() => { (window as unknown as { __taskHomeState: { completed: boolean } }).__taskHomeState.completed = true; });
+  await page.clock.fastForward(15_100);
+  await expect(home.getByRole('button', { name: /Prepare board brief/ })).toContainText('Completed');
+  await expect(home).not.toContainText('Older completed task');
 });
 
 test('task center does not save a late artifact detail after selecting another task', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowUpRight, RefreshCw, Workflow } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '../../i18n';
@@ -23,6 +23,7 @@ function TaskHomeContent({ projectId }: { projectId?: string | null }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<AgentTaskRunListItem[]>([]);
+  const visibleTasks = useRef<AgentTaskRunListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
@@ -33,25 +34,34 @@ function TaskHomeContent({ projectId }: { projectId?: string | null }) {
     let alive = true;
     let pending = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    if (!cursor) setTasks([]);
+    if (!cursor) { visibleTasks.current = []; setTasks([]); }
     setError(null);
-    const load = async () => {
+    const load = async (pageCursor: AgentTaskRunPageCursor | null = null) => {
       if (pending || !alive || document.hidden) return;
       pending = true;
       setLoading(true);
       clearTimeout(timer);
       try {
-        const page = await listAgentTaskRunSummaries(12, cursor, status, projectId ?? null);
+        const page = await listAgentTaskRunSummaries(12, pageCursor, status, projectId ?? null);
         if (!alive) return;
-        setTasks(current => cursor ? [...new Map([...current, ...(page?.items ?? [])].map(item => [item.run.id, item])).values()] : page?.items ?? []);
+        const next = pageCursor ? [...new Map([...visibleTasks.current, ...(page?.items ?? [])].map(item => [item.run.id, item])).values()] : page?.items ?? [];
+        visibleTasks.current = next;
+        setTasks(next);
         setNextCursor(page?.nextCursor ?? null);
         setError(null);
-        if (page?.items.some(item => taskRunIsActive(item.run))) timer = setTimeout(() => void load(), 15_000);
       } catch (reason) { if (alive) setError(String(reason)); }
-      finally { pending = false; if (alive) setLoading(false); }
+      finally {
+        pending = false;
+        if (alive) {
+          setLoading(false);
+          // Status changes reorder keyset pages. Invalidate the paged view and
+          // refresh from its head rather than leaving earlier rows stale.
+          if (visibleTasks.current.some(item => taskRunIsActive(item.run))) timer = setTimeout(() => void load(), 15_000);
+        }
+      }
     };
     const refresh = () => void load();
-    void load();
+    void load(cursor);
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     return () => { alive = false; clearTimeout(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
