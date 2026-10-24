@@ -1,5 +1,5 @@
 import type { StreamTerminalProjectionState } from './terminalProjection';
-import { blockTraceDelta, blockTraceText, replaceBlockTraceText, utf8ByteLength, type TextTraceEvent } from './blockTrace';
+import { blockTraceDelta, blockTraceText, recoveredDeltaSuffix, replaceBlockTraceText, utf8ByteLength, type TextTraceEvent } from './blockTrace';
 
 function setTextTrace(state: StreamTerminalProjectionState, index: number, event: TextTraceEvent): void {
   if (state._tools) {
@@ -185,21 +185,6 @@ export function applyStreamBlockDelta(
       state._activeThinkingOffset,
     );
   }
-}
-
-/** A compacted durable fragment can overlap text already delivered live. Only
- * accept its suffix when every overlapping UTF-8 byte agrees with that block. */
-function recoveredDeltaSuffix(text: string, offset: number, consumedThrough: number, delta: string): string | null {
-  const incoming = new TextEncoder().encode(delta);
-  const overlap = consumedThrough - offset;
-  if (overlap <= 0 || overlap >= incoming.length) return null;
-  const existing = new TextEncoder().encode(text);
-  if (consumedThrough > existing.length) return null;
-  for (let index = 0; index < overlap; index++) {
-    if (incoming[index] !== existing[offset + index]) return null;
-  }
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(incoming.subarray(overlap)); }
-  catch { return null; }
 }
 
 /** A full upstream record supersedes only its block, including any stale gaps. */

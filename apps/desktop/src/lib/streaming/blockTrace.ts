@@ -9,6 +9,21 @@ export function utf8ByteLength(text: string): number {
   return encoder.encode(text).length;
 }
 
+/** Validate replay overlap before taking the missing suffix. `textStart` lets
+ * bounded clients retain only the tail needed for a compacted durable row. */
+export function recoveredDeltaSuffix(text: string, offset: number, consumedThrough: number, delta: string, textStart = 0): string | null {
+  if (!Number.isSafeInteger(offset) || offset < textStart || offset > consumedThrough) return null;
+  const incoming = encoder.encode(delta);
+  const overlap = Math.min(consumedThrough - offset, incoming.length);
+  const existing = encoder.encode(text);
+  if (offset - textStart + overlap > existing.length) return null;
+  for (let index = 0; index < overlap; index++) {
+    if (incoming[index] !== existing[offset - textStart + index]) return null;
+  }
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(incoming.subarray(overlap)); }
+  catch { return null; }
+}
+
 export function blockTraceText(events: TraceEvent[], kind: TextTraceKind, blockId: string): string {
   let text = '';
   for (const event of events) if (event.kind === kind && event.blockId === blockId) text += event.text;

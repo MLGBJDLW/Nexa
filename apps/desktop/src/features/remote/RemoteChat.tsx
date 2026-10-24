@@ -13,6 +13,15 @@ import type { AgentRunEvent, ImageAttachment } from '../../types/conversation';
 import { enqueueStreamRunEvent, takeNextStreamRunEvent, takeAuthoritativeRunEventSuffix, type StreamEventOrderingState } from '../../lib/streaming/ordering';
 import { RemoteRunTimeline, type RemoteTimelineItem } from './RemoteRunTimeline';
 import { mergeRemoteHistory } from './remoteHistory';
+import { recoveredDeltaSuffix, utf8ByteLength } from '../../lib/streaming/blockTrace';
+
+// Durable fragments are at most 64 KiB. Retain enough UTF-16 units to validate
+// that entire overlap even after the independently bounded visible prefix.
+function replayTail(text: string): string {
+  const tail = text.slice(-65_538);
+  const first = tail.charCodeAt(0);
+  return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
+}
 
 interface Connection {
   id: string;
@@ -194,7 +203,7 @@ export function RemoteChat({
     const ordering: StreamEventOrderingState = {
       _orderedRunId: null, _lastEventSeq: 0, _pendingRunEvents: new Map(),
     };
-    const blocks = new Map<string, { text: string; bytes: number }>();
+    const blocks = new Map<string, { text: string; bytes: number; tail: string }>();
     const items = new Map<string, RemoteTimelineItem>();
     const encoder = new TextEncoder();
     let paint: ReturnType<typeof setTimeout> | null = null;
@@ -266,12 +275,17 @@ export function RemoteChat({
       if ((event.kind === 'outputDelta' || event.kind === 'outputSnapshot') &&
           ['answer', 'thinking'].includes(payload.channel) && typeof payload.blockId === 'string') {
         const id = `${payload.channel}:${payload.blockId}`;
-        const previous = blocks.get(id) ?? { text: '', bytes: 0 };
-        if (event.kind === 'outputSnapshot' || previous.bytes === payload.offset) {
-          const text = String(event.kind === 'outputSnapshot' ? payload.text ?? payload.content ?? '' : payload.delta ?? '');
+        const previous = blocks.get(id) ?? { text: '', bytes: 0, tail: '' };
+        const delta = typeof payload.delta === 'string' ? payload.delta : '';
+        const suffix = event.kind === 'outputSnapshot' ? String(payload.text ?? payload.content ?? '')
+          : previous.bytes === payload.offset ? delta
+          : recoveredDeltaSuffix(previous.tail, payload.offset, previous.bytes, delta,
+            previous.bytes - utf8ByteLength(previous.tail));
+        if (suffix !== null) {
+          const text = suffix;
           const next = event.kind === 'outputSnapshot'
-            ? { text: text.slice(0, 128_000), bytes: encoder.encode(text).byteLength }
-            : { text: (previous.text + text).slice(0, 128_000), bytes: previous.bytes + encoder.encode(text).byteLength };
+            ? { text: text.slice(0, 128_000), bytes: encoder.encode(text).byteLength, tail: replayTail(text) }
+            : { text: (previous.text + text).slice(0, 128_000), bytes: previous.bytes + encoder.encode(text).byteLength, tail: replayTail(previous.tail + text) };
           blocks.set(id, next);
           const priorItem = items.get(id);
           items.set(id, { id, kind: payload.channel, sequence: priorItem?.sequence ?? event.eventSeq, text: next.text });
