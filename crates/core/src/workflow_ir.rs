@@ -3328,6 +3328,45 @@ mod tests {
     }
 
     #[test]
+    fn balanced_single_source_answer_requires_one_real_receipt_not_an_extra_source() {
+        let plan = build_task_plan(TaskPlanningInput::for_route(
+            "What does this note say?",
+            "KnowledgeRetrieval",
+            true,
+            1,
+        ));
+        let mut workflow = compile_turn_workflow_ir(&plan, &balanced_profile(), false, false)
+            .unwrap()
+            .expect("evidence-required turns retain an evidence ledger");
+        assert!(!workflow.completion_allowed());
+        workflow.observe_tool_result(
+            "read-evidence",
+            "retrieve_evidence",
+            false,
+            Some(&serde_json::json!({"sourceId":"only-source"})),
+            "Verified note",
+        );
+        assert!(workflow.completion_allowed());
+        let wider = build_task_plan(TaskPlanningInput::for_route(
+            "Compare these sources",
+            "KnowledgeRetrieval",
+            true,
+            2,
+        ));
+        let mut workflow = compile_turn_workflow_ir(&wider, &balanced_profile(), false, false)
+            .unwrap()
+            .unwrap();
+        workflow.observe_tool_result(
+            "read-evidence",
+            "retrieve_evidence",
+            false,
+            Some(&serde_json::json!({"sourceId":"only-source"})),
+            "One side only",
+        );
+        assert!(!workflow.completion_allowed());
+    }
+
+    #[test]
     fn late_computer_control_dynamically_establishes_a_desktop_completion_gate() {
         let direct = build_task_plan(TaskPlanningInput::for_route(
             "在微信里点击发送按钮",

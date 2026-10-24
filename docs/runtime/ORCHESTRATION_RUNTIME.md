@@ -170,6 +170,9 @@ baseline, and a subsequent change or unsettled effect activates the applicable
 checks. Later changes invalidate earlier receipts. Missing tooling is explicitly
 not applicable. Strict and scheduled-isolation policies retain their stronger
 gates; Plan Mode still produces a non-executing handoff.
+For ordinary knowledge questions, one selected source scope requires one real
+evidence receipt instead of a fixed two-source floor. Wider selected scopes and
+explicit strict profiles keep their higher evidence requirements.
 
 For non-trivial Nexus turns, the runtime automatically dispatches the first two
 ready reconnaissance nodes through `spawn_subagent_batch`. This is a controller
