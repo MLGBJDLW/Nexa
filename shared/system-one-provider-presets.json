@@ -4,12 +4,12 @@
     "name": "TypeSafe AI",
     "baseUrl": "https://api.typesafe.ai/v1",
     "documentationRef": "https://docs.typesafe.ai/models",
-    "lastVerifiedAt": "2026-10-08",
+    "lastVerifiedAt": "2026-10-24",
     "models": [
-      { "id": "jev-latest", "name": "Jev Latest", "status": "active", "access": "application", "resolvedModel": "jev-1.13.0" },
-      { "id": "jev-1.13.0", "name": "Jev 1.13", "status": "active", "access": "application" },
-      { "id": "jev-1.14.0", "name": "Jev 1.14", "status": "preview", "access": "application", "releaseDate": "2026-10-14", "contextTokens": 64000, "documentationRef": "https://docs.typesafe.ai/models", "lastVerifiedAt": "2026-10-19" },
-      { "id": "jev-preview", "name": "Jev Preview", "status": "preview", "access": "application", "resolvedModel": "jev-1.14.0" }
+      {"id":"jev-latest","name":"Jev Latest","status":"active","access":"application","resolvedModel":"jev-1.14.0"},
+      {"id":"jev-1.13.0","name":"Jev 1.13","status":"active","access":"application"},
+      {"id":"jev-1.14.0","name":"Jev 1.14","status":"active","access":"application","releaseDate":"2026-10-14","contextTokens":64000,"documentationRef":"https://docs.typesafe.ai/models","lastVerifiedAt":"2026-10-24"},
+      {"id":"jev-preview","name":"Jev Preview","status":"preview","access":"application","resolvedModel":"jev-1.14.0"}
     ]
   },
   {
@@ -17,17 +17,21 @@
     "name": "OpenRouter Decisions",
     "baseUrl": "https://openrouter.ai/api/v1",
     "documentationRef": "https://openrouter.ai/docs/guides/community/typesafe-sdk",
-    "lastVerifiedAt": "2026-10-08",
+    "lastVerifiedAt": "2026-10-24",
     "models": [
-      {"id": "perplexity/pplx-decider-flash-v1.2", "name": "Perplexity: Decider Flash V1.2", "status": "active", "access": "public", "source": "official", "lastVerifiedAt": "2026-10-19", "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=decisions", "contextTokens": 262144, "inputModalities": ["text", "image"], "outputModalities": ["decisions"]},
-      {"id": "perplexity/pplx-decider-v1.2", "name": "Perplexity: Decider V1.2", "status": "active", "access": "public", "source": "official", "lastVerifiedAt": "2026-10-19", "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=decisions", "contextTokens": 262144, "inputModalities": ["text", "image"], "outputModalities": ["decisions"]},
-      {"id": "~perplexity/pplx-decider-flash-latest", "name": "Perplexity: Decider Flash Latest", "status": "active", "access": "public", "source": "official", "lastVerifiedAt": "2026-10-19", "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=decisions", "contextTokens": 262144, "inputModalities": ["text", "image"], "outputModalities": ["decisions"]},
-      {"id": "respan/span-02", "name": "Respan: Span-02", "status": "active", "access": "public", "source": "official", "lastVerifiedAt": "2026-10-19", "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=decisions", "contextTokens": 131072, "inputModalities": ["text", "image"], "outputModalities": ["decisions"]},
-      {"id": "liquid/d1-ultra", "name": "LiquidAI: d1-ultra", "status": "active", "access": "public", "source": "official", "lastVerifiedAt": "2026-10-19", "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=decisions", "contextTokens": 32768, "inputModalities": ["text", "image"], "outputModalities": ["decisions"]},
-      {"id": "typesafe/jev-1.14", "name": "TypeSafe: Jev 1.14", "status": "preview", "access": "public", "source": "official", "lastVerifiedAt": "2026-10-19", "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=decisions", "contextTokens": 262144, "inputModalities": ["text", "image"], "outputModalities": ["decisions"]},
-      {"id": "~perplexity/pplx-decider-latest", "name": "Perplexity: Decider Latest", "status": "active", "access": "public", "source": "official", "lastVerifiedAt": "2026-10-19", "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=decisions", "contextTokens": 262144, "inputModalities": ["text", "image"], "outputModalities": ["decisions"]},
-      { "id": "jev-latest", "name": "Jev Latest", "status": "active", "access": "public", "resolvedModel": "typesafe/jev-1.13" },
-      { "id": "typesafe/jev-1.13", "name": "Jev 1.13", "status": "active", "access": "public" }
+      {"id":"perplexity/pplx-decider-flash-v1.2","name":"Perplexity: Decider Flash V1.2","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-19","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":262144,"inputModalities":["text","image"],"outputModalities":["decisions"]},
+      {"id":"perplexity/pplx-decider-v1.2","name":"Perplexity: Decider V1.2","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-19","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":262144,"inputModalities":["text","image"],"outputModalities":["decisions"]},
+      {"id":"~perplexity/pplx-decider-flash-latest","name":"Perplexity: Decider Flash Latest","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-19","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":262144,"inputModalities":["text","image"],"outputModalities":["decisions"]},
+      {"id":"respan/span-02","name":"Respan: Span-02","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-19","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":131072,"inputModalities":["text","image"],"outputModalities":["decisions"]},
+      {"id":"liquid/d1-ultra","name":"LiquidAI: d1-ultra","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-19","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":32768,"inputModalities":["text","image"],"outputModalities":["decisions"]},
+      {"id":"typesafe/jev-1.14","name":"TypeSafe: Jev 1.14","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-24","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":262144,"inputModalities":["text","image"],"outputModalities":["decisions"]},
+      {"id":"~perplexity/pplx-decider-latest","name":"Perplexity: Decider Latest","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-19","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":262144,"inputModalities":["text","image"],"outputModalities":["decisions"]},
+      {"id":"jev-latest","name":"Jev Latest","status":"active","access":"public","resolvedModel":"typesafe/jev-1.14"},
+      {"id":"typesafe/jev-1.13","name":"Jev 1.13","status":"active","access":"public"},
+      {"id":"baseten/mammoth-1:free","name":"Baseten: Mammoth 1 (free)","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-24","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":16384,"inputModalities":["text"],"outputModalities":["decisions"]},
+      {"id":"baseten/elephant-1:free","name":"Baseten: Elephant 1 (free)","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-24","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":16384,"inputModalities":["text"],"outputModalities":["decisions"]},
+      {"id":"nace-ai/drex-max","name":"Nace.AI: Drex Max","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-24","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":262144,"inputModalities":["text"],"outputModalities":["decisions"]},
+      {"id":"~typesafe/jev-latest","name":"TypeSafe: Jev Latest","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-10-24","documentationRef":"https://openrouter.ai/api/v1/models?output_modalities=decisions","contextTokens":262144,"inputModalities":["text","image"],"outputModalities":["decisions"]}
     ]
   },
   {
@@ -37,8 +41,8 @@
     "documentationRef": "https://docs.siliconflow.cn/docs/api/systemone-post",
     "lastVerifiedAt": "2026-10-08",
     "models": [
-      { "id": "Kev-4b", "name": "Kev 4B", "status": "preview", "access": "public" },
-      { "id": "SemIf", "name": "SemIf", "status": "preview", "access": "public" }
+      {"id":"Kev-4b","name":"Kev 4B","status":"preview","access":"public"},
+      {"id":"SemIf","name":"SemIf","status":"preview","access":"public"}
     ]
   },
   {
@@ -48,7 +52,7 @@
     "documentationRef": "https://docs.siliconflow.com/en/api-reference/systemone/create-systemone",
     "lastVerifiedAt": "2026-10-08",
     "models": [
-      { "id": "Kev-4B", "name": "Kev 4B", "status": "preview", "access": "public" }
+      {"id":"Kev-4B","name":"Kev 4B","status":"preview","access":"public"}
     ]
   },
   {
@@ -59,8 +63,8 @@
     "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-api",
     "lastVerifiedAt": "2026-10-08",
     "models": [
-      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" },
-      { "id": "decision-model-preview-2026-09-24", "name": "Decision Model Preview (2026-09-24)", "status": "preview", "access": "account_enablement", "source": "official", "lastVerifiedAt": "2026-10-15", "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide" }
+      {"id":"decision-model-preview","name":"Decision Model Preview","status":"preview","access":"account_enablement"},
+      {"id":"decision-model-preview-2026-09-24","name":"Decision Model Preview (2026-09-24)","status":"preview","access":"account_enablement","source":"official","lastVerifiedAt":"2026-10-15","documentationRef":"https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide"}
     ]
   },
   {
@@ -71,8 +75,8 @@
     "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-api",
     "lastVerifiedAt": "2026-10-08",
     "models": [
-      { "id": "decision-model-preview", "name": "Decision Model Preview", "status": "preview", "access": "account_enablement" },
-      { "id": "decision-model-preview-2026-09-24", "name": "Decision Model Preview (2026-09-24)", "status": "preview", "access": "account_enablement", "source": "official", "lastVerifiedAt": "2026-10-15", "documentationRef": "https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide" }
+      {"id":"decision-model-preview","name":"Decision Model Preview","status":"preview","access":"account_enablement"},
+      {"id":"decision-model-preview-2026-09-24","name":"Decision Model Preview (2026-09-24)","status":"preview","access":"account_enablement","source":"official","lastVerifiedAt":"2026-10-15","documentationRef":"https://help.aliyun.com/zh/model-studio/decision-model-tuning-guide"}
     ]
   }
 ]

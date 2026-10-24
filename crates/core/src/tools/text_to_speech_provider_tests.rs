@@ -35,6 +35,42 @@ async fn reply(socket: &mut tokio::net::TcpStream, content_type: &str, body: &st
 }
 
 #[tokio::test]
+async fn mistral_speech_uses_voice_id_and_decodes_json_audio_instead_of_saving_json_as_mp3() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let (headers, body) = read_json_request(&mut socket).await;
+        assert!(headers.starts_with("POST /v1/audio/speech "));
+        assert_eq!(
+            body,
+            json!({"model":"voxtral-mini-tts-3-0","input":"你好","voice_id":"voice_3142","response_format":"mp3","stream":false})
+        );
+        reply(&mut socket, "application/json", r#"{"audio_data":"SUQz"}"#).await;
+    });
+    let config = TextToSpeechConfig {
+        provider: "mistral".into(),
+        api_style: "mistral_speech".into(),
+        base_url: Some(format!("http://{address}/v1")),
+        api_key: "test".into(),
+        output_format: "mp3".into(),
+        ..Default::default()
+    };
+    let output = synthesize_mistral(
+        &reqwest::Client::new(),
+        &config,
+        "你好",
+        "voxtral-mini-tts-3-0",
+        "voice_3142",
+    )
+    .await
+    .unwrap();
+    server.await.unwrap();
+    assert_eq!(output.bytes, b"ID3");
+    assert_eq!(output.media_type, "audio/mpeg");
+}
+
+#[tokio::test]
 async fn eleven_v4_routes_dialogue_without_changing_existing_speech_requests() {
     for model in ["eleven_v4", "eleven_flash_v2_5"] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

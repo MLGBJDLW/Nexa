@@ -43,6 +43,24 @@ fn multipart_dialects_preserve_custom_and_legacy_models() {
     );
 }
 
+#[test]
+fn mistral_file_transcription_omits_unsupported_openai_fields_only_on_its_route() {
+    let mut config = SpeechToTextConfig {
+        provider: "mistral".into(),
+        model: "voxtral-mini-transcribe-3-0".into(),
+        api_style: "openai_transcription".into(),
+        base_url: Some("https://api.mistral.ai/v1".into()),
+        language: Some("zh-CN".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        transcription_form_fields(&config),
+        vec![("model", config.model.clone()), ("language", "zh".into())]
+    );
+    config.base_url = Some("https://private.example/v1".into());
+    assert!(transcription_form_fields(&config).contains(&("response_format", "json".into())));
+}
+
 #[tokio::test]
 async fn gpt_transcribe_uses_verified_multipart_dialect_for_both_call_paths() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

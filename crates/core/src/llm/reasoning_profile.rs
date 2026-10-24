@@ -1025,7 +1025,10 @@ pub fn resolve_reasoning_profile(
             value.budget_field = ReasoningBudgetField::None;
             value.omit_temperature_when_reasoning = true;
         }
-        if model == "moonshotai/kimi-k3" {
+        if matches!(
+            model.as_str(),
+            "moonshotai/kimi-k3" | "moonshotai/kimi-k3.1-pro"
+        ) {
             value.preserve_reasoning_history = true;
             value.replay_policy = ReasoningReplayPolicy::RequiredOnToolCall;
         }
@@ -1054,6 +1057,22 @@ pub fn resolve_reasoning_profile(
 
     if provider == ProviderType::Moonshot && is_moonshot_public_endpoint(provider, base_url) {
         let mut value = match model.as_str() {
+            "kimi-k3.1-pro" | "kimi-k3.1-pro-highspeed" => profile(
+                key,
+                "moonshot-kimi-k31-pro-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::High,
+                        ReasoningEffort::Max,
+                    ],
+                    Some(ReasoningEffort::Max),
+                ),
+                ReasoningBudgetField::None,
+            ),
             "kimi-k3" => profile(
                 key,
                 "moonshot-kimi-k3-v1",
@@ -1099,6 +1118,8 @@ pub fn resolve_reasoning_profile(
             ),
             _ => return ReasoningProfile::unsupported(key),
         };
+        value.use_max_completion_tokens =
+            matches!(model.as_str(), "kimi-k3.1-pro" | "kimi-k3.1-pro-highspeed");
         value.preserve_reasoning_history = true;
         value.omit_temperature_when_reasoning = true;
         return value;

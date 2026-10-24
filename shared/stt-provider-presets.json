@@ -292,5 +292,49 @@
     "documentationUrls": [
       "https://ai.google.dev/gemini-api/docs/live-api/live-transcribe"
     ]
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral Voxtral",
+    "provider": "mistral",
+    "apiStyle": "openai_transcription",
+    "requiresApiKey": true,
+    "baseUrl": "https://api.mistral.ai/v1",
+    "description": "Voxtral 3 transcription for complete recordings, with automatic language detection. Preview models.",
+    "transcription": {
+      "audioInput": "completeFile",
+      "transcriptDelivery": "finalOnly",
+      "interimSemantics": "none",
+      "finalization": "endOfFile",
+      "transport": "httpMultipart",
+      "sampleRateHz": 16000,
+      "engineStreamingCapable": false
+    },
+    "models": [
+      {
+        "id": "voxtral-mini-transcribe-3-0",
+        "access": "public",
+        "name": "Voxtral Mini Transcribe 3",
+        "recommended": true,
+        "source": "official",
+        "productReadiness": "known",
+        "status": "preview",
+        "lastVerifiedAt": "2026-10-24"
+      },
+      {
+        "id": "voxtral-small-transcribe-3-0",
+        "access": "public",
+        "name": "Voxtral Small Transcribe 3",
+        "source": "official",
+        "productReadiness": "known",
+        "status": "preview",
+        "lastVerifiedAt": "2026-10-24"
+      }
+    ],
+    "lastVerifiedAt": "2026-10-24",
+    "documentationUrls": [
+      "https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-files",
+      "https://docs.mistral.ai/api/endpoint/audio/transcriptions"
+    ]
   }
 ]

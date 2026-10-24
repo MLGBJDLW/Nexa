@@ -5748,6 +5748,36 @@ data: [DONE]
     }
 
     #[test]
+    fn moonshot_k31_pro_and_highspeed_use_the_direct_reasoning_and_output_contract() {
+        let config = endpoint_config(ProviderType::Moonshot, "https://api.moonshot.ai/v1");
+        for model in ["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"] {
+            let mut request = endpoint_reasoning_request(model);
+            request.max_tokens = Some(131_072);
+            request.reasoning_enabled = Some(false);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["max_completion_tokens"], 131_072);
+            assert_eq!(body["reasoning_effort"], "max");
+            assert!(body.get("max_tokens").is_none());
+            assert!(body.get("temperature").is_none());
+            assert!(body.get("thinking_budget").is_none());
+            request.reasoning_enabled = Some(true);
+            request.reasoning_effort = Some(ReasoningEffort::Low);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["reasoning_effort"], "low");
+        }
+    }
+
+    #[test]
     fn alibaba_routed_k3_accepts_only_max_and_preserves_thinking() {
         let mut request = endpoint_reasoning_request("kimi/kimi-k3");
         request.reasoning_effort = Some(ReasoningEffort::High);

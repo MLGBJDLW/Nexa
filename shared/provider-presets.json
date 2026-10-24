@@ -21583,6 +21583,58 @@
           }
         },
         "documentationRef": "https://openrouter.ai/api/v1/models/minimax/minimax-m3.1-flash/endpoints"
+      },
+      {
+        "id": "moonshotai/kimi-k3.1-pro",
+        "name": "MoonshotAI: Kimi K3.1 Pro",
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "max",
+              "high",
+              "low",
+              "none"
+            ],
+            "defaultEffort": "max",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "stop",
+          "structured_outputs",
+          "tool_choice",
+          "tools"
+        ],
+        "source": "official",
+        "lastVerifiedAt": "2026-10-24",
+        "documentationRef": "https://openrouter.ai/moonshotai/kimi-k3.1-pro",
+        "status": "active",
+        "recommended": false
       }
     ]
   },
@@ -25253,7 +25305,7 @@
     "baseUrl": "https://api.moonshot.ai/v1",
     "requiresApiKey": true,
     "icon": "🌙",
-    "description": "Kimi K3 with native vision and 1M context, plus K2 coding models",
+    "description": "Kimi K3.1 Pro and K3 with native vision and 1M context",
     "capabilities": {
       "vision": true
     },
@@ -25265,7 +25317,7 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "lastVerifiedAt": "2026-09-12",
         "modalities": [
           "text",
@@ -25300,8 +25352,8 @@
         "name": "Kimi K2.7 Code",
         "tagKey": "providers.tagCoding",
         "source": "official",
-        "status": "active",
-        "lastVerifiedAt": "2026-09-12",
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-10-24",
         "contextTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -25319,15 +25371,16 @@
           "image"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true
+        "supportsStructuredOutput": true,
+        "replacementModelId": "kimi-k3.1-pro"
       },
       {
         "id": "kimi-k2.7-code-highspeed",
         "name": "Kimi K2.7 Code Highspeed",
         "tagKey": "providers.tagFast",
         "source": "official",
-        "status": "active",
-        "lastVerifiedAt": "2026-09-12",
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-10-24",
         "contextTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -25345,15 +25398,16 @@
           "image"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true
+        "supportsStructuredOutput": true,
+        "replacementModelId": "kimi-k3.1-pro"
       },
       {
         "id": "kimi-k2.6",
         "name": "Kimi K2.6",
         "tagKey": "providers.tagLatest",
         "source": "official",
-        "status": "active",
-        "lastVerifiedAt": "2026-09-12",
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-10-24",
         "contextTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -25371,7 +25425,8 @@
           "image"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true
+        "supportsStructuredOutput": true,
+        "replacementModelId": "kimi-k3.1-pro"
       },
       {
         "id": "kimi-k2.5",
@@ -25561,6 +25616,80 @@
         "replacementModelId": "kimi-k3",
         "deprecationDate": "2025-11-11",
         "documentationRef": "https://platform.kimi.ai/docs/models"
+      },
+      {
+        "id": "kimi-k3.1-pro",
+        "name": "Kimi K3.1 Pro",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-10-24",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart"
+      },
+      {
+        "id": "kimi-k3.1-pro-highspeed",
+        "name": "Kimi K3.1 Pro Highspeed",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-24",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart"
       }
     ]
   },

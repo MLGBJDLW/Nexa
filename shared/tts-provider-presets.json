@@ -294,5 +294,86 @@
     ],
     "requiresApiKey": true,
     "lastVerifiedAt": "2026-10-15"
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral Voxtral",
+    "provider": "mistral",
+    "apiStyle": "mistral_speech",
+    "requiresApiKey": true,
+    "baseUrl": "https://api.mistral.ai/v1",
+    "description": "Voxtral 3 multilingual speech with built-in voices. JSON audio responses use the Mistral speech contract.",
+    "models": [
+      {
+        "id": "voxtral-mini-tts-3-0",
+        "access": "public",
+        "name": "Voxtral Mini TTS 3",
+        "recommended": true,
+        "source": "official",
+        "productReadiness": "known",
+        "status": "preview",
+        "lastVerifiedAt": "2026-10-24"
+      }
+    ],
+    "voices": [
+      {
+        "id": "voice_478",
+        "name": "Sheila",
+        "languages": [
+          "en-US"
+        ],
+        "recommended": true
+      },
+      {
+        "id": "voice_447",
+        "name": "Margaret",
+        "languages": [
+          "en-US"
+        ]
+      },
+      {
+        "id": "voice_485",
+        "name": "Rob",
+        "languages": [
+          "en-US"
+        ]
+      },
+      {
+        "id": "voice_592",
+        "name": "Marie",
+        "languages": [
+          "fr"
+        ]
+      },
+      {
+        "id": "voice_3142",
+        "name": "Mei",
+        "languages": [
+          "zh"
+        ]
+      },
+      {
+        "id": "gb_jane_neutral",
+        "name": "Jane",
+        "languages": [
+          "en-GB"
+        ]
+      }
+    ],
+    "speedRange": [
+      1,
+      1
+    ],
+    "outputFormats": [
+      "mp3",
+      "wav",
+      "flac",
+      "opus"
+    ],
+    "lastVerifiedAt": "2026-10-24",
+    "documentationUrls": [
+      "https://docs.mistral.ai/api/endpoint/audio/speech",
+      "https://docs.mistral.ai/studio/audio/text-to-speech/voices"
+    ]
   }
 ]
