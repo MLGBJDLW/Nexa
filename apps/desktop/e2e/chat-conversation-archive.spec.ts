@@ -660,6 +660,7 @@ test('creating a project opens its own new conversation and first send uses that
   await page.getByTestId('project-save').click();
   await expect(page).toHaveURL(/\/chat$/);
   await expect(page.getByTestId('project-new-conversation')).toContainText('Fresh project');
+  await expect(page.getByTestId('task-home')).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).__PROJECT_CREATE_INPUT__.workspaceRoots)).toEqual(['D:\\work\\fresh-project']);
   await expect(page.getByRole('textbox', { name: 'Type a message...' })).toHaveCount(0);
   await expect(page.getByTestId('chat-input-toolbar')).toHaveCount(0);
@@ -671,6 +672,7 @@ test('creating a project opens its own new conversation and first send uses that
   await page.screenshot({ path: testInfo.outputPath('new-project-conversation-narrow.png') });
   await page.getByTestId('project-start-chat').click();
   await expect(page.getByTestId('project-new-conversation')).toHaveCount(0);
+  await expect(page.getByTestId('task-home')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Type a message...' })).toHaveValue('');
   await page.getByRole('textbox', { name: 'Type a message...' }).fill('First task in the fresh project');
   await page.getByRole('textbox', { name: 'Type a message...' }).press('Enter');

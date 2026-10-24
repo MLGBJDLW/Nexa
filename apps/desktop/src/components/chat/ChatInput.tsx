@@ -7,7 +7,7 @@ import {
   NexaSelect,
 } from "../ui/overlay";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowUp, Square, Paperclip, X, FileText, Workflow, ChevronDown, ArchiveRestore, Loader2, Command, BrainCircuit, Sparkles, CircleDollarSign, Timer, Users, ShieldCheck, TriangleAlert, Ellipsis, Eye, PenLine } from "lucide-react";
+import { ArrowUp, Square, Paperclip, X, FileText, Workflow, ClipboardList, ChevronDown, ArchiveRestore, Loader2, Command, BrainCircuit, Sparkles, CircleDollarSign, Timer, Users, ShieldCheck, TriangleAlert, Ellipsis, Eye, PenLine } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation, type TranslationKey } from "../../i18n";
 import type { ArtifactPayload, Conversation, ImageAttachment, VisionTurnOverride } from "../../types/conversation";
@@ -60,6 +60,7 @@ import { McpContentPanel } from './McpContentPanel';
 import { ChatWorktreePanel } from './ChatWorktreePanel';
 import { CodeReviewPanel } from './CodeReviewPanel';
 import type { FollowupSuggestion } from '../../lib/followupSuggestions';
+import { TaskHome } from '../../features/chat/TaskHome';
 
 const LLM_CONTEXT_CONTENT_ARTIFACT_KEY = "llmContextContent";
 
@@ -431,6 +432,9 @@ export function ChatInput({
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowCatalogTemplate[]>([]);
   const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
   const [workflowCatalogOpen, setWorkflowCatalogOpen] = useState(false);
+  const [taskToolsOpen, setTaskToolsOpen] = useState(false);
+  useEffect(() => { setTaskToolsOpen(false); }, [draftKey]);
+  useEffect(() => { if (!moreOptionsOpen) setTaskToolsOpen(false); }, [moreOptionsOpen]);
   const [workflowCatalogLoading, setWorkflowCatalogLoading] = useState(false);
   const [caretPosition, setCaretPosition] = useState(0);
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
@@ -970,6 +974,7 @@ export function ChatInput({
   useAppCommand({ id: 'chat.options', label: 'chat.moreOptions', keywords: '/options nexus moa quality 协作 质量 更多', enabled: !inputLocked, run: () => setMoreOptionsOpen(true) });
   useAppCommand({ id: 'chat.attach', label: 'chat.attachImage', keywords: '/attach file attachment 附件', enabled: !attachmentLocked, run: () => runComposerAction('attach') });
   useAppCommand({ id: 'chat.workflow', label: 'chat.workflows', keywords: '/workflow 工作流', enabled: !nativeAgent && !attachmentLocked, run: () => { setMoreOptionsOpen(true); setWorkflowCatalogOpen(true); } });
+  useAppCommand({ id: 'chat.task-center', label: 'taskCenter.title', keywords: '/task-center history 任务 历史', enabled: !inputLocked, run: () => { setMoreOptionsOpen(true); setTaskToolsOpen(true); } });
   useAppCommand({ id: 'chat.compact', label: historyFork ? 'chat.forkNow' : 'chat.compactNow', keywords: '/fork /compact context 压缩 上下文', enabled: Boolean(conversationId && onCompact && !attachmentLocked && (historyFork || !isStreaming) && !isCompacting), run: () => onCompact?.() });
   useAppCommand({ id: 'chat.nexus', label: 'chat.nexusMode', keywords: '/nexus 协作', enabled: !nativeAgent && !inputLocked, run: () => changeNexusMode() });
   useAppCommand({ id: 'chat.moa', label: 'chat.moaMode', keywords: '/moa multi-model 多模型 协作', enabled: agentRuntime === 'api' && !inputLocked, run: () => runComposerAction('moa') });
@@ -1011,8 +1016,7 @@ export function ChatInput({
       setWorkflowCatalogOpen(true);
       setMoreOptionsOpen(true);
       requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        setCaretPosition(textareaRef.current?.selectionStart ?? nextValue.length);
+        setCaretPosition(nextValue.length);
         adjustHeight();
       });
       return;
@@ -1145,7 +1149,8 @@ export function ChatInput({
       const nextValue = slashResolution.message;
       setValue(nextValue);
       persistDraft(nextValue);
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      setCaretPosition(nextValue.length);
+      requestAnimationFrame(adjustHeight);
       return;
     }
     if (slashResolution?.localAction === "companion") {
@@ -2184,6 +2189,32 @@ export function ChatInput({
 
         <div id="chat-advanced-options" data-testid="chat-advanced-options" hidden={!moreOptionsOpen} className="border-t border-border/35 p-2.5">
           <div className="flex flex-wrap items-center gap-2">
+            <NexaPopover open={moreOptionsOpen && taskToolsOpen && !slashMenuOpen} onOpenChange={setTaskToolsOpen}>
+              <NexaPopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="chat-task-tools-trigger"
+                  disabled={inputLocked}
+                  className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary disabled:pointer-events-none disabled:opacity-40"
+                  aria-label={t('taskCenter.title')}
+                >
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  <span>{t('taskCenter.title')}</span>
+                </button>
+              </NexaPopoverTrigger>
+              {moreOptionsOpen && taskToolsOpen && !slashMenuOpen && (
+                <NexaPopoverContent
+                  data-testid="chat-task-tools-panel"
+                  aria-label={t('taskCenter.title')}
+                  side="top"
+                  align="start"
+                  collisionPadding={16}
+                  className="max-h-[var(--radix-popover-content-available-height)] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto p-0"
+                >
+                  <TaskHome projectId={projectId} />
+                </NexaPopoverContent>
+              )}
+            </NexaPopover>
             {!nativeAgent && workflowCatalogControl}
             {agentRuntime === 'api' && <label
               data-testid="chat-moa-control"

@@ -84,9 +84,14 @@ test.beforeEach(async ({ page }) => {
     const listeners = new Map<number, { event: string; handlerId: number }>();
     let callbackSeq = 1;
     let listenerSeq = 1;
+    const taskSummaryReads: unknown[] = [];
+    (window as unknown as { __taskSummaryReads: unknown[] }).__taskSummaryReads = taskSummaryReads;
 
     const invoke = async (cmd: string, args: Record<string, unknown> = {}) => {
       switch (cmd) {
+        case 'list_agent_task_run_summaries_cmd':
+          taskSummaryReads.push(args);
+          return { items: [], nextCursor: null };
         case 'plugin:event|listen': {
           const listenerId = listenerSeq++;
           listeners.set(listenerId, {
@@ -169,6 +174,49 @@ test.beforeEach(async ({ page }) => {
     };
   });
 });
+
+for (const width of [1360, 360]) {
+for (const route of ['/chat', '/chat/conv-workflows']) {
+test(`chat task tools open on demand at ${width}px on ${route}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto(route);
+  await expect(page.getByTestId('chat-input-textarea')).toBeVisible();
+  await expect(page.getByTestId('task-home')).toHaveCount(0);
+  await expect(page.getByTestId('chat-task-tools-trigger')).toBeHidden();
+  await page.screenshot({ path: `../../.artifacts/chat-task-quickfix/${route === '/chat' ? 'new' : 'existing'}-chat-${width}.png`, animations: 'disabled' });
+  expect(await page.evaluate(() => (window as unknown as { __taskSummaryReads: unknown[] }).__taskSummaryReads)).toEqual([]);
+  await page.getByTestId('chat-more-options').click();
+  await expect(page.getByTestId('task-home')).toHaveCount(0);
+  await page.getByTestId('chat-task-tools-trigger').click();
+  await expect(page.getByTestId('task-home')).toBeVisible();
+  const panel = page.getByTestId('chat-task-tools-panel');
+  await expect(panel).toBeVisible();
+  const bounds = await panel.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, overlay: !!element.closest('[data-nexa-overlay-root="true"]') };
+  });
+  expect(bounds.overlay).toBe(true);
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(width);
+  expect(bounds.top).toBeGreaterThanOrEqual(0);
+  expect(bounds.bottom).toBeLessThanOrEqual(900);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('task-home')).toHaveCount(0);
+  await page.getByTestId('chat-more-options').click();
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('/task-center');
+  await input.press('Enter');
+  await expect(panel).toBeVisible();
+  await expect(input).toHaveValue('');
+  await page.screenshot({ path: `../../.artifacts/chat-task-quickfix/task-tools-${width}.png`, animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await input.fill('/workflow');
+  await input.press('Enter');
+  await expect(page.getByTestId('workflow-catalog-panel')).toBeVisible();
+  await expect(input).toHaveValue('');
+});
+}
+}
 
 test('workflow catalog can prefill the chat composer', async ({ page }) => {
   await page.goto('/chat/conv-workflows');

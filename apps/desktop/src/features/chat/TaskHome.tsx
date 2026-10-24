@@ -14,7 +14,7 @@ function statusKey(item: AgentTaskRunListItem): TranslationKey {
   return 'taskCenter.completed';
 }
 
-/** A bounded projection of existing tasks; opening Home never loads transcripts. */
+/** An on-demand projection of task summaries; opening it never loads transcripts. */
 export function TaskHome({ projectId }: { projectId?: string | null }) {
   return <TaskHomeContent key={projectId ?? ''} projectId={projectId} />;
 }
@@ -73,7 +73,7 @@ function TaskHomeContent({ projectId }: { projectId?: string | null }) {
     group.push(item);
     groups.set(key, group);
   }
-  return <section aria-label={t('taskCenter.title')} data-testid="task-home" className="mx-4 mb-5 min-w-0 rounded-xl border border-border/60 bg-surface-1/75 p-4 text-left">
+  return <section aria-label={t('taskCenter.title')} data-testid="task-home" className="min-w-0 p-4 text-left">
     <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
       <button type="button" onClick={() => navigate('/tasks')} className="flex items-center gap-2 text-sm font-medium text-text-primary">{t('taskCenter.title')}<ArrowUpRight size={14} /></button>
       <div className="flex items-center gap-3 text-xs text-text-secondary">
