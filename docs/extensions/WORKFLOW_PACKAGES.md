@@ -119,8 +119,9 @@ Task Center reads each run's durable `plan_json` to show node dependencies,
 status, deliverables and the actual enforced/advisory verification gates.
 It refreshes active visible runs without overlapping requests. Artifacts, actors,
 history and checkpoints remain in the existing Task Center panels. Chat Home
-shows a bounded summary of recent tasks grouped by project with direct chat
-continuation; opening it does not load task transcripts. Reasoning starts
+shows paginated summaries grouped by project, with running/attention/failure
+filters that can reach older tasks and direct chat continuation; opening it
+does not load task transcripts. Reasoning starts
 collapsed and follows the user's explicit expansion state.
 
 Template tasks declare `dependsOn` IDs. Drafting precedes review, report

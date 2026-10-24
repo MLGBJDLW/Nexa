@@ -1094,7 +1094,12 @@ const AGENT_TASK_RUN_SUMMARY_QUERY: &str = r#"WITH event_counts AS (
      LEFT JOIN subtask_counts sc ON sc.run_id = r.id
      LEFT JOIN artifact_kinds ak ON ak.run_id = r.id
      WHERE (?2 IS NULL OR (r.updated_at, r.created_at, r.id) < (?2, ?3, ?4))
-       AND (?5 IS NULL OR r.status = ?5)
+       AND (?5 IS NULL OR r.status = ?5
+            OR (?5 = 'active' AND r.status IN ('queued', 'running', 'cancelling')
+                AND r.phase NOT IN ('paused', 'awaiting_user_input', 'approval'))
+            OR (?5 = 'attention' AND (r.status IN ('paused', 'awaiting_user_input', 'waiting_approval')
+                OR r.phase IN ('paused', 'awaiting_user_input', 'approval')))
+            OR (?5 = 'errors' AND r.status IN ('failed', 'timed_out')))
        AND (?6 IS NULL OR t.launch_project_id = ?6)
        AND (?7 IS NULL OR r.id = ?7)
      ORDER BY r.updated_at DESC, r.created_at DESC, r.id DESC
@@ -7151,6 +7156,20 @@ mod tests {
                 .all(|item| !first_ids.contains(item.run.id.as_str())),
             "adjacent keyset pages must not overlap"
         );
+
+        // Status discovery must reach work older than the recent page, including
+        // suspended phases whose materialized status is still `running`.
+        db.conn().execute("UPDATE agent_task_runs SET status = 'running', phase = 'paused' WHERE id = 'perf-run-00001'", []).unwrap();
+        let attention = db
+            .list_agent_task_run_summaries(12, None, Some("attention"), None)
+            .unwrap();
+        assert_eq!(attention.items.len(), 1);
+        assert_eq!(attention.items[0].run.id, "perf-run-00001");
+        assert!(db
+            .list_agent_task_run_summaries(12, None, Some("active"), None)
+            .unwrap()
+            .items
+            .is_empty());
 
         let mut samples = Vec::with_capacity(20);
         for _ in 0..20 {

@@ -4,7 +4,7 @@ import { ArrowUpRight, RefreshCw, Workflow } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '../../i18n';
 import { listAgentTaskRunSummaries } from '../../lib/api';
 import { taskRunIsActive, taskRunIsSuspended } from '../../lib/streaming/runReconciliation';
-import type { AgentTaskRunListItem } from '../../types/conversation';
+import type { AgentTaskRunListItem, AgentTaskRunPageCursor } from '../../types/conversation';
 
 function statusKey(item: AgentTaskRunListItem): TranslationKey {
   if (taskRunIsSuspended(item.run) || item.run.phase === 'approval') return 'taskCenter.waitingUser';
@@ -16,36 +16,46 @@ function statusKey(item: AgentTaskRunListItem): TranslationKey {
 
 /** A bounded projection of existing tasks; opening Home never loads transcripts. */
 export function TaskHome({ projectId }: { projectId?: string | null }) {
+  return <TaskHomeContent key={projectId ?? ''} projectId={projectId} />;
+}
+
+function TaskHomeContent({ projectId }: { projectId?: string | null }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<AgentTaskRunListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [status, setStatus] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<AgentTaskRunPageCursor | null>(null);
+  const [nextCursor, setNextCursor] = useState<AgentTaskRunPageCursor | null>(null);
+  const [loading, setLoading] = useState(false);
   useEffect(() => {
     let alive = true;
     let pending = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    setTasks([]);
+    if (!cursor) setTasks([]);
     setError(null);
     const load = async () => {
       if (pending || !alive || document.hidden) return;
       pending = true;
+      setLoading(true);
       clearTimeout(timer);
       try {
-        const page = await listAgentTaskRunSummaries(12, null, null, projectId ?? null);
+        const page = await listAgentTaskRunSummaries(12, cursor, status, projectId ?? null);
         if (!alive) return;
-        setTasks(page?.items ?? []);
+        setTasks(current => cursor ? [...new Map([...current, ...(page?.items ?? [])].map(item => [item.run.id, item])).values()] : page?.items ?? []);
+        setNextCursor(page?.nextCursor ?? null);
         setError(null);
         if (page?.items.some(item => taskRunIsActive(item.run))) timer = setTimeout(() => void load(), 15_000);
       } catch (reason) { if (alive) setError(String(reason)); }
-      finally { pending = false; }
+      finally { pending = false; if (alive) setLoading(false); }
     };
     const refresh = () => void load();
     void load();
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     return () => { alive = false; clearTimeout(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
-  }, [projectId, revision]);
+  }, [projectId, revision, status, cursor]);
   const groups = new Map<string, AgentTaskRunListItem[]>();
   for (const item of tasks) {
     const key = item.projectId ?? '';
@@ -58,9 +68,12 @@ export function TaskHome({ projectId }: { projectId?: string | null }) {
       <button type="button" onClick={() => navigate('/tasks')} className="flex items-center gap-2 text-sm font-medium text-text-primary">{t('taskCenter.title')}<ArrowUpRight size={14} /></button>
       <div className="flex items-center gap-3 text-xs text-text-secondary">
         <button type="button" className="flex items-center gap-1 hover:text-accent" onClick={() => navigate('/workflows')}><Workflow size={14} />{t('workflows.templates')}</button>
-        <button type="button" aria-label={t('taskCenter.refresh')} onClick={() => setRevision(value => value + 1)}><RefreshCw size={14} /></button>
+        <button type="button" aria-label={t('taskCenter.refresh')} onClick={() => { setCursor(null); setRevision(value => value + 1); }}><RefreshCw size={14} /></button>
       </div>
     </header>
+    <nav className="mb-3 flex flex-wrap gap-2" aria-label={t('taskCenter.title')}>
+      {([[null, 'history'], ['active', 'running'], ['attention', 'waitingUser'], ['errors', 'failed'], ['completed', 'completed']] as const).map(([filter, key]) => <button key={key} type="button" aria-pressed={status === filter} onClick={() => { setStatus(filter); setCursor(null); }} className={`rounded-md px-2 py-1 text-xs ${status === filter ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-surface-2'}`}>{t(`taskCenter.${key}`)}</button>)}
+    </nav>
     {error && <p role="alert" className="mb-2 text-xs text-danger">{error}</p>}
     <div className="max-h-60 space-y-3 overflow-y-auto">
       {[...groups.entries()].map(([id, items]) => <div key={id}>
@@ -72,6 +85,7 @@ export function TaskHome({ projectId }: { projectId?: string | null }) {
         </button>)}</div>
       </div>)}
       {!tasks.length && !error && <p className="text-xs text-text-tertiary">{t('taskCenter.emptyTitle')}</p>}
+      {nextCursor && <button type="button" disabled={loading} className="text-xs text-accent disabled:opacity-50" onClick={() => setCursor(nextCursor)}>{t('taskCenter.loadMore')}</button>}
     </div>
   </section>;
 }

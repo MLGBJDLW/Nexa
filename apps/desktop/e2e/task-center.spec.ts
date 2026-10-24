@@ -174,6 +174,7 @@ test.beforeEach(async ({ page }) => {
         case 'list_personas_cmd':
           return [];
         case 'list_agent_task_run_summaries_cmd':
+          if (args.status === 'attention') return { items: [{ ...clone(failedTask), run: { ...clone(failedTask.run), id: 'old-paused-run', title: 'Older task needs input', status: 'running', phase: 'paused' } }], nextCursor: null };
           return { items: [clone(runningTask), clone(failedTask)], nextCursor: null };
         case 'get_agent_task_run_summary_cmd':
           if (args.runId === 'run-live') return clone(runningTask);
@@ -455,6 +456,10 @@ test('task home groups recent work and continues a task in one click', async ({ 
   await expect(home).toBeVisible();
   await expect(home).toContainText('Launch plan');
   await expect(home).toContainText('Missing citations');
+  await home.getByRole('button', { name: 'Waiting for you', exact: true }).click();
+  await expect(home).toContainText('Older task needs input');
+  await home.getByRole('button', { name: 'History', exact: true }).click();
+  await expect(home).toContainText('Prepare board brief');
   await home.screenshot({ path: testInfo.outputPath('task-home.png') });
   await home.getByRole('button', { name: /Prepare board brief/ }).click();
   await expect(page).toHaveURL(/\/chat\/conv-live/);
