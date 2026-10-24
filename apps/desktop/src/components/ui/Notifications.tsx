@@ -18,7 +18,10 @@ export function NotificationSurface({ light, closeLabel }: { light: boolean; clo
   return createPortal(<Toaster theme={light ? 'light' : 'dark'} position="top-center"
     className="nexa-notifications" closeButton visibleToasts={2} gap={8} duration={5500}
     offset={{ top: 54 }} mobileOffset={{ top: 50, left: 12, right: 12 }}
-    style={{ '--notification-base': light ? '#ffffff' : '#191b22', '--width': '380px', zIndex: 80 } as CSSProperties}
+    style={{ '--notification-base': light ? '#ffffff' : '#191b22', '--width': '380px', zIndex: 80,
+      position: 'fixed', top: 'var(--offset-top, 54px)', left: '50%', transform: 'translateX(-50%)',
+      width: 'var(--width, 380px)', maxWidth: 'calc(100vw - 24px)', margin: 0, padding: 0,
+    } as CSSProperties}
     toastOptions={{ className: 'nexa-notification', closeButtonAriaLabel: closeLabel }}
   />, document.body);
 }
