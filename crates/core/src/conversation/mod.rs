@@ -3610,10 +3610,17 @@ impl Database {
     ) -> Result<std::collections::BTreeMap<String, crate::error::AgentRecoveryRequirement>, CoreError>
     {
         let conn = self.conn();
+        // Legacy early failures store the receipt at the top level; settled
+        // partial-result artifacts retain it under `run`. Either form must
+        // fence the parent, including when both are present and only one is true.
         let mut statement = conn.prepare(
-            "SELECT id, json_extract(output_json, '$.recoveryRequired')
+            "SELECT id, CASE
+                 WHEN json_extract(output_json, '$.recoveryRequired.actionReconciliation')=1
+                 THEN json_extract(output_json, '$.recoveryRequired')
+                 ELSE json_extract(output_json, '$.run.recoveryRequired') END
              FROM agent_subtask_runs WHERE parent_run_id=?1
-             AND json_extract(output_json, '$.recoveryRequired.actionReconciliation')=1",
+             AND (json_extract(output_json, '$.recoveryRequired.actionReconciliation')=1
+                  OR json_extract(output_json, '$.run.recoveryRequired.actionReconciliation')=1)",
         )?;
         let rows = statement.query_map([parent_run_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

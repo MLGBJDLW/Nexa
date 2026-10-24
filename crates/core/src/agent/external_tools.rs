@@ -194,7 +194,11 @@ mod tests {
 
     fn settle_uncertain_worker(db: &Database, id: &str) {
         db.finish_agent_subtask_run(id, "failed", Some(&serde_json::json!({
-            "recoveryRequired": {"actionReconciliation": true, "message": "Hosted action outcome is uncertain"}
+            // Successful settlement can still contain a failed worker result.
+            // This is the durable shape emitted by settle_subagent_artifact.
+            "kind": "subagent_run",
+            "run": {"isError": true, "status": "failed", "result": "Accepted partial work",
+                "recoveryRequired": {"actionReconciliation": true, "message": "Hosted action outcome is uncertain"}}
         })), None).unwrap();
     }
 
