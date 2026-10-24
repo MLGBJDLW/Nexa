@@ -16,6 +16,7 @@ const longThinking = Array.from({ length: 60 }, (_, i) => `Thinking line ${i}: i
 test('follows presented thinking and tool-only growth without new text', async ({ page }) => {
   await page.goto('/');
   await renderTrace(page, longThinking);
+  await page.getByTestId('thinking-trace-toggle').click();
   const text = page.getByTestId('thinking-stream-content');
   const scroller = text.locator('xpath=ancestor::div[contains(@class,"overflow-y-auto")]');
   await expect(text).toHaveText(longThinking);
@@ -29,6 +30,7 @@ test('follows presented thinking and tool-only growth without new text', async (
 test('pauses for manual reading and resumes at the bottom', async ({ page }) => {
   await page.goto('/');
   await renderTrace(page, longThinking);
+  await page.getByTestId('thinking-trace-toggle').click();
   const text = page.getByTestId('thinking-stream-content');
   const scroller = text.locator('xpath=ancestor::div[contains(@class,"overflow-y-auto")]');
   await expect(text).toHaveText(longThinking);
@@ -59,4 +61,18 @@ test('pauses for manual reading and resumes at the bottom', async ({ page }) => 
   await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
   await renderTrace(page, longThinking, 800);
   await expect.poll(() => scroller.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+});
+
+test('streaming reasoning stays collapsed until requested and respects manual collapse', async ({ page }) => {
+  await page.goto('/');
+  await renderTrace(page, 'Private working notes');
+  const toggle = page.getByTestId('thinking-trace-toggle');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('thinking-stream-content')).toHaveCount(0);
+  await toggle.click();
+  await expect(page.getByTestId('thinking-stream-content')).toContainText('Private working notes');
+  await toggle.click();
+  await renderTrace(page, 'Private working notes with a new token');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('thinking-stream-content')).toHaveCount(0);
 });

@@ -168,13 +168,25 @@ test.beforeEach(async ({ page }) => {
           return null;
         case 'get_wizard_state_cmd':
           return { completed: true };
+        case 'list_agent_configs_cmd':
+        case 'list_conversations_cmd':
+        case 'list_projects_cmd':
+        case 'list_personas_cmd':
+          return [];
         case 'list_agent_task_run_summaries_cmd':
           return { items: [clone(runningTask), clone(failedTask)], nextCursor: null };
         case 'get_agent_task_run_summary_cmd':
+          if (args.runId === 'run-live') return clone(runningTask);
+          if (args.runId === 'run-failed') return clone(failedTask);
           if (args.runId !== 'old-task-run') throw new Error('Task not found');
           return { ...clone(failedTask), run: { ...clone(failedTask.run), id: 'old-task-run', title: 'Historical workflow output', status: 'completed', errorMessage: null } };
         case 'get_agent_task_run_events_cmd':
           return clone(events);
+        case 'get_agent_task_run_plan_cmd':
+          return { workflowIr: { version: 1, nodes: [
+            { id: 'research', title: 'Review source evidence', phase: 'research', status: 'succeeded', dependencies: [], attempts: 1, allowedTools: ['read_file'], deliverable: { claims: ['Evidence collected'], evidence: ['source.pdf'], filesTouched: [], tests: [], uncertainties: [] } },
+            { id: 'verify', title: 'Validate the deliverable', phase: 'verification', status: 'blocked', dependencies: ['research'], attempts: 1, allowedTools: ['run_shell'], deliverable: null },
+          ], verificationGates: [{ id: 'tests', kind: 'tests', required: true, passed: null, detail: 'No successful test receipt yet.' }], completionContract: { requireVerificationGates: true, requireInteractionGates: false, requireEvidenceLedger: false }, checkpoint: { revision: 3 } } };
         case 'get_agent_task_history_cmd':
           return clone(events.filter(event => event.payload?.taskTimeline
             && (args.includeDeveloper || event.payload.taskTimeline.visibility !== 'developer'))
@@ -351,7 +363,7 @@ test('workflow deep link selects an older task outside the first history page', 
   expect(requests.find(call => call.cmd === 'get_agent_task_run_summary_cmd')?.args).toEqual({ runId: 'old-task-run' });
 });
 
-test('task center manages runs, graph, project memory, artifacts, and risk map', async ({ page }) => {
+test('task center manages runs, graph, project memory, artifacts, and risk map', async ({ page }, testInfo) => {
   await page.goto('/tasks');
 
   await expect(page.getByRole('heading', { name: 'Task Center' })).toBeVisible();
@@ -366,6 +378,12 @@ test('task center manages runs, graph, project memory, artifacts, and risk map',
 
   await page.getByRole('button', { name: /Prepare board brief/ }).click();
   await expect(page.getByRole('heading', { name: 'Prepare board brief' })).toBeVisible();
+  const workflow = page.getByTestId('workflow-run-inspector');
+  await expect(workflow).toContainText('No successful test receipt yet.');
+  await expect(workflow).toContainText('Required for completion');
+  await workflow.getByRole('button', { name: /Review source evidence/ }).click();
+  await expect(workflow).toContainText('Evidence collected');
+  await workflow.screenshot({ path: testInfo.outputPath('workflow-run-timeline.png') });
   await page.getByRole('button', { name: 'Execution Graph' }).click();
   await expect(page.locator('body')).toContainText('Collect evidence');
   await expect(page.locator('body')).toContainText('Check citations');
@@ -429,6 +447,17 @@ test('task center manages runs, graph, project memory, artifacts, and risk map',
     undefined,
     { timeout: 5000 },
   );
+});
+
+test('task home groups recent work and continues a task in one click', async ({ page }, testInfo) => {
+  await page.goto('/chat');
+  const home = page.getByTestId('task-home');
+  await expect(home).toBeVisible();
+  await expect(home).toContainText('Launch plan');
+  await expect(home).toContainText('Missing citations');
+  await home.screenshot({ path: testInfo.outputPath('task-home.png') });
+  await home.getByRole('button', { name: /Prepare board brief/ }).click();
+  await expect(page).toHaveURL(/\/chat\/conv-live/);
 });
 
 test('task center does not save a late artifact detail after selecting another task', async ({ page }) => {

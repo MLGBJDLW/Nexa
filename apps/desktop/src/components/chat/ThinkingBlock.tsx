@@ -131,9 +131,8 @@ export function ThinkingBlock({
 }: ThinkingBlockProps) {
   const { t } = useTranslation();
   const shouldReduceMotion = useReducedMotion();
-  const [expanded, setExpanded] = useState(defaultExpanded ?? isStreaming);
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const prevStreamingRef = useRef(isStreaming);
-  const autoOpenedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const scrollContentRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
@@ -143,24 +142,21 @@ export function ThinkingBlock({
   const combinedContent = effectiveSections
     ? effectiveSections.map(s => s.text).filter(Boolean).join('\n')
     : content;
-  const hasSectionCards = Boolean(effectiveSections?.some(section => section.toolCallCards || section.node));
-
-  // Keep the live trace open while it is streaming, then collapse it once that phase ends.
+  // Streaming must not reopen a trace the user has closed. Explicit expansion
+  // is reserved for actionable content such as a pending interaction.
   useEffect(() => {
-    const hasContent = combinedContent.trim().length > 0 || hasSectionCards;
+    if (defaultExpanded) setExpanded(true);
+  }, [defaultExpanded]);
+
+  useEffect(() => {
     if (!prevStreamingRef.current && isStreaming) {
       setMoodOrder(shuffledThinkingMoods());
     }
-    if (isStreaming && hasContent) {
-      setExpanded(true);
-      autoOpenedRef.current = true;
-    }
-    if (collapseOnFinish && prevStreamingRef.current && !isStreaming && autoOpenedRef.current) {
+    if (collapseOnFinish && prevStreamingRef.current && !isStreaming && !defaultExpanded) {
       setExpanded(false);
-      autoOpenedRef.current = false;
     }
     prevStreamingRef.current = isStreaming;
-  }, [collapseOnFinish, combinedContent, hasSectionCards, isStreaming]);
+  }, [collapseOnFinish, defaultExpanded, isStreaming]);
 
   // Observe the presented content, not the upstream token string: text reveal
   // and tool progress can resize this panel without changing combinedContent.

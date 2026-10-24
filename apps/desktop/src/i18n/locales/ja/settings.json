@@ -1157,5 +1157,10 @@
   "webSearchReorderHint": "ドラッグで優先順位を変更します。キーボード：スペースで選択、矢印キーで移動、スペースで確定。",
   "agentBehaviorGroup": "エージェントの動作",
   "dreamingTriggers": "実行タイミング",
-  "dreamingScope": "上限とソース"
+  "dreamingScope": "上限とソース",
+  "storageDatabase": "データベース容量",
+  "storageAllocated": "割り当て済みページ",
+  "storageReusable": "再利用可能領域",
+  "storageWal": "書き込み先行ログ",
+  "storageReuseHint": "削除後の空きページは次の書き込みに再利用されます。データ損失ではありません。ファイルを縮小する再構築はオフラインで行います。"
 }

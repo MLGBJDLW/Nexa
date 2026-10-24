@@ -1429,6 +1429,12 @@ export const listAgentTaskRunSummaries = (
 export const getAgentTaskRunEvents = (runId: string) =>
   invoke<AgentTaskRunEvent[]>('get_agent_task_run_events_cmd', { runId });
 
+export const getAgentTaskRunPlan = (runId: string) =>
+  invoke<Record<string, unknown> | null>('get_agent_task_run_plan_cmd', { runId });
+
+export interface DatabaseStorageStats { allocatedBytes: number; reusableBytes: number; mainFileBytes: number | null; walBytes: number | null }
+export const getDatabaseStorageStats = () => invoke<DatabaseStorageStats>('get_database_storage_stats_cmd');
+
 export const getAgentTaskHistory = (runId: string, includeDeveloper = false) =>
   invoke<import('./streaming/taskCenterHistory').TaskCenterHistoryItem[]>(
     'get_agent_task_history_cmd', { runId, includeDeveloper },

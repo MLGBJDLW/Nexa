@@ -179,5 +179,14 @@
   "authoringSettings": "觸發與權限",
   "schedulesSubtitle": "建立週期任務、查看下次執行時間，並隨時暫停或恢復。本機排程需要 Nexa 保持執行。",
   "savedAutomations": "已儲存任務（{count}）",
-  "noAutomations": "尚無任務。建立排程即可開始。"
+  "noAutomations": "尚無任務。建立排程即可開始。",
+  "runTimeline": "執行時間線",
+  "verificationGates": "驗證門",
+  "gateRequired": "完成前必須通過",
+  "gateAdvisory": "參考 / 不適用",
+  "stageAdd": "新增階段",
+  "stageRole": "角色",
+  "stageTask": "任務",
+  "stageOutput": "預期產出",
+  "stageParallelism": "平行工作數"
 }

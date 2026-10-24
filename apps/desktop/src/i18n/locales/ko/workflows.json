@@ -179,5 +179,14 @@
   "authoringSettings": "트리거 및 권한",
   "schedulesSubtitle": "반복 작업을 만들고 다음 실행을 확인하며 일시 중지하거나 재개하세요. 로컬 예약 실행에는 Nexa가 실행 중이어야 합니다.",
   "savedAutomations": "저장된 작업 ({count})",
-  "noAutomations": "아직 작업이 없습니다. 일정을 만들어 시작하세요."
+  "noAutomations": "아직 작업이 없습니다. 일정을 만들어 시작하세요.",
+  "runTimeline": "실행 타임라인",
+  "verificationGates": "검증 단계",
+  "gateRequired": "완료 전에 필수",
+  "gateAdvisory": "참고 / 해당 없음",
+  "stageAdd": "단계 추가",
+  "stageRole": "역할",
+  "stageTask": "작업",
+  "stageOutput": "예상 결과",
+  "stageParallelism": "병렬 작업자"
 }

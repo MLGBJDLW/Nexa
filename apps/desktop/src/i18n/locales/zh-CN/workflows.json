@@ -179,5 +179,14 @@
   "authoringSettings": "触发与权限",
   "schedulesSubtitle": "创建周期任务，查看下次运行时间，随时暂停或恢复。本地定时任务需要 Nexa 保持运行。",
   "savedAutomations": "已保存任务（{count}）",
-  "noAutomations": "还没有任务。创建一个定时任务即可开始。"
+  "noAutomations": "还没有任务。创建一个定时任务即可开始。",
+  "runTimeline": "运行时间线",
+  "verificationGates": "验证门",
+  "gateRequired": "完成前必须通过",
+  "gateAdvisory": "参考 / 不适用",
+  "stageAdd": "添加阶段",
+  "stageRole": "角色",
+  "stageTask": "任务",
+  "stageOutput": "预期产出",
+  "stageParallelism": "并行工作数"
 }

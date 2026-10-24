@@ -179,5 +179,14 @@
   "authoringSettings": "Trigger and permissions",
   "schedulesSubtitle": "Create recurring tasks, review upcoming runs, and pause or resume them. Nexa must be running for local schedules to execute.",
   "savedAutomations": "Saved tasks ({count})",
-  "noAutomations": "No tasks yet. Create a schedule to get started."
+  "noAutomations": "No tasks yet. Create a schedule to get started.",
+  "runTimeline": "Run timeline",
+  "verificationGates": "Verification gates",
+  "gateRequired": "Required for completion",
+  "gateAdvisory": "Advisory / not applicable",
+  "stageAdd": "Add stage",
+  "stageRole": "Role",
+  "stageTask": "Task",
+  "stageOutput": "Expected output",
+  "stageParallelism": "Parallel workers"
 }

@@ -1157,5 +1157,10 @@
   "webSearchReorderHint": "Ziehen zum Sortieren. Tastatur: Leertaste zum Aufnehmen, Pfeiltasten zum Verschieben, Leertaste zum Ablegen.",
   "agentBehaviorGroup": "Agent-Verhalten",
   "dreamingTriggers": "Auslöser",
-  "dreamingScope": "Grenzen und Quellen"
+  "dreamingScope": "Grenzen und Quellen",
+  "storageDatabase": "Datenbankspeicher",
+  "storageAllocated": "Zugewiesene Seiten",
+  "storageReusable": "Wiederverwendbarer Platz",
+  "storageWal": "Write-Ahead-Log",
+  "storageReuseHint": "Gelöschte Datensätze hinterlassen Seiten für weitere Schreibvorgänge. Dies ist kein Datenverlust. Die Datei wird nur durch einen Offline-Neuaufbau verkleinert."
 }

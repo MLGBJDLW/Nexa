@@ -365,6 +365,9 @@ test('template copy preserves full inputs, supports settings and runs with tempo
   const longContext = 'Source evidence 数据\n'.repeat(900) + 'END_OF_REQUIRED_CONTEXT';
   await panel.getByRole('textbox', { name: 'Context', exact: true }).fill(longContext);
   await panel.getByLabel('Constraints (one per line)').fill('Cite all numbers\nKeep the source files unchanged');
+  await panel.getByRole('button', { name: 'Add stage', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'Task', exact: true }).fill('Check the source-backed result');
+  await panel.getByRole('textbox', { name: 'Expected output', exact: true }).fill('Verification receipt with evidence');
   await panel.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(panel.locator('pre')).toContainText('END_OF_REQUIRED_CONTEXT');
   await panel.screenshot({ path: testInfo.outputPath('workflow-authoring.png') });
@@ -388,6 +391,7 @@ test('template copy preserves full inputs, supports settings and runs with tempo
     calls: (window as unknown as { __workflowCalls: Array<{ cmd: string; args: Record<string, unknown> }> }).__workflowCalls,
   }));
   expect(state.saved).toHaveLength(2);
+  expect((state.saved[0].recipe as { templateSnapshot: { tasks: unknown[] } }).templateSnapshot.tasks).toHaveLength(2);
   expect(state.saved[1]).toMatchObject({ expectedRevision: 1, trigger: { kind: 'folder', path: 'D:\\Reports' }, recipe: { version: 1, inputs: { goal: 'Validate the monthly report', context: longContext } } });
   const launch = state.calls.find(call => call.cmd === 'start_workflow_automation_run_cmd');
   expect(launch?.args.options).toMatchObject({ expectedRevision: 2, previewDigest: 'saved-preview-digest', inputs: { goal: 'Validate only October' } });

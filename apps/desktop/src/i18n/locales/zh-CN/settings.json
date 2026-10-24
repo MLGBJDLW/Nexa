@@ -1157,5 +1157,10 @@
   "webSearchReorderHint": "拖拽调整优先级。键盘：空格选中，方向键移动，再按空格放下。",
   "agentBehaviorGroup": "Agent 行为",
   "dreamingTriggers": "运行时机",
-  "dreamingScope": "运行限额与来源"
+  "dreamingScope": "运行限额与来源",
+  "storageDatabase": "数据库占用",
+  "storageAllocated": "已分配页面",
+  "storageReusable": "可复用空间",
+  "storageWal": "预写日志",
+  "storageReuseHint": "删除记录后，空闲页面会用于后续写入。可复用空间不代表数据丢失；缩小数据库文件需要离线重建。"
 }

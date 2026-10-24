@@ -8,6 +8,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Section, StatCard } from './SettingsSection';
+import { DatabaseStorageCard } from './DatabaseStorageCard';
 
 interface FtsProgress {
   operation?: string | null;
@@ -143,6 +144,7 @@ export function DataPrivacySettingsTab({
 
   return (
     <>
+      <DatabaseStorageCard />
       <Section
         icon={<BarChart3 size={20} />}
         title={t('analytics.title')}

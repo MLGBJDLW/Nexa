@@ -179,5 +179,14 @@
   "authoringSettings": "トリガーと権限",
   "schedulesSubtitle": "定期タスクを作成し、次回の実行を確認して、一時停止や再開ができます。ローカル実行には Nexa の起動が必要です。",
   "savedAutomations": "保存済みタスク（{count}）",
-  "noAutomations": "タスクはありません。スケジュールを作成してください。"
+  "noAutomations": "タスクはありません。スケジュールを作成してください。",
+  "runTimeline": "実行タイムライン",
+  "verificationGates": "検証ゲート",
+  "gateRequired": "完了前に必須",
+  "gateAdvisory": "参考 / 該当なし",
+  "stageAdd": "ステージを追加",
+  "stageRole": "役割",
+  "stageTask": "タスク",
+  "stageOutput": "期待する出力",
+  "stageParallelism": "並列ワーカー"
 }

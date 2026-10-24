@@ -3309,6 +3309,20 @@ impl Database {
             .ok_or_else(|| CoreError::NotFound(format!("Agent task run {run_id}")))
     }
 
+    /// Inspect one workflow without materializing historical tool artifacts.
+    pub fn get_agent_task_run_plan(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<serde_json::Value>, CoreError> {
+        let plan: Option<String> = self.conn().query_row(
+            "SELECT plan_json FROM agent_task_runs WHERE id = ?1",
+            [run_id],
+            |row| row.get(0),
+        )?;
+        plan.map(|value| serde_json::from_str(&value).map_err(CoreError::from))
+            .transpose()
+    }
+
     fn query_agent_task_run_summaries(
         &self,
         limit: u32,

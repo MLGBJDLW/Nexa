@@ -703,6 +703,19 @@ pub async fn get_agent_task_run_summary_cmd(
 }
 
 #[tauri::command]
+pub async fn get_agent_task_run_plan_cmd(
+    state: tauri::State<'_, AppState>,
+    run_id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    state
+        .db_executor
+        .read(move |db| db.get_agent_task_run_plan(&run_id))
+        .await
+        .map(|execution| execution.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_agent_task_history_cmd(
     state: tauri::State<'_, AppState>,
     run_id: String,
