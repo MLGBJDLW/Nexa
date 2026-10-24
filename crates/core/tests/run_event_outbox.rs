@@ -744,16 +744,39 @@ async fn queue_saturation_fails_closed_after_preserving_the_accepted_prefix() {
     let durable = database
         .list_agent_run_events(&run_id)
         .expect("accepted durable prefix");
-    assert_eq!(durable.len(), accepted);
+    // Durable batches may coalesce adjacent deltas. Reconstruct the accepted
+    // prefix and verify its cursor instead of requiring one row per fragment.
+    let mut replayed = String::new();
+    for event in &durable {
+        assert_eq!(
+            event.kind,
+            nexa_core::agent_run::AgentRunEventKind::OutputDelta
+        );
+        assert_eq!(
+            event.payload["offset"].as_u64(),
+            Some(replayed.len() as u64)
+        );
+        replayed.push_str(event.payload["delta"].as_str().expect("durable delta"));
+        assert_eq!(event.event_seq, replayed.len() as u64);
+    }
+    assert_eq!(replayed, "x".repeat(accepted));
     assert_eq!(
-        durable
+        durable.last().expect("durable prefix").event_seq,
+        accepted as u64
+    );
+    let delivered = delivery.events.lock().expect("capture lock").clone();
+    assert_eq!(
+        delivered
             .iter()
             .map(|event| event.event_seq)
             .collect::<Vec<_>>(),
-        (1..=accepted as u64).collect::<Vec<_>>()
+        (1..=accepted as u64 + 1).collect::<Vec<_>>()
     );
-    let delivered = delivery.events.lock().expect("capture lock").clone();
     assert_eq!(delivered.len(), accepted + 1);
+    for (offset, event) in delivered[..accepted].iter().enumerate() {
+        assert_eq!(event.payload["offset"].as_u64(), Some(offset as u64));
+        assert_eq!(event.payload["delta"], "x");
+    }
     assert_eq!(
         delivered.last().expect("failure terminal").event_seq,
         accepted as u64 + 1
