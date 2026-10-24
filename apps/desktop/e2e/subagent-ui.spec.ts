@@ -592,6 +592,7 @@ test('uses a compact glowing border for a stable running subagent', async ({ pag
   await page.getByTestId('chat-send').click();
 
   const chatLog = page.getByLabel('Chat messages');
+  await chatLog.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   const toolCard = chatLog.getByTestId('tool-call-card').first();
   await expect(toolCard).toHaveAttribute('data-tool-state', 'running');
   await toolCard.click();

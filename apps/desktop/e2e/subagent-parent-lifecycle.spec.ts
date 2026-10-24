@@ -23,6 +23,7 @@ test('a done nonblocking spawn follows its active parent through queue and cance
     renderSubagentParentLifecycle();
   });
   const fixture = page.getByTestId('subagent-parent-fixture');
+  await fixture.getByTestId('thinking-trace-toggle').click();
   await fixture.getByRole('button', { name: /spawn[_ ]subagent/i }).click();
   const card = fixture.getByTestId('subagent-card');
   await expect(card).toContainText('Queued');

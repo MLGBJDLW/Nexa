@@ -213,6 +213,7 @@ test('live tool progress does not render or re-highlight twenty historical rich 
     (window as any).__HISTORY_MARKDOWN_AUDIT__.emitProgress(0);
   });
   const liveTool = page.getByTestId('tool-call-card');
+  await page.locator('[data-testid="thinking-trace-toggle"][data-trace-state="active"]').click();
   await expect(liveTool).toContainText('Progress 00');
   await crossFrames(page);
   const snapshot = () => page.evaluate<RenderSnapshot>(() => (window as any).__HISTORY_MARKDOWN_AUDIT__.snapshot());
