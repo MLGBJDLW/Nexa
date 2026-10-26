@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.9...nexa-monorepo-v0.17.10) (2026-10-26)
+
+
+### Features
+
+* **agent:** improve subagent handoffs, cache diagnostics and live thinking ([#508](https://github.com/MLGBJDLW/Nexa/issues/508)) ([2631a1d](https://github.com/MLGBJDLW/Nexa/commit/2631a1d2382cdfd8aa1a72fbb153d121ac381ddb))
+
 ## [0.17.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.8...nexa-monorepo-v0.17.9) (2026-10-24)
 
 
