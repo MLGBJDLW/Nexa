@@ -106,10 +106,30 @@ async fn interrupted_worker_handoff_uses_latest_receipts_without_claiming_task_c
         serde_json::json!({}),
     )
     .unwrap();
+    let activities = nexa_core::activity::ActivityRuntime::new();
+    let activity = activities
+        .start(nexa_core::activity::ActivitySpec::new(
+            nexa_core::activity::ActivitySurface::Process,
+            "run_shell",
+        ))
+        .unwrap();
+    let observe_args = serde_json::json!({
+        "activityId": activity.activity_id, "afterSeq": 0, "waitFor": "output", "waitUpToMs": 0,
+    })
+    .to_string();
+    let observation = nexa_core::tools::activity_tool::ActivityObserveTool
+        .execute(
+            nexa_core::tools::ToolExecutionContext::new("observe-build", &observe_args, &db, &[])
+                .with_activity_runtime(&activities),
+        )
+        .await
+        .unwrap();
+    let observed_cursor = observation.artifacts.as_ref().unwrap()["activity"]["cursor"].clone();
     let receipts = vec![
         serde_json::json!({"phase":"runStarted", "run":{"callId":"read-1", "toolName":"read_file", "status":"running"}}),
         serde_json::json!({"phase":"runCompleted", "run":{"callId":"read-1", "toolName":"read_file", "status":"completed", "content":"Evidence from 已读文件.rs"}}),
         serde_json::json!({"phase":"runUpdated", "run":{"callId":"check-2", "toolName":"run_shell", "status":"running", "progressNote":"Waiting for build", "artifacts":{"activityId":"build-123"}}}),
+        serde_json::json!({"phase":"runCompleted", "run":{"callId":"observe-build", "toolName":"activity_observe", "status":"completed", "content": observation.content, "artifacts": observation.artifacts}}),
     ];
     let run = settle_subagent_artifact(
         &runtime,
@@ -135,6 +155,7 @@ async fn interrupted_worker_handoff_uses_latest_receipts_without_claiming_task_c
         },
         Err(CoreError::Agent("Worker timed out".into())),
         EventCapture {
+            partial_output: "Accepted partial prose; more verification remains.\n".repeat(1000),
             tool_events: receipts.clone(),
             thinking: vec!["Unfinished internal reasoning is not a tool receipt".into()],
             usage_total: Usage {
@@ -156,6 +177,42 @@ async fn interrupted_worker_handoff_uses_latest_receipts_without_claiming_task_c
     assert_eq!(run.usage_total.total_tokens, 42);
     let resumed = runtime.restore_session_snapshot(&db, "partial").unwrap();
     assert!(resumed.result.contains("build-123"));
+    let resume_args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+        "task": "Continue remaining verification", "task_id": "partial",
+    }))
+    .unwrap();
+    let resumed_request =
+        build_subagent_request(&resume_args, None, &[], &[], &[], &[], Some(&resumed));
+    assert!(resumed_request.contains(&activity.activity_id));
+    assert!(resumed_request.contains(&format!("\"cursor\":{observed_cursor}")));
+    assert!(resumed_request.contains("Next: inspect saved receipts"));
+    let summary = truncate_excerpt(&run.result, 1_600);
+    assert!(summary.contains(&activity.activity_id));
+    assert!(run.result.contains("Accepted partial prose"));
+
+    let service_capture = EventCapture {
+        partial_output: "Long partial prose. ".repeat(1000),
+        tool_events: vec![serde_json::json!({"phase":"runCompleted", "run": {
+            "callId":"observe-server", "toolName":"activity_observe", "status":"completed",
+            "artifacts": {
+                "kind":"activityObservation",
+                "activity":{"record":{"activityId":"server-activity", "state":"ready"}, "cursor":42},
+                "service":{"serviceId":"dev-service", "readyUrl":"http://127.0.0.1:4173", "status":"ready"},
+                "nextAction":null,
+            },
+        }})],
+        ..Default::default()
+    };
+    let service_handoff = interrupted_subagent_result(&service_capture, Some("Cancelled"));
+    let service_summary = truncate_excerpt(&service_handoff, 1_600);
+    for handle in [
+        "server-activity",
+        "dev-service",
+        "http://127.0.0.1:4173",
+        "\"cursor\":42",
+    ] {
+        assert!(service_summary.contains(handle), "{handle}");
+    }
 }
 
 #[tokio::test]
