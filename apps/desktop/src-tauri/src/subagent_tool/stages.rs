@@ -358,8 +358,15 @@ pub(super) async fn prepare_subagent_worker(
     config.request_kind = AgentRequestKind::SubagentWorker;
     config.delegated_task = Some(args.task.trim().to_string());
     if !is_judge {
-        config.system_prompt =
-            build_subagent_system_prompt(&config.system_prompt, args.role.as_deref(), role_profile);
+        // Keep the inherited policy byte-for-byte stable. Role-specific worker
+        // instructions belong to the existing runtime tail, which both API and
+        // subscription executors consume without granting additional tools.
+        config
+            .volatile_system_sections
+            .push(build_subagent_instructions(
+                args.role.as_deref(),
+                role_profile,
+            ));
     }
     let available_tool_names = runtime
         .get_tool_registry()
@@ -1030,7 +1037,7 @@ pub(super) fn settle_subagent_artifact(
     let result_text = final_message
         .as_ref()
         .map(|message| message.text_content())
-        .unwrap_or_else(|_| capture.partial_output.clone())
+        .unwrap_or_else(|_| interrupted_subagent_result(&capture, error_message.as_deref()))
         .trim()
         .to_string();
     let result_text = if result_text.is_empty() {
@@ -1118,6 +1125,7 @@ pub(super) fn settle_subagent_artifact(
     });
     let output = serde_json::json!({
         "kind": "subagent_run",
+        "summary": truncate_excerpt(&run.result, 1_600),
         "run": &run,
     });
     subtask.finish(

@@ -76,3 +76,29 @@ test('streaming reasoning stays collapsed until requested and respects manual co
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('thinking-stream-content')).toHaveCount(0);
 });
+
+test('collapsed thinking shows a bounded rolling preview and retires it on completion', async ({ page }) => {
+  await page.goto('/');
+  await renderTrace(page, longThinking.repeat(100));
+  const preview = page.getByTestId('thinking-preview');
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText('Thinking line 59');
+  expect((await preview.textContent())!.length).toBeLessThanOrEqual(1200);
+  await expect.poll(() => preview.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  const height = await preview.evaluate(el => el.clientHeight);
+  await preview.locator('div').evaluate(el => { el.style.fontSize = '24px'; });
+  await expect.poll(() => preview.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
+  await renderTrace(page, `${longThinking.repeat(100)}\nLatest verified progress`);
+  await expect(preview).toContainText('Latest verified progress');
+  expect(await preview.evaluate(el => el.clientHeight)).toBe(height);
+  await page.getByTestId('thinking-trace-toggle').click();
+  await expect(preview).toHaveCount(0);
+  await page.getByTestId('thinking-trace-toggle').click();
+  await expect(preview).toBeVisible();
+  await page.evaluate(async () => {
+    const { renderTrace } = await import(/* @vite-ignore */ '/e2e/fixtures/thinking-follow.tsx');
+    renderTrace('Final reasoning', 0, false);
+  });
+  await expect(preview).toHaveCount(0);
+  await expect(page.getByTestId('thinking-trace-toggle')).toHaveAttribute('aria-expanded', 'false');
+});

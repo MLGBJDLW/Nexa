@@ -55,6 +55,167 @@ fn test_runtime() -> DelegationRuntime {
 }
 
 #[tokio::test]
+async fn workers_preserve_parent_policy_and_keep_roles_in_the_runtime_tail() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("test-model".into());
+    runtime.base_config.system_prompt = "Parent policy including exact whitespace.\n".into();
+    runtime.set_tool_registry(ToolRegistry::new());
+    for role in ["researcher", "verifier"] {
+        let args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+            "task": "Inspect supplied evidence", "role_id": role, "allowed_tools": [],
+        }))
+        .unwrap();
+        let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, role, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            worker.config.system_prompt,
+            runtime.base_config.system_prompt
+        );
+        let tail = worker.config.volatile_system_sections.join("\n");
+        assert!(tail.contains("Subagent Instructions"));
+        assert!(tail.contains(&format!("- id: {role}")));
+        assert!(worker.request_text.contains("Inspect supplied evidence"));
+        assert!(worker.tools.definitions().is_empty());
+        assert!(worker.run_deadline_ms.is_none());
+    }
+}
+
+#[tokio::test]
+async fn interrupted_worker_handoff_uses_latest_receipts_without_claiming_task_completion() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("test-model".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    let args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+        "task": "Inspect evidence and verify a change", "allowed_tools": [],
+    }))
+    .unwrap();
+    let prepared = prepare_subagent_worker(&runtime, &db, vec![], &args, "partial", None)
+        .await
+        .unwrap();
+    let mut recorder = SubtaskRecorder::create(
+        &db,
+        None,
+        "partial",
+        "Subagent",
+        &serde_json::json!({}),
+        0,
+        "Queued".into(),
+        serde_json::json!({}),
+    )
+    .unwrap();
+    let activities = nexa_core::activity::ActivityRuntime::new();
+    let activity = activities
+        .start(nexa_core::activity::ActivitySpec::new(
+            nexa_core::activity::ActivitySurface::Process,
+            "run_shell",
+        ))
+        .unwrap();
+    let observe_args = serde_json::json!({
+        "activityId": activity.activity_id, "afterSeq": 0, "waitFor": "output", "waitUpToMs": 0,
+    })
+    .to_string();
+    let observation = nexa_core::tools::activity_tool::ActivityObserveTool
+        .execute(
+            nexa_core::tools::ToolExecutionContext::new("observe-build", &observe_args, &db, &[])
+                .with_activity_runtime(&activities),
+        )
+        .await
+        .unwrap();
+    let observed_cursor = observation.artifacts.as_ref().unwrap()["activity"]["cursor"].clone();
+    let receipts = vec![
+        serde_json::json!({"phase":"runStarted", "run":{"callId":"read-1", "toolName":"read_file", "status":"running"}}),
+        serde_json::json!({"phase":"runCompleted", "run":{"callId":"read-1", "toolName":"read_file", "status":"completed", "content":"Evidence from 已读文件.rs"}}),
+        serde_json::json!({"phase":"runUpdated", "run":{"callId":"check-2", "toolName":"run_shell", "status":"running", "progressNote":"Waiting for build", "artifacts":{"activityId":"build-123"}}}),
+        serde_json::json!({"phase":"runCompleted", "run":{"callId":"observe-build", "toolName":"activity_observe", "status":"completed", "content": observation.content, "artifacts": observation.artifacts}}),
+    ];
+    let run = settle_subagent_artifact(
+        &runtime,
+        SubagentSettlementInput {
+            verification_source: None,
+            worker_id: None,
+            call_label: "partial".into(),
+            args,
+            role_profile: prepared.role_profile,
+            requested_task_id: None,
+            session_id: "partial".into(),
+            previous_session: None,
+            effective_model: prepared.effective_model,
+            model_route_fallback: false,
+            evidence_handoff: prepared.evidence_handoff,
+            effective_source_scope: prepared.effective_source_scope,
+            effective_allowed_tools: prepared.effective_allowed_tools,
+            applied_skill_refs: prepared.applied_skill_refs,
+            preflight: prepared.preflight,
+            context_snapshot_artifact: prepared.context_snapshot_artifact,
+            effective_model_budgets: prepared.effective_model_budgets,
+            source_scope_applied: false,
+        },
+        Err(CoreError::Agent("Worker timed out".into())),
+        EventCapture {
+            partial_output: "Accepted partial prose; more verification remains.\n".repeat(1000),
+            tool_events: receipts.clone(),
+            thinking: vec!["Unfinished internal reasoning is not a tool receipt".into()],
+            usage_total: Usage {
+                total_tokens: 42,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &mut recorder,
+    );
+    assert_eq!(run.status, "timed_out");
+    assert!(run.is_error);
+    assert!(run.result.contains("task is incomplete"));
+    assert!(run.result.contains("已读文件.rs"));
+    assert!(run.result.contains("build-123"));
+    assert_eq!(run.result.matches("read-1").count(), 1);
+    assert!(!run.result.contains("Unfinished internal reasoning"));
+    assert_eq!(run.tool_events, receipts);
+    assert_eq!(run.usage_total.total_tokens, 42);
+    let resumed = runtime.restore_session_snapshot(&db, "partial").unwrap();
+    assert!(resumed.result.contains("build-123"));
+    let resume_args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+        "task": "Continue remaining verification", "task_id": "partial",
+    }))
+    .unwrap();
+    let resumed_request =
+        build_subagent_request(&resume_args, None, &[], &[], &[], &[], Some(&resumed));
+    assert!(resumed_request.contains(&activity.activity_id));
+    assert!(resumed_request.contains(&format!("\"cursor\":{observed_cursor}")));
+    assert!(resumed_request.contains("Next: inspect saved receipts"));
+    let summary = truncate_excerpt(&run.result, 1_600);
+    assert!(summary.contains(&activity.activity_id));
+    assert!(run.result.contains("Accepted partial prose"));
+
+    let service_capture = EventCapture {
+        partial_output: "Long partial prose. ".repeat(1000),
+        tool_events: vec![serde_json::json!({"phase":"runCompleted", "run": {
+            "callId":"observe-server", "toolName":"activity_observe", "status":"completed",
+            "artifacts": {
+                "kind":"activityObservation",
+                "activity":{"record":{"activityId":"server-activity", "state":"ready"}, "cursor":42},
+                "service":{"serviceId":"dev-service", "readyUrl":"http://127.0.0.1:4173", "status":"ready"},
+                "nextAction":null,
+            },
+        }})],
+        ..Default::default()
+    };
+    let service_handoff = interrupted_subagent_result(&service_capture, Some("Cancelled"));
+    let service_summary = truncate_excerpt(&service_handoff, 1_600);
+    for handle in [
+        "server-activity",
+        "dev-service",
+        "http://127.0.0.1:4173",
+        "\"cursor\":42",
+    ] {
+        assert!(service_summary.contains(handle), "{handle}");
+    }
+}
+
+#[tokio::test]
 async fn explicit_worker_shell_request_uses_the_parent_registry_without_a_saved_allowlist() {
     let db = Database::open_memory().unwrap();
     let mut runtime = test_runtime();

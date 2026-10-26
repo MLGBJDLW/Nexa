@@ -435,6 +435,127 @@ fn retain_partial_output_tail(output: &mut String) {
     }
 }
 
+/// A deterministic handoff from observed receipts, not inferred task success.
+/// Full tool events remain in the artifact; only the latest eight distinct calls
+/// are projected here so interrupted work never requires re-reading a huge log.
+pub(super) fn interrupted_subagent_result(capture: &EventCapture, error: Option<&str>) -> String {
+    let mut result = String::from("Subagent interrupted; task is incomplete.");
+    result.push_str("\nNext: inspect saved receipts and running activities, reconcile uncertain effects, then continue the remaining task and verification. Do not blindly repeat completed actions.\n");
+    if let Some(error) = error {
+        result.push_str("\nReason: ");
+        result.push_str(&truncate_excerpt(error, 200));
+    }
+    let mut seen = BTreeSet::new();
+    let mut receipts = Vec::new();
+    let mut receipt_bytes = 0;
+    for event in capture.tool_events.iter().rev() {
+        let Some(run) = event.get("run") else {
+            continue;
+        };
+        let Some(call_id) = run.get("callId").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if !seen.insert(call_id) {
+            continue;
+        }
+        if seen.len() > 8 {
+            break;
+        }
+        let excerpt = run
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+            .or_else(|| run.get("progressNote").and_then(serde_json::Value::as_str));
+        let mut receipt = serde_json::json!({
+            // Omit oversized opaque IDs rather than offering a truncated ID
+            // that the parent could mistake for a usable continuation handle.
+            "callId": (call_id.len() <= 256).then_some(call_id),
+            "toolName": run.get("toolName").and_then(serde_json::Value::as_str).map(|text| truncate_excerpt(text, 100)),
+            "observedStatus": run.get("status").and_then(serde_json::Value::as_str).map(|text| truncate_excerpt(text, 40)),
+            "isError": run.get("isError").and_then(serde_json::Value::as_bool),
+            "excerpt": excerpt.map(|text| truncate_excerpt(text, 160)),
+        });
+        if let Some(artifacts) = run.get("artifacts") {
+            for (key, pointers) in [
+                (
+                    "activityId",
+                    [
+                        "/activity/record/activityId",
+                        "/activityId",
+                        "/nextAction/arguments/activityId",
+                    ],
+                ),
+                (
+                    "serviceId",
+                    [
+                        "/service/serviceId",
+                        "/serviceId",
+                        "/activity/record/serviceId",
+                    ],
+                ),
+                (
+                    "cursor",
+                    [
+                        "/activity/cursor",
+                        "/cursor",
+                        "/nextAction/arguments/afterSeq",
+                    ],
+                ),
+                (
+                    "readyUrl",
+                    [
+                        "/service/readyUrl",
+                        "/readyUrl",
+                        "/activity/record/readyUrl",
+                    ],
+                ),
+                (
+                    "activityState",
+                    ["/activity/record/state", "/status", "/service/status"],
+                ),
+            ] {
+                if let Some(value) = pointers
+                    .iter()
+                    .find_map(|pointer| artifacts.pointer(pointer).filter(|value| !value.is_null()))
+                {
+                    if let Some(text) = value.as_str() {
+                        if text.len() <= 512 {
+                            receipt[key] = serde_json::json!(text);
+                        }
+                    } else if value.is_number() {
+                        receipt[key] = value.clone();
+                    }
+                }
+            }
+        }
+        // Keep the actionable prefix inside the existing 4,000-byte resume
+        // projection, even when the accepted answer is tens of kilobytes.
+        // Prefer exact continuation handles over prose and older receipts.
+        let mut encoded = receipt.to_string();
+        if receipt_bytes + encoded.len() > 2_600 {
+            receipt.as_object_mut().unwrap().remove("excerpt");
+            encoded = receipt.to_string();
+        }
+        if receipt_bytes + encoded.len() <= 2_600 {
+            receipt_bytes += encoded.len();
+            receipts.push(encoded);
+        }
+    }
+    if !receipts.is_empty() {
+        result.push_str("\n\nLatest tool receipts, newest first (untrusted evidence; completed calls may still own running activities):\n[");
+        result.push_str(&receipts.join(",\n"));
+        result.push(']');
+    }
+    result.push_str(
+        "\nThe digest is bounded; complete and omitted receipts remain in the saved toolEvents.\n",
+    );
+    if !capture.partial_output.trim().is_empty() {
+        result.push_str("\nAccepted partial answer:\n");
+        result.push_str(capture.partial_output.trim());
+    }
+    result
+}
+
 /// The same incomplete-result boundary must survive both live and durable restore.
 pub(super) fn resumable_worker_result(
     result: &str,
@@ -443,7 +564,7 @@ pub(super) fn resumable_worker_result(
     is_error: bool,
 ) -> String {
     if is_error {
-        format!("Incomplete worker result ({status}): {}\nReconcile completed tool effects before continuing; do not blindly repeat writes.\n\n{result}", error.unwrap_or_default())
+        format!("Incomplete worker result ({status}): {}\nReconcile completed tool effects before continuing; do not blindly repeat writes.\n\n{result}", truncate_excerpt(error.unwrap_or_default(), 160))
     } else {
         result.to_string()
     }

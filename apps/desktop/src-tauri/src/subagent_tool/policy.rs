@@ -84,6 +84,14 @@ pub(super) fn estimate_reserved_tokens(
 ) -> u32 {
     let model = config.model.as_deref().unwrap_or("gpt-4o-mini");
     estimate_tokens_for_model(model, &config.system_prompt)
+        .saturating_add(
+            config
+                .volatile_system_sections
+                .iter()
+                .fold(0_u32, |total, section| {
+                    total.saturating_add(estimate_tokens_for_model(model, section))
+                }),
+        )
         .saturating_add(estimate_tokens_for_model(model, request_text))
         .saturating_add(estimate_tool_tokens_for_model(model, &tools.definitions()))
         .saturating_add(inherited_context_tokens)

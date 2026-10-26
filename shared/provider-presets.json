@@ -17559,9 +17559,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-10-26",
         "documentationRef": "https://openrouter.ai/openai/gpt-3.5-turbo-instruct",
-        "maxOutputTokens": 3685
+        "maxOutputTokens": 3685,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "openai/gpt-3.5-turbo-16k",
@@ -17760,9 +17762,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-10-26",
         "documentationRef": "https://openrouter.ai/openai/gpt-3.5-turbo",
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "openai/gpt-4",
@@ -18812,12 +18816,64 @@
           "tool_choice",
           "tools",
           "top_k",
+          "top_logprobs"
+        ],
+        "source": "official",
+        "lastVerifiedAt": "2026-10-26",
+        "documentationRef": "https://openrouter.ai/liquid/lfm-2.5-2.6b:free",
+        "maxOutputTokens": 8192,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
+      },
+      {
+        "id": "liquid/lfm-2.5-2.6b",
+        "name": "LiquidAI: LFM2.5-2.6B",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_completion_tokens",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
           "top_logprobs",
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/liquid/lfm-2.5-2.6b:free",
+        "lastVerifiedAt": "2026-10-26",
+        "documentationRef": "https://openrouter.ai/liquid/lfm-2.5-2.6b",
         "maxOutputTokens": 8192,
         "capabilities": {
           "vision": false,
@@ -23046,7 +23102,7 @@
         "source": "official",
         "status": "active",
         "access": "public",
-        "lastVerifiedAt": "2026-10-14",
+        "lastVerifiedAt": "2026-10-26",
         "modalities": [
           "text",
           "image",
@@ -23070,7 +23126,7 @@
         "recommended": true,
         "capabilities": {
           "vision": true,
-          "promptCache": false,
+          "promptCache": true,
           "reasoning": {
             "mode": "always",
             "effortLevels": [
@@ -29451,6 +29507,46 @@
             "defaultEnabled": true
           }
         }
+      },
+      {
+        "id": "kimi-k3-1-pro-261024",
+        "name": "Kimi K3.1 Pro (Ark)",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-26",
+        "documentationRef": "https://console.volcengine.com/ark/region:cn-beijing/docs/model-list",
+        "contextTokens": 1024000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "supportsStructuredOutput": true,
+        "regions": [
+          "cn-beijing"
+        ]
       }
     ]
   },

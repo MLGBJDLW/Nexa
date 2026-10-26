@@ -146,7 +146,9 @@ fn gemini_implicit_cache_minimum(model: &str) -> Option<u32> {
         .strip_prefix("models/")
         .unwrap_or(model.trim())
         .to_ascii_lowercase();
-    if normalized.starts_with("gemini-3.") {
+    // Argon supports automatic prefix reuse, not explicit cachedContent or
+    // message breakpoints. Keep its diagnostics and stable layout enabled.
+    if normalized == "gemini-4-argon" || normalized.starts_with("gemini-3.") {
         Some(4_096)
     } else if normalized.starts_with("gemini-2.5-") {
         Some(2_048)
@@ -459,6 +461,25 @@ mod tests {
 
     #[test]
     fn latest_gemini_and_meta_models_use_only_their_verified_cache_contracts() {
+        for model in ["gemini-4-argon", "models/gemini-4-argon"] {
+            let argon = resolve_prompt_cache_profile(
+                ProviderType::Google,
+                None,
+                PromptCacheApiStyle::Gemini,
+                model,
+            );
+            assert_eq!(argon.id, "gemini-implicit-v1");
+            assert_eq!(argon.min_cacheable_tokens, Some(4_096));
+            assert_eq!(argon.usage_decoder, CacheUsageDecoderId::Gemini);
+            assert!(!argon.uses_message_breakpoints());
+        }
+        let custom_argon = resolve_prompt_cache_profile(
+            ProviderType::Google,
+            Some("https://private.example/v1beta"),
+            PromptCacheApiStyle::Gemini,
+            "gemini-4-argon",
+        );
+        assert_eq!(custom_argon.mode, PromptCacheMode::None);
         let gemini = resolve_prompt_cache_profile(
             ProviderType::Google,
             Some("https://generativelanguage.googleapis.com/v1beta"),
