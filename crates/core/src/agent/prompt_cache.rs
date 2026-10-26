@@ -867,16 +867,19 @@ impl PromptCacheTracker {
             let eligible = profile
                 .min_cacheable_tokens
                 .is_none_or(|minimum| pending.snapshot.estimated_prompt_tokens >= minimum);
-            let cache_outcome_reason = if profile.mode == PromptCacheMode::None {
-                "unsupported_profile"
-            } else if !eligible {
-                "ineligible_below_minimum"
-            } else if cache_read_tokens.is_some_and(|tokens| tokens > 0) {
+            // A normalized provider receipt is stronger evidence than a local
+            // profile or token estimate. Unknown routes can report real hits;
+            // that observation must not be relabelled as lack of support.
+            let cache_outcome_reason = if cache_read_tokens.is_some_and(|tokens| tokens > 0) {
                 "hit_reported"
             } else if cache_creation_tokens.is_some_and(|tokens| tokens > 0) {
                 "cold_create_reported"
             } else if cache_miss_tokens.is_some_and(|tokens| tokens > 0) {
                 "miss_reported"
+            } else if profile.mode == PromptCacheMode::None {
+                "unsupported_profile"
+            } else if !eligible {
+                "ineligible_below_minimum"
             } else if diff.tool_names_added.len()
                 + diff.tool_names_removed.len()
                 + diff.tool_schemas_changed.len()
@@ -1352,6 +1355,61 @@ mod tests {
         assert_eq!(warm.cache_miss_tokens, Some(25));
         assert_eq!(warm.actual_cache_hit_rate_bps, Some(8_000));
         assert_eq!(warm.cache_outcome_reason, "hit_reported");
+    }
+
+    #[test]
+    fn reported_cache_receipts_override_missing_profiles_and_estimated_eligibility() {
+        for (provider, model) in [
+            (ProviderType::Custom, "private-model"),
+            (ProviderType::OpenAi, "gpt-6.1-sol"),
+        ] {
+            for (read, miss, creation, expected) in [
+                (Some(80), Some(20), None, "hit_reported"),
+                (None, None, Some(100), "cold_create_reported"),
+                (Some(0), Some(100), None, "miss_reported"),
+            ] {
+                let mut tracker = PromptCacheTracker::default();
+                tracker.begin(
+                    "mainAgentStep",
+                    Some(provider),
+                    model,
+                    &[msg(Role::User, "short estimate")],
+                    &[],
+                );
+                let observation = tracker
+                    .complete(
+                        Some(&Usage {
+                            prompt_tokens: 100,
+                            cache_read_tokens: read,
+                            cache_miss_tokens: miss,
+                            cache_creation_tokens: creation,
+                            ..Usage::default()
+                        }),
+                        None,
+                    )
+                    .unwrap();
+                assert_eq!(observation.cache_outcome_reason, expected);
+            }
+        }
+        let mut tracker = PromptCacheTracker::default();
+        tracker.begin(
+            "mainAgentStep",
+            Some(ProviderType::Custom),
+            "private-model",
+            &[msg(Role::User, "short estimate")],
+            &[],
+        );
+        let unknown = tracker
+            .complete(
+                Some(&Usage {
+                    prompt_tokens: 100,
+                    ..Usage::default()
+                }),
+                None,
+            )
+            .unwrap();
+        assert_eq!(unknown.cache_outcome_reason, "unsupported_profile");
+        assert_eq!(unknown.actual_cache_hit_rate_bps, None);
     }
 
     #[test]
