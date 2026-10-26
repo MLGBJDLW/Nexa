@@ -63,6 +63,10 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
 });
 
 test('confirmed route removals remain tombstones while future retirements remain deprecated', () => {
+  for (const id of ['openai/gpt-3.5-turbo', 'openai/gpt-3.5-turbo-instruct']) {
+    assert.equal(model('openrouter', id).status, 'removed');
+    assert.equal(model('openrouter', id).replacementModelId, undefined);
+  }
   assert.equal(model('openrouter', 'minimax/minimax-m3.1-flash:free').status, 'removed');
   assert.equal(model('openrouter', 'minimax/minimax-m3.1-flash:free').replacementModelId, undefined, 'an unavailable free route must never migrate into billing');
   assert.equal(model('openrouter', 'minimax/minimax-m3.1-flash').status, 'active');

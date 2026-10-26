@@ -17559,9 +17559,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-10-26",
         "documentationRef": "https://openrouter.ai/openai/gpt-3.5-turbo-instruct",
-        "maxOutputTokens": 3685
+        "maxOutputTokens": 3685,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "openai/gpt-3.5-turbo-16k",
@@ -17760,9 +17762,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-10-26",
         "documentationRef": "https://openrouter.ai/openai/gpt-3.5-turbo",
-        "maxOutputTokens": 4096
+        "maxOutputTokens": 4096,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "openai/gpt-4",
