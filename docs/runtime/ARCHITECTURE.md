@@ -78,7 +78,10 @@ The maintained core prompt is `crates/core/prompts/system.md`, compiled into
 `agent/mod.rs` with `include_str!`. Edit that file for enduring execution and
 trust rules. `agent/route.rs` owns task-specific route guidance; tool schemas
 and validators own their arguments and recovery contracts; the desktop
-subagent preflight appends worker-specific guidance.
+subagent preflight puts worker-specific guidance in the existing volatile runtime
+tail while preserving the inherited policy text. Role and task changes therefore
+do not rewrite that stable policy. Tool scopes still narrow at the execution
+boundary; parent/child cache reuse is not guaranteed when their tool sets differ.
 
 Source-file placement does not determine cache reuse. `agent/prompt_ir.rs` and
 `agent/prompt_layout.rs` separate stable policy/tool prefixes from replayable
@@ -252,6 +255,13 @@ settles actual usage. Worker lifetime, rather than a result receiver, owns termi
 settlement. Per-worker and per-batch notifications avoid waking unrelated waiters;
 batch cursors return only newly settled results while retaining a full-snapshot
 recovery path. See [Orchestration runtime](ORCHESTRATION_RUNTIME.md).
+
+Interrupted workers return accepted partial answer text and a bounded digest of
+the latest tool receipts, including observed status and available activity IDs.
+The digest explicitly leaves the task incomplete: a finished tool call can still
+refer to a running background activity. Full receipts remain in the existing
+artifact and activity history, and action-reconciliation requirements continue to
+block unsafe replay. No extra model call or parallel result store is used.
 
 The shared Activity Runtime commits each record and its sequenced event in one
 SQLite transaction before publishing the in-memory state or notifying observers.

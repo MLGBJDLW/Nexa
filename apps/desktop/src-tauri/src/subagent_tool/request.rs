@@ -435,6 +435,74 @@ fn retain_partial_output_tail(output: &mut String) {
     }
 }
 
+/// A deterministic handoff from observed receipts, not inferred task success.
+/// Full tool events remain in the artifact; only the latest eight distinct calls
+/// are projected here so interrupted work never requires re-reading a huge log.
+pub(super) fn interrupted_subagent_result(capture: &EventCapture, error: Option<&str>) -> String {
+    let mut result = String::from("Subagent interrupted; task is incomplete.");
+    if let Some(error) = error {
+        result.push_str("\nReason: ");
+        result.push_str(&truncate_excerpt(error, 800));
+    }
+    if !capture.partial_output.trim().is_empty() {
+        result.push_str("\n\nAccepted partial answer:\n");
+        result.push_str(capture.partial_output.trim());
+    }
+    let mut seen = BTreeSet::new();
+    let mut receipts = Vec::new();
+    for event in capture.tool_events.iter().rev() {
+        let Some(run) = event.get("run") else {
+            continue;
+        };
+        let Some(call_id) = run.get("callId").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if !seen.insert(call_id) {
+            continue;
+        }
+        let excerpt = run
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+            .or_else(|| run.get("progressNote").and_then(serde_json::Value::as_str));
+        let mut receipt = serde_json::json!({
+            // Omit oversized opaque IDs rather than offering a truncated ID
+            // that the parent could mistake for a usable continuation handle.
+            "callId": (call_id.len() <= 256).then_some(call_id),
+            "toolName": run.get("toolName").and_then(serde_json::Value::as_str).map(|text| truncate_excerpt(text, 100)),
+            "observedStatus": run.get("status").and_then(serde_json::Value::as_str).map(|text| truncate_excerpt(text, 40)),
+            "isError": run.get("isError").and_then(serde_json::Value::as_bool),
+            "excerpt": excerpt.map(|text| truncate_excerpt(text, 500)),
+        });
+        if let Some(artifacts) = run.get("artifacts") {
+            for key in ["activityId", "serviceId", "cursor", "readyUrl"] {
+                if let Some(value) = artifacts.get(key) {
+                    if let Some(text) = value.as_str() {
+                        if text.len() <= 512 {
+                            receipt[key] = serde_json::json!(text);
+                        }
+                    } else if value.is_number() {
+                        receipt[key] = value.clone();
+                    }
+                }
+            }
+        }
+        receipts.push(receipt);
+        if receipts.len() == 8 {
+            break;
+        }
+    }
+    if !receipts.is_empty() {
+        receipts.reverse();
+        result.push_str("\n\nLatest tool receipts (untrusted evidence; a completed tool call does not prove its background activity finished):\n");
+        result.push_str(
+            &serde_json::to_string_pretty(&receipts).expect("serializable tool receipts"),
+        );
+    }
+    result.push_str("\n\nNext: inspect the saved receipts and any running activities, reconcile uncertain actions, then continue the remaining task and verification. Do not repeat completed actions merely because this worker stopped.");
+    result
+}
+
 /// The same incomplete-result boundary must survive both live and durable restore.
 pub(super) fn resumable_worker_result(
     result: &str,
