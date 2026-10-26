@@ -119,6 +119,7 @@ function ThinkingText({ text, reduceMotion }: { text: string; reduceMotion: bool
 
 function ThinkingPreview({ text }: { text: string }) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (viewport) viewport.scrollTop = viewport.scrollHeight;
@@ -128,6 +129,7 @@ function ThinkingPreview({ text }: { text: string }) {
     if (!viewport) return;
     const observer = new ResizeObserver(() => { viewport.scrollTop = viewport.scrollHeight; });
     observer.observe(viewport);
+    if (contentRef.current) observer.observe(contentRef.current);
     return () => observer.disconnect();
   }, []);
   return <div
@@ -136,7 +138,7 @@ function ThinkingPreview({ text }: { text: string }) {
     aria-hidden="true"
     className="mt-1 h-12 min-w-0 max-w-full overflow-hidden whitespace-pre-wrap pl-1 text-xs leading-4 text-text-tertiary [overflow-wrap:anywhere] [overflow-anchor:none]"
     style={{ maskImage: 'linear-gradient(to bottom, transparent, black 35%)' }}
-  ><div className="flex min-h-full flex-col justify-end">{text}</div></div>;
+  ><div ref={contentRef} className="flex min-h-full flex-col justify-end leading-[1.333333]">{text}</div></div>;
 }
 
 /* ------------------------------------------------------------------ */

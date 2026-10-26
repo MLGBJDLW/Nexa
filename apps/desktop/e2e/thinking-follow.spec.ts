@@ -86,6 +86,8 @@ test('collapsed thinking shows a bounded rolling preview and retires it on compl
   expect((await preview.textContent())!.length).toBeLessThanOrEqual(1200);
   await expect.poll(() => preview.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
   const height = await preview.evaluate(el => el.clientHeight);
+  await preview.locator('div').evaluate(el => { el.style.fontSize = '24px'; });
+  await expect.poll(() => preview.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(3);
   await renderTrace(page, `${longThinking.repeat(100)}\nLatest verified progress`);
   await expect(preview).toContainText('Latest verified progress');
   expect(await preview.evaluate(el => el.clientHeight)).toBe(height);
