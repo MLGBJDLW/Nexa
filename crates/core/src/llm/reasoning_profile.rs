@@ -767,6 +767,7 @@ pub fn resolve_reasoning_profile(
         && matches!(
             model.as_str(),
             "glm-5-3-flash-260828"
+                | "kimi-k3-1-pro-261024"
                 | "deepseek-v4-1-flash-260910"
                 | "deepseek-v4-1-flash-261017"
                 | "deepseek-v4-1-flash-economy-261017"
@@ -776,6 +777,8 @@ pub fn resolve_reasoning_profile(
         )
     {
         let glm = model == "glm-5-3-flash-260828";
+        let kimi = model == "kimi-k3-1-pro-261024";
+        let mandatory = glm || kimi;
         let glm52 = model == "glm-5-2-260617";
         let deepseek4 = matches!(
             model.as_str(),
@@ -783,7 +786,9 @@ pub fn resolve_reasoning_profile(
         );
         let mut value = profile(
             key,
-            if glm52 {
+            if kimi {
+                "ark-kimi-k31-pro-v1"
+            } else if glm52 {
                 "ark-glm52-v1"
             } else if deepseek4 {
                 "ark-deepseek-v4-v1"
@@ -792,7 +797,7 @@ pub fn resolve_reasoning_profile(
             } else {
                 "ark-deepseek-v41-flash-v1"
             },
-            if glm {
+            if mandatory {
                 ThinkingModeControl::AlwaysOnThinkingType
             } else {
                 ThinkingModeControl::ThinkingType
@@ -802,7 +807,9 @@ pub fn resolve_reasoning_profile(
                 ReasoningEffortMapping::ArkGlm52
             } else if deepseek4 {
                 ReasoningEffortMapping::ArkDeepSeekV4
-            } else if glm {
+            } else if mandatory {
+                // Ark documents the same low/high/max alias mapping for K3.1
+                // and GLM 5.3. Do not use Moonshot's direct wire contract.
                 ReasoningEffortMapping::ArkGlm
             } else {
                 ReasoningEffortMapping::ArkDeepSeek
@@ -817,7 +824,7 @@ pub fn resolve_reasoning_profile(
                         ReasoningEffort::Max,
                     ]
                 },
-                Some(if glm {
+                Some(if mandatory {
                     ReasoningEffort::Max
                 } else {
                     ReasoningEffort::High
@@ -1725,6 +1732,23 @@ mod tests {
             mini.reasoning_history_encoding,
             ReasoningHistoryEncoding::ArkEncryptedContent
         );
+        let kimi = resolve("kimi-k3-1-pro-261024");
+        assert_eq!(kimi.id, "ark-kimi-k31-pro-v1");
+        assert_eq!(kimi.mode_control, ThinkingModeControl::AlwaysOnThinkingType);
+        assert_eq!(
+            kimi.wire_effort(Some(&ReasoningEffort::None)).as_deref(),
+            Some("low")
+        );
+        assert_eq!(
+            kimi.wire_effort(Some(&ReasoningEffort::Medium)).as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            kimi.wire_effort(Some(&ReasoningEffort::XHigh)).as_deref(),
+            Some("max")
+        );
+        assert!(kimi.preserve_reasoning_history);
+        assert!(!kimi.use_max_completion_tokens);
     }
 
     #[test]

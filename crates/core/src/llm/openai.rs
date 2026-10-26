@@ -4050,6 +4050,11 @@ mod tests {
             (
                 ProviderType::Doubao,
                 "https://ark.cn-beijing.volces.com/api/v3",
+                "kimi-k3-1-pro-261024",
+            ),
+            (
+                ProviderType::Doubao,
+                "https://ark.cn-beijing.volces.com/api/v3",
                 "deepseek-v4-1-flash-260910",
             ),
             (
@@ -4164,6 +4169,7 @@ mod tests {
         for (model, default, mandatory) in [
             ("doubao-seed-2-1-turbo-260628", "high", false),
             ("glm-5-3-flash-260828", "max", true),
+            ("kimi-k3-1-pro-261024", "max", true),
             ("deepseek-v4-1-flash-260910", "high", false),
             ("deepseek-v4-1-flash-261017", "high", false),
             ("deepseek-v4-1-flash-economy-261017", "high", false),

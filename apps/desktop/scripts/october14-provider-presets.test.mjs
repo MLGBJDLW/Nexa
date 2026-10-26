@@ -36,7 +36,7 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   const argon = model('google', 'gemini-4-argon');
   assert.equal(argon.contextTokens, 1_048_576);
   assert.equal(argon.maxOutputTokens, 65_536);
-  assert.equal(argon.capabilities.promptCache, false);
+  assert.equal(argon.capabilities.promptCache, true, 'Argon supports implicit cache reuse; explicit cache markers remain disabled by its runtime profile');
   assert.deepEqual(argon.capabilities.reasoning.effortLevels, ['low', 'medium', 'high']);
   for (const provider of ['google', 'vertex']) {
     for (const id of ['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash']) {
@@ -48,6 +48,14 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   for (const id of ['doubao-seed-2-0-mini-260428', 'doubao-seed-character-260628']) assert.equal(model('doubao', id).capabilities.reasoning.defaultEffort, 'medium');
   for (const id of ['deepseek-v4-pro-ga-260813', 'deepseek-v4-flash-ga-260731']) assert.equal(model('doubao', id).maxOutputTokens, 384_000);
   assert.equal(model('openrouter', 'liquid/lfm-2.5-24b-a2b').contextTokens, 128_000);
+  assert.equal(model('openrouter', 'liquid/lfm-2.5-2.6b').contextTokens, 128_000);
+  assert.equal(model('openrouter', 'liquid/lfm-2.5-2.6b:free').contextTokens, 65_536);
+  assert.equal(model('openrouter', 'liquid/lfm-2.5-2.6b:free').replacementModelId, undefined, 'free selections must not silently switch to a paid route');
+  const arkKimi = model('doubao', 'kimi-k3-1-pro-261024');
+  assert.equal(arkKimi.contextTokens, 1_024_000);
+  assert.equal(arkKimi.maxOutputTokens, 128_000);
+  assert.deepEqual(arkKimi.capabilities.reasoning.effortLevels, ['low', 'high', 'max']);
+  assert.equal(arkKimi.capabilities.reasoning.mode, 'always');
   for (const id of ['scaledown/summarize', 'scaledown/extract']) {
     assert.equal(model('openrouter', id).supportsTools, false);
     assert.equal(model('openrouter', id).recommended, false);
