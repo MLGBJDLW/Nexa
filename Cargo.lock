@@ -4344,7 +4344,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-core"
-version = "0.17.9"
+version = "0.17.10"
 dependencies = [
  "aes-gcm",
  "apple-native-keyring-store",
@@ -4423,7 +4423,7 @@ dependencies = [
 
 [[package]]
 name = "nexa-desktop"
-version = "0.17.9"
+version = "0.17.10"
 dependencies = [
  "async-trait",
  "axum",
