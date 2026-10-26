@@ -399,6 +399,13 @@ and cannot invalidate a complete ordered live response.
 
 ### Copilot readable reasoning
 
+Live collapsed thinking traces show a fixed-height, plain-text tail of readable
+provider reasoning. The projection is bounded to 1,200 UTF-16 code units and does
+not parse the full transcript on each delta. Expanding keeps the existing full
+trace and scroll-follow controls; manual reading pauses following, and completion
+retires the live preview. Empty or opaque provider reasoning does not generate
+synthetic preview text.
+
 The subscription adapter requests native streaming and forwards each answer or
 reasoning delta immediately. Thinking offsets survive ordinary event checkpoints;
 only a real inference boundary retires them. `assistant.reasoning.content` and

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ComponentPropsWithoutRef } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, type ComponentPropsWithoutRef } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import { ThinkingIcon } from './ThinkingIcon';
@@ -117,6 +117,28 @@ function ThinkingText({ text, reduceMotion }: { text: string; reduceMotion: bool
   return <div data-testid="thinking-stream-content" className="min-w-0 max-w-full whitespace-pre-wrap [overflow-wrap:anywhere]">{presented}</div>;
 }
 
+function ThinkingPreview({ text }: { text: string }) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+  }, [text]);
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const observer = new ResizeObserver(() => { viewport.scrollTop = viewport.scrollHeight; });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+  return <div
+    ref={viewportRef}
+    data-testid="thinking-preview"
+    aria-hidden="true"
+    className="mt-1 h-12 min-w-0 max-w-full overflow-hidden whitespace-pre-wrap pl-1 text-xs leading-4 text-text-tertiary [overflow-wrap:anywhere] [overflow-anchor:none]"
+    style={{ maskImage: 'linear-gradient(to bottom, transparent, black 35%)' }}
+  ><div className="flex min-h-full flex-col justify-end">{text}</div></div>;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -139,9 +161,22 @@ export function ThinkingBlock({
   const [moodOrder, setMoodOrder] = useState(() => shuffledThinkingMoods());
 
   const effectiveSections = sections && sections.length > 0 ? sections : null;
-  const combinedContent = effectiveSections
-    ? effectiveSections.map(s => s.text).filter(Boolean).join('\n')
-    : content;
+  const hasContent = effectiveSections ? effectiveSections.some(section => section.text) : Boolean(content);
+  // A collapsed live trace only projects a bounded tail. Do not join or parse
+  // the full reasoning history on every streamed token.
+  let previewText = '';
+  if (isStreaming && !expanded) {
+    if (effectiveSections) {
+      for (let index = effectiveSections.length - 1; index >= 0; index -= 1) {
+        previewText = effectiveSections[index].text.slice(-1200).trimEnd();
+        if (previewText) break;
+      }
+    } else {
+      previewText = content.slice(-1200).trimEnd();
+    }
+    // A bounded UTF-16 slice may begin inside an emoji's surrogate pair.
+    if (/^[\uDC00-\uDFFF]/.test(previewText)) previewText = previewText.slice(1);
+  }
   // Streaming must not reopen a trace the user has closed. Explicit expansion
   // is reserved for actionable content such as a pending interaction.
   useEffect(() => {
@@ -159,14 +194,14 @@ export function ThinkingBlock({
   }, [collapseOnFinish, defaultExpanded, isStreaming]);
 
   // Observe the presented content, not the upstream token string: text reveal
-  // and tool progress can resize this panel without changing combinedContent.
+  // and tool progress can resize this panel without changing the source text.
   useEffect(() => {
     if (!isStreaming || !expanded) return;
     const el = scrollContainerRef.current;
     const contentEl = scrollContentRef.current;
     if (!el || !contentEl) return;
     return observeScrollFollow(el, contentEl, followingRef, () => {});
-  }, [isStreaming, expanded, Boolean(combinedContent || effectiveSections || children)]);
+  }, [isStreaming, expanded, Boolean(hasContent || effectiveSections || children)]);
 
   // Reset the "user scrolled up" guard whenever a new streaming phase starts.
   useEffect(() => {
@@ -215,8 +250,10 @@ export function ThinkingBlock({
         </span>
       </button>
 
+      {previewText && <ThinkingPreview text={previewText} />}
+
       <AnimatePresence initial={false}>
-        {expanded && (combinedContent || effectiveSections || children) && (
+        {expanded && (hasContent || effectiveSections || children) && (
           <motion.div
             {...getSoftCollapseMotion(!!shouldReduceMotion || isStreaming)}
             className="max-w-full min-w-0 overflow-hidden"
