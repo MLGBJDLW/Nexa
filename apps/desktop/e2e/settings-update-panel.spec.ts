@@ -219,7 +219,9 @@ for (const knownLength of [true, false]) {
     const progress = panel.getByRole('progressbar');
     if (knownLength) await expect(progress).toHaveAttribute('aria-valuenow', '40');
     else await expect(progress).not.toHaveAttribute('aria-valuenow');
-    await page.screenshot({ path: testInfo.outputPath('download-motion.png'), animations: 'disabled' });
+    // Keep CSS ownership intact: disabling screenshots cancels then replays
+    // infinite animations, which can outlive their CSS rule in Chromium.
+    await page.screenshot({ path: testInfo.outputPath('download-motion.png'), animations: 'allow' });
     await page.evaluate(() => (window as unknown as { __updateDownloadEvent: (event: unknown) => void })
       .__updateDownloadEvent({ event: 'Progress', data: { chunkLength: 600 } }));
     if (knownLength) await expect(progress).toHaveAttribute('aria-valuenow', '99');
