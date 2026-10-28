@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashSet};
 
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub(crate) struct LocalRecoveryTargets {
     pub desktop: Vec<DesktopObservationTarget>,
     pub browser: Vec<BrowserObservationTarget>,
@@ -160,8 +160,32 @@ fn complete_callback_ledger(
 }
 
 fn pending_targets(receipts: &[Value]) -> Option<LocalRecoveryTargets> {
+    pending_targets_with_batches(receipts, &BTreeMap::new())
+}
+
+fn pending_targets_with_batches(
+    receipts: &[Value],
+    batches: &BTreeMap<String, LocalRecoveryTargets>,
+) -> Option<LocalRecoveryTargets> {
     let mut targets = LocalRecoveryTargets::default();
     for run in receipts {
+        if let Some(batch) = run
+            .get("callId")
+            .and_then(Value::as_str)
+            .and_then(|id| batches.get(id))
+        {
+            for target in &batch.desktop {
+                if !targets.desktop.contains(target) {
+                    targets.desktop.push(target.clone());
+                }
+            }
+            for target in &batch.browser {
+                if !targets.browser.contains(target) {
+                    targets.browser.push(target.clone());
+                }
+            }
+            continue;
+        }
         let tool = run.get("toolName")?.as_str()?;
         let args = run.get("arguments").and_then(Value::as_str);
         let artifacts = run.get("artifacts");
@@ -274,6 +298,161 @@ fn pending_targets(receipts: &[Value]) -> Option<LocalRecoveryTargets> {
     Some(targets)
 }
 
+/// A failed aggregate is settled bookkeeping only when every requested worker
+/// is bound through its exact batch, lifecycle terminal result and canonical
+/// child callbacks. Do not exempt a delegation merely because of its tool name.
+fn completed_batch_targets(
+    conn: &Connection,
+    run_id: &str,
+    conversation: &str,
+    turn: &str,
+    callback: &Value,
+) -> Result<Option<LocalRecoveryTargets>, CoreError> {
+    let Some(call_id) = callback.get("callId").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let Some(artifacts) = callback.get("artifacts") else {
+        return Ok(None);
+    };
+    let arguments = callback
+        .get("arguments")
+        .and_then(Value::as_str)
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+    let Some(tasks) = arguments
+        .as_ref()
+        .and_then(|args| args.get("tasks"))
+        .and_then(Value::as_array)
+        .filter(|tasks| !tasks.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(runs) = artifacts.get("runs").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    let Some(workers) = artifacts.get("lifecycleWorkers").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    if artifacts.get("kind").and_then(Value::as_str) != Some("subagent_batch_result")
+        || artifacts.get("batchId").and_then(Value::as_str)
+            != Some(format!("{run_id}:{call_id}").as_str())
+        || [
+            "continuingWorkers",
+            "unsettledWorkers",
+            "pendingAtPolicyCompletion",
+        ]
+        .iter()
+        .any(|key| artifacts.get(key).and_then(Value::as_u64) != Some(0))
+        || runs.len() != tasks.len()
+        || workers.len() != tasks.len()
+        || artifacts
+            .get("completedRuns")
+            .and_then(Value::as_u64)
+            .zip(artifacts.get("failedRuns").and_then(Value::as_u64))
+            .is_none_or(|(completed, failed)| {
+                completed.checked_add(failed) != Some(tasks.len() as u64)
+            })
+        || crate::workflow_ir::tool_result_effect_may_have_occurred(Some(artifacts))
+    {
+        return Ok(None);
+    }
+    let mut identities = HashSet::new();
+    let mut agents = HashSet::new();
+    let mut result = LocalRecoveryTargets::default();
+    for (index, task) in tasks.iter().enumerate() {
+        let Some(task_text) = task
+            .get("task")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
+            return Ok(None);
+        };
+        let id = task
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{call_id}-{}", index + 1));
+        if !identities.insert(id.clone()) {
+            return Ok(None);
+        }
+        let Some(worker) = workers
+            .iter()
+            .find(|worker| worker.get("workerId").and_then(Value::as_str) == Some(id.as_str()))
+        else {
+            return Ok(None);
+        };
+        let Some(agent) = worker
+            .get("agentId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
+            return Ok(None);
+        };
+        if !agents.insert(agent) {
+            return Ok(None);
+        }
+        let Some(child) = runs
+            .iter()
+            .find(|run| run.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        else {
+            return Ok(None);
+        };
+        let session = task
+            .get("task_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .unwrap_or(&id);
+        if child.get("sessionId").and_then(Value::as_str) != Some(session)
+            || Some(task_text) != child.get("task").and_then(Value::as_str)
+        {
+            return Ok(None);
+        }
+        let terminal: Option<(String,String)> = conn.query_row(
+            "SELECT record.record_json,event.event_json FROM activity_records record JOIN activity_events event ON event.activity_id=record.activity_id AND event.seq=json_extract(record.record_json,'$.lastEventSeq') WHERE record.activity_id=?1 AND record.task_run_id=?2 AND record.conversation_id=?3 AND record.state IN ('completed','failed','cancelled')",
+            rusqlite::params![agent,run_id,conversation], |row| Ok((row.get(0)?,row.get(1)?))).optional()?;
+        let Some((record, event)) = terminal else {
+            return Ok(None);
+        };
+        let record: crate::activity::ActivityRecord = serde_json::from_str(&record)?;
+        let event: crate::activity::ActivityEvent = serde_json::from_str(&event)?;
+        if record.activity_id != agent
+            || record.owner_tool != "spawn_subagent"
+            || record.task_run_id.as_deref() != Some(run_id)
+            || record.conversation_id.as_deref() != Some(conversation)
+            || record.turn_id.as_deref() != Some(turn)
+            || !record.state.is_terminal()
+            || event.activity_id != agent
+            || event.seq != record.last_event_seq
+            || event.payload.get("agentId").and_then(Value::as_str) != Some(agent)
+            || !matches!(
+                event.payload.get("subagentEvent").and_then(Value::as_str),
+                Some("completed" | "failed" | "cancelled")
+            )
+            || event.payload.pointer("/detail/result") != Some(child)
+        {
+            return Ok(None);
+        }
+        let mut query = conn.prepare("SELECT id,json_extract(output_json,'$.run') FROM agent_subtask_runs WHERE parent_run_id=?1 AND status IN ('completed','failed','cancelled','timed_out') AND json_extract(input_json,'$.callLabel')=?2 AND json_extract(input_json,'$.workerId')=?2 AND json_extract(output_json,'$.run.id')=?2 AND json_extract(output_json,'$.run.sessionId')=?3")?;
+        let rows = query
+            .query_map(rusqlite::params![run_id, id, session], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.len() != 1 || serde_json::from_str::<Value>(&rows[0].1)? != *child {
+            return Ok(None);
+        }
+        let Some(targets) = legacy_subtask_targets(conn, run_id, &rows[0].0)? else {
+            return Ok(None);
+        };
+        result.desktop.extend(targets.desktop);
+        result.browser.extend(targets.browser);
+    }
+    Ok(Some(result))
+}
+
 pub(super) fn legacy_subtask_targets(
     conn: &Connection,
     run_id: &str,
@@ -358,11 +537,25 @@ fn native_run_targets(
             ))
         })
         .collect::<Result<Vec<_>, CoreError>>()?;
-    Ok(
-        complete_callback_ledger(conn, &conversation, Some(&turn), &events)?
-            .as_deref()
-            .and_then(pending_targets),
-    )
+    let Some(receipts) = complete_callback_ledger(conn, &conversation, Some(&turn), &events)?
+    else {
+        return Ok(None);
+    };
+    let mut batches = BTreeMap::new();
+    for callback in &receipts {
+        if callback.get("toolName").and_then(Value::as_str) == Some("spawn_subagent_batch")
+            && callback.pointer("/artifacts/kind").and_then(Value::as_str)
+                == Some("subagent_batch_result")
+        {
+            let Some(targets) =
+                completed_batch_targets(conn, run_id, &conversation, &turn, callback)?
+            else {
+                return Ok(None);
+            };
+            batches.insert(callback["callId"].as_str().unwrap().to_owned(), targets);
+        }
+    }
+    Ok(pending_targets_with_batches(&receipts, &batches))
 }
 
 impl Database {
@@ -409,6 +602,189 @@ mod tests {
     }
 
     #[test]
+    fn failed_batch_recovery_requires_complete_exact_parent_lifecycle_and_child_binding() {
+        for variant in [
+            "complete",
+            "known_desktop",
+            "observed_desktop",
+            "continuing",
+            "unsettled",
+            "wrong_batch",
+            "wrong_parent",
+            "wrong_lifecycle",
+            "wrong_session",
+            "child_gap",
+            "unknown_child",
+            "missing_lifecycle",
+            "truncated_batch",
+            "template_only",
+            "unknown_parent",
+        ] {
+            // This fixture exercises the production SQL/ledger path without
+            // unrelated migrations. The adjacent legacy test uses Database's
+            // full schema and public conversation/subtask persistence APIs.
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch("CREATE TABLE agent_task_runs(id TEXT,conversation_id TEXT,turn_id TEXT,provider TEXT);
+                CREATE TABLE agent_subtask_runs(id TEXT,parent_run_id TEXT,status TEXT,input_json TEXT,output_json TEXT);
+                CREATE TABLE conversations(id TEXT,parent_conversation_id TEXT,provider TEXT);
+                CREATE TABLE messages(conversation_id TEXT,role TEXT,tool_calls_json TEXT,sort_order INTEGER,tool_call_id TEXT,artifacts_json TEXT);
+                CREATE TABLE activity_records(activity_id TEXT,task_run_id TEXT,conversation_id TEXT,state TEXT,record_json TEXT);
+                CREATE TABLE activity_events(activity_id TEXT,seq INTEGER,event_json TEXT);
+                CREATE TABLE agent_run_events(run_id TEXT,kind TEXT,payload_json TEXT,event_seq INTEGER);
+                INSERT INTO agent_task_runs VALUES('parent-run','parent','turn','openai_codex');").unwrap();
+            let identity = serde_json::to_vec(&("parent", "worker", "openai_codex")).unwrap();
+            let child_conversation = format!("subagent-{}", blake3::hash(&identity).to_hex());
+            conn.execute(
+                "INSERT INTO conversations VALUES(?1,'parent','openai_codex')",
+                [&child_conversation],
+            )
+            .unwrap();
+            let desktop = matches!(variant, "known_desktop" | "observed_desktop");
+            let tool = if desktop {
+                "computer_control"
+            } else {
+                "read_file"
+            };
+            let child_args = if desktop {
+                r#"{"action":"click","window_id":42,"observation_id":"before"}"#
+            } else {
+                r#"{"path":"fixture.txt"}"#
+            };
+            let child_start = json!({"callId":"child-call","toolName":tool,"arguments":child_args,"providerExecuted":false,"status":"running"});
+            let child_artifacts = if desktop {
+                json!({"sideEffect":"may_have_occurred","data":{"windowId":42,"targetIdentity":"native42","consumedObservationId":"before"}})
+            } else if variant == "unknown_child" {
+                json!({"sideEffect":"may_have_occurred"})
+            } else {
+                json!({})
+            };
+            let child_end = json!({"callId":"child-call","toolName":tool,"arguments":child_args,"providerExecuted":false,"status":"completed","isError":false,"artifacts":child_artifacts});
+            let child_events = if variant == "child_gap" {
+                json!([{"phase":"runStarted","run":child_start}])
+            } else {
+                json!([{"phase":"runStarted","run":child_start},{"phase":"runCompleted","run":child_end}])
+            };
+            let child = json!({"id":"worker","sessionId":if variant == "wrong_session" {"other"} else {"worker"},"task":"inspect","status":"failed","isError":true,"runtimeIdentity":{"provider":"openai_codex","model":"fixture"},"toolEvents":child_events,"recoveryRequired":{"actionReconciliation":true,"message":"legacy verification debt"}});
+            conn.execute(
+                "INSERT INTO messages VALUES(?1,'assistant',?2,0,NULL,NULL)",
+                rusqlite::params![
+                    child_conversation,
+                    json!([{"id":"child-call","name":tool,"arguments":child_args}]).to_string()
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages VALUES(?1,'tool',NULL,1,'child-call',NULL)",
+                [&child_conversation],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO agent_subtask_runs VALUES('worker-row','parent-run','failed',?1,?2)",
+                rusqlite::params![
+                    json!({"callLabel":"worker","workerId":"worker"}).to_string(),
+                    json!({"run":child}).to_string()
+                ],
+            )
+            .unwrap();
+            let activity_parent = if variant == "wrong_parent" {
+                "other-parent"
+            } else {
+                "parent-run"
+            };
+            let record = json!({"activityId":"agent","sessionId":"agent","surface":"process","state":"failed","conversationId":"parent","turnId":"turn","taskRunId":activity_parent,"ownerTool":"spawn_subagent","startedAt":"2026-10-28T00:00:00Z","updatedAt":"2026-10-28T00:00:01Z","completedAt":"2026-10-28T00:00:01Z","lastEventSeq":1});
+            conn.execute(
+                "INSERT INTO activity_records VALUES('agent',?1,'parent','failed',?2)",
+                rusqlite::params![activity_parent, record.to_string()],
+            )
+            .unwrap();
+            if variant != "missing_lifecycle" {
+                let event = json!({"activityId":"agent","seq":1,"timestamp":"2026-10-28T00:00:01Z","kind":"failed","payload":{"agentId":"agent","subagentEvent":"failed","detail":{"status":"failed","result":child}}});
+                conn.execute(
+                    "INSERT INTO activity_events VALUES('agent',1,?1)",
+                    [event.to_string()],
+                )
+                .unwrap();
+            }
+            let args = if variant == "template_only" {
+                json!({"workflow_template":"investigate","batch_goal":"inspect"})
+            } else {
+                json!({"tasks":[{"id":"worker","task":"inspect"}]})
+            }
+            .to_string();
+            let batch = json!({"kind":"subagent_batch_result","batchId":if variant == "wrong_batch" {"parent-run:other-call"} else {"parent-run:batch-call"},"continuingWorkers":if variant == "continuing" {1} else {0},"unsettledWorkers":if variant == "unsettled" {1} else {0},"pendingAtPolicyCompletion":0,"completedRuns":0,"failedRuns":1,"runs":if variant == "truncated_batch" {json!([])} else {json!([child])},"lifecycleWorkers":[{"agentId":if variant == "wrong_lifecycle" {"other-agent"} else {"agent"},"workerId":"worker"}]});
+            let mut calls =
+                vec![json!({"id":"batch-call","name":"spawn_subagent_batch","arguments":args})];
+            let mut receipts = vec![
+                (
+                    "toolStarted",
+                    json!({"callId":"batch-call","toolName":"spawn_subagent_batch","arguments":args,"providerExecuted":false,"status":"running"}),
+                ),
+                (
+                    "toolCompleted",
+                    json!({"callId":"batch-call","toolName":"spawn_subagent_batch","arguments":args,"providerExecuted":false,"status":"failed","isError":true,"artifacts":batch}),
+                ),
+            ];
+            conn.execute(
+                "INSERT INTO messages VALUES('parent','tool',NULL,1,'batch-call',NULL)",
+                [],
+            )
+            .unwrap();
+            if variant == "observed_desktop" || variant == "unknown_parent" {
+                let (name, arguments, artifacts, failed) = if variant == "observed_desktop" {
+                    (
+                        "computer_observe",
+                        r#"{"action":"capture_window","window_id":42}"#,
+                        json!({"data":{"kind":"computerObservationReceipt","windowId":42,"targetIdentity":"native42","observationId":"after","screenshotHash":"pixels"}}),
+                        false,
+                    )
+                } else {
+                    (
+                        "browser_session",
+                        r#"{"action":"create_session"}"#,
+                        json!({"kind":"toolContractError","code":"invalid_tool_request"}),
+                        true,
+                    )
+                };
+                calls.push(json!({"id":"other-call","name":name,"arguments":arguments}));
+                receipts.extend([("toolStarted",json!({"callId":"other-call","toolName":name,"arguments":arguments,"providerExecuted":false,"status":"running"})),("toolCompleted",json!({"callId":"other-call","toolName":name,"arguments":arguments,"providerExecuted":false,"status":if failed {"failed"} else {"completed"},"isError":failed,"artifacts":artifacts}))]);
+                conn.execute(
+                    "INSERT INTO messages VALUES('parent','tool',NULL,2,'other-call',NULL)",
+                    [],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO messages VALUES('parent','assistant',?1,0,NULL,?2)",
+                rusqlite::params![
+                    json!(calls).to_string(),
+                    json!({"turnId":"turn"}).to_string()
+                ],
+            )
+            .unwrap();
+            for (index, (kind, receipt)) in receipts.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO agent_run_events VALUES('parent-run',?1,?2,?3)",
+                    rusqlite::params![kind, json!({"run":receipt}).to_string(), index as i64 + 1],
+                )
+                .unwrap();
+            }
+            let recovered = native_run_targets(&conn, "parent-run").unwrap();
+            assert_eq!(
+                recovered.is_some(),
+                matches!(variant, "complete" | "known_desktop" | "observed_desktop"),
+                "{variant}"
+            );
+            if let Some(targets) = recovered {
+                assert_eq!(
+                    targets.desktop.len(),
+                    usize::from(variant == "known_desktop"),
+                    "{variant}"
+                );
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "explicit read-only audit of a selected local legacy recovery receipt"]
     fn audit_selected_legacy_recovery_read_only() {
         let path = std::env::var("NEXA_RECOVERY_AUDIT_DB").expect("audit database path");
@@ -421,9 +797,22 @@ mod tests {
         .unwrap();
         let targets = legacy_subtask_targets(&conn, &run, &worker).unwrap();
         let parent_targets = native_run_targets(&conn, &run).unwrap();
+        let (conversation, turn): (String, String) = conn
+            .query_row(
+                "SELECT conversation_id,turn_id FROM agent_task_runs WHERE id=?1",
+                [&run],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let events = conn.prepare("SELECT kind,json_extract(payload_json,'$.run') FROM agent_run_events WHERE run_id=?1 AND kind IN ('toolStarted','toolCompleted') ORDER BY event_seq").unwrap()
+            .query_map([&run], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?))).unwrap()
+            .map(|row| { let (kind, raw) = row.unwrap(); (if kind == "toolStarted" {"started"} else {"completed"}.to_string(), serde_json::from_str::<Value>(&raw).unwrap()) }).collect::<Vec<_>>();
+        let ledger = complete_callback_ledger(&conn, &conversation, Some(&turn), &events).unwrap();
+        let blockers = ledger.as_ref().map(|receipts| receipts.iter().filter(|receipt| pending_targets(&[(*receipt).clone()]).is_none())
+            .map(|receipt| json!({"tool":receipt.get("toolName"),"callId":receipt.get("callId"),"status":receipt.get("status"),"code":receipt.pointer("/artifacts/code"),"sideEffect":receipt.pointer("/artifacts/sideEffect")})).collect::<Vec<_>>());
         let report = json!({"readOnly":true,"workerId":worker,"parentRunId":run,
             "classification":match &targets {Some(targets) if targets.is_empty()=>"complete_host_callbacks_no_pending_desktop_actions",Some(_)=>"bound_local_desktop_targets",None=>"opaque_or_incomplete_evidence"},
-            "pendingTargets":targets,"parentHostCallbacksComplete":parent_targets.is_some(),"parentPendingTargets":parent_targets,"taskCompletionClaimed":false});
+            "pendingTargets":targets,"parentHostCallbacksComplete":parent_targets.is_some(),"parentCanonicalLedgerComplete":ledger.is_some(),"blockingParentCallbacks":blockers,"parentPendingTargets":parent_targets,"taskCompletionClaimed":false});
         if let Ok(path) = std::env::var("NEXA_RECOVERY_AUDIT_OUTPUT") {
             std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
         }
