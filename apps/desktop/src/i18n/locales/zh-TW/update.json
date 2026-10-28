@@ -27,5 +27,6 @@
   "details": "詳細資訊",
   "sourceCustom": "自訂鏡像",
   "mirrorAddress": "鏡像站位址",
-  "mirrorHint": "前綴代理：在此 HTTPS 位址後接上原始 GitHub 連結。更新仍會驗證簽章。"
+  "mirrorHint": "前綴代理：在此 HTTPS 位址後接上原始 GitHub 連結。更新仍會驗證簽章。",
+  "installing": "正在驗證並安裝…"
 }

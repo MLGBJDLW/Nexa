@@ -1,0 +1,28 @@
+.update-activity {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  color: var(--color-accent, currentColor);
+  contain: layout style;
+}
+.update-activity-ring, .update-activity-glyph, .update-activity-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+.update-activity-layer > svg { display: block; width: 100%; height: 100%; }
+.update-activity-orbit, .update-activity-arrow, .update-activity-package { will-change: transform, opacity; }
+.update-activity--compact { width: 18px; height: 18px; }
+.update-activity-orbit { animation: update-orbit 1.8s cubic-bezier(.4,0,.2,1) infinite; }
+.update-activity-arrow { animation: update-arrival 1.8s cubic-bezier(.2,0,0,1) infinite; }
+.update-activity[data-phase='checking'] .update-activity-arrow { animation-duration: 2.4s; }
+.update-activity-progress { transition: stroke-dasharray 450ms cubic-bezier(.2,0,0,1); }
+.update-activity-package { animation: update-package 1.4s ease-in-out infinite; }
+.update-activity[data-phase='ready'] { color: var(--color-success, currentColor); }
+.update-activity-check { animation: update-ready 380ms cubic-bezier(.2,0,0,1) both; }
+@keyframes update-orbit { 0% { transform: rotate(0deg); } 60% { transform: rotate(250deg); } 100% { transform: rotate(360deg); } }
+@keyframes update-arrival { 0%, 100% { transform: translateY(-1.5px); opacity: .55; } 48%, 64% { transform: translateY(1px); opacity: 1; } }
+@keyframes update-package { 0%, 100% { transform: scale(.9); opacity: .6; } 50% { transform: scale(1); opacity: 1; } }
+@keyframes update-ready { from { transform: scale(.65); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .update-activity *, .update-activity *::before { animation: none !important; transition: none !important; }
+  .update-activity-layer { will-change: auto; }
+}

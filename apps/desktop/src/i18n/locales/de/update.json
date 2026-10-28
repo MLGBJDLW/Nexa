@@ -27,5 +27,6 @@
   "details": "Details",
   "sourceCustom": "Eigener Spiegelserver",
   "mirrorAddress": "Spiegelserver-URL",
-  "mirrorHint": "Präfix-Proxy: Die GitHub-URL wird an diese HTTPS-Adresse angehängt. Signaturen werden weiterhin geprüft."
+  "mirrorHint": "Präfix-Proxy: Die GitHub-URL wird an diese HTTPS-Adresse angehängt. Signaturen werden weiterhin geprüft.",
+  "installing": "Wird überprüft und installiert…"
 }

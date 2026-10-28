@@ -27,5 +27,6 @@
   "details": "세부 정보",
   "sourceCustom": "사용자 지정 미러",
   "mirrorAddress": "미러 기본 URL",
-  "mirrorHint": "접두사 프록시: 이 HTTPS 주소 뒤에 원본 GitHub URL을 붙입니다. 업데이트 서명 검증은 유지됩니다."
+  "mirrorHint": "접두사 프록시: 이 HTTPS 주소 뒤에 원본 GitHub URL을 붙입니다. 업데이트 서명 검증은 유지됩니다.",
+  "installing": "확인 및 설치 중…"
 }

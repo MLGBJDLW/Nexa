@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CheckCircle,
   Download,
-  Loader2,
   RefreshCw,
   XCircle,
 } from 'lucide-react';
@@ -11,6 +10,7 @@ import { useTranslation } from '../../i18n';
 import { useUpdater, type UpdateSource } from '../../lib/useUpdater';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { UpdateActivity } from '../ui/UpdateActivity';
 
 type UpdaterState = ReturnType<typeof useUpdater>;
 
@@ -59,13 +59,13 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
   const statusMeta = (() => {
     switch (status) {
       case 'checking':
-        return { label: t('knowledge.checking'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
+        return { label: t('knowledge.checking'), variant: 'info' as const, icon: <UpdateActivity status="checking" className="update-activity--compact" /> };
       case 'available':
         return { label: t('update.available'), variant: 'warning' as const, icon: <Download size={14} /> };
       case 'downloading':
-        return { label: t('update.downloading'), variant: 'info' as const, icon: <Loader2 size={14} className="animate-spin" /> };
+        return { label: t(progress === 100 ? 'update.installing' : 'update.downloading'), variant: 'info' as const, icon: <UpdateActivity status="downloading" progress={progress} className="update-activity--compact" /> };
       case 'ready':
-        return { label: t('update.ready'), variant: 'success' as const, icon: <CheckCircle size={14} /> };
+        return { label: t('update.ready'), variant: 'success' as const, icon: <UpdateActivity status="ready" className="update-activity--compact" /> };
       case 'error':
         return { label: t('update.error'), variant: 'danger' as const, icon: <XCircle size={14} /> };
       case 'up-to-date':
@@ -119,9 +119,8 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
             <Button
               variant="secondary"
               size="sm"
-              icon={status === 'checking' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              loading={status === 'checking'}
-              disabled={status === 'downloading'}
+              icon={status === 'checking' ? <UpdateActivity status="checking" className="update-activity--compact" /> : <RefreshCw size={14} />}
+              disabled={status === 'checking' || status === 'downloading'}
               onClick={() => { void checkForUpdate(); }}
             >
               {t('update.checkNow')}
@@ -189,13 +188,14 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
 
       {status === 'downloading' && (
         <div className="flex items-center gap-3">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label={t('update.downloading')}
+            aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
             <div
-              className="h-full rounded-full bg-accent transition-all duration-300"
-              style={{ width: `${progress ?? 0}%` }}
+              className="h-full origin-left rounded-full bg-accent transition-transform duration-300 motion-reduce:transition-none"
+              style={{ transform: `scaleX(${(progress ?? 0) / 100})` }}
             />
           </div>
-          <span className="w-10 text-right text-xs tabular-nums text-text-tertiary">{progress ?? 0}%</span>
+          <span className="w-10 text-right text-xs tabular-nums text-text-tertiary">{progress === undefined ? '—' : `${progress}%`}</span>
         </div>
       )}
 

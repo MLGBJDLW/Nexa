@@ -27,5 +27,6 @@
   "details": "详细信息",
   "sourceCustom": "自定义镜像",
   "mirrorAddress": "镜像站地址",
-  "mirrorHint": "前缀代理：在此 HTTPS 地址后拼接原始 GitHub 链接。更新仍会校验签名。"
+  "mirrorHint": "前缀代理：在此 HTTPS 地址后拼接原始 GitHub 链接。更新仍会校验签名。",
+  "installing": "正在验证并安装…"
 }

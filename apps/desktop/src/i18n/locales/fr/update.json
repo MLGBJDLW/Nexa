@@ -27,5 +27,6 @@
   "details": "Détails",
   "sourceCustom": "Miroir personnalisé",
   "mirrorAddress": "URL du miroir",
-  "mirrorHint": "Proxy par préfixe : l’URL GitHub est ajoutée à cette adresse HTTPS. Les signatures restent vérifiées."
+  "mirrorHint": "Proxy par préfixe : l’URL GitHub est ajoutée à cette adresse HTTPS. Les signatures restent vérifiées.",
+  "installing": "Vérification et installation…"
 }

@@ -108,6 +108,12 @@ repaint with an oversized texture is not automatically an improvement.
 
 Release-note rendering loads when the update disclosure is expanded. The idle
 sidebar and collapsed notes do not load or parse the rich chat renderer.
+The sidebar and update details share a compact download indicator. Known byte
+totals drive its progress ring; missing totals remain indeterminate. Transfer
+completion switches to verification/installation feedback, and restart readiness
+appears only after the native updater resolves. Continuous decorative motion
+uses fixed-size outer layers and respects reduced motion; progress updates that
+do not change the displayed percentage do not redraw the whole update surface.
 
 ### 1. Show the user what matters, not what the model felt
 
