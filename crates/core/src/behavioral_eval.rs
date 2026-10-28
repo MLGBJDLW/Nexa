@@ -132,9 +132,9 @@ fn cases() -> Vec<BehavioralEvalCase> {
             has_sources: false,
             expected_route: "WebLookup",
             expected_evidence_mode: Some(EvidenceMode::Prefer),
-            required_tools: &["browser_session", "activity_observe"],
+            required_tools: &["computer_use", "activity_observe"],
             required_plan_tools: &[],
-            forbidden_tools: &[],
+            forbidden_tools: &["browser_session", "computer_observe", "computer_control"],
         },
         BehavioralEvalCase {
             id: "local-dev-server-routes-process-and-browser",
@@ -143,9 +143,9 @@ fn cases() -> Vec<BehavioralEvalCase> {
             has_sources: true,
             expected_route: "CodebaseOperation",
             expected_evidence_mode: Some(EvidenceMode::Prefer),
-            required_tools: &["run_shell", "browser_session", "activity_observe"],
+            required_tools: &["run_shell", "computer_use", "activity_observe"],
             required_plan_tools: &["run_shell"],
-            forbidden_tools: &[],
+            forbidden_tools: &["browser_session", "computer_observe", "computer_control"],
         },
         BehavioralEvalCase {
             id: "dynamic-tool-discovery-is-resident",

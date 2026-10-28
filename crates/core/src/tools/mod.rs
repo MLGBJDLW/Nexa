@@ -2742,12 +2742,17 @@ mod tests {
     }
 
     #[test]
-    fn select_tools_uses_browser_session_exclusively_for_browser_tasks() {
+    fn select_tools_uses_unified_browser_route_for_browser_tasks() {
         let registry = default_tool_registry();
         let defs = registry.select_tools("Open this website in my browser", false);
+        let control = defs.iter().find(|def| def.name == "computer_use").unwrap();
+        assert_eq!(
+            control.parameters["properties"]["target"]["properties"]["kind"]["enum"],
+            serde_json::json!(["browser"])
+        );
         let names: Vec<String> = defs.into_iter().map(|def| def.name).collect();
 
-        assert!(names.iter().any(|name| name == "browser_session"));
+        assert!(!names.iter().any(|name| unified_control::is_backend(name)));
         assert!(!names.iter().any(|name| name == "desktop_automation"));
     }
 
@@ -2763,7 +2768,8 @@ mod tests {
                 .into_iter()
                 .map(|definition| definition.name)
                 .collect::<Vec<_>>();
-            assert!(names.iter().any(|name| name == "browser_session"));
+            assert!(names.iter().any(|name| name == "computer_use"));
+            assert!(!names.iter().any(|name| unified_control::is_backend(name)));
             assert!(names.iter().any(|name| name == "browser_evidence_capture"));
         }
     }
@@ -2777,7 +2783,7 @@ mod tests {
             .map(|definition| definition.name)
             .collect::<Vec<_>>();
 
-        for required in ["run_shell", "browser_evidence_capture", "browser_session"] {
+        for required in ["run_shell", "browser_evidence_capture", "computer_use"] {
             assert!(names.iter().any(|name| name == required));
         }
     }
@@ -2789,7 +2795,7 @@ mod tests {
         let names: Vec<String> = defs.into_iter().map(|def| def.name).collect();
 
         assert!(names.iter().any(|name| name == "desktop_automation"));
-        assert!(!names.iter().any(|name| name == "browser_session"));
+        assert!(!names.iter().any(|name| name == "computer_use"));
     }
 
     #[cfg(target_os = "windows")]
@@ -2803,10 +2809,10 @@ mod tests {
         let names: Vec<String> = defs.into_iter().map(|def| def.name).collect();
 
         assert_eq!(
-            names.iter().any(|name| name == "computer_observe"),
+            names.iter().any(|name| name == "computer_use"),
             cfg!(all(target_os = "windows", feature = "desktop-control"))
         );
-        assert!(names.iter().any(|name| name == "computer_control"));
+        assert!(!names.iter().any(|name| unified_control::is_backend(name)));
     }
 
     #[test]

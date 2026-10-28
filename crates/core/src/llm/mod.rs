@@ -1444,6 +1444,7 @@ mod tests {
                 "https://api.openai.com/v1",
                 "gpt-5.1-codex",
             ),
+            (ProviderType::OpenAi, "https://api.openai.com/v1", "o4-mini"),
             (ProviderType::OpenAi, "https://api.x.ai/v1", "grok-3"),
             (
                 ProviderType::SiliconFlow,
@@ -1511,7 +1512,7 @@ mod tests {
                 "https://generativelanguage.googleapis.com/v1beta",
                 "gemini-2.5-pro",
             ),
-            (ProviderType::OpenAi, "https://api.openai.com/v1", "o4-mini"),
+            (ProviderType::OpenAi, "https://api.openai.com/v1", "gpt-4.1"),
             (
                 ProviderType::DeepSeek,
                 "https://api.deepseek.com/v1",

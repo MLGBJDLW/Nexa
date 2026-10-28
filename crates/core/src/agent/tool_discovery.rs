@@ -182,11 +182,19 @@ mod tests {
     #[cfg(feature = "headless-browser")]
     #[test]
     fn unified_discovery_refreshes_one_scoped_definition_in_both_directions() {
-        let registry = crate::tools::default_tool_registry().filtered(&[
-            "browser_session".into(),
-            "computer_observe".into(),
-            "computer_control".into(),
-        ]);
+        // Discovery is portable even though native desktop execution is not.
+        // Register both adapter schemas explicitly so Linux tests the same
+        // browser-only/window-only expansion and revocation as Windows.
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(
+            crate::tools::browser_session_tool::BrowserSessionTool::default(),
+        ));
+        registry.register(Box::new(
+            crate::tools::computer_use_tool::ComputerObserveTool,
+        ));
+        registry.register(Box::new(
+            crate::tools::computer_use_tool::ComputerControlTool,
+        ));
         let artifacts =
             serde_json::json!({"kind":"toolSearchResults","matches":[{"name":"computer_use"}]});
         for initial in [
