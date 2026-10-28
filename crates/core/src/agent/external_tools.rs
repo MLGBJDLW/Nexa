@@ -512,7 +512,11 @@ mod tests {
                             serde_json::json!({"windowId":window,"targetIdentity":format!("target-{window}"),"observationId":format!("after-{window}"),"screenshotHash":"host-capture"}),
                         ),
                         artifacts: Some(serde_json::json!({"kind":"computerObservation"})),
-                        attachments: vec![],
+                        attachments: vec![ToolOutputAttachment {
+                            name: "window.png".into(),
+                            mime_type: "image/png".into(),
+                            data: serde_json::json!({"base64":"aGVsbG8="}),
+                        }],
                     },
                 ))
             }
@@ -530,6 +534,87 @@ mod tests {
             arguments: serde_json::json!({"action":action,"target":{"kind":"window","window_id":window},"observation_id":format!("before-{window}")}).to_string(),
             thought_signature: None,
         }
+    }
+
+    struct ProgressDesktopFixture;
+    #[async_trait::async_trait]
+    impl Tool for ProgressDesktopFixture {
+        fn name(&self) -> &str {
+            "computer_control"
+        }
+        fn description(&self) -> &str {
+            "Native activity and heartbeat fixture"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            DesktopEvidenceFixture(true).parameters_schema()
+        }
+        async fn execute(
+            &self,
+            context: ToolExecutionContext<'_>,
+        ) -> Result<ToolResult, CoreError> {
+            use crate::activity::{
+                ActivityEventKind, ActivitySpec, ActivityState, ActivitySurface,
+            };
+            let runtime = context.activity_runtime.unwrap();
+            let record = runtime.start(
+                ActivitySpec::new(ActivitySurface::Desktop, "computer_control")
+                    .with_conversation_id(context.conversation_id.unwrap())
+                    .with_turn_id(context.turn_id.unwrap()),
+            )?;
+            runtime.append(
+                &record.activity_id,
+                ActivityEventKind::Progress,
+                serde_json::json!({"phase":"moving"}),
+            )?;
+            tokio::time::sleep(Duration::from_secs(6)).await;
+            runtime.transition(
+                &record.activity_id,
+                ActivityState::Completed,
+                serde_json::json!({"phase":"completed"}),
+            )?;
+            DesktopEvidenceFixture(true).execute(context).await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unified_control_activity_and_heartbeat_keep_public_arguments_and_capabilities() {
+        let (mut session, _, mut events) = session(2);
+        session
+            .input
+            .tools
+            .register(Box::new(ProgressDesktopFixture));
+        let call = unified_window_call("progress", "invoke", 42);
+        let expected = session.input.tools.build_invocation(
+            &call.id,
+            &call.name,
+            serde_json::from_str(&call.arguments).unwrap(),
+        );
+        session.execute(call).await.unwrap();
+        let mut activity = false;
+        let mut heartbeat = false;
+        while let Ok(event) = events.try_recv() {
+            if let AgentEvent::ToolRunUpdated { run } = event {
+                if run.tool_name != "computer_use" || run.status != ToolRunStatus::Running {
+                    continue;
+                }
+                let Some(note) = run.progress_note.as_deref() else {
+                    continue;
+                };
+                activity |= note.contains(" activity ");
+                heartbeat |= note.starts_with("running computer_use");
+                let args: serde_json::Value =
+                    serde_json::from_str(run.arguments.as_deref().unwrap()).unwrap();
+                assert_eq!(args["target"]["kind"], "window");
+                assert_eq!(args["target"]["window_id"], 42);
+                assert_eq!(run.owner, expected.owner);
+                assert_eq!(run.capabilities, expected.capabilities);
+                assert!(args.get("invalidShape").is_none());
+            }
+        }
+        assert!(
+            activity && heartbeat,
+            "exercise both native activity and the five-second heartbeat"
+        );
     }
 
     #[tokio::test]
@@ -587,13 +672,40 @@ mod tests {
         assert_eq!(calls.len(), 4);
         assert!(calls.iter().all(|call| call.name == "computer_use"));
         let mut completed = 0;
+        let mut captures = 0;
         while let Ok(event) = events.try_recv() {
-            if let AgentEvent::ToolRunCompleted { run } = event {
-                assert_eq!(run.tool_name, "computer_use");
-                completed += 1;
+            match event {
+                AgentEvent::ToolRunCompleted { run } => {
+                    assert_eq!(run.tool_name, "computer_use");
+                    completed += 1;
+                }
+                AgentEvent::ToolRunUpdated { run }
+                    if run.progress_note.as_deref()
+                        == Some("Current-turn visual evidence captured") =>
+                {
+                    let args: serde_json::Value =
+                        serde_json::from_str(run.arguments.as_deref().unwrap()).unwrap();
+                    let original = unified_window_call(
+                        &run.call_id,
+                        "observe",
+                        args["target"]["window_id"].as_u64().unwrap(),
+                    );
+                    let expected = session.input.tools.build_invocation(
+                        &run.call_id,
+                        "computer_use",
+                        serde_json::from_str(&original.arguments).unwrap(),
+                    );
+                    assert_eq!(args["target"]["kind"], "window");
+                    assert_eq!(args["action"], "observe");
+                    assert_eq!(run.owner, expected.owner);
+                    assert_eq!(run.capabilities, expected.capabilities);
+                    captures += 1;
+                }
+                _ => {}
             }
         }
         assert_eq!(completed, 4);
+        assert_eq!(captures, 2);
     }
 
     #[tokio::test]

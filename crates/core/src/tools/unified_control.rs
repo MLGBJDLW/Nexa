@@ -216,13 +216,43 @@ pub fn route_call(name: &str, args: &Value) -> Result<Option<RoutedControlCall>,
     }))
 }
 
-/// Receipt projection only. Execution must use the registry's fallible admission.
+/// Parse a complete request without relaxing the execution argument contract.
 pub fn route_call_str(name: &str, args: Option<&str>) -> Option<RoutedControlCall> {
     if name != TOOL_NAME {
         return None;
     }
     let value = super::parse_tool_arguments_value(args?).ok()?;
     route_call(name, &value).ok().flatten()
+}
+
+/// Resolve only receipt identity from a public call's durable, audit-safe args.
+/// Input text and tokens may have been replaced by redaction objects. They are
+/// neither execution arguments nor authority; host receipts retain consumed
+/// tokens and process identities. Keep a surviving string token for old traces.
+/// Execution and capability admission must continue to use `route_call`.
+pub fn route_receipt_str(name: &str, args: Option<&str>) -> Option<RoutedControlCall> {
+    if name != TOOL_NAME {
+        return None;
+    }
+    let value = super::parse_tool_arguments_value(args?).ok()?;
+    let canonical = canonical_public_value(&value).ok()?;
+    let body = canonical.as_object()?;
+    let mut identity = Map::new();
+    // Retain forbidden top-level identities so malformed mixed targets cannot
+    // become valid merely by projecting away the conflicting fields.
+    for key in ["action", "target", "session_id", "tab_id", "window_id"] {
+        if let Some(value) = body.get(key) {
+            identity.insert(key.into(), value.clone());
+        }
+    }
+    if let Some(token) = body
+        .get("observation_id")
+        .and_then(Value::as_str)
+        .filter(|token| !token.trim().is_empty() && *token != "<observation-token-redacted>")
+    {
+        identity.insert("observation_id".into(), json!(token));
+    }
+    route_call(name, &Value::Object(identity)).ok().flatten()
 }
 
 /// Preserve the original model call/call ID; provide resolved facts to receipt
@@ -739,5 +769,42 @@ mod tests {
         };
         assert!(matches!(effective_request(&legacy), Cow::Borrowed(_)));
         assert!(route_call_str(TOOL_NAME, Some("not JSON")).is_none());
+    }
+
+    #[test]
+    fn durable_receipts_resolve_redacted_inputs_without_relaxing_live_calls() {
+        for (args, backend, action) in [
+            (json!({"action":"type","target":{"kind":"window","window_id":42},"observation_id":"native-before","text":"private text"}), "computer_control", "type_text"),
+            (json!({"action":"observe","target":{"kind":"window","window_id":42},"observation_id":"native-before"}), "computer_observe", "capture_window"),
+            (json!({"action":"type","target":{"kind":"browser","session_id":"session","tab_id":"tab"},"observation_id":"browser-before","text":"private text"}), "browser_session", "type"),
+        ] {
+            let audit = crate::tool_argument_projection::audit_safe_arguments(TOOL_NAME, &args);
+            assert!(!audit.to_string().contains("private text"));
+            let route = route_receipt_str(TOOL_NAME, Some(&audit.to_string())).unwrap();
+            assert_eq!(route.tool_name, backend);
+            assert_eq!(route.arguments["action"], action);
+            assert!(route.arguments.get("text").is_none());
+            assert!(route.arguments.get("observation_id").is_none());
+            if backend == "browser_session" {
+                assert_eq!(route.arguments["sessionId"], "session");
+                assert_eq!(route.arguments["tabId"], "tab");
+                assert_eq!(route.arguments["observationId"], "browser-before");
+            } else {
+                assert!(route_call(TOOL_NAME, &audit).is_err());
+                assert!(route.arguments.get("observationId").is_none());
+                assert_eq!(route.arguments["window_id"], 42);
+            }
+            let live = route_call(TOOL_NAME, &args).unwrap().unwrap();
+            let token_key = if backend == "browser_session" { "observationId" } else { "observation_id" };
+            assert!(live.arguments[token_key].is_string());
+        }
+        for args in [
+            json!({"action":"type","target":{"kind":"window","window_id":42},"window_id":99}),
+            json!({"action":"type","target":{"kind":"window","window_id":42,"tab_id":"tab"}}),
+            json!({"action":"type","target":{"kind":"window","window_id":42,"windowId":99}}),
+            json!({"action":"close_tab","target":{"kind":"browser","session_id":"session"}}),
+        ] {
+            assert!(route_receipt_str(TOOL_NAME, Some(&args.to_string())).is_none());
+        }
     }
 }

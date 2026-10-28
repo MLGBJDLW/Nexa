@@ -190,7 +190,7 @@ fn pending_targets_with_batches(
         let args = run.get("arguments").and_then(Value::as_str);
         // Match the public callback ledger before resolving its backend facts.
         // Routing changes neither the original protocol identity nor authority.
-        let route = crate::tools::unified_control::route_call_str(tool, args);
+        let route = crate::tools::unified_control::route_receipt_str(tool, args);
         let routed_arguments = route.as_ref().map(|route| route.arguments.to_string());
         let tool = route.as_ref().map_or(tool, |route| route.tool_name);
         let args = routed_arguments.as_deref().or(args);
@@ -579,6 +579,33 @@ mod tests {
     use crate::conversation::{ConversationMessage, CreateConversationInput};
     use crate::llm::{Role, ToolCallRequest};
     use serde_json::json;
+
+    #[test]
+    fn public_audit_receipts_recover_exact_local_targets() {
+        let desktop_arguments = crate::tool_argument_projection::audit_safe_arguments_string(
+            "computer_use",
+            r#"{"action":"type","target":{"kind":"window","window_id":42},"observation_id":"before","text":"private input"}"#,
+        );
+        let browser_arguments = crate::tool_argument_projection::audit_safe_arguments_string(
+            "computer_use",
+            r#"{"action":"type","target":{"kind":"browser","session_id":"session","tab_id":"tab"},"observation_id":"page-before","text":"private input"}"#,
+        );
+        let receipts = [
+            json!({"callId":"desktop","toolName":"computer_use","arguments":desktop_arguments,"status":"failed","isError":true,
+                "artifacts":{"code":"computer_action_uncertain","sideEffect":"may_have_occurred","data":{"windowId":42,"targetIdentity":"process-generation","consumedObservationId":"before"}}}),
+            json!({"callId":"browser","toolName":"computer_use","arguments":browser_arguments,"status":"failed","isError":true,
+                "artifacts":{"code":"browser_action_uncertain","sideEffect":"may_have_occurred"}}),
+        ];
+        let targets = pending_targets(&receipts).expect("audit arguments retain bound host effects");
+        assert_eq!(targets.desktop.len(), 1);
+        assert_eq!(targets.desktop[0].window_id, 42);
+        assert_eq!(targets.desktop[0].target_identity.as_deref(), Some("process-generation"));
+        assert_eq!(targets.desktop[0].consumed_observation_id.as_deref(), Some("before"));
+        assert_eq!(targets.browser.len(), 1);
+        assert_eq!(targets.browser[0].session_id, "session");
+        assert_eq!(targets.browser[0].tab_id, "tab");
+        assert_eq!(targets.browser[0].consumed_observation_id.as_deref(), Some("page-before"));
+    }
 
     #[test]
     fn canonical_arguments_allow_only_exact_or_deterministic_audit_projection() {

@@ -12,7 +12,7 @@ async fn public_browser_fixture_call(
 ) -> Result<
     (
         super::super::state::BrowserObservationPayload,
-        Option<nexa_core::observed_interaction::InteractionReceipt>,
+        Option<serde_json::Value>,
     ),
     String,
 > {
@@ -34,12 +34,7 @@ async fn public_browser_fixture_call(
     let data = output
         .data
         .ok_or("Public control returned no observation data")?;
-    let interaction = data
-        .get("interaction")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|error| error.to_string())?;
+    let interaction = data.get("interaction").cloned();
     let mut observation: super::super::state::BrowserObservationPayload =
         serde_json::from_value(data).map_err(|error| error.to_string())?;
     let encoded = output
@@ -147,7 +142,7 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     return Err("The original HTML tab did not retain observable native input".into());
                 }
                 use nexa_core::observed_interaction::{InputDelivery, RequestedCondition};
-                if interaction.is_none_or(|receipt| receipt.delivery != InputDelivery::InputSent) { return Err("A real trusted click lost its public dispatch receipt".into()); }
+                if interaction.is_none_or(|receipt| receipt["delivery"] != "inputSent") { return Err("A real trusted click lost its public dispatch receipt".into()); }
                 for (action, name, value, checked) in [("set_checked", "Ready", None, Some(true)), ("select", "Choice", Some("a"), None)] {
                     let call_id = format!("noop-{action}");
                     state.acquire_agent_control(&session.id, &call_id)?;
@@ -242,8 +237,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     return Err("Conflicting ordinary profile did not fail explicitly".into());
                 }
                 state.acquire_control(&session.id, BrowserControlOwner::User)?;
-                if public_browser_fixture_call(&registry, &db, &activity, &conversation, "after-takeover",
-                    serde_json::json!({"action":"observe","target":{"kind":"browser","session_id":session.id,"tab_id":next.id}})).await.is_ok() { return Err("Public control bypassed actual user takeover".into()); }
+                let takeover = public_browser_fixture_call(&registry, &db, &activity, &conversation, "after-takeover",
+                    serde_json::json!({"action":"observe","target":{"kind":"browser","session_id":session.id,"tab_id":next.id}})).await.err().ok_or("Public control bypassed actual user takeover")?;
+                if !takeover.contains("browser_user_control") { return Err(format!("Public observation failed for a different reason than user takeover: {takeover}")); }
                 eprintln!("Native HTML continuity: exact second tab observed; real user takeover remains authoritative.");
                 let cleanup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                 loop {

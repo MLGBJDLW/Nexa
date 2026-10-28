@@ -250,7 +250,7 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
         "consumedObservationId": source.get("consumedObservationId"),
         "observationCapturedAtMs": source.get("observationCapturedAtMs")
             .or_else(|| source.pointer("/observation/observationCapturedAtMs")),
-        "inputDelivered": source.get("inputDelivered").cloned().unwrap_or_else(|| match delivery {
+        "inputDelivered": source.get("inputDelivered").cloned().unwrap_or(match delivery {
             Some("inputSent") => serde_json::json!(true),
             Some("notCommitted") => serde_json::json!(false),
             _ => serde_json::Value::Null,
@@ -1519,7 +1519,7 @@ impl ToolDispatchRuntime<'_> {
                                 Some(AgentEvent::ToolRunUpdated {
                                     run: build_tool_run_item(
                                         self.tools, &progress_call_id, &progress_tool_name,
-                                        ToolRunStatus::Running, Some(&execution_call.arguments), None, None,
+                                        ToolRunStatus::Running, Some(&tc.arguments), None, None,
                                         Some(serde_json::json!({
                                             "activity": event,
                                             "activityRecord": self.activity_runtime.get(&event.activity_id),
@@ -1577,7 +1577,7 @@ impl ToolDispatchRuntime<'_> {
                                                     &progress_call_id,
                                                     &progress_tool_name,
                                                     ToolRunStatus::Running,
-                                                    Some(&execution_call.arguments),
+                                                    Some(&tc.arguments),
                                                     None,
                                                     None,
                                                     None,
@@ -1899,7 +1899,7 @@ impl ToolDispatchRuntime<'_> {
                                 &tc.id,
                                 &tc.name,
                                 run_status,
-                                None,
+                                Some(&tc.arguments),
                                 None,
                                 None,
                                 Some(visual_evidence),
