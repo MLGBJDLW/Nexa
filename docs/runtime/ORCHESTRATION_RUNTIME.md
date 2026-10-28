@@ -70,6 +70,17 @@ its exact pre-observed owner without granting terminal-close permission. A new
 owner capture must begin after the host's handoff timestamp; another window or
 an older owner screenshot cannot discharge that obligation, including on resume.
 
+Local verification debt is distinct from an opaque provider-hosted action. A
+worker hands exact desktop windows or browser session/tab targets into the
+existing workflow checkpoint; fresh matching observations can satisfy them
+without replaying input. Old observation tokens, older captures and unrelated
+tabs cannot clear these obligations. Imported receipt IDs prevent resolved debt
+from reappearing. Legacy local debt can be classified only against a complete
+matching canonical callback ledger, including its deterministic audit projection;
+missing, reordered, provider-owned or explicitly uncertain effects remain opaque.
+A worker without the required observation tool returns an unfinished handoff
+rather than retrying an impossible verification loop.
+
 MoA and Nexus are independent axes. MoA changes how an acting model receives
 advice. Nexus changes how the client plans, delegates, checkpoints, and verifies
 work. Either may be enabled alone or both may be composed.
@@ -319,6 +330,15 @@ unchanged manual checkpoint is a no-op. Storage failure or a superseding edit
 cannot authorize dropping live history. Runtime handoff must reduce estimated
 input; an oversized retained request still produces an explicit context error.
 
+Step-lived controller prompts and tool-generated visual/document messages are
+archived as evidence rather than retained as human corrections. Delegated workers
+read the same validated active projection on each admission; an independent
+model-keyed cache cannot reintroduce pre-fork history. Bounded handoff loading
+excludes archived tool payloads and provider replay state before materializing
+worker context, while streaming source-digest validation still checks the old
+prefix. Unknown provider capacity stays unknown: the existing external-history
+envelope bounds inherited input independently of an unlimited execution budget.
+
 Checkpoint invalidation is scoped to the checkpoint's source messages. Appending
 new turns or updating an image-analysis cache without changing model-visible
 content does not resurrect archived history. Editing source text or original
@@ -400,6 +420,14 @@ user-facing tool budget. Repeated
 protocol faults are controlled by the existing consecutive no-progress guard:
 committed answer or tool progress resets it, so there is no turn-wide hidden
 `MAX_OUTPUT_LIMIT_CONTINUATIONS` counter.
+
+For upstream-owned subscription loops, the explicit cap counts individual Nexa
+tool callbacks. Exhaustion returns a typed not-started tool receipt so the model
+can hand back accepted evidence and unfinished work. That handoff retains the
+effective provider/model and an incomplete finish reason. Changing call IDs or
+arguments does not bypass the existing consecutive-error guard. Omitted caps and
+deadlines retain the parent's automatic policy; the agent should not invent a
+small cap merely to accelerate a worker.
 
 There is no implicit cumulative provider-request ceiling, including on a finite
 tool budget's answer-only continuation. Provider-hosted actions use an idle
