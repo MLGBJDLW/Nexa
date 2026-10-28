@@ -21,10 +21,25 @@ pub(super) enum Transcript {
 }
 
 impl Transcript {
-    pub(super) async fn completion_repair_status(&self) -> Option<(String, Vec<String>)> {
+    pub(super) async fn completion_recovery_error(&self) -> Option<CoreError> {
+        match self {
+            Self::NexaTools(tools) => tools.completion_recovery_error().await,
+            Self::Native { .. } => None,
+        }
+    }
+    pub(super) async fn tool_budget_rejected(&self) -> bool {
+        match self {
+            Self::NexaTools(tools) => tools.tool_budget_rejected().await,
+            Self::Native { .. } => false,
+        }
+    }
+
+    pub(super) async fn completion_repair_status(
+        &self,
+    ) -> Result<Option<(String, Vec<String>)>, CoreError> {
         match self {
             Self::NexaTools(tools) => tools.completion_repair_status().await,
-            Self::Native { .. } => None,
+            Self::Native { .. } => Ok(None),
         }
     }
     pub(super) fn ensure_delegated_recovery_clear(&self) -> Result<(), CoreError> {

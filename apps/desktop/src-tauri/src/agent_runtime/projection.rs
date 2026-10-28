@@ -675,7 +675,14 @@ impl Projection {
                 context_breakdown,
                 assistant_message_id,
                 cached: false,
-                finish_reason: Some("stop".into()),
+                finish_reason: Some(
+                    if turn.transcript.tool_budget_rejected().await {
+                        "max_iterations"
+                    } else {
+                        "stop"
+                    }
+                    .into(),
+                ),
             })
             .await
             .map_err(protocol_error)?;

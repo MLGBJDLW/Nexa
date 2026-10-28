@@ -18,15 +18,32 @@ impl DelegatedRecoveryGuard<'_> {
     pub(super) fn check(self) -> Result<(), crate::error::CoreError> {
         let pending: Vec<_> = self
             .db
-            .agent_subtask_action_reconciliations(self.run_id)?
-            .into_keys()
-            .filter(|id| !self.checkpointed.contains(id))
+            .agent_subtask_action_reconciliations_excluding(self.run_id, self.checkpointed)?
+            .into_iter()
+            .filter(|(id, receipt)| {
+                receipt.action_reconciliation && !self.checkpointed.contains(id)
+            })
             .collect();
         if pending.is_empty() {
             return Ok(());
         }
+        let ids = pending
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if pending
+            .iter()
+            .all(|(_, receipt)| receipt.has_bound_local_targets())
+        {
+            return Err(crate::error::CoreError::LocalVerificationRequired {
+                message: format!("Delegated task(s) {ids} need fresh observations of their retained local targets. Resume to verify those exact windows or browser tabs without replaying the actions."),
+                targets: pending.iter().flat_map(|(_, receipt)| receipt.desktop_observation_targets.clone()).collect(),
+                browser_targets: pending.into_iter().flat_map(|(_, receipt)| receipt.browser_observation_targets).collect(),
+            });
+        }
         Err(crate::error::CoreError::RecoveryRequired {
-            message: format!("Delegated task(s) {} stopped after a provider-hosted action. Inspect their retained action receipts before continuing; do not replay their requests.", pending.join(", ")),
+            message: format!("Delegated task(s) {ids} stopped with opaque action uncertainty. Inspect their retained action receipts before continuing; do not replay their requests."),
             action_reconciliation: true,
         })
     }

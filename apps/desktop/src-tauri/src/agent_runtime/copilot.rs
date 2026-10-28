@@ -350,8 +350,11 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                 projection.persist_settled(&turn, response.take_settled()).await?;
             }
             response.ensure_complete()?;
-            if let Some((guidance, milestones)) = turn.transcript.completion_repair_status().await {
-                let guidance = completion_repairs.next(guidance, milestones)?;
+            if let Some((guidance, milestones)) = turn.transcript.completion_repair_status().await? {
+                let guidance = match completion_repairs.next(guidance, milestones) {
+                    Ok(guidance) => guidance,
+                    Err(error) => return Err(turn.transcript.completion_recovery_error().await.unwrap_or(error)),
+                };
                 projection.defer_answer_for_verification(&turn).await?;
                 next = MessageOptions::new(format!("Nexa host verification remains pending. {guidance}"));
                 continue;

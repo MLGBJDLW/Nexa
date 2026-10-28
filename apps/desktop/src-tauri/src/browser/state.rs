@@ -751,6 +751,27 @@ impl BrowserState {
         Ok(session_info(session))
     }
 
+    /// Exact host lookup for a retained recovery target, never a filtered
+    /// conversation inventory. Existing foreign-owned sessions remain private.
+    pub fn target_is_absent(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        conversation_id: Option<&str>,
+    ) -> Result<bool, String> {
+        let runtime = self
+            .inner
+            .lock()
+            .map_err(|_| "Browser runtime is unavailable".to_string())?;
+        let Some(session) = runtime.sessions.get(session_id) else {
+            return Ok(true);
+        };
+        if session.conversation_id.as_deref() != conversation_id {
+            return Err("Browser session belongs to a different conversation".into());
+        }
+        Ok(!session.tabs.contains_key(tab_id))
+    }
+
     pub fn list_sessions(&self) -> Result<Vec<BrowserSessionInfo>, String> {
         let runtime = self
             .inner

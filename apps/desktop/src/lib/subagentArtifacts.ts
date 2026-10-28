@@ -325,10 +325,14 @@ export function projectSubagentLifecycle(
     if (kind === 'thinkingDelta' && typeof detail?.delta === 'string') {
       thinking.push(detail.delta);
     }
+    if (kind === 'completed' || kind === 'failed' || kind === 'cancelled') {
+      // Terminal receipts are self-contained. Earlier progress pages may no
+      // longer be loaded, including the worker's effective routing identity.
+      const run = asRecord(detail?.result);
+      artifact = run ? extractSubagentArtifact({ kind: 'subagent_result', ...run }) ?? artifact : artifact;
+    }
     if (kind === 'completed') {
       status = 'done';
-      const run = asRecord(detail?.result);
-      artifact = run ? extractSubagentArtifact({ kind: 'subagent_result', ...run }) : artifact;
     }
     if (kind === 'failed') {
       status = 'error';
@@ -642,18 +646,20 @@ export function extractSubagentArtifact(value: unknown): SubagentArtifact | null
     .map((event): SubagentToolEvent | null => {
       const item = asRecord(event);
       if (!item) return null;
-      const phase = item.phase;
-      const callId = typeof item.callId === 'string' ? item.callId : '';
-      const toolName = typeof item.toolName === 'string' ? item.toolName : '';
+      const phase = item.phase === 'runStarted' ? 'start' : item.phase === 'runCompleted' ? 'result' : item.phase;
+      const receipt = item.phase === 'runStarted' || item.phase === 'runCompleted' ? asRecord(item.run) : item;
+      if (!receipt) return null;
+      const callId = typeof receipt.callId === 'string' ? receipt.callId : '';
+      const toolName = typeof receipt.toolName === 'string' ? receipt.toolName : '';
       if ((phase !== 'start' && phase !== 'result') || !callId || !toolName) return null;
       return {
         phase,
         callId,
         toolName,
-        arguments: typeof item.arguments === 'string' ? item.arguments : undefined,
-        content: typeof item.content === 'string' ? item.content : undefined,
-        isError: typeof item.isError === 'boolean' ? item.isError : undefined,
-        artifacts: item.artifacts as ArtifactPayload | undefined,
+        arguments: typeof receipt.arguments === 'string' ? receipt.arguments : undefined,
+        content: typeof receipt.content === 'string' ? receipt.content : undefined,
+        isError: typeof receipt.isError === 'boolean' ? receipt.isError : undefined,
+        artifacts: receipt.artifacts as ArtifactPayload | undefined,
       };
     })
     .filter((event): event is SubagentToolEvent => Boolean(event));

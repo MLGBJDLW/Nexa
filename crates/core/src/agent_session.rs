@@ -238,15 +238,10 @@ impl AgentSession for ExecutorAgentSession {
 
         if !collected.terminal_submitted {
             let suspended = match &result {
-                Err(CoreError::RecoveryRequired {
-                    action_reconciliation,
-                    ..
-                }) => {
-                    let reason = if *action_reconciliation {
-                        "connection_interrupted_requires_action_reconciliation:provider_hosted_action"
-                    } else {
-                        "provider_connection_interrupted"
-                    };
+                Err(error) if error.recovery_checkpoint_reason().is_some() => {
+                    let reason = error
+                        .recovery_checkpoint_reason()
+                        .expect("checked recovery reason");
                     outbox
                         .pause_with_checkpoint(&turn_id, reason)
                         .await

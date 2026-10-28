@@ -131,6 +131,12 @@ impl ActionReconciliationFence {
         self.unknown = true;
     }
 
+    pub(super) fn reconcile_complete_host_callback_scope(&mut self) {
+        // Called only after the durable native callback ledger was matched to
+        // every canonical call/result and its local targets were restored.
+        self.unknown = false;
+    }
+
     pub(super) fn blocks_interactive_input(self) -> bool {
         self.computer || self.browser || self.unknown
     }
@@ -397,19 +403,15 @@ async fn emit_tool_dispatch_failure(
     persisted_trace_items: &mut Vec<PersistedTraceItem>,
     error: &CoreError,
 ) {
-    if let CoreError::RecoveryRequired {
-        message,
-        action_reconciliation,
-    } = error
-    {
+    if let Some(requirement) = error.recovery_requirement() {
         emit_recovery_required(
             tx,
             db,
             turn_id,
             route_kind,
             persisted_trace_items,
-            message.clone(),
-            *action_reconciliation,
+            requirement.message,
+            requirement.action_reconciliation,
         )
         .await;
         return;
@@ -743,7 +745,16 @@ impl AgentExecutor {
             .join(" ");
         let mut action_reconciliation =
             ActionReconciliationFence::from_resume_prompt(&user_query_text_for_tools);
-        if !checkpointed_subtask_recoveries.is_empty() {
+        if resumed_execution
+            .as_ref()
+            .is_some_and(|saved| saved.reconciled_legacy_host_scope)
+        {
+            action_reconciliation.reconcile_complete_host_callback_scope();
+        }
+        if resumed_execution
+            .as_ref()
+            .is_some_and(|saved| saved.has_opaque_subtask_recoveries)
+        {
             action_reconciliation.retain_unknown_action();
         }
 
@@ -858,7 +869,13 @@ impl AgentExecutor {
             // A plain-chat checkpoint may only have a plan. The workflow
             // compiled from that authoritative plan still honors current host
             // requirements; a saved graph additionally preserves node state.
-            workflow_ir = saved.workflow.or(workflow_ir);
+            workflow_ir = saved.workflow.take().or(workflow_ir);
+            saved.restore_delegated_desktop_targets(
+                &mut workflow_ir,
+                &task_plan,
+                &orchestration_policy,
+                self.config.power_mode.is_nexus(),
+            )?;
         }
         if self.config.execution_mode.is_plan() {
             if let Some(workflow) = workflow_ir.as_mut() {
@@ -1228,23 +1245,19 @@ impl AgentExecutor {
             () => {
                 if let Some(guard) = delegated_recovery {
                     if let Err(error) = guard.check() {
-                        let CoreError::RecoveryRequired {
-                            message,
-                            action_reconciliation,
-                        } = error
-                        else {
-                            return Err(error);
-                        };
-                        return Err(emit_recovery_required(
-                            &tx,
-                            db,
-                            turn_id,
-                            route_plan.kind,
-                            &mut persisted_trace_items,
-                            message,
-                            action_reconciliation,
-                        )
-                        .await);
+                        if let Some(requirement) = error.recovery_requirement() {
+                            emit_recovery_required(
+                                &tx,
+                                db,
+                                turn_id,
+                                route_plan.kind,
+                                &mut persisted_trace_items,
+                                requirement.message,
+                                requirement.action_reconciliation,
+                            )
+                            .await;
+                        }
+                        return Err(error);
                     }
                 }
             };
@@ -1549,7 +1562,8 @@ impl AgentExecutor {
                             trace: &mut trace,
                             sort_order: &mut sort_order,
                             pending_action_reconciliation: action_reconciliation
-                                .blocks_interactive_input(),
+                                .blocks_interactive_input()
+                                || workflow_ir.has_pending_local_targets(),
                         },
                         &verified_call,
                         None,
@@ -1984,7 +1998,7 @@ impl AgentExecutor {
                         iteration,
                         &error,
                     );
-                    if matches!(error, CoreError::RecoveryRequired { .. }) {
+                    if error.recovery_requirement().is_some() {
                         check_delegated_action_recovery!();
                     }
                     return Err(error);
@@ -3030,15 +3044,37 @@ impl AgentExecutor {
                             orchestration_policy.retry_limit,
                         )? {
                             let reason = format!("Workflow completion repair stalled without new file state or satisfied checks: {}", blockers.join(", "));
-                            if workflow_ir.desktop_evidence_pending()
+                            if workflow_ir.local_evidence_pending()
                                 || blockers
                                     .iter()
                                     .any(|blocker| blocker.starts_with("gate:browser-"))
                             {
-                                return Err(emit_recovery_required(&tx, db, turn_id, route_plan.kind,
+                                let message = format!("Verification needs fresh observation before this task can finish. {} ({})", workflow_ir.completion_repair_guidance(), blockers.join(", "));
+                                let emitted = emit_recovery_required(
+                                    &tx,
+                                    db,
+                                    turn_id,
+                                    route_plan.kind,
                                     &mut persisted_trace_items,
-                                    format!("Verification needs fresh observation before this task can finish. {} ({})", workflow_ir.completion_repair_guidance(), blockers.join(", ")),
-                                    true).await);
+                                    message.clone(),
+                                    true,
+                                )
+                                .await;
+                                return Err(if workflow_ir.has_pending_local_targets() {
+                                    CoreError::LocalVerificationRequired {
+                                        message,
+                                        targets: workflow_ir
+                                            .checkpoint
+                                            .desktop_observation_targets
+                                            .clone(),
+                                        browser_targets: workflow_ir
+                                            .checkpoint
+                                            .browser_observation_targets
+                                            .clone(),
+                                    }
+                                } else {
+                                    emitted
+                                });
                             }
                             emit_error_and_finalize_turn(
                                 &tx,
@@ -3275,7 +3311,10 @@ impl AgentExecutor {
                         trace: &mut trace,
                         sort_order: &mut sort_order,
                         pending_action_reconciliation: action_reconciliation
-                            .blocks_interactive_input(),
+                            .blocks_interactive_input()
+                            || workflow_ir.as_ref().is_some_and(
+                                crate::workflow_ir::WorkflowIr::has_pending_local_targets,
+                            ),
                     },
                     &verified_tool_calls,
                     tool_dispatch_block,
@@ -3352,6 +3391,21 @@ impl AgentExecutor {
                     summary.artifacts.as_ref(),
                 ) {
                     crate::workflow_ir::ensure_runtime_desktop_observation_gate(
+                        &mut workflow_ir,
+                        &task_plan,
+                        &orchestration_policy,
+                        self.config.power_mode.is_nexus(),
+                    )
+                    .map_err(CoreError::InvalidInput)?;
+                }
+                if call.name == "browser_session"
+                    && crate::workflow_ir::browser_control_target(
+                        Some(&call.arguments),
+                        summary.artifacts.as_ref(),
+                    )
+                    .is_some()
+                {
+                    crate::workflow_ir::ensure_runtime_local_recovery_workflow(
                         &mut workflow_ir,
                         &task_plan,
                         &orchestration_policy,

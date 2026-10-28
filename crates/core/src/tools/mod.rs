@@ -496,7 +496,7 @@ pub(crate) fn structured_tool_error_result(
     )
 }
 
-pub(crate) fn structured_tool_error_result_with_side_effect(
+pub fn structured_tool_error_result_with_side_effect(
     call_id: &str,
     code: impl Into<String>,
     message: impl Into<String>,

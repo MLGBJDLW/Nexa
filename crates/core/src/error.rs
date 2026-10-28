@@ -7,6 +7,39 @@ use thiserror::Error;
 pub struct AgentRecoveryRequirement {
     pub action_reconciliation: bool,
     pub message: String,
+    /// Host-bound local verification debt is recoverable by matching fresh
+    /// observations. Absence keeps legacy/hosted action uncertainty opaque.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub desktop_observation_targets: Vec<crate::workflow_ir::DesktopObservationTarget>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub browser_observation_targets: Vec<crate::workflow_ir::BrowserObservationTarget>,
+}
+
+impl AgentRecoveryRequirement {
+    pub fn has_bound_local_targets(&self) -> bool {
+        (self.desktop_observation_targets.is_empty() || self.has_bound_desktop_targets())
+            && self
+                .browser_observation_targets
+                .iter()
+                .all(|target| target.is_bound())
+            && (!self.desktop_observation_targets.is_empty()
+                || !self.browser_observation_targets.is_empty())
+    }
+
+    pub fn has_bound_desktop_targets(&self) -> bool {
+        !self.desktop_observation_targets.is_empty()
+            && self.desktop_observation_targets.iter().all(|target| {
+                target.window_id > 0
+                    && target
+                        .target_identity
+                        .as_deref()
+                        .is_some_and(|id| !id.trim().is_empty())
+                    && target.consumed_observation_id.as_deref().is_some_and(|id| {
+                        !id.trim().is_empty() && id != "<observation-token-redacted>"
+                    })
+                    && target.observation_not_before_ms.is_none_or(|time| time > 0)
+            })
+    }
 }
 
 impl CoreError {
@@ -18,7 +51,33 @@ impl CoreError {
             } => Some(AgentRecoveryRequirement {
                 action_reconciliation: *action_reconciliation,
                 message: crate::sensitive_data::sanitize_diagnostic(message, None),
+                desktop_observation_targets: Vec::new(),
+                browser_observation_targets: Vec::new(),
             }),
+            Self::LocalVerificationRequired {
+                message,
+                targets,
+                browser_targets,
+            } => Some(AgentRecoveryRequirement {
+                action_reconciliation: !targets.is_empty() || !browser_targets.is_empty(),
+                message: crate::sensitive_data::sanitize_diagnostic(message, None),
+                desktop_observation_targets: targets.clone(),
+                browser_observation_targets: browser_targets.clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    pub fn recovery_checkpoint_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::LocalVerificationRequired { .. } => Some("local_verification_pending"),
+            Self::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            } => {
+                Some("connection_interrupted_requires_action_reconciliation:provider_hosted_action")
+            }
+            Self::RecoveryRequired { .. } => Some("provider_connection_interrupted"),
             _ => None,
         }
     }
@@ -98,6 +157,13 @@ pub enum CoreError {
     RecoveryRequired {
         message: String,
         action_reconciliation: bool,
+    },
+
+    #[error("Local interaction verification is incomplete; resume is available: {message}")]
+    LocalVerificationRequired {
+        message: String,
+        targets: Vec<crate::workflow_ir::DesktopObservationTarget>,
+        browser_targets: Vec<crate::workflow_ir::BrowserObservationTarget>,
     },
 
     #[error("MCP error: {0}")]

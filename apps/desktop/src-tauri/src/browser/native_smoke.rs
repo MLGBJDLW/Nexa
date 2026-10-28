@@ -33,6 +33,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 let session = state.create_session(Some("fixture".into()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
                 let tab_id = session.active_tab_id.as_deref().ok_or("Missing preview tab")?;
+                if state.target_is_absent(&session.id, tab_id, Some("other-conversation")).is_ok() {
+                    return Err("A foreign conversation could inspect target presence".into());
+                }
                 state.acquire_agent_control(&session.id, "preview-observe")?;
                 let first = state.observe(&session.id, tab_id, "preview-observe").await.map_err(|error| format!("First observation: {error}"))?;
                 if first.url == "about:blank" || first.screenshot.as_ref().is_none_or(|shot| shot.image_bytes.is_empty()) {
@@ -175,6 +178,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                             && std::time::Instant::now() < cleanup_deadline => { let _ = error; tokio::time::sleep(std::time::Duration::from_millis(100)).await; }
                         Err(error) => return Err(error),
                     }
+                }
+                if !state.target_is_absent(&session.id, tab_id, Some("fixture"))? {
+                    return Err("Closed fixture session was not host-confirmed absent".into());
                 }
                 Ok::<_, String>(())
             }).await.unwrap_or_else(|_| Err("Native preview continuity fixture exceeded 90 seconds".into()));

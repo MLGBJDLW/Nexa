@@ -25,9 +25,9 @@ pub async fn finalize_desktop_agent_turn(finalization: DesktopAgentTurnFinalizat
         Some("awaiting_user_input" | "paused")
     ) || matches!(
         &outcome.result,
-        Some(Err(
-            CoreError::AwaitingUserInput { .. } | CoreError::RecoveryRequired { .. }
-        ))
+        Some(Err(CoreError::AwaitingUserInput { .. }
+            | CoreError::RecoveryRequired { .. }
+            | CoreError::LocalVerificationRequired { .. }))
     );
     let publication = if resumably_suspended {
         event_seq.flush().await.map(|_| ())
@@ -238,9 +238,9 @@ pub(crate) fn finalize_suspended_task_artifacts(
             // suspended executor reaches finalization. Keep the newer state.
             return matches!(
                 result,
-                Some(Err(
-                    CoreError::AwaitingUserInput { .. } | CoreError::RecoveryRequired { .. }
-                ))
+                Some(Err(CoreError::AwaitingUserInput { .. }
+                    | CoreError::RecoveryRequired { .. }
+                    | CoreError::LocalVerificationRequired { .. }))
             );
         }
     };

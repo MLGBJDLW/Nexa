@@ -374,6 +374,221 @@ fn observe(workflow: &mut WorkflowIr, window: u64, identity: &str, token: &str) 
 }
 
 #[test]
+fn delegated_local_verification_resumes_exact_targets_without_an_opaque_deadlock() {
+    let (db, run, _, worker_workflow) = fixture();
+    let worker = db
+        .create_agent_subtask_run(&run.id, "native-worker", "worker", None, None)
+        .unwrap();
+    let error = CoreError::LocalVerificationRequired {
+        browser_targets: Vec::new(),
+        message: "Verify the native windows".into(),
+        targets: worker_workflow
+            .checkpoint
+            .desktop_observation_targets
+            .clone(),
+    };
+    db.finish_agent_subtask_run(
+        &worker.id,
+        "failed",
+        Some(&json!({
+            "kind":"subagent_run", "run":{"recoveryRequired":error.recovery_requirement()}
+        })),
+        Some(&error.to_string()),
+    )
+    .unwrap();
+    let parent_plan = plan("Review completed work");
+    let parent_workflow = compile_workflow_ir(&parent_plan, &profile(), false).unwrap();
+    resume(&db, &run, &parent_workflow);
+    let saved = load_execution_resume_state(&db, Some(&run.conversation_id), Some(&run.turn_id))
+        .unwrap()
+        .unwrap();
+    assert!(!saved.has_opaque_subtask_recoveries);
+    assert!(saved.checkpointed_subtask_recoveries.contains(&worker.id));
+    let mut resumed = None;
+    restore_pending_desktop_evidence(
+        &db,
+        Some(&run.conversation_id),
+        Some(&run.turn_id),
+        &mut resumed,
+        &parent_plan,
+        &profile(),
+        false,
+    )
+    .unwrap();
+    let resumed = resumed.as_mut().unwrap();
+    assert_eq!(resumed.checkpoint.desktop_observation_targets.len(), 2);
+    observe(resumed, 42, "recycled-owner", "fresh-wrong");
+    observe(resumed, 42, "target-42", "before-42");
+    assert_eq!(resumed.checkpoint.desktop_observation_targets.len(), 2);
+    observe(resumed, 42, "target-42", "after-42");
+    assert!(resumed.desktop_evidence_pending());
+    observe(resumed, 43, "target-43", "after-43");
+    assert!(!resumed.desktop_evidence_pending());
+    db.update_agent_task_run_progress(
+        &run.id,
+        None,
+        None,
+        None,
+        None,
+        Some(&resumed.task_plan_checkpoint(&parent_plan)),
+        None,
+    )
+    .unwrap();
+    let mut reopened = None;
+    restore_pending_desktop_evidence(
+        &db,
+        Some(&run.conversation_id),
+        Some(&run.turn_id),
+        &mut reopened,
+        &parent_plan,
+        &profile(),
+        false,
+    )
+    .unwrap();
+    assert!(
+        reopened.is_none(),
+        "resolved worker receipt must not resurrect on reopen"
+    );
+}
+
+#[test]
+fn delegated_browser_recovery_requires_exact_fresh_tab_and_does_not_resurrect() {
+    let (db, run, _, _) = fixture();
+    let worker = db
+        .create_agent_subtask_run(&run.id, "browser-worker", "worker", None, None)
+        .unwrap();
+    let target = crate::workflow_ir::BrowserObservationTarget {
+        session_id: "session".into(),
+        tab_id: "tab".into(),
+        consumed_observation_id: Some("before".into()),
+        opened_without_observation: false,
+        observation_not_before_ms: Some(100),
+    };
+    let error = CoreError::LocalVerificationRequired {
+        message: "Observe the existing tab".into(),
+        targets: Vec::new(),
+        browser_targets: vec![target],
+    };
+    db.finish_agent_subtask_run(
+        &worker.id,
+        "failed",
+        Some(&json!({"run":{"recoveryRequired":error.recovery_requirement()}})),
+        Some(&error.to_string()),
+    )
+    .unwrap();
+    let parent_plan = plan("Review completed work");
+    let parent_workflow = compile_workflow_ir(&parent_plan, &profile(), false).unwrap();
+    resume(&db, &run, &parent_workflow);
+    let mut resumed = None;
+    restore_pending_desktop_evidence(
+        &db,
+        Some(&run.conversation_id),
+        Some(&run.turn_id),
+        &mut resumed,
+        &parent_plan,
+        &profile(),
+        false,
+    )
+    .unwrap();
+    let resumed = resumed.as_mut().unwrap();
+    assert!(resumed.has_pending_local_targets());
+    for (session, tab, token, time) in [
+        ("other-session", "tab", "fresh", 200),
+        ("session", "new-tab", "fresh", 200),
+        ("session", "tab", "before", 200),
+        ("session", "tab", "old-pixels", 99),
+    ] {
+        resumed.observe_tool_result_with_arguments("observe", "browser_session",
+            Some(&json!({"action":"observe","session_id":session,"tab_id":tab}).to_string()), false,
+            Some(&json!({"kind":"browserObservation","data":{"sessionId":session,"tabId":tab,"observationId":token,"capturedAtMs":time,"screenshotHash":"pixels"}})), "observation");
+        assert!(
+            resumed.has_pending_local_targets(),
+            "wrong, reused or old evidence cannot clear the target"
+        );
+    }
+    resumed.observe_tool_result_with_arguments("replayed-open", "browser_session", Some(r#"{"action":"create_session"}"#), false,
+        Some(&json!({"kind":"browserOpenReceipt","sessionId":"session","tabId":"tab","opened":true,"observationPending":true})), "opened");
+    assert!(
+        resumed.has_pending_local_targets(),
+        "an opening receipt cannot verify itself"
+    );
+    resumed.observe_tool_result_with_arguments("fresh", "browser_session", Some(r#"{"action":"observe","session_id":"session","tab_id":"tab"}"#), false,
+        Some(&json!({"kind":"browserObservation","data":{"sessionId":"session","tabId":"tab","observationId":"after","capturedAtMs":200,"screenshotHash":"new-pixels"}})), "fresh");
+    assert!(!resumed.has_pending_local_targets());
+    assert!(resumed
+        .completion_progress_milestones()
+        .iter()
+        .any(|milestone| milestone == "browser-target:session:tab"));
+    db.update_agent_task_run_progress(
+        &run.id,
+        None,
+        None,
+        None,
+        None,
+        Some(&resumed.task_plan_checkpoint(&parent_plan)),
+        None,
+    )
+    .unwrap();
+    let mut reopened = None;
+    restore_pending_desktop_evidence(
+        &db,
+        Some(&run.conversation_id),
+        Some(&run.turn_id),
+        &mut reopened,
+        &parent_plan,
+        &profile(),
+        false,
+    )
+    .unwrap();
+    assert!(
+        reopened.is_none(),
+        "verified imported browser debt must not resurrect"
+    );
+}
+
+#[test]
+fn exact_host_browser_absence_releases_input_but_preserves_unverified_completion() {
+    let mut workflow = compile_workflow_ir(&plan("Review work"), &profile(), false).unwrap();
+    let target = crate::workflow_ir::BrowserObservationTarget {
+        session_id: "gone-session".into(),
+        tab_id: "gone-tab".into(),
+        consumed_observation_id: None,
+        opened_without_observation: true,
+        observation_not_before_ms: Some(100),
+    };
+    workflow.import_desktop_recovery("worker", &[], &[target]);
+    for (action, session, tab, time) in [
+        ("list_sessions", "gone-session", "gone-tab", 200),
+        ("list_tabs", "other-session", "gone-tab", 200),
+        ("list_tabs", "gone-session", "other-tab", 200),
+        ("list_tabs", "gone-session", "gone-tab", 99),
+    ] {
+        workflow.observe_tool_result_with_arguments("presence", "browser_session",
+            Some(&json!({"action":action,"sessionId":session,"tabId":tab}).to_string()), false,
+            Some(&json!({"kind":"browserTargetPresence","sessionId":session,"tabId":tab,"present":false,"checkedAtMs":time,"goalVerified":false})), "not present");
+        assert!(workflow.has_pending_local_targets());
+    }
+    workflow.observe_tool_result_with_arguments("presence", "browser_session",
+        Some(r#"{"action":"list_tabs","sessionId":"gone-session","tabId":"gone-tab"}"#), false,
+        Some(&json!({"kind":"browserTargetPresence","sessionId":"gone-session","tabId":"gone-tab","present":false,"checkedAtMs":200,"goalVerified":false})), "not present");
+    assert!(
+        !workflow.has_pending_local_targets(),
+        "exact host absence permits replanning without replay"
+    );
+    assert!(
+        workflow.local_evidence_pending(),
+        "missing historical target does not verify the requested goal"
+    );
+    let mut reopened = compile_workflow_ir(&plan("Review work"), &profile(), false).unwrap();
+    reopened.restore_desktop_checkpoint(&workflow);
+    assert!(!reopened.has_pending_local_targets());
+    assert!(
+        reopened.local_evidence_pending(),
+        "reopening must keep the unverified completion gate"
+    );
+}
+
+#[test]
 fn durable_checkpoint_continuation_restores_every_pending_target_at_real_start_boundary() {
     let (db, run, _, saved) = fixture();
     resume(&db, &run, &saved);

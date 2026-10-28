@@ -1036,9 +1036,24 @@ pub(super) fn settle_subagent_artifact(
     subtask: &mut SubtaskRecorder,
 ) -> SubagentRunArtifact {
     let error = final_message.as_ref().err();
-    let error_message = error.map(ToString::to_string);
+    let provider = capture
+        .runtime_identity
+        .as_ref()
+        .map(|identity| identity.provider.as_str())
+        .unwrap_or(&input.preflight.provider_id);
+    let model = capture
+        .runtime_identity
+        .as_ref()
+        .map(|identity| identity.model.as_str())
+        .unwrap_or(&input.preflight.effective_model);
+    let failure_message = error.map(ToString::to_string).or_else(|| {
+        (capture.finish_reason.as_deref() == Some("max_iterations")).then(|| {
+            "Explicit tool budget reached. Partial results were preserved; the task is unfinished. Omit max_iterations for normal continuation unless the user requires a cap.".to_string()
+        })
+    });
+    let failure_status = failure_message.as_deref().map(delegated_failure_status);
+    let error_message = failure_message.map(|message| format!("{provider} / {model}: {message}"));
     let recovery_required = error.and_then(CoreError::recovery_requirement);
-    let failure_status = error_message.as_deref().map(delegated_failure_status);
     let result_text = final_message
         .as_ref()
         .map(|message| message.text_content())

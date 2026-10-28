@@ -717,18 +717,36 @@ pub(super) struct ToolDispatchOutcome {
 #[derive(Debug, Clone)]
 pub(super) enum ToolDispatchBlock {
     LoopGuard(String),
+    ToolBudget {
+        provider: String,
+        model: String,
+        used: u32,
+        limit: u32,
+    },
 }
 
 impl ToolDispatchBlock {
     fn policy_label(&self) -> &'static str {
         match self {
             Self::LoopGuard(_) => "blockedByLoopGuard",
+            Self::ToolBudget { .. } => "blockedByToolBudget",
         }
     }
 
     fn result(&self, call: &ToolCallRequest) -> crate::tools::ToolResult {
         match self {
             Self::LoopGuard(reason) => loop_guard_blocked_result(call, reason),
+            Self::ToolBudget { provider, model, used, limit } => {
+                crate::tools::structured_tool_error_result_with_side_effect(
+                    &call.id,
+                    "external_tool_budget_reached",
+                    format!("Tool budget reached for {provider} / {model}: {used}/{limit} tool calls. This action was not executed. Finish with the evidence already collected and clearly identify unfinished work. Do not retry tools in this worker; hand remaining work back to the parent. Future workers should omit max_iterations unless an explicit task limit is required."),
+                    serde_json::json!({"provider":provider,"model":model,"used":used,"limit":limit,"budgetUnit":"tool_calls","nextAction":"return_partial_result"}),
+                    false,
+                    crate::tools::ToolSideEffect::NotStarted,
+                    None,
+                )
+            },
         }
     }
 }

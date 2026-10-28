@@ -652,6 +652,24 @@ impl Tool for NativeBrowserSessionTool {
             );
         }
 
+        if action == "list_tabs" {
+            if let (Some(session_id), Some(tab_id)) =
+                (args.session_id.as_deref(), args.tab_id.as_deref())
+            {
+                let session_id = required(Some(session_id), "sessionId")?;
+                let tab_id = required(Some(tab_id), "tabId")?;
+                if self
+                    .state
+                    .target_is_absent(session_id, tab_id, conversation_id)
+                    .map_err(Self::invalid)?
+                {
+                    return success(context.call_id,
+                        "The host confirmed this exact browser target no longer exists. No action was replayed. The earlier action outcome and requested goal remain unverified; re-plan from current state and obtain new evidence.",
+                        serde_json::json!({"kind":"browserTargetPresence","sessionId":session_id,"tabId":tab_id,"present":false,"checkedAtMs":chrono::Utc::now().timestamp_millis(),"goalVerified":false}));
+                }
+            }
+        }
+
         let requested_session_id = if matches!(action.as_str(), "close_session" | "close_tab") {
             Some(required(args.session_id.as_deref(), "sessionId")?)
         } else {
@@ -2097,6 +2115,7 @@ mod tests {
     fn browser_observation_without_visual_capture_fails_closed() {
         let observation = BrowserObservationPayload {
             observation_id: "obs-1".to_string(),
+            captured_at_ms: 1,
             session_id: "session-1".to_string(),
             tab_id: "tab-1".to_string(),
             url: "https://example.com/".to_string(),

@@ -83,6 +83,81 @@ async fn workers_preserve_parent_policy_and_keep_roles_in_the_runtime_tail() {
 }
 
 #[tokio::test]
+async fn tool_budget_handoff_retains_observed_route_and_is_not_success() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.base_config.model = Some("configured-model".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    let args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+        "task": "Verify native behavior", "allowed_tools": [], "max_iterations": 2,
+    }))
+    .unwrap();
+    let prepared = prepare_subagent_worker(&runtime, &db, vec![], &args, "budget", None)
+        .await
+        .unwrap();
+    let mut recorder = SubtaskRecorder::create(
+        &db,
+        None,
+        "budget",
+        "Subagent",
+        &serde_json::json!({}),
+        0,
+        "Queued".into(),
+        serde_json::json!({}),
+    )
+    .unwrap();
+    let run = settle_subagent_artifact(
+        &runtime,
+        SubagentSettlementInput {
+            verification_source: None,
+            worker_id: None,
+            call_label: "budget".into(),
+            args,
+            role_profile: prepared.role_profile,
+            requested_task_id: None,
+            session_id: "budget".into(),
+            previous_session: None,
+            effective_model: prepared.effective_model,
+            model_route_fallback: false,
+            evidence_handoff: prepared.evidence_handoff,
+            effective_source_scope: prepared.effective_source_scope,
+            effective_allowed_tools: prepared.effective_allowed_tools,
+            applied_skill_refs: prepared.applied_skill_refs,
+            preflight: prepared.preflight,
+            context_snapshot_artifact: prepared.context_snapshot_artifact,
+            effective_model_budgets: prepared.effective_model_budgets,
+            source_scope_applied: false,
+        },
+        Ok(Message::text(
+            Role::Assistant,
+            "Capture verified; microphone check remains unfinished.",
+        )),
+        EventCapture {
+            runtime_identity: Some(SubagentRuntimeIdentity {
+                provider: "openai_codex".into(),
+                model: "cancelled-looking-model-alias".into(),
+            }),
+            finish_reason: Some("max_iterations".into()),
+            ..Default::default()
+        },
+        &mut recorder,
+    );
+    assert!(run.is_error);
+    assert_eq!(run.status, "failed");
+    assert_eq!(run.finish_reason.as_deref(), Some("max_iterations"));
+    assert!(run.result.contains("Capture verified"));
+    let error = run.error_message.as_deref().unwrap();
+    assert!(error.contains("openai_codex / cancelled-looking-model-alias"));
+    assert!(!error.contains("configured-model"));
+    assert!(error.contains("unfinished"));
+    assert!(runtime
+        .restore_session_snapshot(&db, "budget")
+        .unwrap()
+        .result
+        .contains("unfinished"));
+}
+
+#[tokio::test]
 async fn interrupted_worker_handoff_uses_latest_receipts_without_claiming_task_completion() {
     let db = Database::open_memory().unwrap();
     let mut runtime = test_runtime();

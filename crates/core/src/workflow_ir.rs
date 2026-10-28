@@ -172,10 +172,18 @@ pub struct WorkflowCheckpoint {
     /// Only opaque target identity and observation tokens are retained.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub desktop_observation_targets: Vec<DesktopObservationTarget>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub browser_observation_targets: Vec<BrowserObservationTarget>,
     /// Distinct host-verified target identities are progress even while other
     /// windows remain pending and no workspace file changed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub verified_desktop_target_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_browser_target_ids: Vec<String>,
+    /// Worker recovery receipts already imported into this workflow. Retain
+    /// this identity after verification so reopening cannot resurrect old debt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub imported_desktop_recovery_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -190,6 +198,33 @@ pub struct DesktopObservationTarget {
     /// became available. The source dialog's token is not an owner freshness fence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observation_not_before_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserObservationTarget {
+    pub session_id: String,
+    pub tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consumed_observation_id: Option<String>,
+    /// A successful open creates a fresh opaque tab identity before the first
+    /// observation exists. Other mutations must retain their consumed token.
+    #[serde(default)]
+    pub opened_without_observation: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_not_before_ms: Option<i64>,
+}
+
+impl BrowserObservationTarget {
+    pub fn is_bound(&self) -> bool {
+        !self.session_id.trim().is_empty()
+            && !self.tab_id.trim().is_empty()
+            && (self.opened_without_observation
+                || self
+                    .consumed_observation_id
+                    .as_deref()
+                    .is_some_and(|id| !id.is_empty() && id != "<observation-token-redacted>"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -295,14 +330,53 @@ impl WorkflowIr {
             })
     }
 
+    pub(crate) fn local_evidence_pending(&self) -> bool {
+        self.desktop_evidence_pending() || self.browser_evidence_pending()
+    }
+
+    pub(crate) fn browser_evidence_pending(&self) -> bool {
+        !self.checkpoint.browser_observation_targets.is_empty()
+            || self.verification_gates.iter().any(|gate| {
+                gate.kind == VerificationGateKind::BrowserSessionObservation
+                    && gate.required
+                    && gate.passed != Some(true)
+            })
+    }
+
+    pub(crate) fn has_pending_local_targets(&self) -> bool {
+        !self.checkpoint.desktop_observation_targets.is_empty()
+            || !self.checkpoint.browser_observation_targets.is_empty()
+    }
+
     /// Preserve only the runtime-owned desktop obligation. Prompt-derived plans
     /// cannot broaden a resumed task's terminal-close acceptance contract.
     pub(crate) fn restore_desktop_checkpoint(&mut self, saved: &WorkflowIr) {
+        self.checkpoint.imported_desktop_recovery_ids =
+            saved.checkpoint.imported_desktop_recovery_ids.clone();
         self.completion_contract.desktop_terminal_closure_evidence =
             saved.completion_contract.desktop_terminal_closure_evidence;
         self.checkpoint.revision = self.checkpoint.revision.max(saved.checkpoint.revision);
         self.checkpoint.verified_desktop_target_ids =
             saved.checkpoint.verified_desktop_target_ids.clone();
+        self.checkpoint.verified_browser_target_ids =
+            saved.checkpoint.verified_browser_target_ids.clone();
+        self.checkpoint.browser_observation_targets =
+            saved.checkpoint.browser_observation_targets.clone();
+        if saved.browser_evidence_pending() {
+            self.completion_contract.require_interaction_gates = true;
+            self.verification_gates
+                .retain(|gate| gate.kind != VerificationGateKind::BrowserSessionObservation);
+            self.verification_gates.extend(
+                saved
+                    .verification_gates
+                    .iter()
+                    .filter(|gate| gate.kind == VerificationGateKind::BrowserSessionObservation)
+                    .cloned(),
+            );
+        }
+        if !self.checkpoint.browser_observation_targets.is_empty() {
+            self.require_fresh_browser_observation("Resumed task retains exact browser tabs; observe those existing tabs without replaying the actions.");
+        }
         self.verification_gates
             .retain(|gate| gate.kind != VerificationGateKind::DesktopTerminalClosure);
         self.verification_gates.extend(
@@ -329,6 +403,56 @@ impl WorkflowIr {
             self.record_gate("desktop-observation", true,
                 "The saved task's host-owned terminal closure receipt verified its final desktop target.");
         }
+    }
+
+    pub(crate) fn import_desktop_recovery(
+        &mut self,
+        receipt_id: &str,
+        targets: &[DesktopObservationTarget],
+        browser_targets: &[BrowserObservationTarget],
+    ) {
+        if self
+            .checkpoint
+            .imported_desktop_recovery_ids
+            .iter()
+            .any(|id| id == receipt_id)
+        {
+            return;
+        }
+        for target in targets {
+            if !self.checkpoint.desktop_observation_targets.contains(target) {
+                self.checkpoint
+                    .desktop_observation_targets
+                    .push(target.clone());
+            }
+        }
+        for target in browser_targets {
+            if !self.checkpoint.browser_observation_targets.contains(target) {
+                self.checkpoint
+                    .browser_observation_targets
+                    .push(target.clone());
+            }
+        }
+        self.checkpoint
+            .imported_desktop_recovery_ids
+            .push(receipt_id.to_string());
+        if !targets.is_empty() {
+            self.require_fresh_desktop_observation("A delegated worker left exact native targets unverified. Capture these targets before further input or completion; do not repeat their actions.");
+        }
+        if !browser_targets.is_empty() {
+            self.require_fresh_browser_observation("A prior action left exact browser tabs unverified. Observe these existing tabs before further input or completion; do not repeat their actions.");
+        }
+    }
+
+    fn require_fresh_browser_observation(&mut self, detail: &str) {
+        self.completion_contract.require_interaction_gates = true;
+        ensure_required_gate(
+            &mut self.verification_gates,
+            "browser-session-observation",
+            VerificationGateKind::BrowserSessionObservation,
+            detail,
+        );
+        self.refresh_checkpoint();
     }
 
     fn require_fresh_desktop_observation(&mut self, detail: &str) {
@@ -770,6 +894,13 @@ impl WorkflowIr {
                         )
                     ));
             if browser_error_may_have_changed_state {
+                if let Some(target) = browser_control_target(tool_arguments, artifacts) {
+                    self.checkpoint.browser_observation_targets.retain(|prior| {
+                        prior.session_id != target.session_id || prior.tab_id != target.tab_id
+                    });
+                    self.checkpoint.browser_observation_targets.push(target);
+                    self.require_fresh_browser_observation("Browser action requires a fresh observation of its exact existing session and tab; do not repeat the mutation.");
+                }
                 self.record_gate(
                     "browser-visual-observation",
                     false,
@@ -783,6 +914,16 @@ impl WorkflowIr {
             }
             self.refresh_checkpoint();
             return;
+        }
+        if tool_name == "browser_session" {
+            let before = self.checkpoint.browser_observation_targets.len();
+            self.checkpoint
+                .browser_observation_targets
+                .retain(|target| !browser_absence_matches(target, tool_arguments, artifacts));
+            if before != self.checkpoint.browser_observation_targets.len() {
+                self.record_gate("browser-session-observation", false,
+                    "The host confirmed an exact prior tab is absent. Its action effect and the requested goal remain unverified. Re-plan from current state and obtain a new screenshot-bearing observation; do not report the old action as successful.");
+            }
         }
         if tool_may_mutate_workspace(tool_name)
             || (tool_name == "browser_session"
@@ -809,6 +950,28 @@ impl WorkflowIr {
                     || normalized_tool_action(tool_arguments).as_deref() == Some("observe")
                     || verified_browser_opening_observation(tool_arguments, artifacts));
         if verified_browser_visual_observation && source_stable {
+            if tool_name == "browser_session" {
+                for target in self
+                    .checkpoint
+                    .browser_observation_targets
+                    .iter()
+                    .filter(|target| browser_observation_matches(target, tool_arguments, artifacts))
+                {
+                    let identity = format!("{}:{}", target.session_id, target.tab_id);
+                    if !self
+                        .checkpoint
+                        .verified_browser_target_ids
+                        .contains(&identity)
+                    {
+                        self.checkpoint.verified_browser_target_ids.push(identity);
+                    }
+                }
+                self.checkpoint
+                    .browser_observation_targets
+                    .retain(|target| {
+                        !browser_observation_matches(target, tool_arguments, artifacts)
+                    });
+            }
             self.record_gate(
                 "browser-visual-observation",
                 true,
@@ -817,8 +980,8 @@ impl WorkflowIr {
             if tool_name == "browser_session" {
                 self.record_gate(
                     "browser-session-observation",
-                    true,
-                    "Fresh pixel-bearing observation returned by browser_session.",
+                    self.checkpoint.browser_observation_targets.is_empty(),
+                    "Fresh pixel-bearing browser observation must verify every pending session and tab.",
                 );
             }
         }
@@ -1075,6 +1238,12 @@ impl WorkflowIr {
                 .verified_desktop_target_ids
                 .iter()
                 .map(|id| format!("desktop-target:{id}")),
+        );
+        milestones.extend(
+            self.checkpoint
+                .verified_browser_target_ids
+                .iter()
+                .map(|id| format!("browser-target:{id}")),
         );
         if self.completion_contract.require_evidence_ledger {
             milestones.extend(
@@ -1449,11 +1618,19 @@ impl WorkflowIr {
             .iter()
             .map(|target| target.window_id.to_string())
             .collect::<Vec<_>>();
+        let browser_targets = self
+            .checkpoint
+            .browser_observation_targets
+            .iter()
+            .map(|target| format!("sessionId={}, tabId={}", target.session_id, target.tab_id))
+            .collect::<Vec<_>>();
         format!(
             "Resolve the enforced completion contract with concrete tool results: {}. A pending, claimed, or skipped check is not success.",
             actions.join("; ")
         ) + &if targets.is_empty() { String::new() } else {
             format!(" Pending exact window_id values: {}.", targets.join(", "))
+        } + &if browser_targets.is_empty() { String::new() } else {
+            format!(" Observe existing browser targets: {}. If missing after restart, call list_tabs with both exact sessionId and tabId for host-confirmed presence. Never repeat create_session/open_tab to reconcile the old action.", browser_targets.join("; "))
         }
     }
 
@@ -1703,7 +1880,139 @@ pub(crate) fn is_verified_browser_visual_observation(
     }
 }
 
-fn desktop_control_target(
+pub(crate) fn browser_control_target(
+    arguments: Option<&str>,
+    artifacts: Option<&serde_json::Value>,
+) -> Option<BrowserObservationTarget> {
+    let args: serde_json::Value = serde_json::from_str(arguments?).ok()?;
+    let receipt = artifacts?;
+    let action = args.get("action")?.as_str()?;
+    let opened = matches!(action, "create_session" | "open_tab")
+        && receipt.get("kind").and_then(serde_json::Value::as_str) == Some("browserOpenReceipt")
+        && receipt.get("action").and_then(serde_json::Value::as_str) == Some(action)
+        && receipt.get("opened").and_then(serde_json::Value::as_bool) == Some(true)
+        && receipt
+            .get("observationPending")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true);
+    let get = |camel: &str, snake: &str| {
+        if opened {
+            receipt.get(camel)
+        } else {
+            args.get(snake).or_else(|| args.get(camel))
+        }
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+    };
+    let target = BrowserObservationTarget {
+        session_id: get("sessionId", "session_id")?,
+        tab_id: get("tabId", "tab_id")?,
+        consumed_observation_id: args
+            .get("observation_id")
+            .or_else(|| args.get("observationId"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+        opened_without_observation: opened,
+        observation_not_before_ms: Some(chrono::Utc::now().timestamp_millis()),
+    };
+    (target.is_bound() && (opened || tool_result_effect_may_have_occurred(artifacts)))
+        .then_some(target)
+}
+
+pub(crate) fn browser_observation_matches(
+    target: &BrowserObservationTarget,
+    arguments: Option<&str>,
+    artifacts: Option<&serde_json::Value>,
+) -> bool {
+    if normalized_tool_action(arguments).as_deref() != Some("observe")
+        || !is_verified_browser_visual_observation("browser_session", artifacts)
+    {
+        return false;
+    }
+    let Some(data) = artifacts.and_then(|value| {
+        value
+            .get("data")
+            .or_else(|| value.pointer("/artifacts/observation"))
+    }) else {
+        return false;
+    };
+    let Some(observation) = data
+        .get("observationId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    target.is_bound()
+        && data.get("sessionId").and_then(serde_json::Value::as_str)
+            == Some(target.session_id.as_str())
+        && data.get("tabId").and_then(serde_json::Value::as_str) == Some(target.tab_id.as_str())
+        && target.consumed_observation_id.as_deref() != Some(observation)
+        && target.observation_not_before_ms.is_none_or(|minimum| {
+            data.get("capturedAtMs")
+                .and_then(serde_json::Value::as_i64)
+                .is_some_and(|captured| captured >= minimum)
+        })
+        && serde_json::from_str::<serde_json::Value>(arguments.unwrap_or_default())
+            .ok()
+            .is_some_and(|args| {
+                args.get("session_id")
+                    .or_else(|| args.get("sessionId"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some(target.session_id.as_str())
+                    && args
+                        .get("tab_id")
+                        .or_else(|| args.get("tabId"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some(target.tab_id.as_str())
+            })
+}
+
+fn browser_absence_matches(
+    target: &BrowserObservationTarget,
+    arguments: Option<&str>,
+    artifacts: Option<&serde_json::Value>,
+) -> bool {
+    if normalized_tool_action(arguments).as_deref() != Some("list_tabs") {
+        return false;
+    }
+    let Some(data) = artifacts.and_then(|value| {
+        value
+            .get("data")
+            .or_else(|| value.pointer("/artifacts"))
+            .or(Some(value))
+    }) else {
+        return false;
+    };
+    let Some(args) =
+        arguments.and_then(|args| serde_json::from_str::<serde_json::Value>(args).ok())
+    else {
+        return false;
+    };
+    data.get("kind").and_then(serde_json::Value::as_str) == Some("browserTargetPresence")
+        && data.get("present").and_then(serde_json::Value::as_bool) == Some(false)
+        && data
+            .get("goalVerified")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+        && data.get("sessionId").and_then(serde_json::Value::as_str)
+            == Some(target.session_id.as_str())
+        && data.get("tabId").and_then(serde_json::Value::as_str) == Some(target.tab_id.as_str())
+        && args.get("sessionId").and_then(serde_json::Value::as_str)
+            == Some(target.session_id.as_str())
+        && args.get("tabId").and_then(serde_json::Value::as_str) == Some(target.tab_id.as_str())
+        && data
+            .get("checkedAtMs")
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|time| {
+                time > 0
+                    && target
+                        .observation_not_before_ms
+                        .is_none_or(|minimum| time >= minimum)
+            })
+}
+
+pub(crate) fn desktop_control_target(
     arguments: Option<&str>,
     artifacts: Option<&serde_json::Value>,
 ) -> Option<DesktopObservationTarget> {
@@ -1870,7 +2179,7 @@ fn desktop_terminal_closure_requested(plan: &AgentTaskPlan) -> bool {
     plan.interaction_requirements.desktop_interaction
         && crate::tool_visibility_policy::query_requests_desktop_terminal_closure(&plan.objective)
 }
-fn desktop_observation_matches(
+pub(crate) fn desktop_observation_matches(
     target: &DesktopObservationTarget,
     observation: &serde_json::Value,
 ) -> bool {
@@ -2617,7 +2926,10 @@ pub fn compile_workflow_ir(
             failed_node_ids: Vec::new(),
             remaining_delegated_tokens: profile.delegated_token_budget.unwrap_or(u32::MAX),
             desktop_observation_targets: Vec::new(),
+            browser_observation_targets: Vec::new(),
             verified_desktop_target_ids: Vec::new(),
+            verified_browser_target_ids: Vec::new(),
+            imported_desktop_recovery_ids: Vec::new(),
         },
         completion_contract: WorkflowCompletionContract {
             controller_owned_review: false,
@@ -2687,6 +2999,18 @@ pub(crate) fn ensure_runtime_desktop_observation_gate(
         .require_fresh_desktop_observation(
             "Runtime computer_control requires a fresh computer_observe screenshot before completion.",
         );
+    Ok(())
+}
+
+pub(crate) fn ensure_runtime_local_recovery_workflow(
+    workflow: &mut Option<WorkflowIr>,
+    plan: &AgentTaskPlan,
+    profile: &ResolvedOrchestrationProfile,
+    nexus_enabled: bool,
+) -> Result<(), String> {
+    if workflow.is_none() {
+        *workflow = Some(compile_workflow_ir(plan, profile, nexus_enabled)?);
+    }
     Ok(())
 }
 

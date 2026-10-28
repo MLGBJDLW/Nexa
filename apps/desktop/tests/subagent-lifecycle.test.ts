@@ -83,6 +83,36 @@ assert(projection.thinking.join('') === 'Checking source. ', 'thinking deltas sh
 assert(projection.artifact?.result === 'Verified result', 'terminal artifact should hydrate');
 assert(projection.artifact?.effectiveModel === 'reviewer-model', 'effective model should survive lifecycle projection');
 assert(projection.artifact?.runtimeIdentity?.model === 'observed-native-model', 'observed native identity survives terminal history without overwriting configured routing');
+const malformedTerminal = projectSubagentLifecycle([
+  ...events,
+  event(6, 'failed', { errorMessage: 'Legacy interruption', result: { unexpected: true } }),
+]);
+assert(malformedTerminal.artifact?.result === 'Verified result'
+  && malformedTerminal.artifact?.runtimeIdentity?.model === 'observed-native-model',
+'a malformed legacy terminal payload must not erase an earlier valid receipt');
+for (const terminal of ['failed', 'cancelled']) {
+  const terminalOnly = projectSubagentLifecycleRuns([
+    event(20, terminal, {
+      errorMessage: 'Explicit tool budget reached',
+      result: {
+        id: 'agent-1', task: 'Finish native verification', status: terminal,
+        effectiveModel: 'configured-model',
+        runtimeIdentity: { provider: 'openai_codex', model: 'observed-model' },
+        result: 'Accepted partial evidence; microphone check remains unfinished.',
+        toolEvents: [
+          { phase: 'runStarted', run: { callId: 'capture', toolName: 'computer_observe', arguments: '{"action":"capture_window"}' } },
+          { phase: 'runCompleted', run: { callId: 'capture', toolName: 'computer_observe', content: 'Verified screen receipt', isError: false, artifacts: { kind: 'computerObservationReceipt' } } },
+        ],
+      },
+    }),
+  ]);
+  assert(terminalOnly.length === 1, `${terminal} terminal receipt must hydrate without an earlier progress page`);
+  assert(terminalOnly[0].runtimeIdentity?.provider === 'openai_codex', `${terminal} must retain runtime provider`);
+  assert(terminalOnly[0].runtimeIdentity?.model === 'observed-model', `${terminal} must retain runtime model`);
+  assert(terminalOnly[0].result?.includes('unfinished'), `${terminal} must preserve partial handoff evidence`);
+  assert(terminalOnly[0].toolEvents.length === 2 && terminalOnly[0].toolEvents[1].content === 'Verified screen receipt', `${terminal} must project typed tool receipts from the worker event pump`);
+  assert(terminalOnly[0].status === (terminal === 'failed' ? 'error' : 'cancelled'), `${terminal} must not look successful`);
+}
 const nativeProgress = projectSubagentLifecycle([
   event(1, 'spawned', { task: 'Inspect' }),
   event(2, 'progress', { runtimeIdentity: {provider:'github_copilot',model:'observed-native-model'} }),

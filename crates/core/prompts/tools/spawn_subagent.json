@@ -84,7 +84,7 @@
       "max_iterations": {
         "type": "integer",
         "minimum": 0,
-        "description": "Optional tool-round budget. Zero allows an answer without tools. Omit to inherit the parent round budget; shared delegation token/call limits still apply."
+        "description": "Optional hard tool budget. Omit for normal work; do not invent a small limit to make a worker faster. Set only when the task explicitly requires a cap. Zero allows an answer without tools. API workers count verified tool rounds; subscription workers count individual tool callbacks. Omission inherits the parent budget, normally unlimited; shared delegation limits still apply."
       },
       "timeout_secs": {
         "type": "integer",
@@ -93,7 +93,7 @@
       },
       "agent_config_id": {
         "type": "string",
-        "description": "Saved provider/account configuration ID from list_subagent_models. For API parents, omit routing fields to inherit the current endpoint, account, model and reasoning settings; do not discover or pick an alternate route unless requested. Subscription parents must select an API route explicitly."
+        "description": "Saved provider/account configuration ID from list_subagent_models. Omit routing fields to inherit the current endpoint, account, model and reasoning settings, including supported Codex and Copilot runtimes. Do not discover or pick an alternate route unless requested. ACP runtimes own their native delegation."
       },
       "provider": {
         "type": "string",

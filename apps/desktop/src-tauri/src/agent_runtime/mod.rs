@@ -237,6 +237,7 @@ impl AgentRuntimeTurnRequest {
         } else {
             transcript::Transcript::NexaTools(Arc::new(ExternalToolSession::new(
                 ExternalToolSessionInput {
+                    runtime_provider: self.kind.provider().to_string(),
                     tools: self.dependencies.tools,
                     config: self.config.clone(),
                     db: self.db,
