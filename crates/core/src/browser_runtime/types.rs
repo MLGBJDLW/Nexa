@@ -115,6 +115,8 @@ pub struct BrowserScreenshot {
 #[serde(rename_all = "camelCase")]
 pub struct BrowserObservation {
     pub observation_id: String,
+    #[serde(default)]
+    pub captured_at_ms: i64,
     pub session_id: String,
     pub tab_id: String,
     pub url: String,

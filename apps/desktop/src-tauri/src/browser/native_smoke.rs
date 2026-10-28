@@ -38,6 +38,18 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 if first.url == "about:blank" || first.screenshot.as_ref().is_none_or(|shot| shot.image_bytes.is_empty()) {
                     return Err("HTML preview did not return current native pixels".into());
                 }
+                // A new observation call owns acquisition. Manually acquiring
+                // here would conceal the successive-call lease regression.
+                let second = state.observe(&session.id, tab_id, "preview-observe-next").await
+                    .map_err(|error| format!("Successive call observation: {error}"))?;
+                if second.observation_id == first.observation_id || second.tab_id != first.tab_id {
+                    return Err("Successive observation lost fresh token or exact tab identity".into());
+                }
+                if let Ok(directory) = std::env::var("NEXA_NATIVE_EVIDENCE_DIR") {
+                    let directory = std::path::PathBuf::from(directory);
+                    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+                    std::fs::write(directory.join("browser-successive-observe.png"), &second.screenshot.as_ref().ok_or("Missing successive screenshot")?.image_bytes).map_err(|error| error.to_string())?;
+                }
                 // Fault injection: keep the page-load flag set after a real DOM
                 // is ready, matching an unfinished background-resource request.
                 state.update_page_load(&session.id, tab_id, &Url::parse(&first.url).map_err(|error| error.to_string())?, true);
@@ -151,6 +163,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 }
                 state.acquire_control(&session.id, BrowserControlOwner::User)?;
                 if state.observe(&session.id, &next.id, "after-takeover").await.is_ok() { return Err("Agent bypassed actual user takeover".into()); }
+                if let Ok(directory) = std::env::var("NEXA_NATIVE_EVIDENCE_DIR") {
+                    std::fs::write(std::path::PathBuf::from(directory).join("browser-continuity-result.json"), serde_json::to_vec_pretty(&serde_json::json!({"successiveCallObservation":true,"exactSecondTab":true,"userTakeoverBlockedAgent":true,"nativeTrustedClickEffect":true,"businessGoalVerified":false})).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+                }
                 eprintln!("Native HTML continuity: exact second tab observed; real user takeover remains authoritative.");
                 let cleanup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                 loop {
@@ -443,6 +458,7 @@ async fn fixture_observe(
         serde_json::from_value(confirmed["elements"].clone()).map_err(|error| error.to_string())?;
     let observation = BrowserObservation {
         observation_id: "fixture-observation".into(),
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
         session_id: "fixture-session".into(),
         tab_id: "fixture-tab".into(),
         url: confirmed["url"]

@@ -141,17 +141,27 @@ impl BrowserActFailure {
 /// Navigation invalidates observations without transferring control. A read-only
 /// observation may restart on that transition, but never reclaim user control or
 /// replay the input that initiated navigation.
-pub(super) async fn observe_across_navigation<T, F, Fut, L>(
+pub(super) async fn observe_across_navigation<T, B, F, Fut, L>(
+    begin: B,
     mut observe: F,
     lease: L,
     timeout: Duration,
 ) -> Result<T, String>
 where
+    B: std::future::Future<Output = Result<(), String>>,
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, String>>,
     L: Fn() -> Result<u64, String>,
 {
     let deadline = tokio::time::Instant::now() + timeout;
+    // Bind this call once before reading its lease. Acquiring from inside the
+    // observation future made every subsequent call fail against its predecessor.
+    // Never reacquire during retries: real user takeover must still cancel them.
+    tokio::time::timeout_at(deadline, begin)
+        .await
+        .map_err(|_| {
+            "Browser workspace did not become available before the observation deadline".to_string()
+        })??;
     loop {
         let generation = lease()?;
         let result = tokio::time::timeout_at(deadline, observe())
@@ -2096,6 +2106,7 @@ impl BrowserState {
         options: &BrowserObservationOptions,
     ) -> Result<BrowserObservationPayload, String> {
         observe_across_navigation(
+            self.begin_observation(session_id, tab_id, call_id),
             || self.observe_once(session_id, tab_id, call_id, options),
             || self.agent_lease_generation(session_id, tab_id, call_id),
             BROWSER_FINAL_OBSERVATION_TIMEOUT,
@@ -2114,6 +2125,7 @@ impl BrowserState {
         options: &BrowserObservationOptions,
     ) -> Result<serde_json::Value, String> {
         observe_across_navigation(
+            self.begin_observation(session_id, tab_id, call_id),
             || async {
                 let (_, _, snapshot) = self
                     .read_page_snapshot(session_id, tab_id, call_id, options)
@@ -2148,7 +2160,6 @@ impl BrowserState {
                 return Err("Page paused after repeated dialogs. Close or reload the tab before observing again.".into());
             }
         }
-        self.acquire_agent_control(session_id, call_id)?;
         self.wait_until_workspace_visible(session_id, tab_id)
             .await?;
         self.require_visible_focused_host_window()?;
@@ -2204,6 +2215,19 @@ impl BrowserState {
         Ok((webview, lease_generation, snapshot))
     }
 
+    async fn begin_observation(
+        &self,
+        session_id: &str,
+        tab_id: &str,
+        call_id: &str,
+    ) -> Result<(), String> {
+        self.acquire_agent_control(session_id, call_id)?;
+        self.wait_until_workspace_visible(session_id, tab_id)
+            .await?;
+        self.agent_lease_generation(session_id, tab_id, call_id)?;
+        Ok(())
+    }
+
     async fn observe_once(
         &self,
         session_id: &str,
@@ -2211,6 +2235,7 @@ impl BrowserState {
         call_id: &str,
         options: &BrowserObservationOptions,
     ) -> Result<BrowserObservationPayload, String> {
+        let captured_at_ms = chrono::Utc::now().timestamp_millis();
         let (webview, lease_generation, snapshot) = self
             .read_page_snapshot(session_id, tab_id, call_id, options)
             .await?;
@@ -2312,6 +2337,7 @@ impl BrowserState {
         let _ = snapshot.history_length;
         Ok(BrowserObservationPayload {
             observation_id,
+            captured_at_ms,
             session_id: session_id.to_string(),
             tab_id: tab_id.to_string(),
             url: snapshot.url,
