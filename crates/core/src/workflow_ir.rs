@@ -4973,21 +4973,37 @@ mod tests {
     #[test]
     fn redacted_stop_replay_uses_host_token_and_rejects_pre_action_capture() {
         for (tool, arguments, observe_tool, observe_arguments) in [
-            ("computer_control", r#"{"action":"invoke","window_id":42,"observation_id":"before-host"}"#, "computer_observe", r#"{"action":"capture_window","window_id":42}"#),
-            ("computer_use", r#"{"action":"invoke","target":{"kind":"window","window_id":42},"observation_id":"before-host"}"#, "computer_use", r#"{"action":"observe","target":{"kind":"window","window_id":42}}"#),
+            (
+                "computer_control",
+                r#"{"action":"invoke","window_id":42,"observation_id":"before-host"}"#,
+                "computer_observe",
+                r#"{"action":"capture_window","window_id":42}"#,
+            ),
+            (
+                "computer_use",
+                r#"{"action":"invoke","target":{"kind":"window","window_id":42},"observation_id":"before-host"}"#,
+                "computer_use",
+                r#"{"action":"observe","target":{"kind":"window","window_id":42}}"#,
+            ),
         ] {
-        let plan = interaction_plan("Capture this app window, click Save, then verify it");
-        let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
-        let audit = crate::tool_argument_projection::audit_safe_arguments_string(tool, arguments);
-        workflow.observe_tool_result_with_arguments("replayed-control", tool, Some(&audit), false,
+            let plan = interaction_plan("Capture this app window, click Save, then verify it");
+            let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+            let audit =
+                crate::tool_argument_projection::audit_safe_arguments_string(tool, arguments);
+            workflow.observe_tool_result_with_arguments("replayed-control", tool, Some(&audit), false,
             Some(&serde_json::json!({"data":{"windowId":42,"targetIdentity":"target-a","consumedObservationId":"before-host"}})), "committed host receipt");
-        assert_eq!(workflow.checkpoint.desktop_observation_targets.len(), 1);
-        assert_eq!(workflow.checkpoint.desktop_observation_targets[0].consumed_observation_id.as_deref(), Some("before-host"));
-        for (token, expected) in [("before-host", false), ("after-host", true)] {
-            workflow.observe_tool_result_with_arguments("capture", observe_tool, Some(observe_arguments), false,
+            assert_eq!(workflow.checkpoint.desktop_observation_targets.len(), 1);
+            assert_eq!(
+                workflow.checkpoint.desktop_observation_targets[0]
+                    .consumed_observation_id
+                    .as_deref(),
+                Some("before-host")
+            );
+            for (token, expected) in [("before-host", false), ("after-host", true)] {
+                workflow.observe_tool_result_with_arguments("capture", observe_tool, Some(observe_arguments), false,
                 Some(&serde_json::json!({"data":{"kind":"computerObservationReceipt","windowId":42,"targetIdentity":"target-a","observationId":token,"screenshotHash":"pixels"}})), "host capture");
-            assert_eq!(workflow.completion_allowed(), expected);
-        }
+                assert_eq!(workflow.completion_allowed(), expected);
+            }
         }
     }
 

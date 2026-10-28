@@ -596,15 +596,25 @@ mod tests {
             json!({"callId":"browser","toolName":"computer_use","arguments":browser_arguments,"status":"failed","isError":true,
                 "artifacts":{"code":"browser_action_uncertain","sideEffect":"may_have_occurred"}}),
         ];
-        let targets = pending_targets(&receipts).expect("audit arguments retain bound host effects");
+        let targets =
+            pending_targets(&receipts).expect("audit arguments retain bound host effects");
         assert_eq!(targets.desktop.len(), 1);
         assert_eq!(targets.desktop[0].window_id, 42);
-        assert_eq!(targets.desktop[0].target_identity.as_deref(), Some("process-generation"));
-        assert_eq!(targets.desktop[0].consumed_observation_id.as_deref(), Some("before"));
+        assert_eq!(
+            targets.desktop[0].target_identity.as_deref(),
+            Some("process-generation")
+        );
+        assert_eq!(
+            targets.desktop[0].consumed_observation_id.as_deref(),
+            Some("before")
+        );
         assert_eq!(targets.browser.len(), 1);
         assert_eq!(targets.browser[0].session_id, "session");
         assert_eq!(targets.browser[0].tab_id, "tab");
-        assert_eq!(targets.browser[0].consumed_observation_id.as_deref(), Some("page-before"));
+        assert_eq!(
+            targets.browser[0].consumed_observation_id.as_deref(),
+            Some("page-before")
+        );
     }
 
     #[test]

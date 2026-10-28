@@ -774,9 +774,21 @@ mod tests {
     #[test]
     fn durable_receipts_resolve_redacted_inputs_without_relaxing_live_calls() {
         for (args, backend, action) in [
-            (json!({"action":"type","target":{"kind":"window","window_id":42},"observation_id":"native-before","text":"private text"}), "computer_control", "type_text"),
-            (json!({"action":"observe","target":{"kind":"window","window_id":42},"observation_id":"native-before"}), "computer_observe", "capture_window"),
-            (json!({"action":"type","target":{"kind":"browser","session_id":"session","tab_id":"tab"},"observation_id":"browser-before","text":"private text"}), "browser_session", "type"),
+            (
+                json!({"action":"type","target":{"kind":"window","window_id":42},"observation_id":"native-before","text":"private text"}),
+                "computer_control",
+                "type_text",
+            ),
+            (
+                json!({"action":"observe","target":{"kind":"window","window_id":42},"observation_id":"native-before"}),
+                "computer_observe",
+                "capture_window",
+            ),
+            (
+                json!({"action":"type","target":{"kind":"browser","session_id":"session","tab_id":"tab"},"observation_id":"browser-before","text":"private text"}),
+                "browser_session",
+                "type",
+            ),
         ] {
             let audit = crate::tool_argument_projection::audit_safe_arguments(TOOL_NAME, &args);
             assert!(!audit.to_string().contains("private text"));
@@ -797,7 +809,11 @@ mod tests {
                 assert_eq!(route.arguments["window_id"], 42);
             }
             let live = route_call(TOOL_NAME, &args).unwrap().unwrap();
-            let token_key = if backend == "browser_session" { "observationId" } else { "observation_id" };
+            let token_key = if backend == "browser_session" {
+                "observationId"
+            } else {
+                "observation_id"
+            };
             assert!(live.arguments[token_key].is_string());
         }
         for args in [
