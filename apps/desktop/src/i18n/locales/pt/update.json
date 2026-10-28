@@ -27,5 +27,6 @@
   "details": "Detalhes",
   "sourceCustom": "Espelho personalizado",
   "mirrorAddress": "URL do espelho",
-  "mirrorHint": "Proxy de prefixo: o URL original do GitHub é anexado a este endereço HTTPS. As assinaturas continuam a ser verificadas."
+  "mirrorHint": "Proxy de prefixo: o URL original do GitHub é anexado a este endereço HTTPS. As assinaturas continuam a ser verificadas.",
+  "installing": "Verificando e instalando…"
 }

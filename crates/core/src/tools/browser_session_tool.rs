@@ -1,6 +1,7 @@
 pub use super::browser_session_contract::{
     browser_open_observation_failure, browser_session_action_schema_variants,
-    browser_session_parameters_schema, mark_browser_open_observation,
+    browser_session_parameters_schema, browser_target_absence_result,
+    mark_browser_open_observation,
 };
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -448,6 +449,7 @@ fn observe_tab(
     after_diagnostic_cursor: u64,
     options: &BrowserObservationOptions,
 ) -> Result<ObservationCapture, String> {
+    let captured_at_ms = chrono::Utc::now().timestamp_millis();
     let browser_tab = session
         .tabs
         .get(tab_id)
@@ -491,6 +493,7 @@ fn observe_tab(
         .unwrap_or_default();
     let data = serde_json::json!({
         "observationId": observation_id,
+        "capturedAtMs": captured_at_ms,
         "tabId": tab_id,
         "url": url,
         "title": title,
@@ -1003,6 +1006,43 @@ impl Tool for BrowserSessionTool {
         }
 
         let session_id = required(args.session_id.as_deref(), "sessionId")?.to_string();
+        if action == "list_tabs" {
+            if let Some(tab_id) = args.tab_id.as_deref() {
+                let tab_id = required(Some(tab_id), "tabId")?.to_string();
+                let checked_at_ms = chrono::Utc::now().timestamp_millis();
+                let resource = self
+                    .sessions
+                    .lock()
+                    .map_err(|_| {
+                        CoreError::Internal("browser session registry is unavailable".into())
+                    })?
+                    .get(&session_id)
+                    .cloned();
+                let absent = if let Some(resource) = resource {
+                    if !belongs_to_conversation(&resource.conversation_id, conversation_id) {
+                        return Err(invalid(
+                            "Browser session belongs to a different conversation.",
+                        ));
+                    }
+                    let target = tab_id.clone();
+                    blocking(move || {
+                        let session = resource.lock()?;
+                        Ok(!session.tabs.contains_key(&target))
+                    })
+                    .await?
+                } else {
+                    true
+                };
+                if absent {
+                    return Ok(browser_target_absence_result(
+                        call_id,
+                        &session_id,
+                        &tab_id,
+                        checked_at_ms,
+                    ));
+                }
+            }
+        }
         if action == "close_session" {
             let resource = session_by_id(&self.sessions, &session_id, conversation_id)?;
             // Revoke admission before queueing cleanup. No registry lock spans
@@ -1428,6 +1468,41 @@ fn required_string<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn unified_headless_presence_requires_an_exact_missing_target() {
+        let db = crate::db::Database::open_memory().unwrap();
+        let mut registry = crate::tools::ToolRegistry::new();
+        registry.register(Box::new(BrowserSessionTool::default()));
+        let exact = serde_json::json!({"action":"list_tabs","target":{"kind":"browser","session_id":"missing-session","tab_id":"missing-tab"}}).to_string();
+        let result = registry
+            .execute(
+                "computer_use",
+                ToolExecutionContext::new("exact", &exact, &db, &[])
+                    .with_conversation_id(Some("owner")),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error, "{}", result.content);
+        let receipt = result.artifacts.unwrap();
+        assert_eq!(receipt["kind"], "browserTargetPresence");
+        assert_eq!(receipt["present"], false);
+        assert_eq!(receipt["goalVerified"], false);
+        assert!(receipt["checkedAtMs"].as_i64().unwrap() > 0);
+        let incomplete = serde_json::json!({"action":"list_tabs","target":{"kind":"browser","session_id":"missing-session"}}).to_string();
+        let result = registry
+            .execute(
+                "computer_use",
+                ToolExecutionContext::new("incomplete", &incomplete, &db, &[])
+                    .with_conversation_id(Some("owner")),
+            )
+            .await
+            .unwrap();
+        assert!(
+            result.is_error,
+            "An unbound inventory cannot discharge a target"
+        );
+    }
 
     fn returned_wait_activity_id(result: &ToolResult) -> String {
         result.artifacts.as_ref().unwrap()["activity"]["record"]["activityId"]

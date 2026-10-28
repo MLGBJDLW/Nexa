@@ -7,6 +7,7 @@ mod model_selection;
 mod remote_views;
 mod task_artifact_metadata;
 mod task_history;
+mod task_recovery;
 mod timeline;
 pub use model_selection::TurnModelSelection;
 pub use task_history::AgentTaskHistoryItem;
@@ -3609,6 +3610,15 @@ impl Database {
         parent_run_id: &str,
     ) -> Result<std::collections::BTreeMap<String, crate::error::AgentRecoveryRequirement>, CoreError>
     {
+        self.agent_subtask_action_reconciliations_excluding(parent_run_id, &HashSet::new())
+    }
+
+    pub(crate) fn agent_subtask_action_reconciliations_excluding(
+        &self,
+        parent_run_id: &str,
+        checkpointed: &HashSet<String>,
+    ) -> Result<std::collections::BTreeMap<String, crate::error::AgentRecoveryRequirement>, CoreError>
+    {
         let conn = self.conn();
         // Legacy early failures store the receipt at the top level; settled
         // partial-result artifacts retain it under `run`. Either form must
@@ -3628,7 +3638,21 @@ impl Database {
         let mut requirements = std::collections::BTreeMap::new();
         for row in rows {
             let (id, value) = row?;
-            requirements.insert(id, serde_json::from_str(&value)?);
+            if checkpointed.contains(&id) {
+                continue;
+            }
+            let mut requirement: crate::error::AgentRecoveryRequirement =
+                serde_json::from_str(&value)?;
+            if !requirement.has_bound_local_targets() {
+                if let Some(targets) =
+                    task_recovery::legacy_subtask_targets(&conn, parent_run_id, &id)?
+                {
+                    requirement.action_reconciliation = !targets.is_empty();
+                    requirement.desktop_observation_targets = targets.desktop;
+                    requirement.browser_observation_targets = targets.browser;
+                }
+            }
+            requirements.insert(id, requirement);
         }
         Ok(requirements)
     }

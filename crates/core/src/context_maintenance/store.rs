@@ -357,10 +357,48 @@ pub fn load_context_projection(
     database: &Database,
     conversation_id: &str,
 ) -> Result<ContextProjection, CoreError> {
+    load_context_projection_inner(database, conversation_id, None)
+}
+
+/// Bounded conversational evidence for a fresh worker. This shares checkpoint
+/// validation with the live context; it never reloads archived tool payloads or
+/// provider reasoning into a new runtime. The caller still applies token costs.
+pub fn load_context_handoff_projection(
+    database: &Database,
+    conversation_id: &str,
+    max_bytes: usize,
+) -> Result<ContextProjection, CoreError> {
+    load_context_projection_inner(database, conversation_id, Some(max_bytes))
+}
+
+fn uncompacted_projection_messages(
+    database: &Database,
+    conversation_id: &str,
+    max_bytes: Option<usize>,
+) -> Result<Vec<ConversationMessage>, CoreError> {
+    if max_bytes.is_none() {
+        return Ok(model_history_messages(
+            database.get_messages(conversation_id)?,
+        ));
+    }
+    Ok(model_history_messages(get_messages_from_sort_order(
+        database,
+        conversation_id,
+        i64::MIN,
+        None,
+        max_bytes,
+    )?))
+}
+
+fn load_context_projection_inner(
+    database: &Database,
+    conversation_id: &str,
+    max_bytes: Option<usize>,
+) -> Result<ContextProjection, CoreError> {
     let checkpoint = active_checkpoint(database, conversation_id)?;
     let Some(checkpoint) = checkpoint else {
         return Ok(ContextProjection {
-            messages: model_history_messages(database.get_messages(conversation_id)?),
+            messages: uncompacted_projection_messages(database, conversation_id, max_bytes)?,
             checkpoint_id: None,
             projected: false,
         });
@@ -386,36 +424,33 @@ pub fn load_context_projection(
                 "Active context checkpoint source changed; falling back to canonical transcript"
             );
             return Ok(ContextProjection {
-                messages: model_history_messages(database.get_messages(conversation_id)?),
+                messages: uncompacted_projection_messages(database, conversation_id, max_bytes)?,
                 checkpoint_id: None,
                 projected: false,
             });
         }
     }
 
-    let tail = get_messages_from_sort_order(
-        database,
-        conversation_id,
-        checkpoint.retained_start_sort_order,
-    )?;
     let expected_tail = checkpoint
         .retained_tail_message_ids
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    let present_tail = tail
-        .iter()
-        .filter(|message| message.sort_order <= checkpoint.snapshot_high_watermark)
-        .map(|message| message.id.as_str())
-        .collect::<HashSet<_>>();
-    if !expected_tail.is_subset(&present_tail) {
+    let retained_ids_json = serde_json::to_string(&checkpoint.retained_tail_message_ids)?;
+    let present_tail: usize = database.conn().query_row(
+        "SELECT COUNT(*) FROM messages WHERE conversation_id=?1 AND sort_order>=?2 AND sort_order<=?3
+         AND id IN (SELECT value FROM json_each(?4))",
+        rusqlite::params![conversation_id, checkpoint.retained_start_sort_order, checkpoint.snapshot_high_watermark, retained_ids_json],
+        |row| row.get(0),
+    )?;
+    if present_tail != expected_tail.len() {
         tracing::warn!(
             conversation_id,
             checkpoint_id = %checkpoint.id,
             "Active context checkpoint tail changed; falling back to canonical transcript"
         );
         return Ok(ContextProjection {
-            messages: model_history_messages(database.get_messages(conversation_id)?),
+            messages: uncompacted_projection_messages(database, conversation_id, max_bytes)?,
             checkpoint_id: None,
             projected: false,
         });
@@ -424,6 +459,16 @@ pub fn load_context_projection(
     let fresh_handoff = checkpoint
         .summary
         .starts_with(crate::context_history::FRESH_HISTORY_HEADER);
+    let tail = get_messages_from_sort_order(
+        database,
+        conversation_id,
+        checkpoint.retained_start_sort_order,
+        fresh_handoff.then_some((
+            checkpoint.snapshot_high_watermark,
+            retained_ids_json.as_str(),
+        )),
+        max_bytes,
+    )?;
     let summary = ConversationMessage {
         id: format!("context-compaction:{}", checkpoint.id),
         conversation_id: conversation_id.to_string(),
@@ -448,19 +493,12 @@ pub fn load_context_projection(
             "Active context checkpoint contains legacy runtime metadata; falling back to canonical transcript"
         );
         return Ok(ContextProjection {
-            messages: model_history_messages(database.get_messages(conversation_id)?),
+            messages: uncompacted_projection_messages(database, conversation_id, max_bytes)?,
             checkpoint_id: None,
             projected: false,
         });
     }
-    let tail = model_history_messages(tail)
-        .into_iter()
-        .filter(|message| {
-            !fresh_handoff
-                || message.sort_order > checkpoint.snapshot_high_watermark
-                || expected_tail.contains(message.id.as_str())
-        })
-        .collect::<Vec<_>>();
+    let tail = model_history_messages(tail);
     let mut messages = Vec::with_capacity(tail.len() + 1);
     messages.push(summary);
     messages.extend(tail);
@@ -532,18 +570,43 @@ fn get_messages_from_sort_order(
     database: &Database,
     conversation_id: &str,
     start_sort_order: i64,
+    fresh_tail: Option<(i64, &str)>,
+    max_bytes: Option<usize>,
 ) -> Result<Vec<ConversationMessage>, CoreError> {
     let conn = database.conn();
-    let mut statement = conn.prepare(
-        "SELECT id, conversation_id, role, content, tool_call_id, tool_calls_json,
-                artifacts_json, token_count, created_at, sort_order, thinking,
-                image_attachments_json
-         FROM messages
-         WHERE conversation_id = ?1 AND sort_order >= ?2
-         ORDER BY sort_order ASC",
-    )?;
+    let order = if max_bytes.is_some() { "DESC" } else { "ASC" };
+    let mut statement = conn.prepare(&format!(
+        "WITH handoff_rows AS (
+           SELECT id, conversation_id, role,
+             CASE WHEN ?5 IS NOT NULL AND json_type(artifacts_json,'$.llmContextContent') = 'text'
+                  THEN json_extract(artifacts_json,'$.llmContextContent') ELSE content END AS content,
+             tool_call_id, tool_calls_json,
+             CASE WHEN ?5 IS NULL THEN artifacts_json
+                  WHEN artifacts_json IS NOT NULL THEN json_object('kind',json_extract(artifacts_json,'$.kind'))
+                  ELSE NULL END AS artifacts_json,
+             token_count, created_at, sort_order, thinking, image_attachments_json
+           FROM messages
+           WHERE conversation_id = ?1 AND sort_order >= ?2
+             AND (?3 IS NULL OR sort_order > ?3 OR id IN (SELECT value FROM json_each(?4)))
+             AND (?5 IS NULL OR (role <> 'tool' AND (tool_calls_json IS NULL OR tool_calls_json = '[]')))
+         )
+         SELECT id, conversation_id, role, content, tool_call_id, tool_calls_json,
+                artifacts_json, token_count, created_at, sort_order,
+                CASE WHEN ?5 IS NULL THEN thinking ELSE NULL END,
+                CASE WHEN ?5 IS NULL THEN image_attachments_json ELSE NULL END
+         FROM handoff_rows
+         WHERE ?5 IS NULL OR (length(trim(content)) > 0
+           AND length(CAST(content AS BLOB)) + COALESCE(length(CAST(artifacts_json AS BLOB)),0) <= ?5)
+         ORDER BY sort_order {order}"
+    ))?;
     let rows = statement.query_map(
-        rusqlite::params![conversation_id, start_sort_order],
+        rusqlite::params![
+            conversation_id,
+            start_sort_order,
+            fresh_tail.map(|(watermark, _)| watermark),
+            fresh_tail.map_or("[]", |(_, ids)| ids),
+            max_bytes.map(|bytes| bytes.min(i64::MAX as usize) as i64)
+        ],
         |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -562,6 +625,7 @@ fn get_messages_from_sort_order(
         },
     )?;
     let mut messages = Vec::new();
+    let mut materialized_bytes = 0usize;
     for row in rows {
         let (
             id,
@@ -577,6 +641,12 @@ fn get_messages_from_sort_order(
             thinking,
             attachments_json,
         ) = row?;
+        materialized_bytes = materialized_bytes
+            .saturating_add(content.len())
+            .saturating_add(artifacts_json.as_ref().map_or(0, String::len));
+        if max_bytes.is_some_and(|limit| materialized_bytes > limit) {
+            break;
+        }
         messages.push(ConversationMessage {
             id,
             conversation_id,
@@ -597,6 +667,9 @@ fn get_messages_from_sort_order(
             image_attachments: attachments_json
                 .and_then(|json| serde_json::from_str::<Vec<ImageAttachment>>(&json).ok()),
         });
+    }
+    if max_bytes.is_some() {
+        messages.reverse();
     }
     Ok(messages)
 }
@@ -1168,6 +1241,124 @@ mod tests {
         );
         commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap();
         (database, conversation.id)
+    }
+
+    #[test]
+    fn handoff_projection_reads_only_conversational_text_from_provider_envelopes() {
+        let database = Database::open_memory().unwrap();
+        let conversation = database
+            .create_conversation(&CreateConversationInput {
+                provider: "custom".into(),
+                model: "fixture".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        database.add_message(&ConversationMessage {
+            id:"bounded-final".into(), conversation_id:conversation.id.clone(), role:Role::Assistant,
+            content:"display-only output".into(), tool_call_id:None, tool_calls:vec![],
+            artifacts:Some(serde_json::json!({"llmContextContent":"Verified final result", "providerTurnEnvelope":{"opaque":"x".repeat(1_000_000)}})),
+            token_count:1, created_at:String::new(), sort_order:0,
+            thinking:Some("old private trajectory".repeat(4096)), image_attachments:None,
+        }).unwrap();
+        let projected = load_context_handoff_projection(&database, &conversation.id, 1024).unwrap();
+        assert_eq!(projected.messages.len(), 1);
+        assert_eq!(projected.messages[0].content, "Verified final result");
+        assert!(projected.messages[0].thinking.is_none());
+        assert!(projected.messages[0]
+            .artifacts
+            .as_ref()
+            .unwrap()
+            .get("providerTurnEnvelope")
+            .is_none());
+    }
+
+    #[test]
+    fn handoff_projection_bounds_materialization_and_keeps_the_active_checkpoint() {
+        let database = Database::open_memory().unwrap();
+        let conversation = database
+            .create_conversation(&CreateConversationInput {
+                provider: "custom".into(),
+                model: "fixture".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        for index in 0..66 {
+            let role = if index == 0 {
+                Role::System
+            } else if index == 65 {
+                Role::User
+            } else {
+                Role::Tool
+            };
+            database
+                .add_message(&ConversationMessage {
+                    id: format!("bounded-{index}"),
+                    conversation_id: conversation.id.clone(),
+                    role: role.clone(),
+                    content: if role == Role::Tool {
+                        "large archived tool evidence\n".repeat(4096)
+                    } else {
+                        format!("retained instruction {index}")
+                    },
+                    tool_call_id: None,
+                    tool_calls: vec![],
+                    artifacts: None,
+                    token_count: 1,
+                    created_at: String::new(),
+                    sort_order: index,
+                    thinking: None,
+                    image_attachments: None,
+                })
+                .unwrap();
+        }
+        let source = database.get_messages(&conversation.id).unwrap();
+        let source_bytes: usize = source.iter().map(|message| message.content.len()).sum();
+        let mut input = checkpoint_input(
+            &conversation.id,
+            "bounded-handoff",
+            &source,
+            vec!["bounded-0".into(), "bounded-65".into()],
+            0,
+        );
+        input.summary = format!(
+            "{}\nSaved exact history",
+            crate::context_history::FRESH_HISTORY_HEADER
+        );
+        commit_context_checkpoint(&database, &input, &CancellationToken::new()).unwrap();
+        let started = std::time::Instant::now();
+        let projected = load_context_handoff_projection(&database, &conversation.id, 1024).unwrap();
+        let elapsed = started.elapsed();
+        let materialized: usize = projected
+            .messages
+            .iter()
+            .map(|message| message.content.len())
+            .sum();
+        assert!(projected.projected);
+        assert_eq!(projected.messages.len(), 3);
+        assert!(projected
+            .messages
+            .iter()
+            .all(|message| message.role != Role::Tool && message.thinking.is_none()));
+        assert!(materialized < 1024);
+        assert!(source_bytes > 1_000_000);
+        println!("handoff_projection source_bytes={source_bytes} materialized_rows={} materialized_bytes={materialized} elapsed_ms={:.3}",projected.messages.len(),elapsed.as_secs_f64()*1000.0);
+        // Source edits still invalidate this projection; the bounded loader
+        // must use the same checkpoint-integrity owner as normal model turns.
+        database
+            .update_message_llm_context_content("bounded-65", "Corrected retained task")
+            .unwrap();
+        let current = load_context_handoff_projection(&database, &conversation.id, 1024).unwrap();
+        assert!(!current.projected);
+        assert!(current.messages.iter().any(|message| {
+            crate::conversation::conversation_message_llm_context_content(message)
+                == "Corrected retained task"
+        }));
     }
 
     #[test]

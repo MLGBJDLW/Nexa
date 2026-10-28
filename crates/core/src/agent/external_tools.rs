@@ -11,6 +11,8 @@ pub struct PersistedAssistantMessage {
 }
 
 pub struct ExternalToolSessionInput {
+    /// Exact host runtime (for example openai_codex), not its API wire family.
+    pub runtime_provider: String,
     pub tools: ToolRegistry,
     pub config: AgentConfig,
     pub db: Arc<Database>,
@@ -116,6 +118,7 @@ mod tests {
         )));
         let (events, rx) = mpsc::channel(256);
         let input = ExternalToolSessionInput {
+            runtime_provider: "fixture_subscription".into(),
             tools,
             config: AgentConfig {
                 model: Some("native".into()),
@@ -146,6 +149,54 @@ mod tests {
             arguments: serde_json::json!({"value":value}).to_string(),
             thought_signature: None,
         }
+    }
+
+    #[tokio::test]
+    async fn opaque_action_recovery_survives_completion_and_unrelated_screenshots() {
+        let (session, _, _rx) = session(3);
+        let action = ToolCallRequest { id:"navigate".into(), name:"browser_session".into(),
+            arguments:serde_json::json!({"action":"navigate","sessionId":"session","tabId":"tab","url":"https://example.test"}).to_string(), thought_signature:None };
+        session.state.lock().await.action_reconciliation.observe_tool_results(&[action], &[tool_dispatch::ToolDispatchSummary {
+            call_id:"navigate".into(), content:String::new(), is_error:true,
+            artifacts:Some(serde_json::json!({"code":"browser_action_uncertain","sideEffect":"may_have_occurred"})),
+        }]);
+        let recovery = session
+            .completion_recovery_error()
+            .await
+            .unwrap()
+            .recovery_requirement()
+            .unwrap();
+        assert!(recovery.action_reconciliation);
+        assert!(!recovery.has_bound_local_targets());
+        assert!(matches!(
+            session.completion_repair_status().await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        assert!(matches!(
+            session.persist_answer("Complete").await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
+        session.state.lock().await.action_reconciliation.observe_tool_results(&[ToolCallRequest {
+            id:"observe".into(), name:"browser_session".into(), arguments:r#"{"action":"observe","sessionId":"other","tabId":"other"}"#.into(), thought_signature:None,
+        }], &[tool_dispatch::ToolDispatchSummary {
+            call_id:"observe".into(), content:String::new(), is_error:false,
+            artifacts:Some(serde_json::json!({"kind":"browserObservation","data":{"sessionId":"other","tabId":"other","observationId":"new","screenshotHash":"pixels"}})),
+        }]);
+        assert!(
+            session
+                .completion_recovery_error()
+                .await
+                .unwrap()
+                .recovery_requirement()
+                .unwrap()
+                .action_reconciliation
+        );
     }
 
     #[tokio::test]
@@ -203,7 +254,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn external_delegated_recovery_blocks_tools_and_answers_until_formal_resume() {
+    async fn external_delegated_recovery_resumes_inspection_without_fabricating_completion() {
         let (session, effects, _rx) = session(6);
         let worker = uncertain_worker(&session, "worker-1");
         assert!(matches!(
@@ -301,8 +352,15 @@ mod tests {
             .action_reconciliation
             .blocks_interactive_input());
         resumed.execute(call("resumed", 1)).await.unwrap();
+        assert!(matches!(
+            resumed.persist_answer("Reconciled completion").await,
+            Err(CoreError::RecoveryRequired {
+                action_reconciliation: true,
+                ..
+            })
+        ));
         resumed
-            .persist_answer("Reconciled completion")
+            .persist_intermediate("Retained inspection; hosted action remains uncertain")
             .await
             .unwrap();
         assert_eq!(effects.load(Ordering::SeqCst), 1);
@@ -418,7 +476,7 @@ mod tests {
             "Host desktop receipt fixture"
         }
         fn parameters_schema(&self) -> serde_json::Value {
-            serde_json::json!({"type":"object","properties":{"action":{"type":"string"},"window_id":{"type":"integer"},"observation_id":{"type":"string"}},"required":["action","window_id"],"additionalProperties":false})
+            serde_json::json!({"type":"object","properties":{"action":{"type":"string","enum":[if self.0 { "invoke" } else { "capture_window" }]},"window_id":{"type":"integer"},"observation_id":{"type":"string"}},"required":["action","window_id"],"additionalProperties":false})
         }
         fn requires_confirmation(&self, _: &serde_json::Value) -> bool {
             false
@@ -454,7 +512,11 @@ mod tests {
                             serde_json::json!({"windowId":window,"targetIdentity":format!("target-{window}"),"observationId":format!("after-{window}"),"screenshotHash":"host-capture"}),
                         ),
                         artifacts: Some(serde_json::json!({"kind":"computerObservation"})),
-                        attachments: vec![],
+                        attachments: vec![ToolOutputAttachment {
+                            name: "window.png".into(),
+                            mime_type: "image/png".into(),
+                            data: serde_json::json!({"base64":"aGVsbG8="}),
+                        }],
                     },
                 ))
             }
@@ -464,6 +526,212 @@ mod tests {
     fn desktop_call(id: &str, control: bool, window: u64) -> ToolCallRequest {
         ToolCallRequest { id: id.into(), name: if control {"computer_control"} else {"computer_observe"}.into(),
             arguments: serde_json::json!({"action":if control {"invoke"} else {"capture_window"},"window_id":window,"observation_id":format!("before-{window}")}).to_string(), thought_signature: None }
+    }
+
+    fn unified_window_call(id: &str, action: &str, window: u64) -> ToolCallRequest {
+        ToolCallRequest {
+            id: id.into(), name: "computer_use".into(),
+            arguments: serde_json::json!({"action":action,"target":{"kind":"window","window_id":window},"observation_id":format!("before-{window}")}).to_string(),
+            thought_signature: None,
+        }
+    }
+
+    struct ProgressDesktopFixture;
+    #[async_trait::async_trait]
+    impl Tool for ProgressDesktopFixture {
+        fn name(&self) -> &str {
+            "computer_control"
+        }
+        fn description(&self) -> &str {
+            "Native activity and heartbeat fixture"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            DesktopEvidenceFixture(true).parameters_schema()
+        }
+        async fn execute(
+            &self,
+            context: ToolExecutionContext<'_>,
+        ) -> Result<ToolResult, CoreError> {
+            use crate::activity::{
+                ActivityEventKind, ActivitySpec, ActivityState, ActivitySurface,
+            };
+            let runtime = context.activity_runtime.unwrap();
+            let record = runtime.start(
+                ActivitySpec::new(ActivitySurface::Desktop, "computer_control")
+                    .with_conversation_id(context.conversation_id.unwrap())
+                    .with_turn_id(context.turn_id.unwrap()),
+            )?;
+            runtime.append(
+                &record.activity_id,
+                ActivityEventKind::Progress,
+                serde_json::json!({"phase":"moving"}),
+            )?;
+            tokio::time::sleep(Duration::from_secs(6)).await;
+            runtime.transition(
+                &record.activity_id,
+                ActivityState::Completed,
+                serde_json::json!({"phase":"completed"}),
+            )?;
+            DesktopEvidenceFixture(true).execute(context).await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unified_control_activity_and_heartbeat_keep_public_arguments_and_capabilities() {
+        let (mut session, _, mut events) = session(2);
+        session
+            .input
+            .tools
+            .register(Box::new(ProgressDesktopFixture));
+        let call = unified_window_call("progress", "invoke", 42);
+        let expected = session.input.tools.build_invocation(
+            &call.id,
+            &call.name,
+            serde_json::from_str(&call.arguments).unwrap(),
+        );
+        session.execute(call).await.unwrap();
+        let mut activity = false;
+        let mut heartbeat = false;
+        while let Ok(event) = events.try_recv() {
+            if let AgentEvent::ToolRunUpdated { run } = event {
+                if run.tool_name != "computer_use" || run.status != ToolRunStatus::Running {
+                    continue;
+                }
+                let Some(note) = run.progress_note.as_deref() else {
+                    continue;
+                };
+                activity |= note.contains(" activity ");
+                heartbeat |= note.starts_with("running computer_use");
+                let args: serde_json::Value =
+                    serde_json::from_str(run.arguments.as_deref().unwrap()).unwrap();
+                assert_eq!(args["target"]["kind"], "window");
+                assert_eq!(args["target"]["window_id"], 42);
+                assert_eq!(run.owner, expected.owner);
+                assert_eq!(run.capabilities, expected.capabilities);
+                assert!(args.get("invalidShape").is_none());
+            }
+        }
+        assert!(
+            activity && heartbeat,
+            "exercise both native activity and the five-second heartbeat"
+        );
+    }
+
+    #[tokio::test]
+    async fn unified_control_keeps_public_ledger_and_exact_recovery_targets() {
+        let (mut session, _, mut events) = session(8);
+        session
+            .input
+            .tools
+            .register(Box::new(DesktopEvidenceFixture(true)));
+        session
+            .input
+            .tools
+            .register(Box::new(DesktopEvidenceFixture(false)));
+        let control = unified_window_call("unified-control", "invoke", 42);
+        assert!(session.execute(control).await.unwrap().result.is_error);
+        assert!(
+            session
+                .execute(unified_window_call("blocked", "invoke", 43))
+                .await
+                .unwrap()
+                .result
+                .is_error
+        );
+        assert!(
+            !session
+                .execute(unified_window_call("wrong-window", "observe", 43))
+                .await
+                .unwrap()
+                .result
+                .is_error
+        );
+        assert!(matches!(session.persist_answer("Premature success").await,
+            Err(CoreError::LocalVerificationRequired { targets, .. }) if targets[0].window_id == 42));
+        assert!(
+            !session
+                .execute(unified_window_call("right-window", "observe", 42))
+                .await
+                .unwrap()
+                .result
+                .is_error
+        );
+        session
+            .persist_answer("Exact target observed; requested work can continue.")
+            .await
+            .unwrap();
+        let messages = session
+            .input
+            .db
+            .get_messages(&session.input.conversation_id)
+            .unwrap();
+        let calls = messages
+            .iter()
+            .flat_map(|message| &message.tool_calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 4);
+        assert!(calls.iter().all(|call| call.name == "computer_use"));
+        let mut completed = 0;
+        let mut captures = 0;
+        while let Ok(event) = events.try_recv() {
+            match event {
+                AgentEvent::ToolRunCompleted { run } => {
+                    assert_eq!(run.tool_name, "computer_use");
+                    completed += 1;
+                }
+                AgentEvent::ToolRunUpdated { run }
+                    if run.progress_note.as_deref()
+                        == Some("Current-turn visual evidence captured") =>
+                {
+                    let args: serde_json::Value =
+                        serde_json::from_str(run.arguments.as_deref().unwrap()).unwrap();
+                    let original = unified_window_call(
+                        &run.call_id,
+                        "observe",
+                        args["target"]["window_id"].as_u64().unwrap(),
+                    );
+                    let expected = session.input.tools.build_invocation(
+                        &run.call_id,
+                        "computer_use",
+                        serde_json::from_str(&original.arguments).unwrap(),
+                    );
+                    assert_eq!(args["target"]["kind"], "window");
+                    assert_eq!(args["action"], "observe");
+                    assert_eq!(run.owner, expected.owner);
+                    assert_eq!(run.capabilities, expected.capabilities);
+                    captures += 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(completed, 4);
+        assert_eq!(captures, 2);
+    }
+
+    #[tokio::test]
+    async fn unified_control_cannot_skip_native_observation_validation() {
+        let (mut session, _, _events) = session(2);
+        session.input.tools.register(Box::new(
+            crate::tools::computer_use_tool::ComputerControlTool,
+        ));
+        let result = session
+            .execute(unified_window_call(
+                "missing-observation",
+                "focus_window",
+                42,
+            ))
+            .await
+            .unwrap()
+            .result;
+        assert!(result.is_error);
+        assert_eq!(
+            result.artifacts.as_ref().unwrap()["code"],
+            "computer_approval_target_stale"
+        );
+        assert_eq!(
+            result.artifacts.as_ref().unwrap()["sideEffect"],
+            "not_started"
+        );
     }
 
     #[tokio::test]
@@ -487,10 +755,7 @@ mod tests {
         );
         assert!(matches!(
             session.persist_answer("Premature success").await,
-            Err(CoreError::RecoveryRequired {
-                action_reconciliation: true,
-                ..
-            })
+            Err(CoreError::LocalVerificationRequired { targets, .. }) if targets.len() == 1 && targets[0].window_id == 42
         ));
         assert!(session
             .completion_repair_guidance()
@@ -531,6 +796,31 @@ mod tests {
             .iter()
             .any(|message| message.content == "Premature success"
                 || message.content == "Wrong-window success"));
+    }
+
+    #[tokio::test]
+    async fn a_worker_without_observation_tools_returns_an_immediate_verification_handoff() {
+        let (mut session, _, _rx) = session(6);
+        session
+            .input
+            .tools
+            .register(Box::new(DesktopEvidenceFixture(true)));
+        session
+            .execute(desktop_call("control", true, 42))
+            .await
+            .unwrap();
+        let error = session.completion_repair_status().await.unwrap_err();
+        let receipt = error.recovery_requirement().unwrap();
+        assert!(receipt.has_bound_desktop_targets());
+        assert!(receipt
+            .message
+            .contains("does not include computer_observe"));
+        assert_eq!(receipt.desktop_observation_targets[0].window_id, 42);
+        assert_eq!(
+            session.state.lock().await.rounds,
+            1,
+            "impossible verification must not spend repair turns"
+        );
     }
 
     #[tokio::test]
@@ -814,12 +1104,26 @@ mod tests {
     async fn cancellation_and_budget_stop_before_another_effect() {
         let (session, count, _rx) = session(1);
         session.execute(call("one", 1)).await.unwrap();
-        assert!(session
-            .execute(call("two", 2))
+        assert!(
+            !session.tool_budget_rejected().await,
+            "using the final allowed call is not itself incomplete"
+        );
+        let rejected = session.execute(call("two", 2)).await.unwrap().result;
+        assert!(session.tool_budget_rejected().await);
+        assert!(rejected.is_error);
+        assert!(rejected.content.contains("budget"));
+        assert!(rejected.content.contains("native"));
+        assert!(rejected.content.contains("fixture_subscription"));
+        assert!(rejected.content.contains("1/1"));
+        assert!(rejected.content.contains("unfinished"));
+        let replay = session.execute(call("two", 2)).await.unwrap().result;
+        assert_eq!(replay.content, rejected.content);
+        // An upstream-owned loop must still be able to hand off partial work
+        // after Nexa refuses a new effect at its explicit budget boundary.
+        session
+            .persist_answer("Recorded one effect; the second is unfinished.")
             .await
-            .unwrap_err()
-            .to_string()
-            .contains("budget"));
+            .unwrap();
         session.input.cancellation.cancel();
         assert!(matches!(
             session.execute(call("three", 3)).await,
@@ -827,6 +1131,33 @@ mod tests {
         ));
         assert_eq!(count.load(Ordering::SeqCst), 1);
     }
+
+    #[tokio::test]
+    async fn changing_call_ids_cannot_loop_past_an_exhausted_tool_budget() {
+        let (session, count, mut rx) = session(1);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        session.execute(call("accepted", 1)).await.unwrap();
+        for index in 0..4 {
+            let rejected = session
+                .execute(call(&format!("rejected-{index}"), 100 + index))
+                .await
+                .unwrap();
+            assert!(rejected.result.is_error);
+            assert!(rejected.result.content.contains("budget"));
+        }
+        // A different signature is not progress: the existing consecutive-error
+        // guard still stops an upstream loop that ignores the handoff guidance.
+        let stopped = session
+            .execute(call("rejected-final", 999))
+            .await
+            .unwrap_err();
+        assert!(stopped.to_string().contains("consecutive tool errors"));
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert!(session.tool_budget_rejected().await);
+        drop(session);
+        drain.await.unwrap();
+    }
+
     #[tokio::test]
     async fn malformed_callback_is_returned_to_the_runtime_for_repair_without_an_effect() {
         let (session, count, _rx) = session(4);
@@ -1024,10 +1355,30 @@ struct ExternalToolState {
     trace_items: Vec<PersistedTraceItem>,
     next_sort_order: i64,
     rounds: u32,
+    tool_budget_rejected: bool,
     completed: RuntimeReceipts,
     action_reconciliation: super::turn_loop::ActionReconciliationFence,
     desktop_resume_workflow: Option<crate::workflow_ir::WorkflowIr>,
     desktop_profile: crate::quality_profile::ResolvedOrchestrationProfile,
+}
+
+impl ExternalToolState {
+    fn unbound_recovery_error(&self) -> Option<CoreError> {
+        let (desktop, browser) = self
+            .desktop_resume_workflow
+            .as_ref()
+            .map(|workflow| {
+                (
+                    !workflow.checkpoint.desktop_observation_targets.is_empty(),
+                    !workflow.checkpoint.browser_observation_targets.is_empty(),
+                )
+            })
+            .unwrap_or_default();
+        self.action_reconciliation.has_unbound_actions(desktop, browser).then(|| CoreError::RecoveryRequired {
+            message: "A previous action has no complete target-bound reconciliation receipt. Preserve its partial results and inspect the original host/provider action record before continuing; another tab or window screenshot cannot clear this uncertainty.".into(),
+            action_reconciliation: true,
+        })
+    }
 }
 
 impl ExternalToolSession {
@@ -1037,13 +1388,15 @@ impl ExternalToolSession {
             .db
             .get_agent_task_run_by_turn(&input.turn_id)?
             .map(|run| run.id);
-        let checkpointed_subtask_recoveries = super::desktop_resume::load_execution_resume_state(
+        let resumed_execution = super::desktop_resume::load_execution_resume_state(
             &input.db,
             Some(&input.conversation_id),
             Some(&input.turn_id),
-        )?
-        .map(|state| state.checkpointed_subtask_recoveries)
-        .unwrap_or_default();
+        )?;
+        let checkpointed_subtask_recoveries = resumed_execution
+            .as_ref()
+            .map(|state| state.checkpointed_subtask_recoveries.clone())
+            .unwrap_or_default();
         let source_scope = input
             .db
             .get_effective_conversation_source_scope(&input.conversation_id)?;
@@ -1098,7 +1451,16 @@ impl ExternalToolSession {
         )?;
         let mut action_reconciliation =
             super::turn_loop::ActionReconciliationFence::from_resume_prompt(&input.user_prompt);
-        if !checkpointed_subtask_recoveries.is_empty() {
+        if resumed_execution
+            .as_ref()
+            .is_some_and(|saved| saved.reconciled_legacy_host_scope)
+        {
+            action_reconciliation.reconcile_complete_host_callback_scope();
+        }
+        if resumed_execution
+            .as_ref()
+            .is_some_and(|saved| saved.has_opaque_subtask_recoveries)
+        {
             action_reconciliation.retain_unknown_action();
         }
         let state = ExternalToolState {
@@ -1108,6 +1470,7 @@ impl ExternalToolSession {
             trace_items: Vec::new(),
             next_sort_order: input.next_sort_order,
             rounds: 0,
+            tool_budget_rejected: false,
             completed: RuntimeReceipts::new()?,
             action_reconciliation,
             desktop_resume_workflow,
@@ -1154,6 +1517,12 @@ impl ExternalToolSession {
         } else {
             self.input.tools.definitions()
         }
+    }
+
+    /// A refused callback is an incomplete task, even if upstream can still
+    /// produce a useful final handoff. Reaching the cap exactly is not failure.
+    pub async fn tool_budget_rejected(&self) -> bool {
+        self.state.lock().await.tool_budget_rejected
     }
 
     pub async fn execute(&self, call: ToolCallRequest) -> Result<ExternalToolOutput, CoreError> {
@@ -1213,11 +1582,8 @@ impl ExternalToolSession {
         // The automatic/unlimited sentinel must remain unlimited. Converting it
         // into 256 callbacks terminated healthy long-running subscription work.
         let limit = self.input.config.max_iterations;
-        if state.rounds >= limit {
-            return Err(CoreError::Agent(
-                "External agent tool budget exhausted".into(),
-            ));
-        }
+        let budget_reached = state.rounds >= limit;
+        state.tool_budget_rejected |= budget_reached;
         let block = state.guard.observe_model_step("", batch.as_slice());
         if block
             .as_ref()
@@ -1246,8 +1612,17 @@ impl ExternalToolSession {
         })?;
         state.next_sort_order += 1;
         let pre_tool_guidance = block.as_ref().map(|block| block.prompt.clone());
-        let spends_tool_budget = block.is_none();
-        let block = block.map(|block| tool_dispatch::ToolDispatchBlock::LoopGuard(block.reason));
+        let spends_tool_budget = block.is_none() && !budget_reached;
+        let block = if budget_reached {
+            Some(tool_dispatch::ToolDispatchBlock::ToolBudget {
+                provider: self.input.runtime_provider.clone(),
+                model: model.to_string(),
+                used: state.rounds,
+                limit,
+            })
+        } else {
+            block.map(|block| tool_dispatch::ToolDispatchBlock::LoopGuard(block.reason))
+        };
         let mut definitions = self.definitions();
         let mut messages = Vec::new();
         let mut trace = None;
@@ -1298,9 +1673,9 @@ impl ExternalToolSession {
                 trace: &mut trace,
                 sort_order: next_sort_order,
                 pending_action_reconciliation: action_reconciliation.blocks_interactive_input()
-                    || desktop_resume_workflow.as_ref().is_some_and(|workflow| {
-                        !workflow.checkpoint.desktop_observation_targets.is_empty()
-                    }),
+                    || desktop_resume_workflow
+                        .as_ref()
+                        .is_some_and(|workflow| workflow.has_pending_local_targets()),
                 workspace_isolation: false,
             },
             &batch,
@@ -1311,9 +1686,14 @@ impl ExternalToolSession {
         if spends_tool_budget {
             *rounds = rounds.saturating_add(1);
         }
+        let execution_calls: Vec<_> = batch
+            .as_slice()
+            .iter()
+            .map(crate::tools::unified_control::effective_request)
+            .collect();
         action_reconciliation.observe_tool_results(batch.as_slice(), &outcome.summaries);
         if outcome.summaries.iter().any(|summary| {
-            batch
+            execution_calls
                 .as_slice()
                 .iter()
                 .find(|call| call.id == summary.call_id)
@@ -1333,9 +1713,35 @@ impl ExternalToolSession {
             )
             .map_err(CoreError::InvalidInput)?;
         }
+        if outcome.summaries.iter().any(|summary| {
+            execution_calls
+                .as_slice()
+                .iter()
+                .find(|call| call.id == summary.call_id)
+                .is_some_and(|call| {
+                    call.name == "browser_session"
+                        && crate::workflow_ir::browser_control_target(
+                            Some(&call.arguments),
+                            summary.artifacts.as_ref(),
+                        )
+                        .is_some()
+                })
+        }) {
+            crate::workflow_ir::ensure_runtime_local_recovery_workflow(
+                desktop_resume_workflow,
+                plan,
+                desktop_profile,
+                false,
+            )
+            .map_err(CoreError::InvalidInput)?;
+        }
         if let Some(workflow) = desktop_resume_workflow.as_mut() {
-            for call in batch.as_slice().iter().filter(|call| {
-                matches!(call.name.as_str(), "computer_observe" | "computer_control")
+            let had_browser_targets = !workflow.checkpoint.browser_observation_targets.is_empty();
+            for call in execution_calls.as_slice().iter().filter(|call| {
+                matches!(
+                    call.name.as_str(),
+                    "computer_observe" | "computer_control" | "browser_session"
+                )
             }) {
                 if let Some(summary) = outcome
                     .summaries
@@ -1351,6 +1757,9 @@ impl ExternalToolSession {
                         &summary.content,
                     );
                 }
+            }
+            if had_browser_targets && workflow.checkpoint.browser_observation_targets.is_empty() {
+                action_reconciliation.reconcile_bound_browser_targets();
             }
             if let Some(run) = self
                 .input
@@ -1388,6 +1797,12 @@ impl ExternalToolSession {
                 result.content.push_str("\n\n");
                 result.content.push_str(&guidance);
             }
+        }
+        if spends_tool_budget && limit != u32::MAX && state.rounds >= limit.saturating_sub(2) {
+            result.content.push_str(&format!(
+                "\n\nTool budget: {}/{} calls used; {} remain. Reserve the final response for a concrete handoff of completed evidence and unfinished work.",
+                state.rounds, limit, limit.saturating_sub(state.rounds),
+            ));
         }
         state.completed.insert(&call.id, &signature, &result)?;
         if let Some(interaction_id) = awaiting_interaction {
@@ -1449,22 +1864,65 @@ impl ExternalToolSession {
     /// Let upstream loops repair host-owned evidence before attempting a final
     /// answer. This is controller guidance, never a synthetic user approval.
     pub async fn completion_repair_guidance(&self) -> Option<String> {
-        self.completion_repair_status()
-            .await
-            .map(|(guidance, _)| guidance)
+        match self.completion_repair_status().await {
+            Ok(status) => status.map(|(guidance, _)| guidance),
+            Err(error) => Some(error.to_string()),
+        }
     }
 
-    pub async fn completion_repair_status(&self) -> Option<(String, Vec<String>)> {
+    pub async fn completion_repair_status(
+        &self,
+    ) -> Result<Option<(String, Vec<String>)>, CoreError> {
         let state = self.state.lock().await;
+        if let Some(error) = state.unbound_recovery_error() {
+            return Err(error);
+        }
+        let workflow = state
+            .desktop_resume_workflow
+            .as_ref()
+            .filter(|workflow| workflow.local_evidence_pending());
+        if let Some(workflow) = workflow {
+            let names = self.input.tools.tool_names();
+            let mut missing = Vec::new();
+            if workflow.desktop_evidence_pending()
+                && !names.iter().any(|name| name == "computer_observe")
+            {
+                missing.push("computer_observe");
+            }
+            if workflow.browser_evidence_pending()
+                && !names.iter().any(|name| name == "browser_session")
+            {
+                missing.push("browser_session");
+            }
+            if !missing.is_empty() {
+                return Err(CoreError::LocalVerificationRequired {
+                    message: format!("This worker's tool scope does not include {}. Return partial results to a parent with that capability for verification. {}", missing.join(", "), workflow.completion_repair_guidance()),
+                    targets: workflow.checkpoint.desktop_observation_targets.clone(),
+                    browser_targets: workflow.checkpoint.browser_observation_targets.clone(),
+                });
+            }
+        }
+        Ok(workflow.map(|workflow| {
+            (
+                workflow.completion_repair_guidance(),
+                workflow.completion_progress_milestones(),
+            )
+        }))
+    }
+
+    pub async fn completion_recovery_error(&self) -> Option<CoreError> {
+        let state = self.state.lock().await;
+        if let Some(error) = state.unbound_recovery_error() {
+            return Some(error);
+        }
         state
             .desktop_resume_workflow
             .as_ref()
-            .filter(|workflow| workflow.desktop_evidence_pending())
-            .map(|workflow| {
-                (
-                    workflow.completion_repair_guidance(),
-                    workflow.completion_progress_milestones(),
-                )
+            .filter(|workflow| workflow.local_evidence_pending())
+            .map(|workflow| CoreError::LocalVerificationRequired {
+                message: workflow.completion_repair_guidance(),
+                targets: workflow.checkpoint.desktop_observation_targets.clone(),
+                browser_targets: workflow.checkpoint.browser_observation_targets.clone(),
             })
     }
 
@@ -1511,20 +1969,36 @@ impl ExternalToolSession {
         self.privacy_lease.ensure_current()?;
         if !intermediate {
             self.ensure_delegated_recovery_clear()?;
+            if let Some(error) = state.unbound_recovery_error() {
+                return Err(error);
+            }
         }
         if !intermediate
             && state
                 .desktop_resume_workflow
                 .as_ref()
-                .is_some_and(crate::workflow_ir::WorkflowIr::desktop_evidence_pending)
+                .is_some_and(crate::workflow_ir::WorkflowIr::local_evidence_pending)
         {
-            return Err(CoreError::RecoveryRequired {
+            return Err(CoreError::LocalVerificationRequired {
                 message: state
                     .desktop_resume_workflow
                     .as_ref()
                     .unwrap()
                     .completion_repair_guidance(),
-                action_reconciliation: true,
+                targets: state
+                    .desktop_resume_workflow
+                    .as_ref()
+                    .unwrap()
+                    .checkpoint
+                    .desktop_observation_targets
+                    .clone(),
+                browser_targets: state
+                    .desktop_resume_workflow
+                    .as_ref()
+                    .unwrap()
+                    .checkpoint
+                    .browser_observation_targets
+                    .clone(),
             });
         }
         let message = Message::text(Role::Assistant, text.to_string());

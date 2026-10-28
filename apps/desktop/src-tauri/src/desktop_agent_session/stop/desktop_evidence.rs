@@ -175,11 +175,16 @@ pub(super) async fn preserve_pending_targets(
         let Some(tool) = event.payload.get("run") else {
             continue;
         };
-        let Some(name @ ("computer_control" | "computer_observe")) =
-            tool.get("toolName").and_then(Value::as_str)
-        else {
+        let Some(public_name) = tool.get("toolName").and_then(Value::as_str) else {
             continue;
         };
+        let arguments = tool.get("arguments").and_then(Value::as_str);
+        let route = nexa_core::tools::unified_control::route_receipt_str(public_name, arguments);
+        let name = route.as_ref().map_or(public_name, |route| route.tool_name);
+        if !matches!(name, "computer_control" | "computer_observe") {
+            continue;
+        }
+        let routed_arguments = route.as_ref().map(|route| route.arguments.to_string());
         let Some(call_id) = tool.get("callId").and_then(Value::as_str) else {
             continue;
         };
@@ -196,7 +201,7 @@ pub(super) async fn preserve_pending_targets(
         workflow.observe_tool_result_with_arguments(
             call_id,
             name,
-            tool.get("arguments").and_then(Value::as_str),
+            routed_arguments.as_deref().or(arguments),
             tool.get("isError").and_then(Value::as_bool).unwrap_or(true),
             tool.get("artifacts"),
             "",
@@ -451,7 +456,7 @@ mod tests {
         .unwrap();
         // A previous sample reused the same provider call ID for another target.
         let mut prior_result = AgentRunEvent::from_agent_event(&AgentEvent::ToolCallResult {
-            call_id:"pending-native-A".into(), tool_name:"computer_control".into(), content:"Observed prior target".into(), is_error:false,
+            call_id:"pending-native-A".into(), tool_name:"computer_use".into(), content:"Observed prior target".into(), is_error:false,
             artifacts:Some(json!({"artifacts":{"kind":"computerControl"},"data":{
                 "windowId":77,"targetIdentity":"prior-process-B","consumedObservationId":"prior-before-B",
                 "actionReceiptId":"prior-native-receipt","inputDelivered":true,"targetVerified":true,"deliveryStatus":"delivered",
@@ -459,7 +464,10 @@ mod tests {
             }})),
         }).with_context(Some(&run.id), Some(&turn.id), None);
         prior_result.payload["run"]["arguments"] = json!(
-            r#"{"action":"invoke","window_id":77,"observation_id":"<observation-token-redacted>"}"#
+            nexa_core::tool_argument_projection::audit_safe_arguments_string(
+                "computer_use",
+                r#"{"action":"invoke","target":{"kind":"window","window_id":77},"observation_id":"prior-before-B"}"#,
+            )
         );
         outbox.submit(prior_result).unwrap();
         outbox
@@ -491,13 +499,16 @@ mod tests {
             .unwrap();
         if completed_timeout {
             let mut timeout = AgentRunEvent::from_agent_event(&AgentEvent::ToolCallResult {
-                call_id:"pending-native-A".into(), tool_name:"computer_control".into(), content:"Native worker may still finish".into(), is_error:true,
+                call_id:"pending-native-A".into(), tool_name:"computer_use".into(), content:"Native worker may still finish".into(), is_error:true,
                 artifacts:Some(json!({"code":"computer_action_timeout_uncertain","sideEffect":"may_have_occurred","data":{
                     "windowId":42,"targetIdentity":"process-generation-A","consumedObservationId":"before-A"
                 }})),
             }).with_context(Some(&run.id), Some(&turn.id), None);
             timeout.payload["run"]["arguments"] = json!(
-                r#"{"action":"invoke","window_id":42,"observation_id":"<observation-token-redacted>"}"#
+                nexa_core::tool_argument_projection::audit_safe_arguments_string(
+                    "computer_use",
+                    r#"{"action":"invoke","target":{"kind":"window","window_id":42},"observation_id":"before-A"}"#,
+                )
             );
             outbox.submit(timeout).unwrap();
         }

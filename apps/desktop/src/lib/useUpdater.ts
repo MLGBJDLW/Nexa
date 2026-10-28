@@ -188,7 +188,7 @@ export function useUpdater(checkOnMount = true) {
       ...prev,
       status: 'downloading',
       source,
-      progress: 0,
+      progress: undefined,
       error: undefined,
       errorCode: undefined,
       errorDetail: undefined,
@@ -197,6 +197,7 @@ export function useUpdater(checkOnMount = true) {
 
     let downloaded = 0;
     let contentLength = 0;
+    let downloadFinished = false;
 
     try {
       await update.downloadAndInstall(
@@ -204,18 +205,18 @@ export function useUpdater(checkOnMount = true) {
           switch (event.event) {
             case 'Started':
               contentLength = event.data.contentLength ?? 0;
+              setSharedState(prev => ({ ...prev, progress: contentLength > 0 ? 0 : undefined }));
               break;
             case 'Progress':
               downloaded += event.data.chunkLength;
               if (contentLength > 0) {
-                setSharedState(prev => ({
-                  ...prev,
-                  progress: Math.round((downloaded / contentLength) * 100),
-                }));
+                const progress = Math.min(99, Math.round((downloaded / contentLength) * 100));
+                if (sharedState.progress !== progress) setSharedState(prev => ({ ...prev, progress }));
               }
               break;
             case 'Finished':
               // Download completion precedes signature verification/installation.
+              downloadFinished = true;
               setSharedState(prev => ({ ...prev, progress: 100 }));
               break;
           }
@@ -228,7 +229,7 @@ export function useUpdater(checkOnMount = true) {
         ...prev,
         status: 'error',
         progress: undefined,
-        errorStage: 'download',
+        errorStage: downloadFinished ? 'install' : 'download',
         ...extractError(e),
       }));
       return;

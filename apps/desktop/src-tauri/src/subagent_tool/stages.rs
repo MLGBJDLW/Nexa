@@ -339,7 +339,12 @@ pub(super) async fn prepare_subagent_worker(
             .min(model_context_limit.saturating_mul(3) / 5)
             .max(1.min(model_context_limit));
     } else {
-        handoff_token_budget = handoff_token_budget.max(1);
+        // Cumulative execution spending can be unlimited while the request
+        // input must stay finite. Reuse the external runtime history envelope
+        // (four bytes per estimated token), without inventing model capacity.
+        handoff_token_budget = handoff_token_budget
+            .min((crate::agent_runtime::EXTERNAL_HISTORY_MAX_BYTES / 4) as u32)
+            .max(1);
     }
     let context_snapshot = runtime.context_snapshot(
         db,
@@ -1031,9 +1036,24 @@ pub(super) fn settle_subagent_artifact(
     subtask: &mut SubtaskRecorder,
 ) -> SubagentRunArtifact {
     let error = final_message.as_ref().err();
-    let error_message = error.map(ToString::to_string);
+    let provider = capture
+        .runtime_identity
+        .as_ref()
+        .map(|identity| identity.provider.as_str())
+        .unwrap_or(&input.preflight.provider_id);
+    let model = capture
+        .runtime_identity
+        .as_ref()
+        .map(|identity| identity.model.as_str())
+        .unwrap_or(&input.preflight.effective_model);
+    let failure_message = error.map(ToString::to_string).or_else(|| {
+        (capture.finish_reason.as_deref() == Some("max_iterations")).then(|| {
+            "Explicit tool budget reached. Partial results were preserved; the task is unfinished. Omit max_iterations for normal continuation unless the user requires a cap.".to_string()
+        })
+    });
+    let failure_status = failure_message.as_deref().map(delegated_failure_status);
+    let error_message = failure_message.map(|message| format!("{provider} / {model}: {message}"));
     let recovery_required = error.and_then(CoreError::recovery_requirement);
-    let failure_status = error_message.as_deref().map(delegated_failure_status);
     let result_text = final_message
         .as_ref()
         .map(|message| message.text_content())

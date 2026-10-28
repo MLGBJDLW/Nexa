@@ -126,11 +126,22 @@ impl Projection {
         let Some(tool_name) = run.get("toolName").and_then(serde_json::Value::as_str) else {
             return false;
         };
-        if tool_name == "computer_observe" {
+        let arguments = run.get("arguments").and_then(serde_json::Value::as_str);
+        // Committed events contain audit-safe arguments. Classifying the
+        // visible native Stop surface needs only the public target and action,
+        // never the redacted token or typed input, and grants no input rights.
+        let route = nexa_core::tools::unified_control::route_receipt_str(tool_name, arguments);
+        let execution_tool = route.as_ref().map_or(tool_name, |route| route.tool_name);
+        if execution_tool == "computer_observe" {
             return false;
         }
-        if tool_name != "computer_control" {
+        if execution_tool != "computer_control" {
             if let Some(scope) = self.active.get_mut(&event.run_id) {
+                if tool_name == "computer_use"
+                    && scope.pending.iter().any(|call| call.call_id == call_id)
+                {
+                    return false;
+                }
                 if scope.pending.is_empty() {
                     return self.active.remove(&event.run_id).is_some();
                 }
@@ -143,16 +154,23 @@ impl Projection {
         if self.active.len() >= 64 && !self.active.contains_key(&event.run_id) {
             return false;
         }
-        let arguments = run
-            .get("arguments")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|args| serde_json::from_str::<serde_json::Value>(args).ok());
+        let legacy_arguments = if route.is_none() {
+            arguments.and_then(|args| serde_json::from_str::<serde_json::Value>(args).ok())
+        } else {
+            None
+        };
+        let arguments = route
+            .as_ref()
+            .map(|route| &route.arguments)
+            .or(legacy_arguments.as_ref());
         let activity = DesktopControlActivity {
             conversation_id: conversation_id.into(),
             run_id: event.run_id.clone(),
             turn_id: (!event.turn_id.is_empty()).then(|| event.turn_id.clone()),
             call_id: call_id.into(),
-            tool_name: tool_name.into(),
+            // The indicator is an internal native-control projection; the
+            // original ToolRun event continues to identify computer_use.
+            tool_name: execution_tool.into(),
             phase: match run
                 .pointer("/artifacts/activity/payload/phase")
                 .and_then(serde_json::Value::as_str)
@@ -510,6 +528,75 @@ mod tests {
             );
             assert!(state.snapshot().is_empty());
         }
+    }
+
+    #[test]
+    fn unified_window_input_keeps_the_existing_stop_surface_through_observation_and_progress() {
+        for action in ["click", "type", "press", "drag"] {
+            let mut state = Projection::default();
+            let mut control = event(
+                "run",
+                AgentRunEventKind::ToolStarted,
+                "control",
+                "computer_use",
+            );
+            let args = serde_json::json!({"action":action,"target":{"kind":"window","window_id":42},"observation_id":"before","text":"private input"});
+            control.payload["run"]["arguments"] = serde_json::json!(
+                nexa_core::tool_argument_projection::audit_safe_arguments_string(
+                    "computer_use",
+                    &args.to_string()
+                )
+            );
+            assert!(state.apply("chat", &control));
+            assert_eq!(state.snapshot()[0].tool_name, "computer_control");
+            assert_eq!(state.snapshot()[0].window_id, Some(42));
+            assert_eq!(control.payload["run"]["toolName"], "computer_use");
+
+            let mut observe = event(
+                "run",
+                AgentRunEventKind::ToolStarted,
+                "observe",
+                "computer_use",
+            );
+            let args = serde_json::json!({"action":"observe","target":{"kind":"window","window_id":42},"observation_id":"redacted observation token"});
+            observe.payload["run"]["arguments"] = serde_json::json!(
+                nexa_core::tool_argument_projection::audit_safe_arguments_string(
+                    "computer_use",
+                    &args.to_string()
+                )
+            );
+            assert!(!state.apply("chat", &observe));
+            control.kind = AgentRunEventKind::ToolProgress;
+            control.payload["run"]["arguments"] = serde_json::json!("incomplete progress");
+            assert!(!state.apply("chat", &control));
+            assert_eq!(
+                state.snapshot().len(),
+                1,
+                "progress cannot hide Stop during input"
+            );
+            control.kind = AgentRunEventKind::ToolCompleted;
+            control.payload["run"]["status"] = serde_json::json!("completed");
+            assert!(state.apply("chat", &control));
+            assert_eq!(state.snapshot()[0].phase, DesktopControlPhase::Waiting);
+            control.kind = AgentRunEventKind::Done;
+            assert!(state.apply("chat", &control));
+            assert!(state.snapshot().is_empty());
+        }
+        let mut state = Projection::default();
+        let mut browser = event(
+            "run",
+            AgentRunEventKind::ToolStarted,
+            "browser",
+            "computer_use",
+        );
+        browser.payload["run"]["arguments"] = serde_json::json!(
+            r#"{"action":"click","target":{"kind":"browser","session_id":"s","tab_id":"t"}}"#
+        );
+        assert!(!state.apply("chat", &browser));
+        assert!(
+            state.snapshot().is_empty(),
+            "browser input uses its own visible takeover controls"
+        );
     }
 
     #[test]

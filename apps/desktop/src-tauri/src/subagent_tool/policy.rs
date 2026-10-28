@@ -10,15 +10,14 @@ pub(super) fn normalize_allowed_tools(
     allowed_tools: Option<&[String]>,
     available_tool_names: &[String],
 ) -> Vec<String> {
-    let available: BTreeSet<&str> = available_tool_names.iter().map(String::as_str).collect();
     match allowed_tools {
-        Some(names) => names
-            .iter()
-            .filter_map(|name| {
-                let trimmed = canonical_tool_name(name.trim());
-                available.contains(trimmed).then(|| trimmed.to_string())
-            })
-            .collect(),
+        Some(names) => nexa_core::tools::unified_control::expand_allowed_names(
+            &names
+                .iter()
+                .map(|name| canonical_tool_name(name.trim()).to_string())
+                .collect::<Vec<_>>(),
+            available_tool_names,
+        ),
         // Absence is inheritance, not a frozen list of role recommendations.
         // The registry has already been filtered by the parent's execution mode,
         // workspace isolation and workflow scope. Explicit lists still narrow it.

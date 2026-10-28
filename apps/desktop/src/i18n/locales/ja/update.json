@@ -27,5 +27,6 @@
   "details": "詳細",
   "sourceCustom": "カスタムミラー",
   "mirrorAddress": "ミラーの URL",
-  "mirrorHint": "プレフィックスプロキシ：この HTTPS URL に元の GitHub URL を追加します。更新の署名検証は維持されます。"
+  "mirrorHint": "プレフィックスプロキシ：この HTTPS URL に元の GitHub URL を追加します。更新の署名検証は維持されます。",
+  "installing": "検証してインストール中…"
 }

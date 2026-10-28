@@ -416,19 +416,30 @@ fn google_image_config(size: Option<&str>) -> Option<Value> {
     }
 }
 
-fn build_google_image_body(args: &GenerateImageArgs, configured_size: Option<&str>) -> Value {
+fn build_google_image_body(
+    args: &GenerateImageArgs,
+    configured_size: Option<&str>,
+    base_url: Option<&str>,
+) -> Value {
     let mut generation_config = json!({
         "responseModalities": ["TEXT", "IMAGE"]
     });
     if let Some(image_config) = google_image_config(args.size.as_deref().or(configured_size)) {
         generation_config["imageConfig"] = image_config;
     }
-    json!({
+    let mut body = json!({
         "contents": [{
             "parts": [{ "text": args.prompt.as_str() }]
         }],
         "generationConfig": generation_config
-    })
+    });
+    if crate::llm::provider_boundary::is_google_public_endpoint(
+        crate::llm::ProviderType::Google,
+        base_url,
+    ) {
+        body["store"] = json!(false);
+    }
+    body
 }
 
 /// Keep editing inputs byte-identical. These are Nexa resource limits, not
@@ -1092,7 +1103,7 @@ async fn generate_google_image(
     let base_url = config.endpoint_base_url("https://generativelanguage.googleapis.com/v1beta");
     let base = base_url.trim_end_matches('/');
     let url = format!("{base}/models/{model}:generateContent");
-    let body = build_google_image_body(args, config.size.as_deref());
+    let body = build_google_image_body(args, config.size.as_deref(), Some(base));
 
     let response = client
         .post(url)
@@ -1869,12 +1880,22 @@ mod tests {
     fn google_generate_content_uses_string_image_config_not_enum_response_format() {
         let mut args = test_args();
         args.size = Some("16:9|2K".into());
-        let body = build_google_image_body(&args, None);
+        let body = build_google_image_body(&args, None, None);
         assert_eq!(
             body["generationConfig"]["imageConfig"],
             json!({"aspectRatio":"16:9","imageSize":"2K"})
         );
         assert!(body["generationConfig"].get("responseFormat").is_none());
+        assert_eq!(body["store"], false);
+        for endpoint in [
+            "https://example.com/v1beta",
+            "https://generativelanguage.googleapis.com/proxy",
+            "https://aiplatform.googleapis.com/v1",
+        ] {
+            assert!(build_google_image_body(&args, None, Some(endpoint))
+                .get("store")
+                .is_none());
+        }
     }
 
     #[test]
@@ -1956,7 +1977,7 @@ mod tests {
         let config = test_config("qwen", None);
 
         let openai = build_openai_images_body(&config, &args, "gpt-image-2", "png");
-        let google = build_google_image_body(&args, None);
+        let google = build_google_image_body(&args, None, None);
         let qwen = build_qwen_image_body(&config, &args, "qwen-image-plus");
         assert_eq!(openai["prompt"], exact_prompt);
         assert_eq!(google["contents"][0]["parts"][0]["text"], exact_prompt);

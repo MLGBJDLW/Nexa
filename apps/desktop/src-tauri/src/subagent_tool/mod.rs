@@ -22,14 +22,12 @@ use nexa_core::agent::{
     llm_streaming_disabled_by_env, AgentConfig, AgentEvent, AgentExecutor, AgentRequestKind,
     AgentSteeringMessage, CancellationToken,
 };
+use nexa_core::conversation::conversation_message_llm_context_content;
 use nexa_core::conversation::memory::{
     estimate_tokens_for_model, ContextWindowAuthority, ResolvedContextWindow,
 };
 #[cfg(test)]
 use nexa_core::conversation::memory::{model_context_window, resolve_model_context_window};
-use nexa_core::conversation::{
-    conversation_message_llm_context_content, conversation_message_provider_turn,
-};
 use nexa_core::db::Database;
 use nexa_core::error::CoreError;
 use nexa_core::llm::message_validation::{
@@ -128,7 +126,6 @@ pub struct DelegationRuntime {
     tool_registry: Arc<StdMutex<Option<ToolRegistry>>>,
     sessions: Arc<StdMutex<HashMap<String, SubagentSessionSnapshot>>>,
     skill_index: Arc<OnceLock<SkillIndexSnapshot>>,
-    context_snapshots: Arc<StdMutex<HashMap<String, Arc<DelegationContextSnapshot>>>>,
     batches: Arc<StdMutex<HashMap<String, DelegationBatchState>>>,
     lifecycle: SubagentLifecycleRuntime,
     worker_handles: Arc<WorkerHandleOwner>,
@@ -248,7 +245,6 @@ impl DelegationRuntime {
             tool_registry: Arc::new(StdMutex::new(None)),
             sessions: Arc::new(StdMutex::new(HashMap::new())),
             skill_index: Arc::new(OnceLock::new()),
-            context_snapshots: Arc::new(StdMutex::new(HashMap::new())),
             batches: Arc::new(StdMutex::new(HashMap::new())),
             lifecycle,
             worker_handles,
@@ -327,7 +323,6 @@ impl DelegationRuntime {
             tool_registry: Arc::clone(&self.tool_registry),
             sessions: Arc::clone(&self.sessions),
             skill_index: Arc::clone(&self.skill_index),
-            context_snapshots: Arc::clone(&self.context_snapshots),
             batches: Arc::clone(&self.batches),
             lifecycle: self.lifecycle.clone(),
             worker_handles: Arc::clone(&self.worker_handles),
@@ -548,29 +543,15 @@ impl DelegationRuntime {
         context_limit: Option<u32>,
         handoff_token_budget: u32,
     ) -> Arc<DelegationContextSnapshot> {
-        let key = format!("{model}:{context_limit:?}:{handoff_token_budget}");
-        if let Some(snapshot) = self
-            .context_snapshots
-            .lock()
-            .ok()
-            .and_then(|snapshots| snapshots.get(&key).cloned())
-        {
-            return snapshot;
-        }
-        let snapshot = Arc::new(load_delegation_context_snapshot(
+        // The core projection owns fork generation and source validation. A
+        // second cache keyed only by model/budget resurrected pre-fork history.
+        Arc::new(load_delegation_context_snapshot(
             db,
             self.parent_conversation_id.as_deref(),
             model,
             context_limit,
             handoff_token_budget,
-        ));
-        if let Ok(mut snapshots) = self.context_snapshots.lock() {
-            return snapshots
-                .entry(key)
-                .or_insert_with(|| Arc::clone(&snapshot))
-                .clone();
-        }
-        snapshot
+        ))
     }
 }
 

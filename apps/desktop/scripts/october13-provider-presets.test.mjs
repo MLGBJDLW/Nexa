@@ -33,7 +33,7 @@ test('October additions retain native endpoint identity and exact reasoning poli
   assert.equal(isRemovedProviderModel('openrouter', 'google/gemini-2.5-pro-preview-05-06'), true);
 });
 
-test('announced future shutdowns remain selectable until their actual retirement', () => {
+test('retired routes are removed while future shutdowns remain deprecated', () => {
   const minimax = find({ provider: 'open_ai', baseUrl: 'https://api.minimax.io/v1', model: 'MiniMax-M2.7' });
   assert.equal(minimax.descriptor.lifecycle, 'deprecated');
   assert.equal(minimax.descriptor.deprecationDate, '2026-11-18');
@@ -43,7 +43,7 @@ test('announced future shutdowns remain selectable until their actual retirement
     assert.equal(row.status, 'active'); assert.equal(row.capabilities.imageEditing, false);
   }
   const image1 = images.find(p => p.id === 'openai').models.find(m => m.id === 'gpt-image-1');
-  assert.equal(image1.status, 'deprecated'); assert.equal(image1.deprecationDate, '2026-10-23');
+  assert.equal(image1.status, 'removed'); assert.equal(image1.deprecationDate, '2026-10-23');
 });
 
 test('updated ACP packages remain version-pinned and preserve companion archive metadata', () => {

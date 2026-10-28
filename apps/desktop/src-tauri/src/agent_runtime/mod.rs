@@ -237,6 +237,7 @@ impl AgentRuntimeTurnRequest {
         } else {
             transcript::Transcript::NexaTools(Arc::new(ExternalToolSession::new(
                 ExternalToolSessionInput {
+                    runtime_provider: self.kind.provider().to_string(),
                     tools: self.dependencies.tools,
                     config: self.config.clone(),
                     db: self.db,
@@ -501,9 +502,10 @@ fn protocol_error(error: impl std::fmt::Display) -> CoreError {
     CoreError::Agent(format!("Agent runtime: {error}"))
 }
 
+pub(crate) const EXTERNAL_HISTORY_MAX_BYTES: usize = 256 * 1024;
+
 fn history_context(history: &[Message], user_text: &str) -> Result<String, CoreError> {
-    const MAX_HISTORY_BYTES: usize = 256 * 1024;
-    if user_text.len() > MAX_HISTORY_BYTES {
+    if user_text.len() > EXTERNAL_HISTORY_MAX_BYTES {
         return Err(CoreError::InvalidInput("The message is too large for a subscription turn. Attach the content as a source file.".into()));
     }
     let mut retained = Vec::new();
@@ -517,7 +519,7 @@ fn history_context(history: &[Message], user_text: &str) -> Result<String, CoreE
         }
         let entry = serde_json::json!({"role":message.role,"text":text});
         let len = entry.to_string().len();
-        if bytes + len > MAX_HISTORY_BYTES {
+        if bytes + len > EXTERNAL_HISTORY_MAX_BYTES {
             break;
         }
         bytes += len;

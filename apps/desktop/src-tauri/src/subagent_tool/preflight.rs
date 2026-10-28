@@ -81,8 +81,14 @@ pub(super) fn load_delegation_context_snapshot(
     let mut token_estimate = 0u32;
     let mut dropped_invalid_messages = 0usize;
     if let Some(conversation_id) = conversation_id {
-        if let Ok(messages) = db.get_messages(conversation_id) {
-            for message in messages
+        let max_bytes = (token_budget as usize).saturating_mul(4);
+        if let Ok(projection) = nexa_core::context_maintenance::load_context_handoff_projection(
+            db,
+            conversation_id,
+            max_bytes,
+        ) {
+            for message in projection
+                .messages
                 .into_iter()
                 .filter(nexa_core::conversation::conversation_message_is_model_history)
                 .rev()
@@ -104,14 +110,7 @@ pub(super) fn load_delegation_context_snapshot(
                 {
                     break;
                 }
-                let mut projected = Message::text(message.role.clone(), content);
-                if message.role == Role::Assistant {
-                    projected.reasoning_content =
-                        nexa_core::conversation::conversation_message_reasoning_replay(&message);
-                    if let Some(envelope) = conversation_message_provider_turn(&message) {
-                        projected.set_provider_turn(envelope);
-                    }
-                }
+                let projected = Message::text(message.role.clone(), content);
                 let context = MessageNormalizationContext {
                     provider: None,
                     model: Some(model),
@@ -369,13 +368,7 @@ pub(super) fn resolve_allowed_tools(
 ) -> Vec<String> {
     match requested_allowed_tools {
         Some(requested) => {
-            let allowed: BTreeSet<&str> = base_allowed_tools.iter().map(String::as_str).collect();
-            let narrowed: Vec<String> = requested
-                .iter()
-                .filter(|name| allowed.contains(name.as_str()))
-                .cloned()
-                .collect();
-            narrowed
+            nexa_core::tools::unified_control::expand_allowed_names(requested, base_allowed_tools)
         }
         _ => base_allowed_tools.to_vec(),
     }

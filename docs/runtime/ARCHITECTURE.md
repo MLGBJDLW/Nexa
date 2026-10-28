@@ -286,6 +286,24 @@ Observation freshness, exact targets, plan mode, source boundaries, cancellation
 and operating-system permissions remain execution checks, independent of that
 approval decision. A mode is snapshotted when a turn starts.
 
+The model-facing `computer_use` interface names an explicit browser or window
+target and shares observation, click, typing and scrolling operations. The
+[registry projection](../../crates/core/src/tools/unified_control.rs) resolves it
+into an already-authorized browser or native adapter before backend validation,
+approval, resource scheduling and execution. Provider history and public tool
+events retain the original call; execution and verification use the resolved
+operation. Filtering adapters precedes projection, so an observation-only scope
+cannot acquire input rights through the shared name. Historical backend aliases
+remain executable without advertising three competing control interfaces.
+
+Browser and desktop adapters share [interaction receipts](../../crates/core/src/observed_interaction.rs)
+and the existing workflow evidence gates. Browser observation binds the current
+call's lease once before reading; navigation retries do not reclaim user control.
+Foreground coordinate clicks validate their observed target before submitting
+absolute positioning and button events together, so the action's own hover
+feedback cannot invalidate an intermediate screenshot. Delivery, observed effect
+and requested-goal verification remain separate facts.
+
 This separation follows the distinction between approval and monotonic guards
 in the [DeepSeek Harness tool pipeline](https://github.com/deepseek-ai/deepseek-harness/blob/477b4f420553e8a52c2fbccc464d7561b239c443/docs/tool-execution-pipeline.md).
 Nexa retains its existing outbox and persistence ownership; UI projections do

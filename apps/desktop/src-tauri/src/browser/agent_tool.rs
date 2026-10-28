@@ -249,6 +249,32 @@ struct BrowserArgs {
     offset: Option<usize>,
 }
 
+fn browser_observation_failure(
+    call_id: &str,
+    session_id: &str,
+    tab_id: &str,
+    error: &str,
+) -> ToolResult {
+    let user_owned = error.contains("control belongs to the user");
+    nexa_core::tools::structured_tool_error_result_with_side_effect(
+        call_id,
+        if user_owned {
+            "browser_user_control"
+        } else {
+            "browser_observation_failed"
+        },
+        nexa_core::external_agent::launch::redact_diagnostic(error, &[]),
+        serde_json::json!({
+            "action":"observe", "sessionId":session_id, "tabId":tab_id,
+            "recovery":if user_owned { "Wait for the user to release control; do not take it back." }
+                else { "Inspect the current tab and visibility, then observe it again. Do not repeat the action that opened or changed this page." },
+        }),
+        !user_owned,
+        nexa_core::tools::ToolSideEffect::NotStarted,
+        None,
+    )
+}
+
 fn required<'a>(value: Option<&'a str>, field: &str) -> Result<&'a str, CoreError> {
     value
         .map(str::trim)
@@ -626,6 +652,30 @@ impl Tool for NativeBrowserSessionTool {
             );
         }
 
+        if action == "list_tabs" {
+            if let (Some(session_id), Some(tab_id)) =
+                (args.session_id.as_deref(), args.tab_id.as_deref())
+            {
+                let session_id = required(Some(session_id), "sessionId")?;
+                let tab_id = required(Some(tab_id), "tabId")?;
+                let checked_at_ms = chrono::Utc::now().timestamp_millis();
+                if self
+                    .state
+                    .target_is_absent(session_id, tab_id, conversation_id)
+                    .map_err(Self::invalid)?
+                {
+                    return Ok(
+                        nexa_core::tools::browser_session_tool::browser_target_absence_result(
+                            context.call_id,
+                            session_id,
+                            tab_id,
+                            checked_at_ms,
+                        ),
+                    );
+                }
+            }
+        }
+
         let requested_session_id = if matches!(action.as_str(), "close_session" | "close_tab") {
             Some(required(args.session_id.as_deref(), "sessionId")?)
         } else {
@@ -980,11 +1030,21 @@ impl Tool for NativeBrowserSessionTool {
                 observation_result(context.call_id, observation)
             }
             "observe" => {
-                let observation = self
+                let observation = match self
                     .state
                     .observe_with_options(session_id, tab_id, context.call_id, &observation_options)
                     .await
-                    .map_err(Self::invalid)?;
+                {
+                    Ok(observation) => observation,
+                    Err(error) => {
+                        return Ok(browser_observation_failure(
+                            context.call_id,
+                            session_id,
+                            tab_id,
+                            &error,
+                        ))
+                    }
+                };
                 observation_result(context.call_id, observation)
             }
             "move" | "hover" | "click" | "double_click" | "drag" | "type" | "select" | "press"
@@ -1800,6 +1860,29 @@ fn browser_screenshot_attachment(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn observation_errors_keep_target_and_recovery_without_repeating_the_tool_schema() {
+        let result = super::browser_observation_failure(
+            "call",
+            "session",
+            "tab",
+            "Browser control changed before the Agent operation began",
+        );
+        assert!(result.is_error);
+        assert!(result.content.len() < 1000);
+        assert_eq!(
+            result.artifacts.as_ref().unwrap()["expectedFormat"]["tabId"],
+            "tab"
+        );
+        assert!(!result.content.contains("additionalProperties"));
+        let user = super::browser_observation_failure(
+            "call",
+            "session",
+            "tab",
+            "Browser control belongs to the user; wait until they hand it back",
+        );
+        assert_eq!(user.artifacts.as_ref().unwrap()["retryable"], false);
+    }
     async fn unexpected_visual_capture() -> Result<serde_json::Value, String> {
         panic!("cancelled or failed wait must not capture final evidence")
     }
@@ -2038,6 +2121,7 @@ mod tests {
     fn browser_observation_without_visual_capture_fails_closed() {
         let observation = BrowserObservationPayload {
             observation_id: "obs-1".to_string(),
+            captured_at_ms: 1,
             session_id: "session-1".to_string(),
             tab_id: "tab-1".to_string(),
             url: "https://example.com/".to_string(),

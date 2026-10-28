@@ -210,7 +210,7 @@ fn malformed_review_tools_fail_before_dispatch() {
         r#"{"action":"add_finding","review_id":"x"}"#,
     ] {
         assert!(registry
-            .prepare_arguments_for_scheduling("code_review", "bad", args)
+            .prepare_invocation_for_scheduling("code_review", "bad", args)
             .1
             .is_some());
     }

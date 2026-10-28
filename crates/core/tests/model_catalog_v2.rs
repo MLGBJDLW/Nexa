@@ -558,10 +558,13 @@ fn builtin_catalog_tracks_exact_glm53_provider_routes_and_verified_hosted_routes
         "conflicting Alibaba docs must remain conservative"
     );
 
-    for (endpoint, expected_id) in [
-        ("text:qwen-token-plan-cn", "glm-5.3"),
-        ("text:qwen-token-plan-global", "glm-5.3"),
-        ("text:siliconflow", "zai-org/GLM-5.3"),
+    for (endpoint, expected_ids) in [
+        ("text:qwen-token-plan-cn", &["glm-5.3"][..]),
+        ("text:qwen-token-plan-global", &["glm-5.3"][..]),
+        (
+            "text:siliconflow",
+            &["zai-org/GLM-5.3", "zai-org/GLM-5.3-Flash"][..],
+        ),
     ] {
         let hosted = catalog
             .models
@@ -574,8 +577,23 @@ fn builtin_catalog_tracks_exact_glm53_provider_routes_and_verified_hosted_routes
                     && model.id.to_ascii_lowercase().contains("glm-5.3")
             })
             .collect::<Vec<_>>();
-        assert_eq!(hosted.len(), 1, "{endpoint} keeps its verified route only");
-        assert_eq!(hosted[0].id, expected_id);
-        assert_eq!(hosted[0].endpoint_ids, [endpoint]);
+        assert_eq!(
+            hosted
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            expected_ids,
+            "{endpoint} keeps only its verified routes"
+        );
+        for model in hosted {
+            assert_eq!(model.endpoint_ids, [endpoint]);
+        }
     }
+    let silicon_flash = find("zai-org/GLM-5.3-Flash", "text:siliconflow");
+    assert!(silicon_flash.capabilities.vision);
+    assert!(silicon_flash.capabilities.reasoning.is_none());
+    assert_eq!(silicon_flash.limits.context_tokens, Some(1_048_576));
+    let international_legal = find("glm-5.3-flashx-legal", "text:zhipu-intl");
+    assert_eq!(international_legal.access, ModelAccess::Public);
+    assert_eq!(international_legal.regions, ["international"]);
 }

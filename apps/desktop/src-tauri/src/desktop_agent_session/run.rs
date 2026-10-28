@@ -165,16 +165,11 @@ pub async fn run_desktop_agent_turn(request: DesktopAgentTurnRequest) -> Desktop
     // The producer and publication consumer have both stopped. Reuse the
     // existing atomic pause/checkpoint boundary; no second recovery engine or
     // terminal error may race this resumable state.
-    if let Some(Err(CoreError::RecoveryRequired {
-        action_reconciliation,
-        ..
-    })) = &result
+    if let Some(reason) = result
+        .as_ref()
+        .and_then(|result| result.as_ref().err())
+        .and_then(CoreError::recovery_checkpoint_reason)
     {
-        let reason = if *action_reconciliation {
-            "connection_interrupted_requires_action_reconciliation:provider_hosted_action"
-        } else {
-            "provider_connection_interrupted"
-        };
         if let Err(error) = stream
             .event_seq
             .pause_with_checkpoint(&turn_id, reason)

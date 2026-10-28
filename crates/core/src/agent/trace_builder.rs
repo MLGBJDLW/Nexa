@@ -157,16 +157,17 @@ pub(super) fn append_persisted_trace_tool(
 ) -> String {
     let result_id = uuid::Uuid::new_v4().to_string();
     let parsed_args = serde_json::from_str::<serde_json::Value>(arguments).ok();
-    let capabilities = tools.run_capabilities(
+    let descriptor = tools.capability_descriptor(
         tool_name,
         parsed_args.as_ref().unwrap_or(&serde_json::Value::Null),
     );
+    let capabilities = descriptor.capabilities;
     items.push(PersistedTraceItem::Tool {
         tool_call: PersistedTraceToolCall {
             result_id: Some(result_id.clone().into_boxed_str()),
             call_id: call_id.to_string(),
             tool_name: tool_name.to_string(),
-            owner: tools.plugin_info(tool_name),
+            owner: descriptor.owner,
             provider_executed: false,
             arguments: crate::tool_argument_projection::audit_safe_arguments_string(
                 tool_name, arguments,

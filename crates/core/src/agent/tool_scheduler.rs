@@ -49,14 +49,36 @@ impl ToolSchedulerPolicy {
         tools: &ToolRegistry,
         call: &ToolCallRequest,
     ) -> ToolSchedulingDecision {
-        let (parsed_args, argument_error) =
-            tools.prepare_arguments_for_scheduling(&call.name, &call.id, &call.arguments);
-        let timeout = tool_timeout_for_call(self.configured_timeout_secs, &call.name, &parsed_args);
+        let (invocation, argument_error) =
+            tools.prepare_invocation_for_scheduling(&call.name, &call.id, &call.arguments);
+        let timeout = tool_timeout_for_call(
+            self.configured_timeout_secs,
+            &invocation.tool_name,
+            &invocation.arguments,
+        );
+
+        // `tools` can be the full registry while this set belongs to an
+        // isolated workspace. A visible observe-only facade cannot authorize
+        // a control adapter removed from that scoped registry.
+        let unavailable_control_backend = (call.name == crate::tools::unified_control::TOOL_NAME
+            || crate::tools::unified_control::is_backend(&call.name))
+            && crate::tools::unified_control::is_backend(&invocation.tool_name)
+            && !self.registered_tool_names.contains(&invocation.tool_name);
 
         let hidden_registered_tool = self.dynamic_tool_visibility
             && !self.offered_tool_names.contains(&call.name)
             && self.registered_tool_names.contains(&call.name);
-        let synthetic_result = if self.dynamic_tool_visibility
+        let synthetic_result = if unavailable_control_backend {
+            Some(crate::tools::structured_tool_error_result_with_side_effect(
+                &call.id,
+                "control_backend_unavailable",
+                "The requested control operation is outside the current execution scope. No operation was performed.",
+                serde_json::json!({"tool":"computer_use","recovery":"use only the target kinds and actions available in the current scope"}),
+                false,
+                crate::tools::ToolSideEffect::NotStarted,
+                Some(false),
+            ))
+        } else if self.dynamic_tool_visibility
             && !self.offered_tool_names.contains(&call.name)
             && !hidden_registered_tool
         {
@@ -81,9 +103,11 @@ impl ToolSchedulerPolicy {
         };
 
         ToolSchedulingDecision {
-            invocation: tools.build_invocation(&call.id, &call.name, parsed_args),
+            invocation,
             timeout,
-            policy_label: if synthetic_result.is_some()
+            policy_label: if unavailable_control_backend {
+                "blockedByToolScope"
+            } else if synthetic_result.is_some()
                 && !hidden_registered_tool
                 && self.dynamic_tool_visibility
                 && !self.offered_tool_names.contains(&call.name)
@@ -453,6 +477,81 @@ fn compress_sections(text: &str, separator: &str, max_chars: usize) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unified_control_admission_uses_scoped_backend_authority_and_resolved_timeout() {
+        let mut tools = ToolRegistry::new();
+        tools.register(Box::new(
+            crate::tools::computer_use_tool::ComputerObserveTool,
+        ));
+        tools.register(Box::new(
+            crate::tools::computer_use_tool::ComputerControlTool,
+        ));
+        let policy = ToolSchedulerPolicy::new(
+            Some(1),
+            false,
+            HashSet::from(["computer_use".into()]),
+            HashSet::from(["computer_use".into(), "computer_observe".into()]),
+        );
+        let call = ToolCallRequest {
+            id:"scoped-control".into(), name:"computer_use".into(),
+            arguments:serde_json::json!({"action":"click","target":{"kind":"window","window_id":42},"observation_id":"fresh","x":1,"y":2}).to_string(),
+            thought_signature:None,
+        };
+        for attempted in [call.clone(), ToolCallRequest {
+            name:"computer_control".into(),
+            arguments:serde_json::json!({"action":"click","window_id":42,"observation_id":"fresh","x":1,"y":2}).to_string(),
+            ..call.clone()
+        }] {
+            let blocked = policy.decision_for(&tools, &attempted);
+            assert_eq!(blocked.invocation.tool_name, "computer_control");
+            assert_eq!(blocked.timeout,Some(Duration::from_secs(120)),"timeouts follow the admitted backend operation");
+            assert_eq!(blocked.policy_label, "blockedByToolScope");
+            let error = blocked.synthetic_result.unwrap();
+            assert!(error.content.contains("No operation was performed"));
+            assert_eq!(error.artifacts.as_ref().unwrap()["sideEffect"],"not_started");
+            assert_eq!(error.artifacts.as_ref().unwrap()["observationConsumed"],false);
+        }
+        let observe = ToolCallRequest { arguments:serde_json::json!({"action":"observe","target":{"kind":"window","window_id":42},"observation_id":"fresh"}).to_string(),..call.clone() };
+        let allowed = policy.decision_for(&tools, &observe);
+        assert!(allowed.synthetic_result.is_none());
+        assert_eq!(allowed.invocation.tool_name, "computer_observe");
+        assert_eq!(allowed.invocation.arguments["action"], "capture_window");
+        let legacy = ToolCallRequest {
+            name: "computer_observe".into(),
+            arguments: r#"{"action":"list_windows"}"#.into(),
+            ..call
+        };
+        assert!(policy
+            .decision_for(&tools, &legacy)
+            .synthetic_result
+            .is_none());
+    }
+
+    #[cfg(feature = "headless-browser")]
+    #[test]
+    fn unified_browser_wait_retains_backend_condition_and_capture_budget() {
+        let tools = crate::tools::default_tool_registry();
+        let policy = ToolSchedulerPolicy::new(
+            Some(1),
+            false,
+            HashSet::from(["computer_use".into()]),
+            HashSet::from(["computer_use".into(), "browser_session".into()]),
+        );
+        let decision = policy.decision_for(&tools,&ToolCallRequest {
+            id:"wait-page".into(),name:"computer_use".into(),
+            arguments:serde_json::json!({"action":"wait_for","target":{"kind":"browser","session_id":"session","tab_id":"tab"},"timeout_ms":"60000","condition":{"type":"page_loaded"}}).to_string(),
+            thought_signature:None,
+        });
+        assert!(
+            decision.synthetic_result.is_none(),
+            "{:?}",
+            decision.synthetic_result
+        );
+        assert_eq!(decision.invocation.tool_name, "browser_session");
+        assert_eq!(decision.invocation.arguments["timeoutMs"], 60_000);
+        assert_eq!(decision.timeout, Some(Duration::from_secs(85)));
+    }
 
     #[test]
     fn exact_history_pages_do_not_lose_unicode_to_a_second_compaction() {

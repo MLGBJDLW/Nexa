@@ -71,6 +71,15 @@ test.beforeEach(async ({ page }) => {
           return null;
         case "plugin:updater|check":
           return null;
+        case 'plugin:updater|download_and_install': {
+          const channel = _args.onEvent as { onmessage: (event: unknown) => void };
+          const control = window as unknown as {
+            __updateDownloadEvent: (event: unknown) => void;
+            __finishUpdateDownload: () => void;
+          };
+          control.__updateDownloadEvent = event => channel.onmessage(event);
+          return new Promise<void>(resolve => { control.__finishUpdateDownload = resolve; });
+        }
         case "plugin:event|listen": {
           const listenerId = listenerSeq++;
           listeners.set(listenerId, {
@@ -87,6 +96,7 @@ test.beforeEach(async ({ page }) => {
         case "list_agent_configs_cmd":
         case "list_conversations_cmd":
         case "list_sources":
+        case "list_projects_cmd":
         case "get_conversation_sources_cmd":
         case "list_checkpoints_cmd":
         case "list_user_memories_cmd":
@@ -189,6 +199,44 @@ test("sidebar owns version and update controls without navigating away", async (
   await expect(page.getByTestId("sidebar-update-panel").getByText("v0.2.9")).toBeVisible();
   await expect(page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" })).toBeVisible();
 });
+
+for (const knownLength of [true, false]) {
+  test(`update motion follows ${knownLength ? 'known' : 'unknown'} download length and installation`, async ({ page }, testInfo) => {
+    await page.addInitScript(() => localStorage.setItem('e2e-update-available', '1'));
+    await page.goto('/settings');
+    await page.getByTestId('sidebar-update-toggle').click();
+    const panel = page.getByTestId('sidebar-update-panel');
+    await panel.getByRole('button', { name: 'Check for Updates' }).click();
+    await panel.getByRole('button', { name: 'Download & Install' }).click();
+    const indicator = page.getByTestId('sidebar-update-toggle').getByTestId('update-activity');
+    await expect(indicator).toHaveAttribute('data-phase', 'downloading');
+    await page.evaluate(length => {
+      const control = window as unknown as { __updateDownloadEvent: (event: unknown) => void };
+      control.__updateDownloadEvent({ event: 'Started', data: { contentLength: length } });
+      control.__updateDownloadEvent({ event: 'Progress', data: { chunkLength: 400 } });
+    }, knownLength ? 1000 : undefined);
+    await expect(indicator).toHaveAttribute('data-determinate', String(knownLength));
+    const progress = panel.getByRole('progressbar');
+    if (knownLength) await expect(progress).toHaveAttribute('aria-valuenow', '40');
+    else await expect(progress).not.toHaveAttribute('aria-valuenow');
+    // Keep CSS ownership intact: disabling screenshots cancels then replays
+    // infinite animations, which can outlive their CSS rule in Chromium.
+    await page.screenshot({ path: testInfo.outputPath('download-motion.png'), animations: 'allow' });
+    await page.evaluate(() => (window as unknown as { __updateDownloadEvent: (event: unknown) => void })
+      .__updateDownloadEvent({ event: 'Progress', data: { chunkLength: 600 } }));
+    if (knownLength) await expect(progress).toHaveAttribute('aria-valuenow', '99');
+    await expect(indicator).toHaveAttribute('data-phase', 'downloading');
+    await page.evaluate(() => (window as unknown as { __updateDownloadEvent: (event: unknown) => void })
+      .__updateDownloadEvent({ event: 'Finished' }));
+    await expect(indicator).toHaveAttribute('data-phase', 'installing');
+    await expect(panel.getByText('Verifying and installing…')).toBeVisible();
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect.poll(() => indicator.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0);
+    await page.evaluate(() => (window as unknown as { __finishUpdateDownload: () => void }).__finishUpdateDownload());
+    await expect(indicator).toHaveAttribute('data-phase', 'ready');
+    await expect(panel.getByRole('button', { name: 'Restart Now' })).toBeVisible();
+  });
+}
 
 test('update panel stays compact and fits both wide and narrow windows', async ({ page }, testInfo) => {
   await page.goto('/settings');

@@ -4,6 +4,22 @@ use super::ToolResult;
 
 pub(super) const MAX_WAIT_MS: u64 = 120_000;
 
+/// A host must perform an exact, conversation-scoped lookup before issuing
+/// this receipt. A filtered inventory or a transport error cannot prove absence.
+pub fn browser_target_absence_result(
+    call_id: &str,
+    session_id: &str,
+    tab_id: &str,
+    checked_at_ms: i64,
+) -> ToolResult {
+    ToolResult {
+        call_id: call_id.into(),
+        content: "The host confirmed this exact browser target no longer exists. No action was replayed. The earlier action outcome and requested goal remain unverified; re-plan from current state and obtain new evidence.".into(),
+        is_error: false,
+        artifacts: Some(serde_json::json!({"kind":"browserTargetPresence","sessionId":session_id,"tabId":tab_id,"present":false,"checkedAtMs":checked_at_ms,"goalVerified":false})),
+    }
+}
+
 /// Opening has already succeeded. A failed capture must not invite the model to
 /// create a duplicate tab/session or replay navigation to a page with side effects.
 pub fn browser_open_observation_failure(
@@ -27,7 +43,7 @@ pub fn browser_open_observation_failure(
     ToolResult {
         call_id: call_id.into(),
         content: format!(
-            "Browser tab was opened, but its initial observation failed: {error}. Do not repeat {action}; use browser_session observe with sessionId={session_id} and tabId={tab_id} to inspect the existing page.\n{artifacts}"
+            "Browser tab was opened, but its initial observation failed: {error}. Do not repeat {action}; use computer_use action=observe with target.kind=browser, target.session_id={session_id} and target.tab_id={tab_id} to inspect the existing page.\n{artifacts}"
         ),
         is_error: true,
         artifacts: Some(artifacts),

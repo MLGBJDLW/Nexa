@@ -623,8 +623,11 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                     if params["turnId"].as_str().is_some_and(|id| id != turn_id) { continue; }
                     if project_event(&mut projection,&turn,&mut async_items,method,params).await? {
                         if !pending.is_empty() || !replies.is_empty() || !steering_queue.is_empty() { return Err(protocol_error("Codex completed with unacknowledged work")); }
-                        if let Some((guidance, milestones)) = turn.transcript.completion_repair_status().await {
-                            let guidance = completion_repairs.next(guidance, milestones)?;
+                        if let Some((guidance, milestones)) = turn.transcript.completion_repair_status().await? {
+                            let guidance = match completion_repairs.next(guidance, milestones) {
+                                Ok(guidance) => guidance,
+                                Err(error) => return Err(turn.transcript.completion_recovery_error().await.unwrap_or(error)),
+                            };
                             projection.defer_answer_for_verification(&turn).await?;
                             let response = wire.request("turn/start", json!({"threadId":thread_id,"input":user_input(&format!("Nexa host verification remains pending. {guidance}"),&[]),"effort":effort,"environments":[],"approvalPolicy":"never","sandboxPolicy":{"type":"readOnly","networkAccess":false}})).await?;
                             turn_id = response.pointer("/turn/id").and_then(Value::as_str).ok_or_else(|| protocol_error("Codex created no verification turn"))?.to_string();

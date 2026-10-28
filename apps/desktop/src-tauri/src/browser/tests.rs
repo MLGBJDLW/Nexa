@@ -26,10 +26,40 @@ use nexa_core::browser_runtime::{
 use nexa_core::tools::run_shell_tool::ManagedLoopbackPermitIssuer;
 
 #[tokio::test(start_paused = true)]
+async fn a_new_observation_call_can_acquire_the_existing_agent_lease() {
+    let lease = std::cell::RefCell::new(ControlLease::default());
+    lease.borrow_mut().try_acquire_agent("previous-call".into());
+    let result = super::state::observe_across_navigation(
+        async {
+            assert!(lease.borrow_mut().try_acquire_agent("observe-call".into()));
+            Ok(())
+        },
+        || std::future::ready(Ok("fresh document")),
+        || {
+            let lease = lease.borrow();
+            match lease.owner() {
+                BrowserControlOwner::Agent { call_id } if call_id == "observe-call" => {
+                    Ok(lease.generation())
+                }
+                _ => Err("Browser control changed before the Agent operation began".into()),
+            }
+        },
+        std::time::Duration::from_secs(20),
+    )
+    .await;
+    assert_eq!(result.unwrap(), "fresh document");
+}
+
+#[tokio::test(start_paused = true)]
 async fn navigation_during_observation_retries_only_the_read() {
     let generation = std::cell::Cell::new(1);
     let attempts = std::cell::Cell::new(0);
+    let acquisitions = std::cell::Cell::new(0);
     let result = super::state::observe_across_navigation(
+        async {
+            acquisitions.set(acquisitions.get() + 1);
+            Ok(())
+        },
         || {
             let attempt = attempts.get() + 1;
             attempts.set(attempt);
@@ -49,12 +79,18 @@ async fn navigation_during_observation_retries_only_the_read() {
     .unwrap();
     assert_eq!(result, "fresh document");
     assert_eq!(attempts.get(), 2);
+    assert_eq!(
+        acquisitions.get(),
+        1,
+        "navigation retry must not reclaim control"
+    );
 }
 
 #[tokio::test(start_paused = true)]
 async fn observation_never_reclaims_user_control_and_hung_reads_have_a_deadline() {
     let user_took_over = std::cell::Cell::new(false);
     let result = super::state::observe_across_navigation(
+        std::future::ready(Ok(())),
         || {
             user_took_over.set(true);
             std::future::ready(Ok("stale document"))
@@ -71,6 +107,7 @@ async fn observation_never_reclaims_user_control_and_hung_reads_have_a_deadline(
     .await;
     assert_eq!(result.unwrap_err(), "Control belongs to user");
     let result = super::state::observe_across_navigation(
+        std::future::ready(Ok(())),
         || std::future::pending::<Result<(), String>>(),
         || Ok(1),
         std::time::Duration::from_secs(20),

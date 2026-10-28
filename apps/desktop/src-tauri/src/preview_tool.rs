@@ -28,7 +28,7 @@ struct Pending {
 fn preview_failure(error: &str, target: Option<&PreviewBrowserTarget>) -> String {
     let error = error.chars().take(1000).collect::<String>();
     match target {
-        Some(target) => format!("{error} The HTML tab is preserved: sessionId={}, tabId={}. Use browser_session show_workspace and observe to continue with this target.", target.session_id, target.tab_id),
+        Some(target) => format!("{error} The HTML tab is preserved: sessionId={}, tabId={}. Use computer_use with target.kind=browser and these target.session_id/target.tab_id values; show_workspace and observe continue with the existing page.", target.session_id, target.tab_id),
         None => error,
     }
 }

@@ -143,6 +143,8 @@ fn push_or_merge_content(
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiRequestV2 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    store: Option<bool>,
     contents: Vec<GeminiContentV2>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system_instruction: Option<GeminiSystemInstructionV2>,
@@ -966,6 +968,7 @@ fn answer_budget_basis(request: &CompletionRequest) -> Option<u32> {
 }
 
 fn build_request_body(
+    config: &ProviderConfig,
     request: &CompletionRequest,
     system_instruction: Option<GeminiSystemInstructionV2>,
     contents: Vec<GeminiContentV2>,
@@ -1036,6 +1039,14 @@ fn build_request_body(
                 .any(|tool| tool.get("functionDeclarations").is_some())
     });
     GeminiRequestV2 {
+        // New Gemini Developer API projects store prompts and outputs by default.
+        // Keep Nexa requests stateless, without sending this Developer API field
+        // to Vertex or third-party GenerateContent-compatible endpoints.
+        store: super::provider_boundary::is_google_public_endpoint(
+            config.provider_type,
+            config.base_url.as_deref(),
+        )
+        .then_some(false),
         contents,
         system_instruction,
         tools,
@@ -2123,8 +2134,12 @@ impl LlmProvider for GeminiProvider {
         );
         let request = projected.as_ref();
         let (system_instruction, contents) = convert_messages(&request.messages);
-        let mut body =
-            serde_json::to_value(build_request_body(request, system_instruction, contents))?;
+        let mut body = serde_json::to_value(build_request_body(
+            &self.config,
+            request,
+            system_instruction,
+            contents,
+        ))?;
         if normalized_model_name(&request.model) == "gemini-4-argon" {
             if let Some(limit) = body["generationConfig"]["maxOutputTokens"].as_u64() {
                 body["generationConfig"]["maxOutputTokens"] = serde_json::json!(limit.min(32_768));
@@ -2261,7 +2276,7 @@ impl LlmProvider for GeminiProvider {
         );
         let request = projected.as_ref();
         let (system_instruction, contents) = convert_messages(&request.messages);
-        let body = build_request_body(request, system_instruction, contents);
+        let body = build_request_body(&self.config, request, system_instruction, contents);
         let body_bytes = serialized_json_body(&body, "Gemini stream request")?;
 
         info!("Gemini stream request to {}, model={}", url, request.model);
@@ -2406,6 +2421,65 @@ impl LlmProvider for GeminiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn google_config() -> ProviderConfig {
+        ProviderConfig {
+            provider_type: ProviderType::Google,
+            base_url: None,
+            api_key: None,
+            org_id: None,
+            timeout_secs: None,
+            streaming: Default::default(),
+        }
+    }
+
+    #[test]
+    fn request_logging_is_disabled_only_for_the_gemini_developer_api() {
+        let request = CompletionRequest {
+            model: "gemini-4-argon".into(),
+            ..Default::default()
+        };
+        for (provider_type, endpoint, expected) in [
+            (ProviderType::Google, None, Some(false)),
+            (ProviderType::Google, Some(DEFAULT_BASE_URL), Some(false)),
+            (
+                ProviderType::Google,
+                Some("https://generativelanguage.googleapis.com/v1beta/"),
+                Some(false),
+            ),
+            (
+                ProviderType::Google,
+                Some("https://generativelanguage.googleapis.com/proxy"),
+                None,
+            ),
+            (
+                ProviderType::Google,
+                Some("https://generativelanguage.googleapis.com:8443/v1beta"),
+                None,
+            ),
+            (
+                ProviderType::Google,
+                Some("https://example.com/v1beta"),
+                None,
+            ),
+            (
+                ProviderType::Vertex,
+                Some(super::super::vertex::DEFAULT_BASE_URL),
+                None,
+            ),
+        ] {
+            let mut config = google_config();
+            config.provider_type = provider_type;
+            config.base_url = endpoint.map(str::to_owned);
+            let body =
+                serde_json::to_value(build_request_body(&config, &request, None, vec![])).unwrap();
+            assert_eq!(
+                body.get("store").and_then(serde_json::Value::as_bool),
+                expected,
+                "{provider_type:?}/{endpoint:?}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn argon_http_startup_uses_model_default_and_preserves_explicit_timeouts() {
@@ -2817,7 +2891,13 @@ mod tests {
             tools: Some(definitions),
             ..Default::default()
         };
-        let body = serde_json::to_value(build_request_body(&request, None, Vec::new())).unwrap();
+        let body = serde_json::to_value(build_request_body(
+            &google_config(),
+            &request,
+            None,
+            Vec::new(),
+        ))
+        .unwrap();
         assert_eq!(body["toolConfig"]["includeServerSideToolInvocations"], true);
         assert_eq!(
             body["toolConfig"]["functionCallingConfig"]["mode"],
@@ -2858,7 +2938,7 @@ mod tests {
                     assert!(result.is_err());
                     request.tools.as_mut().unwrap().retain(|tool| tool.name != "read_file");
                     let search_only = prepare_search_request(&request, &config).unwrap();
-                    let body = serde_json::to_value(build_request_body(&search_only, None, Vec::new())).unwrap();
+                    let body = serde_json::to_value(build_request_body(&config, &search_only, None, Vec::new())).unwrap();
                     assert_eq!(body["tools"], serde_json::json!([{"googleSearch":{}}]));
                     assert!(body.get("toolConfig").is_none());
                 } else {
@@ -3229,7 +3309,7 @@ mod tests {
             parallel_tool_calls: true,
         };
 
-        let body = build_request_body(&request, None, vec![]);
+        let body = build_request_body(&google_config(), &request, None, vec![]);
         let gc = body.generation_config.expect("generation config");
         let tc = gc.thinking_config.expect("thinking config");
         assert_eq!(tc.include_thoughts, Some(true));
@@ -3254,7 +3334,7 @@ mod tests {
             parallel_tool_calls: true,
         };
 
-        let body = build_request_body(&request, None, vec![]);
+        let body = build_request_body(&google_config(), &request, None, vec![]);
         let thinking = body
             .generation_config
             .and_then(|config| config.thinking_config)
@@ -3280,7 +3360,7 @@ mod tests {
             parallel_tool_calls: true,
         };
 
-        let body = build_request_body(&request, None, vec![]);
+        let body = build_request_body(&google_config(), &request, None, vec![]);
         let generation = body.generation_config.expect("generation config");
         assert_eq!(generation.max_output_tokens, None);
         assert_eq!(
@@ -3379,7 +3459,7 @@ mod tests {
             parallel_tool_calls: true,
         };
 
-        let body = build_request_body(&request, None, vec![]);
+        let body = build_request_body(&google_config(), &request, None, vec![]);
         let config = body.generation_config.expect("generation config");
         let thinking = config.thinking_config.expect("thinking config");
 
@@ -3410,7 +3490,7 @@ mod tests {
                     parallel_tool_calls: true,
                 };
 
-                let body = build_request_body(&request, None, vec![]);
+                let body = build_request_body(&google_config(), &request, None, vec![]);
                 let thinking = body
                     .generation_config
                     .expect("generation config")
@@ -3440,7 +3520,7 @@ mod tests {
             parallel_tool_calls: true,
         };
 
-        let body = build_request_body(&request, None, vec![]);
+        let body = build_request_body(&google_config(), &request, None, vec![]);
         let config = body.generation_config.expect("generation config");
 
         assert_eq!(config.temperature, None);

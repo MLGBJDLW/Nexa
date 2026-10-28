@@ -27,5 +27,6 @@
   "details": "Details",
   "sourceCustom": "Custom mirror",
   "mirrorAddress": "Mirror base URL",
-  "mirrorHint": "Prefix proxy: the original GitHub URL is appended to this HTTPS address. Update signatures are still verified."
+  "mirrorHint": "Prefix proxy: the original GitHub URL is appended to this HTTPS address. Update signatures are still verified.",
+  "installing": "Verifying and installing…"
 }

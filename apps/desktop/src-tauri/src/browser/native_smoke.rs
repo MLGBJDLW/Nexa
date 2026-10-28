@@ -2,6 +2,65 @@
 //! profile, never the user's active browser or installed Nexa database.
 use super::*;
 
+async fn public_browser_fixture_call(
+    registry: &nexa_core::tools::ToolRegistry,
+    db: &nexa_core::db::Database,
+    activity: &nexa_core::activity::ActivityRuntime,
+    conversation: &str,
+    call_id: &str,
+    arguments: serde_json::Value,
+) -> Result<
+    (
+        super::super::state::BrowserObservationPayload,
+        Option<serde_json::Value>,
+    ),
+    String,
+> {
+    use base64::Engine as _;
+    let arguments = arguments.to_string();
+    let result = registry
+        .execute(
+            "computer_use",
+            nexa_core::tools::ToolExecutionContext::new(call_id, &arguments, db, &[])
+                .with_conversation_id(Some(conversation))
+                .with_activity_runtime(activity),
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    if result.is_error {
+        return Err(result.content);
+    }
+    let output = result.output_channels();
+    let data = output
+        .data
+        .ok_or("Public control returned no observation data")?;
+    let interaction = data.get("interaction").cloned();
+    let mut observation: super::super::state::BrowserObservationPayload =
+        serde_json::from_value(data).map_err(|error| error.to_string())?;
+    let encoded = output
+        .attachments
+        .iter()
+        .find_map(|attachment| {
+            attachment
+                .data
+                .get("base64")
+                .and_then(serde_json::Value::as_str)
+        })
+        .ok_or("Public observation returned no image attachment")?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| error.to_string())?;
+    if bytes.is_empty() {
+        return Err("Public observation image attachment was empty".into());
+    }
+    observation
+        .screenshot
+        .as_mut()
+        .ok_or("Public observation returned no screenshot metadata")?
+        .image_bytes = bytes;
+    Ok((observation, interaction))
+}
+
 #[test]
 #[ignore = "requires an interactive Windows desktop and installed WebView2"]
 fn native_html_preview_keeps_agent_observation_and_input_continuous() {
@@ -15,6 +74,19 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
       <div id=scrollbox style="position:absolute;left:350px;top:150px;width:200px;height:140px;overflow:auto"><div style="height:1500px">Nested content</div></div>
       <script>window.dragMoves=0;document.querySelector('canvas').onpointermove=e=>{if(e.isTrusted&&e.buttons===1)window.dragMoves++};</script>"#).unwrap();
     let profile = root.path().join("profiles");
+    let db = nexa_core::db::Database::new(root.path().join("fixture.sqlite")).unwrap();
+    let conversation = db
+        .create_conversation(&nexa_core::conversation::CreateConversationInput {
+            provider: "fixture".into(),
+            model: "fixture".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap()
+        .id;
+    let activity = nexa_core::activity::ActivityRuntime::with_database(db.clone()).unwrap();
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut context = tauri::generate_context!();
     context.config_mut().app.windows.clear();
@@ -28,34 +100,49 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
         tauri::async_runtime::spawn(async move {
             use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker, BrowserViewportPoint}};
             use nexa_core::browser_runtime::{BrowserBounds, BrowserControlOwner};
+            let mut registry = nexa_core::tools::ToolRegistry::new();
+            registry.register(Box::new(super::super::agent_tool::NativeBrowserSessionTool::new(state.clone())));
             let result = tokio::time::timeout(std::time::Duration::from_secs(90), async {
-                let prepared = state.prepare_html_preview(path.to_string_lossy().into(), "fixture".into(), vec![]).await?;
-                let session = state.create_session(Some("fixture".into()), None, Some(&prepared.url), true, NavigationActor::Agent,
+                let prepared = state.prepare_html_preview(path.to_string_lossy().into(), conversation.clone(), vec![]).await?;
+                let session = state.create_session(Some(conversation.clone()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
                 let tab_id = session.active_tab_id.as_deref().ok_or("Missing preview tab")?;
+                if state.target_is_absent(&session.id, tab_id, Some("other-conversation")).is_ok() {
+                    return Err("A foreign conversation could inspect target presence".into());
+                }
                 state.acquire_agent_control(&session.id, "preview-observe")?;
                 let first = state.observe(&session.id, tab_id, "preview-observe").await.map_err(|error| format!("First observation: {error}"))?;
                 if first.url == "about:blank" || first.screenshot.as_ref().is_none_or(|shot| shot.image_bytes.is_empty()) {
                     return Err("HTML preview did not return current native pixels".into());
                 }
+                // A new observation call owns acquisition. Manually acquiring
+                // here would conceal the successive-call lease regression.
+                let (second, _) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-observe-next",
+                    serde_json::json!({"action":"observe","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id}})).await
+                    .map_err(|error| format!("Successive call observation: {error}"))?;
+                if second.observation_id == first.observation_id || second.tab_id != first.tab_id {
+                    return Err("Successive observation lost fresh token or exact tab identity".into());
+                }
+                if let Ok(directory) = std::env::var("NEXA_NATIVE_EVIDENCE_DIR") {
+                    let directory = std::path::PathBuf::from(directory);
+                    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+                    std::fs::write(directory.join("browser-successive-observe.png"), &second.screenshot.as_ref().ok_or("Missing successive screenshot")?.image_bytes).map_err(|error| error.to_string())?;
+                }
                 // Fault injection: keep the page-load flag set after a real DOM
                 // is ready, matching an unfinished background-resource request.
                 state.update_page_load(&session.id, tab_id, &Url::parse(&first.url).map_err(|error| error.to_string())?, true);
-                state.acquire_agent_control(&session.id, "preview-click")?;
-                let before = tokio::time::timeout(std::time::Duration::from_secs(5), state.observe(&session.id, tab_id, "preview-click")).await
+                let (before, _) = tokio::time::timeout(std::time::Duration::from_secs(5), public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-click-observe",
+                    serde_json::json!({"action":"observe","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id}}))).await
                     .map_err(|_| "An interactive document waited for the load-finished event")??;
                 let target = before.elements.iter().find(|element| element.name == "Continue").ok_or("Missing button in native observation")?;
-                let after = state.act(BrowserActRequest {
-                    call_id: "preview-click", session_id: &session.id, tab_id, observation_id: &before.observation_id,
-                    action: "click", target_ref: Some(&target.element_ref), end_ref: None, point: None, end_point: None, text: None,
-                    value: None, values: None, checked: None, upload: None, key: None, button: None,
-                    modifiers: &[], scroll_x: 0, scroll_y: 0, commit_tracker: BrowserActCommitTracker::default(),
-                }).await.map_err(|error| format!("Native click: {error}"))?;
-                if !after.observation.text.contains("clicked once") || after.observation.screenshot.is_none() {
+                let (after, interaction) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-click",
+                    serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id,"target_ref":target.element_ref})).await
+                    .map_err(|error| format!("Public native click: {error}"))?;
+                if !after.text.contains("clicked once") || after.screenshot.is_none() {
                     return Err("The original HTML tab did not retain observable native input".into());
                 }
                 use nexa_core::observed_interaction::{InputDelivery, RequestedCondition};
-                if after.interaction.delivery != InputDelivery::InputSent { return Err("A real trusted click lost its dispatch receipt".into()); }
+                if interaction.is_none_or(|receipt| receipt["delivery"] != "inputSent") { return Err("A real trusted click lost its public dispatch receipt".into()); }
                 for (action, name, value, checked) in [("set_checked", "Ready", None, Some(true)), ("select", "Choice", Some("a"), None)] {
                     let call_id = format!("noop-{action}");
                     state.acquire_agent_control(&session.id, &call_id)?;
@@ -150,7 +237,9 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     return Err("Conflicting ordinary profile did not fail explicitly".into());
                 }
                 state.acquire_control(&session.id, BrowserControlOwner::User)?;
-                if state.observe(&session.id, &next.id, "after-takeover").await.is_ok() { return Err("Agent bypassed actual user takeover".into()); }
+                let takeover = public_browser_fixture_call(&registry, &db, &activity, &conversation, "after-takeover",
+                    serde_json::json!({"action":"observe","target":{"kind":"browser","session_id":session.id,"tab_id":next.id}})).await.err().ok_or("Public control bypassed actual user takeover")?;
+                if !takeover.contains("browser_user_control") { return Err(format!("Public observation failed for a different reason than user takeover: {takeover}")); }
                 eprintln!("Native HTML continuity: exact second tab observed; real user takeover remains authoritative.");
                 let cleanup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
                 loop {
@@ -160,6 +249,20 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                             && std::time::Instant::now() < cleanup_deadline => { let _ = error; tokio::time::sleep(std::time::Duration::from_millis(100)).await; }
                         Err(error) => return Err(error),
                     }
+                }
+                if !state.target_is_absent(&session.id, tab_id, Some(&conversation))? {
+                    return Err("Closed fixture session was not host-confirmed absent".into());
+                }
+                let presence_arguments = serde_json::json!({"action":"list_tabs","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id}}).to_string();
+                let presence = registry.execute("computer_use", nexa_core::tools::ToolExecutionContext::new("closed-target-presence", &presence_arguments, &db, &[])
+                    .with_conversation_id(Some(&conversation)).with_activity_runtime(&activity)).await.map_err(|error| error.to_string())?;
+                let presence_output = presence.output_channels();
+                let presence_data = presence_output.data.or(presence_output.artifacts).ok_or("Public presence receipt had no typed data")?;
+                if presence.is_error || presence_data["kind"] != "browserTargetPresence" || presence_data["present"] != false || presence_data["goalVerified"] != false {
+                    return Err("Public exact absence failed or incorrectly claimed the goal was verified".into());
+                }
+                if let Ok(directory) = std::env::var("NEXA_NATIVE_EVIDENCE_DIR") {
+                    std::fs::write(std::path::PathBuf::from(directory).join("browser-continuity-result.json"), serde_json::to_vec_pretty(&serde_json::json!({"modelEntryPoint":"computer_use","successiveCallObservation":true,"exactSecondTab":true,"userTakeoverBlockedAgent":true,"nativeTrustedClickEffect":true,"exactAbsentTargetReceipt":true,"businessGoalVerified":false})).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
                 }
                 Ok::<_, String>(())
             }).await.unwrap_or_else(|_| Err("Native preview continuity fixture exceeded 90 seconds".into()));
@@ -443,6 +546,7 @@ async fn fixture_observe(
         serde_json::from_value(confirmed["elements"].clone()).map_err(|error| error.to_string())?;
     let observation = BrowserObservation {
         observation_id: "fixture-observation".into(),
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
         session_id: "fixture-session".into(),
         tab_id: "fixture-tab".into(),
         url: confirmed["url"]

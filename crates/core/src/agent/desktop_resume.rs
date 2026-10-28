@@ -17,6 +17,53 @@ pub(super) struct ExecutionResumeState {
     pub(super) completed_tool_rounds: u32,
     pub(super) max_iterations: Option<u32>,
     pub(super) checkpointed_subtask_recoveries: std::collections::HashSet<String>,
+    pub(super) has_opaque_subtask_recoveries: bool,
+    pub(super) reconciled_legacy_host_scope: bool,
+    checkpointed_desktop_recoveries: std::collections::BTreeMap<
+        String,
+        (
+            Vec<crate::workflow_ir::DesktopObservationTarget>,
+            Vec<crate::workflow_ir::BrowserObservationTarget>,
+        ),
+    >,
+}
+
+impl ExecutionResumeState {
+    pub(super) fn restore_delegated_desktop_targets(
+        &self,
+        current: &mut Option<WorkflowIr>,
+        plan: &crate::intelligence::AgentTaskPlan,
+        profile: &crate::quality_profile::ResolvedOrchestrationProfile,
+        nexus_enabled: bool,
+    ) -> Result<(), CoreError> {
+        for (id, (targets, browser_targets)) in &self.checkpointed_desktop_recoveries {
+            if current.as_ref().is_some_and(|workflow| {
+                workflow
+                    .checkpoint
+                    .imported_desktop_recovery_ids
+                    .contains(id)
+            }) || self.workflow.as_ref().is_some_and(|workflow| {
+                workflow
+                    .checkpoint
+                    .imported_desktop_recovery_ids
+                    .contains(id)
+            }) {
+                continue;
+            }
+            crate::workflow_ir::ensure_runtime_local_recovery_workflow(
+                current,
+                plan,
+                profile,
+                nexus_enabled,
+            )
+            .map_err(CoreError::InvalidInput)?;
+            current
+                .as_mut()
+                .expect("desktop workflow initialized")
+                .import_desktop_recovery(id, targets, browser_targets);
+        }
+        Ok(())
+    }
 }
 
 fn saved_plan(value: Option<&Value>) -> Option<crate::intelligence::AgentTaskPlan> {
@@ -36,21 +83,24 @@ pub fn restore_pending_desktop_evidence(
     profile: &crate::quality_profile::ResolvedOrchestrationProfile,
     nexus_enabled: bool,
 ) -> Result<(), CoreError> {
-    if let Some(saved) = load_desktop_resume_workflow(db, conversation_id, turn_id)? {
-        if saved.desktop_evidence_pending()
-            || saved.completion_contract.desktop_terminal_closure_evidence
-        {
-            crate::workflow_ir::ensure_runtime_desktop_observation_gate(
-                current,
-                plan,
-                profile,
-                nexus_enabled,
-            )
-            .map_err(CoreError::InvalidInput)?;
+    if let Some(saved_state) = load_execution_resume_state(db, conversation_id, turn_id)? {
+        if let Some(saved) = saved_state.workflow.as_ref() {
+            if saved.local_evidence_pending()
+                || saved.completion_contract.desktop_terminal_closure_evidence
+            {
+                crate::workflow_ir::ensure_runtime_local_recovery_workflow(
+                    current,
+                    plan,
+                    profile,
+                    nexus_enabled,
+                )
+                .map_err(CoreError::InvalidInput)?;
+            }
+            if let Some(current) = current.as_mut() {
+                current.restore_desktop_checkpoint(saved);
+            }
         }
-        if let Some(current) = current.as_mut() {
-            current.restore_desktop_checkpoint(&saved);
-        }
+        saved_state.restore_delegated_desktop_targets(current, plan, profile, nexus_enabled)?;
     }
     Ok(())
 }
@@ -109,6 +159,9 @@ pub(super) fn load_execution_resume_state(
     let mut selected = workflow(run.plan.as_ref().and_then(|plan| plan.get("workflowIr")))?;
     let mut selected_plan = saved_plan(run.plan.as_ref());
     let mut checkpointed_subtask_recoveries = std::collections::HashSet::new();
+    let mut checkpointed_desktop_recoveries = std::collections::BTreeMap::new();
+    let mut has_opaque_subtask_recoveries = false;
+    let mut reconciled_legacy_host_scope = false;
     let mut completed_tool_rounds = run
         .plan
         .as_ref()
@@ -181,6 +234,44 @@ pub(super) fn load_execution_resume_state(
             .and_then(Value::as_object)
         {
             checkpointed_subtask_recoveries.extend(requirements.keys().cloned());
+            let current_requirements = db.agent_subtask_action_reconciliations(&run.id)?;
+            let mut normalized_legacy = false;
+            for (id, requirement) in requirements {
+                let mut requirement = serde_json::from_value::<
+                    crate::error::AgentRecoveryRequirement,
+                >(requirement.clone())
+                .map_err(|_| invalid("delegated recovery receipt is malformed"))?;
+                if requirement.action_reconciliation && !requirement.has_bound_local_targets() {
+                    if let Some(current) = current_requirements.get(id).filter(|current| {
+                        !current.action_reconciliation || current.has_bound_local_targets()
+                    }) {
+                        requirement = current.clone();
+                        normalized_legacy = true;
+                    }
+                }
+                if requirement.has_bound_local_targets() {
+                    checkpointed_desktop_recoveries.insert(
+                        id.clone(),
+                        (
+                            requirement.desktop_observation_targets,
+                            requirement.browser_observation_targets,
+                        ),
+                    );
+                } else {
+                    has_opaque_subtask_recoveries |= requirement.action_reconciliation;
+                }
+            }
+            if normalized_legacy && !has_opaque_subtask_recoveries {
+                if let Some(targets) = db.native_run_recovery_targets(&run.id)? {
+                    reconciled_legacy_host_scope = true;
+                    if !targets.is_empty() {
+                        checkpointed_desktop_recoveries.insert(
+                            format!("native-parent:{}", run.id),
+                            (targets.desktop, targets.browser),
+                        );
+                    }
+                }
+            }
         }
         if let Some(count) = state
             .pointer("/liveTurnState/completedToolRounds")
@@ -235,9 +326,13 @@ pub(super) fn load_execution_resume_state(
         completed_tool_rounds,
         max_iterations,
         checkpointed_subtask_recoveries,
+        has_opaque_subtask_recoveries,
+        reconciled_legacy_host_scope,
+        checkpointed_desktop_recoveries,
     }))
 }
 
+#[cfg(test)]
 pub(super) fn load_desktop_resume_workflow(
     db: &Database,
     conversation: Option<&str>,

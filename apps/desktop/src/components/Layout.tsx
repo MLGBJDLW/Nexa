@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, CalendarClock, Download, Loader2, CheckCircle2, AlertCircle, RefreshCw, Radio, Command } from 'lucide-react';
+import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, CalendarClock, Download, AlertCircle, RefreshCw, Radio, Command } from 'lucide-react';
 import {
   DndContext,
   PointerSensor,
@@ -29,6 +29,7 @@ import { useUpdater } from '../lib/useUpdater';
 import { RemoteSidebarLink } from '../features/remote/RemoteSidebarLink';
 import type { TranslationKey } from '../i18n';
 import { UpdateSettingsPanel } from './settings/UpdateSettingsPanel';
+import { UpdateActivity } from './ui/UpdateActivity';
 import { openCommandPalette } from '../lib/appCommands';
 import { NexaPopover, NexaPopoverTrigger, NexaPopoverContent } from './ui/overlay/Popover';
 import { AttentionInboxButton } from './chat/AttentionInboxButton';
@@ -211,7 +212,8 @@ export function Layout() {
   const updateLabel = updater.status === 'available'
     ? t('update.version', { version: updater.version ?? '' })
     : updater.status === 'downloading'
-      ? t('update.downloading')
+      ? updater.progress === 100 ? t('update.installing')
+        : `${t('update.downloading')}${updater.progress === undefined ? '' : ` ${updater.progress}%`}`
       : updater.status === 'ready'
         ? t('update.ready')
         : updater.status === 'error'
@@ -221,13 +223,7 @@ export function Layout() {
             : t('update.checkNow');
   const UpdateIcon = updater.status === 'available'
     ? Download
-    : updater.status === 'downloading' || updater.status === 'checking'
-      ? Loader2
-      : updater.status === 'ready' || updater.status === 'up-to-date'
-        ? CheckCircle2
-        : updater.status === 'error'
-          ? AlertCircle
-          : RefreshCw;
+    : updater.status === 'error' ? AlertCircle : RefreshCw;
   const mainThemeSurface = location.pathname.startsWith('/chat')
     ? 'transparent'
     : isWallpaperAdaptedPageRoute(location.pathname)
@@ -319,7 +315,9 @@ export function Layout() {
                 <span data-testid="app-version" className="select-none font-serif text-[10px] font-semibold italic tracking-tight text-text-secondary" style={{ fontFamily: 'Literata, Georgia, serif' }}>
                   {appVersion ? `v${appVersion}` : 'v—'}
                 </span>
-              ) : <UpdateIcon className={`h-4.5 w-4.5 ${updater.status === 'checking' || updater.status === 'downloading' ? 'animate-spin motion-reduce:animate-none' : ''}`} />}
+              ) : updater.status === 'checking' || updater.status === 'downloading' || updater.status === 'ready'
+                ? <UpdateActivity status={updater.status} progress={updater.progress} />
+                : <UpdateIcon className="h-4.5 w-4.5" />}
               {(updater.status === 'available' || updater.status === 'ready') && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_7px_currentColor]" />
               )}
