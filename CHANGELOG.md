@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.17.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.10...nexa-monorepo-v0.17.11) (2026-10-28)
+
+本次更新聚焦长任务连续性、桌面操作可靠性与更新体验。
+
+- **上下文与委派**：Fork 后清理过期控制信息和工具产生的临时内容，保留真实任务、用户修正与可追溯历史。子代理继承当前有效上下文，避免旧历史被重复装回；模型输入预算与任务执行预算分别处理。
+- **子代理交接**：显式工具预算耗尽时保留阶段成果、供应商和模型身份，清楚标明未完成工作，便于继续处理。自动执行设置与显式预算保持各自语义，异常循环保护继续生效。
+- **统一控制入口**：Agent 通过 `computer_use` 观察和操作浏览器或原生窗口，内部保留 DOM、UI Automation 和坐标操作的专业适配器，复用原有权限、资源锁和控制状态。旧名称保留兼容，观察权限不会因入口合并而变成输入权限。
+- **浏览器与桌面恢复**：修复连续观察时误报控制权变化，以及悬停反馈导致鼠标移动后未送出点击的问题。恢复时保留具体窗口和标签页，区分新观察、目标已消失和仍未知的操作效果；真实人工接管和不确定操作继续受保护。
+- **更新体验**：侧栏和更新设置增加检查、下载、安装及待重启状态动效，显示真实进度；未知下载总量不虚构百分比，并支持系统减少动态效果设置。
+- **模型与接口**：新增 GPT‑6.1 Terra 及相关 OpenRouter 路由、Ternary Bonsai 2、GLM 新路由、Titan Text Embeddings V1/V2、Liquid d1.1 和 Runway Kling 4.0；同步已确认下线的模型记录，按具体端点保留推理与能力限制。
+- **Gemini 请求日志**：官方 Developer API 的文本、流式及图片请求显式发送 `store:false`，避免依赖新项目的默认日志设置；该字段不发送给 Vertex 或自定义接口。
+- **依赖维护**：更新 HTTP 压缩解码链中的 zstd 依赖，保留压缩支持并覆盖本次审计报告的修复版本。
+
+验证范围：更新动效已做真实页面渲染检查，下载传输采用模拟；Windows 原生点击已通过独立窗口的悬停反馈回归。模型目录完成 88 个端点、1,153 个模型投影的静态检查，并探测 4 个公开目录；这不代表所有账户权限或付费推理均已验证。
+
+当前未开放 Titan 多模态嵌入的通用文档索引、Qwen 双向实时音频转写，以及 Kling 4.0 中间帧和参考视频输入。原生点击回归也不代表所有业务软件、麦克风或自启动场景均已验收。
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 191e6f17583b5751a64bf2c7087ead73f65b803b -->
+
+### What's Changed
+* feat(agent): unify computer control and preserve long-task continuity by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/510
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.10...nexa-monorepo-v0.17.11
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.9...nexa-monorepo-v0.17.10) (2026-10-26)
 
 
