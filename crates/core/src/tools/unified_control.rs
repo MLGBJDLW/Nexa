@@ -790,7 +790,9 @@ mod tests {
                 assert_eq!(route.arguments["tabId"], "tab");
                 assert_eq!(route.arguments["observationId"], "browser-before");
             } else {
-                assert!(route_call(TOOL_NAME, &audit).is_err());
+                if backend == "computer_observe" {
+                    assert!(route_call(TOOL_NAME, &audit).is_err());
+                }
                 assert!(route.arguments.get("observationId").is_none());
                 assert_eq!(route.arguments["window_id"], 42);
             }

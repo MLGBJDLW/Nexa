@@ -126,9 +126,7 @@ impl Projection {
         let Some(tool_name) = run.get("toolName").and_then(serde_json::Value::as_str) else {
             return false;
         };
-        let arguments = run
-            .get("arguments")
-            .and_then(serde_json::Value::as_str);
+        let arguments = run.get("arguments").and_then(serde_json::Value::as_str);
         // Committed events contain audit-safe arguments. Classifying the
         // visible native Stop surface needs only the public target and action,
         // never the redacted token or typed input, and grants no input rights.
@@ -156,10 +154,15 @@ impl Projection {
         if self.active.len() >= 64 && !self.active.contains_key(&event.run_id) {
             return false;
         }
+        let legacy_arguments = if route.is_none() {
+            arguments.and_then(|args| serde_json::from_str::<serde_json::Value>(args).ok())
+        } else {
+            None
+        };
         let arguments = route
             .as_ref()
             .map(|route| &route.arguments)
-            .or(arguments.as_ref());
+            .or(legacy_arguments.as_ref());
         let activity = DesktopControlActivity {
             conversation_id: conversation_id.into(),
             run_id: event.run_id.clone(),
