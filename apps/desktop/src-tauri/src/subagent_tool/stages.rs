@@ -339,7 +339,12 @@ pub(super) async fn prepare_subagent_worker(
             .min(model_context_limit.saturating_mul(3) / 5)
             .max(1.min(model_context_limit));
     } else {
-        handoff_token_budget = handoff_token_budget.max(1);
+        // Cumulative execution spending can be unlimited while the request
+        // input must stay finite. Reuse the external runtime history envelope
+        // (four bytes per estimated token), without inventing model capacity.
+        handoff_token_budget = handoff_token_budget
+            .min((crate::agent_runtime::EXTERNAL_HISTORY_MAX_BYTES / 4) as u32)
+            .max(1);
     }
     let context_snapshot = runtime.context_snapshot(
         db,

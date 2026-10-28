@@ -16,7 +16,7 @@ pub use model::{
     ContextCompactionResult, ContextProjection, StartContextCompactionRequest,
 };
 pub use service::ContextCompactionService;
-pub use store::load_context_projection;
+pub use store::{load_context_handoff_projection, load_context_projection};
 
 /// Automatic handoffs and manual maintenance publish the same durable context
 /// projection. Archiving alone would reintroduce the old trajectory next turn.

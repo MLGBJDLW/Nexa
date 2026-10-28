@@ -3263,6 +3263,141 @@ fn test_context_snapshot_reuses_authorized_parent_history() {
     assert_eq!(first.handoff_token_budget, 64_000);
 }
 
+#[tokio::test]
+async fn provider_managed_handoff_does_not_inherit_an_unlimited_execution_budget() {
+    let db = Database::open_memory().unwrap();
+    let mut runtime = test_runtime();
+    runtime.parent_runtime = Some(crate::agent_runtime::AgentRuntimeKind::Codex);
+    runtime.base_config.model = Some("gpt-6.1-sol".into());
+    runtime.set_tool_registry(ToolRegistry::new());
+    let args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+        "task":"Inspect current artifacts", "allowed_tools": [],
+    }))
+    .unwrap();
+    let worker = prepare_subagent_worker(&runtime, &db, vec![], &args, "unknown-context", None)
+        .await
+        .unwrap();
+    assert!(
+        worker.context_snapshot.handoff_token_budget <= 65_536,
+        "unlimited cumulative spending is not an input window: {}",
+        worker.context_snapshot.handoff_token_budget
+    );
+    assert!(
+        worker.config.context_window.is_none(),
+        "do not misreport the handoff allocation as model capacity"
+    );
+    assert_eq!(worker.config.max_iterations, u32::MAX);
+    assert!(worker.run_deadline_ms.is_none());
+}
+
+#[tokio::test]
+async fn worker_context_follows_a_parent_fork_instead_of_reloading_archived_history() {
+    use nexa_core::context_maintenance::{
+        ContextCompactionJob, ContextCompactionService, StartContextCompactionRequest,
+    };
+    let db = Database::open_memory().unwrap();
+    let conversation = db
+        .create_conversation(&CreateConversationInput {
+            provider: "custom".into(),
+            model: "fixture".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap();
+    for (index, role, content) in [
+        (0, Role::User, "Archived parent request"),
+        (
+            1,
+            Role::Assistant,
+            "OLD_PARENT_TRAJECTORY must not return after fork",
+        ),
+        (
+            2,
+            Role::User,
+            "Continue the current task using existing artifacts",
+        ),
+    ] {
+        db.add_message(&ConversationMessage {
+            id: format!("fork-parent-{index}"),
+            conversation_id: conversation.id.clone(),
+            role,
+            content: content.into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 10,
+            created_at: String::new(),
+            sort_order: index,
+            thinking: None,
+            image_attachments: None,
+        })
+        .unwrap();
+    }
+    let mut runtime = test_runtime();
+    runtime.parent_conversation_id = Some(conversation.id.clone());
+    let before = runtime.context_snapshot(&db, "fixture", None, 65_536);
+    assert!(before
+        .messages
+        .iter()
+        .any(|message| message.text_content().contains("OLD_PARENT_TRAJECTORY")));
+    let service = ContextCompactionService::new(
+        nexa_core::db_executor::DatabaseExecutor::new(db.clone(), 4).unwrap(),
+        nexa_core::activity::ActivityRuntime::new(),
+    );
+    let handle = service
+        .start(ContextCompactionJob {
+            mode: nexa_core::context_history::ContextManagementMode::History,
+            request: StartContextCompactionRequest {
+                conversation_id: conversation.id.clone(),
+                idempotency_key: "fork-worker".into(),
+                policy: Default::default(),
+            },
+            snapshot_version: "fixture".into(),
+            model: "fixture".into(),
+            context_window: None,
+            max_response_tokens: 512,
+            provider_type: None,
+            provider_label: "local-history".into(),
+            summarizer: None,
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut cursor = 0;
+        loop {
+            let observation = service
+                .observe(&handle.operation_id, cursor, Duration::from_millis(100))
+                .await
+                .unwrap();
+            if observation.record.state.is_terminal() {
+                assert_eq!(
+                    observation.record.state,
+                    nexa_core::activity::ActivityState::Completed
+                );
+                break;
+            }
+            cursor = observation.cursor;
+        }
+    })
+    .await
+    .unwrap();
+    let after = runtime.context_snapshot(&db, "fixture", None, 65_536);
+    assert!(
+        !after
+            .messages
+            .iter()
+            .any(|message| message.text_content().contains("OLD_PARENT_TRAJECTORY")),
+        "fork must invalidate the parent handoff snapshot and use the active projection"
+    );
+    assert!(after
+        .messages
+        .iter()
+        .any(|message| message.text_content().contains("fresh history handoff")));
+    assert_ne!(before.id, after.id);
+}
+
 #[test]
 fn oversized_parent_message_cannot_overrun_worker_handoff_budget() {
     let db = Database::open_memory().unwrap();
@@ -3301,7 +3436,10 @@ fn oversized_parent_message_cannot_overrun_worker_handoff_budget() {
     );
     assert!(snapshot.token_estimate <= 10_000);
     assert!(snapshot.messages.is_empty());
-    assert_eq!(snapshot.dropped_invalid_messages, 1);
+    assert_eq!(
+        snapshot.dropped_invalid_messages, 0,
+        "oversized database rows are excluded before message materialization"
+    );
     assert_eq!(snapshot.context_limit, Some(1_000_000));
 }
 

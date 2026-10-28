@@ -52,14 +52,14 @@ impl AgentExecutor {
         let before_tokens = metrics
             .messages
             .iter()
-            .map(|message| message.base_tokens)
-            .sum::<u32>();
+            .map(|message| message.cache_tokens)
+            .fold(0, u32::saturating_add);
         let after_tokens = self
             .context_metrics_snapshot(model, &next, &[])
             .messages
             .iter()
-            .map(|message| message.base_tokens)
-            .sum::<u32>();
+            .map(|message| message.cache_tokens)
+            .fold(0, u32::saturating_add);
         if !manual && after_tokens >= before_tokens {
             return Ok(false);
         }
@@ -286,6 +286,64 @@ mod tests {
         // No boundary after the incomplete call is safe, even though later
         // unrelated tool pairs are complete.
         assert!(HistoryHandoffPlan::prepare(&history, None).is_none());
+    }
+
+    #[test]
+    fn fork_does_not_retain_expired_step_controllers_as_stable_policy() {
+        let mut messages = history();
+        let request = messages[1].clone();
+        for _ in 0..20 {
+            messages.push(
+                prompt_ir::controller_state_message(
+                    "Previous step evidence and recovery guidance.\n".repeat(100),
+                )
+                .unwrap(),
+            );
+        }
+        let plan = HistoryHandoffPlan::prepare(&messages, Some(&request)).unwrap();
+        let next = plan.replacement(&messages, Message::text(Role::System, "archive locator"));
+        assert_eq!(
+            next.len(),
+            3,
+            "a fresh window must not inherit obsolete step controllers"
+        );
+        assert_eq!(next[0].text_content(), "Stable policy");
+        assert_eq!(next[2].text_content(), request.text_content());
+    }
+
+    #[test]
+    fn automatic_handoff_counts_reasoning_that_will_be_removed() {
+        let (executor, db, id) = setup();
+        let request = Message::text(Role::User, "Continue verifying the artifact");
+        let mut assistant = Message::text(Role::Assistant, "Checking");
+        assistant.reasoning_content = Some("Old reasoning to flush.\n".repeat(2000));
+        let mut messages = vec![
+            Message::text(Role::System, "Stable policy"),
+            request.clone(),
+            assistant,
+        ];
+        let changed = executor
+            .handoff_context(
+                &mut messages,
+                "gpt-4o",
+                context_compaction::CompactionRunContext {
+                    db: &db,
+                    conversation_id: Some(&id),
+                    turn_id: None,
+                    active_request: Some(&request),
+                },
+            )
+            .unwrap();
+        assert!(
+            changed,
+            "reasoning-dominated context must not be judged non-reducible from text-only costs"
+        );
+        assert!(messages
+            .iter()
+            .all(|message| message.reasoning_content.is_none()));
+        assert!(messages
+            .iter()
+            .any(|message| message.parts == request.parts));
     }
 
     #[test]
