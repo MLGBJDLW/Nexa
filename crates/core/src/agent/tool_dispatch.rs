@@ -229,6 +229,13 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
                 "targetIdentity": receipt.pointer("/owner/targetIdentity").and_then(serde_json::Value::as_str),
             },
         }));
+    let interaction = source.get("interaction").or_else(|| {
+        root.get("expectedFormat")
+            .and_then(|value| value.get("interaction"))
+    });
+    let delivery = interaction
+        .and_then(|value| value.get("delivery"))
+        .and_then(serde_json::Value::as_str);
     let audit = serde_json::json!({
         "schemaVersion": source.get("schemaVersion").and_then(serde_json::Value::as_u64).unwrap_or(2),
         "kind": if tool_name == "computer_control" { "computerControlReceipt" } else { "computerObservationReceipt" },
@@ -243,9 +250,20 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
         "consumedObservationId": source.get("consumedObservationId"),
         "observationCapturedAtMs": source.get("observationCapturedAtMs")
             .or_else(|| source.pointer("/observation/observationCapturedAtMs")),
-        "inputDelivered": source.get("inputDelivered"),
+        "inputDelivered": source.get("inputDelivered").cloned().unwrap_or_else(|| match delivery {
+            Some("inputSent") => serde_json::json!(true),
+            Some("notCommitted") => serde_json::json!(false),
+            _ => serde_json::Value::Null,
+        }),
         "targetVerified": source.get("targetVerified"),
-        "deliveryStatus": source.get("deliveryStatus"),
+        "deliveryStatus": source.get("deliveryStatus").cloned().unwrap_or_else(|| match delivery {
+            Some("inputSent") => serde_json::json!("delivered"),
+            Some("notCommitted") => serde_json::json!("not_committed"),
+            Some("mayHaveOccurred") => serde_json::json!("uncertain"),
+            _ => serde_json::Value::Null,
+        }),
+        "interaction": interaction,
+        "causeCode": source.get("causeCode").or_else(|| root.get("expectedFormat").and_then(|value| value.get("causeCode"))),
         "actionReceiptId": source.get("actionReceiptId"),
         "postActionObservationVerified": post_action_observation_verified,
         "terminalWindowReceipt": terminal_window_receipt,
@@ -2659,6 +2677,24 @@ mod visual_attachment_tests {
         assert!(
             !crate::workflow_ir::verified_post_action_desktop_observation(None, Some(&artifacts))
         );
+    }
+
+    #[test]
+    fn failed_desktop_delivery_keeps_its_typed_cause_in_the_durable_receipt() {
+        let mut artifacts = Some(serde_json::json!({
+            "code":"computer_action_uncertain", "sideEffect":"may_have_occurred", "windowId":42,
+            "targetIdentity":"exact-process", "expectedFormat":{
+                "causeCode":"computer_observation_stale",
+                "interaction":{"delivery":"inputSent","evidence":"unavailable","condition":"notRequested","observationConsumed":true}
+            }
+        }));
+        strip_ephemeral_computer_artifacts("computer_control", &mut artifacts);
+        let data = &artifacts.as_ref().unwrap()["data"];
+        assert_eq!(data["inputDelivered"], true);
+        assert_eq!(data["deliveryStatus"], "delivered");
+        assert_eq!(data["causeCode"], "computer_observation_stale");
+        assert_eq!(data["interaction"]["evidence"], "unavailable");
+        assert_eq!(data["windowId"], 42);
     }
 
     #[test]

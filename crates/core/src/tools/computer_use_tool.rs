@@ -1708,6 +1708,13 @@ fn control_failure_result(
         "computer_coordinate_transform_invalid" => "The screenshot and physical screen geometry do not agree. Capture the target again or use an observation-scoped element_id; do not guess a DPI multiplier.",
         _ => "Computer action arguments or pre-commit conditions were invalid. Review the schema and fresh observation without reusing sensitive values.",
     };
+    let message = if failure.phase.effect_may_have_occurred() {
+        format!("{message} Last failed check: {}. Input delivery: {:?}; post-action evidence: unavailable. Delivery includes focus or pointer preparation and does not prove the requested action completed.",
+            failure.pre_commit_kind.map(|kind| precondition_contract(kind).0).unwrap_or("unknown"),
+            failure.interaction(commit).delivery)
+    } else {
+        message.to_string()
+    };
     crate::tools::structured_tool_error_result_with_side_effect(
         call_id,
         code,

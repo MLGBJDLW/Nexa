@@ -2006,11 +2006,7 @@ fn send_input_tracked(inputs: &[INPUT], tracker: &ControlCommitTracker) -> u32 {
     })
 }
 
-fn move_cursor_frame(
-    point: (i32, i32),
-    context: &str,
-    tracker: &ControlCommitTracker,
-) -> Result<(), CoreError> {
+fn absolute_pointer_input(point: (i32, i32)) -> INPUT {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
     };
@@ -2026,7 +2022,7 @@ fn move_cursor_frame(
         (((i64::from(position) - i64::from(origin)) * 65536 + 32768) / i64::from(size))
             .clamp(0, 65535) as i32
     };
-    let input = INPUT {
+    INPUT {
         r#type: INPUT_MOUSE,
         Anonymous: INPUT_0 {
             mi: MOUSEINPUT {
@@ -2036,7 +2032,15 @@ fn move_cursor_frame(
                 ..Default::default()
             },
         },
-    };
+    }
+}
+
+fn move_cursor_frame(
+    point: (i32, i32),
+    context: &str,
+    tracker: &ControlCommitTracker,
+) -> Result<(), CoreError> {
+    let input = absolute_pointer_input(point);
     if send_input_tracked(&[input], tracker) != 1 {
         return Err(invalid(format!(
             "Windows refused pointer motion during {context}"
@@ -2319,9 +2323,20 @@ fn ensure_mouse_button_not_physically_pressed(button: MouseButton) -> Result<(),
     Ok(())
 }
 
-fn send_mouse_click(button: MouseButton, tracker: &ControlCommitTracker) -> Result<(), CoreError> {
+fn send_mouse_click(
+    button: MouseButton,
+    point: Option<(i32, i32)>,
+    tracker: &ControlCommitTracker,
+) -> Result<(), CoreError> {
     let (down, up) = mouse_button_flags(button);
-    let inputs = [mouse_input(down, 0), mouse_input(up, 0)];
+    // Coordinates have no semantic identity to re-resolve after hovering. Keep
+    // pointer placement and the click in one ordered Windows input batch so
+    // our own hover styling cannot invalidate the observation between them.
+    let mut inputs = Vec::with_capacity(3);
+    if let Some(point) = point {
+        inputs.push(absolute_pointer_input(point));
+    }
+    inputs.extend([mouse_input(down, 0), mouse_input(up, 0)]);
     let sent = send_input_tracked(&inputs, tracker) as usize;
     if sent != inputs.len() {
         let emergency = [mouse_input(up, 0)];
@@ -3077,30 +3092,28 @@ pub(super) fn control_window(
                 PreCommitFailureKind::UserTakeover,
                 ensure_mouse_button_not_physically_pressed(button),
             )?;
-            commit_tracker.result(commit_tracker.mark())?;
-            commit_tracker.result(approach_pointer(
-                target.point,
-                &current,
-                commit_tracker,
-                "move mouse before click",
-                PointerApproach::Foreground,
-            ))?;
-            thread::sleep(INPUT_SETTLE);
-            if target.live.is_none() {
-                commit_tracker.result_as(
-                    PreCommitFailureKind::ObservationStale,
-                    ensure_target_patch_fresh(observed, &current, target.point),
-                )?;
+            if target.live.is_some() {
+                commit_tracker.result(commit_tracker.mark())?;
+                commit_tracker.result(approach_pointer(
+                    target.point,
+                    &current,
+                    commit_tracker,
+                    "move mouse before click",
+                    PointerApproach::Foreground,
+                ))?;
+                thread::sleep(INPUT_SETTLE);
             }
             commit_tracker.result(commit_tracker.ensure_running())?;
             commit_tracker.result_as(
                 PreCommitFailureKind::UserTakeover,
                 ensure_target_foreground(&current),
             )?;
-            commit_tracker.result_as(
-                PreCommitFailureKind::UserTakeover,
-                ensure_cursor_at(target.point, "click preparation"),
-            )?;
+            if target.live.is_some() {
+                commit_tracker.result_as(
+                    PreCommitFailureKind::UserTakeover,
+                    ensure_cursor_at(target.point, "click preparation"),
+                )?;
+            }
             commit_tracker.result_as(
                 PreCommitFailureKind::TargetOccluded,
                 ensure_point_targets_window(target.point, &current),
@@ -3129,7 +3142,11 @@ pub(super) fn control_window(
                     return Err(ControlFailure::effect_may_have_occurred(error));
                 }
                 commit_tracker.result(commit_tracker.mark())?;
-                commit_tracker.result(send_mouse_click(button, commit_tracker))?;
+                commit_tracker.result(send_mouse_click(
+                    button,
+                    (target.live.is_none() && index == 0).then_some(target.point),
+                    commit_tracker,
+                ))?;
                 if index + 1 < count {
                     thread::sleep(Duration::from_millis(75));
                     commit_tracker.result_as(PreCommitFailureKind::UserTakeover, ensure_target_foreground(&current).map_err(|error| {
@@ -3528,6 +3545,137 @@ pub(super) fn control_window(
 #[cfg(test)]
 mod native_input_tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires an interactive Windows desktop; launches a disposable hover target and clicks it"]
+    fn windows_coordinate_click_survives_its_own_hover_feedback() {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        struct Fixture(std::process::Child);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let script = r#"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type 'using System.Runtime.InteropServices; public static class NativeDpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }'
+[NativeDpi]::SetProcessDPIAware() | Out-Null
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$form = [System.Windows.Forms.Form]::new()
+$form.Text = 'Nexa hover-click fixture'
+$form.ClientSize = [System.Drawing.Size]::new(420,240)
+$form.StartPosition = 'CenterScreen'
+$panel = [System.Windows.Forms.Panel]::new()
+$panel.AccessibleName = 'Hover target'
+$panel.Location = [System.Drawing.Point]::new(50,50)
+$panel.Size = [System.Drawing.Size]::new(220,80)
+$panel.BackColor = [System.Drawing.Color]::RoyalBlue
+$panel.Add_MouseEnter({ $panel.BackColor = [System.Drawing.Color]::Gold })
+$panel.Add_MouseLeave({ $panel.BackColor = [System.Drawing.Color]::RoyalBlue })
+$panel.Add_Click({ $form.Text = 'Nexa hover-click fixture CLICKED'; $panel.BackColor = [System.Drawing.Color]::LimeGreen })
+$form.Controls.Add($panel)
+[System.Windows.Forms.Application]::Run($form)
+"#;
+        let fixture = Fixture(
+            Command::new("powershell.exe")
+                // CREATE_NO_WINDOW hides the shell; the disposable test form must
+                // remain visible for real Windows capture/input acceptance.
+                .args(["-NoProfile", "-STA", "-Command", script])
+                .creation_flags(0x08000000)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("launch disposable native target"),
+        );
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let target = loop {
+            if let Some(target) = list_windows().unwrap().into_iter().find(|window| {
+                window.pid == fixture.0.id() && window.title == "Nexa hover-click fixture"
+            }) {
+                break target;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "native hover fixture did not become visible"
+            );
+            thread::sleep(Duration::from_millis(50));
+        };
+        let setup = ControlCommitTracker::default();
+        focus_window(&target, &setup).unwrap();
+        let (_, target) = current_window(&target).unwrap();
+        let _pixels = PhysicalPixels::enter().unwrap();
+        let mut point = windows::Win32::Foundation::POINT { x: 160, y: 90 };
+        assert!(unsafe {
+            windows::Win32::Graphics::Gdi::ClientToScreen(hwnd(target.id), &mut point)
+        }
+        .as_bool());
+        move_cursor_frame(
+            (target.x + 20, target.y + target.height as i32 - 20),
+            "fixture setup",
+            &setup,
+        )
+        .unwrap();
+        thread::sleep(Duration::from_millis(100));
+        let capture = capture_window(&target, CaptureOptions::pixels_only()).unwrap();
+        let observed = ObservedWindow {
+            snapshot: capture.snapshot.clone(),
+            image_width: Some(capture.image_width),
+            image_height: Some(capture.image_height),
+            native_image_width: Some(capture.native_image_width),
+            native_image_height: Some(capture.native_image_height),
+            screenshot_signature: screenshot_signature(&capture.png),
+            screenshot_guard: screenshot_guard(&capture.png),
+            elements: vec![],
+        };
+        let args: ControlArgs = serde_json::from_value(serde_json::json!({
+            "action":"click", "delivery":"foreground", "observation_id":"native-fixture", "window_id":target.id,
+            "x": f64::from(point.x-target.x) * f64::from(capture.image_width-1) / f64::from(target.width-1),
+            "y": f64::from(point.y-target.y) * f64::from(capture.image_height-1) / f64::from(target.height-1),
+        })).unwrap();
+        let tracker = ControlCommitTracker::default();
+        let outcome = control_window(
+            ControlAction::Click,
+            &args,
+            &observed,
+            CaptureOptions::pixels_only(),
+            &tracker,
+        );
+        let (_, after) = current_window(&target).unwrap();
+        if let Ok(directory) = std::env::var("NEXA_NATIVE_EVIDENCE_DIR") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(directory.join("hover-click-before.png"), &capture.png).unwrap();
+            let after_capture = capture_window(&after, CaptureOptions::pixels_only()).unwrap();
+            std::fs::write(directory.join("hover-click-after.png"), &after_capture.png).unwrap();
+            std::fs::write(
+                directory.join("hover-click-result.json"),
+                serde_json::to_vec_pretty(&serde_json::json!({
+                    "clicked": after.title.ends_with("CLICKED"), "outcomeOk":outcome.is_ok(),
+                    "failure": outcome.as_ref().err().map(|failure| format!("{failure:?}")),
+                    "rawDispatchTracker":tracker.interaction.failure(), "windowId":target.id,
+                    "observedEffect":outcome.as_ref().ok().map(|outcome| outcome.effect),
+                    "postActionCapturePresent":outcome.as_ref().ok().is_some_and(|outcome| outcome.capture.is_some()),
+                    "targetVerified":outcome.as_ref().ok().is_some_and(|outcome| outcome.target_verified),
+                    "scope":"Native control_window fixture; raw dispatch tracker is not the finalized public Tool API receipt. Click handler title/color provides independent effect evidence; no business-goal acceptance is claimed.",
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        assert!(
+            outcome.is_ok(),
+            "native coordinate click failed: {:?}",
+            outcome.err()
+        );
+        assert!(
+            after.title.ends_with("CLICKED"),
+            "the real window did not receive its click"
+        );
+    }
 
     /// A real host-process window with its own message pump, matching the
     /// separation between Nexa's UI thread and the blocking observation worker.
