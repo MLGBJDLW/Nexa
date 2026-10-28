@@ -81,6 +81,14 @@ missing, reordered, provider-owned or explicitly uncertain effects remain opaque
 A worker without the required observation tool returns an unfinished handoff
 rather than retrying an impossible verification loop.
 
+The shared `computer_use` interface resolves an explicit `target.kind` to the
+existing browser or window adapter. It preserves DOM references, UI Automation
+elements, coordinate systems, fresh observation tokens and specialized actions.
+Routing does not change the public callback identity, create a second ToolRun or
+replay an uncertain action through another adapter. Scoped adapter availability,
+approval and source ownership remain authoritative after routing; audit output
+redacts input using the resolved operation while keeping the public target shape.
+
 MoA and Nexus are independent axes. MoA changes how an acting model receives
 advice. Nexus changes how the client plans, delegates, checkpoints, and verifies
 work. Either may be enabled alone or both may be composed.

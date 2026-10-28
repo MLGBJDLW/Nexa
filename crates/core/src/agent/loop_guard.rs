@@ -281,8 +281,9 @@ impl AgentLoopGuard {
         }
         // Only a read-only observation with a changed content receipt proves
         // progress here. New IDs/timestamps and action successes do not.
-        if !is_error && call.name == "browser_session" {
-            let action = serde_json::from_str::<Value>(&call.arguments).ok();
+        let interaction = crate::tools::unified_control::effective_request(call);
+        if !is_error && interaction.name == "browser_session" {
+            let action = serde_json::from_str::<Value>(&interaction.arguments).ok();
             if action
                 .as_ref()
                 .and_then(|args| args.get("action"))

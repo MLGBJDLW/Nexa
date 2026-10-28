@@ -64,21 +64,42 @@ pub(super) fn activate_tool_search_matches_with_targets(
     let requested: HashSet<&str> = matches
         .iter()
         .filter_map(|item| item.get("name").and_then(|name| name.as_str()))
+        .map(crate::tools::unified_control::model_name)
         .collect();
 
     for item in matches {
-        let Some(name) = item.get("name").and_then(|value| value.as_str()) else {
+        let Some(requested_name) = item.get("name").and_then(|value| value.as_str()) else {
             continue;
         };
+        let name = crate::tools::unified_control::model_name(requested_name);
         if !seen.insert(name.to_string()) {
             continue;
         }
+        let definition = registry.definition(requested_name);
         if available.contains(name) {
-            activation.already_available.push(name.to_string());
-            continue;
+            let changed_control = name == crate::tools::unified_control::TOOL_NAME
+                && definition.as_ref().is_some_and(|current| {
+                    tool_defs
+                        .iter()
+                        .any(|prior| prior.name == name && prior.parameters != current.parameters)
+                });
+            if !changed_control {
+                activation.already_available.push(name.to_string());
+                continue;
+            }
+            // A category-limited facade can later discover another authorized
+            // target kind. Replace its schema through the same budget path,
+            // accounting only for the difference rather than adding a twin.
+            if let Some(index) = tool_defs.iter().position(|prior| prior.name == name) {
+                let prior = tool_defs.remove(index);
+                selected_count = selected_count.saturating_sub(1);
+                selected_tokens = selected_tokens.saturating_sub(
+                    context::estimate_tool_tokens_for_model(model, std::slice::from_ref(&prior)),
+                );
+                available.remove(name);
+            }
         }
-        if let Some(tool) = registry.get(name) {
-            let definition = tool.definition();
+        if let Some(definition) = definition {
             let definition_tokens =
                 context::estimate_tool_tokens_for_model(model, std::slice::from_ref(&definition));
             if selected_count >= max_definitions
@@ -157,6 +178,55 @@ mod tests {
     use crate::tools::{Tool, ToolCategory, ToolResult};
 
     use super::*;
+
+    #[cfg(feature = "headless-browser")]
+    #[test]
+    fn unified_discovery_refreshes_one_scoped_definition_in_both_directions() {
+        let registry = crate::tools::default_tool_registry().filtered(&[
+            "browser_session".into(),
+            "computer_observe".into(),
+            "computer_control".into(),
+        ]);
+        let artifacts =
+            serde_json::json!({"kind":"toolSearchResults","matches":[{"name":"computer_use"}]});
+        for initial in [
+            vec!["browser_session".into()],
+            vec!["computer_observe".into(), "computer_control".into()],
+        ] {
+            let mut definitions = registry.filtered(&initial).definitions();
+            let before = definitions[0].parameters.clone();
+            let activated = activate_tool_search_matches_with_targets(
+                &registry,
+                &mut definitions,
+                Some(&artifacts),
+                "gpt-4o",
+                1,
+                1,
+            );
+            assert_eq!(activated.activated, ["computer_use"]);
+            assert_eq!(definitions.len(), 1);
+            assert_ne!(definitions[0].parameters, before);
+            assert_eq!(
+                definitions[0].parameters["properties"]["target"]["properties"]["kind"]["enum"],
+                serde_json::json!(["browser", "window"])
+            );
+        }
+        let scoped = registry.filtered(&["computer_observe".into()]);
+        let mut definitions = registry.definitions();
+        activate_tool_search_matches(&scoped, &mut definitions, Some(&artifacts));
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(
+            definitions[0].parameters,
+            scoped.definition("computer_use").unwrap().parameters
+        );
+        assert!(
+            !definitions[0].parameters["properties"]["action"]["enum"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("click")),
+            "refresh must not retain a revoked route from the old schema"
+        );
+    }
 
     struct DeferredFakeTool;
 

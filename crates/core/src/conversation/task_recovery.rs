@@ -188,6 +188,12 @@ fn pending_targets_with_batches(
         }
         let tool = run.get("toolName")?.as_str()?;
         let args = run.get("arguments").and_then(Value::as_str);
+        // Match the public callback ledger before resolving its backend facts.
+        // Routing changes neither the original protocol identity nor authority.
+        let route = crate::tools::unified_control::route_call_str(tool, args);
+        let routed_arguments = route.as_ref().map(|route| route.arguments.to_string());
+        let tool = route.as_ref().map_or(tool, |route| route.tool_name);
+        let args = routed_arguments.as_deref().or(args);
         let artifacts = run.get("artifacts");
         let is_error = run
             .get("isError")

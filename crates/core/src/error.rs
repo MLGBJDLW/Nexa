@@ -34,9 +34,11 @@ impl AgentRecoveryRequirement {
                         .target_identity
                         .as_deref()
                         .is_some_and(|id| !id.trim().is_empty())
-                    && target.consumed_observation_id.as_deref().is_some_and(|id| {
+                    && (target.consumed_observation_id.as_deref().is_some_and(|id| {
                         !id.trim().is_empty() && id != "<observation-token-redacted>"
-                    })
+                    }) || target
+                        .observation_not_before_ms
+                        .is_some_and(|time| time > 0))
                     && target.observation_not_before_ms.is_none_or(|time| time > 0)
             })
     }

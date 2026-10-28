@@ -141,12 +141,21 @@ impl ActionReconciliationFence {
         self.computer || self.browser || self.unknown
     }
 
+    pub(super) fn has_unbound_actions(self, desktop_targets: bool, browser_targets: bool) -> bool {
+        self.unknown || (self.computer && !desktop_targets) || (self.browser && !browser_targets)
+    }
+
+    pub(super) fn reconcile_bound_browser_targets(&mut self) {
+        self.browser = false;
+    }
+
     pub(super) fn observe_tool_results(
         &mut self,
         calls: &[ToolCallRequest],
         summaries: &[tool_dispatch::ToolDispatchSummary],
     ) {
         for call in calls {
+            let call = crate::tools::unified_control::effective_request(call);
             let Some(summary) = summaries.iter().find(|summary| summary.call_id == call.id) else {
                 continue;
             };
@@ -189,6 +198,14 @@ impl ActionReconciliationFence {
                 )
             {
                 self.browser = true;
+                if crate::workflow_ir::browser_control_target(
+                    Some(&call.arguments),
+                    summary.artifacts.as_ref(),
+                )
+                .is_none()
+                {
+                    self.unknown = true;
+                }
             }
             if !summary.is_error
                 && call.name == "computer_observe"
@@ -1107,7 +1124,7 @@ impl AgentExecutor {
                 "judge_subagent_results",
             ]
             .iter()
-            .filter_map(|name| self.tools.get(name).map(|tool| tool.definition()))
+            .filter_map(|name| self.tools.definition(name))
             .collect();
             tool_defs = merge_tool_definitions(tool_defs, delegation_tools);
         }
@@ -3379,6 +3396,7 @@ impl AgentExecutor {
                 }
             }
             for call in &tool_calls {
+                let call = crate::tools::unified_control::effective_request(call);
                 let Some(summary) = dispatch_summaries
                     .iter()
                     .find(|summary| summary.call_id == call.id)
@@ -3415,6 +3433,8 @@ impl AgentExecutor {
                 }
             }
             if let Some(workflow) = workflow_ir.as_mut() {
+                let had_browser_targets =
+                    !workflow.checkpoint.browser_observation_targets.is_empty();
                 let source = match verification_capture
                     .capture(
                         db,
@@ -3458,6 +3478,10 @@ impl AgentExecutor {
                             verification_stable,
                         );
                     }
+                }
+                if had_browser_targets && workflow.checkpoint.browser_observation_targets.is_empty()
+                {
+                    action_reconciliation.reconcile_bound_browser_targets();
                 }
                 workflow.sync_from_task_plan(&task_plan);
                 if let Some(ref mut agent_trace) = trace {

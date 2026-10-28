@@ -1,7 +1,7 @@
 import { extractToolVisualEvidence, mergeCurrentTurnVisualEvidence, mergeToolArtifacts, retainMessageVisualEvidence } from '../src/lib/toolVisualEvidence';
 import { createDefaultState } from '../src/lib/streaming/state';
 import { applyToolRunEvent, resolveToolCallResult } from '../src/lib/streaming/toolProjection';
-import { interactionPresentation, isInteractionTool, summarizeInteractions } from '../src/lib/streaming/interactionPresentation';
+import { interactionOperation, interactionPresentation, isInteractionTool, summarizeInteractions } from '../src/lib/streaming/interactionPresentation';
 import type { ConversationMessage, ToolRunItem } from '../src/types/conversation';
 
 function assert(value: unknown, message: string): asserts value {
@@ -79,7 +79,7 @@ assert(!extractToolVisualEvidence(boundedEnvelope[0].artifacts ?? undefined) && 
 // and of whether the dispatcher itself returned a completed tool call.
 const action = { toolName: 'computer_control', status: 'done' as const };
 const interaction = (delivery: string, evidence: string, condition = 'notRequested') => ({ delivery, evidence, condition, observationConsumed: true });
-for (const toolName of ['computer_observe', 'computer_control', 'desktop_automation', 'browser_session', 'browser_evidence_capture']) assert(isInteractionTool(toolName), `${toolName} shares the interaction trace`);
+for (const toolName of ['computer_use', 'computer_observe', 'computer_control', 'desktop_automation', 'browser_session', 'browser_evidence_capture']) assert(isInteractionTool(toolName), `${toolName} shares the interaction trace`);
 assert(!isInteractionTool('run_shell') && interactionPresentation({ ...action, toolName: 'run_shell' }) === null, 'unrelated tools retain their own presentation');
 for (const wrap of [(value: object) => ({ data: { interaction: value } }), (value: object) => ({ toolOutput: { data: { interaction: value } } }), (value: object) => ({ interaction: value })]) {
   assert(interactionPresentation({ ...action, artifacts: wrap(interaction('inputSent', 'changed')) })?.tone === 'neutral', 'changed pixels do not establish a requested outcome');
@@ -109,4 +109,16 @@ const browserWait = (state: string, matched: boolean) => ({ kind: 'browserActivi
 assert(interactionPresentation({ ...action, toolName: 'browser_session', artifacts: browserWait('running', false) })?.labelKey === 'chat.interactionPending', 'a returned browser wait handle does not mean its condition matched');
 assert(interactionPresentation({ ...action, toolName: 'browser_session', artifacts: browserWait('completed', true) })?.tone === 'success', 'browser wait evidence can establish the requested condition');
 assert(interactionPresentation({ ...action, toolName: 'browser_session', artifacts: browserWait('timed_out', false) })?.tone === 'danger', 'a timed-out browser wait cannot remain a completed green call');
+const unifiedAction = { ...action, toolName: 'computer_use' };
+const publicWindowArgs = JSON.stringify({ target: { kind: 'window', window_id: 42 }, action: 'type', text: 'never show this in a title' });
+const auditedWindowArgs = JSON.stringify({ targetKind: 'window', action: 'type_text', text: { redacted: true } });
+assert(JSON.stringify(interactionOperation('computer_use', publicWindowArgs)) === JSON.stringify(interactionOperation('computer_use', auditedWindowArgs)), 'public and persisted unified calls retain the same backend action label');
+assert(interactionOperation('computer_use', publicWindowArgs)?.action === 'type_text', 'native aliases display the actual backend operation without typed text');
+assert(interactionOperation('computer_use', '{"targetKind":"browser","action":"click"}')?.targetKind === 'browser', 'audited browser targets retain their browser icon identity');
+assert(interactionOperation('computer_use', '{"target":{"kind":"window"},"action":"not a routing action"}') === null, 'unrecognized routing fields never become a title');
+assert(interactionPresentation({ ...unifiedAction, arguments: auditedWindowArgs })?.labelKey === 'chat.interactionPending', 'a completed unified input without evidence is still unverified');
+assert(interactionPresentation({ ...unifiedAction, arguments: publicWindowArgs, artifacts: { interaction: interaction('inputSent', 'unavailable') } })?.labelKey === 'chat.interactionPending', 'unified native input retains the shared pending receipt');
+assert(interactionPresentation({ ...unifiedAction, artifacts: browserWait('completed', true) })?.tone === 'success', 'unified browser calls preserve explicit matched-condition evidence');
+assert(interactionPresentation({ ...unifiedAction, arguments: '{"target":{"kind":"browser"},"action":"observe"}', capabilities: { ...completed.capabilities!, readOnly: false } })?.labelKey === 'chat.interactionPending', 'host capabilities override an action name when classifying a unified call');
+assert(interactionPresentation({ ...unifiedAction, arguments: '{"targetKind":"window","action":"capture_window"}', capabilities: { ...completed.capabilities!, readOnly: true } })?.tone === 'neutral', 'a host-confirmed observation is complete without claiming the user goal matched');
 console.log('tool visual evidence contracts passed');

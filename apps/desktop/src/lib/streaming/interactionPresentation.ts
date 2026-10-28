@@ -1,7 +1,7 @@
 import type { ToolCallEvent } from './protocol';
 import { isPendingToolCallStatus, isUnsuccessfulToolCallStatus } from './toolStatus';
 
-const INTERACTION_TOOLS = new Set(['computer_observe', 'computer_control', 'desktop_automation', 'browser_session', 'browser_evidence_capture']);
+const INTERACTION_TOOLS = new Set(['computer_use', 'computer_observe', 'computer_control', 'desktop_automation', 'browser_session', 'browser_evidence_capture']);
 export const isInteractionTool = (name: string): boolean => INTERACTION_TOOLS.has(name);
 
 const presentations = {
@@ -23,6 +23,30 @@ export type InteractionPresentation = typeof presentations[keyof typeof presenta
 type ToolInput = Pick<ToolCallEvent, 'toolName' | 'status'> & Partial<Pick<ToolCallEvent, 'arguments' | 'isError' | 'artifacts' | 'activityEvents' | 'capabilities'>>;
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue | null => value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : null;
+const INTERACTION_ACTIONS = new Set([
+  'observe', 'list_windows', 'wait_for_window', 'capture_window', 'wait_for_change', 'cursor_position',
+  'focus_window', 'move_mouse', 'click', 'double_click', 'drag', 'scroll', 'type', 'type_text', 'press', 'key', 'invoke', 'set_value',
+  'create_session', 'list_sessions', 'list_tabs', 'show_workspace', 'hide_workspace', 'open_tab', 'activate_tab',
+  'navigate', 'go_back', 'go_forward', 'reload', 'select', 'set_checked', 'wait_for', 'close_tab', 'close_session', 'move', 'hover', 'upload_files',
+]);
+const WINDOW_ACTION_LABELS: Record<string, string> = { observe: 'capture_window', type: 'type_text', press: 'key', move: 'move_mouse' };
+
+/** Public requests and durable audit projections keep the same target kind.
+ * Read only known routing fields; typed text and keys never belong in a title. */
+export function interactionOperation(toolName: string, argumentsJson?: string): { targetKind: 'browser' | 'window'; action: string } | null {
+  if (toolName !== 'computer_use') return null;
+  try {
+    const args = record(JSON.parse(argumentsJson ?? '{}'));
+    if (!args) return null;
+    const targetKind = args.targetKind ?? record(args.target)?.kind;
+    const action = args.action;
+    if ((targetKind !== 'browser' && targetKind !== 'window')
+      || typeof action !== 'string' || !INTERACTION_ACTIONS.has(action)) return null;
+    return { targetKind, action: targetKind === 'window' ? WINDOW_ACTION_LABELS[action] ?? action : action };
+  } catch {
+    return null;
+  }
+}
 
 /** Inspect only the tool's known output envelopes, never page text or arbitrary JSON. */
 function envelopes(value: unknown, depth = 0): RecordValue[] {
@@ -88,8 +112,12 @@ export function interactionPresentation(tool: ToolInput, parentRunActive = true)
   if (records.some(value => ['computerObservation', 'browserObservation', 'browserEvidenceCapture'].includes(String(value.kind)))) return presentations.observed;
   let action = '';
   try { action = String(JSON.parse(tool.arguments ?? '{}').action ?? ''); } catch { /* Streaming/legacy arguments can be incomplete. */ }
-  const readOnly = tool.capabilities?.readOnly || tool.toolName === 'computer_observe' || tool.toolName === 'browser_evidence_capture'
-    || tool.toolName === 'browser_session' && ['observe', 'list_sessions', 'list_tabs'].includes(action);
+  const operation = interactionOperation(tool.toolName, tool.arguments);
+  const legacyReadOnly = tool.toolName === 'computer_observe' || tool.toolName === 'browser_evidence_capture'
+    || tool.toolName === 'browser_session' && ['observe', 'list_sessions', 'list_tabs'].includes(action)
+    || operation?.targetKind === 'browser' && ['observe', 'list_sessions', 'list_tabs'].includes(operation.action)
+    || operation?.targetKind === 'window' && ['observe', 'capture_window', 'list_windows'].includes(operation.action);
+  const readOnly = tool.capabilities?.readOnly ?? legacyReadOnly;
   return readOnly ? presentations.done : presentations.pending;
 }
 

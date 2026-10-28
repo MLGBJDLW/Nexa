@@ -658,14 +658,20 @@ impl Tool for NativeBrowserSessionTool {
             {
                 let session_id = required(Some(session_id), "sessionId")?;
                 let tab_id = required(Some(tab_id), "tabId")?;
+                let checked_at_ms = chrono::Utc::now().timestamp_millis();
                 if self
                     .state
                     .target_is_absent(session_id, tab_id, conversation_id)
                     .map_err(Self::invalid)?
                 {
-                    return success(context.call_id,
-                        "The host confirmed this exact browser target no longer exists. No action was replayed. The earlier action outcome and requested goal remain unverified; re-plan from current state and obtain new evidence.",
-                        serde_json::json!({"kind":"browserTargetPresence","sessionId":session_id,"tabId":tab_id,"present":false,"checkedAtMs":chrono::Utc::now().timestamp_millis(),"goalVerified":false}));
+                    return Ok(
+                        nexa_core::tools::browser_session_tool::browser_target_absence_result(
+                            context.call_id,
+                            session_id,
+                            tab_id,
+                            checked_at_ms,
+                        ),
+                    );
                 }
             }
         }

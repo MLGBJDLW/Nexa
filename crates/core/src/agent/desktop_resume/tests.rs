@@ -589,6 +589,31 @@ fn exact_host_browser_absence_releases_input_but_preserves_unverified_completion
 }
 
 #[test]
+fn delegated_modal_owner_recovery_accepts_its_host_time_fence_without_a_source_token() {
+    let target = crate::workflow_ir::DesktopObservationTarget {
+        window_id: 42,
+        target_identity: Some("modal-owner".into()),
+        consumed_observation_id: None,
+        observation_not_before_ms: Some(100),
+    };
+    let requirement = CoreError::LocalVerificationRequired {
+        message: "Capture the modal owner".into(),
+        targets: vec![target.clone()],
+        browser_targets: Vec::new(),
+    }
+    .recovery_requirement()
+    .unwrap();
+    assert!(requirement.has_bound_desktop_targets());
+    let mut workflow = compile_workflow_ir(&plan("Review work"), &profile(), false).unwrap();
+    workflow.import_desktop_recovery("worker", &[target], &[]);
+    for time in [100, 101] {
+        workflow.observe_tool_result_with_arguments("capture", "computer_observe", Some(r#"{"action":"capture_window","window_id":42}"#), false,
+            Some(&json!({"data":{"kind":"computerObservationReceipt","windowId":42,"targetIdentity":"modal-owner","observationId":"fresh","observationCapturedAtMs":time,"screenshotHash":"pixels"}})), "owner capture");
+        assert_eq!(workflow.has_pending_local_targets(), time <= 100);
+    }
+}
+
+#[test]
 fn durable_checkpoint_continuation_restores_every_pending_target_at_real_start_boundary() {
     let (db, run, _, saved) = fixture();
     resume(&db, &run, &saved);

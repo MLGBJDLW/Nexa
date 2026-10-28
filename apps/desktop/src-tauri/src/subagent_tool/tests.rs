@@ -2250,6 +2250,48 @@ fn test_preflight_rejects_tools_outside_parent_capabilities() {
 }
 
 #[test]
+fn unified_control_allowlist_expands_only_inherited_adapters_and_keeps_parent_proxy_policy() {
+    let available = vec!["read_file".into(), "computer_observe".into()];
+    let requested = vec!["computer_use".into()];
+    let normalized = normalize_allowed_tools(Some(&requested), &available);
+    assert_eq!(normalized, vec!["computer_observe".to_string()]);
+    assert_eq!(
+        resolve_allowed_tools(&available, Some(&requested)),
+        normalized
+    );
+    assert!(normalize_allowed_tools(Some(&requested), &["read_file".into()]).is_empty());
+    let args: SpawnSubagentArgs = serde_json::from_value(serde_json::json!({
+        "task":"Inspect the visible window", "allowed_tools":["computer_use"],
+    }))
+    .unwrap();
+    let snapshot = DelegationContextSnapshot {
+        id: "snapshot".into(),
+        selected_message_ids: Arc::from(Vec::<String>::new()),
+        messages: Arc::from(Vec::<Message>::new()),
+        token_estimate: 0,
+        context_limit: Some(128_000),
+        handoff_token_budget: 64_000,
+        dropped_invalid_messages: 0,
+    };
+    let error = validate_subagent_preflight(
+        &args,
+        "fixture",
+        "fixture",
+        &available,
+        &[],
+        &[],
+        &[],
+        &snapshot,
+    )
+    .unwrap_err();
+    assert_eq!(
+        subagent_preflight_failure_from_error(&error).unwrap().code,
+        "interactive_tool_requires_parent_proxy"
+    );
+    assert!(is_interactive_surface_tool("computer_use"));
+}
+
+#[test]
 fn test_preflight_rejects_interactive_surface_tools_even_when_parent_has_them() {
     let args = SpawnSubagentArgs {
         name: None,

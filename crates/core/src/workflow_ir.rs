@@ -174,6 +174,8 @@ pub struct WorkflowCheckpoint {
     pub desktop_observation_targets: Vec<DesktopObservationTarget>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub browser_observation_targets: Vec<BrowserObservationTarget>,
+    #[serde(default)]
+    pub browser_recovery_active: bool,
     /// Distinct host-verified target identities are progress even while other
     /// windows remain pending and no workspace file changed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -336,11 +338,12 @@ impl WorkflowIr {
 
     pub(crate) fn browser_evidence_pending(&self) -> bool {
         !self.checkpoint.browser_observation_targets.is_empty()
-            || self.verification_gates.iter().any(|gate| {
-                gate.kind == VerificationGateKind::BrowserSessionObservation
-                    && gate.required
-                    && gate.passed != Some(true)
-            })
+            || (self.checkpoint.browser_recovery_active
+                && self.verification_gates.iter().any(|gate| {
+                    gate.kind == VerificationGateKind::BrowserSessionObservation
+                        && gate.required
+                        && gate.passed != Some(true)
+                }))
     }
 
     pub(crate) fn has_pending_local_targets(&self) -> bool {
@@ -362,6 +365,7 @@ impl WorkflowIr {
             saved.checkpoint.verified_browser_target_ids.clone();
         self.checkpoint.browser_observation_targets =
             saved.checkpoint.browser_observation_targets.clone();
+        self.checkpoint.browser_recovery_active = saved.checkpoint.browser_recovery_active;
         if saved.browser_evidence_pending() {
             self.completion_contract.require_interaction_gates = true;
             self.verification_gates
@@ -445,6 +449,7 @@ impl WorkflowIr {
     }
 
     fn require_fresh_browser_observation(&mut self, detail: &str) {
+        self.checkpoint.browser_recovery_active = true;
         self.completion_contract.require_interaction_gates = true;
         ensure_required_gate(
             &mut self.verification_gates,
@@ -858,6 +863,19 @@ impl WorkflowIr {
         content: &str,
         source_stable: bool,
     ) {
+        if let Some(route) =
+            crate::tools::unified_control::route_call_str(tool_name, tool_arguments)
+        {
+            return self.observe_tool_result_at_source(
+                _call_id,
+                route.tool_name,
+                Some(&route.arguments.to_string()),
+                is_error,
+                artifacts,
+                content,
+                source_stable,
+            );
+        }
         if tool_name == "run_shell" && source_stable {
             self.record_executed_verification(is_error, artifacts);
         }
@@ -1569,9 +1587,9 @@ impl WorkflowIr {
                 .browser_terminal_closure_evidence
                 .is_required()
             {
-                "perform the explicitly requested browser closure and retain its target-bound terminal receipt; if a renderable tab remains, obtain a fresh screenshot-bearing browser_session observation"
+                "perform the explicitly requested browser closure and retain its target-bound terminal receipt; if a renderable tab remains, obtain a fresh screenshot with computer_use action=observe and target.kind=browser"
             } else {
-                "call browser_session for the requested navigation or interaction and obtain its fresh screenshot-bearing observation"
+                "use computer_use with target.kind=browser for the requested navigation or interaction and obtain its fresh screenshot-bearing observation"
             });
         }
         if self.verification_gates.iter().any(|gate| {
@@ -1597,7 +1615,7 @@ impl WorkflowIr {
                 && gate.passed != Some(true)
         }) {
             actions.push(
-                "inspect the verified post-action observation, or call computer_observe with action=capture_window for each exact pending window; do not replay the action",
+                "inspect the verified post-action observation, or call computer_use with action=observe and target.kind=window for each exact target.window_id; do not replay the action",
             );
         }
         if self.verification_gates.iter().any(|gate| {
@@ -1622,7 +1640,12 @@ impl WorkflowIr {
             .checkpoint
             .browser_observation_targets
             .iter()
-            .map(|target| format!("sessionId={}, tabId={}", target.session_id, target.tab_id))
+            .map(|target| {
+                format!(
+                    "target.session_id={}, target.tab_id={}",
+                    target.session_id, target.tab_id
+                )
+            })
             .collect::<Vec<_>>();
         format!(
             "Resolve the enforced completion contract with concrete tool results: {}. A pending, claimed, or skipped check is not success.",
@@ -1630,7 +1653,7 @@ impl WorkflowIr {
         ) + &if targets.is_empty() { String::new() } else {
             format!(" Pending exact window_id values: {}.", targets.join(", "))
         } + &if browser_targets.is_empty() { String::new() } else {
-            format!(" Observe existing browser targets: {}. If missing after restart, call list_tabs with both exact sessionId and tabId for host-confirmed presence. Never repeat create_session/open_tab to reconcile the old action.", browser_targets.join("; "))
+            format!(" Observe existing browser targets with computer_use action=observe and target.kind=browser: {}. If missing after restart, use action=list_tabs with the same exact target.session_id and target.tab_id for host-confirmed presence. Never repeat create_session/open_tab to reconcile the old action.", browser_targets.join("; "))
         }
     }
 
@@ -1998,9 +2021,16 @@ fn browser_absence_matches(
         && data.get("sessionId").and_then(serde_json::Value::as_str)
             == Some(target.session_id.as_str())
         && data.get("tabId").and_then(serde_json::Value::as_str) == Some(target.tab_id.as_str())
-        && args.get("sessionId").and_then(serde_json::Value::as_str)
+        && args
+            .get("sessionId")
+            .or_else(|| args.get("session_id"))
+            .and_then(serde_json::Value::as_str)
             == Some(target.session_id.as_str())
-        && args.get("tabId").and_then(serde_json::Value::as_str) == Some(target.tab_id.as_str())
+        && args
+            .get("tabId")
+            .or_else(|| args.get("tab_id"))
+            .and_then(serde_json::Value::as_str)
+            == Some(target.tab_id.as_str())
         && data
             .get("checkedAtMs")
             .and_then(serde_json::Value::as_i64)
@@ -2927,6 +2957,7 @@ pub fn compile_workflow_ir(
             remaining_delegated_tokens: profile.delegated_token_budget.unwrap_or(u32::MAX),
             desktop_observation_targets: Vec::new(),
             browser_observation_targets: Vec::new(),
+            browser_recovery_active: false,
             verified_desktop_target_ids: Vec::new(),
             verified_browser_target_ids: Vec::new(),
             imported_desktop_recovery_ids: Vec::new(),

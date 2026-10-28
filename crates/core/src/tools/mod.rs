@@ -170,6 +170,7 @@ pub mod system_one_tool;
 pub(crate) mod text_match;
 pub mod text_to_speech_tool;
 pub mod tool_search_tool;
+pub mod unified_control;
 pub mod update_plan_tool;
 pub mod user_memory_tool;
 pub mod web_research_context_tool;
@@ -949,6 +950,11 @@ impl ToolRegistry {
     }
 
     fn try_register_shared(&mut self, tool: Arc<dyn Tool>) -> Result<(), CoreError> {
+        if tool.name() == unified_control::TOOL_NAME {
+            return Err(CoreError::InvalidInput(
+                "computer_use is the registry projection of existing control adapters, not a separate executable tool".into(),
+            ));
+        }
         let identity = tool.canonical_identity();
         if self.tools.iter().any(|existing| {
             existing.name() == tool.name()
@@ -970,7 +976,28 @@ impl ToolRegistry {
 
     /// Return [`ToolDefinition`]s for every registered tool.
     pub fn definitions(&self) -> Vec<ToolDefinition> {
-        stable_tool_definitions(self.tools.iter().map(|t| t.definition()).collect())
+        stable_tool_definitions(unified_control::collapse_definitions(
+            self.tools.iter().map(|t| t.definition()).collect(),
+        ))
+    }
+
+    /// A model definition may project several already-authorized adapters.
+    /// `get` remains the exact executable lookup used by ownership and policy.
+    pub fn definition(&self, name: &str) -> Option<ToolDefinition> {
+        if name == unified_control::TOOL_NAME || unified_control::is_backend(name) {
+            if name != unified_control::TOOL_NAME && self.get(name).is_none() {
+                return None;
+            }
+            let backends = self
+                .tools
+                .iter()
+                .filter(|tool| unified_control::is_backend(tool.name()))
+                .map(|tool| tool.definition())
+                .collect::<Vec<_>>();
+            unified_control::definition(&backends)
+        } else {
+            self.get(name).map(Tool::definition)
+        }
     }
 
     /// Look up a tool by name.
@@ -983,7 +1010,10 @@ impl ToolRegistry {
 
     /// Check whether a tool name is already registered.
     pub fn contains(&self, name: &str) -> bool {
-        self.tools.iter().any(|tool| tool.name() == name)
+        self.tools.iter().any(|tool| {
+            tool.name() == name
+                || (name == unified_control::TOOL_NAME && unified_control::is_backend(tool.name()))
+        })
     }
 
     /// Return registered tool names in registry order.
@@ -991,6 +1021,16 @@ impl ToolRegistry {
         self.tools
             .iter()
             .map(|tool| tool.name().to_string())
+            .collect()
+    }
+
+    /// Names for model discovery only. Package authority must use tool_names.
+    pub fn model_tool_names(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        self.tools
+            .iter()
+            .map(|tool| unified_control::model_name(tool.name()).to_string())
+            .filter(|name| seen.insert(name.clone()))
             .collect()
     }
 
@@ -1004,7 +1044,10 @@ impl ToolRegistry {
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
-            if allowed.contains(tool.name()) {
+            if allowed.contains(tool.name())
+                || (allowed.contains(unified_control::TOOL_NAME)
+                    && unified_control::is_backend(tool.name()))
+            {
                 registry.register_shared(Arc::clone(tool));
             }
         }
@@ -1045,7 +1088,10 @@ impl ToolRegistry {
             ..ToolRegistry::new()
         };
         for tool in &self.tools {
-            if !blocked.contains(tool.name()) {
+            if !blocked.contains(tool.name())
+                && !(blocked.contains(unified_control::TOOL_NAME)
+                    && unified_control::is_backend(tool.name()))
+            {
                 registry.register_shared(Arc::clone(tool));
             }
         }
@@ -1077,13 +1123,14 @@ impl ToolRegistry {
 
     /// Check if a tool requires confirmation for the given arguments.
     pub fn requires_confirmation(&self, name: &str, args: &serde_json::Value) -> bool {
-        self.get(name)
-            .is_some_and(|t| t.requires_confirmation(args))
+        self.resolved_tool(name, args)
+            .is_some_and(|(tool, args)| tool.requires_confirmation(&args))
     }
 
     /// Get the confirmation message for a tool with the given arguments.
     pub fn confirmation_message(&self, name: &str, args: &serde_json::Value) -> Option<String> {
-        self.get(name).and_then(|t| t.confirmation_message(args))
+        self.resolved_tool(name, args)
+            .and_then(|(tool, args)| tool.confirmation_message(&args))
     }
 
     pub fn confirmation_message_in_context(
@@ -1092,8 +1139,8 @@ impl ToolRegistry {
         args: &serde_json::Value,
         conversation_id: Option<&str>,
     ) -> Result<Option<String>, CoreError> {
-        self.get(name)
-            .map(|tool| tool.confirmation_message_in_context(args, conversation_id))
+        self.resolved_tool(name, args)
+            .map(|(tool, args)| tool.confirmation_message_in_context(&args, conversation_id))
             .transpose()
             .map(Option::flatten)
     }
@@ -1104,15 +1151,17 @@ impl ToolRegistry {
         args: &serde_json::Value,
         conversation_id: Option<&str>,
     ) -> Result<Option<String>, CoreError> {
-        self.get(name)
-            .map(|tool| tool.confirmation_message_for_persistence_in_context(args, conversation_id))
+        self.resolved_tool(name, args)
+            .map(|(tool, args)| {
+                tool.confirmation_message_for_persistence_in_context(&args, conversation_id)
+            })
             .transpose()
             .map(Option::flatten)
     }
 
     pub fn run_capabilities(&self, name: &str, args: &serde_json::Value) -> ToolRunCapabilities {
-        self.get(name)
-            .map(|tool| tool.run_capabilities(args))
+        self.resolved_tool(name, args)
+            .map(|(tool, args)| tool.run_capabilities(&args))
             .unwrap_or_else(|| fallback_registry_run_capabilities(name, args))
     }
 
@@ -1121,8 +1170,8 @@ impl ToolRegistry {
         name: &str,
         args: &serde_json::Value,
     ) -> ToolCapabilityDescriptor {
-        self.get(name)
-            .map(|tool| tool.capability_descriptor(args))
+        self.resolved_tool(name, args)
+            .map(|(tool, args)| tool.capability_descriptor(&args))
             .unwrap_or_else(|| {
                 capability_descriptor_for_tool(
                     name,
@@ -1145,13 +1194,33 @@ impl ToolRegistry {
         )
     }
 
+    fn resolved_tool<'a, 'b>(
+        &'a self,
+        name: &str,
+        args: &'b serde_json::Value,
+    ) -> Option<(&'a dyn Tool, Cow<'b, serde_json::Value>)> {
+        match unified_control::route_call(name, args).ok()? {
+            Some(routed) => self
+                .get(routed.tool_name)
+                .map(|tool| (tool, Cow::Owned(routed.arguments))),
+            None => self.get(name).map(|tool| (tool, Cow::Borrowed(args))),
+        }
+    }
+
     pub fn build_invocation(
         &self,
         call_id: impl Into<String>,
         name: impl Into<String>,
         arguments: serde_json::Value,
     ) -> ToolInvocation {
-        let tool_name = name.into();
+        let name = name.into();
+        let routed = unified_control::route_call(&name, &arguments)
+            .ok()
+            .flatten()
+            .filter(|routed| self.get(routed.tool_name).is_some());
+        let (tool_name, arguments) = routed.map_or((name, arguments), |routed| {
+            (routed.tool_name.to_string(), routed.arguments)
+        });
         let descriptor = self.capability_descriptor(&tool_name, &arguments);
         let mut capabilities = descriptor.capabilities;
         for key in &mut capabilities.resource_keys {
@@ -1184,13 +1253,13 @@ impl ToolRegistry {
         &self,
         active: &HashSet<ToolCategory>,
     ) -> Vec<ToolDefinition> {
-        stable_tool_definitions(
+        stable_tool_definitions(unified_control::collapse_definitions(
             self.tools
                 .iter()
                 .filter(|t| t.categories().iter().any(|c| active.contains(c)))
                 .map(|t| t.definition())
                 .collect(),
-        )
+        ))
     }
 
     /// Select tool definitions using the shared typed visibility policy.
@@ -1268,10 +1337,12 @@ impl ToolRegistry {
         name: &str,
         ctx: ToolExecutionContext<'_>,
     ) -> Result<ToolResult, CoreError> {
+        let public_control = name == unified_control::TOOL_NAME;
         let (tool, arguments) = match self.prepare_execution(name, ctx.call_id, ctx.arguments) {
             Ok(prepared) => prepared,
             Err(result) => return Ok(result),
         };
+        let name = tool.name();
         let call_id = ctx.call_id;
         let workspace = ctx.workspace.or(self.workspace.as_ref());
         let parsed_arguments = serde_json::from_str(&arguments).unwrap_or_default();
@@ -1335,8 +1406,15 @@ impl ToolRegistry {
                 event_tx: ctx.event_tx,
             })
             .await;
+        let needs_error_contract = public_control
+            && result
+                .as_ref()
+                .map_or(true, |result| result.is_error && result.artifacts.is_none());
         let mut result =
             normalize_tool_execution_result(call_id, name, || tool.parameters_schema(), result);
+        if needs_error_contract {
+            result = self.public_control_error_contract(result, false);
+        }
         if let Some(rules) = rules.filter(|_| rules_pending) {
             let guidance = format!(
                 "\n\n{}\nWorkspace rules revision: {}",
@@ -1393,19 +1471,27 @@ impl ToolRegistry {
         Ok(result)
     }
 
-    pub(crate) fn prepare_arguments_for_scheduling(
+    pub(crate) fn prepare_invocation_for_scheduling(
         &self,
         name: &str,
         call_id: &str,
         arguments: &str,
-    ) -> (serde_json::Value, Option<ToolResult>) {
+    ) -> (ToolInvocation, Option<ToolResult>) {
         match self.prepare_execution(name, call_id, arguments) {
-            Ok((_, normalized)) => (
-                serde_json::from_str(&normalized).expect("normalized JSON"),
+            Ok((tool, normalized)) => (
+                self.build_invocation(
+                    call_id,
+                    tool.name(),
+                    serde_json::from_str(&normalized).expect("normalized JSON"),
+                ),
                 None,
             ),
             Err(error) => (
-                parse_tool_arguments_value(arguments).unwrap_or_default(),
+                self.build_invocation(
+                    call_id,
+                    name,
+                    parse_tool_arguments_value(arguments).unwrap_or_default(),
+                ),
                 Some(error),
             ),
         }
@@ -1427,8 +1513,102 @@ impl ToolRegistry {
         call_id: &str,
         arguments: &str,
     ) -> Result<(&'a dyn Tool, String), ToolResult> {
+        let prepared = self.prepare_execution_inner(name, call_id, arguments);
+        if name == unified_control::TOOL_NAME {
+            prepared.map_err(|result| self.public_control_error_contract(result, true))
+        } else {
+            prepared
+        }
+    }
+
+    fn public_control_error_contract(&self, result: ToolResult, admission: bool) -> ToolResult {
+        let Some(contract) = result
+            .artifacts
+            .as_ref()
+            .and_then(|value| serde_json::from_value::<ToolContractError>(value.clone()).ok())
+        else {
+            return result;
+        };
+        let parameters = self
+            .definition(unified_control::TOOL_NAME)
+            .map(|definition| definition.parameters)
+            .unwrap_or_else(|| serde_json::json!({"type":"object","required":["action","target"]}));
+        let mut expected =
+            serde_json::json!({"tool":unified_control::TOOL_NAME,"arguments":parameters});
+        if let Some(recovery) = contract.expected_format.get("recovery") {
+            expected["recovery"] = recovery.clone();
+        }
+        build_structured_tool_error_result(
+            &result.call_id,
+            contract.code,
+            contract.message,
+            expected,
+            contract.retryable,
+            if admission {
+                Some(ToolSideEffect::NotStarted)
+            } else {
+                contract.side_effect
+            },
+            if admission {
+                Some(false)
+            } else {
+                contract.observation_consumed
+            },
+        )
+    }
+
+    fn prepare_execution_inner<'a>(
+        &'a self,
+        name: &str,
+        call_id: &str,
+        arguments: &str,
+    ) -> Result<(&'a dyn Tool, String), ToolResult> {
+        if name == unified_control::TOOL_NAME {
+            if let Some(definition) = self.definition(name) {
+                let schema = definition.parameters;
+                if let Err(error) = enforce_tool_arg_limit(name, arguments) {
+                    return Err(tool_contract_error_result(
+                        call_id,
+                        "tool_arguments_too_large",
+                        error.to_string(),
+                        schema,
+                    ));
+                }
+                let normalized = normalize_tool_arguments(name, arguments, &schema).map_err(
+                    |(code, message)| {
+                        tool_contract_error_result(
+                            call_id,
+                            code,
+                            format!("{name}: {message}"),
+                            schema.clone(),
+                        )
+                    },
+                )?;
+                let value = serde_json::from_str(&normalized).expect("normalized JSON");
+                let routed = unified_control::route_call(name, &value)
+                    .map_err(|message| {
+                        tool_contract_error_result(
+                            call_id,
+                            "invalid_control_target",
+                            message,
+                            schema.clone(),
+                        )
+                    })?
+                    .expect("unified tool must resolve one backend");
+                if self.get(routed.tool_name).is_none() {
+                    return Err(tool_contract_error_result(call_id, "control_backend_unavailable",
+                        "The requested operation is not available in this tool scope. Use only the target kinds and actions advertised by computer_use.", schema));
+                }
+                // Reuse exact backend validation and the same registered instance.
+                return self.prepare_execution(
+                    routed.tool_name,
+                    call_id,
+                    &routed.arguments.to_string(),
+                );
+            }
+        }
         let Some(tool) = self.get(name) else {
-            let suggestions = nearest_tool_names(name, &self.tool_names());
+            let suggestions = nearest_tool_names(name, &self.model_tool_names());
             let suffix = if suggestions.is_empty() {
                 String::new()
             } else {

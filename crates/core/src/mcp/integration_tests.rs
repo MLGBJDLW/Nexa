@@ -447,7 +447,7 @@ async fn mcp_content_catalogs_reads_and_prompts_reach_the_registry_without_tools
         super::identity::connector_trust_digest(&remote.server)
     );
     let db = Database::open_memory().unwrap();
-    let bad = registry.prepare_arguments_for_scheduling(
+    let bad = registry.prepare_invocation_for_scheduling(
         "mcp_context",
         "bad",
         r#"{"action":"read_resource","server_id":"content","name":"review"}"#,
@@ -598,7 +598,7 @@ async fn mcp_content_rejects_unlisted_uris_and_expands_only_advertised_templates
         remote.content_calls.lock().unwrap().last().unwrap()["params"]["uri"],
         "notes://catalog/folder%2Fprivate?view=a%26b"
     );
-    let malformed = registry.prepare_arguments_for_scheduling("mcp_context", "mixed", r#"{"action":"read_resource_template","server_id":"scoped-content","uri":"notes://catalog/private","uri_template":"notes://catalog/{id}"}"#);
+    let malformed = registry.prepare_invocation_for_scheduling("mcp_context", "mixed", r#"{"action":"read_resource_template","server_id":"scoped-content","uri":"notes://catalog/private","uri_template":"notes://catalog/{id}"}"#);
     assert!(malformed.1.unwrap().is_error);
     manager.shutdown().await;
 }

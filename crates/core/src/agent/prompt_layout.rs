@@ -8,10 +8,8 @@ const RESIDENT_DISCOVERY_TOOL_NAME: &str = "tool_search";
 const CACHE_STABLE_RESIDENT_TOOL_NAMES: &[&str] = &[
     "activity_observe",
     "browser_evidence_capture",
-    "browser_session",
     "code_intelligence",
-    "computer_control",
-    "computer_observe",
+    "computer_use",
     "context_history",
     "create_file",
     "edit_file",
@@ -247,8 +245,9 @@ pub(super) fn restore_cache_stable_tool_surface(
     {
         return None;
     }
-    let definitions = registry.filtered(previous_names).definitions();
-    let full = definitions.len() == registry.tool_names().len();
+    let selected = registry.filtered(previous_names);
+    let full = selected.tool_names().len() == registry.tool_names().len();
+    let definitions = selected.definitions();
     if (!full
         && !definitions
             .iter()
@@ -718,14 +717,10 @@ mod tests {
                     "browser_evidence_capture",
                     cfg!(feature = "headless-browser"),
                 ),
-                ("browser_session", cfg!(feature = "headless-browser")),
                 (
-                    "computer_observe",
-                    cfg!(all(target_os = "windows", feature = "desktop-control")),
-                ),
-                (
-                    "computer_control",
-                    cfg!(all(target_os = "windows", feature = "desktop-control")),
+                    "computer_use",
+                    cfg!(feature = "headless-browser")
+                        || cfg!(all(target_os = "windows", feature = "desktop-control")),
                 ),
             ] {
                 assert_eq!(
@@ -736,6 +731,13 @@ mod tests {
                 assert_eq!(names.contains(&tool), available,
                     "{provider:?}/{model} must expose only platform-available interaction tool {tool}");
             }
+            assert!(
+                !names.iter().any(|name| matches!(
+                    *name,
+                    "browser_session" | "computer_observe" | "computer_control"
+                )),
+                "model surfaces must not advertise duplicate legacy control entries"
+            );
         }
     }
 }

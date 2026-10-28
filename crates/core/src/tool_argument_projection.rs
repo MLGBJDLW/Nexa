@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 pub fn is_sensitive_computer_control_name(name: &str) -> bool {
     name.trim().eq_ignore_ascii_case("computer_control")
+        || name.trim().eq_ignore_ascii_case("computer_use")
 }
 
 pub fn is_browser_session_name(name: &str) -> bool {
@@ -107,6 +108,45 @@ fn redacted_invalid_value(kind: &str, value: &Value) -> Value {
 
 /// Return the audit-safe form of a parsed tool argument object.
 pub fn audit_safe_arguments(tool_name: &str, arguments: &Value) -> Value {
+    if tool_name.trim().eq_ignore_ascii_case("computer_use") {
+        let Ok(Some(route)) = crate::tools::unified_control::route_call("computer_use", arguments)
+        else {
+            return redacted_invalid_value("invalidComputerUseArguments", arguments);
+        };
+        let mut projected = if route.tool_name == "computer_observe" {
+            audit_safe_computer_observation_arguments(&route.arguments)
+        } else {
+            audit_safe_arguments(route.tool_name, &route.arguments)
+        };
+        if let Some(object) = projected.as_object_mut() {
+            if object.get("action").is_some_and(Value::is_string) {
+                if let Some(action) = arguments.get("action").and_then(Value::as_str) {
+                    object.insert("action".into(), json!(action.to_ascii_lowercase()));
+                }
+            }
+            let mut target = serde_json::Map::from_iter([(
+                "kind".into(),
+                json!(if route.tool_name == "browser_session" {
+                    "browser"
+                } else {
+                    "window"
+                }),
+            )]);
+            for (canonical, public) in [
+                ("sessionId", "session_id"),
+                ("session_id", "session_id"),
+                ("tabId", "tab_id"),
+                ("tab_id", "tab_id"),
+                ("window_id", "window_id"),
+            ] {
+                if let Some(value) = object.remove(canonical) {
+                    target.insert(public.into(), value);
+                }
+            }
+            object.insert("target".into(), Value::Object(target));
+        }
+        return projected;
+    }
     if is_sensitive_computer_control_name(tool_name) {
         return audit_safe_computer_control_arguments(arguments);
     }
@@ -114,6 +154,56 @@ pub fn audit_safe_arguments(tool_name: &str, arguments: &Value) -> Value {
         return audit_safe_browser_session_arguments(arguments);
     }
     arguments.clone()
+}
+
+fn audit_safe_computer_observation_arguments(arguments: &Value) -> Value {
+    let mut projected = serde_json::Map::new();
+    if let Some(action) = arguments
+        .get("action")
+        .and_then(Value::as_str)
+        .filter(|action| {
+            matches!(
+                *action,
+                "list_windows"
+                    | "wait_for_window"
+                    | "capture_window"
+                    | "wait_for_change"
+                    | "cursor_position"
+            )
+        })
+    {
+        projected.insert("action".into(), json!(action));
+    }
+    for field in [
+        "window_id",
+        "process_id",
+        "max_results",
+        "offset",
+        "max_elements",
+        "timeout_ms",
+        "poll_interval_ms",
+    ] {
+        if let Some(value) = arguments.get(field) {
+            projected.insert(
+                field.into(),
+                value.as_u64().map_or_else(
+                    || redacted_invalid_value(field, value),
+                    |number| json!(number),
+                ),
+            );
+        }
+    }
+    for field in ["observation_id", "app_name", "reason"] {
+        if let Some(value) = arguments.get(field) {
+            projected.insert(
+                field.into(),
+                value
+                    .as_str()
+                    .map_or_else(|| redacted_invalid_value(field, value), text_summary),
+            );
+        }
+    }
+    Value::Object(projected)
 }
 
 fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
@@ -618,6 +708,44 @@ pub fn audit_safe_tool_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unified_control_projects_each_backend_without_storing_sensitive_input() {
+        for (target, action, input) in [
+            (
+                json!({"kind":"window","window_id":42}),
+                "type",
+                json!({"text":"unified-secret"}),
+            ),
+            (
+                json!({"kind":"browser","session_id":"session","tab_id":"tab"}),
+                "press",
+                json!({"key":"Control+unified-secret"}),
+            ),
+        ] {
+            let mut arguments = input;
+            arguments["action"] = json!(action);
+            arguments["target"] = target.clone();
+            arguments["observation_id"] = json!("current-observation");
+            let projected = audit_safe_arguments("computer_use", &arguments);
+            assert_eq!(projected["target"], target);
+            assert!(!projected.to_string().contains("unified-secret"));
+            assert!(tool_arguments_contain_sensitive_input(
+                "computer_use",
+                &arguments
+            ));
+        }
+        assert!(
+            !audit_safe_arguments_string("computer_use", r#"{"text":"partial-secret"#)
+                .contains("partial-secret")
+        );
+        assert!(!audit_safe_arguments(
+            "computer_use",
+            &json!({"target":{"kind":"invalid-secret"},"text":"invalid-secret"})
+        )
+        .to_string()
+        .contains("invalid-secret"));
+    }
 
     #[test]
     fn computer_control_projection_never_contains_typed_text_or_key_sequence() {

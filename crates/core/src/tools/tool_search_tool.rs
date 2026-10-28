@@ -84,7 +84,16 @@ impl ToolSearchTool {
         }
 
         let limit = args.limit.unwrap_or(8).clamp(1, 20);
-        let query_terms = tokenize(query);
+        let query_terms = tokenize(query)
+            .into_iter()
+            .map(|term| {
+                if super::unified_control::is_backend(&term) && registry.contains(&term) {
+                    super::unified_control::TOOL_NAME.to_string()
+                } else {
+                    term
+                }
+            })
+            .collect::<Vec<_>>();
         let mut matches = registry
             .definitions()
             .into_iter()
@@ -210,6 +219,45 @@ mod tests {
                 artifacts: None,
             })
         }
+    }
+
+    #[tokio::test]
+    async fn discovery_returns_one_scoped_control_entry_for_legacy_or_capability_queries() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(
+            crate::tools::computer_use_tool::ComputerObserveTool,
+        ));
+        registry.register(Box::new(
+            crate::tools::computer_use_tool::ComputerControlTool,
+        ));
+        let db = Database::open_memory().unwrap();
+        for query in ["computer_observe", "computer_control", "native window"] {
+            let args = json!({"query":query}).to_string();
+            let result = ToolSearchTool
+                .execute(ToolExecutionContext {
+                    tool_registry: Some(&registry),
+                    ..ToolExecutionContext::new("search", &args, &db, &[])
+                })
+                .await
+                .unwrap();
+            let matches = result.artifacts.unwrap()["matches"]
+                .as_array()
+                .unwrap()
+                .clone();
+            assert_eq!(matches.len(), 1);
+            assert_eq!(matches[0]["name"], "computer_use");
+        }
+        let readonly = registry.filtered(&["computer_observe".into()]);
+        let result = ToolSearchTool
+            .execute_against_registry("search", r#"{"query":"computer_control"}"#, &readonly)
+            .unwrap();
+        assert!(
+            result.artifacts.unwrap()["matches"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "a removed legacy backend must not be rediscovered through the facade"
+        );
     }
 
     #[tokio::test]

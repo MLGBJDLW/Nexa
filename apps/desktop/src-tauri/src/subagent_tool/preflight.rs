@@ -368,13 +368,7 @@ pub(super) fn resolve_allowed_tools(
 ) -> Vec<String> {
     match requested_allowed_tools {
         Some(requested) => {
-            let allowed: BTreeSet<&str> = base_allowed_tools.iter().map(String::as_str).collect();
-            let narrowed: Vec<String> = requested
-                .iter()
-                .filter(|name| allowed.contains(name.as_str()))
-                .cloned()
-                .collect();
-            narrowed
+            nexa_core::tools::unified_control::expand_allowed_names(requested, base_allowed_tools)
         }
         _ => base_allowed_tools.to_vec(),
     }

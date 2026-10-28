@@ -50,7 +50,7 @@ import { ManagedProcessCard } from './ManagedProcessCard';
 import { extractMcpResult } from '../../lib/mcpResult';
 import { McpResultView } from './McpResultView';
 import { useStreamTool } from '../../lib/useStreamSelector';
-import { interactionPresentation } from '../../lib/streaming/interactionPresentation';
+import { interactionOperation, interactionPresentation } from '../../lib/streaming/interactionPresentation';
 export { extractToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { getSoftCollapseMotion } from '../../lib/uiMotion';
 import type { ToolCallEvent } from '../../lib/streaming/protocol';
@@ -506,8 +506,10 @@ const TOOL_ICONS: Record<string, typeof Search> = {
   list_sources: BookOpen,
   compile_document: ClipboardList,
   desktop_automation: Globe,
+  computer_use: Monitor,
   computer_observe: Monitor,
   computer_control: Monitor,
+  browser_session: Globe,
   project_tool: Wrench,
   playbook: BookOpen,
   edit_file: PenLine,
@@ -799,6 +801,8 @@ function getToolBriefLabel(
   renderKind?: ToolRenderKind,
 ): string {
   const label = name;
+  const operation = interactionOperation(name, args);
+  if (operation) return `${label} \u00b7 ${operation.targetKind}.${operation.action}`;
   const target = getToolTitleTarget({
     toolName: name,
     renderKind,
@@ -1535,7 +1539,8 @@ export const ToolCallCard = memo(function ToolCallCard({
     typeof toolName === 'string' && toolName.trim().length > 0
       ? toolName
       : 'unknown_tool';
-  const Icon = getToolIcon(safeToolName);
+  const operation = useMemo(() => interactionOperation(safeToolName, args), [safeToolName, args]);
+  const Icon = operation?.targetKind === 'browser' ? Globe : getToolIcon(safeToolName);
   const manageSkillArgs = useMemo(() => safeToolName === 'manage_skill' ? parseManageSkillArgs(args) : null, [args, safeToolName]);
   const skillActivation = extractSkillActivationArtifact(artifacts);
   const skillActivationName = skillActivation

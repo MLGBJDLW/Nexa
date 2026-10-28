@@ -11,6 +11,7 @@ pub(super) const JUDGE_SUBAGENT_RESULTS_JSON: &str =
 // Initial scheduler credit; this is not sent as a per-request output ceiling.
 pub(super) const INITIAL_SUBAGENT_OUTPUT_CREDIT: u32 = 8_192;
 pub(super) const SUBAGENT_INTERACTIVE_SURFACE_TOOLS: &[&str] = &[
+    "computer_use",
     "browser_session",
     "computer_observe",
     "computer_control",
