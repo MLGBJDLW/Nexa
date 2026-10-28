@@ -1018,7 +1018,10 @@ pub fn resolve_reasoning_profile(
         }
         if matches!(
             model.as_str(),
-            "openai/gpt-6.1-sol" | "openai/gpt-6.1-sol-pro"
+            "openai/gpt-6.1-sol"
+                | "openai/gpt-6.1-sol-pro"
+                | "openai/gpt-6.1-terra"
+                | "openai/gpt-6.1-terra-pro"
         ) {
             value.budget_field = ReasoningBudgetField::None;
             value.omit_temperature_when_reasoning = true;
@@ -1644,6 +1647,7 @@ pub fn resolve_reasoning_profile(
             "tencent/hy4-preview"
                 | "deepseek-ai/deepseek-v4.1-flash"
                 | "zai-org/glm-5.3"
+                | "zai-org/glm-5.3-flash"
                 | "zai-org/glm-5.2"
                 | "moonshotai/kimi-k2.7-code"
                 | "qwen/qwen3.8-27b"

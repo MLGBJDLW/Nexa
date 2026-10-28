@@ -5,6 +5,72 @@ const read = name => JSON.parse(readFileSync(new URL(`../../../shared/${name}.js
 const providers = read('provider-presets');
 const model = (provider, id) => providers.find(item => item.id === provider).models.find(item => item.id === id);
 
+test('October 28 Terra routes retain different reasoning controls and no automatic selection', () => {
+  for (const [provider, id, mandatory] of [
+    ['openai', 'gpt-6.1-terra', false],
+    ['openrouter', 'openai/gpt-6.1-terra', false],
+    ['openrouter', 'openai/gpt-6.1-terra-pro', true],
+  ]) {
+    const row = model(provider, id);
+    assert.equal(row.contextTokens, 1_050_000);
+    assert.equal(row.maxOutputTokens, 128_000);
+    assert.equal(row.supportsTools, true);
+    assert.equal(row.capabilities.vision, true);
+    assert.equal(row.capabilities.reasoning.mode, mandatory ? 'always' : 'optional');
+    assert.deepEqual(row.capabilities.reasoning.effortLevels, mandatory
+      ? ['low', 'medium', 'high', 'xhigh', 'max']
+      : ['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+    assert.equal(row.productReadiness, 'known');
+    assert.equal(row.recommended, false);
+  }
+  const bonsai = model('openrouter', 'prism-ml/ternary-bonsai-2-9b');
+  assert.equal(bonsai.contextTokens, 262_144);
+  assert.equal(bonsai.maxOutputTokens, 65_536);
+  assert.deepEqual(bonsai.capabilities.reasoning.effortLevels, []);
+  assert.equal(bonsai.capabilities.reasoning.thinkingBudget.enabled, false);
+  assert.equal(bonsai.supportedParameters.includes('reasoning_effort'), false);
+  const flash = model('siliconflow', 'zai-org/GLM-5.3-Flash');
+  assert.equal(flash.capabilities.vision, true);
+  assert.equal(flash.capabilities.reasoning, null);
+  assert.equal(model('zhipu-intl', 'glm-5.3-flashx-legal').access, 'public');
+  assert.equal(model('zhipu', 'glm-5.3-flashx-legal').access, 'application');
+});
+
+test('October 23 shutdowns retire only the verified endpoints without paid replacements', () => {
+  for (const id of ['gpt-4.1-nano', 'o4-mini', 'o3-mini']) {
+    assert.equal(model('openai', id).status, 'removed');
+    assert.equal(model('openai', id).deprecationDate, '2026-10-23');
+  }
+  const images = read('image-provider-presets').find(row => row.id === 'openai').models;
+  assert.equal(images.find(row => row.id === 'gpt-image-1').status, 'removed');
+  assert.equal(images.find(row => row.id === 'gpt-image-1-mini').status, 'deprecated');
+  for (const id of ['arcee-ai/trinity-large-thinking', 'ibm-granite/granite-4.0-h-micro', 'nvidia/nemotron-3-super-120b-a12b:free']) {
+    assert.equal(model('openrouter', id).status, 'removed');
+    assert.equal(model('openrouter', id).replacementModelId, undefined);
+  }
+  assert.notEqual(model('openrouter', 'openai/gpt-4.1-nano').status, 'removed');
+});
+
+test('Titan embeddings expose only supported text dimensions and canonical decision models', () => {
+  const embeddings = read('embedding-provider-presets').find(row => row.id === 'openrouter').models;
+  for (const [id, dimensions, context, allowed] of [
+    ['amazon/titan-embed-text-v1', 1536, 8192, []],
+    ['amazon/titan-embed-text-v2', 1024, 8192, [1024, 512, 256]],
+  ]) {
+    const row = embeddings.find(row => row.id === id);
+    assert.equal(row.dimensions, dimensions);
+    assert.equal(row.contextTokens, context);
+    assert.deepEqual(row.inputModalities, ['text']);
+    assert.equal(row.supportsDimensionOverride, allowed.length > 0);
+    assert.deepEqual(row.allowedDimensions ?? [], allowed);
+  }
+  const decisions = read('system-one-provider-presets').find(row => row.id === 'openrouter').models;
+  assert.equal(embeddings.some(row => row.id === 'amazon/titan-embed-image-v1'), false,
+    'the 128-token multimodal model needs a dedicated input budget, not tiny general-index chunks');
+  assert.equal(decisions.find(row => row.id === 'liquid/d1.1').contextTokens, 65_536);
+  assert.equal(decisions.some(row => row.id === '~liquid/d1-latest'), false);
+});
+
 test('new embedding routes preserve exact dimensions and text adapter boundaries', () => {
   const embeddings = read('embedding-provider-presets');
   const lookup = (provider, id) => embeddings.find(item => item.id === provider).models.find(item => item.id === id);

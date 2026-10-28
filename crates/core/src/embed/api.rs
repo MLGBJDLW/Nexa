@@ -552,6 +552,35 @@ mod tests {
     }
 
     #[test]
+    fn titan_routes_validate_dimension_choices_before_sending_text_requests() {
+        let base = "https://openrouter.ai/api/v1";
+        for (model, dimensions) in [
+            ("amazon/titan-embed-text-v1", vec![1536]),
+            ("amazon/titan-embed-text-v2", vec![1024, 512, 256]),
+        ] {
+            for dimensions in dimensions {
+                let embedder = client(base, model, dimensions);
+                let (url, body) = embedder.request(&["document"], false);
+                assert_eq!(url, "https://openrouter.ai/api/v1/embeddings");
+                assert_eq!(body["input"], json!(["document"]));
+                assert_eq!(body["model"], model);
+                if model.ends_with("text-v1") {
+                    assert!(body.get("dimensions").is_none());
+                } else {
+                    assert_eq!(body["dimensions"], dimensions);
+                }
+            }
+            assert!(ApiEmbedder::new(
+                "fixture-key".into(),
+                Some(base.into()),
+                Some(model.into()),
+                Some(768)
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
     fn provider_requests_preserve_retrieval_tasks_and_dimension_dialects() {
         for model in ["embed-v5.0-pro", "embed-v5.0-fast"] {
             let embedder = client("https://api.cohere.com/v2", model, 2048);

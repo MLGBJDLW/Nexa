@@ -5541,6 +5541,224 @@
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
         "lastVerifiedAt": "2026-10-15"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "kling_4",
+        "displayName": "Kling 4.0",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive",
+              "16:9",
+              "9:16",
+              "1:1",
+              "21:9"
+            ],
+            "inputRoles": [
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "adaptive": "auto_720p",
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "940:940",
+                  "21:9": "1460:624"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p",
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920",
+                  "1:1": "1440:1440",
+                  "21:9": "2200:940"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 26000,
+              "promptRequired": true,
+              "maxReferenceImages": 10,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 26000,
+              "promptRequired": false,
+              "maxReferenceImages": 9,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 26000,
+              "promptRequired": false,
+              "maxReferenceImages": 8,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 30,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "input_video",
+              "reference_image"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "adaptive": "auto_720p"
+                },
+                "1080P": {
+                  "adaptive": "auto_1080p"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": false,
+              "promptMin": 1,
+              "promptMax": 26000,
+              "promptRequired": true,
+              "maxReferenceImages": 10,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "videoField": "videoUri",
+              "maxTotalVideoMs": 30000
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-10-28"
       }
     ]
   },

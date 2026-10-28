@@ -175,6 +175,57 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn kling4_preserves_adaptive_frames_and_rejects_unsupported_controls() {
+        let adapter = RunwayVideoAdapter::for_test("http://127.0.0.1");
+        let mut request = NormalizedVideoRequest {
+            idempotency_key: "kling4-fixture".into(),
+            model_id: "kling_4".into(),
+            operation: MediaOperation::FirstLastFrame,
+            prompt: String::new(),
+            duration_seconds: 30,
+            resolution: "720P".into(),
+            aspect_ratio: "adaptive".into(),
+            input_assets: vec![
+                input(VideoInputRole::FirstFrame, 30),
+                input(VideoInputRole::LastFrame, 30),
+            ],
+            seed: None,
+            generate_audio: None,
+            callback_url: None,
+        };
+        request
+            .input_assets
+            .extend((0..8).map(|_| input(VideoInputRole::ReferenceImage, 30)));
+        assert!(adapter.validate(&request).valid);
+        let body = payload(&request).unwrap();
+        assert_eq!(body["ratio"], "auto_720p");
+        assert_eq!(body["duration"], 30);
+        assert_eq!(body["references"].as_array().unwrap().len(), 8);
+        assert!(body.get("audio").is_none() && body.get("seed").is_none());
+        request
+            .input_assets
+            .push(input(VideoInputRole::ReferenceImage, 30));
+        assert!(
+            !adapter.validate(&request).valid,
+            "frames count toward ten total images"
+        );
+        request.input_assets = vec![input(VideoInputRole::InputVideo, 30)];
+        request.operation = MediaOperation::VideoToVideo;
+        request.prompt = "Change the scene to autumn".into();
+        request.resolution = "1080P".into();
+        assert!(adapter.validate(&request).valid);
+        let body = payload(&request).unwrap();
+        assert_eq!(body["ratio"], "auto_1080p");
+        assert!(body.get("videoUri").is_some());
+        assert!(body.get("promptVideo").is_none() && body.get("duration").is_none());
+        request.generate_audio = Some(true);
+        assert!(!adapter.validate(&request).valid);
+        request.generate_audio = None;
+        request.seed = Some(1);
+        assert!(!adapter.validate(&request).valid);
+    }
     #[test]
     fn video_edits_omit_unpublished_fields_and_wrong_optional_controls_are_rejected() {
         let mut request:NormalizedVideoRequest=serde_json::from_value(json!({

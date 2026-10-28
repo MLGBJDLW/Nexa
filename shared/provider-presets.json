@@ -16,7 +16,7 @@
     "baseUrl": "https://api.openai.com/v1",
     "requiresApiKey": true,
     "icon": "🤖",
-    "description": "GPT-6.1 Sol, GPT-6 Astra, Sol, Luna; GPT-5.6 and earlier models",
+    "description": "GPT-6.1 Sol and Terra, GPT-6 Astra, Sol, Luna; GPT-5.6 and earlier models",
     "nativeWebSearch": {
       "dialect": "openAiResponses",
       "supportsDomains": true,
@@ -114,6 +114,56 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         }
+      },
+      {
+        "id": "gpt-6.1-terra",
+        "name": "GPT-6.1 Terra",
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "status": "active",
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true
       },
       {
         "id": "gpt-6-astra",
@@ -567,10 +617,11 @@
       {
         "id": "gpt-4.1-nano",
         "name": "GPT-4.1 Nano",
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-23",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "recommended": false
       },
       {
         "id": "gpt-4o",
@@ -631,10 +682,11 @@
             }
           }
         },
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-23",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "recommended": false
       },
       {
         "id": "o3",
@@ -676,10 +728,11 @@
             }
           }
         },
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-23",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://developers.openai.com/api/docs/deprecations",
+        "recommended": false
       },
       {
         "id": "gpt-5-codex",
@@ -7292,9 +7345,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/arcee-ai/trinity-large-thinking",
-        "maxOutputTokens": 80000
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://openrouter.ai/api/v1/models/arcee-ai/trinity-large-thinking/endpoints",
+        "maxOutputTokens": 80000,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "x-ai/grok-4.20-multi-agent",
@@ -7835,9 +7890,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/nvidia/nemotron-3-super-120b-a12b:free",
-        "maxOutputTokens": 235929
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://openrouter.ai/api/v1/models/nvidia/nemotron-3-super-120b-a12b:free/endpoints",
+        "maxOutputTokens": 235929,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "nvidia/nemotron-3-super-120b-a12b",
@@ -11204,9 +11261,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/ibm-granite/granite-4.0-h-micro",
-        "maxOutputTokens": 117900
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://openrouter.ai/api/v1/models/ibm-granite/granite-4.0-h-micro/endpoints",
+        "maxOutputTokens": 117900,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "microsoft/phi-4-mini-instruct",
@@ -21691,6 +21750,165 @@
         "documentationRef": "https://openrouter.ai/moonshotai/kimi-k3.1-pro",
         "status": "active",
         "recommended": false
+      },
+      {
+        "id": "openai/gpt-6.1-terra-pro",
+        "name": "OpenAI: GPT-6.1 Terra Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.1-terra-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEnabled": true,
+            "defaultEffort": "medium"
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.1-terra",
+        "name": "OpenAI: GPT-6.1 Terra",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.1-terra",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEnabled": true,
+            "defaultEffort": "medium"
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "prism-ml/ternary-bonsai-2-9b",
+        "name": "PrismML: Ternary Bonsai 2 9B",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://openrouter.ai/prism-ml/ternary-bonsai-2-9b",
+        "contextTokens": 262144,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_tokens",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ]
       }
     ]
   },
@@ -25351,6 +25569,46 @@
         "regions": [
           "international"
         ]
+      },
+      {
+        "id": "glm-5.3-flashx-legal",
+        "name": "GLM-5.3 FlashX Legal",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "regions": [
+          "international"
+        ]
       }
     ]
   },
@@ -26150,6 +26408,28 @@
         "source": "official",
         "lastVerifiedAt": "2026-10-22",
         "productReadiness": "known"
+      },
+      {
+        "id": "zai-org/GLM-5.3-Flash",
+        "name": "zai-org/GLM-5.3-Flash",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-28",
+        "documentationRef": "https://www.siliconflow.cn/models",
+        "contextTokens": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "capabilities": {
+          "vision": true,
+          "reasoning": null
+        }
       }
     ]
   },

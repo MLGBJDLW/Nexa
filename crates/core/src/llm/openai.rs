@@ -1410,7 +1410,7 @@ fn build_responses_request_with_tools(
     if dialect == super::native_search::NativeSearchDialect::OpenAiResponses {
         if matches!(
             request.model.as_str(),
-            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol"
+            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol" | "gpt-6.1-terra"
         ) {
             let disabled = request.reasoning_enabled == Some(false)
                 || request.reasoning_effort == Some(ReasoningEffort::None);
@@ -1547,7 +1547,7 @@ fn is_direct_gpt6_responses_model(config: &ProviderConfig, model: &str) -> bool 
         )
         && matches!(
             model.trim(),
-            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol"
+            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol" | "gpt-6.1-terra"
         )
 }
 
@@ -3840,6 +3840,9 @@ mod tests {
             ("inclusionai/ling-3.1-flash", false),
             ("upstage/solar-mini4", false),
             ("z-ai/glm-5.3", true),
+            ("openai/gpt-6.1-terra", false),
+            ("openai/gpt-6.1-terra-pro", true),
+            ("prism-ml/ternary-bonsai-2-9b", false),
         ] {
             for enabled in [true, false] {
                 for stale_controls in [false, true] {
@@ -3986,6 +3989,16 @@ mod tests {
                 ProviderType::SiliconFlow,
                 "https://api.siliconflow.cn/v1",
                 "zai-org/GLM-5.3",
+            ),
+            (
+                ProviderType::SiliconFlow,
+                "https://api.siliconflow.cn/v1",
+                "zai-org/GLM-5.3-Flash",
+            ),
+            (
+                ProviderType::OpenRouter,
+                "https://openrouter.ai/api/v1",
+                "prism-ml/ternary-bonsai-2-9b",
             ),
             (
                 ProviderType::SiliconFlow,
@@ -4464,7 +4477,13 @@ mod tests {
     fn gpt6_direct_routes_use_responses_with_tool_replay_and_valid_sampling() {
         let config = endpoint_config(ProviderType::OpenAi, "https://api.openai.com/v1");
         let provider = OpenAiProvider::new(config.clone()).unwrap();
-        for model in ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"] {
+        for model in [
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-6-luna",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+        ] {
             let mut request = endpoint_reasoning_request(model);
             request.reasoning_effort = None;
             request.reasoning_enabled = None;
