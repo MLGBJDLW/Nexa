@@ -471,9 +471,11 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
 
+    type RecordedCalls = Arc<Mutex<Vec<(String, Value)>>>;
+
     struct RecordingBackend {
         name: &'static str,
-        calls: Arc<Mutex<Vec<(String, Value)>>>,
+        calls: RecordedCalls,
     }
 
     #[async_trait]
@@ -533,7 +535,7 @@ mod tests {
         }
     }
 
-    fn registry() -> (ToolRegistry, Arc<Mutex<Vec<(String, Value)>>>) {
+    fn registry() -> (ToolRegistry, RecordedCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let mut registry = ToolRegistry::new();
         for name in BACKEND_NAMES {

@@ -974,7 +974,7 @@ mod tests {
             };
             let end = json!({"callId":"call","toolName":tool,"arguments":arguments,"providerExecuted":false,"status":"completed","isError":false,"artifacts":artifacts});
             if variant == "complete" {
-                assert!(pending_targets(&[end.clone()]).is_some());
+                assert!(pending_targets(std::slice::from_ref(&end)).is_some());
                 assert!(
                     complete_callback_ledger(
                         &db.conn(),
