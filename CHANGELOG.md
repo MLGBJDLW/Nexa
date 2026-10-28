@@ -7,6 +7,16 @@
 
 * **agent:** unify computer control and preserve long-task continuity ([#510](https://github.com/MLGBJDLW/Nexa/issues/510)) ([191e6f1](https://github.com/MLGBJDLW/Nexa/commit/191e6f17583b5751a64bf2c7087ead73f65b803b))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 191e6f17583b5751a64bf2c7087ead73f65b803b -->
+
+### What's Changed
+* feat(agent): unify computer control and preserve long-task continuity by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/510
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.10...nexa-monorepo-v0.17.11
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.9...nexa-monorepo-v0.17.10) (2026-10-26)
 
 
