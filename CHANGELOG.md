@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.10...nexa-monorepo-v0.17.11) (2026-10-28)
+
+
+### Features
+
+* **agent:** unify computer control and preserve long-task continuity ([#510](https://github.com/MLGBJDLW/Nexa/issues/510)) ([191e6f1](https://github.com/MLGBJDLW/Nexa/commit/191e6f17583b5751a64bf2c7087ead73f65b803b))
+
 ## [0.17.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.9...nexa-monorepo-v0.17.10) (2026-10-26)
 
 
