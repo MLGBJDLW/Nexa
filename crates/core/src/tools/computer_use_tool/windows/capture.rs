@@ -585,12 +585,17 @@ fn print_window(expected: &WindowSnapshot) -> Result<RgbaImage, CoreError> {
     if !same_capture_surface(&current, &after) {
         return Err(invalid("Window changed during fallback capture."));
     }
-    if bytes.chunks_exact(4).all(|pixel| pixel[..3] == [0, 0, 0]) {
+    if bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|pixel| pixel[..3] == [0, 0, 0])
+    {
         return Err(invalid(
             "The fallback returned a blank frame; no observation was accepted.",
         ));
     }
-    for pixel in bytes.chunks_exact_mut(4) {
+    for pixel in bytes.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
         pixel[3] = 255;
     }
