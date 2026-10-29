@@ -17,6 +17,16 @@
 * **subagents:** preserve scoped completion and inherited execution policy ([cef65cb](https://github.com/MLGBJDLW/Nexa/commit/cef65cb1c59b56a3c17871cb2be41b613bfc242d))
 * **verification:** retain available visual checks and same-target input fences ([133b3ad](https://github.com/MLGBJDLW/Nexa/commit/133b3ad14f046b05cb61318463f4e7b7c3041af3))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 39ded7ccc815010f5162adfdccf5e5593eb6d4ad -->
+
+### What's Changed
+* fix(agents): restore durable delegation, GLM setup, and native control recovery by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/513
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.11...nexa-monorepo-v0.17.12
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.10...nexa-monorepo-v0.17.11) (2026-10-28)
 
 本次更新聚焦长任务连续性、桌面操作可靠性与更新体验。
