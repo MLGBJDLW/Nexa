@@ -1,5 +1,69 @@
 use super::*;
 
+#[test]
+fn failed_observation_reports_target_recovery_without_claiming_an_effect() {
+    for (error, code, retryable) in [
+        (
+            CoreError::NotFound("Window disappeared".into()),
+            "computer_target_gone",
+            false,
+        ),
+        (
+            CoreError::Internal("GraphicsCaptureItem failed (HRESULT 0x80070057)".into()),
+            "computer_capture_unavailable",
+            true,
+        ),
+    ] {
+        let result = capture_failure_result("observe", 42, error);
+        assert!(result.is_error);
+        let data = result.artifacts.unwrap();
+        assert_eq!(data["code"], code);
+        assert_eq!(data["retryable"], retryable);
+        assert_eq!(data["sideEffect"], "not_started");
+        assert_eq!(data["expectedFormat"]["windowId"], 42);
+        assert!(result.content.contains("Do not repeat an input action"));
+    }
+}
+
+#[test]
+fn consumed_control_observation_can_authorize_only_a_fresh_capture() {
+    let conversation = format!("recapture-{}", uuid::Uuid::new_v4());
+    let token = remember_observation(Some(&conversation), vec![wait_observed_fixture()]).unwrap();
+    claim_observed_window(Some(&conversation), &token, 42).unwrap();
+    let args: ObserveArgs = serde_json::from_value(
+        serde_json::json!({"action":"capture_window", "window_id":42, "observation_id":token}),
+    )
+    .unwrap();
+    assert!(
+        computer_observe_approval_message(&args, Some(&conversation))
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        exact_observed_window_for_approval(Some(&conversation), Some(&token), Some(42)).is_err()
+    );
+    assert!(computer_observe_approval_message(&args, Some("another-conversation")).is_err());
+}
+
+#[test]
+fn background_input_watch_ignores_other_windows_but_keeps_same_target_takeover() {
+    let target = 0x10010;
+    let other = 0x11000;
+    let tracker = ControlCommitTracker::default();
+    let epoch = super::super::computer_input::window_epoch(target);
+    *tracker.input_watch.lock().unwrap() = Some((target, epoch, false));
+    super::super::computer_input::record(other, false, false);
+    tracker.ensure_running().unwrap();
+    super::super::computer_input::record(target, false, false);
+    let cause = tracker.ensure_running().unwrap_err();
+    let failure = tracker.failure(cause);
+    assert_eq!(
+        failure.pre_commit_kind,
+        Some(PreCommitFailureKind::UserTakeover)
+    );
+    assert!(!tracker.session_stopped.load(AtomicOrdering::Acquire));
+}
+
 #[tokio::test]
 async fn desktop_stop_blocks_only_the_owned_turn_and_keeps_chat_token_live() {
     let conversation = format!("computer-stop-{}", uuid::Uuid::new_v4());
@@ -41,6 +105,7 @@ fn wait_capture_fixture(level: u8) -> CapturedWindow {
         }))
         .unwrap(),
         png: png.into_inner(),
+        capture_backend: "fixture",
         image_width: 32,
         image_height: 32,
         native_image_width: 32,
@@ -1203,6 +1268,13 @@ fn windows_computer_control_helper_window() {
     if std::env::var_os("NEXA_COMPUTER_USE_HELPER").is_none() {
         return;
     }
+    if std::env::var_os("NEXA_COMPUTER_USE_HELPER_DPI_AWARE").is_some() {
+        unsafe {
+            windows::Win32::UI::HiDpi::SetThreadDpiAwarenessContext(
+                windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+            );
+        }
+    }
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::Graphics::Gdi::{GetSysColorBrush, ScreenToClient, COLOR_WINDOW};
@@ -1225,6 +1297,19 @@ fn windows_computer_control_helper_window() {
         use windows::Win32::UI::WindowsAndMessaging::{
             GetCursorPos, KillTimer, SetTimer, WM_APP, WM_TIMER,
         };
+        if message == WM_APP + 98 {
+            return LRESULT(
+                unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::SetWindowDisplayAffinity(
+                        window,
+                        windows::Win32::UI::WindowsAndMessaging::WINDOW_DISPLAY_AFFINITY(
+                            wparam.0 as u32,
+                        ),
+                    )
+                }
+                .is_ok() as isize,
+            );
+        }
         if message == WM_APP + 99 {
             unsafe {
                 SetTimer(Some(window), 909, 10, None);

@@ -1,7 +1,8 @@
 use super::{permits_semantic_click, ControlDelivery};
 use std::ffi::c_void;
 use std::io::Cursor;
-use std::sync::mpsc::{self, SyncSender};
+#[cfg(test)]
+use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::Instant;
@@ -62,14 +63,11 @@ use windows::Win32::{
         },
     },
 };
-use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
-use windows_capture::frame::Frame;
-use windows_capture::graphics_capture_api::InternalCaptureControl;
-use windows_capture::settings::{
-    ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
-    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings as CaptureSettings,
-};
 use windows_capture::window::Window;
+
+#[path = "windows/capture.rs"]
+mod capture;
+use capture::capture_rgba;
 
 use super::{
     before_control_commit, before_control_commit_as, screenshot_difference, screenshot_guard,
@@ -434,7 +432,7 @@ fn current_window_for_access(
 ) -> Result<(Window, WindowSnapshot), CoreError> {
     let handle = hwnd(expected.id);
     if !unsafe { IsWindow(Some(handle)).as_bool() } {
-        return Err(invalid(format!(
+        return Err(CoreError::NotFound(format!(
             "Observed window {} no longer exists.",
             expected.id
         )));
@@ -509,7 +507,7 @@ pub(super) fn capture_user_share_window(source_id: &str) -> Result<String, CoreE
             "The shared window is minimized; restore it and start sharing again.",
         ));
     }
-    let image = capture_rgba(window)?;
+    let image = capture_rgba(window, &current)?.image;
     current_window_for_access(&expected, true)?;
     let image = DynamicImage::ImageRgba8(image)
         .thumbnail(MAX_CAPTURE_EDGE, MAX_CAPTURE_EDGE)
@@ -570,109 +568,6 @@ fn same_capture_surface(left: &WindowSnapshot, right: &WindowSnapshot) -> bool {
         && left.width == right.width
         && left.height == right.height
         && left.minimized == right.minimized
-}
-
-struct OneFrameCapture {
-    sender: SyncSender<Result<RgbaImage, String>>,
-}
-
-impl GraphicsCaptureApiHandler for OneFrameCapture {
-    type Flags = SyncSender<Result<RgbaImage, String>>;
-    type Error = String;
-
-    fn new(context: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            sender: context.flags,
-        })
-    }
-
-    fn on_frame_arrived(
-        &mut self,
-        frame: &mut Frame,
-        capture_control: InternalCaptureControl,
-    ) -> Result<(), Self::Error> {
-        let width = frame.width();
-        let height = frame.height();
-        let result = (|| {
-            let pixels = u64::from(width)
-                .checked_mul(u64::from(height))
-                .ok_or_else(|| "capture dimensions overflowed".to_string())?;
-            if pixels == 0 || pixels > MAX_NATIVE_CAPTURE_PIXELS {
-                return Err(format!(
-                    "capture frame {width}x{height} exceeds the bounded native pixel budget"
-                ));
-            }
-            let buffer = frame
-                .buffer()
-                .map_err(|error| format!("read capture frame: {error}"))?;
-            let mut compact = Vec::new();
-            let pixels = buffer.as_nopadding_buffer(&mut compact).to_vec();
-            RgbaImage::from_raw(width, height, pixels)
-                .ok_or_else(|| "capture frame had an invalid RGBA buffer".to_string())
-        })();
-        let _ = self.sender.send(result);
-        capture_control.stop();
-        Ok(())
-    }
-}
-
-fn capture_rgba(window: Window) -> Result<RgbaImage, CoreError> {
-    use super::super::computer_capture_lifecycle::CaptureCleanupPool;
-    static CLEANUP: OnceLock<Result<CaptureCleanupPool, String>> = OnceLock::new();
-    let cleanup = CLEANUP
-        .get_or_init(|| CaptureCleanupPool::new(2))
-        .as_ref()
-        .map_err(|error| invalid(error.clone()))?;
-    let permit = cleanup.acquire().map_err(invalid)?;
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let settings = CaptureSettings::new(
-        window,
-        CursorCaptureSettings::WithoutCursor,
-        DrawBorderSettings::Default,
-        SecondaryWindowSettings::Default,
-        MinimumUpdateIntervalSettings::Default,
-        DirtyRegionSettings::Default,
-        ColorFormat::Rgba8,
-        sender,
-    );
-    let control = OneFrameCapture::start_free_threaded(settings)
-        .map_err(|error| platform_error("start Windows Graphics Capture worker", error))?;
-    match receiver.recv_timeout(Duration::from_secs(2)) {
-        Ok(frame) => {
-            // A buggy graphics-driver teardown must not retain the global
-            // desktop-input permit forever after a frame was already
-            // delivered. Join on a detached cleanup thread with a bounded
-            // acknowledgement; the captured frame remains authoritative.
-            if let Err(error) = cleanup.finish(
-                permit,
-                move || {
-                    control
-                        .wait()
-                        .map_err(|error| format!("join Windows Graphics Capture worker: {error}"))
-                },
-                Duration::from_millis(750),
-            ) {
-                tracing::warn!("{error}");
-            }
-            frame.map_err(|error| platform_error("decode Windows capture frame", error))
-        }
-        Err(error) => {
-            // stop() joins the driver's thread; running it inline would
-            // turn a bounded frame timeout into an unbounded tool hang.
-            if let Err(error) = cleanup.finish(
-                permit,
-                move || {
-                    control.stop().map_err(|error| {
-                        format!("stop timed-out Windows Graphics Capture worker: {error}")
-                    })
-                },
-                Duration::from_millis(750),
-            ) {
-                tracing::warn!("{error}");
-            }
-            Err(platform_error("receive Windows capture frame", error))
-        }
-    }
 }
 
 struct ComApartment;
@@ -1198,8 +1093,11 @@ fn capture_window_with_elements(
             current.id
         )));
     }
-    let image = capture_rgba(window)?;
+    let frame = capture_rgba(window, &current)?;
+    let capture_backend = frame.backend;
+    let image = frame.image;
     let post_capture = current_window_for_access(&current, true)?.1;
+    capture::ensure_visible(&post_capture)?;
     if !same_capture_surface(&current, &post_capture) {
         return Err(invalid(
             "Target identity, title, or geometry changed during screenshot capture. Capture again.",
@@ -1221,6 +1119,7 @@ fn capture_window_with_elements(
         (Vec::new(), None)
     };
     let mut final_snapshot = current_window_for_access(&post_capture, true)?.1;
+    capture::ensure_visible(&final_snapshot)?;
     if !same_capture_surface(&post_capture, &final_snapshot) {
         return Err(invalid(
             "Target identity, title, or geometry changed while collecting UI semantics. Capture again.",
@@ -1234,7 +1133,7 @@ fn capture_window_with_elements(
                 "Target changed before semantic observation verification. Capture again.",
             ));
         }
-        let verification_image = capture_rgba(verification_window)?;
+        let verification_image = capture_rgba(verification_window, &verification_snapshot)?.image;
         let (verification_png, verification_width, verification_height, _, _) =
             resized_png(verification_image)?;
         let consistent = verification_width == image_width
@@ -1257,11 +1156,6 @@ fn capture_window_with_elements(
             );
         }
     }
-    let annotated_png = if options.mode == CaptureMode::SetOfMarks {
-        Some(annotate_elements(&png, &elements)?)
-    } else {
-        None
-    };
     if !modal_owner_matches(
         modal_owner.as_deref(),
         observed_modal_owner(&final_snapshot).as_deref(),
@@ -1271,15 +1165,20 @@ fn capture_window_with_elements(
         ));
     }
     if current.input_epoch != super::super::computer_input::window_epoch(current.id) {
-        return Err(invalid(
-            "The user interacted with this window during capture. Observe again.",
-        ));
+        elements.clear();
+        semantic_error = Some("The target changed during capture. Pixels remain read-only evidence; capture again before input. Element mappings were withheld.".into());
     }
     final_snapshot.input_epoch = current.input_epoch;
     final_snapshot.modal_owner = modal_owner;
+    let annotated_png = if options.mode == CaptureMode::SetOfMarks {
+        Some(annotate_elements(&png, &elements)?)
+    } else {
+        None
+    };
     Ok(CapturedWindow {
         snapshot: final_snapshot,
         png,
+        capture_backend,
         image_width,
         image_height,
         native_image_width,
@@ -2787,11 +2686,14 @@ pub(super) fn control_window(
     final_capture_options: CaptureOptions,
     commit_tracker: &ControlCommitTracker,
 ) -> Result<ControlOutcome, ControlFailure> {
-    let physical_epoch = super::super::computer_input::physical_epoch();
     let window_epoch = super::super::computer_input::window_epoch(observed.snapshot.id);
     if window_epoch != observed.snapshot.input_epoch {
         return Err(ControlFailure::pre_commit_as(
-            PreCommitFailureKind::UserTakeover,
+            if window_epoch.same_monitor(observed.snapshot.input_epoch) {
+                PreCommitFailureKind::UserTakeover
+            } else {
+                PreCommitFailureKind::RuntimeUnavailable
+            },
             invalid("The user interacted after observation."),
         ));
     }
@@ -2918,7 +2820,9 @@ pub(super) fn control_window(
         ControlAction::Invoke | ControlAction::SetValue
     );
     let epoch = if foreground {
-        physical_epoch
+        // Unrelated user activity while taking read-only pre-action pixels is
+        // not a takeover. Watch the global input lane only from commit onward.
+        super::super::computer_input::physical_epoch()
     } else {
         window_epoch
     };
