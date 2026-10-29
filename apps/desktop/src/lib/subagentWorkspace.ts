@@ -3,6 +3,7 @@ import { createDefaultState } from './streaming/state';
 import { appendReplyTraceEvent, appendThinkingTraceEvent, applyStreamBlockDelta, applyStreamBlockSnapshot } from './streaming/blockProjection';
 import { appendStatusTraceEvent, applyStreamResetProjection, finishProjectedTools } from './streaming/terminalProjection';
 import { applyToolRunEvent } from './streaming/toolProjection';
+import { parseRuntimeIdentity, subagentRouteIdentity, type SubagentRuntimeIdentity } from './subagentArtifacts';
 
 export interface SubagentWorkspacePage {
   agentId: string | null;
@@ -25,6 +26,11 @@ export class SubagentJournalProjection {
   role = '';
   result = '';
   cursor = 0;
+  identity: SubagentRuntimeIdentity | null = null;
+  pendingParentVerification: string[] = [];
+  private observedIdentity = false;
+  get provider() { return this.identity?.provider ?? ''; }
+  get model() { return this.identity?.model ?? ''; }
   private canonical = new Set<string>();
   private approvals = new Map<string, string>();
 
@@ -38,6 +44,12 @@ export class SubagentJournalProjection {
       const envelope = typeof payload.subagentEvent === 'string' ? payload : record(payload.detail);
       const detail = record(envelope.detail);
       const kind = text(envelope.subagentEvent);
+      const result = record(detail.result);
+      const pending = record(detail.preflight ?? result.preflight).pendingParentVerification;
+      if (Array.isArray(pending)) this.pendingParentVerification = pending.filter((item): item is string => item === 'desktop' || item === 'browser');
+      const observed = parseRuntimeIdentity(detail.runtimeIdentity) ?? parseRuntimeIdentity(result.runtimeIdentity);
+      if (observed) { this.identity = observed; this.observedIdentity = true; }
+      else if (!this.observedIdentity) this.identity = subagentRouteIdentity(detail) ?? subagentRouteIdentity(result) ?? this.identity;
       if (kind === 'spawned') { this.task = text(detail.task); this.role = text(detail.role); }
       else if (kind === 'stream') {
         const event = record(detail.event);

@@ -959,5 +959,6 @@
   "interactionMatched": "Bedingung erfüllt",
   "interactionObserved": "Beobachtung erhalten",
   "agentReceiving": "Modellausgabe wird empfangen",
-  "agentReasoningUnavailable": "Diese Antwort enthält keine lesbare Zusammenfassung der Überlegungen."
+  "agentReasoningUnavailable": "Diese Antwort enthält keine lesbare Zusammenfassung der Überlegungen.",
+  "subagentParentVerification": "Interaktive Prüfungen übernimmt der Hauptagent"
 }

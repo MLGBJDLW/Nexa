@@ -894,6 +894,11 @@ impl AgentExecutor {
                 self.config.power_mode.is_nexus(),
             )?;
         }
+        if self.config.request_kind == AgentRequestKind::SubagentWorker {
+            if let Some(workflow) = workflow_ir.as_mut() {
+                workflow.defer_unavailable_worker_interactions(&self.tools);
+            }
+        }
         if self.config.execution_mode.is_plan() {
             if let Some(workflow) = workflow_ir.as_mut() {
                 workflow.configure_for_plan_mode();

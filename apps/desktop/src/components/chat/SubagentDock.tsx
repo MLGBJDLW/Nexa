@@ -5,6 +5,7 @@ import { Bot, Loader2, RefreshCw, Send, Square, X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { compactTaskLabel, type SubtaskRunArtifact } from '../../lib/taskArtifacts';
 import { subagentRecord, SubagentJournalProjection, type SubagentWorkspacePage } from '../../lib/subagentWorkspace';
+import { subagentRouteIdentity } from '../../lib/subagentArtifacts';
 import { StreamingMarkdown } from './StreamingMarkdown';
 import { ToolCallCard } from './ToolCallCard';
 
@@ -111,6 +112,8 @@ export function SubagentDock({ conversationId, subtask, onClose, onStatus, draft
   const legacyOutput = subagentRecord(legacyOutputOuter.run ?? legacyOutputOuter);
   const task = projection.task || (typeof legacyInput.task === 'string' ? legacyInput.task : '');
   const result = projection.result || (typeof legacyOutput.result === 'string' ? legacyOutput.result : '');
+  const identity = projection.identity ?? subagentRouteIdentity(legacyOutput) ?? subagentRouteIdentity(legacyInput);
+  const routeLabel = identity ? `${identity.provider} · ${identity.model}` : '';
   return (
     <aside data-testid="subagent-workspace" aria-label={t('chat.subagentWorkspace')} className="relative z-30 flex h-full shrink-0 flex-col border-l border-border bg-surface-1 text-text-primary max-lg:absolute max-lg:inset-0 max-lg:!w-full" style={{ width, maxWidth: '100%' }}
       onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose(); } }}>
@@ -119,7 +122,12 @@ export function SubagentDock({ conversationId, subtask, onClose, onStatus, draft
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize hover:bg-accent/20 focus:bg-accent/20 max-lg:hidden" />
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
         <Bot className="h-5 w-5 shrink-0 text-accent" />
-        <div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{compactTaskLabel(task) || t('chat.subagentWorkspace')}</h2><div className="flex items-center gap-1.5 text-xs text-text-secondary" role="status">{page?.canControl && <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />}{projection.role && `${projection.role} · `}{statusLabel}</div></div>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-sm font-semibold">{compactTaskLabel(task) || t('chat.subagentWorkspace')}</h2>
+          {routeLabel && <p data-testid="subagent-workspace-route" title={routeLabel} className="mt-1 break-words text-xs font-medium text-text-primary [overflow-wrap:anywhere]">{routeLabel}</p>}
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-text-secondary" role="status">{page?.canControl && <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />}{projection.role && `${projection.role} · `}{statusLabel}</div>
+          {projection.pendingParentVerification.length > 0 && <p className="mt-1 text-[11px] text-text-tertiary">{t('chat.subagentParentVerification')}</p>}
+        </div>
         <button type="button" className="rounded p-2 hover:bg-surface-3" aria-label={t('chat.subagentRefresh')} onClick={() => setRevision(value => value + 1)}><RefreshCw size={16} /></button>
         <button ref={closeRef} type="button" className="rounded p-2 hover:bg-surface-3" aria-label={t('chat.subagentClose')} title={t('chat.subagentCloseHint')} onClick={onClose}><X size={18} /></button>
       </header>

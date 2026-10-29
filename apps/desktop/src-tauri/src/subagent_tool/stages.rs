@@ -408,6 +408,20 @@ pub(super) async fn prepare_subagent_worker(
         &effective_source_scope,
         &context_snapshot,
     )?;
+    let interaction = nexa_core::tool_visibility_policy::resolve_turn_capability_requirements(
+        nexa_core::tool_visibility_policy::ToolVisibilityInput {
+            query: args.task.trim(),
+            system_prompt: &config.system_prompt,
+            has_sources: !effective_source_scope.is_empty(),
+        },
+    )
+    .interaction;
+    if interaction.requires_desktop_observation() {
+        preflight.pending_parent_verification.push("desktop".into());
+    }
+    if interaction.requires_visual_observation_after_mutation() || interaction.browser_observation {
+        preflight.pending_parent_verification.push("browser".into());
+    }
     let evidence_handoff = build_evidence_handoff(
         db,
         args.evidence_chunk_ids.as_deref(),

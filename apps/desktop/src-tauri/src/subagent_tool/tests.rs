@@ -82,6 +82,20 @@ async fn workers_preserve_parent_policy_and_keep_roles_in_the_runtime_tail() {
     }
 }
 
+#[test]
+fn ordinary_delegation_does_not_offer_model_invented_stop_limits() {
+    let single: serde_json::Value = serde_json::from_str(SPAWN_SUBAGENT_JSON).unwrap();
+    let batch: serde_json::Value = serde_json::from_str(SPAWN_SUBAGENT_BATCH_JSON).unwrap();
+    for properties in [
+        &single["parameters"]["properties"],
+        &batch["parameters"]["properties"]["tasks"]["items"]["properties"],
+    ] {
+        assert!(properties.is_object());
+        assert!(properties.get("max_iterations").is_none());
+        assert!(properties.get("timeout_secs").is_none());
+    }
+}
+
 #[tokio::test]
 async fn tool_budget_handoff_retains_observed_route_and_is_not_success() {
     let db = Database::open_memory().unwrap();

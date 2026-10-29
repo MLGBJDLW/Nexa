@@ -5,6 +5,10 @@ let seq = 0;
 const event = (subagentEvent: string, detail: unknown): ActivityEvent => ({ activityId: 'worker', seq: ++seq, timestamp: '', kind: 'progress', payload: { subagentEvent, detail } });
 const stream = (value: unknown) => event('stream', { event: value });
 const projection = new SubagentJournalProjection();
+projection.append([event('progress', { effectiveModelBudgets: { provider: 'openai_codex', model: 'gpt-6.1-sol' } })]);
+assert(projection.provider === 'openai_codex' && projection.model === 'gpt-6.1-sol', 'workspace exposes the prepared provider and model before output');
+projection.append([event('progress', { runtimeIdentity: { provider: 'custom', model: 'actual-worker' } })]);
+assert(String(projection.provider) === 'custom' && String(projection.model) === 'actual-worker', 'observed runtime identity overrides the prepared route');
 projection.append([
   event('spawned', { task: 'Review source' }),
   stream({ type: 'streamBlockSnapshot', channel: 'thinking', blockId: 'legacy-worker-thinking-1', text: 'legacy snapshot duplicate', legacy: true }),

@@ -959,5 +959,6 @@
   "interactionMatched": "條件已滿足",
   "interactionObserved": "已取得觀察",
   "agentReceiving": "正在接收模型輸出",
-  "agentReasoningUnavailable": "此回應未提供可讀的思考摘要。"
+  "agentReasoningUnavailable": "此回應未提供可讀的思考摘要。",
+  "subagentParentVerification": "互動驗證由主代理負責"
 }

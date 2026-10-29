@@ -309,6 +309,7 @@ pub(super) fn build_subagent_instructions(
     role_profile: Option<&SubagentRoleProfile>,
 ) -> String {
     let mut prompt = String::from("## Subagent Instructions\n\n");
+    prompt.push_str("Interactive browser and desktop surfaces are owned by the parent. Complete the implementation, research and checks available in your actual tool scope, and return concrete pending interactive checks to the parent. Do not call unavailable observation tools, claim that the parent check passed, or treat another worker's implementation result as visual verification. If an action already has an uncertain receipt, preserve its exact target and hand it back for reconciliation without replay.\n\n");
     prompt.push_str("Keep finite builds/tests attached through activity_observe completion waits using their returned activityId and cursor. For persistent development servers, use output/readiness observation and begin browser work at the verified readyUrl without waiting for process exit. If the parent must take over a running process, return its exact activityId, serviceId, cursor, verified readyUrl (if any), and the remaining verification; do not describe a launched or still-running build as completed. Close a worker only after its authoritative result has been consumed.\n\n");
     prompt.push_str(
         "You are a short-lived worker spawned by another agent. Focus only on the delegated subtask. Keep your work scoped, use tools only when they materially help, and return a compact result for the supervisor agent rather than addressing the end user directly. Do not emit nexa-followups recommendations; those belong to the parent's final response.",
@@ -500,6 +501,7 @@ pub(super) struct SubagentPreflightReport {
     pub(super) remaining_token_budget: u32,
     pub(super) remaining_call_budget: Option<u32>,
     pub(super) run_deadline_ms: Option<u64>,
+    pub(super) pending_parent_verification: Vec<String>,
 }
 pub(super) fn validate_subagent_preflight(
     args: &SpawnSubagentArgs,
@@ -619,6 +621,7 @@ pub(super) fn validate_subagent_preflight(
         remaining_token_budget: 0,
         remaining_call_budget: None,
         run_deadline_ms: None,
+        pending_parent_verification: Vec::new(),
     })
 }
 pub(super) fn finalize_subagent_preflight(

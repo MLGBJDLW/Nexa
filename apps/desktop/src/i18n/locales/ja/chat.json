@@ -959,5 +959,6 @@
   "interactionMatched": "条件を満たしました",
   "interactionObserved": "画面を取得済み",
   "agentReceiving": "モデルの出力を受信中",
-  "agentReasoningUnavailable": "この応答には読める推論の要約が含まれていません。"
+  "agentReasoningUnavailable": "この応答には読める推論の要約が含まれていません。",
+  "subagentParentVerification": "対話操作の検証は親エージェントが担当します"
 }
