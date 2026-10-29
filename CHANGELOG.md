@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.17.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.11...nexa-monorepo-v0.17.12) (2026-10-29)
+
+本次更新修复子代理长任务中断、GLM Coding Plan 配置和 Windows 桌面观察，并改进任务状态与文件变更显示。
+
+- **子代理执行与验证**：普通委派不再向模型暴露随意填写的调用轮数和任务时限，沿用用户设置，默认自动／无固定上限。缺少共享桌面或浏览器工具时，将相应验证明确交回父任务；独立网页截图能力、实际操作目标和不确定效果仍保留验证要求。
+- **GLM Coding Plan**：提供专用密钥输入，在发送任务前检查凭据是否存在，并更新 GLM ACP 适配器。明确区分当前适配器使用的 Coding Plan API key 与 ZCode 的账号登录，避免连接或模型发现成功被误认为套餐可用。
+- **设置与子代理身份**：可选执行限制收纳到高级设置，支持恢复自动设置。子代理卡片和工作区标题显示实际供应商与模型，运行时回执优先，避免混合不同执行路线的身份字段。
+- **Windows 截图恢复**：为 WGC 启动、帧取得和清理设置有界等待；失败时可对同一已验证窗口使用备用捕获。保持物理坐标一致，尊重窗口捕获排除，并保留具体失败诊断。缺少观察凭据时先取得窗口选择回执，再按原审批流程截图。
+- **后台交互**：按精确窗口记录输入，避免哈希碰撞和无关窗口操作造成误中断。前台提交继续拦截同目标真实输入，监控不可用与用户接管分别报告；停止、旧凭据失效和操作后核验规则保留。
+- **文件变更胶囊**：统一文字与计数基线，数字变化时短暂跳动后落到准确数值；支持减少动态效果，隐藏或屏幕外不播放动画。
+- **模型目录**：新增 Particle 1，移除已经不可用的 Mammoth 1 和 Elephant 1 免费路线；不自动迁移到付费路线。
+
+验证范围：Windows 独立测试窗口覆盖两种 DPI 模式、WGC 启动失败及超时后的备用截图和捕获排除；这些结果不代表所有业务软件均已验收。模型目录完成 88 个端点、1,156 个模型投影的静态检查和 4 个公开目录探测；未进行付费推理或所有账户的套餐权限验证。发布验证不下载安装包。
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 39ded7ccc815010f5162adfdccf5e5593eb6d4ad -->
+
+### What's Changed
+* fix(agents): restore durable delegation, GLM setup, and native control recovery by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/513
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.11...nexa-monorepo-v0.17.12
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.10...nexa-monorepo-v0.17.11) (2026-10-28)
 
 本次更新聚焦长任务连续性、桌面操作可靠性与更新体验。
