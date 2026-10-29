@@ -1057,7 +1057,7 @@ test('file edit badges accumulate in the ordinary card without hiding errors or 
   await expect(group.first().getByTestId('tool-call-card')).toHaveCount(1);
 });
 
-test('diff counters retain place identity while new leading digits animate in', async ({ page }) => {
+test('diff counters retain place identity while new leading digits animate in', async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto('/');
   await page.evaluate(async () => {
@@ -1065,8 +1065,27 @@ test('diff counters retain place identity while new leading digits animate in', 
     (await import(/* @vite-ignore */ fixture)).renderFileToolAccumulation();
   });
   const probe = page.getByTestId('counter-probe');
+  const capsule = page.getByTestId('capsule-probe');
+  const baselines = await capsule.locator('[data-testid="turn-changes-counts"] > span').evaluateAll(items => items.slice(0, 3).map(item => {
+    const marker = document.createElement('i');
+    marker.style.cssText = 'display:inline-block;width:0;height:0;padding:0;margin:0;vertical-align:baseline';
+    item.append(marker); const baseline = marker.getBoundingClientRect().top; marker.remove(); return baseline;
+  }));
+  expect(Math.max(...baselines) - Math.min(...baselines)).toBeLessThanOrEqual(1);
   const ones = await probe.locator('[data-count-place="0"]').elementHandle();
   await page.getByRole('button', { name: 'Change digits' }).click();
+  expect(await probe.evaluate(element => element.getAnimations({ subtree: true }).length)).toBeGreaterThan(0);
+  await expect(probe).toHaveText('10');
+  await expect(capsule.getByTestId('turn-changes-additions')).toHaveText('+10');
+  await capsule.evaluate(element => {
+    for (const animation of element.getAnimations({ subtree: true })) {
+      animation.pause();
+      animation.currentTime = 130;
+    }
+  });
+  expect(await capsule.locator('[data-count-scramble]:not([data-scramble=""])').first().evaluate(element => element.getAttribute('data-scramble')?.split('\n').length)).toBe(7);
+  await capsule.screenshot({ path: testInfo.outputPath('file-capsule-scramble.png') });
+  await capsule.evaluate(element => element.getAnimations({ subtree: true }).forEach(animation => animation.play()));
   await expect(probe.locator('[data-count-place]')).toHaveCount(2);
   expect(await ones!.evaluate(node => node === document.querySelector('[data-testid="counter-probe"] [data-count-place="0"]'))).toBe(true);
   await expect(probe.locator('[data-count-place="1"]')).toHaveCSS('opacity', '1');
@@ -1075,6 +1094,12 @@ test('diff counters retain place identity while new leading digits animate in', 
   expect(await ones!.evaluate(node => node === document.querySelector('[data-testid="counter-probe"] [data-count-place="0"]'))).toBe(true);
   await page.getByRole('button', { name: 'Change digits' }).click();
   await expect(probe.locator('[data-count-place]')).toHaveCount(1);
+  await expect.poll(() => probe.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0);
+  await capsule.screenshot({ path: testInfo.outputPath('file-capsule-settled.png') });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'Change digits' }).click();
+  await expect(probe).toHaveText('10');
+  expect(await probe.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0);
 });
 
 test('file diff previews render run_shell diff arrays', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 import { useTranslation } from '../../i18n';
 
 interface DiffStatsTickerProps {
@@ -16,65 +16,56 @@ function normalizedCount(value: number | null | undefined): number {
   return Number.isFinite(value) ? Math.max(0, Math.round(value ?? 0)) : 0;
 }
 
-export function RollingCount({
-  value,
-  className,
-}: {
-  value: number;
-  className?: string;
-}) {
+export function RollingCount({ value, className }: { value: number; className?: string }) {
   const shouldReduceMotion = useReducedMotion();
-  const previousRef = useRef(value);
-  const direction = value >= previousRef.current ? 1 : -1;
-  const digits = String(value).split('');
+  const count = normalizedCount(value);
+  const previousRef = useRef(count);
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const digits = String(count).split('');
 
   useEffect(() => {
-    previousRef.current = value;
-  }, [value]);
+    const previous = String(previousRef.current);
+    previousRef.current = count;
+    const root = rootRef.current;
+    if (!root || previous === String(count) || shouldReduceMotion || window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.visibilityState !== 'visible') return;
+    const bounds = root.getBoundingClientRect();
+    if (!bounds.width || !bounds.height || bounds.bottom < 0 || bounds.top > window.innerHeight) return;
+    const animations: Animation[] = [];
+    root.querySelectorAll<HTMLElement>('[data-count-place]').forEach(place => {
+      const index = Number(place.dataset.countPlace);
+      const current = String(count);
+      const digit = current[current.length - index - 1];
+      if (previous[previous.length - index - 1] === digit) return;
+      const base = place.querySelector<HTMLElement>('[data-count-digit]');
+      const strip = place.querySelector<HTMLElement>('[data-count-scramble]');
+      if (!base || !strip) return;
+      const alphabet = '7083#129%46';
+      strip.dataset.scramble = Array.from({ length: 6 }, (_, frame) => alphabet[(count + index * 7 + frame * 3) % alphabet.length]).concat(digit).join('\n');
+      const duration = 260 + Math.min(index, 3) * 18;
+      animations.push(base.animate([{ opacity: 0 }, { opacity: 0, offset: 0.92 }, { opacity: 1 }], { duration }));
+      animations.push(strip.animate([
+        { transform: 'translateY(0)', opacity: 1 },
+        { transform: 'translateY(-6em)', opacity: 1, offset: 0.92 },
+        { transform: 'translateY(-6em)', opacity: 0 },
+      ], { duration, easing: 'steps(6, end)' }));
+    });
+    return () => animations.forEach(animation => animation.cancel());
+  }, [count, shouldReduceMotion]);
 
-  if (shouldReduceMotion) {
-    return (
-      <span className={`inline-block text-right tabular-nums ${className ?? ''}`}>
-        {value}
+  return <span ref={rootRef} data-count-value={count} className={`inline-block text-right tabular-nums leading-none ${className ?? ''}`}>
+    {digits.map((digit, index) => <span key={digits.length - index - 1} data-count-place={digits.length - index - 1}
+      className="relative inline-block w-[1ch] text-center align-baseline">
+      <span data-count-digit>{digit}</span>
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <span data-count-scramble data-scramble="" className="absolute inset-x-0 top-0 whitespace-pre leading-none opacity-0 before:content-[attr(data-scramble)]" />
       </span>
-    );
-  }
-
-  return (
-    <span className={`inline-flex justify-end tabular-nums ${className ?? ''}`}>
-      <AnimatePresence initial={false}>
-      {digits.map((digit, index) => (
-        <motion.span
-          key={digits.length - index - 1}
-          data-count-place={digits.length - index - 1}
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: '1ch', opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          className="relative inline-flex h-[1.15em] overflow-hidden align-[-0.12em]"
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            <motion.span
-              key={digit}
-              initial={{ y: direction > 0 ? '82%' : '-82%', opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: direction > 0 ? '-82%' : '82%', opacity: 0 }}
-              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute inset-0 text-center"
-            >
-              {digit}
-            </motion.span>
-          </AnimatePresence>
-        </motion.span>
-      ))}
-      </AnimatePresence>
-    </span>
-  );
+    </span>)}
+  </span>;
 }
 
 function SignedRollingCount({ value, sign }: { value: number; sign: '+' | '-' }) {
   return (
-    <span className="inline-flex min-w-[2.6ch] justify-end tabular-nums">
+    <span className="inline-flex min-w-[2.6ch] items-baseline justify-end tabular-nums leading-none">
       <span className="shrink-0">{sign}</span>
       <RollingCount value={value} />
     </span>

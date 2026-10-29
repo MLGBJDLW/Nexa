@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ChatMessages } from '../../src/features/chat/ChatMessages';
 import { RollingCount } from '../../src/components/chat/DiffStatsTicker';
+import { TurnFileChanges } from '../../src/components/chat/TurnFileChanges';
 import { I18nProvider } from '../../src/i18n';
 import { SpeechPlaybackProvider } from '../../src/features/voice/SpeechPlaybackProvider';
 import { streamStore } from '../../src/lib/streamStore';
@@ -45,6 +46,10 @@ function Probe() {
       <button onClick={() => setCount(value => value === 9 ? 10 : value === 10 ? 100 : 9)}>Change digits</button>
       <span data-testid="counter-probe"><RollingCount value={count} /></span>
     </div>
+    <div className="p-6" data-testid="capsule-probe"><TurnFileChanges conversationId={id} docked summary={{
+      turnId: id, revision: count, additions: count, deletions: count - 4, pending: false, partial: false, unknownFiles: 0,
+      files: [{ path: 'src/notes.md', absolutePath: 'D:/fixture/src/notes.md', operation: 'edit', additions: count, deletions: count - 4, contentKind: 'text', partial: false, revision: count }],
+    }} /></div>
     <ChatMessages messages={[]} turns={[]} {...stream} />
   </main>;
 }
