@@ -103,6 +103,7 @@ pub(crate) async fn authenticate(
 ) -> Result<Authentication> {
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let mut resolved = preferences.resolve(db, None, None)?;
+    nexa_core::external_agent::credentials::validate_launch_credentials(&preset, &resolved)?;
     // Prepare the requested mode before spawning the runtime. A stale saved
     // API-key mode must not govern a newly selected Google OAuth flow.
     resolved.authentication_method = Some(method_id.to_owned());

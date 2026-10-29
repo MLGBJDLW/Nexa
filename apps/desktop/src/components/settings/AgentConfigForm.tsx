@@ -271,7 +271,7 @@ export function AgentConfigForm({
   const [modelCatalog, setModelCatalog] = useState<ProviderModelCatalogSnapshot | null>(() =>
     loadProviderModelCatalog(initialProvider, initialBaseUrl, initialIsLocal ? "" : (config?.apiKey ?? "")),
   );
-  const [showAdvanced, setShowAdvanced] = useState(!!config);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const initialDraftRef = useRef<SaveAgentConfigInput>({
     id: config?.id ?? null,
     name: config?.name ?? preset?.name ?? "",
@@ -1124,13 +1124,7 @@ export function AgentConfigForm({
               onChange={(event) => { const value = event.target.value.trim(); setContextWindow(value ? parseInt(value) || null : null); }}
               placeholder={t("settings.contextWindowPlaceholder")} min={1024} step={1} />}
           </SettingsRow>
-          <SettingsRow label={t("settings.maxIterations")} description={t("settings.maxIterationsHelp")}>
-            <Input type="number" aria-label={t("settings.maxIterations")} value={maxIterations ?? ""}
-              onChange={(event) => { const value = event.target.value.trim(); const parsed = Number.parseInt(value, 10); setMaxIterations(value === "" || Number.isNaN(parsed) ? null : parsed); }}
-              min={0} max={4294967295} step={1} />
-          </SettingsRow>
         </div>
-      </CollapsiblePanel>
 
       <CollapsiblePanel title={t("settings.providerStreaming")} description={t("settings.providerStreamingHelp")}>
         <div className="divide-y divide-border/50">
@@ -1168,11 +1162,19 @@ export function AgentConfigForm({
         </div>
       </CollapsiblePanel>
 
-      <CollapsiblePanel title={t("settings.subagents")} description={t("settings.subagentsDesc")}
-        summary={<span className="text-[11px] text-text-tertiary">{inheritSubagentTools ? t("settings.inheritSubagentTools") : t("settings.selectedToolsSummary", {
-          selected: String(visibleSelectedToolCount), total: String(subagentToolCatalog.length),
-        })}</span>}>
-        <div className="space-y-3">
+      <CollapsiblePanel title={t("settings.executionLimits")} description={t("settings.executionLimitsHelp")}
+        summary={<span className="text-[11px] text-text-tertiary">{[maxIterations, subagentMaxCallsPerTurn, subagentTokenBudget, subagentMaxActualTokens, subagentCostLimitMicros, subagentRunDeadlineMs].some(value => value != null) ? t("settings.executionLimitsCustom") : t("settings.copilotUnlimited")}</span>}>
+        <Button type="button" size="sm" variant="secondary" onClick={() => {
+          setMaxIterations(null); setSubagentMaxParallel(4); setSubagentMaxCallsPerTurn(null); setSubagentTokenBudget(null);
+          setSubagentInputContextLimit(null); setSubagentHandoffContextTokens(null); setSubagentMaxOutputTokens(null);
+          setSubagentMaxActualTokens(null); setSubagentCostLimitMicros(null); setSubagentQueueDeadlineMs(null);
+          setSubagentConnectDeadlineMs(null); setSubagentFirstTokenDeadlineMs(null); setSubagentRunDeadlineMs(null);
+        }}>{t("chat.contextPolicyReset")}</Button>
+          <SettingsRow label={t("settings.maxIterations")} description={t("settings.maxIterationsHelp")}>
+            <Input type="number" aria-label={t("settings.maxIterations")} value={maxIterations ?? ""}
+              onChange={(event) => { const value = event.target.value.trim(); const parsed = Number.parseInt(value, 10); setMaxIterations(value === "" || Number.isNaN(parsed) ? null : parsed); }}
+              min={0} max={4294967295} step={1} />
+          </SettingsRow>
           <div className="divide-y divide-border/50">
             <SettingsRow label={t("settings.maxParallelWorkers")} description={t("settings.maxParallelWorkersDesc")}>
               <Input type="number" aria-label={t("settings.maxParallelWorkers")} value={subagentMaxParallel ?? ""}
@@ -1279,6 +1281,13 @@ export function AgentConfigForm({
             ))}
           </div>
 
+      </CollapsiblePanel>
+
+      <CollapsiblePanel title={t("settings.subagents")} description={t("settings.subagentsDesc")}
+        summary={<span className="text-[11px] text-text-tertiary">{inheritSubagentTools ? t("settings.inheritSubagentTools") : t("settings.selectedToolsSummary", {
+          selected: String(visibleSelectedToolCount), total: String(subagentToolCatalog.length),
+        })}</span>}>
+        <div className="space-y-3">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 text-sm text-text-secondary">
@@ -1483,6 +1492,8 @@ export function AgentConfigForm({
             </div>
           </CollapsiblePanel>
         </div>
+      </CollapsiblePanel>
+
       </CollapsiblePanel>
 
       {/* Set as Default */}

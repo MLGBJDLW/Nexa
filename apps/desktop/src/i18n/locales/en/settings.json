@@ -1162,5 +1162,10 @@
   "storageAllocated": "Allocated pages",
   "storageReusable": "Reusable space",
   "storageWal": "Write-ahead log",
-  "storageReuseHint": "Deleted records leave reusable pages for future writes. Reusable space is not lost data; rebuilding the database to shrink the file is an offline operation."
+  "storageReuseHint": "Deleted records leave reusable pages for future writes. Reusable space is not lost data; rebuilding the database to shrink the file is an offline operation.",
+  "executionLimits": "Execution limits",
+  "executionLimitsHelp": "Automatic settings keep task duration, tool rounds and total usage unlimited. Concurrency protects device resources. Only set limits when you need a specific budget.",
+  "executionLimitsCustom": "Custom limits",
+  "glmCodingPlanKey": "GLM Coding Plan API key",
+  "glmCodingPlanHelp": "This adapter uses a Coding Plan API key; ZCode account sign-in is separate. Leave blank to use Z_AI_API_KEY or credentials saved by glm-acp-agent --setup. Connection checks discover models; they do not verify plan entitlement."
 }

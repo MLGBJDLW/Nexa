@@ -1162,5 +1162,10 @@
   "storageAllocated": "Zugewiesene Seiten",
   "storageReusable": "Wiederverwendbarer Platz",
   "storageWal": "Write-Ahead-Log",
-  "storageReuseHint": "Gelöschte Datensätze hinterlassen Seiten für weitere Schreibvorgänge. Dies ist kein Datenverlust. Die Datei wird nur durch einen Offline-Neuaufbau verkleinert."
+  "storageReuseHint": "Gelöschte Datensätze hinterlassen Seiten für weitere Schreibvorgänge. Dies ist kein Datenverlust. Die Datei wird nur durch einen Offline-Neuaufbau verkleinert.",
+  "executionLimits": "Ausführungslimits",
+  "executionLimitsHelp": "Automatisch bleiben Laufzeit, Werkzeugrunden und Gesamtnutzung unbegrenzt. Parallelität schützt die Geräteressourcen. Grenzen nur bei einem konkreten Budget setzen.",
+  "executionLimitsCustom": "Eigene Limits",
+  "glmCodingPlanKey": "GLM Coding Plan API-Schlüssel",
+  "glmCodingPlanHelp": "Dieser Adapter nutzt einen Coding-Plan-API-Schlüssel; die ZCode-Anmeldung ist getrennt. Leer lassen für Z_AI_API_KEY oder mit glm-acp-agent --setup gespeicherte Zugangsdaten. Die Verbindungsprüfung erkennt Modelle, prüft aber keine Tarifberechtigung."
 }
