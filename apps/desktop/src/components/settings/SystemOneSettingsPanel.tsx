@@ -3,7 +3,7 @@ import { useId, useState } from 'react';
 import { Eye, EyeOff, Save } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { AppConfig, SystemOneConfig } from '../../types/conversation';
-import { changeSystemOneProvider, DEFAULT_SYSTEM_ONE_CONFIG, SYSTEM_ONE_PROVIDERS, systemOneConfigured } from '../../lib/systemOneProviders';
+import { changeSystemOneProvider, DEFAULT_SYSTEM_ONE_CONFIG, SYSTEM_ONE_PROVIDERS, systemOneConfigured, systemOneModelRemoved } from '../../lib/systemOneProviders';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { CollapsiblePanel } from './SettingsSection';
@@ -50,8 +50,8 @@ export function SystemOneSettingsPanel({ appConfig, loading, onChange, onMarkDir
             <SettingsRow label={t('settings.model')} htmlFor={`${id}-model`}>
               <Input aria-label={t('settings.model')} id={`${id}-model`} value={config.model} list={`${id}-models`} disabled={loading} onChange={event => update({ model: event.target.value })} />
             </SettingsRow>
-            <datalist id={`${id}-models`}>{preset?.models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</datalist>
-            {config.provider === 'siliconflow-cn' && config.model === 'diffusiongemma' && <p role="status" className="text-xs text-warning">{t('settings.retiredModelSelection', { model: config.model })}</p>}
+            <datalist id={`${id}-models`}>{preset?.models.filter(model => model.status !== 'removed').map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</datalist>
+            {systemOneModelRemoved(config.provider, config.model) && <p role="status" className="text-xs text-warning">{t('settings.retiredModelSelection', { model: config.model })}</p>}
           </div>
         </div>
         <div className="space-y-1.5">

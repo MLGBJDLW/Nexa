@@ -5,6 +5,22 @@ const read = name => JSON.parse(readFileSync(new URL(`../../../shared/${name}.js
 const providers = read('provider-presets');
 const model = (provider, id) => providers.find(item => item.id === provider).models.find(item => item.id === id);
 
+test('October 29 catalog keeps Particle capabilities and retires unavailable free decision routes without remapping them', () => {
+  const particle = model('openrouter', 'particle-ai/particle-1');
+  assert.equal(particle.contextTokens, 1_048_576);
+  assert.equal(particle.maxOutputTokens, 131_072);
+  assert.equal(particle.supportsTools, true);
+  assert.equal(particle.capabilities.reasoning.mode, 'optional');
+  assert(particle.capabilities.reasoning.effortLevels.includes('none'));
+  const decisions = read('system-one-provider-presets').find(row => row.id === 'openrouter').models;
+  for (const name of ['mammoth', 'elephant']) {
+    const retired = decisions.find(row => row.id === `baseten/${name}-1:free`);
+    assert.equal(retired.status, 'removed');
+    assert.equal(retired.replacementModelId, undefined);
+    assert.equal(decisions.find(row => row.id === `baseten/${name}-1`).status, 'active');
+  }
+});
+
 test('October 28 Terra routes retain different reasoning controls and no automatic selection', () => {
   for (const [provider, id, mandatory] of [
     ['openai', 'gpt-6.1-terra', false],
