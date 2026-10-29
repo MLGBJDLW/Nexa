@@ -2819,17 +2819,11 @@ pub(super) fn control_window(
         effective_action,
         ControlAction::Invoke | ControlAction::SetValue
     );
-    let epoch = if foreground {
-        // Unrelated user activity while taking read-only pre-action pixels is
-        // not a takeover. Watch the global input lane only from commit onward.
-        super::super::computer_input::physical_epoch()
-    } else {
-        window_epoch
-    };
-    *commit_tracker
-        .input_watch
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some((observed.snapshot.id, epoch, foreground));
+    commit_tracker.result(commit_tracker.begin_input_watch(
+        observed.snapshot.id,
+        window_epoch,
+        foreground,
+    ))?;
     let _pointer_feedback = super::super::computer_pointer_feedback::PointerFeedback::begin(
         current.id,
         !matches!(

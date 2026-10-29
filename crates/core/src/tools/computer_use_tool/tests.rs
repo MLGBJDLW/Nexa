@@ -64,6 +64,20 @@ fn background_input_watch_ignores_other_windows_but_keeps_same_target_takeover()
     assert!(!tracker.session_stopped.load(AtomicOrdering::Acquire));
 }
 
+#[test]
+fn foreground_commit_rechecks_same_target_input_from_read_only_preparation() {
+    let target = 0x970001;
+    let epoch = super::super::computer_input::window_epoch(target);
+    super::super::computer_input::record(target, false, false);
+    let tracker = ControlCommitTracker::default();
+    let error = tracker.begin_input_watch(target, epoch, true).unwrap_err();
+    assert_eq!(
+        tracker.failure(error).pre_commit_kind,
+        Some(PreCommitFailureKind::UserTakeover)
+    );
+    assert!(!tracker.effect_may_have_occurred());
+}
+
 #[tokio::test]
 async fn desktop_stop_blocks_only_the_owned_turn_and_keeps_chat_token_live() {
     let conversation = format!("computer-stop-{}", uuid::Uuid::new_v4());

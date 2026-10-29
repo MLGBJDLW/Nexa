@@ -1510,6 +1510,28 @@ struct ControlCommitTracker {
 }
 
 impl ControlCommitTracker {
+    #[cfg(any(all(windows, feature = "desktop-control"), test))]
+    fn begin_input_watch(
+        &self,
+        window: u64,
+        observed_epoch: super::computer_input::InputEpoch,
+        foreground: bool,
+    ) -> Result<(), CoreError> {
+        // Sample the global fence before the last target check, so there is no
+        // unmonitored gap while switching from preparation to foreground input.
+        let epoch = if foreground {
+            super::computer_input::physical_epoch()
+        } else {
+            observed_epoch
+        };
+        *self.input_watch.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((window, observed_epoch, false));
+        self.ensure_running()?;
+        *self.input_watch.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((window, epoch, foreground));
+        self.ensure_running()
+    }
+
     #[cfg_attr(
         not(any(all(windows, feature = "desktop-control"), test)),
         allow(dead_code)

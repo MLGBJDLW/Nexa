@@ -351,8 +351,10 @@ impl WorkflowIr {
             let unavailable = match gate.kind {
                 VerificationGateKind::DesktopObservation
                 | VerificationGateKind::DesktopTerminalClosure => desktop,
-                VerificationGateKind::BrowserVisualObservation
-                | VerificationGateKind::BrowserSessionObservation
+                VerificationGateKind::BrowserVisualObservation => {
+                    browser && !tools.contains("browser_evidence_capture")
+                }
+                VerificationGateKind::BrowserSessionObservation
                 | VerificationGateKind::BrowserTerminalClosure => browser,
                 _ => false,
             };
@@ -3255,6 +3257,46 @@ mod tests {
                 .iter()
                 .any(|tool| tool == "run_shell" || tool == "edit_file")
         }));
+    }
+
+    #[test]
+    fn scoped_worker_keeps_independent_browser_visual_verification() {
+        let mut workflow = compile_workflow_ir(&plan(), &balanced_profile(), false).unwrap();
+        for kind in [
+            VerificationGateKind::BrowserVisualObservation,
+            VerificationGateKind::BrowserSessionObservation,
+        ] {
+            workflow.verification_gates.push(VerificationGate {
+                id: format!("{kind:?}"),
+                kind,
+                required: true,
+                passed: None,
+                detail: None,
+            });
+        }
+        let mut tools = crate::tools::ToolRegistry::new();
+        tools.register(Box::new(
+            crate::tools::browser_evidence_tool::BrowserEvidenceCaptureTool,
+        ));
+        workflow.defer_unavailable_worker_interactions(&tools);
+        let gate = |kind| {
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == kind)
+                .unwrap()
+        };
+        assert!(gate(VerificationGateKind::BrowserVisualObservation).required);
+        assert_eq!(
+            gate(VerificationGateKind::BrowserVisualObservation).passed,
+            None
+        );
+        assert!(!gate(VerificationGateKind::BrowserSessionObservation).required);
+        assert!(workflow.completion_contract.require_interaction_gates);
+        assert!(workflow
+            .completion_repair_guidance()
+            .contains("browser_evidence_capture"));
+        assert!(!workflow.completion_allowed());
     }
 
     #[test]
