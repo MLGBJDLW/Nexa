@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.11...nexa-monorepo-v0.17.12) (2026-10-29)
+
+
+### Features
+
+* **chat:** align change counters and animate numeric updates ([fb0df97](https://github.com/MLGBJDLW/Nexa/commit/fb0df972608c27cf3654aa9add38088425ba9b17))
+
+
+### Bug Fixes
+
+* **agents:** restore durable delegation and native control recovery ([#513](https://github.com/MLGBJDLW/Nexa/issues/513)) ([39ded7c](https://github.com/MLGBJDLW/Nexa/commit/39ded7ccc815010f5162adfdccf5e5593eb6d4ad))
+* **auth:** preflight GLM Coding Plan credentials and simplify advanced settings ([fce9a70](https://github.com/MLGBJDLW/Nexa/commit/fce9a7094e409cfe4f39d5de2e9a8a95095b3f93))
+* **catalog:** refresh available models and retire unavailable free routes ([5fed479](https://github.com/MLGBJDLW/Nexa/commit/5fed47951e200ec8465e5fe0d5aef0eab53b6619))
+* **computer:** recover window captures and isolate physical input conflicts ([9a456f8](https://github.com/MLGBJDLW/Nexa/commit/9a456f83f5c82092e7cc5034818a32cd0e533ea1))
+* **subagents:** preserve scoped completion and inherited execution policy ([cef65cb](https://github.com/MLGBJDLW/Nexa/commit/cef65cb1c59b56a3c17871cb2be41b613bfc242d))
+* **verification:** retain available visual checks and same-target input fences ([133b3ad](https://github.com/MLGBJDLW/Nexa/commit/133b3ad14f046b05cb61318463f4e7b7c3041af3))
+
 ## [0.17.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.10...nexa-monorepo-v0.17.11) (2026-10-28)
 
 本次更新聚焦长任务连续性、桌面操作可靠性与更新体验。
