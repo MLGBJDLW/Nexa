@@ -1162,5 +1162,10 @@
   "storageAllocated": "Páginas alocadas",
   "storageReusable": "Espaço reutilizável",
   "storageWal": "Registro de escrita",
-  "storageReuseHint": "As páginas liberadas são reutilizadas em gravações futuras. Isso não indica perda de dados. Reduzir o arquivo exige reconstruir a base offline."
+  "storageReuseHint": "As páginas liberadas são reutilizadas em gravações futuras. Isso não indica perda de dados. Reduzir o arquivo exige reconstruir a base offline.",
+  "executionLimits": "Limites de execução",
+  "executionLimitsHelp": "O modo automático não limita a duração, as rodadas de ferramentas nem o uso total. A simultaneidade protege os recursos. Defina limites apenas para um orçamento específico.",
+  "executionLimitsCustom": "Limites personalizados",
+  "glmCodingPlanKey": "Chave API do GLM Coding Plan",
+  "glmCodingPlanHelp": "Este adaptador usa uma chave API do Coding Plan; o login ZCode é separado. Deixe vazio para usar Z_AI_API_KEY ou as credenciais do glm-acp-agent --setup. A verificação descobre modelos, mas não valida os direitos do plano."
 }

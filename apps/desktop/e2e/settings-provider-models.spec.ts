@@ -7,6 +7,36 @@ const imageProviderPresets = JSON.parse(
   readFileSync(new URL("../../../shared/image-provider-presets.json", import.meta.url), "utf8"),
 ) as unknown[];
 
+test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in as ACP authentication', async ({ page }, testInfo) => {
+  await page.goto('/settings');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = async (command: string, args: any) => {
+      if (command === 'inspect_external_agent_cmd' && args.provider === 'acp_glm_acp_agent' && !args.launch.env?.Z_AI_API_KEY) {
+        throw new Error('GLM Agent needs a Coding Plan API key. ZCode account sign-in does not authenticate this ACP adapter. No prompt was sent.');
+      }
+      return original(command, args);
+    };
+  });
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.locator('[data-provider-preset-id="acp-glm-acp-agent"]').click();
+  const form = page.getByTestId('external-agent-form');
+  const probe = form.getByRole('button', { name: /check connection/i });
+  await expect(form.getByTestId('glm-coding-plan-credentials')).toContainText('ZCode account sign-in is separate');
+  await probe.click();
+  await expect(form.getByRole('alert')).toContainText('No prompt was sent');
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await form.getByLabel('GLM Coding Plan API key', { exact: true }).fill('fixture-plan-key');
+  await probe.click();
+  await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
+  await form.screenshot({ path: testInfo.outputPath('glm-coding-plan-setup.png') });
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.env?.Z_AI_API_KEY)).toBe('fixture-plan-key');
+});
+
 test('Copilot API imports an account and discovers its models independently of CLI runtimes', async ({ page }, testInfo) => {
   await page.goto('/settings');
   await page.evaluate(() => {
@@ -1448,6 +1478,7 @@ test("subagent tool inheritance remains distinct from an explicit empty allowlis
   await page.getByTitle('Edit').first().click();
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   const inherit = form.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' });
+  await form.getByRole('button', { name: /^Advanced Settings/ }).click();
   if (!await inherit.isVisible()) await form.getByRole('button', { name: /^Subagents/ }).click();
   await inherit.check();
   await form.getByRole('button', { name: 'Save', exact: true }).click();
@@ -1455,6 +1486,7 @@ test("subagent tool inheritance remains distinct from an explicit empty allowlis
 
   await page.getByTitle('Edit').first().click();
   const edited = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
+  await edited.getByRole('button', { name: /^Advanced Settings/ }).click();
   if (!await edited.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' }).isVisible()) {
     await edited.getByRole('button', { name: /^Subagents/ }).click();
   }
@@ -1470,6 +1502,8 @@ test("legacy provider output caps are retired without manual cleanup", async ({ 
   await page.getByTitle("Edit").first().click();
 
   await expect(page.getByText('Per-request output limit', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
+  await page.getByRole('button', { name: /^Execution limits/ }).click();
   const toolRoundsInput = page.getByRole("spinbutton", { name: "Max Verified Tool Rounds" });
   await toolRoundsInput.fill("0");
 

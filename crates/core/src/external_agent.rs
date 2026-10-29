@@ -5,6 +5,7 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path, sync::OnceLock};
 
+pub mod credentials;
 pub mod launch;
 pub mod registry;
 

@@ -2,26 +2,76 @@
 //! Hook callbacks only publish counters; cancellation and receipts stay with
 //! the owning action, outside the Windows input thread.
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 static PHYSICAL: AtomicU64 = AtomicU64::new(0);
 static ESCAPE: AtomicU64 = AtomicU64::new(0);
-static WINDOWS: [AtomicU64; 256] = [const { AtomicU64::new(0) }; 256];
+static WINDOWS: OnceLock<Mutex<WindowRevisions>> = OnceLock::new();
 #[cfg(test)]
 static INJECTED_FIXTURE_EVENTS: AtomicU64 = AtomicU64::new(0);
 
-fn window_slot(window: u64) -> usize {
-    ((window >> 4) ^ (window >> 12)) as usize % WINDOWS.len()
+#[derive(Default)]
+struct WindowRevisions {
+    clock: u64,
+    entries: HashMap<u64, (u64, u64)>,
+}
+impl WindowRevisions {
+    fn observe(&mut self, window: u64) -> u64 {
+        self.clock = self.clock.saturating_add(1);
+        if let Some((revision, accessed)) = self.entries.get_mut(&window) {
+            *accessed = self.clock;
+            return *revision;
+        }
+        if self.entries.len() >= 1024 {
+            if let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, accessed))| accessed)
+                .map(|(id, _)| *id)
+            {
+                self.entries.remove(&oldest);
+            }
+        }
+        // Re-registering an evicted window changes its revision, so an old
+        // observation never becomes valid again after lost monitoring history.
+        self.entries.insert(window, (self.clock, self.clock));
+        self.clock
+    }
+    #[cfg(any(all(windows, feature = "desktop-control"), test))]
+    fn record(&mut self, window: u64) {
+        if let Some((revision, accessed)) = self.entries.get_mut(&window) {
+            self.clock = self.clock.saturating_add(1);
+            *revision = self.clock;
+            *accessed = self.clock;
+        }
+    }
+}
+fn windows() -> &'static Mutex<WindowRevisions> {
+    WINDOWS.get_or_init(|| Mutex::new(WindowRevisions::default()))
 }
 
 #[cfg(any(all(windows, feature = "desktop-control"), test))]
 pub(super) fn record(window: u64, injected: bool, escape: bool) {
+    record_event(window, injected, escape, true);
+}
+
+#[cfg(any(all(windows, feature = "desktop-control"), test))]
+fn record_event(window: u64, injected: bool, escape: bool, affects_window: bool) {
     if injected {
         #[cfg(test)]
         INJECTED_FIXTURE_EVENTS.fetch_add(1, Ordering::AcqRel);
         return;
     }
     PHYSICAL.fetch_add(1, Ordering::AcqRel);
-    WINDOWS[window_slot(window)].fetch_add(1, Ordering::AcqRel);
+    if affects_window {
+        windows()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .record(window);
+    }
     if escape {
         ESCAPE.fetch_add(1, Ordering::AcqRel);
     }
@@ -37,6 +87,9 @@ pub(super) struct InputEpoch {
 }
 
 impl InputEpoch {
+    pub(super) fn same_monitor(self, other: Self) -> bool {
+        self.generation == other.generation && self.monitored == other.monitored
+    }
     pub(super) fn capabilities(self) -> serde_json::Value {
         serde_json::json!({
             "physicalInputMonitoring": if self.monitored { "available" } else { "unavailable" },
@@ -49,7 +102,10 @@ impl InputEpoch {
 
 pub(super) fn window_epoch(window: u64) -> InputEpoch {
     let mut epoch = monitor_epoch();
-    epoch.revision = WINDOWS[window_slot(window)].load(Ordering::Acquire);
+    epoch.revision = windows()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .observe(window);
     epoch
 }
 pub(super) fn physical_epoch() -> InputEpoch {
@@ -257,7 +313,14 @@ unsafe extern "system" fn mouse_hook(
     if code >= 0 {
         let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
         let window = unsafe { GetAncestor(WindowFromPoint(event.pt), GA_ROOT) };
-        record(window.0 as u64, event.flags & LLMHF_INJECTED != 0, false);
+        // Pointer motion can affect a foreground input lane, but merely passing
+        // over a window is not an edit/click and must not revoke its readback.
+        record_event(
+            window.0 as u64,
+            event.flags & LLMHF_INJECTED != 0,
+            false,
+            wparam.0 as u32 != WM_MOUSEMOVE,
+        );
     }
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
@@ -265,6 +328,35 @@ unsafe extern "system" fn mouse_hook(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn different_windows_never_share_input_revisions_and_eviction_never_revalidates() {
+        let mut revisions = WindowRevisions::default();
+        let first = 0x10010;
+        let colliding_old_bucket = 0x11000;
+        let observed = revisions.observe(first);
+        revisions.observe(colliding_old_bucket);
+        revisions.record(colliding_old_bucket);
+        assert_eq!(revisions.observe(first), observed);
+        revisions.record(first);
+        assert_ne!(revisions.observe(first), observed);
+        let current = revisions.observe(first);
+        for window in 1..=1025 {
+            revisions.observe(window);
+        }
+        assert!(revisions.entries.len() <= 1024);
+        assert_ne!(revisions.observe(first), current);
+    }
+
+    #[test]
+    fn pointer_motion_does_not_revoke_a_window_observation() {
+        let window = 0x6f1010;
+        let before = window_epoch(window);
+        record_event(window, false, false, false);
+        assert_eq!(window_epoch(window), before);
+        record_event(window, false, false, true);
+        assert_ne!(window_epoch(window), before);
+    }
     #[test]
     fn failed_monitor_retries_and_recovery_invalidates_gap_observations() {
         let now = std::time::Instant::now();
@@ -290,13 +382,13 @@ mod tests {
     #[test]
     fn physical_epoch_remembers_released_input_but_ignores_injected_escape() {
         let window = 0x1f30;
-        let before = WINDOWS[window_slot(window)].load(Ordering::Acquire);
+        let before = window_epoch(window).revision;
         let escape = ESCAPE.load(Ordering::Acquire);
         record(window, true, true);
-        assert_eq!(WINDOWS[window_slot(window)].load(Ordering::Acquire), before);
+        assert_eq!(window_epoch(window).revision, before);
         assert_eq!(ESCAPE.load(Ordering::Acquire), escape);
         record(window, false, false);
-        assert!(WINDOWS[window_slot(window)].load(Ordering::Acquire) > before);
+        assert!(window_epoch(window).revision > before);
         record(window, false, true);
         assert!(ESCAPE.load(Ordering::Acquire) > escape);
     }

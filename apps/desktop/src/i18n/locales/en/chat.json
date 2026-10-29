@@ -959,5 +959,6 @@
   "interactionMatched": "Condition met",
   "interactionObserved": "Observation received",
   "agentReceiving": "Receiving model output",
-  "agentReasoningUnavailable": "This response does not include a readable reasoning summary."
+  "agentReasoningUnavailable": "This response does not include a readable reasoning summary.",
+  "subagentParentVerification": "Interactive checks belong to the parent"
 }

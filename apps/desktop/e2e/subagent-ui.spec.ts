@@ -191,6 +191,7 @@ test.beforeEach(async ({ page }) => {
       childEvents.push({ activityId: 'agent-controls', seq: childEvents.length + 1, timestamp: nowIso, kind: terminal ? subagentEvent : 'progress', payload: terminal ? { state: subagentEvent, detail: envelope } : envelope });
     };
     childEvent('spawned', { task: 'Continue background research' });
+      childEvent('progress', { effectiveModelBudgets: { provider: 'openai_codex', model: 'gpt-6.1-sol' } });
     childEvent('stream', { event: { type: 'streamBlockSnapshot', channel: 'thinking', blockId: 'thinking', text: 'Inspecting the source carefully.' } });
     childEvent('stream', { event: { type: 'streamBlockSnapshot', channel: 'answer', blockId: 'answer', text: 'Live child answer privateCODE' } });
     childEvent('toolStarted', { run: { callId: 'child-tool', toolName: 'read_file', status: 'running', arguments: '{"path":"source.rs"}' } });
@@ -637,7 +638,7 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   const chatLog = page.getByLabel('Chat messages');
   await chatLog.getByRole('button', { name: /spawn[_ ]subagent/i }).click();
   const subagentCard = chatLog.getByRole('button', {
-    name: /Critic\s+Complete\s+1 tools?\s+Audit the last answer for risks/i,
+    name: /Critic\s+Complete.*1 tools?\s+Audit the last answer for risks/i,
   }).first();
   await expect(subagentCard).toBeVisible();
   const subagentShell = subagentCard.locator('xpath=..');
@@ -666,6 +667,13 @@ test('shows subagent cards in chat and tool permissions in settings', async ({ p
   await expect(page.getByText(/subagents \d+/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Add Provider' }).click();
   await page.getByRole('button', { name: 'Custom / Manual' }).click();
+  await expect(page.getByRole('button', { name: /^Subagents/ })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
+  await page.getByRole('button', { name: /^Execution limits/ }).click();
+  await expect(page.getByLabel('Max Verified Tool Rounds', { exact: true })).toHaveValue('');
+  await page.getByLabel('Max Verified Tool Rounds', { exact: true }).fill('18');
+  await page.getByRole('button', { name: 'Reset to automatic', exact: true }).click();
+  await expect(page.getByLabel('Max Verified Tool Rounds', { exact: true })).toHaveValue('');
   await page.getByRole('button', { name: /^Subagents/ }).click();
   await expect(page.getByRole('heading', { name: 'Subagents' })).toBeVisible();
   await expect(page.getByText('Max parallel workers')).toBeVisible();
@@ -746,6 +754,7 @@ test('opens the child workspace from the capsule and preserves the parent draft 
   await board.getByTestId('task-board-subtask').getByRole('button').click();
   const dock = page.getByTestId('subagent-workspace');
   await expect(dock).toContainText('Live child answer');
+  await expect(dock.getByTestId('subagent-workspace-route')).toHaveText('openai_codex · gpt-6.1-sol');
   await dock.getByText('Thinking', { exact: true }).click();
   await expect(dock).toContainText('Inspecting the source carefully.');
   await expect(dock.getByTestId('tool-call-card')).toHaveAttribute('data-tool-state', 'running');

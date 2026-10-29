@@ -22,7 +22,7 @@
       "window_id": {
         "type": "integer",
         "minimum": 1,
-        "description": "Window id from the referenced observation. Required for capture_window and wait_for_change."
+        "description": "Window id from the referenced observation. Required for capture_window and wait_for_change; optional exact-window filter for list_windows."
       },
       "max_results": {
         "type": "integer",

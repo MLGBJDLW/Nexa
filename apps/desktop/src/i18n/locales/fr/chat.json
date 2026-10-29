@@ -959,5 +959,6 @@
   "interactionMatched": "Condition remplie",
   "interactionObserved": "Observation reçue",
   "agentReceiving": "Réception de la réponse du modèle",
-  "agentReasoningUnavailable": "Cette réponse ne contient pas de résumé du raisonnement lisible."
+  "agentReasoningUnavailable": "Cette réponse ne contient pas de résumé du raisonnement lisible.",
+  "subagentParentVerification": "Les vérifications interactives relèvent de l’agent principal"
 }

@@ -69,6 +69,7 @@ export function TurnFileChanges({ conversationId, summary, docked = false }: { c
     return () => { document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', outside); };
   }, [open, preview]);
   if (summary.files.length === 0 && !summary.partial && !summary.pending) return null;
+  const countParts = t('chat.turnChangesTitle', { count: '{count}' }).split('{count}');
   const transition = { duration: reduceMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] as const };
   return <div ref={rootRef} className={docked ? 'relative min-w-0 max-w-full' : 'relative my-3 min-w-0'} data-testid="turn-file-changes" data-turn-id={summary.turnId}
     onMouseEnter={() => setPreview(true)} onMouseLeave={() => setPreview(false)}
@@ -77,12 +78,14 @@ export function TurnFileChanges({ conversationId, summary, docked = false }: { c
       whileTap={reduceMotion ? undefined : { scale: 0.97 }}
       className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/70 bg-surface-1 px-3 py-1.5 text-xs text-text-secondary shadow-sm transition-colors hover:border-border-hover hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
       {summary.pending ? <Loader2 size={13} className="shrink-0 animate-spin text-text-tertiary" /> : <FileDiff size={13} className="shrink-0 text-text-tertiary" />}
-      <span>{summary.files.length ? t('chat.turnChangesTitle', { count: String(summary.files.length) }) : summary.pending ? t('common.loading') : t('chat.turnChangesPartial')}</span>
+      <span className="inline-flex min-w-0 items-baseline gap-2 leading-none" data-testid="turn-changes-counts">
+      <span data-testid="turn-changes-file-count">{summary.files.length ? <>{countParts[0]}<RollingCount value={summary.files.length} />{countParts[1]}</> : summary.pending ? t('common.loading') : t('chat.turnChangesPartial')}</span>
       {summary.files.length > 0 && <>
-        <span className="font-mono tabular-nums text-emerald-500">+<RollingCount value={summary.additions} /></span>
-        <span className="font-mono tabular-nums text-rose-400">−<RollingCount value={summary.deletions} /></span>
+        <span data-testid="turn-changes-additions" className="inline-flex items-baseline font-mono tabular-nums leading-none text-emerald-500">+<RollingCount value={summary.additions} /></span>
+        <span data-testid="turn-changes-deletions" className="inline-flex items-baseline font-mono tabular-nums leading-none text-rose-400">−<RollingCount value={summary.deletions} /></span>
       </>}
       {(summary.partial || summary.unknownFiles > 0) && <span className="text-text-tertiary" title={t('chat.turnChangesCoverage')}>*</span>}
+      </span>
       <ChevronRight size={12} className={`transition-transform duration-200 motion-reduce:transition-none ${open ? (docked ? '-rotate-90' : 'rotate-90') : ''}`} />
     </motion.button>
     <AnimatePresence initial={false}>

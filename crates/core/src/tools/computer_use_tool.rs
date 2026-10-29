@@ -850,7 +850,12 @@ pub(crate) fn bind_window_session_approval(
             "Window-session approval requires a conversation and active task".into(),
         ));
     };
-    let observed = exact_observed_window_for_approval(
+    let resolve = if request.tool_name == "computer_observe" {
+        exact_observed_window_for_read
+    } else {
+        exact_observed_window_for_approval
+    };
+    let observed = resolve(
         conversation_id,
         arguments
             .get("observation_id")
@@ -996,7 +1001,7 @@ fn exact_observed_window_for_approval(
 ) -> Result<ObservedWindow, CoreError> {
     let observation_id = observation_id.ok_or_else(|| {
         CoreError::InvalidInput(
-            "Approval requires an exact computer observation_id. Observe the window again."
+            "Approval requires an exact computer observation_id. First call computer_use action=list_windows with target.kind=window, then observe the exact target.window_id using the returned observationId."
                 .to_string(),
         )
     })?;
@@ -1006,6 +1011,20 @@ fn exact_observed_window_for_approval(
         )
     })?;
     observed_window_for_approval(conversation_id, observation_id, window_id)
+}
+
+fn exact_observed_window_for_read(
+    conversation_id: Option<&str>,
+    observation_id: Option<&str>,
+    window_id: Option<u64>,
+) -> Result<ObservedWindow, CoreError> {
+    let token = observation_id.ok_or_else(|| CoreError::InvalidInput("Run computer_use action=list_windows first, then observe the exact target.window_id using its returned observationId.".into()))?;
+    let window = window_id.filter(|id| *id > 0).ok_or_else(|| {
+        CoreError::InvalidInput("Select the exact target.window_id from list_windows.".into())
+    })?;
+    // Consumed pixels cannot authorize another input. They still identify the
+    // same process/window for a fresh, separately approved read-only capture.
+    observed_window(conversation_id, token, window)
 }
 
 fn computer_observe_approval_message(
@@ -1022,7 +1041,7 @@ fn computer_observe_approval_message(
     if !matches!(action.as_str(), "capture_window" | "wait_for_change") {
         return Ok(None);
     }
-    let observed = exact_observed_window_for_approval(
+    let observed = exact_observed_window_for_read(
         conversation_id,
         args.observation_id.as_deref(),
         args.window_id,
@@ -1050,7 +1069,7 @@ fn computer_observe_persistent_approval_message(
     if !matches!(action.as_str(), "capture_window" | "wait_for_change") {
         return Ok(None);
     }
-    let observed = exact_observed_window_for_approval(
+    let observed = exact_observed_window_for_read(
         conversation_id,
         args.observation_id.as_deref(),
         args.window_id,
@@ -1219,6 +1238,7 @@ fn computer_control_persistent_approval_message(
 struct CapturedWindow {
     snapshot: WindowSnapshot,
     png: Vec<u8>,
+    capture_backend: &'static str,
     image_width: u32,
     image_height: u32,
     native_image_width: u32,
@@ -1480,6 +1500,7 @@ struct ControlCommitTracker {
     interaction: crate::observed_interaction::InteractionCommit,
     cancelled: Arc<AtomicBool>,
     input_interrupted: Arc<AtomicBool>,
+    monitor_interrupted: Arc<AtomicBool>,
     session_stopped: Arc<AtomicBool>,
     session_cancel: crate::agent::CancellationToken,
     worker_state: Arc<AtomicU8>,
@@ -1489,6 +1510,28 @@ struct ControlCommitTracker {
 }
 
 impl ControlCommitTracker {
+    #[cfg(any(all(windows, feature = "desktop-control"), test))]
+    fn begin_input_watch(
+        &self,
+        window: u64,
+        observed_epoch: super::computer_input::InputEpoch,
+        foreground: bool,
+    ) -> Result<(), CoreError> {
+        // Sample the global fence before the last target check, so there is no
+        // unmonitored gap while switching from preparation to foreground input.
+        let epoch = if foreground {
+            super::computer_input::physical_epoch()
+        } else {
+            observed_epoch
+        };
+        *self.input_watch.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((window, observed_epoch, false));
+        self.ensure_running()?;
+        *self.input_watch.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((window, epoch, foreground));
+        self.ensure_running()
+    }
+
     #[cfg_attr(
         not(any(all(windows, feature = "desktop-control"), test)),
         allow(dead_code)
@@ -1532,6 +1575,11 @@ impl ControlCommitTracker {
                 super::computer_input::window_epoch(window)
             };
             if current != epoch {
+                if !current.same_monitor(epoch) {
+                    self.monitor_interrupted
+                        .store(true, AtomicOrdering::Release);
+                    return Err(CoreError::InvalidInput("Input monitoring changed while preparing this action. Obtain a fresh observation before input.".into()));
+                }
                 self.input_interrupted.store(true, AtomicOrdering::Release);
                 tracing::debug!(
                     window,
@@ -1596,7 +1644,9 @@ impl ControlCommitTracker {
     }
 
     fn failure_as(&self, kind: PreCommitFailureKind, cause: CoreError) -> ControlFailure {
-        let kind = if self.input_interrupted.load(AtomicOrdering::Acquire)
+        let kind = if self.monitor_interrupted.load(AtomicOrdering::Acquire) {
+            PreCommitFailureKind::RuntimeUnavailable
+        } else if self.input_interrupted.load(AtomicOrdering::Acquire)
             && !self.cancelled.load(AtomicOrdering::Acquire)
             && !self.session_stopped.load(AtomicOrdering::Acquire)
         {
@@ -1823,6 +1873,7 @@ fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::V
         "schemaVersion": 2,
         "observationId": observation_id,
         "windowId": capture.snapshot.id,
+        "captureBackend": capture.capture_backend,
         "inputGuards": capture.snapshot.input_epoch.capabilities(),
         "targetIdentity": desktop_target_identity(&capture.snapshot),
         "observationCapturedAtMs": capture.observation_captured_at_ms,
@@ -1868,6 +1919,26 @@ fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::V
         "singleUseForControl": !capture.snapshot.observation_only,
         "expiresInSeconds": OBSERVATION_TTL.as_secs()
     })
+}
+
+fn capture_failure_result(call_id: &str, window_id: u64, error: CoreError) -> ToolResult {
+    let gone = matches!(error, CoreError::NotFound(_));
+    super::structured_tool_error_result_with_side_effect(
+        call_id,
+        if gone {
+            "computer_target_gone"
+        } else {
+            "computer_capture_unavailable"
+        },
+        format!("Could not observe window {window_id}: {error}"),
+        serde_json::json!({
+            "windowId": window_id,
+            "recovery": "Refresh computer_use action=list_windows for the intended app. If its exact window still exists, ensure it is visible and restored, then observe with the fresh inventory token. Do not repeat an input action, switch to another window, or claim verification from this failed capture."
+        }),
+        !gone,
+        super::ToolSideEffect::NotStarted,
+        Some(false),
+    )
 }
 
 fn semantic_observation_for_llm(observation_id: &str, capture: &CapturedWindow) -> String {
@@ -2604,6 +2675,7 @@ where
             .into_iter()
             .filter(|window| {
                 args.process_id.is_none_or(|pid| window.pid == pid)
+                    && args.window_id.is_none_or(|id| window.id == id)
                     && app_name.is_none_or(|name| window.app_name.eq_ignore_ascii_case(name))
             })
             .collect::<Vec<_>>();
@@ -2792,10 +2864,11 @@ impl Tool for ComputerObserveTool {
                         "matched": matched,
                         "timedOut": wait && !matched,
                         "titlesWithheldUntilCaptureConsent": true,
+                        "observationPending": true,
                         "expiresInSeconds": OBSERVATION_TTL.as_secs()
                     });
                     let content = format!(
-                    "Observed {} matching capturable Windows windows. An empty wait means no matching window appeared in this interval; inspect the process or repeat a bounded wait if needed. Use observationId {} with capture_window before input.\n{}",
+                    "Selected {} matching Windows windows; no screenshot has been captured yet. An empty result means no matching window appeared in this interval. Call computer_use with action=observe, target.kind=window, the exact target.window_id, and observation_id={} to obtain pixels before input.\n{}",
                     windows.len(),
                     observation_id,
                     serde_json::to_string_pretty(&llm_data).unwrap_or_default()
@@ -2826,10 +2899,14 @@ impl Tool for ComputerObserveTool {
                         CoreError::InvalidInput("capture_window requires window_id.".to_string())
                     })?;
                     let observed = observed_window(conversation_id, observation_id, window_id)?;
-                    let capture = blocking(move || {
+                    let capture = match blocking(move || {
                         platform::capture_window(&observed.snapshot, capture_options)
                     })
-                    .await?;
+                    .await
+                    {
+                        Ok(capture) => capture,
+                        Err(error) => return Ok(capture_failure_result(call_id, window_id, error)),
+                    };
                     let fresh_observation_id = remember_observation(
                         conversation_id,
                         vec![ObservedWindow {

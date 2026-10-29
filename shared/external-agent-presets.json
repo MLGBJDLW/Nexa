@@ -819,16 +819,16 @@
     "command": "npx",
     "args": [
       "--yes",
-      "glm-acp-agent@1.15.0"
+      "glm-acp-agent@1.16.0"
     ],
     "env": {},
     "docsUrl": "https://github.com/stefandevo/glm-acp-agent",
     "registryId": "glm-acp-agent",
-    "registryVersion": "1.15.0",
+    "registryVersion": "1.16.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "glm-acp-agent@1.15.0"
+        "package": "glm-acp-agent@1.16.0"
       }
     }
   },

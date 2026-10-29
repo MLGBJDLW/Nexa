@@ -53,10 +53,20 @@ export interface SubagentContextSnapshot {
 
 export interface SubagentRuntimeIdentity { provider: string; model: string }
 
-function parseRuntimeIdentity(value: unknown): SubagentRuntimeIdentity | null {
+export function parseRuntimeIdentity(value: unknown): SubagentRuntimeIdentity | null {
   const record = asRecord(value);
   return typeof record?.provider === 'string' && record.provider.trim() && typeof record.model === 'string' && record.model.trim()
     ? { provider: record.provider, model: record.model } : null;
+}
+
+/** Prefer a runtime receipt as one pair; never combine two different routes. */
+export function subagentRouteIdentity(value: unknown): SubagentRuntimeIdentity | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const preflight = asRecord(record.preflight);
+  return parseRuntimeIdentity(record.runtimeIdentity)
+    ?? parseRuntimeIdentity(record.effectiveModelBudgets)
+    ?? parseRuntimeIdentity({ provider: preflight?.providerId, model: preflight?.effectiveModel });
 }
 
 export interface SubagentEffectiveModelBudgets {
@@ -84,6 +94,7 @@ export interface SubagentPreflightReport {
   remainingTokenBudget: number;
   remainingCallBudget: number | null;
   runDeadlineMs: number | null;
+  pendingParentVerification?: string[];
 }
 
 export interface SubagentPreflightFailure {
@@ -587,6 +598,7 @@ function parsePreflightReport(value: unknown): SubagentPreflightReport | null {
     remainingTokenBudget,
     remainingCallBudget,
     runDeadlineMs,
+    pendingParentVerification: asStringArray(record.pendingParentVerification) ?? [],
   };
 }
 

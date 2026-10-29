@@ -8,7 +8,7 @@ import {
   BrainCircuit,
   Flag,
 } from 'lucide-react';
-import type { SubagentRun } from '../../lib/subagentArtifacts';
+import { subagentRouteIdentity, type SubagentRun } from '../../lib/subagentArtifacts';
 import { getSubagentToolDescriptor } from '../../lib/subagentTools';
 import { useTranslation } from '../../i18n';
 
@@ -140,14 +140,17 @@ export function SubagentCard({
   const displayRole = run.name?.trim() || run.roleName?.trim() || run.role?.trim() || t('chat.helperDefaultLabel');
   const isRunning = run.status === 'running' && run.runtimeState === 'live';
   const cardState = isRunning ? 'running' : run.status === 'error' ? 'error' : 'done';
-  const effectiveModel = run.runtimeIdentity?.model.trim() || run.effectiveModel?.trim() || run.effectiveModelBudgets?.model?.trim() || run.preflight?.effectiveModel.trim() || null;
-  const providerId = run.runtimeIdentity?.provider.trim() || run.effectiveModelBudgets?.provider?.trim() || run.preflight?.providerId.trim() || null;
+  const identity = subagentRouteIdentity(run);
+  const effectiveModel = identity?.model || run.effectiveModel?.trim() || null;
+  const providerId = identity?.provider || null;
   const lifecycleTools = isRunning && run.lifecycleTools
     ? Object.values(run.lifecycleTools).filter((tool): tool is string => Boolean(tool))
     : [];
   const accessibleLabel = [
     displayRole,
     status.label,
+    providerId,
+    effectiveModel,
     startedTools.length > 0
       ? t('chat.subagentToolCount', { count: String(startedTools.length) })
       : null,
@@ -209,9 +212,10 @@ export function SubagentCard({
           <div className={`mt-0.5 truncate text-text-primary ${compact ? 'text-[11px]' : 'text-xs'}`}>{run.task}</div>
           {(providerId || effectiveModel) && <div data-testid="subagent-route" className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-text-secondary">
             <BrainCircuit className="h-3 w-3 shrink-0 text-accent" aria-hidden="true" />
-            <span className="truncate">{[providerId, effectiveModel].filter(Boolean).join(' · ')}</span>
+            <span className="truncate" title={[providerId, effectiveModel].filter(Boolean).join(' · ')}>{[providerId, effectiveModel].filter(Boolean).join(' · ')}</span>
           </div>}
           {isUnverified && <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{t('chat.subagentUnverifiedHint')}</p>}
+          {!!run.preflight?.pendingParentVerification?.length && <p className="mt-1 text-[11px] leading-relaxed text-text-tertiary">{t('chat.subagentParentVerification')}</p>}
           {!isRunning && !expanded && (
             <div className={`mt-0.5 truncate text-text-tertiary ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{summaryText}</div>
           )}

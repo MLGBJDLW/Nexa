@@ -152,7 +152,7 @@ fn approval_context_failure(
         "tool": tool_name,
         "arguments": "must match this tool's JSON schema and current approval context exactly",
         "recovery": if computer_tool {
-            "capture or observe the exact target again, then retry once with the fresh conversation-scoped observation"
+            "call computer_use action=list_windows with target.kind=window to obtain a fresh conversation-scoped observationId; then action=observe for the exact target.window_id with that token. Do not repeat an input action to recover an observation."
         } else {
             "refresh the approval context, correct the request, and retry only after the preview can be verified"
         }

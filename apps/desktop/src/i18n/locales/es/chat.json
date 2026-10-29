@@ -959,5 +959,6 @@
   "interactionMatched": "Condición cumplida",
   "interactionObserved": "Observación recibida",
   "agentReceiving": "Recibiendo la respuesta del modelo",
-  "agentReasoningUnavailable": "Esta respuesta no incluye un resumen legible del razonamiento."
+  "agentReasoningUnavailable": "Esta respuesta no incluye un resumen legible del razonamiento.",
+  "subagentParentVerification": "El agente principal realiza las comprobaciones interactivas"
 }

@@ -239,6 +239,18 @@ advertised recovery choices available. An explicit attempt never retries an old
 method, and its acknowledgement counts as success only after session creation.
 Changing the selected method participates in the unsaved-settings guard.
 
+**GLM Agent** is the third-party GLM Coding Plan ACP adapter, not ZCode's native
+account session. Enter its Coding Plan key in the dedicated password field, pass
+`Z_AI_API_KEY`, or use the adapter's own `glm-acp-agent --setup` credential file.
+The standard launch checks credential presence before discovery and chat. A
+custom executable can supply credentials itself. ZCode account sign-in is not
+imported. This key can authenticate the Coding Plan endpoint; it does not imply
+pay-as-you-go billing. Mainland and international endpoints must match the key's
+service, and endpoint overrides remain in the adapter's launch environment.
+The adapter's ACP `authenticate` acknowledgement is a no-op. Discovery confirms
+the connection and available models, not key validity, quota or subscription
+entitlement. A missing key is reported before any prompt is sent.
+
 Antigravity ACP support is suspended. Its adapter and Google-specific setup have
 been removed; directory refresh and cached entries cannot re-enable it.
 

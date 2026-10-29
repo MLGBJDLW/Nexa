@@ -824,6 +824,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn scoped_code_worker_does_not_require_unavailable_desktop_verification() {
+        let (session, _, _rx) = session(64);
+        let mut input = session.input;
+        input.config.request_kind = AgentRequestKind::SubagentWorker;
+        let task = "Open Calculator";
+        assert!(
+            route_user_turn(task, "", false)
+                .requirements
+                .interaction
+                .requires_desktop_observation(),
+            "fixture must reproduce the original wording-triggered gate"
+        );
+        input.config.delegated_task = Some(task.into());
+        let worker = ExternalToolSession::new(input).unwrap();
+        assert!(
+            worker.completion_repair_status().await.unwrap().is_none(),
+            "task wording must not give a code worker an impossible desktop gate"
+        );
+        worker
+            .persist_answer("Implementation complete; parent must verify the native window.")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn external_checkpoint_continuation_restores_and_discharges_the_original_target() {
         let (mut session, _, _rx) = session(6);
         session
@@ -1449,6 +1474,11 @@ impl ExternalToolSession {
             &desktop_profile,
             false,
         )?;
+        if input.config.request_kind == AgentRequestKind::SubagentWorker {
+            if let Some(workflow) = desktop_resume_workflow.as_mut() {
+                workflow.defer_unavailable_worker_interactions(&input.tools);
+            }
+        }
         let mut action_reconciliation =
             super::turn_loop::ActionReconciliationFence::from_resume_prompt(&input.user_prompt);
         if resumed_execution

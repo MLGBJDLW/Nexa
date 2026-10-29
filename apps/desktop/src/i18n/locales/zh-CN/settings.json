@@ -1162,5 +1162,10 @@
   "storageAllocated": "已分配页面",
   "storageReusable": "可复用空间",
   "storageWal": "预写日志",
-  "storageReuseHint": "删除记录后，空闲页面会用于后续写入。可复用空间不代表数据丢失；缩小数据库文件需要离线重建。"
+  "storageReuseHint": "删除记录后，空闲页面会用于后续写入。可复用空间不代表数据丢失；缩小数据库文件需要离线重建。",
+  "executionLimits": "执行限制",
+  "executionLimitsHelp": "自动设置不限制任务总时长、工具轮次和总用量；并发数用于控制设备资源。仅在需要明确预算时设置限制。",
+  "executionLimitsCustom": "已设自定义限制",
+  "glmCodingPlanKey": "GLM Coding Plan API Key",
+  "glmCodingPlanHelp": "此适配器使用编程套餐的 API Key，ZCode 账号登录属于另一条通道。留空可使用 Z_AI_API_KEY 或 glm-acp-agent --setup 保存的凭据。连接检查用于发现模型，不代表已验证套餐权益。"
 }

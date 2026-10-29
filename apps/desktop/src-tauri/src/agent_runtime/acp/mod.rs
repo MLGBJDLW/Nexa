@@ -44,6 +44,7 @@ pub(crate) async fn probe(
 ) -> Result<Catalog> {
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     let launch = launch.resolve(db, None, None)?;
+    nexa_core::external_agent::credentials::validate_launch_credentials(&preset, &launch)?;
     let servers = mcp::selected(db, &launch.mcp_server_ids)?;
     let mut wire = Wire::prepare(&preset, &launch, adapter_cache_root(db).as_deref()).await?;
     // Each protocol stage has its own timeout. An outer deadline must not
@@ -116,6 +117,7 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
     }
     let servers = mcp::selected(&request.db, &binding.launch.mcp_server_ids)?;
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
+    nexa_core::external_agent::credentials::validate_launch_credentials(&preset, &binding.launch)?;
     let key = blake3::hash(
         json!([
             provider,

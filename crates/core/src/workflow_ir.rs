@@ -332,6 +332,50 @@ impl WorkflowIr {
             })
     }
 
+    /// A scoped worker cannot satisfy a prompt-derived shared-surface check.
+    /// Keep it visible as parent-owned pending work, not a passed verification.
+    /// Real action targets and reconciliation receipts always retain their gate.
+    pub(crate) fn defer_unavailable_worker_interactions(
+        &mut self,
+        tools: &crate::tools::ToolRegistry,
+    ) {
+        let desktop = !tools.contains("computer_observe")
+            && !tools.contains("computer_control")
+            && self.checkpoint.desktop_observation_targets.is_empty()
+            && self.checkpoint.verified_desktop_target_ids.is_empty();
+        let browser = !tools.contains("browser_session")
+            && self.checkpoint.browser_observation_targets.is_empty()
+            && self.checkpoint.verified_browser_target_ids.is_empty()
+            && !self.checkpoint.browser_recovery_active;
+        for gate in &mut self.verification_gates {
+            let unavailable = match gate.kind {
+                VerificationGateKind::DesktopObservation
+                | VerificationGateKind::DesktopTerminalClosure => desktop,
+                VerificationGateKind::BrowserVisualObservation => {
+                    browser && !tools.contains("browser_evidence_capture")
+                }
+                VerificationGateKind::BrowserSessionObservation
+                | VerificationGateKind::BrowserTerminalClosure => browser,
+                _ => false,
+            };
+            if unavailable && gate.passed != Some(true) {
+                gate.required = false;
+                gate.passed = None;
+                gate.detail = Some("Pending parent verification: this worker has no shared-surface capability and has not performed a target-bound interaction. Its result covers only work within its tool scope; the parent must perform the interactive check before claiming the overall task is verified.".into());
+            }
+        }
+        if desktop {
+            self.completion_contract.desktop_terminal_closure_evidence = false;
+        }
+        if browser {
+            self.completion_contract.browser_terminal_closure_evidence = Default::default();
+        }
+        self.completion_contract.require_interaction_gates = self
+            .verification_gates
+            .iter()
+            .any(|gate| gate.required && gate.kind.is_interaction_observation());
+    }
+
     pub(crate) fn local_evidence_pending(&self) -> bool {
         self.desktop_evidence_pending() || self.browser_evidence_pending()
     }
@@ -3213,6 +3257,46 @@ mod tests {
                 .iter()
                 .any(|tool| tool == "run_shell" || tool == "edit_file")
         }));
+    }
+
+    #[test]
+    fn scoped_worker_keeps_independent_browser_visual_verification() {
+        let mut workflow = compile_workflow_ir(&plan(), &balanced_profile(), false).unwrap();
+        for kind in [
+            VerificationGateKind::BrowserVisualObservation,
+            VerificationGateKind::BrowserSessionObservation,
+        ] {
+            workflow.verification_gates.push(VerificationGate {
+                id: format!("{kind:?}"),
+                kind,
+                required: true,
+                passed: None,
+                detail: None,
+            });
+        }
+        let mut tools = crate::tools::ToolRegistry::new();
+        tools.register(Box::new(
+            crate::tools::browser_evidence_tool::BrowserEvidenceCaptureTool,
+        ));
+        workflow.defer_unavailable_worker_interactions(&tools);
+        let gate = |kind| {
+            workflow
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == kind)
+                .unwrap()
+        };
+        assert!(gate(VerificationGateKind::BrowserVisualObservation).required);
+        assert_eq!(
+            gate(VerificationGateKind::BrowserVisualObservation).passed,
+            None
+        );
+        assert!(!gate(VerificationGateKind::BrowserSessionObservation).required);
+        assert!(workflow.completion_contract.require_interaction_gates);
+        assert!(workflow
+            .completion_repair_guidance()
+            .contains("browser_evidence_capture"));
+        assert!(!workflow.completion_allowed());
     }
 
     #[test]

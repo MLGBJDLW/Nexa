@@ -76,6 +76,8 @@ pub struct SystemOnePreset {
 pub struct SystemOneModel {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub status: String,
 }
 
 pub fn presets() -> &'static [SystemOnePreset] {
@@ -346,10 +348,19 @@ fn prepare_request(
     policy: &crate::privacy::ChatPrivacyPolicy,
 ) -> Result<DecisionRequest, CoreError> {
     request.validate()?;
-    if config.provider == "siliconflow-cn"
-        && request.model.as_deref().unwrap_or(&config.model).trim() == "diffusiongemma"
+    let model = request.model.as_deref().unwrap_or(&config.model).trim();
+    if (config.provider == "siliconflow-cn" && model == "diffusiongemma")
+        || presets()
+            .iter()
+            .find(|preset| preset.id == config.provider)
+            .is_some_and(|preset| {
+                preset
+                    .models
+                    .iter()
+                    .any(|row| row.id == model && row.status == "removed")
+            })
     {
-        return Err(CoreError::InvalidInput("SiliconFlow retired diffusiongemma on 2026-10-17. Select Kev-4b or SemIf in Structured decisions settings.".into()));
+        return Err(CoreError::InvalidInput(format!("The selected structured decision model '{model}' has been retired on {}. Choose an available model in Settings; no replacement or paid route was selected automatically.", config.provider)));
     }
     let mut state = request.state.clone();
     policy.redact_data(&mut state);

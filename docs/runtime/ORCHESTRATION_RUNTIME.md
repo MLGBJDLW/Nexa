@@ -44,6 +44,43 @@ do not imply wire or configuration compatibility with another project.
 
 ## Product contracts
 
+Normal delegation does not expose model-authored `max_iterations` or
+`timeout_secs` stop controls. Workers inherit the user's configured execution
+policy, which is unlimited by default; concurrency, cancellation, context limits
+and no-progress protection remain independent. Provider setup keeps optional
+execution limits under Advanced, with a reset to automatic settings.
+
+Shared browser and native desktop verification belongs to the parent when a
+worker lacks those capabilities. Inferred interaction gates are retained as
+parent-owned advisory checks, never marked passed. The worker's preflight records
+the pending parent checks. Actual action targets and opaque effects still enforce
+reconciliation, including after resume. Subagent cards and the workspace header
+show the effective provider/model pair; later runtime receipts replace the
+prepared identity without combining fields from different routes.
+
+Windows capture uses one bounded worker pool for startup, frame production and
+teardown. A WGC initialization or frame failure can fall back to `PrintWindow`
+for the same verified HWND. The fallback respects capture exclusion, rejects
+blank frames and crops invisible borders into the same physical coordinate
+system. It never captures the desktop or substitutes a foreground/owner window.
+Startup and fallback waits are bounded while unfinished native jobs retain their
+admission slot. Observation errors retain the exact target and recovery guidance;
+they do not claim input delivery or successful verification.
+
+A window `observe` without an observation token first returns an exact-window
+selection receipt with `observationPending`; it does not capture or transmit
+pixels. Repeating `observe` with that receipt follows the normal screenshot
+approval path. A consumed control token may select that same window for a fresh
+observation, but cannot authorize another input action.
+
+Physical input revisions are tracked by exact HWND. Pointer motion and activity
+in unrelated windows do not invalidate background UIA actions. Global physical
+input checks cover the foreground commit stage, after read-only preparation;
+`focus_window` still changes global focus and retains conflicting-input guards.
+Monitor failure is reported separately from user takeover. Explicit Stop/Escape,
+same-target conflicts and post-action reconciliation remain enforced. Resume
+uses a fresh observation rather than extending a stale input token.
+
 Native desktop completion follows the actual controlled target. Outstanding
 window identities and consumed observation tokens are checkpointed as opaque
 metadata; screen text and values are not retained for this purpose. A capture of

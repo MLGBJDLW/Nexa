@@ -1162,5 +1162,10 @@
   "storageAllocated": "已配置頁面",
   "storageReusable": "可重用空間",
   "storageWal": "預寫日誌",
-  "storageReuseHint": "刪除記錄後，空閒頁面會用於後續寫入。可重用空間不代表資料遺失；縮小資料庫檔案需要離線重建。"
+  "storageReuseHint": "刪除記錄後，空閒頁面會用於後續寫入。可重用空間不代表資料遺失；縮小資料庫檔案需要離線重建。",
+  "executionLimits": "執行限制",
+  "executionLimitsHelp": "自動設定不限制任務總時長、工具輪次和總用量；並行數用於控制裝置資源。僅在需要明確預算時設定限制。",
+  "executionLimitsCustom": "已設自訂限制",
+  "glmCodingPlanKey": "GLM Coding Plan API Key",
+  "glmCodingPlanHelp": "此介接器使用程式設計方案的 API Key，ZCode 帳號登入屬於另一個管道。留空可使用 Z_AI_API_KEY 或 glm-acp-agent --setup 儲存的憑證。連線檢查用於探索模型，不代表已驗證方案權益。"
 }

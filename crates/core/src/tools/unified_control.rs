@@ -112,6 +112,14 @@ fn browser_value(value: Value) -> Value {
 /// Route a public request without granting authority or retrying another host.
 /// Legacy backend calls are deliberately left untouched for replay compatibility.
 pub fn route_call(name: &str, args: &Value) -> Result<Option<RoutedControlCall>, String> {
+    route_call_impl(name, args, true)
+}
+
+fn route_call_impl(
+    name: &str,
+    args: &Value,
+    prepare_observation: bool,
+) -> Result<Option<RoutedControlCall>, String> {
     if name != TOOL_NAME {
         return Ok(None);
     }
@@ -194,6 +202,13 @@ pub fn route_call(name: &str, args: &Value) -> Result<Option<RoutedControlCall>,
                 body.insert("window_id".into(), Value::from(id));
             }
             let (backend, action) = match action.as_str() {
+                "observe" if prepare_observation && !body.contains_key("observation_id") => {
+                    if !body.contains_key("window_id") { return Err("Window observation requires target.window_id. Discover the intended app with action=list_windows first.".into()); }
+                    // Inventory is read-only metadata. It supplies the exact scoped
+                    // token needed for normal screenshot consent on the next call.
+                    body.remove("approval_scope");
+                    ("computer_observe", "list_windows")
+                }
                 "observe" => ("computer_observe", "capture_window"),
                 "list_windows" | "wait_for_window" | "wait_for_change" | "cursor_position" => ("computer_observe", action.as_str()),
                 "type" => ("computer_control", "type_text"),
@@ -252,7 +267,9 @@ pub fn route_receipt_str(name: &str, args: Option<&str>) -> Option<RoutedControl
     {
         identity.insert("observation_id".into(), json!(token));
     }
-    route_call(name, &Value::Object(identity)).ok().flatten()
+    route_call_impl(name, &Value::Object(identity), false)
+        .ok()
+        .flatten()
 }
 
 /// Preserve the original model call/call ID; provide resolved facts to receipt
@@ -432,7 +449,7 @@ pub(crate) fn definition(backends: &[ToolDefinition]) -> Option<ToolDefinition> 
     if kinds.contains("window") {
         description.push_str("Native windows use target.kind=window with window_id and fresh UIA element_id or captured-image coordinates. ");
         if actions.contains("list_windows") {
-            description.push_str("Discover windows with list_windows, then observe. ");
+            description.push_str("Discover windows with list_windows, then observe using that inventory's observation_id. Window observe without a token returns only the exact window's inventory and a token, with observationPending=true; repeat observe with that token for screenshot consent and pixels. ");
         }
     }
     let shared = ["observe", "click", "type", "scroll", "press", "move"]
@@ -465,6 +482,29 @@ pub(crate) fn collapse_definitions(definitions: Vec<ToolDefinition>) -> Vec<Tool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_observe_without_a_token_prepares_only_the_exact_inventory() {
+        let call = json!({"action":"observe", "target":{"kind":"window","window_id":42}, "approval_scope":"window_session"});
+        let prepared = route_call(TOOL_NAME, &call).unwrap().unwrap();
+        assert_eq!(prepared.tool_name, "computer_observe");
+        assert_eq!(prepared.arguments["action"], "list_windows");
+        assert_eq!(prepared.arguments["window_id"], 42);
+        assert!(prepared.arguments.get("approval_scope").is_none());
+        let with_token = json!({"action":"observe", "target":{"kind":"window","window_id":42}, "observation_id":"fresh-inventory"});
+        assert_eq!(
+            route_call(TOOL_NAME, &with_token)
+                .unwrap()
+                .unwrap()
+                .arguments["action"],
+            "capture_window"
+        );
+        let receipt = route_receipt_str(TOOL_NAME, Some(&call.to_string())).unwrap();
+        assert_eq!(
+            receipt.arguments["action"], "capture_window",
+            "redacted historical captures must retain their receipt identity"
+        );
+    }
     use crate::db::Database;
     use crate::error::CoreError;
     use crate::tools::{Tool, ToolCategory, ToolExecutionContext, ToolRegistry, ToolResult};
