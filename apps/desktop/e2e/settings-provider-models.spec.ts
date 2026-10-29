@@ -1478,6 +1478,7 @@ test("subagent tool inheritance remains distinct from an explicit empty allowlis
   await page.getByTitle('Edit').first().click();
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
   const inherit = form.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' });
+  await form.getByRole('button', { name: /^Advanced Settings/ }).click();
   if (!await inherit.isVisible()) await form.getByRole('button', { name: /^Subagents/ }).click();
   await inherit.check();
   await form.getByRole('button', { name: 'Save', exact: true }).click();
@@ -1485,6 +1486,7 @@ test("subagent tool inheritance remains distinct from an explicit empty allowlis
 
   await page.getByTitle('Edit').first().click();
   const edited = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save', exact: true }) });
+  await edited.getByRole('button', { name: /^Advanced Settings/ }).click();
   if (!await edited.getByRole('checkbox', { name: 'Inherit tools authorized for the parent' }).isVisible()) {
     await edited.getByRole('button', { name: /^Subagents/ }).click();
   }
@@ -1500,6 +1502,8 @@ test("legacy provider output caps are retired without manual cleanup", async ({ 
   await page.getByTitle("Edit").first().click();
 
   await expect(page.getByText('Per-request output limit', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Advanced Settings/ }).click();
+  await page.getByRole('button', { name: /^Execution limits/ }).click();
   const toolRoundsInput = page.getByRole("spinbutton", { name: "Max Verified Tool Rounds" });
   await toolRoundsInput.fill("0");
 
