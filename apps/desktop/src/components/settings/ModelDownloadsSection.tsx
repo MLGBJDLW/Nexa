@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -195,11 +196,11 @@ export function ModelDownloadsSection({
           {embedConfig && (
             <div className="space-y-3">
               <SettingsRow label={t('settings.embeddingLocalModelSelect')} htmlFor="download-embedding-model">
-                <select id="download-embedding-model" className={settingsSelectClass} value={embedConfig.localModel} disabled={downloadLoading || deleteEmbedModelLoading} onChange={event => onEmbedLocalModelChange(event.target.value as LocalModelId)}>
+                <NexaSelect id="download-embedding-model" className={settingsSelectClass} value={embedConfig.localModel} disabled={downloadLoading || deleteEmbedModelLoading} onChange={event => onEmbedLocalModelChange(event.target.value as LocalModelId)}>
                   <option value="Qwen3Embedding06B">{t('settings.embeddingModelBest')}</option>
                   <option value="MultilingualMiniLM">{t('settings.embeddingModelLight')}</option>
                   <option value="MultilingualE5Base">{t('settings.embeddingModelQuality')}</option>
-                </select>
+                </NexaSelect>
               </SettingsRow>
               <p className="text-xs text-text-tertiary">{t(embedConfig.localModel === 'Qwen3Embedding06B' ? 'settings.embeddingModelBestDesc' : embedConfig.localModel === 'MultilingualE5Base' ? 'settings.embeddingModelQualityDesc' : 'settings.embeddingModelLightDesc')}</p>
               <div className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-2">
@@ -258,9 +259,9 @@ export function ModelDownloadsSection({
           {videoConfig && (
             <div className="space-y-3">
               <SettingsRow label={t('settings.videoWhisperModel')} htmlFor="download-whisper-model">
-                <select id="download-whisper-model" className={settingsSelectClass} value={videoConfig.whisperModel} disabled={videoDownloading} onChange={event => onWhisperModelChange(event.target.value as WhisperModel)}>
+                <NexaSelect id="download-whisper-model" className={settingsSelectClass} value={videoConfig.whisperModel} disabled={videoDownloading} onChange={event => onWhisperModelChange(event.target.value as WhisperModel)}>
                   {([['tiny', 'Tiny'], ['base', 'Base'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['large_turbo', 'LargeTurbo']] as const).map(([id, suffix]) => <option key={id} value={id}>{t(`settings.videoModel${suffix}`)}</option>)}
-                </select>
+                </NexaSelect>
               </SettingsRow>
               <div className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/5 p-2">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0 text-info" />

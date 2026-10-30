@@ -1,3 +1,4 @@
+import { selectControl } from './select-control';
 import { expect, test } from '@playwright/test';
 
 test.use({ launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] } });
@@ -47,9 +48,9 @@ test.beforeEach(async ({ page, context }) => {
 
 async function chooseQwen(page: import('@playwright/test').Page) {
   await page.goto('/live');
-  await page.getByLabel('Analysis mode').selectOption('qwenRealtime');
+  await selectControl(page.getByLabel('Analysis mode'), 'qwenRealtime');
   await page.getByLabel('Qwen workspace endpoint', {exact:true}).fill('wss://fixture.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime');
-  await page.getByLabel('Visual input').selectOption('camera');
+  await selectControl(page.getByLabel('Visual input'), 'camera');
   await page.getByLabel('Observation interval (seconds)',{exact:true}).fill('1');
 }
 const state = (page:import('@playwright/test').Page)=>page.evaluate(()=>{const s=(window as unknown as {__live:{audio:number;frames:number;stopped:number;starts:number;snapshots:number;earlyAudio:number;tracks:MediaStreamTrack[]}}).__live;return {...s,tracks:s.tracks.map(track=>track.readyState)};});
@@ -105,7 +106,7 @@ test('captures real browser PCM and frames only after ready, then stops and summ
   const stoppedAudio=(await state(page)).audio;
   await page.waitForTimeout(350);
   expect((await state(page)).audio).toBe(stoppedAudio);
-  await page.getByLabel('Summary connection').selectOption('summary');
+  await selectControl(page.getByLabel('Summary connection'), 'summary');
   await page.getByRole('button',{name:'Create summary'}).click();
   await expect(page.getByTestId('live-summary')).toContainText('Owner remains unconfirmed');
   await page.getByTestId('live-summary-panel').getByRole('button', {name:'Copy · Summary',exact:true}).click();

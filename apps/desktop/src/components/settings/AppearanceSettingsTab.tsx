@@ -166,12 +166,12 @@ export function AppearanceSettingsTab({
         </CollapsiblePanel>
 
         <SettingsRow label={t('settings.appearance.language')} description={t('settings.appearance.language.description')} htmlFor="settings-language">
-          <select id="settings-language" value={locale} onChange={event => setLocale(event.target.value as Locale)} className={settingsSelectClass}>
+          <NexaSelect id="settings-language" value={locale} onChange={event => setLocale(event.target.value as Locale)} className={settingsSelectClass}>
             {availableLocales.map(language => <option key={language.code} value={language.code}>{language.name}</option>)}
-          </select>
+          </NexaSelect>
         </SettingsRow>
         <SettingsRow label={t('settings.windowCloseBehavior')} description={t('settings.windowCloseBehaviorDesc')} htmlFor="settings-close-behavior">
-          <select id="settings-close-behavior" disabled={!appConfig || appConfigLoading} value={appConfig?.windowCloseBehavior ?? 'exit'} className={settingsSelectClass}
+          <NexaSelect id="settings-close-behavior" disabled={!appConfig || appConfigLoading} value={appConfig?.windowCloseBehavior ?? 'exit'} className={settingsSelectClass}
             onChange={event => {
               if (!appConfig) return;
               const next = { ...appConfig, windowCloseBehavior: event.target.value as 'exit' | 'minimize_to_tray' };
@@ -180,7 +180,7 @@ export function AppearanceSettingsTab({
             }}>
             <option value="exit">{t('settings.windowCloseExit')}</option>
             <option value="minimize_to_tray">{t('settings.windowCloseTray')}</option>
-          </select>
+          </NexaSelect>
         </SettingsRow>
 
         {/* App update */}
@@ -221,13 +221,13 @@ export function AppearanceSettingsTab({
         {appConfig && (
           <div className="space-y-2" data-testid="context-management-settings">
             <SettingsRow label={t('settings.contextManagementMode')} description={appConfig.contextManagementMode === 'history' ? t('settings.contextHistoryHelp') : t('settings.contextSummaryHelp')} htmlFor="context-management-mode">
-            <select id="context-management-mode"
+            <NexaSelect id="context-management-mode"
               className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary"
               value={appConfig.contextManagementMode ?? 'summary'}
               onChange={event => onAppConfigChange({ ...appConfig, contextManagementMode: event.target.value as 'summary' | 'history' })}>
               <option value="summary">{t('settings.contextModeSummary')}</option>
               <option value="history">{t('settings.contextModeHistory')}</option>
-            </select>
+            </NexaSelect>
             </SettingsRow>
             <p className="text-xs leading-5 text-text-tertiary">{t('settings.contextModeScope')}</p>
             <div data-settings-actions className="flex justify-end">

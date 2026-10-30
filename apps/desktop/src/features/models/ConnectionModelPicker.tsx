@@ -1,3 +1,4 @@
+import { NexaSelect } from '../../components/ui/overlay';
 import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../../i18n';
@@ -47,10 +48,10 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
         <span>{label}</span>
         {custom ? <input className={field} aria-label={label} value={model} maxLength={512} disabled={disabled}
           onChange={event => changeModel(event.target.value)} /> :
-          <select className={field} aria-label={label} value={model} disabled={disabled || !connectionId} onChange={event => changeModel(event.target.value)}>
+          <NexaSelect className={field} aria-label={label} value={model} disabled={disabled || !connectionId} onChange={event => changeModel(event.target.value)}>
             {!selected && <option value={model}>{model || t('settings.defaultModel')}</option>}
             {choices.map(item => <option key={item.id} value={item.id} disabled={item.available === false}>{item.name}{item.available === false ? ` · ${t('settings.modelLifecycleRemoved')}` : ''}</option>)}
-          </select>}
+          </NexaSelect>}
       </label>
       <button type="button" className="rounded-xl border border-border p-3 text-text-secondary disabled:opacity-40" aria-label={t('remote.refreshModels')} disabled={loading || disabled || !connectionId} onClick={() => setRevision(current => current + 1)}>
         {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
@@ -66,18 +67,18 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
     </div>
     {selected?.reasoning?.mode === 'optional' && <label className="block space-y-1.5 text-xs text-text-secondary">
       <span>{t('settings.reasoningSection')}</span>
-      <select className={field} disabled={disabled} aria-label={`${label} · ${t('settings.reasoningSection')}`} value={value?.reasoningEnabled == null ? '' : String(value.reasoningEnabled)}
+      <NexaSelect className={field} disabled={disabled} aria-label={`${label} · ${t('settings.reasoningSection')}`} value={value?.reasoningEnabled == null ? '' : String(value.reasoningEnabled)}
         onChange={event => changeReasoning({ reasoningEnabled:event.target.value === '' ? null : event.target.value === 'true', ...(event.target.value !== 'true' ? {reasoningEffort:null, thinkingBudget:null} : {}) })}>
         <option value="">{t('settings.isDefault')}</option><option value="true">{t(reasoningOnLabelKey(selected.reasoning))}</option><option value="false">{t(reasoningOffLabelKey(selected.reasoning))}</option>
-      </select>
+      </NexaSelect>
     </label>}
     {!!selected?.reasoning?.effortLevels.length && <label className="block space-y-1.5 text-xs text-text-secondary">
       <span>{t('settings.reasoningEffort')}</span>
-      <select className={field} disabled={disabled || value?.reasoningEnabled === false} aria-label={`${label} · ${t('settings.reasoningEffort')}`} value={value?.reasoningEffort ?? ''}
+      <NexaSelect className={field} disabled={disabled || value?.reasoningEnabled === false} aria-label={`${label} · ${t('settings.reasoningEffort')}`} value={value?.reasoningEffort ?? ''}
         onChange={event => changeReasoning({ reasoningEffort:event.target.value || null, thinkingBudget:null, reasoningEnabled:event.target.value === 'none' ? false : event.target.value ? true : null })}>
         <option value="">{t('settings.isDefault')}</option>
         {selected.reasoning.effortLevels.map(effort => <option key={effort} value={effort}>{effort}</option>)}
-      </select>
+      </NexaSelect>
     </label>}
     {selected?.reasoning?.thinkingBudget && selected.reasoning.thinkingBudget.enabled !== false && <label className="block space-y-1.5 text-xs text-text-secondary">
       <span>{t('settings.thinkingBudget')}</span>

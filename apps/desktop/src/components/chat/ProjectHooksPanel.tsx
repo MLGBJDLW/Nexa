@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation, type TranslationKey } from '../../i18n';
@@ -59,13 +60,13 @@ export function ProjectHooksPanel({ projectId }: { projectId: string }) {
     {snapshot?.catalog.errors.map(item => <p key={item.path} className="break-all text-xs text-warning">{item.path}: {item.message}</p>)}
     {!tools.length && <p className="text-xs text-text-tertiary">{t('project.hookEmpty')}</p>}
     {!!tools.length && <div className="space-y-2 rounded-lg border border-border p-3">
-      <select aria-label={t('project.hookTool')} className={selectClass} value={selected} onChange={e => setSelected(e.target.value)}>
+      <NexaSelect aria-label={t('project.hookTool')} className={selectClass} value={selected} onChange={e => setSelected(e.target.value)}>
         <option value="">{t('project.hookChoose')}</option>
         {tools.map(tool => <option key={`${tool.name}:${tool.manifestHash}`} value={`${tool.name}:${tool.manifestHash}`}>{tool.name}</option>)}
-      </select>
-      <select aria-label={t('project.hookEvent')} className={selectClass} value={event} onChange={e => setEvent(e.target.value as ProjectHook['event'])}>
+      </NexaSelect>
+      <NexaSelect aria-label={t('project.hookEvent')} className={selectClass} value={event} onChange={e => setEvent(e.target.value as ProjectHook['event'])}>
         <option value="before_complete">{t('project.hookBefore')}</option><option value="after_file_change">{t('project.hookAfter')}</option>
-      </select>
+      </NexaSelect>
       <label className="block text-xs text-text-secondary">{t('project.hookArguments')}
         <textarea className={`${selectClass} mt-1 font-mono`} rows={3} value={argumentsText} onChange={e => setArgumentsText(e.target.value)} />
       </label>

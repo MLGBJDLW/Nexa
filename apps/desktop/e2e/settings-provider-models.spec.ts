@@ -1,3 +1,4 @@
+import { selectControl } from './select-control';
 import { expect, type Locator, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { bindProviderModelCatalogCredential, providerModelCatalogCacheKey } from '../src/lib/providerModelCatalog';
@@ -58,7 +59,7 @@ test('Copilot API imports an account and discovers its models independently of C
   await form.getByRole('button', { name:'Use GitHub CLI account', exact:true }).click();
   await expect(form.locator('input[type="password"]')).toHaveValue('test-github-account-token');
   await form.getByTestId('refresh-provider-models').click();
-  await selectNexaOption(form.getByTestId('default-model-picker'), 'claude-opus-5.5');
+  await selectControl(form.getByTestId('default-model-picker'), 'claude-opus-5.5');
   await expect(form.getByTestId('default-model-picker')).toContainText('Claude Opus 5.5');
   await expect(form.getByTestId('provider-model-catalog-status')).toBeVisible();
   await form.screenshot({ path:testInfo.outputPath('copilot-api-provider.png') });
@@ -75,7 +76,7 @@ test('Copilot API imports an account and discovers its models independently of C
   });
   await form.getByRole('button', { name:'Use GitHub CLI account', exact:true }).click();
   const providerField = form.locator('label').filter({ hasText:'Provider Type' }).locator('xpath=..');
-  await selectNexaOption(providerField.locator('[data-nexa-select-trigger]'), 'open_ai');
+  await selectControl(providerField.locator('[data-nexa-select-trigger]:not(#image-generation-source)'), 'open_ai');
   await page.evaluate(() => (window as any).__finishGithubImport());
   await expect(form.locator('input[type="password"]')).toHaveValue('');
 });
@@ -120,11 +121,11 @@ test('usage groups providers and compares models without collapsing filter choic
   const shared = page.getByTestId('usage-model-group').filter({ hasText: 'shared-model' });
   await expect(shared.getByTestId('usage-group-total')).toContainText('2,000');
   await expect(shared.getByTestId('usage-group-total')).toContainText('7');
-  await selectNexaOption(page.getByRole('combobox', { name: 'All models', exact: true }), 'shared-model');
+  await selectControl(page.getByRole('combobox', { name: 'All models', exact: true }), 'shared-model');
   await expect(page.getByTestId('usage-model-group')).toHaveCount(1);
   await expect(shared.getByTestId('usage-model-row')).toHaveCount(2);
   await expect(page.getByTestId('usage-contribution-heatmap').getByRole('gridcell', { name: /2K Tokens/ })).toHaveCount(1);
-  await selectNexaOption(page.getByRole('combobox', { name: 'All providers', exact: true }), 'anthropic');
+  await selectControl(page.getByRole('combobox', { name: 'All providers', exact: true }), 'anthropic');
   await expect(breakdown.getByText('No usage records in this range.', { exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: 'All models', exact: true }).click();
   await expect(page.getByRole('option')).toHaveCount(4);
@@ -132,7 +133,7 @@ test('usage groups providers and compares models without collapsing filter choic
   await page.getByRole('combobox', { name: 'All providers', exact: true }).click();
   await expect(page.getByRole('option')).toHaveCount(4);
   await page.keyboard.press('Escape');
-  await selectNexaOption(page.getByRole('combobox', { name: 'All providers', exact: true }), 'open_ai');
+  await selectControl(page.getByRole('combobox', { name: 'All providers', exact: true }), 'open_ai');
   await expect(page.getByTestId('usage-model-row')).toHaveCount(1);
   await tab.getByRole('button', { name: 'Clear filters', exact: true }).click();
   await expect(page.getByTestId('usage-model-row')).toHaveCount(4);
@@ -180,7 +181,7 @@ test('expanded settings keep compact spacing and controls inside narrow content'
       await expect(search.getByLabel('Default Search Limit')).toHaveValue('37');
       await expect(search.getByLabel('Min Search Similarity')).toHaveValue('0');
       await expect(page.getByTestId('agent-behavior-preferences-panel').getByRole('switch', { name: 'Dynamic Tool Visibility', exact: true })).toBeChecked();
-      await page.getByLabel('Context management', { exact: true }).selectOption('history');
+      await selectControl(page.getByLabel('Context management', { exact: true }), 'history');
       await page.getByTestId('appearance-runtime-settings').getByRole('button', { name: 'Save', exact: true }).click();
       await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig)).toMatchObject({ defaultSearchLimit: 37, minSearchSimilarity: 0, dynamicToolVisibility: true, contextManagementMode: 'history' });
       await page.reload();
@@ -206,50 +207,40 @@ test('image settings select GPT Image 2.5 and Grok Image 2 with model-specific o
   await page.getByRole('tab', { name: 'AI Providers' }).click();
   const panel = page.getByTestId('image-generation-settings-panel');
   await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
-  const selects = panel.locator('[data-nexa-select-trigger]');
-  await selectNexaOption(selects.nth(0), 'openai');
+  const selects = panel.locator('[data-nexa-select-trigger]:not(#image-generation-source)');
+  await selectControl(selects.nth(0), 'openai');
   await panel.locator('input[type="password"]').fill('openai-image-test-key');
   await expectNexaValue(selects.nth(1), 'gpt-image-2.5-flare');
   const quality = panel.getByRole('combobox', { name: 'Quality', exact: true });
-  await selectNexaOption(quality, 'max');
-  await selectNexaOption(selects.nth(1), 'gpt-image-2.5-sunburst');
+  await selectControl(quality, 'max');
+  await selectControl(selects.nth(1), 'gpt-image-2.5-sunburst');
   await expectNexaValue(quality, 'max');
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration: unknown } }).__savedAppConfig?.imageGeneration)).toMatchObject({ model: 'gpt-image-2.5-sunburst', quality: 'max', apiStyle: 'openai_images' });
-  await selectNexaOption(selects.nth(1), 'gpt-image-2');
+  await selectControl(selects.nth(1), 'gpt-image-2');
   await expectNexaValue(quality, 'auto');
   await quality.click();
   await expect(page.locator('[role="option"][data-value="max"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await selectNexaOption(selects.nth(1), 'gpt-image-2.5-flare');
-  await selectNexaOption(selects.nth(2), '3840x2160');
-  await selectNexaOption(selects.nth(1), 'gpt-image-1-mini');
+  await selectControl(selects.nth(1), 'gpt-image-2.5-flare');
+  await selectControl(selects.nth(2), '3840x2160');
+  await selectControl(selects.nth(1), 'gpt-image-1-mini');
   await expectNexaValue(selects.nth(2), 'auto');
   await selects.nth(2).click();
   await expect(page.locator('[role="option"][data-value="3840x2160"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration: unknown } }).__savedAppConfig?.imageGeneration)).toMatchObject({ model: 'gpt-image-1-mini', size: 'auto' });
-  await selectNexaOption(selects.nth(0), 'xai');
+  await selectControl(selects.nth(0), 'xai');
   await expect(panel.locator('input[type="password"]')).toHaveValue('');
   await panel.locator('input[type="password"]').fill('xai-image-test-key');
   await expectNexaValue(selects.nth(1), 'grok-imagine-image-2.0');
-  await selectNexaOption(selects.nth(2), '16:9|2k');
-  await selectNexaOption(quality, 'medium');
+  await selectControl(selects.nth(2), '16:9|2k');
+  await selectControl(quality, 'medium');
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration: unknown } }).__savedAppConfig?.imageGeneration)).toMatchObject({ model: 'grok-imagine-image-2.0', apiStyle: 'xai_images', baseUrl: 'https://api.x.ai/v1', size: '16:9|2k', quality: 'medium', outputFormat: 'jpeg' });
   await panel.screenshot({ path: testInfo.outputPath('image-model-settings.png') });
 });
-
-async function selectNexaOption(trigger: Locator, value: string) {
-  await trigger.click();
-  await trigger.page().locator(`[role="option"][data-value=${JSON.stringify(value)}]`).click();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-  await expect(trigger.page().locator('[role="option"]:visible')).toHaveCount(0);
-  // Let the closing popup finish its deferred focus restoration before opening
-  // the next control. A containing dialog may legitimately choose another focus target.
-  await trigger.page().evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-}
 
 test('structured decisions save opt-in settings and clear credentials across providers', async ({ page }, testInfo) => {
   await page.goto('/settings');
@@ -263,7 +254,7 @@ test('structured decisions save opt-in settings and clear credentials across pro
   await panel.locator('input[type="password"]').fill('typesafe-fixture-key');
   await save.click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'typesafe', model: 'jev-latest', apiKey: 'typesafe-fixture-key' });
-  await selectNexaOption(panel.locator('[data-nexa-select-trigger]'), 'openrouter');
+  await selectControl(panel.locator('[data-nexa-select-trigger]:not(#image-generation-source)'), 'openrouter');
   await expect(panel.locator('input[type="password"]')).toHaveValue('');
   await expect(save).toBeDisabled();
   await panel.locator('input[type="password"]').fill('router-fixture-key');
@@ -1225,20 +1216,20 @@ test('settings persists the selected context management mode and keeps summary a
   await page.getByRole('tab', { name:'Appearance', exact:true }).click();
   const mode = page.getByLabel('Context management', { exact:true });
   await expect(mode).toBeVisible();
-  await expect(mode).toHaveValue('summary');
-  await mode.selectOption('history');
+  await expect(mode).toHaveAttribute('data-value', 'summary');
+  await selectControl(mode, 'history');
   await expect(page.getByTestId('context-management-settings')).toContainText('no summary-model call');
   const panel = page.getByTestId('context-management-settings');
   await panel.getByRole('button', { name:'Save', exact:true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('history');
   await page.reload();
-  await expect(mode).toHaveValue('history');
+  await expect(mode).toHaveAttribute('data-value', 'history');
   await expect(panel).toContainText('no summary-model call');
-  await mode.selectOption('summary');
+  await selectControl(mode, 'summary');
   await panel.getByRole('button', { name:'Save', exact:true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAppConfig?.contextManagementMode)).toBe('summary');
   await page.reload();
-  await expect(mode).toHaveValue('summary');
+  await expect(mode).toHaveAttribute('data-value', 'summary');
 });
 
 test('retired Kimi stays editable and a stale cache cannot restore it to model choices', async ({ page }, testInfo) => {
@@ -1287,7 +1278,7 @@ test("settings provider form shows updated preset models for add and edit flows"
     _modelSelect: Locator,
     expectedNames: string[],
   ) => {
-    const currentSelect = modelField().locator("[data-nexa-select-trigger]");
+    const currentSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
     if (await currentSelect.count()) {
       await expectNexaOptions(currentSelect, expectedNames);
       return;
@@ -1310,7 +1301,7 @@ test("settings provider form shows updated preset models for add and edit flows"
   await page.getByRole("button", { name: "Add Provider" }).click();
   await page.getByRole("button", { name: /Anthropic/i }).click();
 
-  let modelSelect = modelField().locator("[data-nexa-select-trigger]");
+  let modelSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expect(modelSelect).toBeVisible();
   await expectModelOptions(modelSelect, [
     "Claude Opus 4.8",
@@ -1320,8 +1311,8 @@ test("settings provider form shows updated preset models for add and edit flows"
     "Claude Haiku 4.5",
   ]);
 
-  await selectNexaOption(providerField().locator("[data-nexa-select-trigger]"), "google");
-  modelSelect = modelField().locator("[data-nexa-select-trigger]");
+  await selectControl(providerField().locator("[data-nexa-select-trigger]:not(#image-generation-source)"), "google");
+  modelSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectModelOptions(modelSelect, [
     "Gemini 3.8 Flash",
     "Gemini 3.7 Flash",
@@ -1332,8 +1323,8 @@ test("settings provider form shows updated preset models for add and edit flows"
     "Gemini 3 Flash Preview",
   ]);
 
-  await selectNexaOption(providerField().locator("[data-nexa-select-trigger]"), "alibaba_model_studio");
-  modelSelect = modelField().locator("[data-nexa-select-trigger]");
+  await selectControl(providerField().locator("[data-nexa-select-trigger]:not(#image-generation-source)"), "alibaba_model_studio");
+  modelSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectModelOptions(modelSelect, [
     "Qwen3.8 Max",
     "Qwen3.8 Flash",
@@ -1350,8 +1341,8 @@ test("settings provider form shows updated preset models for add and edit flows"
     "Qwen3 VL Plus",
   ]);
 
-  await selectNexaOption(providerField().locator("[data-nexa-select-trigger]"), "zhipu");
-  modelSelect = modelField().locator("[data-nexa-select-trigger]");
+  await selectControl(providerField().locator("[data-nexa-select-trigger]:not(#image-generation-source)"), "zhipu");
+  modelSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectModelOptions(modelSelect, [
     "GLM-5.2",
     "GLM-5.1",
@@ -1361,21 +1352,21 @@ test("settings provider form shows updated preset models for add and edit flows"
     "GLM-4.1V Thinking FlashX",
   ]);
 
-  await selectNexaOption(providerField().locator("[data-nexa-select-trigger]"), "deep_seek");
-  modelSelect = modelField().locator("[data-nexa-select-trigger]");
+  await selectControl(providerField().locator("[data-nexa-select-trigger]:not(#image-generation-source)"), "deep_seek");
+  modelSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectModelOptions(modelSelect, [
     "DeepSeek V4.1 Flash",
     "DeepSeek V4 Pro",
   ]);
 
-  await selectNexaOption(providerField().locator("[data-nexa-select-trigger]"), "moonshot");
-  modelSelect = modelField().locator("[data-nexa-select-trigger]");
+  await selectControl(providerField().locator("[data-nexa-select-trigger]:not(#image-generation-source)"), "moonshot");
+  modelSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectModelOptions(modelSelect, ["Kimi K3", "Kimi K2.7"]);
 
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByTitle("Edit").first().click();
 
-  modelSelect = modelField().locator("[data-nexa-select-trigger]");
+  modelSelect = modelField().locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expect(modelSelect).toBeVisible();
   await expectModelOptions(modelSelect, [
     "Claude Opus 4.8",
@@ -1572,9 +1563,9 @@ test("provider refresh keeps account-discovered models selectable and cached", a
   await expect(page.getByTestId("provider-model-catalog-status")).toContainText("Live account catalog");
   const modelField = page
     .getByTestId("default-model-field");
-  const modelSelect = modelField.locator("[data-nexa-select-trigger]");
+  const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaOption(modelSelect, "account-only-model", "visible", "Discovered");
-  await selectNexaOption(modelSelect, "account-only-model");
+  await selectControl(modelSelect, "account-only-model");
   await expectNexaValue(modelSelect, "account-only-model");
 
   await expect.poll(() => page.evaluate(() => Object.keys(localStorage)
@@ -1588,8 +1579,8 @@ test("an edited public base URL cannot inherit catalog identity or capabilities"
   await page.getByRole("button", { name: /^OpenAI/ }).click();
 
   await page.locator('input[placeholder="sk-..."]').fill("sk-account");
-  await selectNexaOption(
-    page.getByTestId("default-model-field").locator("[data-nexa-select-trigger]"),
+  await selectControl(
+    page.getByTestId("default-model-field").locator("[data-nexa-select-trigger]:not(#image-generation-source)"),
     "gpt-5.6",
   );
   const baseUrlField = page
@@ -1627,8 +1618,8 @@ test("provider settings keep normalized model defaults without duplicate reasoni
   await page.goto('/settings');
   await page.getByRole('tab', { name: 'AI Providers' }).click();
   await page.getByTitle('Edit').first().click();
-  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
-  await selectNexaOption(model, 'claude-sonnet-5-5');
+  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]:not(#image-generation-source)');
+  await selectControl(model, 'claude-sonnet-5-5');
   await expect(page.getByRole('checkbox', { name: 'Enable up-front thinking' })).toHaveCount(0);
   await expect(page.locator('label').filter({ hasText: 'Thinking Budget' })).toHaveCount(0);
   await expect(page.locator('label').filter({ hasText: 'Reasoning Effort' })).toHaveCount(0);
@@ -1656,7 +1647,7 @@ test("settings exposes Meta Model API with Muse Spark 1.3 as its verified defaul
   await expect(baseUrlField.getByRole("textbox")).toHaveValue("https://api.meta.ai/v1");
 
   const modelField = page.getByTestId("default-model-field");
-  const modelSelect = modelField.locator("[data-nexa-select-trigger]");
+  const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaValue(modelSelect, "muse-spark-1.3");
   await expectNexaOptions(modelSelect, ["Muse Spark 1.3"]);
   await expect(modelField.getByTestId("model-descriptor-badges")).toContainText("text+image→text");
@@ -1671,8 +1662,8 @@ test('October model defaults and dialogue speech controls remain available', asy
   await page.goto('/settings');
   await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   await page.getByTitle('Edit').first().click();
-  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]');
-  await selectNexaOption(model, 'claude-haiku-5-5');
+  const model = page.getByTestId('default-model-field').locator('[data-nexa-select-trigger]:not(#image-generation-source)');
+  await selectControl(model, 'claude-haiku-5-5');
   await expect(page.getByRole('checkbox', { name: 'Enable Reasoning / Thinking', exact: true })).toHaveCount(0);
   await page.locator('form').getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ model: 'claude-haiku-5-5' });
@@ -1680,14 +1671,14 @@ test('October model defaults and dialogue speech controls remain available', asy
   await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
   const speech = page.getByTestId('text-to-speech-settings-panel');
   await speech.locator('button').first().click();
-  const selects = speech.locator('[data-nexa-select-trigger]');
-  await selectNexaOption(selects.nth(0), 'elevenlabs');
-  await selectNexaOption(selects.nth(1), 'eleven_v4_turbo');
+  const selects = speech.locator('[data-nexa-select-trigger]:not(#image-generation-source)');
+  await selectControl(selects.nth(0), 'elevenlabs');
+  await selectControl(selects.nth(1), 'eleven_v4_turbo');
   const speed = speech.locator('input[type=number]');
   await expect(speed).toBeDisabled();
   await expect(speed).toHaveValue('1');
-  await selectNexaOption(selects.nth(0), 'dashscope-cosyvoice');
-  await selectNexaOption(selects.nth(1), 'qwen-audio-3.1-tts-flash');
+  await selectControl(selects.nth(0), 'dashscope-cosyvoice');
+  await selectControl(selects.nth(1), 'qwen-audio-3.1-tts-flash');
   await expect(speech.getByTestId('tts-voice-input')).toHaveValue('longanhuan_v3.1');
   await speech.screenshot({ path: testInfo.outputPath('october-speech-settings.png') });
 });
@@ -1716,7 +1707,7 @@ test("settings exposes current Qwen3.8 Token Plan models without the retired pre
 
   const modelField = page
     .getByTestId("default-model-field");
-  const modelSelect = modelField.locator("[data-nexa-select-trigger]");
+  const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaValue(modelSelect, "");
   await expectNexaOptions(modelSelect, ["Qwen3.8 Max", "Qwen3.8 Flash"]);
   await expectNexaOptionCount(modelSelect, 13);
@@ -1729,7 +1720,7 @@ test("settings exposes current Qwen3.8 Token Plan models without the retired pre
   const retiredPreview = page.locator('[role="option"][data-value="qwen3.8-max-preview"]');
   await expect(retiredPreview).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await selectNexaOption(modelSelect, "qwen3.8-flash");
+  await selectControl(modelSelect, "qwen3.8-flash");
   await expect(modelField.getByTestId("model-descriptor-badges")).toContainText("Access: account enablement");
 });
 
@@ -1944,7 +1935,7 @@ test("settings selects the public GLM-5.3 flagship route by default", async ({ p
   );
 
   const modelField = page.getByTestId("default-model-field");
-  const modelSelect = modelField.locator("[data-nexa-select-trigger]");
+  const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaValue(modelSelect, "glm-5.3");
   await modelSelect.click();
   const glm53 = page.locator('[role="option"][data-value="glm-5.3"]');
@@ -1973,7 +1964,7 @@ test("settings exposes the complete current Qwen3.8 family through QwenCloud int
 
   const modelField = page
     .getByTestId("default-model-field");
-  const modelSelect = modelField.locator("[data-nexa-select-trigger]");
+  const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaValue(modelSelect, "qwen3.8-max");
   await expectNexaOptions(modelSelect, [
     "Qwen3.8 Max",
@@ -1993,7 +1984,7 @@ test("settings migrates legacy Qwen pay-as-you-go configs to the Alibaba catalog
 
   const modelField = page
     .getByTestId("default-model-field");
-  const modelSelect = modelField.locator("[data-nexa-select-trigger]");
+  const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaValue(modelSelect, "qwen3.6-plus");
   await expectNexaOptions(modelSelect, [
     "Qwen3.8 Max",
@@ -2040,29 +2031,29 @@ test("settings exposes image generation model config under AI providers", async 
   await expect(panel.getByRole("heading", { name: "Image Generation" })).toBeVisible();
   await expect(panel.getByText("Qwen Image (DashScope Beijing)")).toBeVisible();
   await expect(panel.getByText("Qwen CN API key")).toBeVisible();
-  await expect(panel.locator("[data-nexa-select-trigger]")).toHaveCount(0);
+  await expect(panel.locator("[data-nexa-select-trigger]:not(#image-generation-source)")).toHaveCount(0);
 
   await panel.getByRole("button", { name: "Expand image generation settings" }).click();
   await expect(panel.getByText("Image generation source", { exact: true })).toBeVisible();
-  const selects = panel.locator("[data-nexa-select-trigger]");
+  const selects = panel.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaValue(selects.nth(0), "qwen-dashscope-cn");
-  await selectNexaOption(selects.nth(1), "qwen-image-2.0-pro");
+  await selectControl(selects.nth(1), "qwen-image-2.0-pro");
   await expectNexaValue(selects.nth(1), "qwen-image-2.0-pro");
-  await selectNexaOption(selects.nth(1), "qwen-image-3.0-pro");
+  await selectControl(selects.nth(1), "qwen-image-3.0-pro");
   await expect(panel.getByTestId("model-descriptor-badges")).toContainText("Status: preview");
   await expect(panel.getByTestId("model-descriptor-badges")).toContainText("Access: application");
-  await selectNexaOption(selects.nth(1), "qwen-image-2.0-pro");
+  await selectControl(selects.nth(1), "qwen-image-2.0-pro");
 
-  await selectNexaOption(selects.nth(0), "google-gemini");
-  await selectNexaOption(selects.nth(1), "gemini-3.1-flash-image");
+  await selectControl(selects.nth(0), "google-gemini");
+  await selectControl(selects.nth(1), "gemini-3.1-flash-image");
   await expectNexaValue(selects.nth(1), "gemini-3.1-flash-image");
   await expectNexaOptions(selects.nth(1), [
     "Gemini 3.1 Flash Image",
     "Gemini 3.1 Flash Lite Image",
     "Gemini 3 Pro Image",
   ]);
-  await selectNexaOption(selects.nth(0), "qwen-dashscope-cn");
-  await selectNexaOption(selects.nth(1), "qwen-image-2.0-pro");
+  await selectControl(selects.nth(0), "qwen-dashscope-cn");
+  await selectControl(selects.nth(1), "qwen-image-2.0-pro");
 
   await panel.getByRole("button", { name: "Save" }).click();
   await page.waitForFunction(() => {
@@ -2082,33 +2073,33 @@ test("settings promotes low-latency speech providers with their own logos", asyn
   await expect(panel.getByRole("heading", { name: "Text to Speech" })).toBeVisible();
   await panel.locator("button").first().click();
 
-  const selects = panel.locator("[data-nexa-select-trigger]");
-  await selectNexaOption(selects.nth(1), "gpt-4o-mini-tts");
-  await selectNexaOption(selects.nth(0), "groq");
-  await selectNexaOption(selects.nth(1), "canopylabs/orpheus-v1-english");
+  const selects = panel.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
+  await selectControl(selects.nth(1), "gpt-4o-mini-tts");
+  await selectControl(selects.nth(0), "groq");
+  await selectControl(selects.nth(1), "canopylabs/orpheus-v1-english");
   await expectNexaValue(selects.nth(1), "canopylabs/orpheus-v1-english");
   await expectNexaValue(selects.nth(2), "wav");
   await expect(panel.locator('[title="Groq"] > span')).toHaveAttribute("style", /provider-icons\/groq\.svg/);
   await expect(panel.getByTestId("tts-voice-catalog")).toContainText("Hannah");
   await expect(panel.getByTestId("tts-voice-catalog")).not.toContainText("Fahad");
-  await selectNexaOption(selects.nth(1), "canopylabs/orpheus-arabic-saudi");
+  await selectControl(selects.nth(1), "canopylabs/orpheus-arabic-saudi");
   await expect(panel.getByTestId("tts-voice-catalog")).toContainText("Fahad");
   await expect(panel.getByTestId("tts-voice-catalog")).not.toContainText("Hannah");
 
-  await selectNexaOption(selects.nth(0), "elevenlabs");
-  await selectNexaOption(selects.nth(1), "eleven_flash_v2_5");
+  await selectControl(selects.nth(0), "elevenlabs");
+  await selectControl(selects.nth(1), "eleven_flash_v2_5");
   await expectNexaValue(selects.nth(1), "eleven_flash_v2_5");
   await expect(panel.locator('[title="ElevenLabs"] > span')).toHaveAttribute(
     "style",
     /provider-icons\/elevenlabs\.svg/,
   );
 
-  await selectNexaOption(selects.nth(0), "minimax");
-  await selectNexaOption(selects.nth(1), "speech-2.8-turbo");
+  await selectControl(selects.nth(0), "minimax");
+  await selectControl(selects.nth(1), "speech-2.8-turbo");
   await expectNexaValue(selects.nth(1), "speech-2.8-turbo");
 
-  await selectNexaOption(selects.nth(0), "dashscope-cosyvoice");
-  await selectNexaOption(selects.nth(1), "qwen-audio-3.0-tts-flash");
+  await selectControl(selects.nth(0), "dashscope-cosyvoice");
+  await selectControl(selects.nth(1), "qwen-audio-3.0-tts-flash");
   await expectNexaValue(selects.nth(1), "qwen-audio-3.0-tts-flash");
   await expect(panel.getByTestId("tts-voice-input")).toHaveValue("longanhuan_v3.6");
   await expect(panel.getByTestId("shared-credential-notice")).toHaveAttribute("data-state", "reusing");
@@ -2126,8 +2117,8 @@ test("settings promotes low-latency speech providers with their own logos", asyn
     window as unknown as { __savedAppConfig?: { textToSpeech?: { apiKey?: string } } }
   ).__savedAppConfig?.textToSpeech?.apiKey)).toBe("sk-qwen-demo");
 
-  await selectNexaOption(selects.nth(0), "siliconflow");
-  await selectNexaOption(selects.nth(1), "fnlp/MOSS-TTSD-v0.5");
+  await selectControl(selects.nth(0), "siliconflow");
+  await selectControl(selects.nth(1), "fnlp/MOSS-TTSD-v0.5");
   await expectNexaValue(selects.nth(1), "fnlp/MOSS-TTSD-v0.5");
   await expect(panel.locator('[title="SiliconFlow"] > span')).toHaveAttribute(
     "style",
@@ -2138,23 +2129,23 @@ test("settings promotes low-latency speech providers with their own logos", asyn
   await expect(sttPanel.getByRole("heading", { name: "Speech to Text" })).toBeVisible();
   await sttPanel.locator("button").first().click();
   const sttProvider = sttPanel.getByTestId("stt-provider-select");
-  const sttModel = sttPanel.locator("[data-nexa-select-trigger]").nth(1);
+  const sttModel = sttPanel.locator("[data-nexa-select-trigger]:not(#image-generation-source)").nth(1);
 
-  await selectNexaOption(sttProvider, "openai-live");
-  await selectNexaOption(sttModel, "gpt-live-transcribe");
+  await selectControl(sttProvider, "openai-live");
+  await selectControl(sttModel, "gpt-live-transcribe");
   await expectNexaValue(sttModel, "gpt-live-transcribe");
 
-  await selectNexaOption(sttProvider, "groq");
-  await selectNexaOption(sttModel, "whisper-large-v3-turbo");
+  await selectControl(sttProvider, "groq");
+  await selectControl(sttModel, "whisper-large-v3-turbo");
   await expectNexaValue(sttModel, "whisper-large-v3-turbo");
 
-  await selectNexaOption(sttProvider, "alibaba-qwen-asr");
-  await selectNexaOption(sttModel, "qwen3-asr-flash");
+  await selectControl(sttProvider, "alibaba-qwen-asr");
+  await selectControl(sttModel, "qwen3-asr-flash");
   await expectNexaValue(sttModel, "qwen3-asr-flash");
   await expect(sttPanel.getByText("After recording", { exact: true })).toBeVisible();
 
-  await selectNexaOption(sttProvider, "alibaba-qwen-realtime");
-  await selectNexaOption(sttModel, "qwen3-asr-flash-realtime");
+  await selectControl(sttProvider, "alibaba-qwen-realtime");
+  await selectControl(sttModel, "qwen3-asr-flash-realtime");
   await expect(sttPanel.getByText("Live partials", { exact: true })).toBeVisible();
   await expectNexaValue(sttModel, "qwen3-asr-flash-realtime");
   await expect(sttPanel.getByTestId("shared-credential-notice")).toHaveAttribute("data-state", "reusing");
@@ -2167,8 +2158,8 @@ test("settings promotes low-latency speech providers with their own logos", asyn
     window as unknown as { __savedAppConfig?: { speechToText?: { apiKey?: string } } }
   ).__savedAppConfig?.speechToText?.apiKey)).toBe("sk-qwen-demo");
 
-  await selectNexaOption(sttProvider, "alibaba-qwen-asr");
-  await selectNexaOption(sttModel, "qwen3-asr-flash");
+  await selectControl(sttProvider, "alibaba-qwen-asr");
+  await selectControl(sttModel, "qwen3-asr-flash");
   await expectNexaValue(sttModel, "qwen3-asr-flash");
   await expect(sttPanel.getByText("After recording", { exact: true })).toBeVisible();
   await sttPanel.getByRole("button", { name: "Save" }).click();
@@ -2178,8 +2169,8 @@ test("settings promotes low-latency speech providers with their own logos", asyn
     apiStyle: "dashscope_asr", model: "qwen3-asr-flash", apiKey: "sk-qwen-demo",
   });
 
-  await selectNexaOption(sttProvider, "siliconflow");
-  await selectNexaOption(sttModel, "FunAudioLLM/SenseVoiceSmall");
+  await selectControl(sttProvider, "siliconflow");
+  await selectControl(sttModel, "FunAudioLLM/SenseVoiceSmall");
   await expectNexaValue(sttModel, "FunAudioLLM/SenseVoiceSmall");
 });
 
@@ -2188,27 +2179,27 @@ test("speech preset defaults and model changes retain valid voice choices", asyn
   await page.getByRole('tab', { name: 'AI Providers' }).click();
   const tts = page.getByTestId('text-to-speech-settings-panel');
   await tts.locator('button').first().click();
-  const selects = tts.locator('[data-nexa-select-trigger]');
-  await selectNexaOption(selects.nth(0), 'groq');
+  const selects = tts.locator('[data-nexa-select-trigger]:not(#image-generation-source)');
+  await selectControl(selects.nth(0), 'groq');
   await expectNexaValue(selects.nth(1), 'canopylabs/orpheus-v1-english');
   await expect(tts.getByTestId('tts-voice-input')).toHaveValue('hannah');
-  await selectNexaOption(selects.nth(1), 'canopylabs/orpheus-arabic-saudi');
+  await selectControl(selects.nth(1), 'canopylabs/orpheus-arabic-saudi');
   await expect(tts.getByTestId('tts-voice-input')).toHaveValue('abdullah');
-  await selectNexaOption(selects.nth(0), 'dashscope-cosyvoice');
+  await selectControl(selects.nth(0), 'dashscope-cosyvoice');
   await expectNexaValue(selects.nth(1), 'qwen-audio-3.0-tts-flash');
-  await selectNexaOption(selects.nth(1), 'qwen-audio-3.0-tts-plus');
+  await selectControl(selects.nth(1), 'qwen-audio-3.0-tts-plus');
   await expect(tts.getByTestId('tts-voice-input')).toHaveValue('longanlingxin');
   await expect(tts.getByTestId('tts-voice-catalog')).not.toContainText('longanhuan_v3.6');
-  await selectNexaOption(selects.nth(1), 'cosyvoice-v3.5-flash');
+  await selectControl(selects.nth(1), 'cosyvoice-v3.5-flash');
   await expect(tts.getByTestId('tts-voice-input')).toHaveValue('');
   await expect(tts.getByRole('button', { name: 'Preview voice' })).toBeDisabled();
   await tts.getByTestId('tts-voice-input').fill('my-private-voice');
-  await selectNexaOption(selects.nth(1), 'cosyvoice-v3.5-plus');
+  await selectControl(selects.nth(1), 'cosyvoice-v3.5-plus');
   await expect(tts.getByTestId('tts-voice-input')).toHaveValue('my-private-voice');
   const stt = page.getByTestId('speech-to-text-settings-panel');
   await stt.locator('button').first().click();
-  await selectNexaOption(stt.getByTestId('stt-provider-select'), 'openai');
-  await expectNexaValue(stt.locator('[data-nexa-select-trigger]').nth(1), 'gpt-transcribe');
+  await selectControl(stt.getByTestId('stt-provider-select'), 'openai');
+  await expectNexaValue(stt.locator('[data-nexa-select-trigger]:not(#image-generation-source)').nth(1), 'gpt-transcribe');
   await expect(stt.getByText('After recording', { exact: true })).toBeVisible();
 });
 
@@ -2218,8 +2209,8 @@ test("settings discards a stale voice preview after synthesis settings change", 
 
   const panel = page.getByTestId("text-to-speech-settings-panel");
   await panel.locator("button").first().click();
-  await selectNexaOption(panel.locator("[data-nexa-select-trigger]").first(), "dashscope-cosyvoice");
-  await selectNexaOption(panel.locator("[data-nexa-select-trigger]").nth(1), "qwen-audio-3.0-tts-flash");
+  await selectControl(panel.locator("[data-nexa-select-trigger]:not(#image-generation-source)").first(), "dashscope-cosyvoice");
+  await selectControl(panel.locator("[data-nexa-select-trigger]:not(#image-generation-source)").nth(1), "qwen-audio-3.0-tts-flash");
   const previewText = panel
     .locator("label")
     .filter({ hasText: "Preview text" })
@@ -2256,7 +2247,7 @@ test("settings never reuses a provider key for a user-edited endpoint", async ({
 
   const ttsPanel = page.getByTestId("text-to-speech-settings-panel");
   await ttsPanel.locator("button").first().click();
-  await selectNexaOption(ttsPanel.locator("[data-nexa-select-trigger]").first(), "dashscope-cosyvoice");
+  await selectControl(ttsPanel.locator("[data-nexa-select-trigger]:not(#image-generation-source)").first(), "dashscope-cosyvoice");
   await expect(ttsPanel.getByTestId("shared-credential-notice")).toHaveAttribute("data-state", "reusing");
   await baseUrlInput(ttsPanel).fill("http://dashscope.aliyuncs.com/api/v1/services/audio/tts");
   await expect(ttsPanel.getByTestId("shared-credential-notice")).toHaveCount(0);
@@ -2264,7 +2255,7 @@ test("settings never reuses a provider key for a user-edited endpoint", async ({
 
   const sttPanel = page.getByTestId("speech-to-text-settings-panel");
   await sttPanel.locator("button").first().click();
-  await selectNexaOption(sttPanel.getByTestId("stt-provider-select"), "alibaba-qwen-realtime");
+  await selectControl(sttPanel.getByTestId("stt-provider-select"), "alibaba-qwen-realtime");
   await expect(sttPanel.getByTestId("shared-credential-notice")).toHaveAttribute("data-state", "reusing");
   await baseUrlInput(sttPanel).fill("https://dashscope.aliyuncs.com:8443/api/v1/services/audio/asr/transcription");
   await expect(sttPanel.getByTestId("shared-credential-notice")).toHaveCount(0);
@@ -2279,12 +2270,12 @@ test("settings keeps local and cloud speech engines in one provider category", a
   await expect(speechCategory).toContainText("Speech");
   const localTts = speechCategory.getByTestId("text-to-speech-settings-panel");
   await localTts.locator("button").first().click();
-  await selectNexaOption(localTts.locator("[data-nexa-select-trigger]").first(), "sherpa-onnx");
+  await selectControl(localTts.locator("[data-nexa-select-trigger]:not(#image-generation-source)").first(), "sherpa-onnx");
   await expect(localTts.getByTestId("tts-local-executable")).toHaveValue("sherpa-onnx-offline-tts");
 
   const localStt = speechCategory.getByTestId("speech-to-text-settings-panel");
   await localStt.locator("button").first().click();
-  await selectNexaOption(localStt.getByTestId("stt-provider-select"), "sherpa-zipformer");
+  await selectControl(localStt.getByTestId("stt-provider-select"), "sherpa-zipformer");
   await expect(localStt.getByTestId("stt-sherpa-executable")).toHaveValue("sherpa-onnx");
 });
 
@@ -2354,7 +2345,7 @@ test("settings discard leaves speech drafts unpersisted while keeping saved Whis
     .getByRole("heading", { name: "Speech Recognition Model" })
     .locator("xpath=../../..");
   await whisperCard.getByRole("button", { name: "Expand" }).click();
-  await page.locator("#download-whisper-model").selectOption("small");
+  await selectControl(page.locator("#download-whisper-model"), "small");
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __savedVideoConfig?: { whisperModel?: string } }
   ).__savedVideoConfig?.whisperModel)).toBe("small");
@@ -2362,7 +2353,7 @@ test("settings discard leaves speech drafts unpersisted while keeping saved Whis
   await page.getByRole("tab", { name: "AI Providers" }).click();
   const localTts = page.getByTestId("text-to-speech-settings-panel");
   await localTts.locator("button").first().click();
-  await selectNexaOption(localTts.locator("[data-nexa-select-trigger]").first(), "sherpa-onnx");
+  await selectControl(localTts.locator("[data-nexa-select-trigger]:not(#image-generation-source)").first(), "sherpa-onnx");
 
   await page.getByRole("tab", { name: "Appearance" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Discard changes" }).click();
@@ -2378,7 +2369,7 @@ test("settings discard leaves speech drafts unpersisted while keeping saved Whis
     .getByRole("heading", { name: "Speech Recognition Model" })
     .locator("xpath=../../..");
   await whisperCard.getByRole("button", { name: "Expand" }).click();
-  await expect(page.locator("#download-whisper-model")).toHaveValue("small");
+  await expect(page.locator("#download-whisper-model")).toHaveAttribute('data-value', "small");
 });
 
 test("appearance installs the backend-normalized theme draft only after explicit save", async ({ page }) => {
@@ -2458,9 +2449,9 @@ test("web search settings keep model-native search distinct and persist sortable
   await expect(support.getByRole('combobox')).toHaveCount(1);
 
   const engineField = section.locator("label").filter({ hasText: "Provider-native engine" });
-  await selectNexaOption(engineField.locator("[data-nexa-select-trigger]"), "exa");
-  await selectNexaOption(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'hybrid');
-  await selectNexaOption(section.getByRole('combobox', { name: 'Provider priority', exact: true }), 'custom_first');
+  await selectControl(engineField.locator("[data-nexa-select-trigger]:not(#image-generation-source)"), "exa");
+  await selectControl(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'hybrid');
+  await selectControl(section.getByRole('combobox', { name: 'Provider priority', exact: true }), 'custom_first');
 
   const sources = section.getByTestId('web-search-sources');
   const rows = sources.locator(':scope > [data-testid^="web-search-source-"]');
@@ -2468,7 +2459,7 @@ test("web search settings keep model-native search distinct and persist sortable
   await expect(sources.locator('input[type="number"]')).toHaveCount(0);
   const brave = sources.getByTestId('web-search-source-brave');
   await expect(brave.locator('input')).toHaveCount(0);
-  await selectNexaOption(brave.getByRole('combobox'), 'enabled');
+  await selectControl(brave.getByRole('combobox'), 'enabled');
   await brave.getByRole('button', { name: 'Expand: Brave Search API', exact: true }).click();
   await brave.getByLabel('API key', { exact: true }).fill('brave-search-test-key');
   await expect(brave.getByLabel('Instance URL')).toHaveValue('https://api.search.brave.com/res/v1/web/search');
@@ -2497,7 +2488,7 @@ test("web search settings keep model-native search distinct and persist sortable
   await page.mouse.up();
   await expect(rows.first()).toHaveAttribute('data-testid', 'web-search-source-tavily');
   await section.locator('summary').filter({ hasText: 'Advanced Settings' }).click();
-  await selectNexaOption(section.getByRole('combobox', { name: 'Reranker', exact: true }), 'research');
+  await selectControl(section.getByRole('combobox', { name: 'Reranker', exact: true }), 'research');
   await section.getByRole("button", { name: "Save", exact: true }).click();
 
   await expect.poll(() => page.evaluate(() => {
@@ -2545,7 +2536,7 @@ test("web search settings keep model-native search distinct and persist sortable
   })).toBe(true);
   await save.click();
   await page.screenshot({ path: testInfo.outputPath('search-settings-narrow.png') });
-  await selectNexaOption(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'nexaRouter');
+  await selectControl(section.getByRole('combobox', { name: 'Search execution', exact: true }), 'nexaRouter');
   await page.evaluate(() => localStorage.setItem('fail-app-config-read', '1'));
   await page.getByRole('tab', { name: 'Appearance', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Discard changes', exact: true }).click();
@@ -2582,9 +2573,9 @@ test("settings offers Qwen key reuse plus Jina and Mistral embedding presets", a
   });
   await section.getByRole("button", { name: "Online API", exact: true }).click();
 
-  const selects = section.locator("[data-nexa-select-trigger]");
-  await selectNexaOption(selects.nth(0), "alibaba-model-studio-cn");
-  await selectNexaOption(selects.nth(1), "text-embedding-v4");
+  const selects = section.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
+  await selectControl(selects.nth(0), "alibaba-model-studio-cn");
+  await selectControl(selects.nth(1), "text-embedding-v4");
   await expectNexaValue(selects.nth(1), "text-embedding-v4");
   await expectNexaValue(section.getByRole('combobox', { name: 'Vector dimensions' }), '1024');
   await expect(section.getByTestId("shared-credential-notice")).toHaveAttribute("data-state", "reusing");
@@ -2596,8 +2587,8 @@ test("settings offers Qwen key reuse plus Jina and Mistral embedding presets", a
     apiModel: "text-embedding-v4",
   }));
 
-  await selectNexaOption(selects.nth(0), "jina");
-  await selectNexaOption(selects.nth(1), "jina-embeddings-v5-text-small");
+  await selectControl(selects.nth(0), "jina");
+  await selectControl(selects.nth(1), "jina-embeddings-v5-text-small");
   await expectNexaValue(selects.nth(1), "jina-embeddings-v5-text-small");
   await expect(section.getByRole("spinbutton")).toHaveValue("1024");
   await expect(section.getByRole("spinbutton")).toBeEnabled();
@@ -2607,8 +2598,8 @@ test("settings offers Qwen key reuse plus Jina and Mistral embedding presets", a
     /provider-icons\/jina\.svg/,
   );
 
-  await selectNexaOption(selects.nth(0), "mistral");
-  await selectNexaOption(selects.nth(1), "mistral-embed");
+  await selectControl(selects.nth(0), "mistral");
+  await selectControl(selects.nth(1), "mistral-embed");
   await expectNexaValue(selects.nth(1), "mistral-embed");
   await expect(section.getByRole("spinbutton")).toHaveValue("1024");
 });
@@ -3030,7 +3021,7 @@ for (const [name, provider, presetId] of [
     await form.getByLabel('Working directory', { exact: true }).fill('D:\\工作区\\Example');
     await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
     await expect(form.getByRole('status')).toContainText('Inference has not been tested');
-    await expect(form.getByRole('combobox', { name: 'Default Model', exact: true })).toHaveValue('vendor/native-model');
+    await expect(form.getByRole('combobox', { name: 'Default Model', exact: true })).toHaveAttribute('data-value', 'vendor/native-model');
     await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
     await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -3142,7 +3133,7 @@ test('ACP model changes discard uncategorized native reasoning before verifying 
   await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
   await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await form.getByRole('combobox', { name: 'Default Model', exact: true }).selectOption('second');
+  await selectControl(form.getByRole('combobox', { name: 'Default Model', exact: true }), 'second');
   await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
   await expect(form.getByRole('alert')).toHaveCount(0);
   await form.getByRole('button', { name: 'Save', exact: true }).click();
@@ -3164,10 +3155,12 @@ test('ACP discovery exposes replacements without silently changing a retired sav
   await form.getByLabel('Working directory', { exact: true }).fill('D:\\example');
   await form.getByRole('button', { name: /^(?:Download \/ check connection|Check connection)$/ }).click();
   const model = form.getByRole('combobox', { name: 'Default Model', exact: true });
-  await expect(model).toHaveValue('retired-native-model');
-  await expect(model.getByRole('option', { name: 'Native model', exact: true })).toHaveCount(1);
+  await expect(model).toHaveAttribute('data-value', 'retired-native-model');
+  await model.click();
+  await expect(page.getByRole('option', { name: 'Native model', exact: true })).toHaveCount(1);
+  await page.keyboard.press('Escape');
   await expect(form.getByRole('combobox', { name: 'Native reasoning', exact: true })).toHaveCount(0);
-  await model.selectOption('vendor/native-model');
+  await selectControl(model, 'vendor/native-model');
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({ model: 'vendor/native-model', reasoningEffort: null });
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? 'null'))).toMatchObject({ launch: { configOptions: {} } });
@@ -3179,7 +3172,7 @@ test("Qwen Audio and dynamically discovered OpenRouter image models are usable i
   await page.getByRole('tab', { name: 'AI Providers' }).click();
   const tts = page.getByTestId('text-to-speech-settings-panel');
   await tts.locator('button').first().click();
-  await selectNexaOption(tts.locator('[data-nexa-select-trigger]').first(), 'qwen-audio-generation');
+  await selectControl(tts.locator('[data-nexa-select-trigger]:not(#image-generation-source)').first(), 'qwen-audio-generation');
   await expect(tts.getByTestId('tts-voice-input')).toHaveCount(0);
   await expect(tts.getByRole('button', { name: 'Preview voice' })).toBeDisabled();
   await tts.locator('input[type=password]').fill('test-key');
@@ -3189,15 +3182,15 @@ test("Qwen Audio and dynamically discovered OpenRouter image models are usable i
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { textToSpeech?: { apiStyle?: string } } }).__savedAppConfig?.textToSpeech?.apiStyle)).toBe('dashscope_audio_generation');
   const stt = page.getByTestId('speech-to-text-settings-panel');
   await stt.locator('button').first().click();
-  await selectNexaOption(stt.getByTestId('stt-provider-select'), 'alibaba-qwen-audio-streaming');
-  await expectNexaValue(stt.locator('[data-nexa-select-trigger]').nth(1), 'qwen-audio-3.1-asr-flash-streaming');
-  await selectNexaOption(stt.getByTestId('stt-provider-select'), 'alibaba-qwen-audio');
+  await selectControl(stt.getByTestId('stt-provider-select'), 'alibaba-qwen-audio-streaming');
+  await expectNexaValue(stt.locator('[data-nexa-select-trigger]:not(#image-generation-source)').nth(1), 'qwen-audio-3.1-asr-flash-streaming');
+  await selectControl(stt.getByTestId('stt-provider-select'), 'alibaba-qwen-audio');
   await expect(stt.getByText('After recording', { exact: true })).toBeVisible();
   const image = page.getByTestId('image-generation-settings-panel');
   await image.getByRole('button', { name: 'Expand image generation settings' }).click();
-  await selectNexaOption(image.locator('[data-nexa-select-trigger]').first(), 'openrouter-images');
-  await selectNexaOption(image.locator('[data-nexa-select-trigger]').nth(1), 'test-publisher/new-image');
-  await expectNexaValue(image.locator('[data-nexa-select-trigger]').nth(1), 'test-publisher/new-image');
+  await selectControl(image.locator('[data-nexa-select-trigger]:not(#image-generation-source)').first(), 'openrouter-images');
+  await selectControl(image.locator('[data-nexa-select-trigger]:not(#image-generation-source)').nth(1), 'test-publisher/new-image');
+  await expectNexaValue(image.locator('[data-nexa-select-trigger]:not(#image-generation-source)').nth(1), 'test-publisher/new-image');
   await expect(image).toContainText('2K');
   await image.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { outputFormat?: string } } }).__savedAppConfig?.imageGeneration?.outputFormat)).toBe('jpeg');
@@ -3211,18 +3204,18 @@ test('image generation source follows chat or explicitly selects subscription an
   const panel = page.getByTestId('image-generation-settings-panel');
   await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
   const source = panel.getByTestId('image-source-selector');
-  await expect(source.getByRole('combobox')).toHaveValue('auto');
-  await source.getByRole('combobox').selectOption('subscription');
+  await expect(source.getByRole('combobox')).toHaveAttribute('data-value', 'auto');
+  await selectControl(source.getByRole('combobox'), 'subscription');
   await expect(panel.locator('input[type=password]')).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { source?: string } } }).__savedAppConfig?.imageGeneration?.source)).toBe('subscription');
   await source.scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('image-subscription-source.png') });
-  await source.getByRole('combobox').selectOption('apiKey');
-  await expectNexaValue(panel.locator('[data-nexa-select-trigger]').first(), 'qwen-dashscope-cn');
+  await selectControl(source.getByRole('combobox'), 'apiKey');
+  await expectNexaValue(panel.locator('[data-nexa-select-trigger]:not(#image-generation-source)').first(), 'qwen-dashscope-cn');
   await expect(panel.locator('input[type=password]')).toHaveValue('sk-qwen-demo');
-  await source.getByRole('combobox').selectOption('auto');
+  await selectControl(source.getByRole('combobox'), 'auto');
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration?: { source?: string } } }).__savedAppConfig?.imageGeneration?.source)).toBe('auto');
   expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
@@ -3234,8 +3227,8 @@ test('bottom-edge model and provider menus stay inside the viewport and reach th
   await page.getByRole('tab', { name: 'AI Providers' }).click();
   const panel = page.getByTestId('image-generation-settings-panel');
   await panel.getByRole('button', { name: 'Expand image generation settings' }).click();
-  const triggers = panel.locator('[data-nexa-select-trigger]');
-  await selectNexaOption(triggers.first(), 'openai');
+  const triggers = panel.locator('[data-nexa-select-trigger]:not(#image-generation-source)');
+  await selectControl(triggers.first(), 'openai');
   await triggers.nth(1).evaluate(el => el.scrollIntoView({ block: 'end' }));
   await triggers.nth(1).click();
   const content = page.locator('.nexa-combobox-content:visible');
@@ -3418,7 +3411,7 @@ test('settings tabs support keyboard navigation, compact model choices and reduc
   await page.getByRole('button', { name: /^Models / }).click();
   const card = page.getByRole('heading', { name: 'Embedding Model', exact: true }).locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
   await card.getByRole('button', { name: 'Expand', exact: true }).click();
-  await expect(card.getByRole('combobox')).toHaveValue('Qwen3Embedding06B');
+  await expect(card.getByRole('combobox')).toHaveAttribute('data-value', 'Qwen3Embedding06B');
   await card.getByRole('button', { name: 'Collapse', exact: true }).click();
   await expect(card.getByRole('region', { includeHidden: true })).toHaveAttribute('inert', '');
   await page.screenshot({ path: testInfo.outputPath('settings-compact-models.png') });
@@ -3442,7 +3435,7 @@ for (const cloud of [
     await page.locator('input[type="password"]').fill('cloud-test-credential');
     await page.locator('label').filter({ hasText: 'Base URL' }).locator('xpath=..').getByRole('textbox').fill(cloud.url);
     await expect(page.getByTestId('cloud-provider-help')).toContainText(cloud.help);
-    await selectNexaOption(page.getByTestId('default-model-picker'), cloud.model);
+    await selectControl(page.getByTestId('default-model-picker'), cloud.model);
     const form = page.getByTestId('default-model-picker').locator('xpath=ancestor::form');
     await form.screenshot({ path: testInfo.outputPath(`${cloud.id}-settings.png`) });
     await form.getByRole('button', { name: 'Save', exact: true }).click();

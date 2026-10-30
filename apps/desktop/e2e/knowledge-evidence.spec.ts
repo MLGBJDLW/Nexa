@@ -1,3 +1,4 @@
+import { selectControl } from './select-control';
 import { expect, test } from '@playwright/test';
 
 test('DOCX citations retain native paragraph identity when empty paragraphs are omitted', async ({page}) => {
@@ -134,7 +135,7 @@ test('research saves a comparison, reviews cited evidence and restores stale sta
   await workspace.getByRole('button',{name:'Review',exact:true}).click();
   const dialog=page.getByRole('dialog');
   await dialog.getByRole('textbox',{name:'Your conclusion / notes'}).fill('Limit confirmed at 500 yuan.');
-  await dialog.getByRole('combobox',{name:'Review'}).selectOption('supported');
+  await selectControl(dialog.getByRole('combobox',{name:'Review'}), 'supported');
   await dialog.getByRole('button',{name:'Save',exact:true}).click();
   await expect(workspace.getByText('Supported (reviewed)',{exact:true})).toBeVisible();
   await page.evaluate(()=>{(window as any).__fixtureChanged=true;});

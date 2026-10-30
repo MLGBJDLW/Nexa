@@ -2086,7 +2086,7 @@ export function ChatInput({
               <p className="text-[11px] font-medium text-text-secondary">{t('chat.visionTurnTitle')}</p>
               {visionDecisionRequired && <p className="text-[10px] text-warning">{t('chat.visionTurnRequired')}</p>}
             </div>
-            <select
+            <NexaSelect
               className="shrink-0 rounded-md border border-border bg-surface-0 px-2 py-1 text-[11px] text-text-primary"
               value={visionTurnOverride ?? ''}
               onChange={(event) => setVisionTurnOverride((event.target.value || null) as VisionTurnOverride | null)}
@@ -2096,7 +2096,7 @@ export function ChatInput({
               <option value="auto">{t('chat.visionTurnAuto')}</option>
               <option value="ocr_only">{t('chat.visionTurnOcr')}</option>
               <option value="vision_only">{t('chat.visionTurnVision')}</option>
-            </select>
+            </NexaSelect>
           </div>
         )}
         {attachments.length > 0 && (

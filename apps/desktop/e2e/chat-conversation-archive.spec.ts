@@ -1,3 +1,4 @@
+import { selectControl } from './select-control';
 import { expect, test } from './timeline-test';
 
 test('chat worktree keeps the draft and requires a snapshot decision before archive', async ({ page }, testInfo) => {
@@ -53,20 +54,20 @@ test('MCP resources and prompt templates are reviewed before adding text to the 
   const input=page.getByTestId('chat-input-textarea'); await input.fill('Keep my draft');
   await page.keyboard.press('Control+Shift+P'); const palette=page.getByRole('dialog',{name:/command palette/i});
   await palette.getByRole('combobox').fill('MCP resources'); await palette.getByRole('option',{name:'MCP resources and prompts',exact:true}).click();
-  const panel=page.getByTestId('mcp-content-panel'); await panel.getByRole('combobox',{name:'Connector',exact:true}).selectOption('knowledge');
-  await panel.getByRole('combobox',{name:'Resources',exact:true}).selectOption('notes://report');
+  const panel=page.getByTestId('mcp-content-panel'); await selectControl(panel.getByRole('combobox',{name:'Connector',exact:true}), 'knowledge');
+  await selectControl(panel.getByRole('combobox',{name:'Resources',exact:true}), 'notes://report');
   expect(await page.evaluate(() => (window as unknown as {__mcpReads:unknown[]}).__mcpReads)).toEqual([]);
   await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Quarterly report evidence');
   await page.screenshot({path:testInfo.outputPath('mcp-resources.png')});
   await panel.getByRole('button',{name:'Add text to draft'}).click(); await expect(panel).toBeHidden(); await expect(input).toHaveValue(/Keep my draft\n\nMCP · Knowledge · notes:\/\/report\nQuarterly report evidence/);
   await input.fill('/mcp-context'); await page.keyboard.press('Enter'); await expect(panel).toBeVisible();
-  await panel.getByRole('combobox',{name:'Connector',exact:true}).selectOption('knowledge');
-  await panel.getByRole('combobox',{name:'Resources',exact:true}).selectOption('notes://{id}');
+  await selectControl(panel.getByRole('combobox',{name:'Connector',exact:true}), 'knowledge');
+  await selectControl(panel.getByRole('combobox',{name:'Resources',exact:true}), 'notes://{id}');
   await panel.getByRole('textbox',{name:'id',exact:true}).fill('folder/private');
   await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Quarterly report evidence');
   await page.screenshot({path:testInfo.outputPath('mcp-resource-template.png')});
-  await panel.getByRole('combobox',{name:'Content type',exact:true}).selectOption('prompt');
-  await panel.getByRole('combobox',{name:'Prompt templates',exact:true}).selectOption('summarize');
+  await selectControl(panel.getByRole('combobox',{name:'Content type',exact:true}), 'prompt');
+  await selectControl(panel.getByRole('combobox',{name:'Prompt templates',exact:true}), 'summarize');
   await expect(panel.getByRole('button',{name:'Read content',exact:true})).toBeDisabled();
   await panel.getByRole('textbox',{name:'topic *',exact:true}).fill('quarter');
   await panel.getByRole('button',{name:'Read content',exact:true}).click(); await expect(panel).toContainText('Selected prompt template');
@@ -104,7 +105,7 @@ test('project checks require explicit enablement and expose receipts through hoo
   await palette.getByRole('combobox').fill('Project checks');
   await palette.getByRole('option', { name:'Project checks',exact:true }).click();
   const panel = page.getByTestId('project-hooks-panel');
-  await panel.getByRole('combobox', { name:'Project tool',exact:true }).selectOption(`check:${'a'.repeat(64)}`);
+  await selectControl(panel.getByRole('combobox', { name:'Project tool',exact:true }), `check:${'a'.repeat(64)}`);
   await expect(panel).toContainText('npm test');
   expect(await page.evaluate(() => (window as unknown as { __hookSaves: unknown[] }).__hookSaves)).toEqual([]);
   await panel.getByRole('button', { name:'Enable check',exact:true }).click();

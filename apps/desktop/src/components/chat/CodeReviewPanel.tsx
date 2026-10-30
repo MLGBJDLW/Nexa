@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from '../../i18n';
@@ -61,12 +62,12 @@ export function CodeReviewPanel({ conversationId, onInsert }: {conversationId:st
     <p className="leading-5 text-text-secondary">{t('chat.reviewHelp')}</p>
     {error&&<p role="alert" className="break-words text-danger">{error}</p>}
     <div className="flex flex-wrap items-end gap-2">
-      <label className="min-w-36 flex-1 space-y-1">{t('chat.reviewComparison')}<select aria-label={t('chat.reviewComparison')} className={selectStyle} disabled={busy} value={mode} onChange={event=>setMode(event.target.value)}>{['worktree','staged','unstaged','branch'].map(value=><option key={value} value={value}>{modeLabel(value)}</option>)}</select></label>
+      <label className="min-w-36 flex-1 space-y-1">{t('chat.reviewComparison')}<NexaSelect aria-label={t('chat.reviewComparison')} className={selectStyle} disabled={busy} value={mode} onChange={event=>setMode(event.target.value)}>{['worktree','staged','unstaged','branch'].map(value=><option key={value} value={value}>{modeLabel(value)}</option>)}</NexaSelect></label>
       {mode==='branch'&&<label className="min-w-36 flex-1 space-y-1">{t('chat.worktreeStart')}<Input aria-label={t('chat.worktreeStart')} disabled={busy} value={base} onChange={event=>setBase(event.target.value)}/></label>}
       <Button disabled={busy||(mode==='branch'&&!base.trim())} onClick={()=>void run({action:'start',mode,base})}>{t('chat.reviewStart')}</Button>
       <Button variant="secondary" disabled={busy} onClick={()=>void run({action:'get'})}>{t('chat.reviewRefresh')}</Button>
     </div>
-    {saved.length>0&&<label className="block space-y-1">{t('chat.reviewSaved')}<select className={selectStyle} aria-label={t('chat.reviewSaved')} disabled={busy} value={review?.id??''} onChange={event=>void run({action:'select',id:event.target.value})}><option value="" disabled>—</option>{saved.map(item=><option key={item.id} value={item.id}>{modeLabel(item.mode)} · {item.baseRef} · {new Date(item.createdAt).toLocaleString()}</option>)}</select></label>}
+    {saved.length>0&&<label className="block space-y-1">{t('chat.reviewSaved')}<NexaSelect className={selectStyle} aria-label={t('chat.reviewSaved')} disabled={busy} value={review?.id??''} onChange={event=>void run({action:'select',id:event.target.value})}><option value="" disabled>—</option>{saved.map(item=><option key={item.id} value={item.id}>{modeLabel(item.mode)} · {item.baseRef} · {new Date(item.createdAt).toLocaleString()}</option>)}</NexaSelect></label>}
     {review&&<>
       <div className="space-y-1 rounded border border-border p-2 text-text-secondary">
         <p className="break-all select-text">{review.workspaceRoot}</p>
@@ -79,7 +80,7 @@ export function CodeReviewPanel({ conversationId, onInsert }: {conversationId:st
       <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={()=>feedback([])}>{t('chat.reviewAsk')}</Button><Button disabled={busy||!selected.length} onClick={()=>feedback(selected)}>{t('chat.reviewRepair')} ({selected.length})</Button></div>
       <div className="grid min-w-0 gap-4 md:grid-cols-2">
         <section className="min-w-0 space-y-2">
-          <select aria-label={t('chat.reviewFile')} className={selectStyle} disabled={busy} value={path} onChange={event=>{setPath(event.target.value);setLine('1');}}><option value="" disabled>{t('chat.reviewFile')}</option>{review.snapshot.files.map(entry=><option key={entry.path} value={entry.path}>{entry.path}</option>)}</select>
+          <NexaSelect aria-label={t('chat.reviewFile')} className={selectStyle} disabled={busy} value={path} onChange={event=>{setPath(event.target.value);setLine('1');}}><option value="" disabled>{t('chat.reviewFile')}</option>{review.snapshot.files.map(entry=><option key={entry.path} value={entry.path}>{entry.path}</option>)}</NexaSelect>
           {file&&<div className="max-h-80 overflow-auto rounded border border-border bg-surface-1 font-mono leading-5" aria-label={t('chat.reviewDiff')}>
             {diffLines(file.patch).map((row,index)=><div key={index} className={`flex w-max min-w-full ${row.next!==null&&row.old===null?'bg-success/10':row.old!==null&&row.next===null?'bg-danger/10':''}`}>
               <button type="button" disabled={busy||file.truncated||file.binary||row.old===null} aria-label={`old ${row.old??''}`} className="w-10 shrink-0 text-text-tertiary hover:bg-surface-3 disabled:cursor-default" onClick={()=>{setSide('old');setLine(String(row.old));}}>{row.old}</button>
@@ -89,7 +90,7 @@ export function CodeReviewPanel({ conversationId, onInsert }: {conversationId:st
           </div>}
           {file&&(file.truncated||file.binary)&&<p className="text-warning">{t('chat.reviewPartial')}</p>}
           {file&&!file.truncated&&!file.binary&&<div className="space-y-2 rounded border border-border p-2">
-            <div className="flex gap-2"><select aria-label={t('chat.reviewSide')} disabled={busy} className={selectStyle} value={side} onChange={event=>setSide(event.target.value)}><option value="new">{t('chat.reviewNew')}</option><option value="old">{t('chat.reviewOld')}</option></select><Input aria-label={t('chat.reviewLine')} type="number" min="1" value={line} disabled={busy} onChange={event=>setLine(event.target.value)}/><select aria-label={t('chat.reviewPriority')} className={selectStyle} disabled={busy} value={priority} onChange={event=>setPriority(event.target.value)}>{[0,1,2,3].map(value=><option key={value} value={value}>P{value}</option>)}</select></div>
+            <div className="flex gap-2"><NexaSelect aria-label={t('chat.reviewSide')} disabled={busy} className={selectStyle} value={side} onChange={event=>setSide(event.target.value)}><option value="new">{t('chat.reviewNew')}</option><option value="old">{t('chat.reviewOld')}</option></NexaSelect><Input aria-label={t('chat.reviewLine')} type="number" min="1" value={line} disabled={busy} onChange={event=>setLine(event.target.value)}/><NexaSelect aria-label={t('chat.reviewPriority')} className={selectStyle} disabled={busy} value={priority} onChange={event=>setPriority(event.target.value)}>{[0,1,2,3].map(value=><option key={value} value={value}>P{value}</option>)}</NexaSelect></div>
             <Input aria-label={t('chat.reviewFindingTitle')} placeholder={t('chat.reviewFindingTitle')} value={title} maxLength={240} disabled={busy} onChange={event=>setTitle(event.target.value)}/>
             <textarea aria-label={t('chat.reviewFindingBody')} placeholder={t('chat.reviewFindingBody')} className={`${selectStyle} min-h-20 resize-y`} value={body} maxLength={8000} disabled={busy} onChange={event=>setBody(event.target.value)}/>
             <Button disabled={busy||!title.trim()||!body.trim()||!Number.isSafeInteger(Number(line))||Number(line)<1} onClick={()=>void run({action:'add',review_id:review.id,finding:{anchor:{revision:review.snapshot.revision,path,side,line:Number(line)},priority:Number(priority),title,body}})}>{t('chat.reviewAdd')}</Button>

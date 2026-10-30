@@ -1,11 +1,11 @@
 :root {
-  --overlay-bg: color-mix(in srgb, var(--color-surface-1) 94%, transparent);
-  --overlay-border: var(--color-border-hover);
-  --overlay-shadow: var(--shadow-lg);
+  --overlay-bg: color-mix(in srgb, var(--color-surface-1) 98%, transparent);
+  --overlay-border: color-mix(in srgb, var(--color-accent) 14%, var(--color-border));
+  --overlay-shadow: 0 12px 32px -12px color-mix(in srgb, var(--color-text-primary) 22%, transparent), 0 2px 6px -2px color-mix(in srgb, var(--color-text-primary) 10%, transparent);
   --overlay-radius: var(--radius-md);
-  --overlay-blur: 18px;
+  --overlay-blur: 8px;
   --overlay-item-height: 2rem;
-  --overlay-item-hover: var(--color-surface-3);
+  --overlay-item-hover: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface-2));
   --overlay-item-selected: var(--color-accent-subtle);
   --overlay-focus-ring: var(--color-border-active);
 }
@@ -18,8 +18,8 @@
   box-shadow: var(--overlay-shadow);
   color: var(--color-text-primary);
   backdrop-filter: blur(var(--overlay-blur));
-  transform-origin: var(--radix-select-content-transform-origin, var(--radix-popover-content-transform-origin));
-  animation: nexa-overlay-open 140ms var(--ease-out);
+  transform-origin: var(--radix-select-content-transform-origin, var(--radix-dropdown-menu-content-transform-origin, var(--radix-context-menu-content-transform-origin, var(--radix-popover-content-transform-origin, top))));
+  animation: nexa-overlay-open 160ms var(--ease-out);
   box-sizing: border-box;
 }
 
@@ -87,10 +87,12 @@
   padding: 0.4rem 0.65rem;
   font-size: 0.75rem;
   outline: none;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 
 .nexa-overlay-item[data-highlighted] { background: var(--overlay-item-hover); }
 .nexa-overlay-item[data-state='checked'] { background: var(--overlay-item-selected); }
+.nexa-overlay-item[data-highlighted][data-state='checked'] { background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface-1)); }
 .nexa-overlay-item[data-disabled] { pointer-events: none; opacity: 0.42; }
 
 .nexa-select-trigger {
@@ -100,6 +102,23 @@
   align-items: center;
   justify-content: space-between;
   outline: none;
+  cursor: pointer;
+  transition: border-color 160ms ease-out, background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+.nexa-select-trigger:hover:not(:disabled),
+.nexa-select-trigger[data-state='open'] {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background-color: var(--overlay-item-hover);
+}
+.nexa-select-trigger:disabled { cursor: not-allowed; opacity: 0.5; }
+.nexa-select-chevron {
+  color: var(--color-text-tertiary);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), color 160ms ease-out;
+}
+.nexa-select-trigger[data-state='open'] .nexa-select-chevron {
+  transform: rotate(180deg);
+  color: var(--color-accent);
 }
 
 .nexa-select-trigger:focus-visible {
@@ -161,6 +180,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .nexa-select-trigger, .nexa-select-chevron, .nexa-overlay-item { transition: none; }
   .nexa-overlay-content,
   .nexa-overlay-content[data-state='closed'] {
     animation-duration: 1ms;

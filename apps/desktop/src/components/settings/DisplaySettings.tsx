@@ -8,6 +8,7 @@ import { FONT_PRESETS } from '../../lib/fontCatalog';
 import { useFonts } from '../../lib/FontProvider';
 import { getDisplayPreferences, updateDisplayPreferences, useDisplayPreferences, type StreamingMode } from '../../lib/displayPreferences';
 import { Button } from '../ui/Button';
+import { NexaSelect } from '../ui/overlay';
 
 export function DisplaySettings() {
   const { t } = useTranslation();
@@ -51,14 +52,14 @@ export function DisplaySettings() {
       <p className="text-xs leading-relaxed text-text-tertiary">{t('settings.displayFontsDesc')}</p>
       <div className="divide-y divide-border/50">
         {(['uiFontId', 'codeFontId'] as const).map(slot => <SettingsRow key={slot} label={t(slot === 'uiFontId' ? 'settings.displayUiFont' : 'settings.displayCodeFont')} htmlFor={`settings-${slot}`}>
-          <select id={`settings-${slot}`} data-testid={slot === 'uiFontId' ? 'ui-font-select' : 'code-font-select'} value={preferences[slot]} onChange={event => updateDisplayPreferences({ [slot]: event.target.value })} className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary">
+          <NexaSelect id={`settings-${slot}`} data-testid={slot === 'uiFontId' ? 'ui-font-select' : 'code-font-select'} value={preferences[slot]} onChange={event => updateDisplayPreferences({ [slot]: event.target.value })} className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary">
             <option value="theme">{t('settings.displayThemeFont')}</option>
             {(['cjk', 'text', 'mono'] as const).map(kind => <optgroup key={kind} label={t(`settings.displayFontGroup.${kind}`)}>
               {FONT_PRESETS.filter(font => font.kind === kind).map(font => <option key={font.id} value={font.id}>{font.name}</option>)}
             </optgroup>)}
             {assets.length > 0 && <optgroup label={t('settings.displayImportedFonts')}>{assets.map(font => <option key={font.id} value={font.id}>{font.name}</option>)}</optgroup>}
             {preferences[slot] !== 'theme' && !FONT_PRESETS.some(font => font.id === preferences[slot]) && !assets.some(font => font.id === preferences[slot]) && <option value={preferences[slot]}>{t('settings.displayFontUnavailable')}</option>}
-          </select>
+          </NexaSelect>
         </SettingsRow>)}
       </div>
       <div className="space-y-2 rounded-xl border border-border bg-surface-1 px-4 py-3" data-testid="font-preview">
@@ -77,9 +78,9 @@ export function DisplaySettings() {
     </div>
     <div className="space-y-3 border-t border-border pt-3">
       <SettingsRow label={t('settings.displayStreaming')} description={t(`settings.displayStreaming.${preferences.streamingMode}Desc`)} htmlFor="settings-streaming-mode">
-        <select id="settings-streaming-mode" data-testid="streaming-mode-select" value={preferences.streamingMode} onChange={event => updateDisplayPreferences({ streamingMode: event.target.value as StreamingMode })} className={settingsSelectClass}>
+        <NexaSelect id="settings-streaming-mode" data-testid="streaming-mode-select" value={preferences.streamingMode} onChange={event => updateDisplayPreferences({ streamingMode: event.target.value as StreamingMode })} className={settingsSelectClass}>
           {(['chunked', 'balanced', 'smooth'] as StreamingMode[]).map(mode => <option key={mode} value={mode}>{t(`settings.displayStreaming.${mode}`)}</option>)}
-        </select>
+        </NexaSelect>
       </SettingsRow>
       <p className="text-xs leading-relaxed text-text-tertiary">{t('settings.displayStreamingCost')}</p>
     </div>

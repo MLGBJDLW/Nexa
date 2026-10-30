@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from '../../i18n';
@@ -83,19 +84,19 @@ export function McpContentPanel({ serverId: initialServerId, onInsert }: { serve
   const selectClass = 'w-full rounded-md border border-border bg-surface-2 p-2 text-xs';
   return <section className="space-y-3" data-testid="mcp-content-panel">
     <p className="text-xs leading-relaxed text-text-secondary">{t('chat.mcpContentHint')}</p>
-    {!initialServerId && <select disabled={busy} aria-label={t('chat.mcpConnector')} className={selectClass} value={serverId} onChange={event => setServerId(event.target.value)}>
+    {!initialServerId && <NexaSelect disabled={busy} aria-label={t('chat.mcpConnector')} className={selectClass} value={serverId} onChange={event => setServerId(event.target.value)}>
       <option value="">{t('chat.mcpChooseConnector')}</option>{servers.map(server => <option key={server.id} value={server.id}>{server.name}</option>)}
-    </select>}
+    </NexaSelect>}
     <Button size="sm" variant="ghost" disabled={!serverId || busy} onClick={() => void load()}>{t('chat.mcpRefreshCatalog')}</Button>
     {error && <p role="alert" className="break-words text-xs text-danger">{error}</p>}
     {catalog?.diagnostics && <p role="status" className="text-xs text-warning">{catalog.diagnostics}</p>}
     {catalog?.contentDiagnostics?.map(diagnostic => <p key={diagnostic} role="status" className="text-xs text-warning">{diagnostic}</p>)}
     {catalog && <>
-      <select disabled={busy} aria-label={t('chat.mcpContentKind')} className={selectClass} value={mode} onChange={event => { setMode(event.target.value as typeof mode); setArgs({}); setResult(null); }}>
+      <NexaSelect disabled={busy} aria-label={t('chat.mcpContentKind')} className={selectClass} value={mode} onChange={event => { setMode(event.target.value as typeof mode); setArgs({}); setResult(null); }}>
         <option value="resource">{t('chat.mcpResources')}</option><option value="prompt">{t('chat.mcpPrompts')}</option>
-      </select>
+      </NexaSelect>
       {mode === 'resource' ? <>
-        <select disabled={busy} aria-label={t('chat.mcpResources')} className={selectClass} value={uriTemplate || (catalog.resources.some(item => item.uri === uri) ? uri : '')} onChange={event => {
+        <NexaSelect disabled={busy} aria-label={t('chat.mcpResources')} className={selectClass} value={uriTemplate || (catalog.resources.some(item => item.uri === uri) ? uri : '')} onChange={event => {
           const target = event.target.value;
           const isTemplate = catalog.resourceTemplates.some(item => item.uriTemplate === target);
           setUriTemplate(isTemplate ? target : ''); setUri(isTemplate ? '' : target); setArgs({}); setResult(null);
@@ -103,15 +104,15 @@ export function McpContentPanel({ serverId: initialServerId, onInsert }: { serve
           <option value="">{t('chat.mcpChooseResource')}</option>
           {catalog.resources.map(item => <option key={item.uri} value={item.uri}>{item.name} · {item.uri}</option>)}
           {catalog.resourceTemplates.map(item => <option key={item.uriTemplate} value={item.uriTemplate}>{item.name} · {item.uriTemplate}</option>)}
-        </select>
+        </NexaSelect>
         <Input disabled={busy || !!uriTemplate} aria-label={t('chat.mcpResourceUri')} placeholder={t('chat.mcpResourceUri')} value={uriTemplate || uri} onChange={event => { setUri(event.target.value); setResult(null); }} />
         {templateVariables.map(variable => <label key={variable} className="block text-xs">{variable}
           <Input disabled={busy} value={args[variable] ?? ''} onChange={event => { setArgs(values => ({ ...values, [variable]: event.target.value })); setResult(null); }} />
         </label>)}
       </> : <>
-        <select disabled={busy} aria-label={t('chat.mcpPrompts')} className={selectClass} value={prompt} onChange={event => { setPrompt(event.target.value); setArgs({}); setResult(null); }}>
+        <NexaSelect disabled={busy} aria-label={t('chat.mcpPrompts')} className={selectClass} value={prompt} onChange={event => { setPrompt(event.target.value); setArgs({}); setResult(null); }}>
           <option value="">{t('chat.mcpChoosePrompt')}</option>{catalog.prompts.map(item => <option key={item.name} value={item.name}>{item.name}</option>)}
-        </select>
+        </NexaSelect>
         {selectedPrompt?.description && <p className="text-xs text-text-tertiary">{selectedPrompt.description}</p>}
         {selectedPrompt?.arguments?.map(argument => <label key={argument.name} className="block text-xs">{argument.name}{argument.required ? ' *' : ''}
           <Input disabled={busy} value={args[argument.name] ?? ''} required={argument.required} title={argument.description} onChange={event => { setArgs(values => ({ ...values,[argument.name]:event.target.value })); setResult(null); }} />

@@ -1,3 +1,4 @@
+import { NexaSelect } from '../../components/ui/overlay';
 import { useEffect, useRef, useState } from 'react';
 import { BookOpen, RefreshCw, Trash2 } from 'lucide-react';
 import * as api from '../../lib/api';
@@ -62,9 +63,9 @@ export function ResearchWorkspace({ cards, sourceIds }: { cards: EvidenceCard[];
     <summary className="cursor-pointer text-sm font-medium text-text-secondary">{t('knowledge.researchTitle')} {selected.length ? `(${selected.length}/8)` : ''}</summary>
     <div className="mt-3 space-y-3">
       <p className="text-xs text-text-tertiary">{t('knowledge.researchDescription')}</p>
-      <label className="block text-xs text-text-secondary">{t('knowledge.researchSaved')}<select aria-label={t('knowledge.researchSaved')} value={setId} disabled={disabled} onChange={event => setSetId(event.target.value)} className="mt-1 h-9 w-full rounded border border-border bg-surface-0 px-2">
+      <label className="block text-xs text-text-secondary">{t('knowledge.researchSaved')}<NexaSelect aria-label={t('knowledge.researchSaved')} value={setId} disabled={disabled} onChange={event => setSetId(event.target.value)} className="mt-1 h-9 w-full rounded border border-border bg-surface-0 px-2">
         <option value="">{t('knowledge.researchNew')}</option>{summaries.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
-      </select></label>
+      </NexaSelect></label>
       {error && <p role="alert" className="text-xs text-danger">{error} <button onClick={() => setAttempt(value => value + 1)}>{t('common.retry')}</button></p>}
       {job && <p role="status" className="text-xs text-accent">{t('common.loading')} {String(job.progress.current ?? 0)}/{String(job.progress.total ?? 0)}</p>}
       {finished && (finished.status === 'failed' || finished.status === 'interrupted') && !job && <p role="status" className="text-xs text-warning">{t('knowledge.researchInterrupted')} {finished.error === 'runtime_interrupted' ? '' : finished.error}</p>}
@@ -98,7 +99,7 @@ export function ResearchWorkspace({ cards, sourceIds }: { cards: EvidenceCard[];
     {editing && set && <Modal open onClose={() => { if (!busy) setEditing(null); }} title={t('knowledge.researchReview')}>
       <p className="mb-3 text-sm">{set.questions[editing.cell.questionIndex]}</p>
       <label className="block text-xs">{t('knowledge.researchConclusion')}<textarea rows={5} value={editing.note} disabled={busy} maxLength={4000} onChange={event => setEditing({...editing,note:event.target.value})} className="mt-1 w-full rounded border border-border bg-surface-1 p-2" /></label>
-      <select aria-label={t('knowledge.researchReview')} value={editing.state} disabled={busy} onChange={event => setEditing({...editing,state:event.target.value as ResearchCell['reviewState']})} className="my-3 h-9 w-full rounded border border-border bg-surface-1 px-2">{(['needs_review','supported','not_found','conflict'] as const).map(state => <option key={state} value={state}>{t(`knowledge.researchState_${state}`)}</option>)}</select>
+      <NexaSelect aria-label={t('knowledge.researchReview')} value={editing.state} disabled={busy} onChange={event => setEditing({...editing,state:event.target.value as ResearchCell['reviewState']})} className="my-3 h-9 w-full rounded border border-border bg-surface-1 px-2">{(['needs_review','supported','not_found','conflict'] as const).map(state => <option key={state} value={state}>{t(`knowledge.researchState_${state}`)}</option>)}</NexaSelect>
       <Button size="sm" loading={busy} onClick={() => void mutate(() => api.reviewResearchCell({setId:set.summary.id,documentId:editing.document.reference.documentId,questionIndex:editing.cell.questionIndex,expectedRevision:set.summary.revision,reviewState:editing.state,note:editing.note}))}>{t('common.save')}</Button>
     </Modal>}
   </details>;

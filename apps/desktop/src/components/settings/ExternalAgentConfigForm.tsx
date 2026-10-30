@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, FolderOpen, Terminal } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
@@ -241,7 +242,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
     {!launchFieldsValid && <p role="alert" className="mt-2 text-xs text-danger">{t('settings.externalAgentJsonHint')}</p>}
     </details>
     {models.length > 0 && <label className="block text-xs font-medium text-text-secondary">{t('settings.defaultModel')}
-      <select className={inputClass} value={model} disabled={loading} onChange={event => {
+      <NexaSelect className={inputClass} value={model} disabled={loading} onChange={event => {
         const selected = event.target.value;
         const dependent = new Set(nativeOptions.filter(isModelDependent).map(option => option.id));
         const requestedLaunch = { ...launch, configOptionsModel: selected, configOptions: Object.fromEntries(Object.entries(launch.configOptions ?? {}).filter(([id]) => !dependent.has(id))) };
@@ -249,11 +250,11 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
       }}>
         {model && !models.some(item => item.id === model) && <option value={model} disabled>{model} · {t('settings.modelCredentialUnavailable')}</option>}
         {models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select>
+      </NexaSelect>
     </label>}
     {nativeOptions.filter(option => !isNativeModel(option) && !isNativeReasoning(option)).map(option => <label key={option.id} className="block text-xs font-medium text-text-secondary">
       {option.name}
-      <select className={inputClass} disabled={loading} value={launch.configOptions?.[option.id] ?? option.currentValue}
+      <NexaSelect className={inputClass} disabled={loading} value={launch.configOptions?.[option.id] ?? option.currentValue}
         onChange={event => {
           const changesCatalog = !isModelDependent(option);
           const dependent = new Set(nativeOptions.filter(isModelDependent).map(item => item.id));
@@ -262,7 +263,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
           setLaunch(requestedLaunch); onDirtyChange(true); void probe(changesCatalog ? '' : model, requestedLaunch);
         }}>
         {option.options.map(choice => <option key={choice.value} value={choice.value}>{choice.name}</option>)}
-      </select>
+      </NexaSelect>
     </label>)}
     {connectors.length > 0 && <fieldset className="space-y-2 rounded-lg border border-border p-3">
       <legend className="px-1 text-xs font-medium text-text-secondary">{t('settings.externalAgentMcp')}</legend>
