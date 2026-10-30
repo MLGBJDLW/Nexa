@@ -7,6 +7,16 @@
 
 * **ui:** refine thinking summaries, image generation, and themed menus ([#515](https://github.com/MLGBJDLW/Nexa/issues/515)) ([91b7222](https://github.com/MLGBJDLW/Nexa/commit/91b722254a279e36ae7663c3496e6c0445ab9dcc))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 91b722254a279e36ae7663c3496e6c0445ab9dcc -->
+
+### What's Changed
+* feat(ui): refine thinking summaries, image generation, and themed menus by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/515
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.12...nexa-monorepo-v0.17.13
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.11...nexa-monorepo-v0.17.12) (2026-10-29)
 
 本次更新修复子代理长任务中断、GLM Coding Plan 配置和 Windows 桌面观察，并改进任务状态与文件变更显示。
