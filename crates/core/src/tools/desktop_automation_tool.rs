@@ -474,14 +474,20 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|action| action == "list_apps"));
+            let control = tools
+                .iter()
+                .find(|tool| tool.name == "computer_use")
+                .unwrap_or_else(|| panic!("unified native control missing for {query}"));
             assert!(
-                tools.iter().any(|tool| tool.name == "computer_observe"),
-                "{query}"
+                control.parameters["properties"]["target"]["properties"]["kind"]["enum"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|kind| kind == "window")
             );
-            assert!(
-                tools.iter().any(|tool| tool.name == "computer_control"),
-                "{query}"
-            );
+            assert!(!tools
+                .iter()
+                .any(|tool| matches!(tool.name.as_str(), "computer_observe" | "computer_control")));
         }
     }
 
