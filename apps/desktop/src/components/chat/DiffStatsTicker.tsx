@@ -53,7 +53,8 @@ export function RollingCount({ value, className }: { value: number; className?: 
   }, [count, shouldReduceMotion]);
 
   return <span ref={rootRef} data-count-value={count} className={`inline-block text-right tabular-nums leading-none ${className ?? ''}`}>
-    {digits.map((digit, index) => <span key={digits.length - index - 1} data-count-place={digits.length - index - 1}
+    <span className="sr-only">{count}</span>
+    {digits.map((digit, index) => <span key={digits.length - index - 1} aria-hidden="true" data-count-place={digits.length - index - 1}
       className="relative inline-block w-[1ch] text-center align-baseline">
       <span data-count-digit>{digit}</span>
       <span aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
