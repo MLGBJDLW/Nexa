@@ -546,12 +546,24 @@ type MessageTraceGroup =
 
 interface GeneratedImagePreviewItem {
   id: string;
+  assistantIdx: number;
+  callId: string;
   toolName: string;
   arguments: string;
   owner?: ToolCallEvent["owner"];
   content?: string;
   isError?: boolean;
   artifacts: ArtifactPayload;
+}
+
+function sameGeneratedImageSource(left: ArtifactPayload, right: ArtifactPayload): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) return false;
+  if (left === right) return true;
+  for (const key of ['previewPath', 'path', 'dataUrl', 'providerImageUrl']) {
+    const source = left[key];
+    if (typeof source === 'string' && source.length > 0 && source === right[key]) return true;
+  }
+  return false;
 }
 
 function collectArtifactValues(value: unknown, out: unknown[]) {
@@ -1937,20 +1949,16 @@ export function ChatMessages(props: ChatMessagesProps) {
       }
     >();
 
+    const byAssistantIdx = new Map<number, GeneratedImagePreviewItem[]>();
     messages.forEach((msg, idx) => {
-      if (msg.role !== "assistant") return;
-      for (const toolCall of msg.toolCalls) {
-        if (toolCall.id) {
-          ownerByToolCallId.set(toolCall.id, {
-            assistantIdx: idx,
-            toolCall,
-          });
+      // Provider call IDs can be reused. Resolve each result against the
+      // preceding assistant in its own user turn, never a later occurrence.
+      if (msg.role === 'user' && !isSteeringMessage(msg)) ownerByToolCallId.clear();
+      if (msg.role === 'assistant') {
+        for (const toolCall of msg.toolCalls) {
+          if (toolCall.id) ownerByToolCallId.set(toolCall.id, { assistantIdx: idx, toolCall });
         }
       }
-    });
-
-    const byAssistantIdx = new Map<number, GeneratedImagePreviewItem[]>();
-    messages.forEach((msg) => {
       if (
         msg.role !== "tool" ||
         !msg.toolCallId ||
@@ -1965,6 +1973,8 @@ export function ChatMessages(props: ChatMessagesProps) {
       const items = byAssistantIdx.get(owner.assistantIdx) ?? [];
       items.push({
         id: `generated-image-${msg.id}`,
+        assistantIdx: owner.assistantIdx,
+        callId: msg.toolCallId,
         toolName: owner.toolCall.name || "generate_image",
         arguments: owner.toolCall.arguments || "",
         owner: owner.toolCall.owner,
@@ -1976,6 +1986,19 @@ export function ChatMessages(props: ChatMessagesProps) {
 
     return byAssistantIdx;
   }, [messages]);
+
+  const liveGeneratedImages = useMemo(() => {
+    const byCall = new Map<string, ToolCallEvent[]>();
+    const consider = (call: ToolCallEvent) => {
+      if (call.isError || !isGeneratedImageArtifact(call.artifacts)) return;
+      const occurrences = byCall.get(call.callId) ?? [];
+      if (!occurrences.includes(call)) occurrences.push(call);
+      byCall.set(call.callId, occurrences);
+    };
+    for (const event of traceEvents) if (event.kind === 'tool') consider(event.toolCall);
+    for (const round of streamRounds) for (const call of round.toolCalls) consider(call);
+    return byCall;
+  }, [traceEvents, streamRounds]);
 
   const generatedImagePreviewsForIndexes = useCallback(
     (indexes: number[]): GeneratedImagePreviewItem[] =>
@@ -2001,10 +2024,16 @@ export function ChatMessages(props: ChatMessagesProps) {
   const renderGeneratedImagePreviews = useCallback(
     (items: GeneratedImagePreviewItem[] | undefined) => {
       if (!items || items.length === 0) return null;
+      // Retain the live card through history hydration. Once the live trace
+      // clears, the saved preview takes ownership without duplicating pixels.
+      const visible = items.filter(item => item.assistantIdx <= latestUserIdx || !(liveGeneratedImages.get(item.callId) ?? []).some(call =>
+        call.arguments === item.arguments && call.artifacts && sameGeneratedImageSource(item.artifacts, call.artifacts),
+      ));
+      if (visible.length === 0) return null;
       return (
         <div className="my-2 flex justify-start" data-testid="message-generated-image-previews">
           <div className="w-full max-w-[min(100%,40rem)] space-y-2">
-            {items.map((item) => (
+            {visible.map((item) => (
               <ToolCallCard
                 key={item.id}
                 toolName={item.toolName}
@@ -2023,7 +2052,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </div>
       );
     },
-    [],
+    [latestUserIdx, liveGeneratedImages],
   );
 
   const shouldRenderLiveTraceTimeline =

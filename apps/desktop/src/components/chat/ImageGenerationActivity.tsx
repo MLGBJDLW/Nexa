@@ -16,9 +16,10 @@ const EDGES = [
   [14, 16], [14, 17], [15, 17], [15, 18], [16, 19], [17, 19], [17, 20], [18, 20],
 ];
 
-function aspectRatio(size = ''): string {
-  const match = size.match(/^(\d{1,5})\s*[x*:]\s*(\d{1,5})$/i);
-  return match && Number(match[1]) > 0 && Number(match[2]) > 0 ? `${match[1]} / ${match[2]}` : '16 / 10';
+function imageFrameStyle(size = '', compact: boolean): CSSProperties {
+  const match = size.split('|', 1)[0].trim().match(/^(\d{1,5}(?:\.\d{1,3})?)\s*[x*:]\s*(\d{1,5}(?:\.\d{1,3})?)$/i);
+  const ratio = match && Number(match[1]) > 0 && Number(match[2]) > 0 ? Number(match[1]) / Number(match[2]) : 1.6;
+  return { aspectRatio: String(ratio), maxWidth: `${ratio * (compact ? 12 : 28)}rem` };
 }
 
 /** Decorative, indeterminate activity. The image APIs do not report a percent.
@@ -36,7 +37,7 @@ export function ImageGenerationActivity({ prompt, size, compact = false, active 
     data-active={active}
     data-compact={compact}
     className="image-generation-activity"
-    style={{ aspectRatio: aspectRatio(size) }}
+    style={imageFrameStyle(size, compact)}
     role="status"
     aria-label={label ?? t('chat.generatedImageLoading')}
   >

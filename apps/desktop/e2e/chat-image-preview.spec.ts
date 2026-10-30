@@ -25,6 +25,20 @@ test('image generation stays visible beside collapsed thinking and reveals loade
   await expect(activity).toHaveCount(0);
   await result.click();
   await expect(page.getByTestId('image-lightbox')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Hydrate history' }).click();
+  await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Previous garden', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Clear live state' }).click();
+  await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toBeVisible();
+  for (const [size, ratio] of [[' 9:16|2K ', 9 / 16], ['19.5:9|2k', 19.5 / 9]] as const) {
+    await page.goto(`/e2e/fixtures/chat-image-preview.html?generation=1&size=${encodeURIComponent(size)}`);
+    const frame = await page.getByTestId('image-generation-activity').boundingBox();
+    expect(frame).not.toBeNull();
+    expect(Math.abs(frame!.width / frame!.height - ratio)).toBeLessThan(0.02);
+  }
 });
 
 test('image generation respects reduced motion and retires activity on error or cancellation', async ({ page }) => {
