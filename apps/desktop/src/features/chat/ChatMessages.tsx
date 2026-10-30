@@ -1990,6 +1990,7 @@ export function ChatMessages(props: ChatMessagesProps) {
   const liveGeneratedImages = useMemo(() => {
     const byCall = new Map<string, ToolCallEvent[]>();
     const consider = (call: ToolCallEvent) => {
+      if (call.toolName !== 'generate_image' && call.renderKind !== 'image') return;
       if (call.isError || !isGeneratedImageArtifact(call.artifacts)) return;
       const occurrences = byCall.get(call.callId) ?? [];
       if (!occurrences.includes(call)) occurrences.push(call);
