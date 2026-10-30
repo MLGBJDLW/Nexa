@@ -1,32 +1,5 @@
 use super::*;
 
-// ── Agent Trace Analytics ──────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn get_trace_summary(
-    state: tauri::State<'_, AppState>,
-) -> Result<nexa_core::trace::TraceSummary, String> {
-    state
-        .db_executor
-        .read(move |db| db.get_trace_summary())
-        .await
-        .map(|execution| execution.value)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn get_recent_traces(
-    state: tauri::State<'_, AppState>,
-    limit: Option<usize>,
-) -> Result<Vec<nexa_core::trace::AgentTrace>, String> {
-    state
-        .db_executor
-        .read(move |db| db.get_recent_traces(limit.unwrap_or(20)))
-        .await
-        .map(|execution| execution.value)
-        .map_err(|error| error.to_string())
-}
-
 #[tauri::command]
 pub fn export_agent_task_trajectory_cmd(
     state: tauri::State<'_, AppState>,

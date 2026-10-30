@@ -29,7 +29,6 @@ import type { AgentConfig, AppConfig, SaveAgentConfigInput, UserMemory, AgentPro
 import type { OcrConfig } from '../../types/ocr';
 import type { VideoConfig, WhisperModel } from '../../types/video';
 import type { Skill, SkillChangeProposal, McpServer, McpToolInfo, SaveSkillInput, SaveMcpServerInput, UserExtensionLayout } from '../../types/extensions';
-import type { TraceSummary, AgentTrace } from '../../types/trace';
 import type { QualityEvalReport } from '../../types/qualityEval';
 import { useTranslation, type Locale } from '../../i18n';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -216,9 +215,6 @@ export function SettingsPage() {
   const [agentMemoryLoading, setAgentMemoryLoading] = useState(false);
 
   /* ── Analytics state ────────────────────────────────────────────── */
-  const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
-  const [recentTraces, setRecentTraces] = useState<AgentTrace[]>([]);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [qualityReport, setQualityReport] = useState<QualityEvalReport | null>(null);
   const [qualityEvalLoading, setQualityEvalLoading] = useState(false);
   const [qualityEvalLastRunAt, setQualityEvalLastRunAt] = useState<string | null>(null);
@@ -790,28 +786,6 @@ export function SettingsPage() {
       void loadPrivacyConfig();
     }
   }, [activeTab, loadPrivacyConfig, privacyConfig]);
-
-  const loadAnalytics = useCallback(async () => {
-    setAnalyticsLoading(true);
-    try {
-      const [summary, traces] = await Promise.all([
-        api.getTraceSummary(),
-        api.getRecentTraces(20),
-      ]);
-      setTraceSummary(summary);
-      setRecentTraces(traces);
-    } catch {
-      // Silently fail — analytics are non-critical
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'data_privacy') {
-      void loadAnalytics();
-    }
-  }, [activeTab, loadAnalytics]);
 
   const handleRunAgentQualityEval = useCallback(async () => {
     setQualityEvalLoading(true);
@@ -1879,9 +1853,6 @@ export function SettingsPage() {
       {/* ── Tab: Data & Privacy ─────────────────────────────────── */}
       {activeTab === 'data_privacy' && (
         <DataPrivacySettingsTab
-          analyticsLoading={analyticsLoading}
-          traceSummary={traceSummary}
-          recentTraces={recentTraces}
           stats={stats}
           rebuildLoading={rebuildLoading}
           optimizeLoading={optimizeLoading}

@@ -141,8 +141,6 @@ import type {
   UserExtensionLayout,
 } from "../types/extensions";
 import type {
-  TraceSummary,
-  AgentTrace,
   Trajectory,
   TrajectoryRedactionProfile,
   TrajectoryStoreSummary,
@@ -2677,13 +2675,7 @@ export const getVideoTranscript = (filePath: string) =>
 export const getVideoMetadata = (filePath: string) =>
   invoke<VideoMetadata>('get_video_metadata_cmd', { filePath });
 
-// ── Trace Analytics ─────────────────────────────────────────────────
-
-export const getTraceSummary = () =>
-  invoke<TraceSummary>('get_trace_summary');
-
-export const getRecentTraces = (limit?: number) =>
-  invoke<AgentTrace[]>('get_recent_traces', { limit });
+// ── Agent trajectories ─────────────────────────────────────────────
 
 export const exportAgentTaskTrajectory = (
   runId: string,
