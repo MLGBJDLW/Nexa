@@ -199,7 +199,7 @@ test("sidebar owns version and update controls without navigating away", async (
   await expect(page.getByText("Current version")).toBeVisible();
   await expect(page.getByTestId("sidebar-update-panel").getByText("v0.2.9")).toBeVisible();
   await expect(page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" })).toBeVisible();
-  const select = page.getByRole('combobox', { name: 'Update source' });
+  const select = page.getByRole('combobox', { name: 'Update source', includeHidden: true });
   await select.focus();
   await page.keyboard.press('ArrowDown');
   await expect(select).toHaveAttribute('aria-expanded', 'true');
