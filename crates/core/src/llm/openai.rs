@@ -1058,8 +1058,10 @@ fn build_request_body_with_config(
     let openrouter_glm53_contract =
         is_openrouter_glm53_profile(&reasoning_profile.id, &request.model);
     let any_glm53_contract = native_glm53_contract || openrouter_glm53_contract;
-    let supports_parallel_tool_calls =
-        !any_glm53_contract && reasoning_profile.id != "alibaba-minimax-m31-flash-v1";
+    let ling31_contract = reasoning_profile.id == "alibaba-ling31-flash-v1";
+    let supports_parallel_tool_calls = !any_glm53_contract
+        && !ling31_contract
+        && reasoning_profile.id != "alibaba-minimax-m31-flash-v1";
     let reasoning_history_encoding = reasoning_profile.reasoning_history_encoding;
     let needs_completion_tokens = reasoning_profile.use_max_completion_tokens
         && is_reasoning_model(&request.model, Some(&provider_type));
@@ -1206,7 +1208,7 @@ fn build_request_body_with_config(
             .tools
             .as_ref()
             .map(|t| convert_tools(t, contract.tool_schema == ToolSchemaDialect::Moonshot)),
-        tool_stream: (native_glm53_contract
+        tool_stream: ((native_glm53_contract || ling31_contract)
             && stream
             && request
                 .tools
@@ -1214,7 +1216,7 @@ fn build_request_body_with_config(
                 .is_some_and(|tools| !tools.is_empty()))
         .then_some(true),
         parallel_tool_calls: match request.tools.as_ref() {
-            // These exact trusted GLM and hosted MiniMax routes do not support
+            // These exact trusted GLM, Ling and hosted MiniMax routes do not support
             // `parallel_tool_calls` in their current request contract.
             Some(tools)
                 if !tools.is_empty()
@@ -4678,6 +4680,86 @@ mod tests {
         assert_eq!(private_body["stop"], serde_json::json!(["stop"]));
         assert_eq!(private_body["parallel_tool_calls"], true);
         assert!(private_body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn hosted_ling31_uses_only_beijing_thinking_and_streaming_fields() {
+        let mut request = endpoint_reasoning_request("antdigital/Ling-3.1-flash");
+        request.reasoning_effort = Some(ReasoningEffort::High);
+        request.thinking_budget = Some(2048);
+        request.parallel_tool_calls = true;
+        request.tools = Some(vec![ToolDefinition {
+            name: "read_file".into(),
+            description: "Read a file".into(),
+            parameters: serde_json::json!({"type": "object", "properties": {}}),
+        }]);
+        let mut prior = Message::text(Role::Assistant, "Read the source");
+        prior.reasoning_content = Some("Check the documented contract".into());
+        request.messages.push(prior);
+        for endpoint in [
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "https://workspace123.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        ] {
+            let config = endpoint_config(ProviderType::AlibabaModelStudio, endpoint);
+            for enabled in [None, Some(true), Some(false)] {
+                request.reasoning_enabled = enabled;
+                for stream in [true, false] {
+                    let body = serde_json::to_value(build_request_body_with_config(
+                        &request,
+                        stream,
+                        Some(&config),
+                    ))
+                    .unwrap();
+                    assert_eq!(body["enable_thinking"], enabled != Some(false));
+                    for field in ["thinking_budget", "reasoning_effort", "parallel_tool_calls"] {
+                        assert!(body.get(field).is_none(), "{endpoint}: {field}");
+                    }
+                    if stream {
+                        assert_eq!(body["tool_stream"], true);
+                        assert_eq!(body["stream_options"]["include_usage"], true);
+                    } else {
+                        assert!(body.get("tool_stream").is_none());
+                    }
+                    assert_eq!(body["messages"][1]["content"], "Read the source");
+                    if enabled != Some(false) {
+                        assert_eq!(body["preserve_thinking"], true);
+                        assert_eq!(
+                            body["messages"][1]["reasoning_content"],
+                            "Check the documented contract"
+                        );
+                    } else {
+                        assert!(body.get("preserve_thinking").is_none());
+                        assert!(body["messages"][1].get("reasoning_content").is_none());
+                    }
+                }
+            }
+        }
+        request.reasoning_enabled = Some(true);
+        for (provider, endpoint) in [
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            ),
+            (
+                ProviderType::Qwen,
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            ),
+            (
+                ProviderType::AlibabaModelStudio,
+                "https://workspace.cn-beijing.maas.aliyuncs.com.evil.example/compatible-mode/v1",
+            ),
+        ] {
+            let config = endpoint_config(provider, endpoint);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                true,
+                Some(&config),
+            ))
+            .unwrap();
+            for field in ["enable_thinking", "preserve_thinking", "tool_stream"] {
+                assert!(body.get(field).is_none(), "{endpoint}: {field}");
+            }
+        }
     }
 
     #[test]

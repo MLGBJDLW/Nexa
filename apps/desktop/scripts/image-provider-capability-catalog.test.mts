@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import { extractImageProviderPresets } from '../src/lib/imageProviderCapabilityCatalog.ts';
 import type { CapabilityPackageView } from '../src/types/conversation.ts';
@@ -90,4 +91,17 @@ test('model output formats override the provider fallback in image descriptors',
   const model = extractImageProviderPresets(capabilityPackage, [])[0].models[0];
   assert.deepEqual(model.outputFormats, ['jpeg']);
   assert.deepEqual(model.descriptor.limits.outputFormats, ['jpeg']);
+});
+
+test('Riverflow fallback matches its raster editing contract and Gemini keeps deprecated access', () => {
+  const items = JSON.parse(readFileSync(new URL('../../../shared/image-provider-presets.json', import.meta.url), 'utf8'));
+  const presets = extractImageProviderPresets({ providerCatalogs: [{ id: 'imageProviders', items }] } as unknown as CapabilityPackageView, []);
+  const riverflow = presets.find(provider => provider.id === 'openrouter-images')!.models.find(model => model.id === 'sourceful/riverflow-v2.6-pro')!;
+  assert.deepEqual(riverflow.descriptor.inputModalities, ['text', 'image']);
+  assert.deepEqual(riverflow.outputFormats, ['png', 'jpeg', 'webp']);
+  assert.ok(riverflow.sizeOptions?.some(option => option.value === '4:5|4K'));
+  assert.equal((riverflow.supportedParameters?.input_references as { max: number }).max, 10);
+  const gemini = presets.find(provider => provider.id === 'google-gemini')!.models.find(model => model.id === 'gemini-3.1-flash-image')!;
+  assert.equal(gemini.descriptor.lifecycle, 'deprecated');
+  assert.equal(gemini.recommended, false);
 });

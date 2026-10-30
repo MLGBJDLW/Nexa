@@ -1259,6 +1259,21 @@ pub fn resolve_reasoning_profile(
                 )
             });
         let beijing_payg = is_alibaba_model_studio_payg_endpoint(provider, base_url);
+        if beijing_payg && model == "antdigital/ling-3.1-flash" {
+            let mut value = profile(
+                key,
+                "alibaba-ling31-flash-v1",
+                ThinkingModeControl::EnableThinking,
+                ReasoningEffortField::None,
+                ReasoningEffortMapping::Exact,
+                (&[], None),
+                ReasoningBudgetField::None,
+            );
+            value.default_enabled = Some(true);
+            value.preserve_reasoning_history = true;
+            value.send_preserve_thinking = true;
+            return value;
+        }
         if (beijing_payg
             && matches!(
                 model.as_str(),

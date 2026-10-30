@@ -27976,6 +27976,37 @@
     },
     "models": [
       {
+        "id": "antdigital/Ling-3.1-flash",
+        "name": "AntDigital Ling 3.1 Flash",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-10-30",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/antdigital",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 262144,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true
+          }
+        }
+      },
+      {
         "id": "qwen3.8-max",
         "name": "Qwen3.8 Max",
         "tagKey": "providers.tagLatest",
