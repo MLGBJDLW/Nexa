@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.17.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.12...nexa-monorepo-v0.17.13) (2026-10-30)
+
+### Highlights
+
+- **Compact thinking:** Thinking now fully collapses into a single header with a short activity summary beside the mood. Expand the trace to read the full content; the summary then hides.
+- **Image generation:** A theme-aware neural connection animation shows activity while an image is being generated. Loaded images fade into view, remain visible outside collapsed thinking, and appear once during the live-to-history handoff. Reduced motion and cancelled or failed requests are handled explicitly.
+- **Consistent menus:** Desktop dropdowns share themed surfaces, animated chevrons, keyboard navigation, native default selection behavior, and focus restoration.
+- **Simpler privacy settings:** Removed the redundant trace analytics section and its unused queries and translations. The dedicated AI Usage view and runtime diagnostic trace storage remain available.
+
+### Provider updates
+
+- Added AntDigital Ling 3.1 Flash for the Alibaba Beijing API, with documented thinking, history replay, and tool-streaming behavior. Workspace activation is required.
+- Added Riverflow V2.6 Pro image generation and editing to the OpenRouter fallback catalog, including model-specific sizes and raster formats.
+- Marked the direct Gemini 3.1 Flash Image route deprecated with its replacement, while retaining access until an official shutdown.
+
+### Fixes and maintenance
+
+- Preserve image aspect ratios with resolution suffixes and decimal ratios.
+- Retain existing provider defaults when adding new models.
+- Keep rolling counters readable as complete values by assistive technology.
+- Update Vite to 6.4.5 to address GHSA-8g5g-mxqh-grgj.
+- Reuse existing rendering, provider, test, and CI infrastructure without adding dependencies or CI jobs.
+
+### Validation
+
+Final source CI passed, including 442 browser regressions and 2,985 core unit tests. The catalog audit covered 88 endpoint projections and 1,158 model projections, with zero static errors and four public discovery probes passing. Account-specific availability and paid inference were not tested. Release verification does not download installers.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 91b722254a279e36ae7663c3496e6c0445ab9dcc -->
+
+### What's Changed
+* feat(ui): refine thinking summaries, image generation, and themed menus by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/515
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.12...nexa-monorepo-v0.17.13
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.11...nexa-monorepo-v0.17.12) (2026-10-29)
 
 本次更新修复子代理长任务中断、GLM Coding Plan 配置和 Windows 桌面观察，并改进任务状态与文件变更显示。
