@@ -912,6 +912,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         case "status":
           return {
             text: "",
+            summary: section.text,
             node: (
               <TraceStatusRow
                 key={section.id}
@@ -939,6 +940,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         case "tool":
           return {
             text: "",
+            summary: section.toolCall.progressNote || section.toolCall.toolName.replace(/_/g, ' '),
             node: (
               <TimelineToolCallCard
                 key={section.id}
@@ -966,7 +968,8 @@ export function ChatMessages(props: ChatMessagesProps) {
       let interactionSteps: InteractionStep[] = [];
       const flushInteractionSteps = () => {
         if (interactionSteps.length === 0) return;
-        result.push({ text: '', node: <InteractionTrace key={interactionSteps[0].id} steps={interactionSteps} conversationId={conversationId} parentRunActive={parentRunActive} /> });
+        const latest = interactionSteps[interactionSteps.length - 1].toolCall;
+        result.push({ text: '', summary: latest.progressNote || latest.toolName.replace(/_/g, ' '), node: <InteractionTrace key={interactionSteps[0].id} steps={interactionSteps} conversationId={conversationId} parentRunActive={parentRunActive} /> });
         interactionSteps = [];
       };
       for (const section of sections) {
@@ -974,7 +977,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         if (fileGroup) {
           flushInteractionSteps();
           if (section.kind === 'tool' && fileGroup.calls[0] === section.toolCall) {
-            result.push({ text: '', node: <FileChangeTrace key={section.id} group={fileGroup} conversationId={conversationId} parentRunActive={parentRunActive} /> });
+            result.push({ text: '', summary: section.toolCall.toolName.replace(/_/g, ' '), node: <FileChangeTrace key={section.id} group={fileGroup} conversationId={conversationId} parentRunActive={parentRunActive} /> });
           }
           continue;
         }
@@ -1006,6 +1009,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       const ordered: Array<
         | { kind: 'trace'; id: string; sections: TimelineSection[] }
         | { kind: 'steering'; id: string; text: string }
+        | { kind: 'image'; id: string; section: Extract<TimelineSection, { kind: 'tool' }> }
         | {
             kind: 'answeredQuestion';
             id: string;
@@ -1031,6 +1035,13 @@ export function ChatMessages(props: ChatMessagesProps) {
       };
 
       for (const section of sections) {
+        // The image's generation state and result remain visible even when
+        // the surrounding working trace is fully folded.
+        if (section.kind === 'tool' && (section.toolCall.toolName === 'generate_image' || section.toolCall.renderKind === 'image')) {
+          flushTrace();
+          ordered.push({ kind: 'image', id: section.id, section });
+          continue;
+        }
         if (section.kind === 'steering') {
           flushTrace();
           ordered.push(section);
@@ -1083,7 +1094,9 @@ export function ChatMessages(props: ChatMessagesProps) {
                 isStreaming && index === lastTraceIndex,
                 forceExpanded,
               )
-            : item.kind === 'steering' ? (
+            : item.kind === 'image' ? (
+                <Fragment key={item.id}>{renderTimelineSection({ ...item.section, trace: false }, parentRunActive)?.node}</Fragment>
+              ) : item.kind === 'steering' ? (
                 <TraceSteeringRow key={item.id} text={item.text} label={t('chat.steeringLabel')} />
               ) : item.kind === 'answeredQuestion' ? (
                 <div key={item.id} className="mb-1 flex justify-start">
@@ -1105,7 +1118,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </Fragment>
       );
     },
-    [questionResponses, renderThinkingTraceNode, renderTimelineSections, t],
+    [questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, t],
   );
 
   const messageThinkingText = useMemo(() => {
@@ -2486,12 +2499,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           className="flex justify-start mb-3"
         >
           <div className="w-full min-w-0">
-            <ThinkingBlock
-              content=""
-              sections={renderTimelineSections(currentTimelineSections, isStreaming, liveFileToolGroups)}
-              isStreaming={currentTraceActive}
-              collapseOnFinish
-            />
+            {renderTimelineTraceNode('current-thinking', currentTimelineSections, currentTraceActive, isStreaming, false, liveFileToolGroups)}
           </div>
         </motion.div>
       )}

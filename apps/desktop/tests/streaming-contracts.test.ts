@@ -2516,6 +2516,17 @@ test('live trace never folds while the current trace is still active', () => {
   );
 });
 
+test('live image completion stays in the timeline while persisted images have a single preview owner', () => {
+  const call: ToolCallEvent = {
+    callId: 'image', toolName: 'generate_image', status: 'done', argsStatus: 'done', argsBytes: 2, arguments: '{}',
+    artifacts: { kind: 'generatedImage', dataUrl: 'data:image/png;base64,fixture' },
+  };
+  const live = buildCurrentTimelineSections({ visibleTraceEvents: [{ id: 'image', kind: 'tool', toolCall: call }], streamRounds: [] });
+  assertEqual(live.length, 1, 'live pixels should not disappear before persistence');
+  const saved = persistedTraceItemToTimelineSections({ item: { kind: 'tool', toolCall: call }, id: 'saved', trace: true });
+  assertEqual(saved.length, 0, 'saved messages render the image in the existing standalone preview');
+});
+
 test('timeline view model separates completed round trace from current trace', () => {
   const round: StreamRoundEvent = {
     id: 'round-1',
