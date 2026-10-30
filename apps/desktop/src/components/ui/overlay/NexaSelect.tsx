@@ -91,11 +91,11 @@ export function NexaSelect({
   const options = selectOptions(children);
   const groups = [...new Set(options.map(option => option.group ?? ''))];
   const [localValue, setLocalValue] = useState(defaultValue == null ? undefined : String(defaultValue));
-  // Native selects choose the first enabled option when no value was supplied,
+  // Match native selects when no option matches the supplied/default value,
   // including options that arrive asynchronously after mount.
-  const selectedValue = value != null ? String(value)
-    : options.some(option => option.value === localValue) ? localValue
-      : options.find(option => !option.disabled)?.value;
+  const requestedValue = value == null ? localValue : String(value);
+  const selectedValue = options.some(option => option.value === requestedValue)
+    ? requestedValue : options.find(option => !option.disabled)?.value;
 
   const emitChange = (nextValue: string, selectedValues: string[] = [nextValue]) => {
     if (!onChange) return;
