@@ -92,7 +92,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vite": "^6.4.4"
+    "vite": "^6.4.5"
   },
   "overrides": {
     "katex": "$katex"
