@@ -30,6 +30,10 @@ test('image generation stays visible beside collapsed thinking and reveals loade
   await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
   await expect(page.getByRole('img', { name: 'Previous garden', exact: true })).toHaveCount(1);
   await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Next round' }).click();
+  await expect(page.getByTestId('thinking-summary')).toContainText('Checking the result');
+  await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Clear live state' }).click();
   await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
   await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toBeVisible();

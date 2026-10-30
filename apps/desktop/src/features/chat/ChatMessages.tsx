@@ -1987,6 +1987,13 @@ export function ChatMessages(props: ChatMessagesProps) {
     return byAssistantIdx;
   }, [messages]);
 
+  const shouldRenderLiveTraceTimeline =
+    liveTraceTimeline.length > 0 && (
+      isStreaming || streamRounds.length === 0 || collapsedLiveTrace !== null
+    );
+  const shouldRenderStreamRounds =
+    streamRounds.length > 0 && (isStreaming || !shouldRenderLiveTraceTimeline);
+
   const liveGeneratedImages = useMemo(() => {
     const byCall = new Map<string, ToolCallEvent[]>();
     const consider = (call: ToolCallEvent) => {
@@ -1996,10 +2003,20 @@ export function ChatMessages(props: ChatMessagesProps) {
       if (!occurrences.includes(call)) occurrences.push(call);
       byCall.set(call.callId, occurrences);
     };
-    for (const event of traceEvents) if (event.kind === 'tool') consider(event.toolCall);
-    for (const round of streamRounds) for (const call of round.toolCalls) consider(call);
+    // Use the exact projection chosen by the JSX below. A retained round is
+    // not an image owner when the ordered trace has replaced that round.
+    if (shouldRenderLiveTraceTimeline) {
+      for (const item of liveTraceTimeline) if (item.kind === 'thinking') {
+        for (const section of item.sections) if (section.kind === 'tool') consider(section.toolCall);
+      }
+    } else {
+      if (shouldRenderStreamRounds) for (const round of streamRounds) {
+        for (const section of buildRoundTimelineSections(round)) if (section.kind === 'tool') consider(section.toolCall);
+      }
+      for (const section of currentTimelineSections) if (section.kind === 'tool') consider(section.toolCall);
+    }
     return byCall;
-  }, [traceEvents, streamRounds]);
+  }, [shouldRenderLiveTraceTimeline, shouldRenderStreamRounds, liveTraceTimeline, currentTimelineSections, streamRounds]);
 
   const generatedImagePreviewsForIndexes = useCallback(
     (indexes: number[]): GeneratedImagePreviewItem[] =>
@@ -2056,12 +2073,6 @@ export function ChatMessages(props: ChatMessagesProps) {
     [latestUserIdx, liveGeneratedImages],
   );
 
-  const shouldRenderLiveTraceTimeline =
-    liveTraceTimeline.length > 0 && (
-      isStreaming || streamRounds.length === 0 || collapsedLiveTrace !== null
-    );
-  const shouldRenderStreamRounds =
-    streamRounds.length > 0 && (isStreaming || !shouldRenderLiveTraceTimeline);
   const shouldShowStreamingText =
     !shouldRenderLiveTraceTimeline &&
     (isStreaming ||

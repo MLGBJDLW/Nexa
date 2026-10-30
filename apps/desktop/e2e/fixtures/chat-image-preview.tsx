@@ -53,6 +53,7 @@ function GenerationFixture() {
   const [status, setStatus] = useState<ToolCallEvent['status']>('running');
   const [hydrated, setHydrated] = useState(false);
   const [live, setLive] = useState(true);
+  const [nextRound, setNextRound] = useState(false);
   const args = JSON.stringify({ prompt: 'A quiet garden at dusk', size: new URLSearchParams(location.search).get('size') || '16:9' });
   const call: ToolCallEvent = { callId: 'image', toolName: 'generate_image', arguments: args, argsStatus: 'ready', argsBytes: args.length, renderKind: 'image', status,
     ...(status === 'done' ? { artifacts: { kind: 'generatedImage', dataUrl: source, mediaType: 'image/png', prompt: 'Generated garden' } } : {}),
@@ -67,8 +68,8 @@ function GenerationFixture() {
     { ...base, id: 'saved-image', role: 'tool', content: '', toolCallId: 'image', artifacts: call.artifacts ?? null, sortOrder: 5 },
   ] : [{ ...storedMessages[0], id: 'current-user', content: 'Current image' }];
   return <main className="mx-auto max-w-3xl bg-surface-0 p-6 text-text-primary">
-    <div className="mb-5 flex flex-wrap gap-4"><button onClick={() => setStatus('done')}>Finish image</button><button onClick={() => setStatus('error')}>Fail image</button><button onClick={() => setStatus('cancelled')}>Cancel image</button><button onClick={() => setHydrated(true)}>Hydrate history</button><button onClick={() => setLive(false)}>Clear live state</button></div>
-    <ChatMessages messages={history} turns={[]} streamText="" streamRounds={[]} traceEvents={live ? [{ id: 'thinking', kind: 'thinking', text: '**Composing the garden**\nChoose a calm palette.' }, { id: 'image', kind: 'tool', toolCall: call }] : []} thinkingText="**Composing the garden**\nChoose a calm palette." isThinking={false} toolCalls={live ? [call] : []} isStreaming={live && (status === 'running' || status === 'done')} />
+    <div className="mb-5 flex flex-wrap gap-4"><button onClick={() => setStatus('done')}>Finish image</button><button onClick={() => setStatus('error')}>Fail image</button><button onClick={() => setStatus('cancelled')}>Cancel image</button><button onClick={() => setHydrated(true)}>Hydrate history</button><button onClick={() => setNextRound(true)}>Next round</button><button onClick={() => setLive(false)}>Clear live state</button></div>
+    <ChatMessages messages={history} turns={[]} streamText="" streamRounds={live && nextRound ? [{ id: 'image-round', reply: '', toolCalls: [call] }] : []} traceEvents={live ? nextRound ? [{ id: 'next-thinking', kind: 'thinking', text: 'Checking the result' }] : [{ id: 'thinking', kind: 'thinking', text: '**Composing the garden**\nChoose a calm palette.' }, { id: 'image', kind: 'tool', toolCall: call }] : []} thinkingText="**Composing the garden**\nChoose a calm palette." isThinking={false} toolCalls={live ? [call] : []} isStreaming={live && (status === 'running' || status === 'done')} />
   </main>;
 }
 
