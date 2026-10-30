@@ -1,3 +1,4 @@
+import { selectControl } from './select-control';
 import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
@@ -185,7 +186,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("sidebar owns version and update controls without navigating away", async ({ page }) => {
+test("sidebar owns version and update controls without navigating away", async ({ page }, testInfo) => {
   await page.goto("/settings");
   await page.getByRole("tab", { name: "Appearance" }).click();
 
@@ -194,10 +195,22 @@ test("sidebar owns version and update controls without navigating away", async (
   await expect(page.getByTestId("sidebar-update-panel")).toBeVisible();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByText("Update source")).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Update source" })).toHaveValue("github");
+  await expect(page.getByRole("combobox", { name: "Update source" })).toHaveAttribute('data-value', "github");
   await expect(page.getByText("Current version")).toBeVisible();
   await expect(page.getByTestId("sidebar-update-panel").getByText("v0.2.9")).toBeVisible();
   await expect(page.getByTestId("sidebar-update-panel").getByRole("button", { name: "Check for Updates" })).toBeVisible();
+  const select = page.getByRole('combobox', { name: 'Update source', includeHidden: true });
+  await select.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(select).toHaveAttribute('aria-expanded', 'true');
+  const arrow = select.locator('.nexa-select-chevron');
+  await expect.poll(() => arrow.evaluate(el => getComputedStyle(el).transform)).toBe('matrix(-1, 0, 0, -1, 0, 0)');
+  await page.screenshot({ path: testInfo.outputPath('themed-select-open.png') });
+  await page.keyboard.press('Escape');
+  await expect(select).toBeFocused();
+  await expect(select).toHaveAttribute('aria-expanded', 'false');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await arrow.evaluate(el => getComputedStyle(el).transitionDuration)).toBe('0s');
 });
 
 for (const knownLength of [true, false]) {
@@ -270,8 +283,8 @@ test("close-to-tray is visible in appearance and saves immediately", async ({ pa
 
   const trayOption = page.locator("#settings-close-behavior");
   await expect(trayOption).toBeVisible();
-  await trayOption.selectOption("minimize_to_tray");
-  await expect(trayOption).toHaveValue("minimize_to_tray");
+  await selectControl(trayOption, "minimize_to_tray");
+  await expect(trayOption).toHaveAttribute('data-value', "minimize_to_tray");
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __savedAppConfig?: { windowCloseBehavior?: string } }
   ).__savedAppConfig?.windowCloseBehavior)).toBe("minimize_to_tray");
@@ -301,7 +314,7 @@ test("unsupported stored update source falls back to GitHub", async ({ page }) =
   await page.getByRole("tab", { name: "Appearance" }).click();
 
   await page.getByTestId("sidebar-update-toggle").click();
-  await expect(page.getByRole("combobox", { name: "Update source" })).toHaveValue("github");
+  await expect(page.getByRole("combobox", { name: "Update source" })).toHaveAttribute('data-value', "github");
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("nexa-update-source")))
     .toBe("legacy-mirror");
@@ -338,7 +351,7 @@ test("release notes include every GitHub release between current and latest", as
   await page.getByText("Release notes").click();
   await expect(page.getByText("First ranged release note.")).toBeVisible();
   const panel = page.getByTestId('sidebar-update-panel');
-  await panel.getByRole('combobox', { name: 'Update source' }).selectOption('ghfast');
+  await selectControl(panel.getByRole('combobox', { name: 'Update source' }), 'ghfast');
   await expect(page.getByText('Release notes')).toHaveCount(0);
   await panel.getByRole('button', { name: 'Check for Updates' }).click();
   await expect(page.getByText('Release notes')).toBeVisible();
@@ -375,7 +388,7 @@ test("layout performs the silent startup update check", async ({ page }) => {
 test("settings agent behavior controls use the selected locale", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("tab", { name: "Appearance" }).click();
-  await page.getByLabel("Language", { exact: true }).selectOption("zh-CN");
+  await selectControl(page.getByLabel("Language", { exact: true }), "zh-CN");
   await page.getByTestId('permissions-preferences-trigger').click();
 
   await expect(page.getByText("Shell 权限模式")).toBeVisible();
@@ -394,7 +407,7 @@ test("shell discovery saves WSL and compact sections work on a narrow window", a
   await page.goto('/settings');
   const select = page.locator('#default-shell');
   await expect(select).toBeEnabled();
-  await select.selectOption('wsl:Ubuntu');
+  await selectControl(select, 'wsl:Ubuntu');
   await page.getByTestId('shell-settings').getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { defaultShell?: string } }).__savedAppConfig?.defaultShell)).toBe('wsl:Ubuntu');
   const disclosure = page.getByTestId('display-preferences-trigger');
@@ -418,15 +431,15 @@ test('mirror sources persist and forward the custom prefix to the native updater
   await page.getByTestId('sidebar-update-toggle').click();
   const panel = page.getByTestId('sidebar-update-panel');
   const source = panel.getByRole('combobox', { name: 'Update source' });
-  await source.selectOption('ghfast');
+  await selectControl(source, 'ghfast');
   await panel.getByRole('button', { name: 'Check for Updates' }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastUpdateSource: string }).__lastUpdateSource)).toBe('ghfast');
-  await source.selectOption('custom');
+  await selectControl(source, 'custom');
   await panel.getByRole('textbox', { name: 'Mirror base URL' }).fill('https://mirror.example/proxy');
   await panel.getByRole('button', { name: 'Check for Updates' }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastUpdateMirror: string }).__lastUpdateMirror)).toBe('https://mirror.example/proxy');
   await page.reload();
   await page.getByTestId('sidebar-update-toggle').click();
-  await expect(source).toHaveValue('custom');
+  await expect(source).toHaveAttribute('data-value', 'custom');
   await expect(panel.getByRole('textbox', { name: 'Mirror base URL' })).toHaveValue('https://mirror.example/proxy');
 });

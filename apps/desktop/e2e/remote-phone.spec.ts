@@ -1,3 +1,4 @@
+import { selectControl } from './select-control';
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { readFileSync } from 'node:fs';
 const previewPolicies = readFileSync(new URL('../../../crates/remote/src/html_preview.rs', import.meta.url), 'utf8');
@@ -486,7 +487,7 @@ test("QR pairs once and retries an uncertain chat launch with the same ID after 
   ).toBeVisible();
   expect(page.url()).not.toContain("#");
   expect(app.counts().pairCount).toBe(1);
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-1");
   await page
     .getByLabel("Message", { exact: true })
     .fill("Summarize the open work.");
@@ -517,7 +518,7 @@ test("phone resumes the latest desktop run after missing its launch while offlin
 }) => {
   const app = await fixture(page);
   await page.goto("/phone.html#pair=123456&server=desktop-1");
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-1");
   app.emit("outputDelta", {
     blockId: "a",
     channel: "answer",
@@ -555,7 +556,7 @@ test('automatic route selection reaches a fast backup without waiting for a stal
 test('phone catches a missed completion without sending another message', async ({ page }) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  await selectControl(page.getByLabel('Conversation', { exact: true }), 'chat-1');
   app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: 'Working on the report' });
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   app.finishRun('The completed desktop report.');
@@ -568,7 +569,7 @@ test('phone catches a missed completion without sending another message', async 
 test('phone replays durable events across missing ephemeral sequence numbers', async ({ page }) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  await selectControl(page.getByLabel('Conversation', { exact: true }), 'chat-1');
   app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: 'Hello' });
   await expect(page.getByText('Hello', { exact: true })).toBeVisible();
   app.skipEphemeral();
@@ -580,7 +581,7 @@ test('phone replays durable events across missing ephemeral sequence numbers', a
 test('phone applies repeated compacted replay overlaps without losing UTF-8 suffixes', async ({ page }) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  await selectControl(page.getByLabel('Conversation', { exact: true }), 'chat-1');
   app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: '你' });
   app.emit('outputDelta', { blockId: 'a', channel: 'answer', offset: 0, delta: '你🙂' });
   await expect(page.getByText('你🙂', { exact: true })).toBeVisible();
@@ -633,7 +634,7 @@ test('phone dictation edits the composer live and retains manual corrections thr
 test('phone renders Markdown, code, formulas and diagrams from the desktop run', async ({ page }, testInfo) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Conversation',{exact:true}).selectOption('chat-1');
+  await selectControl(page.getByLabel('Conversation',{exact:true}), 'chat-1');
   const content = '# Remote result\n\n| Item | Count |\n|---|---|\n| Done | 3 |\n\n```typescript\nconst answer = 42;\n```\n\n$E = mc^2$\n\n```mermaid\ngraph LR\n A[Phone] --> B[Desktop]\n```';
   app.emit('outputSnapshot', {blockId:'answer',channel:'answer',text:content});
   await expect(page.getByRole('heading',{name:'Remote result'})).toBeVisible();
@@ -648,7 +649,7 @@ test('phone renders Markdown, code, formulas and diagrams from the desktop run',
 test('phone keeps replies and tools in order and the composer opaque with a custom theme', async ({ page }, testInfo) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Conversation', { exact:true }).selectOption('chat-1');
+  await selectControl(page.getByLabel('Conversation', { exact:true }), 'chat-1');
   app.emit('outputSnapshot', { blockId:'before', channel:'answer', text:'I will inspect the report.' });
   app.emit('toolStarted', { run: { callId:'read-1', toolName:'read_file', status:'running', arguments:'{"path":"report.md"}' } });
   app.emit('toolCompleted', { run: { callId:'read-1', toolName:'read_file', status:'completed', content:'The report contains 3 sections.' } });
@@ -683,7 +684,7 @@ test('phone sends attachments and execution choices with an idempotent retry', a
   await page.goto('/phone.html#pair=123456&server=desktop-1');
   await page.getByLabel('Attach files', {exact:true}).setInputFiles({ name:'brief.txt', mimeType:'text/plain', buffer:Buffer.from('Review the product brief') });
   await expect(page.getByText('brief.txt', {exact:true})).toBeVisible();
-  await page.getByLabel('Execution mode', {exact:true}).selectOption('plan');
+  await selectControl(page.getByLabel('Execution mode', {exact:true}), 'plan');
   await page.getByLabel('Nexus', {exact:true}).check();
   app.uncertain();
   await page.getByRole('button', {name:'Send',exact:true}).click();
@@ -697,7 +698,7 @@ test('phone sends attachments and execution choices with an idempotent retry', a
 test('phone previews local images and interactive HTML without exposing the paired page', async ({ page }, testInfo) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Conversation', {exact:true}).selectOption('chat-1');
+  await selectControl(page.getByLabel('Conversation', {exact:true}), 'chat-1');
   app.emit('outputSnapshot', {blockId:'answer',channel:'answer',text:'![Local result](C:/reports/result.png)\n\n[Open report](C:/reports/result.html)'});
   await expect.poll(() => app.counts().actions.some(item => item.method === 'files.data')).toBe(true);
   await page.getByRole('button', {name:'Open report',exact:true}).click();
@@ -729,8 +730,8 @@ test('phone follows desktop theme and language with persistent independent overr
   await expect(page.locator('html')).toHaveClass(/theme-dream/);
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
   await page.getByRole('button', { name:'局域网', exact:true }).click();
-  await page.getByLabel('皮肤', {exact:true}).selectOption('light');
-  await page.getByLabel('语言', {exact:true}).selectOption('en');
+  await selectControl(page.getByLabel('皮肤', {exact:true}), 'light');
+  await selectControl(page.getByLabel('语言', {exact:true}), 'en');
   await expect(page.locator('html')).toHaveClass(/theme-light/);
   await page.reload();
   await expect(page.locator('html')).toHaveClass(/theme-light/);
@@ -741,14 +742,14 @@ test("remote Chat and Live choose provider models independently of saved desktop
   await context.grantPermissions(["microphone"]);
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Model connection', { exact:true }).selectOption('qwen-plus');
-  await page.getByLabel('Model connection · Reasoning Effort', { exact:true }).selectOption('high');
+  await selectControl(page.getByLabel('Model connection', { exact:true }), 'qwen-plus');
+  await selectControl(page.getByLabel('Model connection · Reasoning Effort', { exact:true }), 'high');
   await page.getByLabel('Message', { exact:true }).fill('Use the newly selected model');
   await page.getByRole('button', { name:'Send', exact:true }).click();
   await expect.poll(() => app.counts().actions.find(item => item.method === 'chat.start')?.params.modelSelection).toEqual({ model:'qwen-plus', reasoningEnabled:true, reasoningEffort:'high', thinkingBudget:null });
   await page.getByRole('button', { name:'Live', exact:true }).click();
-  await page.getByLabel('Observation model', { exact:true }).selectOption('qwen-plus');
-  await page.getByLabel('Summary model', { exact:true }).selectOption('qwen-vl');
+  await selectControl(page.getByLabel('Observation model', { exact:true }), 'qwen-plus');
+  await selectControl(page.getByLabel('Summary model', { exact:true }), 'qwen-vl');
   await page.getByRole('button', { name:'Start Live', exact:true }).click();
   await expect.poll(() => app.counts().actions.find(item => item.method === 'live.start')?.params.request.modelSelection?.model).toBe('qwen-plus');
   await page.getByRole('button', { name:'Stop capture', exact:true }).click();
@@ -790,13 +791,11 @@ test("phone microphone and camera pause across a route change then resume the sa
   const app = await fixture(page);
   await page.goto("/phone.html#pair=123456&server=desktop-1");
   await page.getByRole("button", { name: "Live", exact: true }).click();
-  await page
-    .getByRole("combobox", { name: "Analysis mode", exact: true })
-    .selectOption("qwenRealtime");
+  await selectControl(page.getByRole("combobox", { name: "Analysis mode", exact: true }), "qwenRealtime");
   await page
     .getByLabel("Qwen workspace endpoint", { exact: true })
     .fill("wss://test.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime");
-  await page.getByLabel("Visual input", { exact: true }).selectOption("camera");
+  await selectControl(page.getByLabel("Visual input", { exact: true }), "camera");
   await page.getByRole("button", { name: "Start Live", exact: true }).click();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
   await expect.poll(() => app.counts().frames).toBeGreaterThan(0);
@@ -898,7 +897,7 @@ test("revoking the phone releases capture and exposes the pairing recovery actio
 test('phone sends the selected native answer without granting generic tool permission', async ({ page }) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
-  await page.getByLabel('Conversation', { exact: true }).selectOption('chat-1');
+  await selectControl(page.getByLabel('Conversation', { exact: true }), 'chat-1');
   app.requests('single_choice', ['First native answer', 'Second native answer']);
   app.emit('approvalRequested', {});
   await expect(page.getByRole('button', { name: 'Allow once', exact: true })).toHaveCount(0);
@@ -912,7 +911,7 @@ test("phone replays missing UTF-8 deltas and forwards explicit approvals, answer
 }) => {
   const app = await fixture(page);
   await page.goto("/phone.html#pair=123456&server=desktop-1");
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-1");
   await expect(
     page.getByText("The agent is ready on your computer."),
   ).toBeVisible();
@@ -976,7 +975,7 @@ test("phone custom multi-choice answers preserve checked options through edits a
 }) => {
   const app = await fixture(page);
   await page.goto("/phone.html#pair=123456&server=desktop-1");
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-1");
   await expect(
     page.getByText("The agent is ready on your computer."),
   ).toBeVisible();
@@ -1030,7 +1029,7 @@ test("phone history paging rejects duplicate and cross-conversation responses", 
   const app = await fixture(page);
   app.history();
   await page.goto("/phone.html#pair=123456&server=desktop-1");
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-1");
   await page.getByRole("button", { name: "Read more", exact: true }).click();
   await page.getByRole("button", { name: "Read more", exact: true }).click();
   await expect.poll(() => app.pendingPages().text).toBe(2);
@@ -1053,7 +1052,7 @@ test("phone history paging rejects duplicate and cross-conversation responses", 
     .getByRole("button", { name: "Earlier messages", exact: true })
     .click();
   await expect.poll(() => app.pendingPages().history).toBe(1);
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-2");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-2");
   await expect(
     page.getByText("Second conversation", { exact: true }),
   ).toBeVisible();
@@ -1069,13 +1068,13 @@ test("an old chat launch cannot clear the new conversation draft", async ({
   app.history();
   app.holdLaunch();
   await page.goto("/phone.html#pair=123456&server=desktop-1");
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-1");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-1");
   await page
     .getByLabel("Message", { exact: true })
     .fill("Start the first task");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => app.pendingPages().launches).toBe(1);
-  await page.getByLabel("Conversation", { exact: true }).selectOption("chat-2");
+  await selectControl(page.getByLabel("Conversation", { exact: true }), "chat-2");
   await expect(
     page.getByText("Second conversation", { exact: true }),
   ).toBeVisible();

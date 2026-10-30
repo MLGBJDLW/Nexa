@@ -1,3 +1,4 @@
+import { selectControl } from './select-control';
 import { expect, test } from './timeline-test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -176,9 +177,13 @@ test.beforeEach(async ({ page }) => {
           localStorage.setItem('e2e-compact-started', '1');
           throw new Error('Unexpected subscription compaction API request');
         case 'list_subscription_models_cmd': {
-          const fixture = window as unknown as { __catalogCalls?: string[]; __catalogResults?: string[]; __catalogDelay?: number; __catalogError?: string };
+          const fixture = window as unknown as { __catalogCalls?: string[]; __catalogResults?: string[]; __holdCatalog?: boolean; __catalogWaiters?: Array<() => void>; __releaseCatalog?: () => void; __catalogError?: string };
           (fixture.__catalogCalls ??= []).push(String(args.provider));
-          if (fixture.__catalogDelay) await new Promise(resolve => setTimeout(resolve, fixture.__catalogDelay));
+          if (fixture.__holdCatalog) {
+            const waiters = fixture.__catalogWaiters ??= [];
+            fixture.__releaseCatalog = () => { fixture.__holdCatalog = false; waiters.splice(0).forEach(resolve => resolve()); };
+            await new Promise<void>(resolve => waiters.push(resolve));
+          }
           if (fixture.__catalogError) throw new Error(fixture.__catalogError);
           const models = [{ id: args.provider === 'hermes' ? 'openai-codex:gpt-native' : 'gpt-native', name: 'Native GPT', reasoningEfforts: args.provider === 'gemini_cli' ? [] : JSON.parse(localStorage.getItem('e2e-native-efforts') ?? '["low","ultra"]'), contextWindow: 200000 }];
           if (args.provider === 'github_copilot') models.push({ id: 'gemini-4-argon', name: 'Gemini 4 Argon', reasoningEfforts: ['low', 'medium', 'high'], contextWindow: 265536 });
@@ -421,30 +426,36 @@ test('appearance fonts and streaming preferences apply, import, survive reload a
   await page.getByTestId('display-preferences-trigger').click();
   const ui = page.getByTestId('ui-font-select');
   const code = page.getByTestId('code-font-select');
-  await expect(ui.locator('option')).toHaveCount(17);
-  await ui.selectOption('noto-sans-sc');
-  await code.selectOption('jetbrains-mono');
+  await ui.click();
+  await expect(page.getByRole('option')).toHaveCount(17);
+  await page.keyboard.press('Escape');
+  await selectControl(ui, 'noto-sans-sc');
+  await selectControl(code, 'jetbrains-mono');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Noto Sans SC');
   await expect.poll(() => page.getByTestId('font-preview').locator('code').evaluate(el => getComputedStyle(el).fontFamily)).toContain('JetBrains Mono');
-  await page.getByTestId('streaming-mode-select').selectOption('smooth');
-  await expect(page.getByTestId('streaming-mode-select')).toHaveValue('smooth');
+  await selectControl(page.getByTestId('streaming-mode-select'), 'smooth');
+  await expect(page.getByTestId('streaming-mode-select')).toHaveAttribute('data-value', 'smooth');
   await page.getByRole('button', { name: 'Import fonts', exact: true }).click();
-  await expect(ui.locator('option')).toHaveCount(18);
-  await ui.selectOption('font-custom');
+  await ui.click();
+  await expect(page.getByRole('option')).toHaveCount(18);
+  await page.keyboard.press('Escape');
+  await selectControl(ui, 'font-custom');
   await expect.poll(() => page.evaluate(() => document.fonts.check('16px ImportedNexa') && getComputedStyle(document.body).fontFamily)).toContain('ImportedNexa');
   await page.reload();
   await page.getByTestId('display-preferences-trigger').click();
-  await expect(ui).toHaveValue('font-custom');
-  await expect(code).toHaveValue('jetbrains-mono');
-  await expect(page.getByTestId('streaming-mode-select')).toHaveValue('smooth');
+  await expect(ui).toHaveAttribute('data-value', 'font-custom');
+  await expect(code).toHaveAttribute('data-value', 'jetbrains-mono');
+  await expect(page.getByTestId('streaming-mode-select')).toHaveAttribute('data-value', 'smooth');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('ImportedNexa');
   await page.getByTestId('display-settings').screenshot({ path: testInfo.outputPath('display-settings.png') });
   await page.getByRole('button', { name: 'Remove My imported font' }).click();
-  await expect(ui).toHaveValue('theme');
-  await expect(ui.locator('option')).toHaveCount(17);
+  await expect(ui).toHaveAttribute('data-value', 'theme');
+  await ui.click();
+  await expect(page.getByRole('option')).toHaveCount(17);
+  await page.keyboard.press('Escape');
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).not.toContain('ImportedNexa');
-  await page.getByTestId('streaming-mode-select').selectOption('chunked');
-  await expect(page.getByTestId('streaming-mode-select')).toHaveValue('chunked');
+  await selectControl(page.getByTestId('streaming-mode-select'), 'chunked');
+  await expect(page.getByTestId('streaming-mode-select')).toHaveAttribute('data-value', 'chunked');
 });
 
 test('model search excludes provider metadata in global and provider results', async ({ page }) => {
@@ -816,13 +827,14 @@ test('ACP external agent model selector hides unsupported runtime controls and u
 
 for (const [provider, configId] of [['github_copilot', 'cfg-subscription'], ['openai_codex', 'cfg-codex']]) {
   test(`${provider} restores the selected provider after catalog loading and reuses it for reasoning changes`, async ({ page }, testInfo) => {
-    await page.addInitScript(() => { (window as unknown as { __catalogDelay: number }).__catalogDelay = 1800; });
+    await page.addInitScript(() => { (window as unknown as { __holdCatalog: boolean }).__holdCatalog = true; });
     await page.goto('/chat/conv-model-switch');
     const picker = page.getByTestId('agent-model-picker-trigger');
     await page.getByTestId('agent-provider-picker-trigger').click();
     await page.getByTestId(`agent-model-provider-${configId}`).click();
     await expect(page.getByTestId('agent-model-catalog-status')).toContainText('Loading models');
     await page.getByTestId('agent-model-picker-menu').screenshot({ path: testInfo.outputPath('model-loading.png') });
+    await page.evaluate(() => (window as unknown as { __releaseCatalog: () => void }).__releaseCatalog());
     await expect(picker).toHaveAttribute('title', new RegExp(`${provider} / gpt-native$`));
     await expect(page.getByTestId('agent-model-picker-menu')).toBeHidden();
     await page.getByTestId('agent-reasoning-picker-trigger').click();
@@ -857,7 +869,7 @@ test('subscription catalog errors offer retry and retain cached models during re
 });
 
 test('closing or changing providers cancels a pending native catalog selection', async ({ page }) => {
-  await page.addInitScript(() => { (window as unknown as { __catalogDelay: number }).__catalogDelay = 1500; });
+  await page.addInitScript(() => { (window as unknown as { __holdCatalog: boolean }).__holdCatalog = true; });
   for (const action of ['close', 'switch'] as const) {
     await page.goto('/chat/conv-model-switch');
     const provider = page.getByTestId('agent-provider-picker-trigger');
@@ -871,6 +883,7 @@ test('closing or changing providers cancels a pending native catalog selection',
       await provider.click();
       await page.getByTestId('agent-model-provider-cfg-sonnet').click();
     }
+    await page.evaluate(() => (window as unknown as { __releaseCatalog: () => void }).__releaseCatalog());
     await expect.poll(() => page.evaluate(() => (window as any).__catalogResults ?? [])).toContain('openai_codex');
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(provider).toHaveAttribute('title', action === 'close' ? originalTitle! : 'Anthropic');

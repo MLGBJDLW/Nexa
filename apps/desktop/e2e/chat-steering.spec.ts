@@ -772,8 +772,8 @@ test('reconciles the durable reply suffix when retry setup fails after commit', 
   await expect(page.getByText('Persisted answer before retry.')).toBeVisible();
   await page.getByRole('button', { name: 'Retry' }).first().click();
 
-  await expect(page.getByText(/Retry executor setup failed after the durable suffix changed/))
-    .toBeVisible();
+  const retryStatus = page.getByTestId('thinking-summary').filter({ hasText: 'Retry executor setup failed after the durable suffix changed' });
+  await expect(retryStatus).toBeVisible();
   await expect(page.getByText('Persisted answer before retry.')).toHaveCount(0, { timeout: 100 });
   await expect(page.getByText('Persisted answer before retry.')).toHaveCount(0);
   await expect(page.getByText('Persisted retry prompt')).toHaveCount(1);
@@ -786,8 +786,7 @@ test('reconciles the durable reply suffix when retry setup fails after commit', 
     }).__STEERING_E2E__;
     return diagnostics.retryDurableReadbacks > 0 && diagnostics.retryRunEventReadbacks > 0;
   })).toBe(true);
-  await expect(page.getByText(/Retry executor setup failed after the durable suffix changed/))
-    .toBeVisible();
+  await expect(retryStatus).toBeVisible();
   const diagnostics = await page.evaluate(() => (window as unknown as {
     __STEERING_E2E__: {
       retryDurableReadbacks: number;

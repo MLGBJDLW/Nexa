@@ -64,6 +64,21 @@ test('confirmed retirements disappear while still-supported legacy and future sh
   assert.ok(find({ provider: 'google', model: 'gemini-2.5-pro' }));
 });
 
+test('Ling 3.1 Flash keeps its Beijing activation and toggle-only reasoning contract', () => {
+  const model = 'antdigital/Ling-3.1-flash';
+  const ling = find({ provider: 'alibaba_model_studio', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model });
+  assert.equal(ling.descriptor.limits.contextTokens, 1_048_576);
+  assert.equal(ling.descriptor.limits.maxOutputTokens, 262_144);
+  assert.equal(ling.descriptor.access, 'account_enablement');
+  assert.equal(ling.capabilities.vision, false);
+  assert.equal(ling.capabilities.reasoning.defaultEnabled, true);
+  assert.equal(ling.capabilities.reasoning.thinkingBudget, undefined);
+  assert.equal(ling.capabilities.reasoning.effortLevels, undefined);
+  for (const baseUrl of ['https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'https://private.example/v1']) {
+    assert.equal(find({ provider: 'alibaba_model_studio', baseUrl, model }), null);
+  }
+});
+
 test('new embedding models keep model-specific vector dimensions and batch limits', () => {
   const presets = JSON.parse(readFileSync(new URL('../../../shared/embedding-provider-presets.json', import.meta.url), 'utf8'));
   const qwen = presets.find(preset => preset.id === 'alibaba-model-studio-cn').models;

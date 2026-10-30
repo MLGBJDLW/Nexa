@@ -546,12 +546,24 @@ type MessageTraceGroup =
 
 interface GeneratedImagePreviewItem {
   id: string;
+  assistantIdx: number;
+  callId: string;
   toolName: string;
   arguments: string;
   owner?: ToolCallEvent["owner"];
   content?: string;
   isError?: boolean;
   artifacts: ArtifactPayload;
+}
+
+function sameGeneratedImageSource(left: ArtifactPayload, right: ArtifactPayload): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) return false;
+  if (left === right) return true;
+  for (const key of ['previewPath', 'path', 'dataUrl', 'providerImageUrl']) {
+    const source = left[key];
+    if (typeof source === 'string' && source.length > 0 && source === right[key]) return true;
+  }
+  return false;
 }
 
 function collectArtifactValues(value: unknown, out: unknown[]) {
@@ -912,6 +924,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         case "status":
           return {
             text: "",
+            summary: section.text,
             node: (
               <TraceStatusRow
                 key={section.id}
@@ -939,6 +952,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         case "tool":
           return {
             text: "",
+            summary: section.toolCall.progressNote || section.toolCall.toolName.replace(/_/g, ' '),
             node: (
               <TimelineToolCallCard
                 key={section.id}
@@ -966,7 +980,8 @@ export function ChatMessages(props: ChatMessagesProps) {
       let interactionSteps: InteractionStep[] = [];
       const flushInteractionSteps = () => {
         if (interactionSteps.length === 0) return;
-        result.push({ text: '', node: <InteractionTrace key={interactionSteps[0].id} steps={interactionSteps} conversationId={conversationId} parentRunActive={parentRunActive} /> });
+        const latest = interactionSteps[interactionSteps.length - 1].toolCall;
+        result.push({ text: '', summary: latest.progressNote || latest.toolName.replace(/_/g, ' '), node: <InteractionTrace key={interactionSteps[0].id} steps={interactionSteps} conversationId={conversationId} parentRunActive={parentRunActive} /> });
         interactionSteps = [];
       };
       for (const section of sections) {
@@ -974,7 +989,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         if (fileGroup) {
           flushInteractionSteps();
           if (section.kind === 'tool' && fileGroup.calls[0] === section.toolCall) {
-            result.push({ text: '', node: <FileChangeTrace key={section.id} group={fileGroup} conversationId={conversationId} parentRunActive={parentRunActive} /> });
+            result.push({ text: '', summary: section.toolCall.toolName.replace(/_/g, ' '), node: <FileChangeTrace key={section.id} group={fileGroup} conversationId={conversationId} parentRunActive={parentRunActive} /> });
           }
           continue;
         }
@@ -1006,6 +1021,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       const ordered: Array<
         | { kind: 'trace'; id: string; sections: TimelineSection[] }
         | { kind: 'steering'; id: string; text: string }
+        | { kind: 'image'; id: string; section: Extract<TimelineSection, { kind: 'tool' }> }
         | {
             kind: 'answeredQuestion';
             id: string;
@@ -1031,6 +1047,13 @@ export function ChatMessages(props: ChatMessagesProps) {
       };
 
       for (const section of sections) {
+        // The image's generation state and result remain visible even when
+        // the surrounding working trace is fully folded.
+        if (section.kind === 'tool' && (section.toolCall.toolName === 'generate_image' || section.toolCall.renderKind === 'image')) {
+          flushTrace();
+          ordered.push({ kind: 'image', id: section.id, section });
+          continue;
+        }
         if (section.kind === 'steering') {
           flushTrace();
           ordered.push(section);
@@ -1083,7 +1106,9 @@ export function ChatMessages(props: ChatMessagesProps) {
                 isStreaming && index === lastTraceIndex,
                 forceExpanded,
               )
-            : item.kind === 'steering' ? (
+            : item.kind === 'image' ? (
+                <Fragment key={item.id}>{renderTimelineSection({ ...item.section, trace: false }, parentRunActive)?.node}</Fragment>
+              ) : item.kind === 'steering' ? (
                 <TraceSteeringRow key={item.id} text={item.text} label={t('chat.steeringLabel')} />
               ) : item.kind === 'answeredQuestion' ? (
                 <div key={item.id} className="mb-1 flex justify-start">
@@ -1105,7 +1130,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </Fragment>
       );
     },
-    [questionResponses, renderThinkingTraceNode, renderTimelineSections, t],
+    [questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, t],
   );
 
   const messageThinkingText = useMemo(() => {
@@ -1924,20 +1949,16 @@ export function ChatMessages(props: ChatMessagesProps) {
       }
     >();
 
+    const byAssistantIdx = new Map<number, GeneratedImagePreviewItem[]>();
     messages.forEach((msg, idx) => {
-      if (msg.role !== "assistant") return;
-      for (const toolCall of msg.toolCalls) {
-        if (toolCall.id) {
-          ownerByToolCallId.set(toolCall.id, {
-            assistantIdx: idx,
-            toolCall,
-          });
+      // Provider call IDs can be reused. Resolve each result against the
+      // preceding assistant in its own user turn, never a later occurrence.
+      if (msg.role === 'user' && !isSteeringMessage(msg)) ownerByToolCallId.clear();
+      if (msg.role === 'assistant') {
+        for (const toolCall of msg.toolCalls) {
+          if (toolCall.id) ownerByToolCallId.set(toolCall.id, { assistantIdx: idx, toolCall });
         }
       }
-    });
-
-    const byAssistantIdx = new Map<number, GeneratedImagePreviewItem[]>();
-    messages.forEach((msg) => {
       if (
         msg.role !== "tool" ||
         !msg.toolCallId ||
@@ -1952,6 +1973,8 @@ export function ChatMessages(props: ChatMessagesProps) {
       const items = byAssistantIdx.get(owner.assistantIdx) ?? [];
       items.push({
         id: `generated-image-${msg.id}`,
+        assistantIdx: owner.assistantIdx,
+        callId: msg.toolCallId,
         toolName: owner.toolCall.name || "generate_image",
         arguments: owner.toolCall.arguments || "",
         owner: owner.toolCall.owner,
@@ -1963,6 +1986,37 @@ export function ChatMessages(props: ChatMessagesProps) {
 
     return byAssistantIdx;
   }, [messages]);
+
+  const shouldRenderLiveTraceTimeline =
+    liveTraceTimeline.length > 0 && (
+      isStreaming || streamRounds.length === 0 || collapsedLiveTrace !== null
+    );
+  const shouldRenderStreamRounds =
+    streamRounds.length > 0 && (isStreaming || !shouldRenderLiveTraceTimeline);
+
+  const liveGeneratedImages = useMemo(() => {
+    const byCall = new Map<string, ToolCallEvent[]>();
+    const consider = (call: ToolCallEvent) => {
+      if (call.toolName !== 'generate_image' && call.renderKind !== 'image') return;
+      if (call.isError || !isGeneratedImageArtifact(call.artifacts)) return;
+      const occurrences = byCall.get(call.callId) ?? [];
+      if (!occurrences.includes(call)) occurrences.push(call);
+      byCall.set(call.callId, occurrences);
+    };
+    // Use the exact projection chosen by the JSX below. A retained round is
+    // not an image owner when the ordered trace has replaced that round.
+    if (shouldRenderLiveTraceTimeline) {
+      for (const item of liveTraceTimeline) if (item.kind === 'thinking') {
+        for (const section of item.sections) if (section.kind === 'tool') consider(section.toolCall);
+      }
+    } else {
+      if (shouldRenderStreamRounds) for (const round of streamRounds) {
+        for (const section of buildRoundTimelineSections(round)) if (section.kind === 'tool') consider(section.toolCall);
+      }
+      for (const section of currentTimelineSections) if (section.kind === 'tool') consider(section.toolCall);
+    }
+    return byCall;
+  }, [shouldRenderLiveTraceTimeline, shouldRenderStreamRounds, liveTraceTimeline, currentTimelineSections, streamRounds]);
 
   const generatedImagePreviewsForIndexes = useCallback(
     (indexes: number[]): GeneratedImagePreviewItem[] =>
@@ -1988,10 +2042,16 @@ export function ChatMessages(props: ChatMessagesProps) {
   const renderGeneratedImagePreviews = useCallback(
     (items: GeneratedImagePreviewItem[] | undefined) => {
       if (!items || items.length === 0) return null;
+      // Retain the live card through history hydration. Once the live trace
+      // clears, the saved preview takes ownership without duplicating pixels.
+      const visible = items.filter(item => item.assistantIdx <= latestUserIdx || !(liveGeneratedImages.get(item.callId) ?? []).some(call =>
+        call.arguments === item.arguments && call.artifacts && sameGeneratedImageSource(item.artifacts, call.artifacts),
+      ));
+      if (visible.length === 0) return null;
       return (
         <div className="my-2 flex justify-start" data-testid="message-generated-image-previews">
           <div className="w-full max-w-[min(100%,40rem)] space-y-2">
-            {items.map((item) => (
+            {visible.map((item) => (
               <ToolCallCard
                 key={item.id}
                 toolName={item.toolName}
@@ -2010,15 +2070,9 @@ export function ChatMessages(props: ChatMessagesProps) {
         </div>
       );
     },
-    [],
+    [latestUserIdx, liveGeneratedImages],
   );
 
-  const shouldRenderLiveTraceTimeline =
-    liveTraceTimeline.length > 0 && (
-      isStreaming || streamRounds.length === 0 || collapsedLiveTrace !== null
-    );
-  const shouldRenderStreamRounds =
-    streamRounds.length > 0 && (isStreaming || !shouldRenderLiveTraceTimeline);
   const shouldShowStreamingText =
     !shouldRenderLiveTraceTimeline &&
     (isStreaming ||
@@ -2486,12 +2540,7 @@ export function ChatMessages(props: ChatMessagesProps) {
           className="flex justify-start mb-3"
         >
           <div className="w-full min-w-0">
-            <ThinkingBlock
-              content=""
-              sections={renderTimelineSections(currentTimelineSections, isStreaming, liveFileToolGroups)}
-              isStreaming={currentTraceActive}
-              collapseOnFinish
-            />
+            {renderTimelineTraceNode('current-thinking', currentTimelineSections, currentTraceActive, isStreaming, false, liveFileToolGroups)}
           </div>
         </motion.div>
       )}

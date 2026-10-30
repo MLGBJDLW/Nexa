@@ -52,8 +52,8 @@ export function RollingCount({ value, className }: { value: number; className?: 
     return () => animations.forEach(animation => animation.cancel());
   }, [count, shouldReduceMotion]);
 
-  return <span ref={rootRef} data-count-value={count} className={`inline-block text-right tabular-nums leading-none ${className ?? ''}`}>
-    {digits.map((digit, index) => <span key={digits.length - index - 1} data-count-place={digits.length - index - 1}
+  return <span ref={rootRef} role="img" aria-label={String(count)} data-count-value={count} className={`inline-block text-right tabular-nums leading-none ${className ?? ''}`}>
+    {digits.map((digit, index) => <span key={digits.length - index - 1} aria-hidden="true" data-count-place={digits.length - index - 1}
       className="relative inline-block w-[1ch] text-center align-baseline">
       <span data-count-digit>{digit}</span>
       <span aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">

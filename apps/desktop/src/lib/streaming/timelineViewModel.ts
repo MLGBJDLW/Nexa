@@ -403,10 +403,11 @@ export function toolCallToTimelineSection(input: {
   id: string;
   toolCall: ToolCallEvent;
   trace: boolean;
+  includeGeneratedImages?: boolean;
 }): TimelineSection[] {
   const { id, toolCall, trace } = input;
   if (
-    isGeneratedImageToolCall(toolCall) &&
+    !input.includeGeneratedImages && isGeneratedImageToolCall(toolCall) &&
     !isPendingToolCallStatus(toolCall.status) &&
     !toolCall.isError &&
     isGeneratedImageArtifact(toolCall.artifacts)
@@ -515,6 +516,7 @@ export function traceEventToTimelineSections(event: TraceEvent): TimelineSection
       id: event.id,
       toolCall: event.toolCall,
       trace: true,
+      includeGeneratedImages: true,
     });
   }
   if (event.code === 'model_planning_slow') return [];
@@ -549,6 +551,7 @@ export function buildRoundTimelineSections(round: StreamRoundEvent): TimelineSec
         id: `round-tool-${round.id}-${toolCall.callId}`,
         toolCall,
         trace: true,
+        includeGeneratedImages: true,
       }),
     );
   }

@@ -2,6 +2,7 @@ import {
   Children,
   Fragment,
   isValidElement,
+  useState,
   type ChangeEvent,
   type ComponentPropsWithoutRef,
   type ReactElement,
@@ -89,8 +90,12 @@ export function NexaSelect({
   const overlayRoot = useOverlayRoot();
   const options = selectOptions(children);
   const groups = [...new Set(options.map(option => option.group ?? ''))];
-  const controlledValue = value == null ? undefined : encodeOptionValue(String(value));
-  const initialValue = defaultValue == null ? undefined : encodeOptionValue(String(defaultValue));
+  const [localValue, setLocalValue] = useState(defaultValue == null ? undefined : String(defaultValue));
+  // Match native selects when no option matches the supplied/default value,
+  // including options that arrive asynchronously after mount.
+  const requestedValue = value == null ? localValue : String(value);
+  const selectedValue = options.some(option => option.value === requestedValue)
+    ? requestedValue : options.find(option => !option.disabled)?.value;
 
   const emitChange = (nextValue: string, selectedValues: string[] = [nextValue]) => {
     if (!onChange) return;
@@ -124,7 +129,7 @@ export function NexaSelect({
           <span className="truncate">
             {selectedLabels.length > 0 ? selectedLabels.join(', ') : `${selectedValues.length} selected`}
           </span>
-          <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+          <ChevronDown className="nexa-select-chevron ml-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal container={overlayRoot}>
           <DropdownMenu.Content
@@ -167,25 +172,27 @@ export function NexaSelect({
     <SelectPrimitive.Root
       open={open}
       onOpenChange={onOpenChange}
-      value={controlledValue}
-      defaultValue={initialValue}
+      value={encodeOptionValue(selectedValue ?? '')}
       disabled={disabled}
       name={name}
       required={props.required}
-      onValueChange={emitChange}
+      onValueChange={next => {
+        if (value == null) setLocalValue(decodeOptionValue(next));
+        emitChange(next);
+      }}
     >
       <SelectPrimitive.Trigger
         {...(props as ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>)}
         id={id}
         data-nexa-select-trigger="true"
-        data-value={value == null ? '' : String(value)}
+        data-value={selectedValue ?? ''}
         aria-label={props['aria-label']}
         aria-labelledby={props['aria-labelledby']}
         title={props.title}
         className={`nexa-select-trigger ${className}`}
       >
         <SelectPrimitive.Value className="min-w-0 flex-1 truncate text-left" />
-        <SelectPrimitive.Icon className="ml-2 shrink-0 text-text-tertiary">
+        <SelectPrimitive.Icon className="nexa-select-chevron ml-2 shrink-0">
           <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>

@@ -5,6 +5,59 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/e2e/fixtures/chat-image-preview.html');
 });
 
+test('image generation stays visible beside collapsed thinking and reveals loaded pixels', async ({ page }, testInfo) => {
+  await page.goto('/e2e/fixtures/chat-image-preview.html?generation=1');
+  const activity = page.getByTestId('image-generation-activity');
+  await expect(activity).toBeVisible();
+  await expect(activity).toHaveAttribute('role', 'status');
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
+  await expect(page.getByTestId('thinking-trace-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('thinking-stream-content')).toHaveCount(0);
+  await expect.poll(() => activity.locator('path').last().evaluate(el => getComputedStyle(el).animationName)).toBe('image-neural-connect');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(theme => { document.documentElement.className = `theme-${theme}`; }, theme);
+    await page.screenshot({ path: testInfo.outputPath(`image-neural-${theme}.png`) });
+  }
+  await page.getByRole('button', { name: 'Finish image' }).click();
+  const result = page.getByTestId('generated-image-img');
+  await expect(result).toHaveAttribute('data-ready', 'true');
+  await expect(result).toBeVisible();
+  await expect(activity).toHaveCount(0);
+  await result.click();
+  await expect(page.getByTestId('image-lightbox')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Hydrate history' }).click();
+  await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Previous garden', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Next round' }).click();
+  await expect(page.getByTestId('thinking-summary')).toContainText('Checking the result');
+  await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear live state' }).click();
+  await expect(page.getByTestId('generated-image-preview')).toHaveCount(2);
+  await expect(page.getByRole('img', { name: 'Generated garden', exact: true })).toBeVisible();
+  for (const [size, ratio] of [[' 9:16|2K ', 9 / 16], ['19.5:9|2k', 19.5 / 9]] as const) {
+    await page.goto(`/e2e/fixtures/chat-image-preview.html?generation=1&size=${encodeURIComponent(size)}`);
+    const frame = await page.getByTestId('image-generation-activity').boundingBox();
+    expect(frame).not.toBeNull();
+    expect(Math.abs(frame!.width / frame!.height - ratio)).toBeLessThan(0.02);
+  }
+});
+
+test('image generation respects reduced motion and retires activity on error or cancellation', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const action of ['Fail image', 'Cancel image']) {
+    await page.goto('/e2e/fixtures/chat-image-preview.html?generation=1');
+    const activity = page.getByTestId('image-generation-activity');
+    await expect(activity).toBeVisible();
+    expect(await activity.locator('path').last().evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+    await page.getByRole('button', { name: action }).click();
+    await expect(activity).toHaveCount(0);
+    await expect(page.getByTestId('tool-card-status')).toBeVisible();
+  }
+});
+
 for (const name of ['Markdown screenshot', 'Local screenshot', 'Uploaded screenshot.png', 'Generated screenshot']) {
   test(`${name} opens a keyboard-accessible image viewer`, async ({ page }) => {
     const thumbnail = page.getByRole('img', { name, exact: true });

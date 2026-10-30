@@ -4,6 +4,8 @@ import { I18nProvider } from '../../src/i18n';
 import { StreamingMarkdown } from '../../src/components/chat/StreamingMarkdown';
 import { MessageBubble } from '../../src/components/chat/MessageBubble';
 import { ToolCallCard } from '../../src/components/chat/ToolCallCard';
+import { ChatMessages } from '../../src/features/chat/ChatMessages';
+import type { ToolCallEvent } from '../../src/lib/streaming/protocol';
 import { applyToolRunEvent } from '../../src/lib/streaming/toolProjection';
 import { createDefaultState } from '../../src/lib/streaming/state';
 import { FilePreviewContext } from '../../src/features/preview/filePreviewContext';
@@ -47,6 +49,30 @@ function Fixture() {
   </main>;
 }
 
+function GenerationFixture() {
+  const [status, setStatus] = useState<ToolCallEvent['status']>('running');
+  const [hydrated, setHydrated] = useState(false);
+  const [live, setLive] = useState(true);
+  const [nextRound, setNextRound] = useState(false);
+  const args = JSON.stringify({ prompt: 'A quiet garden at dusk', size: new URLSearchParams(location.search).get('size') || '16:9' });
+  const call: ToolCallEvent = { callId: 'image', toolName: 'generate_image', arguments: args, argsStatus: 'ready', argsBytes: args.length, renderKind: 'image', status,
+    ...(status === 'done' ? { artifacts: { kind: 'generatedImage', dataUrl: source, mediaType: 'image/png', prompt: 'Generated garden' } } : {}),
+    ...(status === 'error' ? { content: 'Provider unavailable', isError: true } : {}),
+  };
+  const history: ConversationMessage[] = hydrated ? [
+    { ...storedMessages[0], id: 'previous-user', content: 'Previous image' },
+    { ...base, id: 'previous-call', role: 'assistant', content: '', toolCalls: [{ id: 'image', name: 'generate_image', arguments: args }], sortOrder: 1 },
+    { ...base, id: 'previous-image', role: 'tool', content: '', toolCallId: 'image', artifacts: { ...call.artifacts, prompt: 'Previous garden' }, sortOrder: 2 },
+    { ...storedMessages[0], id: 'current-user', content: 'Current image', sortOrder: 3 },
+    { ...base, id: 'image-call', role: 'assistant', content: '', toolCalls: [{ id: 'image', name: 'generate_image', arguments: args }], sortOrder: 4 },
+    { ...base, id: 'saved-image', role: 'tool', content: '', toolCallId: 'image', artifacts: call.artifacts ?? null, sortOrder: 5 },
+  ] : [{ ...storedMessages[0], id: 'current-user', content: 'Current image' }];
+  return <main className="mx-auto max-w-3xl bg-surface-0 p-6 text-text-primary">
+    <div className="mb-5 flex flex-wrap gap-4"><button onClick={() => setStatus('done')}>Finish image</button><button onClick={() => setStatus('error')}>Fail image</button><button onClick={() => setStatus('cancelled')}>Cancel image</button><button onClick={() => setHydrated(true)}>Hydrate history</button><button onClick={() => setNextRound(true)}>Next round</button><button onClick={() => setLive(false)}>Clear live state</button></div>
+    <ChatMessages messages={history} turns={[]} streamText="" streamRounds={live && nextRound ? [{ id: 'image-round', reply: '', toolCalls: [call] }] : []} traceEvents={live ? nextRound ? [{ id: 'next-thinking', kind: 'thinking', text: 'Checking the result' }] : [{ id: 'thinking', kind: 'thinking', text: '**Composing the garden**\nChoose a calm palette.' }, { id: 'image', kind: 'tool', toolCall: call }] : []} thinkingText="**Composing the garden**\nChoose a calm palette." isThinking={false} toolCalls={live ? [call] : []} isStreaming={live && (status === 'running' || status === 'done')} />
+  </main>;
+}
+
 const sessionId = 'image-session';
 const timestamp = '2026-09-22T00:00:00Z';
 const conversation = { id: sessionId, title: 'Image session', provider: 'open_ai', model: 'test', systemPrompt: '', collectionContext: null, projectId: null, createdAt: timestamp, updatedAt: timestamp };
@@ -85,5 +111,5 @@ export function renderChatImages() {
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;z-index:1000;overflow:auto';
   document.body.appendChild(host);
-  createRoot(host).render(<I18nProvider><SpeechPlaybackProvider><FilePreviewContext.Provider value={{ openFilePreview() {}, openWebLink() {}, resolveFileUrl: async () => source }}>{session ? <SessionFixture /> : <Fixture />}</FilePreviewContext.Provider></SpeechPlaybackProvider></I18nProvider>);
+  createRoot(host).render(<I18nProvider><SpeechPlaybackProvider><FilePreviewContext.Provider value={{ openFilePreview() {}, openWebLink() {}, resolveFileUrl: async () => source }}>{session ? <SessionFixture /> : new URLSearchParams(location.search).has('generation') ? <GenerationFixture /> : <Fixture />}</FilePreviewContext.Provider></SpeechPlaybackProvider></I18nProvider>);
 }

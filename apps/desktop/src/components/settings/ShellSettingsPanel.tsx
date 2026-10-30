@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import { useEffect, useState } from 'react';
 import { RefreshCw, Save } from 'lucide-react';
 import * as api from '../../lib/api';
@@ -30,12 +31,12 @@ export function ShellSettingsPanel({ config, saving, onChange, onSave }: {
   const missing = selected !== '' && !discovery?.profiles.some(p => p.id === selected);
   return <div data-testid="shell-settings" className="border-t border-border pt-2">
     <SettingsRow label={t('settings.shellEnvironment')} description={t('settings.shellEnvironmentDesc')} htmlFor="default-shell">
-      <select id="default-shell" value={selected} disabled={loading || saving} className={settingsSelectClass}
+      <NexaSelect id="default-shell" value={selected} disabled={loading || saving} className={settingsSelectClass}
         onChange={event => onChange({ ...config, defaultShell: event.target.value })}>
         <option value="">{t('settings.shellAutomatic')}</option>
         {(discovery?.profiles ?? []).map(profile => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
         {missing && <option value={selected}>{selected} · {t('settings.shellUnavailable')}</option>}
-      </select>
+      </NexaSelect>
     </SettingsRow>
     {config.shellAccessMode === 'restricted' && <p className="mb-2 text-xs text-text-tertiary">{t('settings.shellRestrictedHint')}</p>}
     {(failed || (discovery?.warnings.length ?? 0) > 0) && <p role="status" className="mb-2 text-xs text-warning">{t('settings.shellDiscoveryFailed')}</p>}

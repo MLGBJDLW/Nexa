@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useMemo, useCallback } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { save as showSaveDialog } from '@tauri-apps/plugin-dialog';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
@@ -44,6 +44,7 @@ import { FileBadge } from '../ui/FileBadge';
 import { Button } from '../ui/Button';
 import { Tooltip } from '../ui/Tooltip';
 import { ImagePreview } from '../ui/ImagePreview';
+import { ImageGenerationActivity } from './ImageGenerationActivity';
 import { extractToolVisualEvidence, type ToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { extractManagedProcess } from '../../lib/processArtifacts';
 import { ManagedProcessCard } from './ManagedProcessCard';
@@ -929,23 +930,6 @@ function parseImagePromptArgs(raw?: string): ImagePromptArgs {
   }
 }
 
-function imageAspectStyle(size?: string): CSSProperties {
-  const raw = (size ?? '').trim();
-  const pixelMatch = raw.match(/(\d{2,5})\s*[x*]\s*(\d{2,5})/i);
-  if (pixelMatch) {
-    const width = Number(pixelMatch[1]);
-    const height = Number(pixelMatch[2]);
-    if (width > 0 && height > 0) return { aspectRatio: `${width} / ${height}` };
-  }
-  const ratioMatch = raw.match(/(\d{1,3})\s*:\s*(\d{1,3})/);
-  if (ratioMatch) {
-    const width = Number(ratioMatch[1]);
-    const height = Number(ratioMatch[2]);
-    if (width > 0 && height > 0) return { aspectRatio: `${width} / ${height}` };
-  }
-  return { aspectRatio: '1 / 1' };
-}
-
 function generatedImagePreviewPath(image: GeneratedImageArtifact): string {
   return image.previewPath || image.path || '';
 }
@@ -1056,6 +1040,7 @@ function GeneratedImagePreview({
   const previewPath = generatedImagePreviewPath(image);
   const [previewSrc, setPreviewSrc] = useState(image.dataUrl ?? '');
   const [imageError, setImageError] = useState('');
+  const [loadedSrc, setLoadedSrc] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savedPath, setSavedPath] = useState('');
   const requestedPrompt = image.requestedPrompt ?? image.prompt;
@@ -1167,16 +1152,21 @@ function GeneratedImagePreview({
 
   return (
     <div className={compact ? 'space-y-1.5' : 'space-y-2.5'} data-testid="generated-image-preview">
-      <div className="w-fit max-w-full overflow-hidden rounded-md border border-border/60 bg-surface-0" data-testid="tool-image-frame">
+      <div className={`relative max-w-full overflow-hidden rounded-md border border-border/60 bg-surface-0 ${loadedSrc && loadedSrc === previewSrc ? 'w-fit' : 'w-full'}`} data-testid="tool-image-frame">
         {previewSrc && !imageError ? (
+          <>
+          {loadedSrc !== previewSrc && <ImageGenerationActivity prompt={requestedPrompt} compact={compact} />}
           <ImagePreview
             src={previewSrc}
             alt={requestedPrompt || t('chat.generatedImageAlt')}
-            className={`${maxHeight} block h-auto w-auto max-w-full object-contain`}
+            className={`generated-image-reveal ${maxHeight} block h-auto w-auto max-w-full object-contain ${loadedSrc !== previewSrc ? 'absolute inset-0 pointer-events-none' : ''}`}
+            data-ready={loadedSrc === previewSrc}
+            onLoad={() => setLoadedSrc(previewSrc)}
             data-testid="generated-image-img"
             onError={() => setImageError(t('chat.generatedImageLoadFailed'))}
           />
-        ) : (
+          </>
+        ) : !imageError ? <ImageGenerationActivity prompt={requestedPrompt} compact={compact} /> : (
           <div className={`${compact ? 'min-h-28' : 'min-h-64'} flex items-center justify-center px-4 text-center text-xs text-text-tertiary`}>
             {imageError || t('chat.generatedImageLoading')}
           </div>
@@ -1276,53 +1266,6 @@ function GeneratedImagePreview({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function ImageGenerationPendingPreview({
-  prompt,
-  size,
-  compact = false,
-}: {
-  prompt?: string;
-  size?: string;
-  compact?: boolean;
-}) {
-  const shouldReduceMotion = useReducedMotion();
-  const aspectStyle = imageAspectStyle(size);
-
-  return (
-    <div
-      className={`chat-image-loading relative overflow-hidden rounded-md border border-accent/25 bg-surface-0/80 ${
-        compact ? 'min-h-28' : 'min-h-64'
-      }`}
-      data-reduce-motion={shouldReduceMotion ? 'true' : 'false'}
-      style={aspectStyle}
-    >
-      <div className="absolute inset-0 opacity-80">
-        <div className="absolute left-[9%] top-[11%] h-[16%] w-[28%] rounded-md border border-border/55 bg-surface-1/60" />
-        <div className="absolute right-[9%] top-[12%] h-[9%] w-[18%] rounded-full border border-border/50 bg-surface-1/55" />
-        <div className="absolute bottom-[18%] left-[8%] h-[35%] w-[84%] rounded-md border border-border/50 bg-surface-1/45" />
-        <div className="absolute bottom-[24%] left-[13%] h-[20%] w-[24%] rounded-md border border-border/45 bg-surface-2/45" />
-        <div className="absolute bottom-[25%] right-[14%] h-[24%] w-[36%] rounded-md border border-border/45 bg-surface-2/35" />
-      </div>
-      <div className="chat-image-loading-grid absolute inset-0" />
-      <div className="chat-image-loading-scan absolute inset-y-0 w-1/3" />
-      <div className="absolute inset-0 flex items-center justify-center">
-        <motion.div
-          animate={shouldReduceMotion ? undefined : { opacity: [0.64, 1, 0.64], scale: [0.96, 1.04, 0.96] }}
-          transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-          className="flex h-14 w-14 items-center justify-center rounded-md border border-accent/30 bg-surface-0/80 shadow-glow"
-        >
-          <img src="/logo-small.svg" alt="" className="h-8 w-8 opacity-90" />
-        </motion.div>
-      </div>
-      {!compact && prompt && (
-        <div className="absolute inset-x-0 bottom-0 border-t border-border/40 bg-surface-0/75 px-3 py-2">
-          <div className="line-clamp-2 text-xs leading-5 text-text-secondary">{prompt}</div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1910,7 +1853,9 @@ export const ToolCallCard = memo(function ToolCallCard({
                 ) : generatedImage ? (
                   <GeneratedImagePreview image={generatedImage} compact />
                 ) : showImagePendingPreview ? (
-                  <ImageGenerationPendingPreview
+                  <ImageGenerationActivity
+                    active={status === 'running' || status === 'starting'}
+                    label={status === 'running' ? undefined : statusLabel}
                     prompt={imageArgs.prompt}
                     size={imageArgs.size}
                     compact
@@ -2078,7 +2023,9 @@ export const ToolCallCard = memo(function ToolCallCard({
                 ) : generatedImage ? (
                   <GeneratedImagePreview image={generatedImage} compact />
                 ) : showImagePendingPreview ? (
-                  <ImageGenerationPendingPreview
+                  <ImageGenerationActivity
+                    active={status === 'running' || status === 'starting'}
+                    label={status === 'running' ? undefined : statusLabel}
                     prompt={imageArgs.prompt}
                     size={imageArgs.size}
                     compact
@@ -2189,7 +2136,9 @@ export const ToolCallCard = memo(function ToolCallCard({
           {generatedImage ? (
             <GeneratedImagePreview image={generatedImage} />
           ) : (
-            <ImageGenerationPendingPreview
+            <ImageGenerationActivity
+              active={status === 'running' || status === 'starting'}
+              label={status === 'running' ? undefined : statusLabel}
               prompt={imageArgs.prompt}
               size={imageArgs.size}
             />
@@ -2460,7 +2409,9 @@ export const ToolCallCard = memo(function ToolCallCard({
               ) : generatedImage ? (
                 <GeneratedImagePreview image={generatedImage} />
               ) : showImagePendingPreview ? (
-                <ImageGenerationPendingPreview
+                <ImageGenerationActivity
+                  active={status === 'running' || status === 'starting'}
+                  label={status === 'running' ? undefined : statusLabel}
                   prompt={imageArgs.prompt}
                   size={imageArgs.size}
                 />

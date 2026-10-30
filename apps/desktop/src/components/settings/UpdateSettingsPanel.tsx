@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   AlertTriangle,
@@ -132,7 +133,7 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
       <div className="min-w-0 space-y-2" data-testid="update-source-control">
         <label className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
           <span>{t('update.source')}</span>
-          <select
+          <NexaSelect
             aria-label={t('update.source')}
             value={source}
             disabled={sourceSwitchDisabled}
@@ -142,7 +143,7 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
             <option value="github">GitHub</option>
             <option value="ghfast">ghfast</option>
             <option value="custom">{t('update.sourceCustom')}</option>
-          </select>
+          </NexaSelect>
         </label>
         {source === 'custom' && (
           <label className="block space-y-1 text-xs text-text-secondary">

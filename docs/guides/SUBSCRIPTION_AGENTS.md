@@ -18,7 +18,13 @@ Nexa does not infer them from the model name. Explicit CLI path overrides remain
 user-managed and need a version that supports the selected model.
 
 Nexa explicitly requests concise reasoning summaries and enables their events.
-Readable deltas and final summaries share the same ordered thinking block. An
+Readable deltas and final summaries share the same ordered thinking block.
+Collapsed blocks show only a short activity label beside the thinking mood;
+expanding the block hides that label and reveals the full trace. This label is
+derived locally from readable reasoning or tool progress and adds no model call.
+Image generation stays visible outside the collapsed trace, with an indeterminate
+neural connection animation followed by the loaded image. It does not claim a
+provider progress percentage and respects reduced-motion preferences. An
 individual response can contain only opaque reasoning, or omit summaries, even
 when summary visibility is enabled. Nexa never renders opaque data: the status
 row keeps showing model progress and explains when that response did not include

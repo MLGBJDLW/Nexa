@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Command } from 'cmdk';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import {
   NexaPopover,
   NexaPopoverContent,
@@ -53,7 +53,7 @@ export function NexaCombobox({
           data-testid={dataTestId}
         >
           <span className="min-w-0 flex-1 truncate text-left">{selected?.label ?? placeholder}</span>
-          <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+          <ChevronDown className="nexa-select-chevron ml-2 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         </button>
       </NexaPopoverTrigger>
       <NexaPopoverContent className="nexa-combobox-content min-w-[var(--radix-popover-trigger-width)] p-1">

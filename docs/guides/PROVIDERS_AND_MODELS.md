@@ -116,6 +116,17 @@ and replays `reasoning_content` alongside tool calls. Its fixed sampling and
 unsupported stop/parallel-tool controls are omitted from requests. SiliconFlow's new route
 retains provider defaults without inheriting the generic numerical thinking budget.
 
+Alibaba's Beijing-only [Ling 3.1 Flash](https://help.aliyun.com/zh/model-studio/antdigital)
+requires workspace activation. Its optional thinking defaults on; Nexa preserves
+reasoning history and omits unsupported effort, numeric budget and parallel-tool
+fields. Singapore and Token Plan do not inherit this route's contract.
+The image fallback catalog also includes
+[Riverflow V2.6 Pro](https://openrouter.ai/sourceful/riverflow-v2.6-pro), including
+reference images and its per-model raster formats and sizes. Google's direct
+`gemini-3.1-flash-image` remains selectable but is marked deprecated in favor of
+`gemini-nano-banana-2.1`, following the
+[official lifecycle notice](https://ai.google.dev/gemini-api/docs/changelog).
+
 This audit checks public documentation, shared projections and public discovery.
 It does not establish paid inference, account entitlement, local model installation,
 or authenticated discovery for credentials unavailable to the audit process.

@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useLayoutEffect, type ComponentPropsWithoutRef } from 'react';
+import { useState, useRef, useEffect, type ComponentPropsWithoutRef } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import { ThinkingIcon } from './ThinkingIcon';
 import { useStreamingPresentation } from '../../lib/useStreamingPresentation';
 import { observeScrollFollow } from '../../lib/scrollFollow';
+import { compactActivityLabel, thinkingSummary } from '../../lib/thinkingSummary';
 import ReactMarkdown from 'react-markdown';
 import { useTranslation } from '../../i18n';
 import { getSoftCollapseMotion } from '../../lib/uiMotion';
@@ -15,6 +16,7 @@ import { MermaidBlock, markdownRemarkPlugins, rehypePlugins } from './markdownCo
 
 export interface ThinkingSection {
   text: string;
+  summary?: string;
   toolCallCards?: React.ReactNode;
   node?: React.ReactNode;
 }
@@ -117,30 +119,6 @@ function ThinkingText({ text, reduceMotion }: { text: string; reduceMotion: bool
   return <div data-testid="thinking-stream-content" className="min-w-0 max-w-full whitespace-pre-wrap [overflow-wrap:anywhere]">{presented}</div>;
 }
 
-function ThinkingPreview({ text }: { text: string }) {
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const viewport = viewportRef.current;
-    if (viewport) viewport.scrollTop = viewport.scrollHeight;
-  }, [text]);
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const observer = new ResizeObserver(() => { viewport.scrollTop = viewport.scrollHeight; });
-    observer.observe(viewport);
-    if (contentRef.current) observer.observe(contentRef.current);
-    return () => observer.disconnect();
-  }, []);
-  return <div
-    ref={viewportRef}
-    data-testid="thinking-preview"
-    aria-hidden="true"
-    className="mt-1 h-12 min-w-0 max-w-full overflow-hidden whitespace-pre-wrap pl-1 text-xs leading-4 text-text-tertiary [overflow-wrap:anywhere] [overflow-anchor:none]"
-    style={{ maskImage: 'linear-gradient(to bottom, transparent, black 35%)' }}
-  ><div ref={contentRef} className="flex min-h-full flex-col justify-end leading-[1.333333]">{text}</div></div>;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -164,20 +142,19 @@ export function ThinkingBlock({
 
   const effectiveSections = sections && sections.length > 0 ? sections : null;
   const hasContent = effectiveSections ? effectiveSections.some(section => section.text) : Boolean(content);
-  // A collapsed live trace only projects a bounded tail. Do not join or parse
-  // the full reasoning history on every streamed token.
-  let previewText = '';
-  if (isStreaming && !expanded) {
+  // Only a bounded label is projected while closed; no hidden markdown tree,
+  // scrolling preview, extra model request or timer runs for a collapsed trace.
+  let activitySummary = '';
+  if (!expanded) {
     if (effectiveSections) {
       for (let index = effectiveSections.length - 1; index >= 0; index -= 1) {
-        previewText = effectiveSections[index].text.slice(-1200).trimEnd();
-        if (previewText) break;
+        const section = effectiveSections[index];
+        activitySummary = section.summary ? compactActivityLabel(section.summary) : thinkingSummary(section.text);
+        if (activitySummary) break;
       }
     } else {
-      previewText = content.slice(-1200).trimEnd();
+      activitySummary = thinkingSummary(content);
     }
-    // A bounded UTF-16 slice may begin inside an emoji's surrogate pair.
-    if (/^[\uDC00-\uDFFF]/.test(previewText)) previewText = previewText.slice(1);
   }
   // Streaming must not reopen a trace the user has closed. Explicit expansion
   // is reserved for actionable content such as a pending interaction.
@@ -228,13 +205,13 @@ export function ThinkingBlock({
         data-trace-state={isStreaming ? "active" : "complete"}
         onClick={() => setExpanded(!expanded)}
         aria-expanded={expanded}
-        className="thinking-trace-header flex max-w-full min-w-0 items-center gap-1.5 text-xs text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer group"
+        className="thinking-trace-header flex w-full max-w-full min-w-0 items-center gap-1.5 text-left text-xs text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer group"
       >
         <ChevronRight
           size={12}
-          className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${expanded ? 'rotate-90' : ''}`}
         />
-        <span className="flex min-w-0 items-center gap-1.5">
+        <span className="flex shrink-0 items-center gap-1.5">
           <ThinkingIcon active={Boolean(isStreaming)} />
           <span
             className={`thinking-status-text min-w-0 truncate ${isStreaming && !shouldReduceMotion ? 'thinking-status-text-active' : ''}`}
@@ -250,9 +227,12 @@ export function ThinkingBlock({
             </span>
           )}
         </span>
+        {!expanded && activitySummary && (
+          <span data-testid="thinking-summary" className="min-w-0 truncate font-normal text-text-secondary" title={activitySummary}>
+            <span aria-hidden="true" className="mr-1.5 text-text-tertiary">·</span>{activitySummary}
+          </span>
+        )}
       </button>
-
-      {previewText && <ThinkingPreview text={previewText} />}
 
       <AnimatePresence initial={false}>
         {expanded && (hasContent || effectiveSections || children) && (

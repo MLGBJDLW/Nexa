@@ -1,3 +1,4 @@
+import { NexaSelect } from '../ui/overlay';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
@@ -213,33 +214,33 @@ function VisionCapabilityEditor({
       <div className="grid gap-3 md:grid-cols-4">
         <label className="space-y-1 text-xs text-text-secondary">
           <span>{t('settings.visionMode')}</span>
-          <select className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 text-sm" value={mode} onChange={(event) => setMode(event.target.value as VisionMode)}>
+          <NexaSelect className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 text-sm" value={mode} onChange={(event) => setMode(event.target.value as VisionMode)}>
             <option value="off">{t('settings.visionModeOff')}</option>
             <option value="ask">{t('settings.visionModeAsk')}</option>
             <option value="auto">{t('settings.visionModeAuto')}</option>
             <option value="always_auxiliary">{t('settings.visionModeAlwaysAux')}</option>
-          </select>
+          </NexaSelect>
         </label>
         <label className="space-y-1 text-xs text-text-secondary">
           <span>{t('settings.visionFallbackMode')}</span>
-          <select className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 text-xs" value={fallbackMode} onChange={(event) => setFallbackMode(event.target.value as VisionFallbackMode)}>
+          <NexaSelect className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 text-xs" value={fallbackMode} onChange={(event) => setFallbackMode(event.target.value as VisionFallbackMode)}>
             <option value="disabled">{t('settings.visionFallbackDisabled')}</option>
             <option value="automatic">{t('settings.visionFallbackAutomatic')}</option>
-          </select>
+          </NexaSelect>
         </label>
         <label className="space-y-1 text-xs text-text-secondary">
           <span>{t('settings.visionPreferredModel')}</span>
-          <select className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 font-mono text-xs" value={primaryTargetId} onChange={(event) => setPrimaryTargetId(event.target.value)}>
+          <NexaSelect className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 font-mono text-xs" value={primaryTargetId} onChange={(event) => setPrimaryTargetId(event.target.value)}>
             <option value="">{t('settings.visionChooseModel')}</option>
             {candidates.map((target) => <option key={target.id} value={target.id}>{target.upstreamModelId}</option>)}
-          </select>
+          </NexaSelect>
         </label>
         <label className="space-y-1 text-xs text-text-secondary">
           <span>{t('settings.visionFallbackModel')}</span>
-          <select className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 font-mono text-xs" value={fallbackTargetId} disabled={fallbackMode === 'disabled'} onChange={(event) => setFallbackTargetId(event.target.value)}>
+          <NexaSelect className="w-full rounded-lg border border-border bg-surface-1 px-2.5 py-2 font-mono text-xs" value={fallbackTargetId} disabled={fallbackMode === 'disabled'} onChange={(event) => setFallbackTargetId(event.target.value)}>
             <option value="">{t('settings.visionNoFallback')}</option>
             {candidates.filter((target) => target.id !== primaryTargetId).map((target) => <option key={target.id} value={target.id}>{target.upstreamModelId}</option>)}
-          </select>
+          </NexaSelect>
         </label>
       </div>
       <div data-settings-actions className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-text-secondary">

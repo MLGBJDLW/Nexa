@@ -1307,8 +1307,6 @@ fn main() {
             commands::begin_mcp_oauth_cmd,
             commands::disconnect_mcp_oauth_cmd,
             // Trace analytics
-            commands::get_trace_summary,
-            commands::get_recent_traces,
             commands::export_agent_task_trajectory_cmd,
             commands::save_agent_trajectory_cmd,
             commands::load_agent_trajectory_cmd,

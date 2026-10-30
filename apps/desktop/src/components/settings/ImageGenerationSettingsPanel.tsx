@@ -352,11 +352,11 @@ export function ImageGenerationSettingsPanel({
           </p>
           <div className="mb-3" data-testid="image-source-selector">
             <SettingsRow label={t('settings.imageGenerationSource')} description={imageSource === 'auto' ? t('settings.imageSourceAutoHint') : subscriptionOnly ? t('settings.imageSourceSubscriptionNote') : t('settings.imageSourceApiKeyHint')} htmlFor="image-generation-source">
-                <select id="image-generation-source" value={imageSource} onChange={event => updateImageConfig({ ...imageConfig, source: event.target.value as typeof imageSource })} className={settingsSelectClass}>
+                <NexaSelect id="image-generation-source" value={imageSource} onChange={event => updateImageConfig({ ...imageConfig, source: event.target.value as typeof imageSource })} className={settingsSelectClass}>
                   <option value="auto">{t('settings.imageSourceAuto')}</option>
                   <option value="subscription">{t('settings.imageSourceSubscription')}</option>
                   <option value="apiKey">{t('settings.imageSourceApiKey')}</option>
-                </select>
+                </NexaSelect>
               </SettingsRow>
             </div>
             {!subscriptionOnly && <div className="space-y-1">

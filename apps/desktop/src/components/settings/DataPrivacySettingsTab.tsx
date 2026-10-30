@@ -1,9 +1,8 @@
-import { BarChart3, Database, Loader2, Pencil, Plus, RefreshCw, Save, Shield, Trash2, X, Zap } from 'lucide-react';
+import { Database, Pencil, Plus, RefreshCw, Save, Shield, Trash2, X, Zap } from 'lucide-react';
 import { useTranslation, type TranslationKey } from '../../i18n';
 import type { IndexStats } from '../../types/index-stats';
 import type { PrivacyConfig, RedactRule } from '../../types/privacy';
 import type { AgentProceduralMemory, UserMemory } from '../../types/conversation';
-import type { AgentTrace, TraceSummary } from '../../types/trace';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -15,9 +14,6 @@ interface FtsProgress {
 }
 
 interface DataPrivacySettingsTabProps {
-  analyticsLoading: boolean;
-  traceSummary: TraceSummary | null;
-  recentTraces: AgentTrace[];
   stats: IndexStats | null;
   rebuildLoading: boolean;
   optimizeLoading: boolean;
@@ -51,12 +47,6 @@ interface DataPrivacySettingsTabProps {
   onNewMemoryChange: (value: string) => void;
   onAddMemory: () => void;
   onSavePrivacy: () => void;
-}
-
-function formatCompact(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(value);
 }
 
 function memorySourceLabel(source: UserMemory['source'], t: ReturnType<typeof useTranslation>['t']): string {
@@ -103,9 +93,6 @@ const REDACT_RULE_EXAMPLES: Array<RedactRule & { labelKey: TranslationKey }> = [
 ];
 
 export function DataPrivacySettingsTab({
-  analyticsLoading,
-  traceSummary,
-  recentTraces,
   stats,
   rebuildLoading,
   optimizeLoading,
@@ -145,98 +132,6 @@ export function DataPrivacySettingsTab({
   return (
     <>
       <DatabaseStorageCard />
-      <Section
-        icon={<BarChart3 size={20} />}
-        title={t('analytics.title')}
-        delay={0.02}
-        collapsible
-        defaultOpen={false}
-        summary={traceSummary ? (
-          <span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">
-            {formatCompact(traceSummary.totalSessions)} {t('analytics.totalSessions')}
-          </span>
-        ) : undefined}
-      >
-        {analyticsLoading && !traceSummary ? (
-          <div className="flex items-center gap-2 text-sm text-text-tertiary">
-            <Loader2 size={14} className="animate-spin" />
-            <span>{t('common.loading')}</span>
-          </div>
-        ) : traceSummary && traceSummary.totalSessions > 0 ? (
-          <div className="min-w-0 space-y-3">
-            <div className="grid grid-cols-3 gap-3">
-              <StatCard label={t('analytics.totalSessions')} value={formatCompact(traceSummary.totalSessions)} />
-              <StatCard label={t('analytics.successRate')} value={`${(traceSummary.successRate * 100).toFixed(1)}%`} />
-              <StatCard label={t('analytics.cacheHitRate')} value={`${(traceSummary.cacheHitRate * 100).toFixed(1)}%`} />
-              <StatCard label={t('analytics.totalTokens')} value={formatCompact(traceSummary.totalInputTokens + traceSummary.totalOutputTokens)} />
-              <StatCard label={t('analytics.avgIterations')} value={traceSummary.avgIterationsPerSession.toFixed(1)} />
-              <StatCard label={t('analytics.avgContextUsage')} value={`${(traceSummary.avgContextUsagePct * 100).toFixed(1)}%`} />
-              <StatCard label={t('analytics.sessionsLast7Days')} value={formatCompact(traceSummary.sessionsLast7Days)} />
-              <StatCard label={t('analytics.tokensLast7Days')} value={formatCompact(traceSummary.tokensLast7Days)} />
-            </div>
-
-            {traceSummary.topTools.length > 0 && (
-              <div>
-                <h3 className="mb-2 text-sm font-medium text-text-primary">{t('analytics.topTools')}</h3>
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-2">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('analytics.toolName')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.count')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {traceSummary.topTools.map(([name, count]) => (
-                        <tr key={name} className="border-b border-border last:border-0 hover:bg-surface-2/50 transition-colors">
-                          <td className="px-3 py-1.5 font-mono text-xs text-text-primary">{name}</td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{formatCompact(count)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {recentTraces.length > 0 && (
-              <div>
-                <h3 className="mb-2 text-sm font-medium text-text-primary">{t('analytics.recentSessions')}</h3>
-                <div className="overflow-hidden rounded-lg border border-border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-2">
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('analytics.message')}</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-text-tertiary">{t('analytics.outcome')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.iterations')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.tools')}</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-text-tertiary">{t('analytics.tokens')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {recentTraces.map((trace) => (
-                        <tr key={trace.id} className="border-b border-border last:border-0 hover:bg-surface-2/50 transition-colors">
-                          <td className="px-3 py-1.5 text-text-primary truncate" style={{ maxWidth: 200 }} title={trace.userMessagePreview}>{trace.userMessagePreview || '—'}</td>
-                          <td className="px-3 py-1.5">
-                            <Badge variant={trace.outcome === 'success' ? 'success' : trace.outcome === 'error' ? 'danger' : 'default'}>
-                              {trace.outcome}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{trace.totalIterations}</td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{trace.totalToolCalls}</td>
-                          <td className="px-3 py-1.5 text-right text-text-secondary">{formatCompact(trace.totalInputTokens + trace.totalOutputTokens)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-text-tertiary">{t('analytics.noData')}</p>
-        )}
-      </Section>
 
       <Section
         icon={<Database size={20} />}
