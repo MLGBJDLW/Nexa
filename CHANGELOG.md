@@ -7,6 +7,16 @@
 
 * **workspace:** recover agent folders and polish document typography ([#517](https://github.com/MLGBJDLW/Nexa/issues/517)) ([bb44a90](https://github.com/MLGBJDLW/Nexa/commit/bb44a90d5057ac0fc3fca362b642a5941d753a70))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at bb44a90d5057ac0fc3fca362b642a5941d753a70 -->
+
+### What's Changed
+* feat(workspace): recover agent folders and polish document typography by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/517
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.13...nexa-monorepo-v0.17.14
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.12...nexa-monorepo-v0.17.13) (2026-10-30)
 
 ### Highlights
