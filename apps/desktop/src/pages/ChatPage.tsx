@@ -598,6 +598,7 @@ export function ChatPage() {
     getCurrentSourceScope,
     initialCollectionContext,
     initialProjectId,
+    draftRouteKey: location.key,
     activePersonaId,
   });
   useEffect(() => {
@@ -1978,7 +1979,7 @@ export function ChatPage() {
               turnTiming={chat.turnTiming}
               isStreaming={chat.isStreaming}
               error={chat.error}
-              onRetry={isArchivedConversation ? undefined : chat.retry}
+              onRetry={isArchivedConversation || !chat.activeId ? undefined : chat.retry}
               onDismissError={chat.clearError}
               onDeleteMessage={isArchivedConversation ? undefined : chat.deleteMessage}
               onEditAndResend={isArchivedConversation ? undefined : chat.editAndResend}

@@ -1167,5 +1167,6 @@
   "executionLimitsHelp": "自動設定不限制任務總時長、工具輪次和總用量；並行數用於控制裝置資源。僅在需要明確預算時設定限制。",
   "executionLimitsCustom": "已設自訂限制",
   "glmCodingPlanKey": "GLM Coding Plan API Key",
-  "glmCodingPlanHelp": "此介接器使用程式設計方案的 API Key，ZCode 帳號登入屬於另一個管道。留空可使用 Z_AI_API_KEY 或 glm-acp-agent --setup 儲存的憑證。連線檢查用於探索模型，不代表已驗證方案權益。"
+  "glmCodingPlanHelp": "此介接器使用程式設計方案的 API Key，ZCode 帳號登入屬於另一個管道。留空可使用 Z_AI_API_KEY 或 glm-acp-agent --setup 儲存的憑證。連線檢查用於探索模型，不代表已驗證方案權益。",
+  "externalAgentAutomaticDirectory": "使用自動工作區"
 }

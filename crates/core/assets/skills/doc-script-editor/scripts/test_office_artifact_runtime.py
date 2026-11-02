@@ -60,10 +60,10 @@ class OfficeArtifactRuntimeTests(unittest.TestCase):
             path=str(path),
             template=None,
             font="Calibri",
-            title="Linked report",
+            title="中文 Linked report",
             subtitle="",
             input_md=None,
-            body="Read [Nexa](https://example.com/nexa) for details.",
+            body="Read [Nexa](https://example.com/nexa) for details.\n###### 六级标题\n- 中文列表\n> 引用 Quote",
             footer="",
             author="Nexa",
         )
@@ -76,6 +76,40 @@ class OfficeArtifactRuntimeTests(unittest.TestCase):
         self.assertIn("<w:hyperlink", document_xml)
         self.assertIn("https://example.com/nexa", relationships)
         self.assertEqual("pass", validate_ooxml_package(path).status)
+        import docx
+        from docx.oxml.ns import qn
+
+        document = docx.Document(path)
+        for name in ('Normal', 'Title', 'Heading 6', 'List Bullet', 'Intense Quote', 'Footer'):
+            fonts = document.styles[name].element.rPr.find(qn('w:rFonts'))
+            for slot in ('ascii', 'hAnsi', 'eastAsia', 'cs'):
+                self.assertEqual('Calibri', fonts.get(qn('w:' + slot)), (name, slot))
+        self.assertEqual('Heading 6', next(p for p in document.paragraphs if p.text == '六级标题').style.name)
+        from docx.shared import Pt, RGBColor
+
+        template = self.root / 'template.docx'
+        document.styles['Normal'].font.size = Pt(13)
+        document.styles['Title'].font.size = Pt(32)
+        document.styles['Title'].font.color.rgb = RGBColor.from_string('123456')
+        document.save(template)
+        original = {name: document.styles[name].element.xml for name in ('Normal', 'Title', 'Footer')}
+        args.template = str(template)
+        args.path = str(self.root / 'from-template.docx')
+        args.font = None
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, edit_doc.cmd_create_docx(args))
+        reopened = docx.Document(args.path)
+        for name, xml in original.items():
+            self.assertEqual(xml, reopened.styles[name].element.xml)
+        args.font = 'Microsoft YaHei'
+        args.path = str(self.root / 'font-override.docx')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(0, edit_doc.cmd_create_docx(args))
+        reopened = docx.Document(args.path)
+        self.assertEqual('Microsoft YaHei', reopened.styles['Title'].element.rPr.rFonts.get(qn('w:eastAsia')))
+        self.assertEqual(13, reopened.styles['Normal'].font.size.pt)
+        self.assertEqual(32, reopened.styles['Title'].font.size.pt)
+        self.assertEqual('123456', str(reopened.styles['Title'].font.color.rgb))
 
     def test_docx_replace_matches_across_runs_and_header_story(self) -> None:
         import docx
@@ -553,6 +587,12 @@ class OfficeArtifactRuntimeTests(unittest.TestCase):
         self.assertTrue(manifest["ok"])
         self.assertEqual("nexa-openxml", manifest["backend"])
         self.assertEqual("pass", validate_ooxml_package(output).status)
+        import docx
+        from docx.oxml.ns import qn
+
+        document = docx.Document(output)
+        self.assertEqual('Aptos', document.styles['Normal'].font.name)
+        self.assertEqual('Microsoft YaHei', document.styles['Normal'].element.rPr.rFonts.get(qn('w:eastAsia')))
 
     def test_docx_validation_contract_is_enforced_before_publish(self) -> None:
         output = self.root / "contract-failed.docx"

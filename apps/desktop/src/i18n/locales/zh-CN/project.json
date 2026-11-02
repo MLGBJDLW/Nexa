@@ -130,5 +130,7 @@
   "hookFailed": "失败",
   "hookCancelled": "已取消",
   "hookRunning": "运行中",
-  "hookEvent": "运行时机"
+  "hookEvent": "运行时机",
+  "createFolder": "创建目录",
+  "folderCreated": "目录已就绪"
 }

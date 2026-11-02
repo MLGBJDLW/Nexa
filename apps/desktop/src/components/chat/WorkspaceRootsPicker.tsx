@@ -1,18 +1,11 @@
 import { ArrowUp, FolderOpen, Plus, X } from 'lucide-react';
-import { open } from '@tauri-apps/plugin-dialog';
-import { toast } from 'sonner';
 import { useTranslation } from '../../i18n';
+import { WorkspaceFolderActions } from './WorkspaceFolderActions';
 
 export function WorkspaceRootsPicker({ roots, onChange }: { roots: string[]; onChange: (roots: string[]) => void }) {
   const { t } = useTranslation();
   const rows = roots.length ? roots : [''];
   const update = (index: number, value: string) => onChange(rows.map((root, i) => i === index ? value : root));
-  const browse = async (index: number) => {
-    try {
-      const selected = await open({ directory: true, multiple: false, title: t('project.chooseFolder') });
-      if (typeof selected === 'string') update(index, selected);
-    } catch { toast.error(t('common.error')); }
-  };
   return (
     <section className="space-y-3" data-testid="workspace-roots-picker">
       <div>
@@ -27,7 +20,7 @@ export function WorkspaceRootsPicker({ roots, onChange }: { roots: string[]; onC
               <label htmlFor={`workspace-root-${index}`} className="text-[10px] font-medium text-text-tertiary">{index === 0 ? t('project.primaryFolder') : t('project.additionalFolder')}</label>
               <input id={`workspace-root-${index}`} value={root} onChange={event => update(index, event.target.value)} placeholder={t('project.folderPlaceholder')} className="block w-full min-w-0 bg-transparent py-0.5 text-sm text-text-primary outline-none placeholder:text-text-tertiary/70" />
             </div>
-            <button type="button" onClick={() => void browse(index)} title={t('project.chooseFolder')} aria-label={t('project.chooseFolder')} className="rounded-md p-1.5 text-text-tertiary hover:bg-surface-2 hover:text-text-primary"><FolderOpen size={15} /></button>
+            <WorkspaceFolderActions path={root} onChange={value => update(index, value)} />
             {index > 0 && <button type="button" onClick={() => onChange([root, ...rows.filter((_, i) => i !== index)])} title={t('project.makePrimary')} aria-label={t('project.makePrimary')} className="rounded-md p-1.5 text-text-tertiary hover:bg-surface-2"><ArrowUp size={14} /></button>}
             {root && <button type="button" onClick={() => onChange(rows.filter((_, i) => i !== index))} aria-label={t('common.remove')} className="rounded-md p-1 text-text-tertiary hover:text-danger"><X size={14} /></button>}
           </div>

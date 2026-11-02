@@ -130,5 +130,7 @@
   "hookFailed": "Échouée",
   "hookCancelled": "Annulée",
   "hookRunning": "En cours",
-  "hookEvent": "Moment d’exécution"
+  "hookEvent": "Moment d’exécution",
+  "createFolder": "Créer le dossier",
+  "folderCreated": "Dossier prêt"
 }

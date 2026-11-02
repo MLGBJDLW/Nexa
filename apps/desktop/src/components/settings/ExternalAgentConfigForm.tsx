@@ -12,6 +12,7 @@ import type { ProviderPreset } from '../../lib/providerPresets';
 import type { AgentConfig, SaveAgentConfigInput } from '../../types/conversation';
 import { Button } from '../ui/Button';
 import { TerminalDock } from '../chat/TerminalDock';
+import { WorkspaceFolderActions } from '../chat/WorkspaceFolderActions';
 
 const isNativeModel = (option: ExternalAgentConfigOption) => option.category === 'model' || (!option.category && option.id === 'model');
 const isNativeReasoning = (option: ExternalAgentConfigOption) => option.category === 'thought_level'
@@ -219,10 +220,17 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
       <input className={inputClass} value={launch.executable ?? ''} placeholder={preset.command} disabled={!initialLaunch}
         onChange={event => changeLaunch({ ...launch, executable: event.target.value || null })} />
     </label>
-    <label className="mt-3 block text-xs font-medium text-text-secondary"><span className="inline-flex items-center gap-1"><FolderOpen size={13} />{t('settings.externalAgentDirectory')}</span>
-      <input className={inputClass} value={launch.workingDirectory} disabled={!initialLaunch}
+    <div className="mt-3 text-xs font-medium text-text-secondary"><label htmlFor="external-agent-directory" className="inline-flex items-center gap-1"><FolderOpen size={13} />{t('settings.externalAgentDirectory')}</label>
+      <div className="flex items-center gap-1"><input id="external-agent-directory" className={`${inputClass} min-w-0 flex-1`} value={launch.workingDirectory} disabled={!initialLaunch || loading}
         onChange={event => changeLaunch({ ...launch, workingDirectory: event.target.value })} />
-    </label>
+        <WorkspaceFolderActions key={config?.id ?? preset.id} path={launch.workingDirectory} disabled={!initialLaunch || loading}
+          onChange={workingDirectory => changeLaunch({ ...launch, workingDirectory })} />
+      </div>
+      {launch.workingDirectory && <button type="button" disabled={!initialLaunch || loading}
+        className="mt-2 text-xs text-accent" onClick={() => changeLaunch({ ...launch, workingDirectory: '' })}>
+        {t('settings.externalAgentAutomaticDirectory')}
+      </button>}
+    </div>
     <label className="mt-3 block text-xs font-medium text-text-secondary">{t('settings.externalAgentArguments')}
       <textarea className={`${inputClass} font-mono text-xs`} rows={3} value={argsText} placeholder={JSON.stringify(defaultArguments)} disabled={!initialLaunch}
         onChange={event => {

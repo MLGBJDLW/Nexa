@@ -25,7 +25,22 @@
         "marginRight": {"type": "number", "minimum": 0}
       }
     },
-    "tokens": {"type": "object"},
+    "tokens": {
+      "type": "object",
+      "description": "Document-wide typography and palette. Fonts must be available in the target reader; names do not embed fonts. An explicit token override applies the generated style system to a template.",
+      "properties": {
+        "bodyFont": {"type": "string", "minLength": 1},
+        "headingFont": {"type": "string", "minLength": 1},
+        "bodyEastAsiaFont": {"type": "string", "minLength": 1},
+        "headingEastAsiaFont": {"type": "string", "minLength": 1},
+        "bodyComplexScriptFont": {"type": "string", "minLength": 1},
+        "headingComplexScriptFont": {"type": "string", "minLength": 1},
+        "bodySize": {"type": "number", "exclusiveMinimum": 0},
+        "titleSize": {"type": "number", "exclusiveMinimum": 0},
+        "subtitleSize": {"type": "number", "exclusiveMinimum": 0},
+        "captionSize": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
     "header": {"type": "object"},
     "footer": {"type": "object"},
     "blocks": {

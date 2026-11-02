@@ -1167,5 +1167,6 @@
   "executionLimitsHelp": "Automatisch bleiben Laufzeit, Werkzeugrunden und Gesamtnutzung unbegrenzt. Parallelität schützt die Geräteressourcen. Grenzen nur bei einem konkreten Budget setzen.",
   "executionLimitsCustom": "Eigene Limits",
   "glmCodingPlanKey": "GLM Coding Plan API-Schlüssel",
-  "glmCodingPlanHelp": "Dieser Adapter nutzt einen Coding-Plan-API-Schlüssel; die ZCode-Anmeldung ist getrennt. Leer lassen für Z_AI_API_KEY oder mit glm-acp-agent --setup gespeicherte Zugangsdaten. Die Verbindungsprüfung erkennt Modelle, prüft aber keine Tarifberechtigung."
+  "glmCodingPlanHelp": "Dieser Adapter nutzt einen Coding-Plan-API-Schlüssel; die ZCode-Anmeldung ist getrennt. Leer lassen für Z_AI_API_KEY oder mit glm-acp-agent --setup gespeicherte Zugangsdaten. Die Verbindungsprüfung erkennt Modelle, prüft aber keine Tarifberechtigung.",
+  "externalAgentAutomaticDirectory": "Automatischen Arbeitsbereich verwenden"
 }

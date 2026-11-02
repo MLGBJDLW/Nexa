@@ -178,12 +178,19 @@ async function probeEndpoint(endpoint) {
     const comparison = anonymousRequiredIdsOnly
       ? compareRequiredModelIds(requiredIds, liveModels)
       : compareEndpointModels(endpoint, liveModels);
+    // Availability candidates remain advisory: absence is not a retirement
+    // notice. Exclude existing tombstones so the report highlights new gaps.
+    const unavailableCandidates = compareEndpointModels({
+      ...endpoint,
+      models: endpoint.models.filter(model => model.lifecycle !== 'removed'),
+    }, liveModels).missingIds;
     return {
       endpointId: endpoint.endpointId,
       status: 'ok',
       ...(anonymousRequiredIdsOnly ? { probeMode: 'required_ids', requiredIds } : {}),
       discoveredCount: liveModels.length,
       discoveryScope: credential ? 'credential_catalog' : 'public_catalog',
+      unavailableCandidates,
       // Inventory differences are candidates for protocol review. A missing
       // listing is not a retirement notice or authority to change saved models.
       inventory: compareEndpointModels(endpoint, liveModels.filter(model => {
@@ -228,6 +235,7 @@ function markdownReport(report) {
         `Region changes: ${probe.regionChanged.length ? probe.regionChanged.map((item) => `${item.id} (${item.curated.join('+')} → ${item.discovered.join('+')})`).join('; ') : 'none'}`,
       );
       if (probe.inventory) lines.push(`Inventory candidates (not verified integration support): ${probe.inventory.newIds.join(', ') || 'none'}`);
+      lines.push(`Unavailable candidates (not verified retirements): ${probe.unavailableCandidates.join(', ') || 'none'}`);
     }
     lines.push('');
   }

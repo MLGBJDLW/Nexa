@@ -712,13 +712,27 @@ test('project drafts remain separate and browser navigation restores the selecte
   await expect(input).toHaveCount(0);
   await page.getByTestId('project-start-chat').click();
   await expect(input).toHaveValue('Unsent legacy project draft');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: any) => command === 'agent_chat_cmd'
+      ? new Promise((_resolve, reject) => { (window as any).__rejectProjectDraft = () => reject(new Error('Workspace folder is unavailable: D:/legacy-missing')); })
+      : original(command, args);
+  });
+  await input.press('Enter');
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__rejectProjectDraft)).toBe('function');
   await page.goBack();
   await expect(sidebar.getByRole('button', { name: 'Fresh project', exact: true })).toBeVisible();
   await expect(input).toHaveValue('Unsent fresh project draft');
+  await page.evaluate(async () => {
+    (window as any).__rejectProjectDraft();
+    await new Promise(requestAnimationFrame);
+  });
+  await expect(page.getByTestId('chat-reading-surface')).not.toContainText('D:/legacy-missing');
   await page.goForward();
   await expect(sidebar.getByRole('button', { name: 'Legacy project', exact: true })).toBeVisible();
   await expect(input).toHaveValue('Unsent legacy project draft');
-  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(0);
+  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(1);
 });
 
 test('new chat stays an unpersisted draft until the first send', async ({ page }) => {
@@ -795,25 +809,34 @@ test('rejected first turn rolls back its empty conversation and keeps the draft'
   await expect(page.getByTestId('conversation-item-conv-new')).toHaveCount(0);
 });
 
-test('a deferred first send never redirects after the user selects another conversation', async ({ page }) => {
+for (const outcome of ['accepted', 'rejected'] as const) test(`a deferred first send ${outcome} never redirects or leaks an error after navigation`, async ({ page }) => {
   await page.goto('/chat/conv-active');
   const sidebar = page.getByTestId('chat-history-sidebar');
   await sidebar.getByRole('button', { name: 'New Chat' }).click();
-  await page.evaluate(() => localStorage.setItem('e2e-delay-next-agent-launch', '1'));
+  await page.evaluate(outcome => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: any) => command === 'agent_chat_cmd'
+      ? new Promise((resolve, reject) => { (window as any).__finishLaunch = () => outcome === 'accepted'
+        ? resolve(null) : reject(new Error('Workspace folder is unavailable: D:/old/Temp')); })
+      : original(command, args);
+  }, outcome);
   const input = page.getByPlaceholder('Type a message...');
   await input.fill('Start this conversation without stealing later navigation.');
 
   await input.press('Enter');
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__finishLaunch)).toBe('function');
   await sidebar.getByTestId('conversation-item-conv-active').click();
   await expect(page).toHaveURL(/\/chat\/conv-active$/);
+  await page.evaluate(() => (window as any).__finishLaunch());
 
   await expect.poll(() => page.evaluate(() =>
     (window as unknown as { __CREATE_CONVERSATION_ARGS__: Array<Record<string, unknown>> })
       .__CREATE_CONVERSATION_ARGS__.length,
   )).toBe(1);
-  await page.waitForTimeout(400);
   await expect(page).toHaveURL(/\/chat\/conv-active$/);
-  await expect(sidebar.getByTestId('conversation-item-conv-new')).toHaveCount(1);
+  await expect(sidebar.getByTestId('conversation-item-conv-new')).toHaveCount(outcome === 'accepted' ? 1 : 0);
+  await expect(page.getByTestId('chat-reading-surface')).not.toContainText('D:/old/Temp');
 });
 
 test('first persistence is single-flight when Enter is pressed repeatedly', async ({ page }) => {
@@ -938,11 +961,26 @@ test('typing shortcuts do not toggle the conversation sidebar', async ({ page })
 
 test('project workspace exposes its folders and explicitly saves a new primary root', async ({ page }) => {
   await page.goto('/chat/conv-active');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    (window as any).__createdWorkspaceFolders = [];
+    host.invoke = async (command: string, args: any) => {
+      if (command === 'create_workspace_folder_cmd') {
+        (window as any).__createdWorkspaceFolders.push(args.path);
+        return args.path;
+      }
+      return original(command, args);
+    };
+  });
   const sidebar = page.getByTestId('chat-history-sidebar');
   await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
   await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
   await page.getByPlaceholder('Enter project name...').fill('Folder project');
   await page.getByLabel('Primary folder', { exact: true }).fill('D:/work/primary');
+  expect(await page.evaluate(() => (window as any).__createdWorkspaceFolders)).toEqual([]);
+  await page.getByRole('button', { name: 'Create folder', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__createdWorkspaceFolders)).toEqual(['D:/work/primary']);
   await page.getByTestId('project-save').click();
   await sidebar.getByRole('button', { name: 'Folder project', exact: true }).click();
   await page.getByTestId('project-workspace-open').click();
@@ -956,6 +994,59 @@ test('project workspace exposes its folders and explicitly saves a new primary r
   await page.getByTestId('project-save').click();
   await expect.poll(() => page.evaluate(() => (window as any).__PROJECT_UPDATE_INPUT__?.workspaceRoots))
     .toEqual(['D:/work/shared', 'D:/work/primary']);
+});
+
+test('abandoned folder creation cannot overwrite a reopened project draft', async ({ page }) => {
+  await page.goto('/chat/conv-active');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: any) => command === 'create_workspace_folder_cmd'
+      ? new Promise(resolve => { (window as any).__finishFolderCreation = () => resolve(args.path); })
+      : original(command, args);
+  });
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  const edit = async () => {
+    await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+    await sidebar.getByRole('button', { name: 'Edit', exact: true }).last().click();
+  };
+  await edit();
+  await page.getByLabel('Primary folder', { exact: true }).fill('D:/work/abandoned');
+  await page.getByRole('button', { name: 'Create folder', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__finishFolderCreation)).toBe('function');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByTestId('project-editor')).toBeHidden();
+  await edit();
+  await page.getByLabel('Primary folder', { exact: true }).fill('D:/work/current');
+  await page.evaluate(async () => {
+    (window as any).__finishFolderCreation();
+    await new Promise(requestAnimationFrame);
+  });
+  await expect(page.getByLabel('Primary folder', { exact: true })).toHaveValue('D:/work/current');
+  await expect(page.locator('[data-sonner-toast]').filter({ hasText: 'Folder ready' })).toHaveCount(0);
+});
+
+test('a projectless workspace error opens provider settings for recovery', async ({ page }, testInfo) => {
+  await page.goto('/chat/conv-active');
+  const sidebar = page.getByTestId('chat-history-sidebar');
+  await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'All Conversations', exact: true }).click();
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: any) => command === 'agent_chat_cmd'
+      ? Promise.reject(new Error('Invalid input: Workspace folder is unavailable: D:/removed/Temp'))
+      : original(command, args);
+  });
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Start the external agent');
+  await input.press('Enter');
+  await expect(page.getByTestId('chat-reading-surface')).toContainText('D:/removed/Temp');
+  await expect(input).toHaveValue('Start the external agent');
+  await page.screenshot({ path: testInfo.outputPath('workspace-error-recovery.png'), animations: 'disabled' });
+  await page.getByRole('button', { name: 'AI Providers', exact: true }).click({ timeout: 10000 });
+  await expect(page).toHaveURL(/\/settings\?tab=providers$/);
+  await expect(page.getByRole('tab', { name: 'AI Providers', exact: true })).toHaveAttribute('aria-selected', 'true');
 });
 
 

@@ -158,33 +158,114 @@ def _apply_language(element: Any, language: str) -> None:
         lang.set(qn(attribute), language)
 
 
-def _configure_styles(document: Any, tokens: dict[str, Any], language: str) -> None:
+def _paragraph_style(document: Any, name: str, base: str = "Normal") -> Any:
+    """Custom templates may omit Word's optional built-in styles."""
     from docx.enum.style import WD_STYLE_TYPE  # type: ignore
+
+    if name in document.styles:
+        return document.styles[name]
+    inherited = document.styles[base] if base in document.styles else document.styles.default(WD_STYLE_TYPE.PARAGRAPH)
+    style = document.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style = inherited
+    return style
+
+
+def _ensure_template_styles(document: Any) -> None:
+    for name in ([f"Heading {level}" for level in range(1, 7)]
+                 + ["Subtitle", "List Bullet", "List Number", "Header", "Footer", "Intense Quote"]):
+        _paragraph_style(document, name)
+    _paragraph_style(document, "Title", "Heading 1")
+    _paragraph_style(document, "Nexa Caption", "Caption")
+
+
+def prepare_markdown_document(document: Any, font: str | None = None, *, template: bool = False) -> None:
+    """Share Spec v2 typography with the Markdown/Office artifact create entry."""
+    if template:
+        _ensure_template_styles(document)
+        if font:
+            from docx.enum.style import WD_STYLE_TYPE  # type: ignore
+            # An explicit font override leaves template sizes, spacing and colors intact.
+            for style in document.styles:
+                if style.type == WD_STYLE_TYPE.PARAGRAPH:
+                    _font_faces(style, font, font, font)
+        return
+    tokens = deepcopy(PRESETS["executive"])
+    if font:
+        for role in ("body", "heading"):
+            for slot in ("Font", "EastAsiaFont", "ComplexScriptFont"):
+                tokens[role + slot] = font
+    _configure_styles(document, tokens, "zh-CN")
+
+
+def _configure_styles(document: Any, tokens: dict[str, Any], language: str) -> None:
     from docx.shared import Pt, RGBColor  # type: ignore
 
-    normal = document.styles["Normal"]
-    normal.font.name = str(tokens["bodyFont"])
-    normal.font.size = Pt(float(tokens["bodySize"]))
+    normal = _paragraph_style(document, "Normal")
+    _style_typography(normal, tokens, language)
     normal.paragraph_format.space_after = Pt(float(tokens["paragraphAfter"]))
     normal.paragraph_format.line_spacing = 1.15
     _apply_language(normal.element, language)
     for level in range(1, 7):
-        style = document.styles[f"Heading {level}"]
-        style.font.name = str(tokens["headingFont"])
+        style = _paragraph_style(document, f"Heading {level}")
+        _style_typography(style, tokens, language, heading=True,
+                          size=max(11, float(tokens["titleSize"]) - level * 3.2))
         style.font.color.rgb = RGBColor.from_string(str(tokens["primary"]))
-        style.font.size = Pt(max(11, float(tokens["titleSize"]) - level * 3.2))
         style.paragraph_format.keep_with_next = True
         style.paragraph_format.space_before = Pt(12 if level <= 2 else 8)
         style.paragraph_format.space_after = Pt(4)
         _apply_language(style.element, language)
-    if "Nexa Caption" not in document.styles:
-        caption = document.styles.add_style("Nexa Caption", WD_STYLE_TYPE.PARAGRAPH)
-    else:
-        caption = document.styles["Nexa Caption"]
-    caption.font.name = str(tokens["bodyFont"])
-    caption.font.size = Pt(9)
+    caption = _paragraph_style(document, "Nexa Caption", "Caption")
+    _style_typography(caption, tokens, language, size=float(tokens.get("captionSize", 9)))
     caption.font.italic = True
     caption.font.color.rgb = RGBColor.from_string("666666")
+
+    title = _paragraph_style(document, "Title", "Heading 1")
+    _style_typography(title, tokens, language, heading=True, size=float(tokens["titleSize"]))
+    title.font.bold = True
+    title.font.color.rgb = RGBColor.from_string(str(tokens["primary"]))
+    title.paragraph_format.keep_with_next = True
+    for name in ("Subtitle", "List Bullet", "List Number", "Header", "Footer", "Intense Quote"):
+        size = float(tokens.get("subtitleSize", float(tokens["bodySize"]) + 2)) if name == "Subtitle" else float(tokens["bodySize"])
+        _style_typography(_paragraph_style(document, name), tokens, language, size=size)
+
+
+def _font_faces(style: Any, western: str, east_asia: str, complex_font: str) -> None:
+    from docx.oxml.ns import qn  # type: ignore
+
+    style.font.name = western
+    fonts = style.element.get_or_add_rPr().get_or_add_rFonts()
+    for slot, value in (("ascii", western), ("hAnsi", western), ("eastAsia", east_asia), ("cs", complex_font)):
+        fonts.set(qn(f"w:{slot}"), value)
+    for key in list(fonts.attrib):
+        if key.lower().endswith("theme"):
+            del fonts.attrib[key]
+
+
+def _style_typography(style: Any, tokens: dict[str, Any], language: str,
+                      *, heading: bool = False, size: float | None = None) -> None:
+    """Set every Word font slot; theme slots otherwise override explicit faces."""
+    from docx.oxml.ns import qn  # type: ignore
+    from docx.shared import Pt  # type: ignore
+    from docx.oxml import OxmlElement  # type: ignore
+
+    role = "heading" if heading else "body"
+    font = str(tokens[f"{role}Font"])
+    locale = language.lower()
+    east_asia_default = ("Microsoft JhengHei" if locale.startswith(("zh-tw", "zh-hk", "zh-hant"))
+                         else "Microsoft YaHei" if locale.startswith("zh")
+                         else "Yu Gothic" if locale.startswith("ja")
+                         else "Malgun Gothic" if locale.startswith("ko") else font)
+    east_asia = str(tokens.get(f"{role}EastAsiaFont", tokens.get("bodyEastAsiaFont", east_asia_default)))
+    complex_font = str(tokens.get(f"{role}ComplexScriptFont", tokens.get("bodyComplexScriptFont", font)))
+    _font_faces(style, font, east_asia, complex_font)
+    style.font.size = Pt(float(tokens["bodySize"]) if size is None else size)
+    rpr = style.element.get_or_add_rPr()
+    size_cs = rpr.find(qn("w:szCs"))
+    if size_cs is None:
+        size_cs = OxmlElement("w:szCs")
+        rpr.append(size_cs)
+    size_cs.set(qn("w:val"), rpr.find(qn("w:sz")).get(qn("w:val")))
+    _apply_language(style.element, language)
 
 
 def _apply_page(section: Any, page: dict[str, Any]) -> None:
@@ -336,7 +417,7 @@ def render_docx(spec: dict[str, Any], output: Path, workspace_root: Path) -> dic
         import docx  # type: ignore
         from docx.enum.section import WD_SECTION  # type: ignore
         from docx.enum.text import WD_BREAK, WD_ALIGN_PARAGRAPH  # type: ignore
-        from docx.shared import Inches, Pt, RGBColor  # type: ignore
+        from docx.shared import Inches  # type: ignore
     except ImportError as error:
         raise DocxSpecError(f"python-docx is required: {error}") from error
 
@@ -351,8 +432,12 @@ def render_docx(spec: dict[str, Any], output: Path, workspace_root: Path) -> dic
     document = docx.Document(str(_workspace_path(str(template), workspace_root))) if template else docx.Document()
     if template and spec.get("clearTemplateBody", True):
         _clear_body(document)
-    _configure_styles(document, tokens, language)
-    _apply_page(document.sections[0], spec.get("page") if isinstance(spec.get("page"), dict) else {})
+    if not template or "preset" in spec or spec.get("tokens"):
+        _configure_styles(document, tokens, language)
+    else:
+        _ensure_template_styles(document)
+    if not template or "page" in spec:
+        _apply_page(document.sections[0], spec.get("page") if isinstance(spec.get("page"), dict) else {})
     document.core_properties.title = str(spec.get("title", ""))
     document.core_properties.author = str(spec.get("author", "Nexa"))
 
@@ -361,13 +446,9 @@ def render_docx(spec: dict[str, Any], output: Path, workspace_root: Path) -> dic
     _configure_story(first_section.footer, spec.get("footer") if isinstance(spec.get("footer"), dict) else None)
 
     if spec.get("title"):
-        paragraph = document.add_paragraph()
+        paragraph = document.add_paragraph(style="Title")
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        run = paragraph.add_run(str(spec["title"]))
-        run.font.name = str(tokens["headingFont"])
-        run.font.size = Pt(float(tokens["titleSize"]))
-        run.font.bold = True
-        run.font.color.rgb = RGBColor.from_string(str(tokens["primary"]))
+        paragraph.add_run(str(spec["title"]))
     if spec.get("subtitle"):
         paragraph = document.add_paragraph(str(spec["subtitle"]))
         paragraph.style = document.styles["Subtitle"]

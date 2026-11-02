@@ -1,4 +1,5 @@
 import { FlipStatusText } from '../../components/ui/FlipNumber';
+import { WorkspaceErrorRecovery } from '../../components/chat/WorkspaceErrorRecovery';
 import {
   Fragment,
   type ReactNode,
@@ -2126,6 +2127,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     messages.length === 0 &&
     !isStreaming &&
     !loadingMsgs &&
+    !shouldRenderInlineError &&
     !isCompacting &&
     !compactCompleteVisible
   ) {
@@ -2627,6 +2629,7 @@ export function ChatMessages(props: ChatMessagesProps) {
                 </p>
                 <p className="text-red-300/80 text-xs break-words">{error}</p>
                 <div className="flex items-center gap-2 mt-2">
+                  <WorkspaceErrorRecovery error={error} />
                   {onRetry && (
                     <button
                       type="button"

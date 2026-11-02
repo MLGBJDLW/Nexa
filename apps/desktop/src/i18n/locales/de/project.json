@@ -130,5 +130,7 @@
   "hookFailed": "Fehlgeschlagen",
   "hookCancelled": "Abgebrochen",
   "hookRunning": "Läuft",
-  "hookEvent": "Ausführen"
+  "hookEvent": "Ausführen",
+  "createFolder": "Ordner erstellen",
+  "folderCreated": "Ordner bereit"
 }

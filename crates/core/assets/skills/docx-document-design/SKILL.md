@@ -20,6 +20,7 @@ description: Create, edit, review, and validate Microsoft Word DOCX/DOCM/DOTX/DO
 4. Keep bullet lists short and grouped under meaningful subheadings.
 5. Use topic-appropriate theme colors, but let an existing template override generic styling.
 6. Do not save or rebuild a template document from scratch unless the user asks for a redesign.
+7. Define typography once for body, headings/title, captions, lists, tables and headers/footers. Set Western, East Asian and complex-script font slots and matching `sz`/`szCs` sizes; use the renderer's font tokens for Spec v2. Keep intentional heading hierarchy and emphasis. For custom scripts or typography repairs, follow the Typography section of `references/docx-playbook.md` and verify the saved OOXML before rendering.
 
 ## Reference
 Read `references/docx-playbook.md` for detailed layout, OOXML, and validation guidance.
