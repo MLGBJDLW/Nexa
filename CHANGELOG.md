@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.13...nexa-monorepo-v0.17.14) (2026-11-02)
+
+
+### Features
+
+* **workspace:** recover agent folders and polish document typography ([#517](https://github.com/MLGBJDLW/Nexa/issues/517)) ([bb44a90](https://github.com/MLGBJDLW/Nexa/commit/bb44a90d5057ac0fc3fca362b642a5941d753a70))
+
 ## [0.17.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.12...nexa-monorepo-v0.17.13) (2026-10-30)
 
 ### Highlights
