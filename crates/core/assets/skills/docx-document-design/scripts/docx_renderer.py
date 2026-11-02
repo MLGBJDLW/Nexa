@@ -158,17 +158,28 @@ def _apply_language(element: Any, language: str) -> None:
         lang.set(qn(attribute), language)
 
 
-def _configure_styles(document: Any, tokens: dict[str, Any], language: str) -> None:
+def _paragraph_style(document: Any, name: str, base: str = "Normal") -> Any:
+    """Custom templates may omit Word's optional built-in styles."""
     from docx.enum.style import WD_STYLE_TYPE  # type: ignore
+
+    if name in document.styles:
+        return document.styles[name]
+    inherited = document.styles[base] if base in document.styles else document.styles.default(WD_STYLE_TYPE.PARAGRAPH)
+    style = document.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+    style.base_style = inherited
+    return style
+
+
+def _configure_styles(document: Any, tokens: dict[str, Any], language: str) -> None:
     from docx.shared import Pt, RGBColor  # type: ignore
 
-    normal = document.styles["Normal"]
+    normal = _paragraph_style(document, "Normal")
     _style_typography(normal, tokens, language)
     normal.paragraph_format.space_after = Pt(float(tokens["paragraphAfter"]))
     normal.paragraph_format.line_spacing = 1.15
     _apply_language(normal.element, language)
     for level in range(1, 7):
-        style = document.styles[f"Heading {level}"]
+        style = _paragraph_style(document, f"Heading {level}")
         _style_typography(style, tokens, language, heading=True,
                           size=max(11, float(tokens["titleSize"]) - level * 3.2))
         style.font.color.rgb = RGBColor.from_string(str(tokens["primary"]))
@@ -176,22 +187,19 @@ def _configure_styles(document: Any, tokens: dict[str, Any], language: str) -> N
         style.paragraph_format.space_before = Pt(12 if level <= 2 else 8)
         style.paragraph_format.space_after = Pt(4)
         _apply_language(style.element, language)
-    if "Nexa Caption" not in document.styles:
-        caption = document.styles.add_style("Nexa Caption", WD_STYLE_TYPE.PARAGRAPH)
-    else:
-        caption = document.styles["Nexa Caption"]
+    caption = _paragraph_style(document, "Nexa Caption", "Caption")
     _style_typography(caption, tokens, language, size=float(tokens.get("captionSize", 9)))
     caption.font.italic = True
     caption.font.color.rgb = RGBColor.from_string("666666")
 
-    title = document.styles["Title"]
+    title = _paragraph_style(document, "Title", "Heading 1")
     _style_typography(title, tokens, language, heading=True, size=float(tokens["titleSize"]))
     title.font.bold = True
     title.font.color.rgb = RGBColor.from_string(str(tokens["primary"]))
     title.paragraph_format.keep_with_next = True
     for name in ("Subtitle", "List Bullet", "List Number", "Header", "Footer"):
         size = float(tokens.get("subtitleSize", float(tokens["bodySize"]) + 2)) if name == "Subtitle" else float(tokens["bodySize"])
-        _style_typography(document.styles[name], tokens, language, size=size)
+        _style_typography(_paragraph_style(document, name), tokens, language, size=size)
 
 
 def _style_typography(style: Any, tokens: dict[str, Any], language: str,
@@ -393,9 +401,10 @@ def render_docx(spec: dict[str, Any], output: Path, workspace_root: Path) -> dic
         _clear_body(document)
     if not template or "preset" in spec or spec.get("tokens"):
         _configure_styles(document, tokens, language)
-    elif "Nexa Caption" not in document.styles:
-        from docx.enum.style import WD_STYLE_TYPE  # type: ignore
-        document.styles.add_style("Nexa Caption", WD_STYLE_TYPE.PARAGRAPH).base_style = document.styles["Caption"]
+    else:
+        for name, base in (("Title", "Heading 1"), ("Subtitle", "Normal"),
+                           ("Header", "Normal"), ("Footer", "Normal"), ("Nexa Caption", "Caption")):
+            _paragraph_style(document, name, base)
     if not template or "page" in spec:
         _apply_page(document.sections[0], spec.get("page") if isinstance(spec.get("page"), dict) else {})
     document.core_properties.title = str(spec.get("title", ""))

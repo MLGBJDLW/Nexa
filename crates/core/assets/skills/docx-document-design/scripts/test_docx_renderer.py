@@ -75,6 +75,33 @@ class DocxRendererTests(unittest.TestCase):
                 self.assertEqual(xml, document.styles[name].element.xml)
             self.assertEqual(1.25, document.sections[0].left_margin.inches)
 
+    def test_templates_without_optional_builtin_styles_can_render(self) -> None:
+        from docx import Document
+        from docx.shared import Pt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            template = root / 'minimal-template.docx'
+            document = Document()
+            for name in ('Title', 'Subtitle', 'Caption', 'Header', 'Footer'):
+                document.styles[name].delete()
+            document.styles['Normal'].font.name = 'SimSun'
+            document.styles['Normal'].font.size = Pt(13)
+            expected = document.styles['Normal'].element.xml
+            document.save(template)
+            for spec in (
+                {'blocks': [{'type': 'paragraph', 'text': '正文'}]},
+                {'title': '报告', 'subtitle': '副标题', 'header': {'text': '页眉'},
+                 'footer': {'text': '页脚'}, 'blocks': [
+                     {'type': 'table', 'headers': ['项目'], 'rows': [['内容']], 'caption': '说明'},
+                 ]},
+            ):
+                output = root / 'report.docx'
+                docx_renderer.render_docx({'schemaVersion': 2, 'template': str(template), **spec}, output, root)
+                actual = Document(output)
+                self.assertEqual(expected, actual.styles['Normal'].element.xml)
+                self.assertIn('正文' if not spec.get('title') else '报告', '\n'.join(p.text for p in actual.paragraphs))
+
     def test_renders_styles_table_geometry_headers_fields_and_image_alt_text(self) -> None:
         try:
             from PIL import Image
