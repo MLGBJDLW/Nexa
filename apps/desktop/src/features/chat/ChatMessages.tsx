@@ -2127,6 +2127,7 @@ export function ChatMessages(props: ChatMessagesProps) {
     messages.length === 0 &&
     !isStreaming &&
     !loadingMsgs &&
+    !shouldRenderInlineError &&
     !isCompacting &&
     !compactCompleteVisible
   ) {

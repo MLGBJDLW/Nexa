@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FolderOpen, FolderPlus } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { toast } from 'sonner';
@@ -13,16 +13,25 @@ export function WorkspaceFolderActions({ path, onChange, disabled = false }: {
   const [busy, setBusy] = useState(false);
   const latest = useRef({ path, onChange });
   latest.current = { path, onChange };
+  const generation = useRef(0);
+  useEffect(() => {
+    generation.current += 1;
+    setBusy(false);
+    return () => { generation.current += 1; };
+  }, [path]);
   const run = async (create: boolean) => {
+    const request = ++generation.current;
+    const current = () => request === generation.current && latest.current.path === path;
     setBusy(true);
     try {
       const selected = create
         ? await createWorkspaceFolder(path.trim())
         : await open({ directory: true, multiple: false, title: t('project.chooseFolder') });
-      if (typeof selected === 'string' && latest.current.path === path) latest.current.onChange(selected);
+      if (!current()) return;
+      if (typeof selected === 'string') latest.current.onChange(selected);
       if (create) toast.success(t('project.folderCreated'));
-    } catch (error) { toast.error(String(error)); }
-    finally { setBusy(false); }
+    } catch (error) { if (current()) toast.error(String(error)); }
+    finally { if (current()) setBusy(false); }
   };
   return <>
     <button type="button" disabled={disabled || busy} onClick={() => void run(false)}

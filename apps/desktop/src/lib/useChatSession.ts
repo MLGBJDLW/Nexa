@@ -443,6 +443,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const [contextAuthority, setContextAuthority] =
     useState<api.ContextWindowAuthority>('provider_managed');
   const [chatError, setChatError] = useState<string | null>(null);
+  const [draftLaunchError, setDraftLaunchError] = useState<{ generation: number; message: string } | null>(null);
   const [usageSnapshot, setUsageSnapshot] = useState<UsageSnapshot | null>(null);
 
   // Internal conversation id used when the caller does not control routing.
@@ -912,6 +913,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setContextWindow(defaultContextWindow);
     setContextAuthority(defaultContextAuthority);
     setChatError(null);
+    setDraftLaunchError(null);
     lastUserMessageRef.current = null;
   }, [defaultContextAuthority, defaultContextWindow]);
 
@@ -1034,6 +1036,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
 
       // Clear previous error
       setChatError(null);
+      setDraftLaunchError(null);
 
       // Track for retry
       lastUserMessageRef.current = {
@@ -1239,7 +1242,10 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         );
         knownStreamConversationsRef.current.delete(convId);
         suppressedLiveUsageRef.current.delete(convId);
-        setChatError(String(e));
+        if (navigationGenerationRef.current === activationGeneration) {
+          if (ownsConversationCreation) setDraftLaunchError({ generation: activationGeneration, message: String(e) });
+          else setChatError(String(e));
+        }
         if (ownsConversationCreation) {
           await api.deleteConversation(convId).catch((cleanupError) => {
             toast.error(formatUserError(t('chat.deleteError'), cleanupError));
@@ -1597,7 +1603,8 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const scopedFinishReason = activeId && !liveUsageSuppressed ? finishReason : null;
   const scopedContextOverflow = activeId && !liveUsageSuppressed ? contextOverflow : false;
   const scopedRateLimited = activeId && !liveUsageSuppressed ? rateLimited : false;
-  const scopedError = activeId ? chatError : null;
+  const scopedError = activeId ? chatError
+    : draftLaunchError?.generation === navigationGenerationRef.current ? draftLaunchError.message : null;
 
   // Retain the completed-run aggregate. Refresh only the current run and
   // replace its contribution so long conversations do not re-query history.
@@ -1779,7 +1786,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     setCustomSystemPrompt: setCustomSystemPromptForActiveConversation,
     error: scopedError,
     retry,
-    clearError: () => setChatError(null),
+    clearError: () => { setChatError(null); setDraftLaunchError(null); },
     loadConversations,
     reloadMessages,
     applyCompactionUsage,

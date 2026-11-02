@@ -497,7 +497,7 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
               else { const project = projects.find(item => item.id === editingProjectId); if (project) void handleUpdateProject(project); }
             }} value={creating ? newName : editName} onChange={event => (creating ? setNewName : setEditName)(event.target.value)} placeholder={t('project.namePlaceholder')} aria-label={t('project.namePlaceholder')} className="min-w-0 flex-1 border-b border-border/70 bg-transparent py-2 text-lg font-medium text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent" />
           </div>
-          <WorkspaceRootsPicker roots={creating ? newRoots : editRoots} onChange={creating ? setNewRoots : roots => { setEditRoots(roots); setEditWorkspaceChanged(true); }} />
+          <WorkspaceRootsPicker key={creating ? 'new-project' : editingProjectId} roots={creating ? newRoots : editRoots} onChange={creating ? setNewRoots : roots => { setEditRoots(roots); setEditWorkspaceChanged(true); }} />
           <div className="space-y-3 border-t border-border/60 pt-4">
             <details>
               <summary className="cursor-pointer text-xs text-text-tertiary hover:text-text-primary">{t('project.appearance')}</summary>

@@ -223,7 +223,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
     <div className="mt-3 text-xs font-medium text-text-secondary"><label htmlFor="external-agent-directory" className="inline-flex items-center gap-1"><FolderOpen size={13} />{t('settings.externalAgentDirectory')}</label>
       <div className="flex items-center gap-1"><input id="external-agent-directory" className={`${inputClass} min-w-0 flex-1`} value={launch.workingDirectory} disabled={!initialLaunch || loading}
         onChange={event => changeLaunch({ ...launch, workingDirectory: event.target.value })} />
-        <WorkspaceFolderActions path={launch.workingDirectory} disabled={!initialLaunch || loading}
+        <WorkspaceFolderActions key={config?.id ?? preset.id} path={launch.workingDirectory} disabled={!initialLaunch || loading}
           onChange={workingDirectory => changeLaunch({ ...launch, workingDirectory })} />
       </div>
       {launch.workingDirectory && <button type="button" disabled={!initialLaunch || loading}
