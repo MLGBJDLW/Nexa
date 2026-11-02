@@ -925,6 +925,7 @@ fn main() {
             commands::delete_persona_cmd,
             commands::toggle_persona_cmd,
             // Projects
+            commands::create_workspace_folder_cmd,
             commands::create_project_cmd,
             commands::list_projects_cmd,
             commands::get_project_cmd,

@@ -6,6 +6,60 @@ use crate::{
 };
 use serde_json::json;
 
+#[test]
+fn missing_workspace_requires_explicit_creation_and_then_launches_in_place() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("Temp");
+    let path = missing.to_string_lossy().into_owned();
+    let launch = crate::external_agent::ExternalAgentLaunch {
+        working_directory: path.clone(),
+        ..Default::default()
+    };
+    let db = Database::new(root.path().join("nexa.db")).unwrap();
+    let error = launch.resolve(&db, None, Some("chat-a")).unwrap_err();
+    assert!(error.to_string().contains("Create folder"), "{error}");
+    assert!(
+        !missing.exists(),
+        "validation must not silently recreate a deleted project"
+    );
+    let created = Workspace::create_folder(&path).unwrap();
+    assert_eq!(
+        launch
+            .resolve(&db, None, Some("chat-a"))
+            .unwrap()
+            .working_directory,
+        created
+    );
+    let workspace = Workspace {
+        roots: vec![path.clone()],
+    };
+    assert_eq!(
+        launch
+            .resolve(&db, Some(&workspace), Some("chat-b"))
+            .unwrap()
+            .working_directory,
+        created
+    );
+    assert_eq!(Workspace::create_folder(&path).unwrap(), created);
+    std::fs::write(missing.join("keep.txt"), "existing work").unwrap();
+    Workspace::create_folder(&path).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(missing.join("keep.txt")).unwrap(),
+        "existing work"
+    );
+}
+
+#[test]
+fn workspace_creation_rejects_relative_paths_and_preserves_existing_files() {
+    assert!(Workspace::create_folder("").is_err());
+    assert!(Workspace::create_folder("relative/workspace").is_err());
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("file.txt");
+    std::fs::write(&file, "unchanged").unwrap();
+    assert!(Workspace::create_folder(&file.to_string_lossy()).is_err());
+    assert_eq!(std::fs::read_to_string(file).unwrap(), "unchanged");
+}
+
 #[tokio::test]
 async fn primary_root_controls_files_commands_and_git_without_registered_sources() {
     let first = tempfile::Builder::new()

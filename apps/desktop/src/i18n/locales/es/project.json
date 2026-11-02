@@ -130,5 +130,7 @@
   "hookFailed": "Fallida",
   "hookCancelled": "Cancelada",
   "hookRunning": "En ejecución",
-  "hookEvent": "Cuándo ejecutar"
+  "hookEvent": "Cuándo ejecutar",
+  "createFolder": "Crear carpeta",
+  "folderCreated": "Carpeta lista"
 }

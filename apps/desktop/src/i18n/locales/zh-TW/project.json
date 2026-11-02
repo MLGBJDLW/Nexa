@@ -130,5 +130,7 @@
   "hookFailed": "失敗",
   "hookCancelled": "已取消",
   "hookRunning": "執行中",
-  "hookEvent": "執行時機"
+  "hookEvent": "執行時機",
+  "createFolder": "建立目錄",
+  "folderCreated": "目錄已就緒"
 }

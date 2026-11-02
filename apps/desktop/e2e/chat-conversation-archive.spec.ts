@@ -938,11 +938,26 @@ test('typing shortcuts do not toggle the conversation sidebar', async ({ page })
 
 test('project workspace exposes its folders and explicitly saves a new primary root', async ({ page }) => {
   await page.goto('/chat/conv-active');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    (window as any).__createdWorkspaceFolders = [];
+    host.invoke = async (command: string, args: any) => {
+      if (command === 'create_workspace_folder_cmd') {
+        (window as any).__createdWorkspaceFolders.push(args.path);
+        return args.path;
+      }
+      return original(command, args);
+    };
+  });
   const sidebar = page.getByTestId('chat-history-sidebar');
   await sidebar.getByRole('button', { name: 'Legacy project', exact: true }).click();
   await sidebar.getByRole('button', { name: 'New Project', exact: true }).click();
   await page.getByPlaceholder('Enter project name...').fill('Folder project');
   await page.getByLabel('Primary folder', { exact: true }).fill('D:/work/primary');
+  expect(await page.evaluate(() => (window as any).__createdWorkspaceFolders)).toEqual([]);
+  await page.getByRole('button', { name: 'Create folder', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__createdWorkspaceFolders)).toEqual(['D:/work/primary']);
   await page.getByTestId('project-save').click();
   await sidebar.getByRole('button', { name: 'Folder project', exact: true }).click();
   await page.getByTestId('project-workspace-open').click();

@@ -130,5 +130,7 @@
   "hookFailed": "Falhou",
   "hookCancelled": "Cancelada",
   "hookRunning": "Em execução",
-  "hookEvent": "Quando executar"
+  "hookEvent": "Quando executar",
+  "createFolder": "Criar pasta",
+  "folderCreated": "Pasta pronta"
 }

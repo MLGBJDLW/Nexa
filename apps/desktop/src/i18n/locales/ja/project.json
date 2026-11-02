@@ -130,5 +130,7 @@
   "hookFailed": "失敗",
   "hookCancelled": "キャンセル済み",
   "hookRunning": "実行中",
-  "hookEvent": "実行タイミング"
+  "hookEvent": "実行タイミング",
+  "createFolder": "フォルダーを作成",
+  "folderCreated": "フォルダーの準備完了"
 }

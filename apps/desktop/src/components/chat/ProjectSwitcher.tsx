@@ -171,6 +171,10 @@ export function ProjectSwitcher({ activeProjectId, conversationId, onProjectChan
     setOpen(false);
   };
 
+  useAppCommand({ id: 'chat.workspace-folders', label: 'project.workspaceFolders',
+    keywords: 'workspace folders directory 工作区 目录', enabled: !!activeProject,
+    run: () => { if (activeProject) startEditProject(activeProject); } });
+
   const cancelEditProject = () => {
     setEditingProjectId(null);
     setEditName('');

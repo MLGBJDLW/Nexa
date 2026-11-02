@@ -9,6 +9,16 @@ use nexa_core::package_host::{
 // ── Project Commands ────────────────────────────────────────────────────
 
 #[tauri::command]
+pub async fn create_workspace_folder_cmd(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        nexa_core::workspace::Workspace::create_folder(&path)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_project_hooks_cmd(
     state: tauri::State<'_, AppState>,
     project_id: String,

@@ -13,6 +13,23 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Called only by the user's explicit Create folder action, never validation.
+    pub fn create_folder(root: &str) -> Result<String, CoreError> {
+        let path = Path::new(root.trim());
+        if !path.is_absolute() {
+            return Err(CoreError::InvalidInput(
+                "Enter an absolute workspace folder path before choosing Create folder".into(),
+            ));
+        }
+        std::fs::create_dir_all(path).map_err(|error| {
+            CoreError::InvalidInput(format!(
+                "Cannot create workspace folder {}: {error}",
+                path.display()
+            ))
+        })?;
+        Ok(Self::validate(&[root.trim().to_string()])?.roots.remove(0))
+    }
+
     pub fn validate(roots: &[String]) -> Result<Self, CoreError> {
         if roots.len() > 16 {
             return Err(CoreError::InvalidInput(
@@ -24,7 +41,7 @@ impl Workspace {
             let path = Path::new(root.trim());
             if !path.is_absolute() || !path.is_dir() {
                 return Err(CoreError::InvalidInput(format!(
-                    "Workspace folder is unavailable: {}",
+                    "Workspace folder is unavailable: {}. In Workspace folders, choose an existing folder or use Create folder to recreate it. For an external-agent fallback, open provider settings and choose Use automatic workspace.",
                     path.display()
                 )));
             }

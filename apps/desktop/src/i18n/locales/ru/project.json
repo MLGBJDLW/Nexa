@@ -130,5 +130,7 @@
   "hookFailed": "Ошибка",
   "hookCancelled": "Отменена",
   "hookRunning": "Выполняется",
-  "hookEvent": "Когда запускать"
+  "hookEvent": "Когда запускать",
+  "createFolder": "Создать папку",
+  "folderCreated": "Папка готова"
 }

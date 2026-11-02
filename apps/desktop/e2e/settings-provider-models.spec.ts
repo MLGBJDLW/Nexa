@@ -27,6 +27,10 @@ test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in 
   const form = page.getByTestId('external-agent-form');
   const probe = form.getByRole('button', { name: /check connection/i });
   await expect(form.getByTestId('glm-coding-plan-credentials')).toContainText('ZCode account sign-in is separate');
+  await form.getByText('Advanced', { exact: true }).click();
+  await form.getByLabel('Working directory', { exact: true }).fill('D:/removed/Temp');
+  await form.getByRole('button', { name: 'Use automatic workspace', exact: true }).click();
+  await expect(form.getByLabel('Working directory', { exact: true })).toHaveValue('');
   await probe.click();
   await expect(form.getByRole('alert')).toContainText('No prompt was sent');
   await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
@@ -36,6 +40,7 @@ test('GLM Coding Plan shows a credential entry and does not treat ZCode sign-in 
   await form.screenshot({ path: testInfo.outputPath('glm-coding-plan-setup.png') });
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.env?.Z_AI_API_KEY)).toBe('fixture-plan-key');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nexa-e2e-acp-launch') ?? '{}').launch?.workingDirectory)).toBe('');
 });
 
 test('Copilot API imports an account and discovers its models independently of CLI runtimes', async ({ page }, testInfo) => {

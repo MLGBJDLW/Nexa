@@ -1167,5 +1167,6 @@
   "executionLimitsHelp": "自動設定ではタスク時間、ツールの実行回数、総使用量を制限しません。同時実行数は端末のリソースを保護します。予算が必要な場合のみ制限してください。",
   "executionLimitsCustom": "カスタム制限",
   "glmCodingPlanKey": "GLM Coding Plan API キー",
-  "glmCodingPlanHelp": "このアダプターは Coding Plan の API キーを使います。ZCode のアカウント認証とは別です。空欄の場合は Z_AI_API_KEY または glm-acp-agent --setup の保存済み認証情報を使います。接続確認はモデルを検出するもので、プランの利用権限の確認ではありません。"
+  "glmCodingPlanHelp": "このアダプターは Coding Plan の API キーを使います。ZCode のアカウント認証とは別です。空欄の場合は Z_AI_API_KEY または glm-acp-agent --setup の保存済み認証情報を使います。接続確認はモデルを検出するもので、プランの利用権限の確認ではありません。",
+  "externalAgentAutomaticDirectory": "自動ワークスペースを使用"
 }

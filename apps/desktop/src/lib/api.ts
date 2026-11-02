@@ -1747,6 +1747,9 @@ export const updateConversationModel = (id: string, provider: string, model: str
 export const createProject = (input: CreateProjectInput) =>
   invoke<Project>('create_project_cmd', { input });
 
+export const createWorkspaceFolder = (path: string) =>
+  invoke<string>('create_workspace_folder_cmd', { path });
+
 export const listProjects = () => invoke<Project[]>('list_projects_cmd');
 
 export const getProject = (id: string) =>
