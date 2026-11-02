@@ -598,6 +598,7 @@ export function ChatPage() {
     getCurrentSourceScope,
     initialCollectionContext,
     initialProjectId,
+    draftRouteKey: location.key,
     activePersonaId,
   });
   useEffect(() => {

@@ -285,6 +285,8 @@ export interface UseChatSessionOptions {
   initialCollectionContext?: Conversation['collectionContext'];
   /** Optional project to assign when the first send persists a new draft */
   initialProjectId?: string | null;
+  /** Router entry identity while the chat has no persisted conversation ID. */
+  draftRouteKey?: string | null;
   /** UI-selected persona to inject for the next agent turn */
   activePersonaId?: string | null;
   anchorMessageId?: string | null;
@@ -416,6 +418,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     getCurrentSourceScope,
     initialCollectionContext = null,
     initialProjectId = null,
+    draftRouteKey = null,
     activePersonaId = null,
   } = options;
 
@@ -454,11 +457,14 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const navigationGenerationRef = useRef(0);
-  const lastObservedActiveIdRef = useRef(activeId);
-  if (lastObservedActiveIdRef.current !== activeId) {
-    lastObservedActiveIdRef.current = activeId;
+  const lastObservedNavigationRef = useRef({ activeId, projectId: initialProjectId, draftRouteKey });
+  const previousNavigation = lastObservedNavigationRef.current;
+  if (previousNavigation.activeId !== activeId || (!activeId && (
+    previousNavigation.projectId !== initialProjectId || previousNavigation.draftRouteKey !== draftRouteKey
+  ))) {
     navigationGenerationRef.current += 1;
   }
+  lastObservedNavigationRef.current = { activeId, projectId: initialProjectId, draftRouteKey };
 
   // Track last user message for retry
   const lastUserMessageRef = useRef<{

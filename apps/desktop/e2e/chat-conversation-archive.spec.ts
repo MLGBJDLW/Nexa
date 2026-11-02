@@ -712,13 +712,27 @@ test('project drafts remain separate and browser navigation restores the selecte
   await expect(input).toHaveCount(0);
   await page.getByTestId('project-start-chat').click();
   await expect(input).toHaveValue('Unsent legacy project draft');
+  await page.evaluate(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: any) => command === 'agent_chat_cmd'
+      ? new Promise((_resolve, reject) => { (window as any).__rejectProjectDraft = () => reject(new Error('Workspace folder is unavailable: D:/legacy-missing')); })
+      : original(command, args);
+  });
+  await input.press('Enter');
+  await expect.poll(() => page.evaluate(() => typeof (window as any).__rejectProjectDraft)).toBe('function');
   await page.goBack();
   await expect(sidebar.getByRole('button', { name: 'Fresh project', exact: true })).toBeVisible();
   await expect(input).toHaveValue('Unsent fresh project draft');
+  await page.evaluate(async () => {
+    (window as any).__rejectProjectDraft();
+    await new Promise(requestAnimationFrame);
+  });
+  await expect(page.getByTestId('chat-reading-surface')).not.toContainText('D:/legacy-missing');
   await page.goForward();
   await expect(sidebar.getByRole('button', { name: 'Legacy project', exact: true })).toBeVisible();
   await expect(input).toHaveValue('Unsent legacy project draft');
-  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(0);
+  expect(await page.evaluate(() => (window as any).__CREATE_CONVERSATION_ARGS__.length)).toBe(1);
 });
 
 test('new chat stays an unpersisted draft until the first send', async ({ page }) => {
