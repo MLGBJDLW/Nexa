@@ -170,6 +170,33 @@ def _paragraph_style(document: Any, name: str, base: str = "Normal") -> Any:
     return style
 
 
+def _ensure_template_styles(document: Any) -> None:
+    for name in ([f"Heading {level}" for level in range(1, 7)]
+                 + ["Subtitle", "List Bullet", "List Number", "Header", "Footer", "Intense Quote"]):
+        _paragraph_style(document, name)
+    _paragraph_style(document, "Title", "Heading 1")
+    _paragraph_style(document, "Nexa Caption", "Caption")
+
+
+def prepare_markdown_document(document: Any, font: str | None = None, *, template: bool = False) -> None:
+    """Share Spec v2 typography with the Markdown/Office artifact create entry."""
+    if template:
+        _ensure_template_styles(document)
+        if font:
+            from docx.enum.style import WD_STYLE_TYPE  # type: ignore
+            # An explicit font override leaves template sizes, spacing and colors intact.
+            for style in document.styles:
+                if style.type == WD_STYLE_TYPE.PARAGRAPH:
+                    _font_faces(style, font, font, font)
+        return
+    tokens = deepcopy(PRESETS["executive"])
+    if font:
+        for role in ("body", "heading"):
+            for slot in ("Font", "EastAsiaFont", "ComplexScriptFont"):
+                tokens[role + slot] = font
+    _configure_styles(document, tokens, "zh-CN")
+
+
 def _configure_styles(document: Any, tokens: dict[str, Any], language: str) -> None:
     from docx.shared import Pt, RGBColor  # type: ignore
 
@@ -197,9 +224,21 @@ def _configure_styles(document: Any, tokens: dict[str, Any], language: str) -> N
     title.font.bold = True
     title.font.color.rgb = RGBColor.from_string(str(tokens["primary"]))
     title.paragraph_format.keep_with_next = True
-    for name in ("Subtitle", "List Bullet", "List Number", "Header", "Footer"):
+    for name in ("Subtitle", "List Bullet", "List Number", "Header", "Footer", "Intense Quote"):
         size = float(tokens.get("subtitleSize", float(tokens["bodySize"]) + 2)) if name == "Subtitle" else float(tokens["bodySize"])
         _style_typography(_paragraph_style(document, name), tokens, language, size=size)
+
+
+def _font_faces(style: Any, western: str, east_asia: str, complex_font: str) -> None:
+    from docx.oxml.ns import qn  # type: ignore
+
+    style.font.name = western
+    fonts = style.element.get_or_add_rPr().get_or_add_rFonts()
+    for slot, value in (("ascii", western), ("hAnsi", western), ("eastAsia", east_asia), ("cs", complex_font)):
+        fonts.set(qn(f"w:{slot}"), value)
+    for key in list(fonts.attrib):
+        if key.lower().endswith("theme"):
+            del fonts.attrib[key]
 
 
 def _style_typography(style: Any, tokens: dict[str, Any], language: str,
@@ -218,15 +257,9 @@ def _style_typography(style: Any, tokens: dict[str, Any], language: str,
                          else "Malgun Gothic" if locale.startswith("ko") else font)
     east_asia = str(tokens.get(f"{role}EastAsiaFont", tokens.get("bodyEastAsiaFont", east_asia_default)))
     complex_font = str(tokens.get(f"{role}ComplexScriptFont", tokens.get("bodyComplexScriptFont", font)))
-    style.font.name = font
+    _font_faces(style, font, east_asia, complex_font)
     style.font.size = Pt(float(tokens["bodySize"]) if size is None else size)
     rpr = style.element.get_or_add_rPr()
-    fonts = rpr.get_or_add_rFonts()
-    for slot, value in (("ascii", font), ("hAnsi", font), ("eastAsia", east_asia), ("cs", complex_font)):
-        fonts.set(qn(f"w:{slot}"), value)
-    for key in list(fonts.attrib):
-        if key.lower().endswith("theme"):
-            del fonts.attrib[key]
     size_cs = rpr.find(qn("w:szCs"))
     if size_cs is None:
         size_cs = OxmlElement("w:szCs")
@@ -402,9 +435,7 @@ def render_docx(spec: dict[str, Any], output: Path, workspace_root: Path) -> dic
     if not template or "preset" in spec or spec.get("tokens"):
         _configure_styles(document, tokens, language)
     else:
-        for name, base in (("Title", "Heading 1"), ("Subtitle", "Normal"),
-                           ("Header", "Normal"), ("Footer", "Normal"), ("Nexa Caption", "Caption")):
-            _paragraph_style(document, name, base)
+        _ensure_template_styles(document)
     if not template or "page" in spec:
         _apply_page(document.sections[0], spec.get("page") if isinstance(spec.get("page"), dict) else {})
     document.core_properties.title = str(spec.get("title", ""))

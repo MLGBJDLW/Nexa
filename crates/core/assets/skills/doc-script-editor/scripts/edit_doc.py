@@ -1332,7 +1332,7 @@ def _docx_add_markdown(doc, markdown: str) -> None:
         if stripped.startswith("#"):
             level = len(stripped) - len(stripped.lstrip("#"))
             if 1 <= level <= 6 and len(stripped) > level and stripped[level].isspace():
-                heading = doc.add_heading(level=min(level, 4))
+                heading = doc.add_heading(level=level)
                 _docx_add_inline_markdown(heading, stripped[level:].strip())
                 i += 1
                 continue
@@ -1383,17 +1383,17 @@ def cmd_create_docx(args: argparse.Namespace) -> int:
         _missing("python-docx")
     path = _validate_output_path(args.path, {"docx"})
     staged = staging_path(path)
+    skills_root = Path(__file__).resolve().parents[2]
+    renderer_dir = skills_root / "docx-document-design" / "scripts"
+    if str(renderer_dir) not in sys.path:
+        sys.path.insert(0, str(renderer_dir))
+    try:
+        from docx_renderer import prepare_markdown_document, render_docx  # type: ignore
+    except ImportError as exc:
+        _die(f"ERROR: failed to load DOCX renderer: {exc}", 1)
     if getattr(args, "spec", None):
         spec_path = _validate_path(args.spec)
         payload = _read_json(str(spec_path))
-        skills_root = Path(__file__).resolve().parents[2]
-        renderer_dir = skills_root / "docx-document-design" / "scripts"
-        if str(renderer_dir) not in sys.path:
-            sys.path.insert(0, str(renderer_dir))
-        try:
-            from docx_renderer import render_docx  # type: ignore
-        except ImportError as exc:
-            _die(f"ERROR: failed to load DOCX renderer: {exc}", 1)
         try:
             result = render_docx(payload, staged, Path.cwd())
             snapshot, validation = _publish_edit(staged, path)
@@ -1407,8 +1407,7 @@ def cmd_create_docx(args: argparse.Namespace) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     doc = docx.Document(str(_validate_path(args.template))) if args.template else docx.Document()
-    if args.font:
-        doc.styles["Normal"].font.name = args.font
+    prepare_markdown_document(doc, args.font, template=bool(args.template))
     if args.title:
         doc.add_heading(args.title, 0)
     if args.subtitle:
@@ -3075,7 +3074,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cd.add_argument("--body", default="")
     p_cd.add_argument("--input-md", default=None, help="Absolute path to markdown source")
     p_cd.add_argument("--template", default=None, help="Optional absolute .docx template path")
-    p_cd.add_argument("--font", default="Calibri")
+    p_cd.add_argument("--font", default=None, help="Override paragraph font faces for all scripts; omitted preserves template typography")
     p_cd.add_argument("--footer", default="")
     p_cd.add_argument("--author", default="Nexa")
     p_cd.set_defaults(func=cmd_create_docx)
