@@ -34,6 +34,24 @@ test('October additions retain native endpoint identity and exact reasoning poli
 });
 
 test('retired routes are removed while future shutdowns remain deprecated', () => {
+  assert.equal(isRemovedProviderModel('mistral', 'zai-glm-5-2'), true);
+  const retiredGlm = read('provider-presets').find(p => p.id === 'mistral').models.find(m => m.id === 'zai-glm-5-2');
+  assert.equal(retiredGlm.deprecationDate, '2026-10-31');
+  assert.equal(retiredGlm.replacementModelId, 'zai-glm-5-3');
+  assert.equal(isRemovedProviderModel('zhipu', 'glm-5.2'), false);
+  assert.equal(isRemovedProviderModel('openrouter', 'z-ai/glm-5.2'), false);
+  assert.equal(isRemovedProviderModel('openrouter', 'upstage/solar-pro-3'), true);
+  const solar = read('provider-presets').find(p => p.id === 'openrouter').models.find(m => m.id === 'upstage/solar-pro-3');
+  assert.equal(solar.deprecationDate, '2026-10-30');
+  assert.equal(solar.replacementModelId, 'upstage/solar-pro4');
+  assert.ok(find({ provider: 'openrouter', model: solar.replacementModelId }));
+  for (const model of ['kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6']) {
+    const kimi = find({ provider: 'moonshot', baseUrl: 'https://api.moonshot.ai/v1', model });
+    assert.equal(kimi.descriptor.lifecycle, 'deprecated');
+    assert.equal(kimi.descriptor.access, 'account_enablement');
+    assert.equal(kimi.recommended, false);
+    assert.equal(isRemovedProviderModel('moonshot', model), false);
+  }
   const minimax = find({ provider: 'open_ai', baseUrl: 'https://api.minimax.io/v1', model: 'MiniMax-M2.7' });
   assert.equal(minimax.descriptor.lifecycle, 'deprecated');
   assert.equal(minimax.descriptor.deprecationDate, '2026-11-18');

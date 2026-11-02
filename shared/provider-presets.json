@@ -9329,6 +9329,10 @@
       {
         "id": "upstage/solar-pro-3",
         "name": "Upstage: Solar Pro 3",
+        "status": "removed",
+        "recommended": false,
+        "deprecationDate": "2026-10-30",
+        "replacementModelId": "upstage/solar-pro4",
         "tagKey": "providers.tagReasoning",
         "capabilities": {
           "vision": false,
@@ -9374,7 +9378,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-02",
         "documentationRef": "https://openrouter.ai/upstage/solar-pro-3",
         "maxOutputTokens": 117964
       },
@@ -24895,10 +24899,11 @@
         "id": "zai-glm-5-2",
         "name": "Z.ai GLM 5.2",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-02",
+        "deprecationDate": "2026-10-31",
         "inputModalities": [
           "text"
         ],
@@ -24906,7 +24911,7 @@
           "text"
         ],
         "supportsTools": true,
-        "documentationRef": "https://docs.mistral.ai/models/zai-glm-5-2",
+        "documentationRef": "https://docs.mistral.ai/resources/changelogs",
         "supportsStructuredOutput": true,
         "capabilities": {
           "vision": false,
@@ -25730,7 +25735,9 @@
         "tagKey": "providers.tagCoding",
         "source": "official",
         "status": "deprecated",
-        "lastVerifiedAt": "2026-10-24",
+        "access": "account_enablement",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-02",
         "contextTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -25757,7 +25764,9 @@
         "tagKey": "providers.tagFast",
         "source": "official",
         "status": "deprecated",
-        "lastVerifiedAt": "2026-10-24",
+        "access": "account_enablement",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-02",
         "contextTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -25784,7 +25793,9 @@
         "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "deprecated",
-        "lastVerifiedAt": "2026-10-24",
+        "access": "account_enablement",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-02",
         "contextTokens": 262144,
         "capabilities": {
           "vision": true,
