@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.17.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.13...nexa-monorepo-v0.17.14) (2026-11-02)
+
+### Highlights
+
+- Notifications use a compact single-row layout with bundled structural styles, keeping the icon, text and close button aligned even when runtime styles are unavailable.
+- Recover missing workspace folders from project and external-agent settings with explicit Create folder and Choose folder actions. External-agent profiles can return to automatic workspace selection, and launch errors point to the relevant controls.
+- DOCX Spec and Markdown creation share consistent fonts and sizes across Western, East Asian and complex scripts, including titles, lists, tables, captions and headers/footers. Markdown keeps all six heading levels. Existing templates retain their typography and page geometry unless explicitly restyled, including templates that omit optional Word styles; font-only overrides preserve sizes, colors and spacing.
+
+### Reliability
+
+- Abandoned folder-selection and creation results cannot overwrite a later project or provider draft.
+- First-send launch errors remain visible with recovery controls while preserving the unsent draft, and stale failures cannot cross chat navigation.
+- Expanded existing regression coverage without adding dependencies or CI jobs. Workspace validation continues to preserve the selected directory and requires an explicit action before creating a missing folder.
+
+### Model catalog
+
+- Retired Mistral-hosted GLM-5.2 and OpenRouter Solar Pro 3 routes while preserving their historical identities and replacement information.
+- Updated Kimi K2.6 and K2.7 Code access restrictions for newly registered accounts without prematurely removing routes still available to eligible accounts.
+- The existing catalog audit now lists unavailable inventory candidates separately from confirmed retirements. Static validation covers 88 endpoint projections and 1,158 model projections; four public inventories were checked. Account-specific inference and entitlement are not implied by public discovery.
+
+### Validation
+
+All required source CI gates passed, including 443 browser regressions and 2,987 core unit tests, plus integration, native Windows/Linux, Office artifact and task-evaluator checks. Both Spec and Markdown DOCX specimens passed Open XML SDK validation with zero errors. Final code review reported no unresolved findings. Account-specific model availability and paid inference were not tested. Release verification uses metadata and updater manifests without downloading installers.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at bb44a90d5057ac0fc3fca362b642a5941d753a70 -->
+
+### What's Changed
+* feat(workspace): recover agent folders and polish document typography by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/517
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.13...nexa-monorepo-v0.17.14
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.12...nexa-monorepo-v0.17.13) (2026-10-30)
 
 ### Highlights
