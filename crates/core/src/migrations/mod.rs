@@ -2903,6 +2903,7 @@ Every answer that uses knowledge base search results.
     ("v157_health_finding_identity", include_str!("v157_health_finding_identity.sql")),
     ("v157_owned_snapshot_storage", include_str!("v157_owned_snapshot_storage.sql")),
     ("v158_workflow_delivery_targets", include_str!("v158_workflow_delivery_targets.sql")),
+    ("v159_workflow_delivery_ownership", include_str!("v159_workflow_delivery_ownership.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

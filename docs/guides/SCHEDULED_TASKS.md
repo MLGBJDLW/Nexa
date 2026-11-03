@@ -91,6 +91,12 @@ cursor stays pending until it becomes idle. The saved source snapshot is applied
 only to the scheduled turn; running a task never rewrites the chat's selected
 sources. Project changes or removal of an authorized source fail closed.
 
+Explicit source/project edits to a standalone task update its task-created chat
+in the same transaction as the definition. This applies only while the chat still
+matches the previous definition. Independently edited chats and historical
+bindings with unknown ownership are never overwritten; review their source and
+project settings directly before changing the task scope.
+
 A clock after the sidebar title identifies conversations with schedules, including
 paused tasks. The existing chat capsule shows their names, next execution times
 in the saved timezone, pause/resume controls, and a link to Scheduled tasks. Both
