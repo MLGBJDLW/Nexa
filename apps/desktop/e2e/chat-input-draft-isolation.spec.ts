@@ -851,7 +851,7 @@ test('does not draw a focus halo around the composer after a pointer click', asy
   await expect.poll(readFocusChrome).toEqual(before);
 });
 
-test('keeps a keyboard-only focus indicator on the composer', async ({ page }) => {
+test('keeps keyboard focus without drawing an outer composer halo', async ({ page }) => {
   await page.goto('/chat/conv-draft-a');
 
   const surface = page.getByTestId('chat-composer-surface');
@@ -860,6 +860,6 @@ test('keeps a keyboard-only focus indicator on the composer', async ({ page }) =
   await page.keyboard.press('Shift+Tab');
   await page.keyboard.press('Tab');
   await expect(input).toBeFocused();
-  await expect(surface).toHaveCSS('outline-style', 'solid');
-  await expect(surface).toHaveCSS('outline-width', '2px');
+  await expect(surface).toHaveCSS('outline-style', 'none');
+  await expect(surface).toHaveCSS('box-shadow', 'none');
 });
