@@ -966,5 +966,22 @@
   "scheduleNext": "下次執行",
   "schedulePaused": "已暫停",
   "schedulePause": "暫停任務",
-  "scheduleResume": "恢復任務"
+  "scheduleResume": "恢復任務",
+  "imageEditTitle": "編輯圖片",
+  "imageEditTools": "選取工具",
+  "imageEditBrush": "塗選區域",
+  "imageEditEraser": "擦除選取範圍",
+  "imageEditBrushSize": "筆刷大小",
+  "imageEditUndo": "復原筆畫",
+  "imageEditClear": "清空選取範圍",
+  "imageEditOriginal": "查看原圖",
+  "imageEditCanvas": "塗選需要修改的區域",
+  "imageEditPrompt": "描述你希望如何修改…",
+  "imageEditHint": "塗選需要修改的區域，再描述修改要求。原圖會保留，AI 也可能改變附近細節。",
+  "imageEditSelectRequired": "請先塗選一個區域。",
+  "imageEditSizeError": "圖片超出編輯器限制（12 MiB、1600 萬像素），請選擇較小的圖片。",
+  "imageEditLoadError": "無法載入此圖片，請儲存至本機後重新加入。",
+  "imageEditSubmitError": "無法傳送修改要求，選取範圍仍保留，請重試。",
+  "imageEditSubmit": "傳送修改",
+  "imageEditSending": "正在傳送…"
 }

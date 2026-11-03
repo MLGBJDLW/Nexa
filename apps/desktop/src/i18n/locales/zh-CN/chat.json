@@ -966,5 +966,22 @@
   "scheduleNext": "下次执行",
   "schedulePaused": "已暂停",
   "schedulePause": "暂停任务",
-  "scheduleResume": "恢复任务"
+  "scheduleResume": "恢复任务",
+  "imageEditTitle": "编辑图片",
+  "imageEditTools": "选区工具",
+  "imageEditBrush": "涂选区域",
+  "imageEditEraser": "擦除选区",
+  "imageEditBrushSize": "画笔大小",
+  "imageEditUndo": "撤销笔画",
+  "imageEditClear": "清空选区",
+  "imageEditOriginal": "查看原图",
+  "imageEditCanvas": "涂选需要修改的区域",
+  "imageEditPrompt": "描述你希望怎样修改…",
+  "imageEditHint": "涂选需要修改的区域，再描述修改要求。原图会保留，AI 也可能改变附近细节。",
+  "imageEditSelectRequired": "请先涂选一个区域。",
+  "imageEditSizeError": "图片超出编辑器限制（12 MiB、1600 万像素），请选择更小的图片。",
+  "imageEditLoadError": "无法加载此图片，请保存到本地后重新添加。",
+  "imageEditSubmitError": "未能发送修改请求，选区仍保留，请重试。",
+  "imageEditSubmit": "发送修改",
+  "imageEditSending": "正在发送…"
 }

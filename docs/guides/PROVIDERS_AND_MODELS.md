@@ -555,3 +555,28 @@ the existing endpoint-scoped tombstones.
 
 Static catalogs and mocked UI tests do not establish real account entitlement
 or live provider availability. Keep those acceptance results separate.
+
+## Editing part of an image
+
+Open a chat image or an attachment preview and select **Edit image**. Paint the
+area to change, erase unwanted selection, undo strokes, zoom, or compare with
+the original. Describe the change and choose **Send edit**. The source image is
+not overwritten; the generated result appears in the same chat. A failed send
+keeps the selection and prompt available for retry.
+
+The editor keeps strokes instead of full-resolution undo snapshots, loads only
+when opened, and exports matching PNG original/mask/guide attachments. The image
+tool reads only the current turn's submitted edit, never another chat's images.
+GPT Image uses the native alpha-mask edit request. Gemini, xAI, supported
+OpenRouter image models, and the Codex subscription adapter use the original
+plus the visual selection guide. These are model-guided edits, not a promise of
+pixel-exact preservation outside the selected area. Unsupported routes return an
+explicit configuration error instead of discarding the selection or falling back
+to another billing route.
+
+Implementation: [editor](../../apps/desktop/src/components/chat/ImageEditorDialog.tsx),
+[current-turn inputs](../../crates/core/src/tools/image_generation_tool/edit.rs),
+[image tool](../../crates/core/src/tools/image_generation_tool.rs).
+The wire contract follows [OpenAI image edits](https://developers.openai.com/api/reference/resources/images/methods/edit),
+[Gemini image generation/editing](https://aistudio.google.com/docs/image-generation),
+and [xAI multi-image editing](https://docs.x.ai/developers/model-capabilities/images/multi-image-editing).

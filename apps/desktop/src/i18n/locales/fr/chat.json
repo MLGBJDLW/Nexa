@@ -966,5 +966,22 @@
   "scheduleNext": "Prochaine exécution",
   "schedulePaused": "En pause",
   "schedulePause": "Suspendre la tâche",
-  "scheduleResume": "Reprendre la tâche"
+  "scheduleResume": "Reprendre la tâche",
+  "imageEditTitle": "Modifier l’image",
+  "imageEditTools": "Outils de sélection",
+  "imageEditBrush": "Sélectionner une zone",
+  "imageEditEraser": "Effacer la sélection",
+  "imageEditBrushSize": "Taille du pinceau",
+  "imageEditUndo": "Annuler le trait",
+  "imageEditClear": "Effacer la sélection",
+  "imageEditOriginal": "Voir l’original",
+  "imageEditCanvas": "Peindre la zone à modifier",
+  "imageEditPrompt": "Décrivez la modification souhaitée…",
+  "imageEditHint": "Peignez la zone, puis décrivez la modification. L’original est conservé. L’IA peut aussi modifier les détails voisins.",
+  "imageEditSelectRequired": "Peignez une zone avant l’envoi.",
+  "imageEditSizeError": "L’image dépasse les limites (12 MiB, 16 millions de pixels). Choisissez une image plus petite.",
+  "imageEditLoadError": "Impossible de charger l’image. Enregistrez-la localement puis joignez-la à nouveau.",
+  "imageEditSubmitError": "Impossible d’envoyer la modification. La sélection est conservée ; réessayez.",
+  "imageEditSubmit": "Envoyer la modification",
+  "imageEditSending": "Envoi…"
 }

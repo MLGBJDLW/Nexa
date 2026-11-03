@@ -1,6 +1,7 @@
+import { useImageEditor } from '../chat/ImageEditContext';
 import { useCallback, useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, RotateCcw, Brush } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 
 /** Use the already resolved image URL, including remote-session asset URLs.
@@ -8,6 +9,7 @@ import { useTranslation } from '../../i18n';
  * keyboard focus containment without making the full-size image a new page. */
 export function ImagePreview({ src, alt = '', className, ...props }: ComponentPropsWithoutRef<'img'>) {
   const { t } = useTranslation();
+  const edit = useImageEditor();
   const [open, setOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -59,6 +61,7 @@ export function ImagePreview({ src, alt = '', className, ...props }: ComponentPr
             <button type="button" className="rounded p-2 hover:bg-surface-3 disabled:opacity-40" aria-label={t('preview.zoomOut')} disabled={zoom <= 0.25} onClick={() => setZoom(value => Math.max(0.25, value / 1.5))}><ZoomOut size={18} /></button>
             <button type="button" className="rounded px-2 py-1 text-xs hover:bg-surface-3" aria-label={t('preview.resetZoom')} onClick={() => setZoom(1)}><RotateCcw size={16} /></button>
             <button type="button" className="rounded p-2 hover:bg-surface-3 disabled:opacity-40" aria-label={t('preview.zoomIn')} disabled={zoom >= 8} onClick={() => setZoom(value => Math.min(8, value * 1.5))}><ZoomIn size={18} /></button>
+            {edit && src && <button type="button" className="flex items-center gap-1.5 rounded-lg border border-accent/30 px-3 py-2 text-xs text-accent hover:bg-accent/10" onClick={() => { close(); edit({ src, name: alt }); }}><Brush size={16} />{t('chat.imageEditTitle')}</button>}
             <button type="button" autoFocus className="rounded p-2 hover:bg-surface-3" aria-label={t('common.close')} onClick={close}><X size={18} /></button>
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-3">

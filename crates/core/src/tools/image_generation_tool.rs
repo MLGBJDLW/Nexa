@@ -1,5 +1,8 @@
 //! GenerateImageTool — raster generation and reference editing through configured providers.
 
+mod edit;
+pub use edit::{current_image_edit, ImageEditInputs, GUIDE_INSTRUCTION};
+
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -89,6 +92,12 @@ impl ImagePromptMode {
 struct GenerateImageArgs {
     prompt: String,
     #[serde(default)]
+    edit_current_image: bool,
+    #[serde(skip)]
+    input_mask: Option<String>,
+    #[serde(skip)]
+    input_guide: Option<String>,
+    #[serde(default)]
     reference_image_paths: Vec<String>,
     /// Host-resolved bytes only; callers cannot inject remote URLs or bypass path scope.
     #[serde(skip)]
@@ -173,9 +182,10 @@ impl Tool for GenerateImageTool {
     }
 
     fn requires_confirmation(&self, args: &Value) -> bool {
-        args["reference_image_paths"]
-            .as_array()
-            .is_some_and(|paths| !paths.is_empty())
+        args["edit_current_image"] == true
+            || args["reference_image_paths"]
+                .as_array()
+                .is_some_and(|paths| !paths.is_empty())
     }
 
     fn confirmation_message(&self, args: &Value) -> Option<String> {
@@ -222,13 +232,39 @@ impl Tool for GenerateImageTool {
             runtime.provider,
             runtime.output_format,
         )?;
-        if !args.reference_image_paths.is_empty() {
-            if runtime.config.api_style.as_deref() != Some("openrouter_images") {
+        let requested_prompt = args.prompt.clone();
+        if args.edit_current_image {
+            if !args.reference_image_paths.is_empty() {
                 return Err(CoreError::InvalidInput(
-                    "Reference images currently require the OpenRouter Images adapter.".into(),
+                    "Use either the current image edit or reference paths".into(),
                 ));
             }
+            let input = current_image_edit(&context)?;
+            args.input_references = vec![input.original];
+            args.input_mask = Some(input.mask);
+            args.input_guide = Some(input.guide);
+        } else if !args.reference_image_paths.is_empty() {
             args.input_references = load_reference_images(&context, &args.reference_image_paths)?;
+        }
+        if !args.input_references.is_empty() {
+            let openrouter = runtime.config.api_style.as_deref() == Some("openrouter_images");
+            let native_mask = runtime.provider == ImageProvider::OpenAi
+                && !openrouter
+                && runtime.model.starts_with("gpt-image-");
+            if !openrouter
+                && !native_mask
+                && runtime.provider != ImageProvider::Google
+                && runtime.provider != ImageProvider::Xai
+            {
+                return Err(CoreError::InvalidInput("This image route does not support editing. Select a GPT Image, Gemini, xAI, or compatible OpenRouter image model in Settings.".into()));
+            }
+            if !native_mask {
+                if let Some(guide) = args.input_guide.take() {
+                    args.input_references.push(guide);
+                    args.prompt = format!("{}\n\n{}", args.prompt, GUIDE_INSTRUCTION);
+                }
+                args.input_mask = None;
+            }
         }
         let prompt_mode = args.effective_prompt_mode();
         let provider_enhancement_requested = prompt_mode.provider_enhancement_enabled();
@@ -322,7 +358,9 @@ impl Tool for GenerateImageTool {
                 "saved": false,
                 "transient": true,
                 "prompt": args.prompt.as_str(),
-                "requestedPrompt": args.prompt.as_str(),
+                "requestedPrompt": requested_prompt,
+                "submittedPrompt": args.prompt.as_str(),
+                "editMode": if args.edit_current_image { Some(if args.input_mask.is_some() { "mask" } else { "reference_guide" }) } else { None },
                 "promptMode": prompt_mode.as_str(),
                 "effectivePrompt": effective_prompt,
                 "providerPromptEnhancementRequested": provider_enhancement_requested,
@@ -433,6 +471,16 @@ fn build_google_image_body(
         }],
         "generationConfig": generation_config
     });
+    if let Some(parts) = body
+        .pointer_mut("/contents/0/parts")
+        .and_then(Value::as_array_mut)
+    {
+        for reference in &args.input_references {
+            if let Some((mime, data)) = parse_image_data_url(reference) {
+                parts.push(json!({"inlineData":{"mimeType":mime,"data":data}}));
+            }
+        }
+    }
     if crate::llm::provider_boundary::is_google_public_endpoint(
         crate::llm::ProviderType::Google,
         base_url,
@@ -530,10 +578,12 @@ async fn generate_openai_image(
     let openrouter = config.api_style.as_deref() == Some("openrouter_images");
     let url = if openrouter {
         format!("{base}/images")
+    } else if !args.input_references.is_empty() {
+        format!("{base}/images/edits")
     } else {
         format!("{base}/images/generations")
     };
-    let body = if openrouter {
+    let mut body = if openrouter {
         let models = crate::openrouter_images::discover_models()
             .await
             .unwrap_or_else(|_| crate::openrouter_images::catalog_fallback());
@@ -570,6 +620,25 @@ async fn generate_openai_image(
     } else {
         build_openai_images_body(config, args, model, output_format)
     };
+
+    if !openrouter && !args.input_references.is_empty() {
+        if is_xai {
+            body["images"] = json!(args
+                .input_references
+                .iter()
+                .map(|url| json!({"url":url,"type":"image_url"}))
+                .collect::<Vec<_>>());
+        } else {
+            body["images"] = json!(args
+                .input_references
+                .iter()
+                .map(|url| json!({"image_url":url}))
+                .collect::<Vec<_>>());
+            if let Some(mask) = &args.input_mask {
+                body["mask"] = json!({"image_url":mask});
+            }
+        }
+    }
 
     let response = client
         .post(url)
@@ -1517,6 +1586,9 @@ mod tests {
     fn test_args() -> GenerateImageArgs {
         GenerateImageArgs {
             prompt: "a precise product photo".to_string(),
+            edit_current_image: false,
+            input_mask: None,
+            input_guide: None,
             reference_image_paths: Vec::new(),
             input_references: Vec::new(),
             prompt_mode: Some(ImagePromptMode::Verbatim),

@@ -966,5 +966,22 @@
   "scheduleNext": "Nächste Ausführung",
   "schedulePaused": "Pausiert",
   "schedulePause": "Aufgabe pausieren",
-  "scheduleResume": "Aufgabe fortsetzen"
+  "scheduleResume": "Aufgabe fortsetzen",
+  "imageEditTitle": "Bild bearbeiten",
+  "imageEditTools": "Auswahlwerkzeuge",
+  "imageEditBrush": "Bereich auswählen",
+  "imageEditEraser": "Auswahl radieren",
+  "imageEditBrushSize": "Pinselgröße",
+  "imageEditUndo": "Strich rückgängig",
+  "imageEditClear": "Auswahl löschen",
+  "imageEditOriginal": "Original anzeigen",
+  "imageEditCanvas": "Zu ändernden Bereich markieren",
+  "imageEditPrompt": "Gewünschte Änderung beschreiben…",
+  "imageEditHint": "Markieren Sie den Bereich und beschreiben Sie die Änderung. Das Original bleibt erhalten. Die KI kann auch benachbarte Details ändern.",
+  "imageEditSelectRequired": "Markieren Sie vor dem Senden einen Bereich.",
+  "imageEditSizeError": "Das Bild überschreitet die Grenzen (12 MiB, 16 Millionen Pixel). Wählen Sie ein kleineres Bild.",
+  "imageEditLoadError": "Bild konnte nicht geladen werden. Lokal speichern und erneut anhängen.",
+  "imageEditSubmitError": "Änderung konnte nicht gesendet werden. Die Auswahl bleibt erhalten. Bitte erneut versuchen.",
+  "imageEditSubmit": "Änderung senden",
+  "imageEditSending": "Wird gesendet…"
 }

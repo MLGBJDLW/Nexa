@@ -966,5 +966,22 @@
   "scheduleNext": "次回",
   "schedulePaused": "一時停止中",
   "schedulePause": "タスクを一時停止",
-  "scheduleResume": "タスクを再開"
+  "scheduleResume": "タスクを再開",
+  "imageEditTitle": "画像を編集",
+  "imageEditTools": "選択ツール",
+  "imageEditBrush": "範囲を選択",
+  "imageEditEraser": "選択範囲を消去",
+  "imageEditBrushSize": "ブラシのサイズ",
+  "imageEditUndo": "描画を元に戻す",
+  "imageEditClear": "選択をクリア",
+  "imageEditOriginal": "元の画像を表示",
+  "imageEditCanvas": "変更する範囲を塗る",
+  "imageEditPrompt": "変更内容を入力…",
+  "imageEditHint": "変更する範囲を塗り、編集内容を入力してください。元の画像は保持されます。AI が周辺の細部も変更する場合があります。",
+  "imageEditSelectRequired": "送信前に範囲を塗ってください。",
+  "imageEditSizeError": "画像が上限（12 MiB、1600 万画素）を超えています。小さい画像を選んでください。",
+  "imageEditLoadError": "画像を読み込めません。端末に保存して再度添付してください。",
+  "imageEditSubmitError": "送信できませんでした。選択範囲は保持されています。再試行してください。",
+  "imageEditSubmit": "編集を送信",
+  "imageEditSending": "送信中…"
 }

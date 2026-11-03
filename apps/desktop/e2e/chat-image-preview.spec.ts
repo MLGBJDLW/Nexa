@@ -5,6 +5,53 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/e2e/fixtures/chat-image-preview.html');
 });
 
+test('image selection preserves pixels and exports the edit mask after undo and retry', async ({ page }, testInfo) => {
+  await page.getByRole('img', { name: 'Markdown screenshot', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit image', exact: true }).click();
+  const editor = page.getByTestId('image-editor');
+  await expect(editor).toBeVisible();
+  const canvas = page.getByTestId('image-edit-canvas');
+  await expect(canvas).toBeVisible();
+  await editor.getByRole('textbox').fill('Replace the selected blue panel with a garden.');
+  await expect(editor.getByRole('button', { name: 'Send edit', exact: true })).toBeDisabled();
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.16, box.y + box.height * 0.4);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.6, { steps: 12 });
+  await page.mouse.up();
+  await editor.getByRole('button', { name: 'Undo stroke' }).click();
+  await expect(editor.getByRole('button', { name: 'Send edit', exact: true })).toBeDisabled();
+  await canvas.click({ position: { x: box.width * 0.2, y: box.height * 0.5 } });
+  await editor.getByRole('checkbox', { name: 'Show original' }).check();
+  await expect(canvas).toHaveCSS('opacity', '0');
+  await editor.getByRole('checkbox', { name: 'Show original' }).uncheck();
+  await page.screenshot({ path: testInfo.outputPath('image-editor-selection.png') });
+  await page.evaluate(() => { (window as any).__rejectImageEdit = true; });
+  await editor.getByRole('button', { name: 'Send edit', exact: true }).click();
+  await expect(editor.getByRole('alert')).toContainText('selection is still here');
+  await page.evaluate(() => { (window as any).__rejectImageEdit = false; });
+  await editor.getByRole('button', { name: 'Send edit', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  const result = await page.evaluate(async () => {
+    const edit = (window as any).__imageEditSubmission;
+    const images = await Promise.all(edit.attachments.map(async (attachment: any) => {
+      const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${attachment.base64Data}`)).blob());
+      const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+      const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0);
+      const selected = Array.from(context.getImageData(Math.floor(image.width * 0.2), Math.floor(image.height * 0.5), 1, 1).data);
+      const outside = Array.from(context.getImageData(image.width - 1, image.height - 1, 1, 1).data);
+      return { name: attachment.originalName, width: image.width, height: image.height, selected, outside };
+    }));
+    return { kind: edit.artifacts.kind, prompt: edit.prompt, images };
+  });
+  expect(result.kind).toBe('imageEdit');
+  expect(result.images.map(image => [image.width, image.height])).toEqual([[640, 360], [640, 360], [640, 360]]);
+  expect(result.images[0].selected).toEqual([79, 131, 189, 255]);
+  expect(result.images[1].selected[3]).toBe(0);
+  expect(result.images[1].outside[3]).toBe(255);
+  expect(result.images[2].outside).toEqual(result.images[0].outside);
+});
+
 test('image generation stays visible beside collapsed thinking and reveals loaded pixels', async ({ page }, testInfo) => {
   await page.goto('/e2e/fixtures/chat-image-preview.html?generation=1');
   const activity = page.getByTestId('image-generation-activity');

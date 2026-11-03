@@ -1,3 +1,4 @@
+import { useImageEditor } from './ImageEditContext';
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import {
   NexaPopover,
@@ -415,6 +416,7 @@ export function ChatInput({
   const [activeSlashCommandId, setActiveSlashCommandId] = useState<string | null>(
     () => initialDraftRef.current?.activeSlashCommandId ?? null,
   );
+  const editImage = useImageEditor();
   const [previewAttachment, setPreviewAttachment] = useState<ImageAttachment | null>(null);
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
   const [mcpContentOpen, setMcpContentOpen] = useState(false);
@@ -2447,6 +2449,11 @@ export function ChatInput({
         onClose={() => setPreviewAttachment(null)}
         title={previewAttachment?.originalName ?? ""}
       >
+        {previewAttachment && editImage && <button type="button" className="mb-3 rounded-lg bg-accent/10 px-3 py-2 text-sm text-accent" onClick={() => {
+          const selected = previewAttachment;
+          setPreviewAttachment(null);
+          editImage({ src: `data:${selected.mediaType};base64,${selected.base64Data}`, name: selected.originalName });
+        }}>{t('chat.imageEditTitle')}</button>}
         {previewAttachment && (
           <img
             data-testid="chat-attachment-preview"
