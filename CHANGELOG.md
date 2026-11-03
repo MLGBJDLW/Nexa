@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.18.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.14...nexa-monorepo-v0.18.0) (2026-11-03)
+
+### Image editing in chat
+
+Paint over the part of an image you want to change, adjust the selection with a brush or eraser, undo strokes, compare against the original, and send an edit request in the same conversation. Failed submissions keep the selection for retry. The original remains unchanged; supported providers receive a validated mask or reference guide through the existing image tool.
+
+### Schedules stay with their conversations
+
+Scheduled conversations now show a clock beside their sidebar title and a summary in the existing task capsule, including the next run, timezone and pause/resume controls. Startup promptly checks overdue tasks and reuses the originating conversation. Legacy task recovery retains its delivery target, and busy or deleted conversations are handled explicitly.
+
+### Nexa Mobile starts at 0.1.0
+
+The first native Android application has its own version and signed ARM64 release. It supports phone-local tasks and files, optional approved accessibility actions, and remote access to paired Nexa computers. It uses the shared agent runtime, durable task recovery and existing chat protocol. Credentials remain encrypted using Android Keystore.
+
+The phone interface reuses Nexa's logo and adds a quiet chat canvas, history drawer, bottom sheets, swipe dismissal, Android Back handling, reduced-motion support and keyboard-aware layout. Desktop and mobile composers no longer draw an outer focus glow.
+
+Paired native phones and computers can synchronize portable model connections and API keys in both directions. Each device retains its selected connection and local execution policy. Simultaneous edits are preserved as separate connections, retries retain stable identities, and local deletion is not silently undone by synchronization. Credentials stay in the native encrypted stores; the phone interface receives only connection metadata.
+
+Model sharing requires Desktop 0.18 or later and a fresh native pairing grant. Existing pairings retain their previous permissions until paired again. Revoking access stops future synchronization; it does not erase credentials already copied to another device.
+
+Android is the first native platform. iOS, native HarmonyOS, local voice capture and offline model inference are not included in Mobile 0.1.0. Phone tasks require a configured model connection.
+
+### Reliability and maintenance
+
+- Preserve cancellation status, checkpoint recovery and bounded message reads across native hosts.
+- Enable or disable individual built-in skills in Settings. Choices survive restart and app updates, and the same state governs automatic selection, pinned skills, explicit activation and resource helpers.
+- Persist rotated computer endpoints and handle remote revocation consistently.
+- Refresh reviewed provider/model availability and lifecycle metadata; remove a retired image-model preset without silently rerouting saved selections.
+- Include mobile development outputs in the existing safe cache-cleanup quota while retaining release bundles and signing material.
+
+Validation includes hosted CI, focused browser regressions and native Android emulator checks using a deterministic local provider. Physical-device and paid-provider acceptance remain separate. Release verification checks public metadata, manifests and signatures without downloading installers.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 85ac6e0a86ec8f4daf6bf477ba58c6d02fc96131 -->
+
+### What's Changed
+* feat(mobile)!: add native Android tasks and shared connections for Nexa 0.18.0 by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/519
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.14...nexa-monorepo-v0.18.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.13...nexa-monorepo-v0.17.14) (2026-11-02)
 
 ### Highlights
