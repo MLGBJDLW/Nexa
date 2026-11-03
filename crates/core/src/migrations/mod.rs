@@ -2902,6 +2902,7 @@ Every answer that uses knowledge base search results.
     ("v156_run_event_lookup_indexes", include_str!("v156_run_event_lookup_indexes.sql")),
     ("v157_health_finding_identity", include_str!("v157_health_finding_identity.sql")),
     ("v157_owned_snapshot_storage", include_str!("v157_owned_snapshot_storage.sql")),
+    ("v158_workflow_delivery_targets", include_str!("v158_workflow_delivery_targets.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

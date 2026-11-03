@@ -155,6 +155,8 @@ pub struct DesktopAgentDependencyMetrics {
 }
 
 pub struct DesktopAgentTurnConfigRequest<'a> {
+    /// Immutable scheduled scope; never rewrites the conversation's sources.
+    pub source_scope_override: Option<&'a [String]>,
     pub db: &'a Database,
     pub conversation: &'a Conversation,
     pub turn_id: &'a str,

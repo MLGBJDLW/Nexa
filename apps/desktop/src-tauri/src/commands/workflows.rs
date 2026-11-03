@@ -51,6 +51,7 @@ pub enum TaskOrchestratorWorkflowStartOutcome {
 pub struct TaskOrchestratorSchedulerState {
     pub shutdown: Arc<AtomicBool>,
     pub tick_lock: TokioMutex<()>,
+    pub wake: Arc<tokio::sync::Notify>,
     pub poll_interval_secs: u64,
     pub max_concurrent_due_runs: usize,
 }
@@ -312,48 +313,67 @@ async fn launch_task_orchestrator_execution_ticket_inner(
         tool_approval_mode,
         agent_config_is_authoritative,
     } = launch_policy;
-    let conversation_id = match conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
-        Some(id) => {
-            let conversation = state
-                .db
-                .get_conversation(id)
-                .map_err(|err| err.to_string())?;
-            if conversation.project_id != project_id {
-                return Err(format!(
-                    "Scheduled workflow project drift: saved '{}', conversation uses '{}'.",
-                    project_id.as_deref().unwrap_or("none"),
-                    conversation.project_id.as_deref().unwrap_or("none")
-                ));
-            }
-            id.to_string()
+    let workflow_definition = state
+        .db
+        .get_workflow_definition_for_run(&ticket.run.run_id)
+        .map_err(|error| error.to_string())?;
+    let conversation_id = if agent_config_is_authoritative {
+        let target = state
+            .db
+            .workflow_delivery_conversation(&workflow_definition, &selected_config)
+            .map_err(|error| error.to_string())?;
+        if conversation_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty() && id != target)
+        {
+            return Err("This scheduled task is bound to another conversation".into());
         }
-        None => {
-            state
-                .db
-                .create_conversation(&CreateConversationInput {
-                    provider: selected_config.provider.clone(),
-                    model: selected_config.model.clone(),
-                    system_prompt: None,
-                    collection_context: None,
-                    project_id: project_id.clone(),
-                    persona_id: persona_id.clone(),
-                })
-                .map_err(|err| err.to_string())?
-                .id
+        target
+    } else {
+        match conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            Some(id) => {
+                let conversation = state
+                    .db
+                    .get_conversation(id)
+                    .map_err(|err| err.to_string())?;
+                if conversation.project_id != project_id {
+                    return Err(format!(
+                        "Scheduled workflow project drift: saved '{}', conversation uses '{}'.",
+                        project_id.as_deref().unwrap_or("none"),
+                        conversation.project_id.as_deref().unwrap_or("none")
+                    ));
+                }
+                id.to_string()
+            }
+            None => {
+                state
+                    .db
+                    .create_conversation(&CreateConversationInput {
+                        provider: selected_config.provider.clone(),
+                        model: selected_config.model.clone(),
+                        system_prompt: None,
+                        collection_context: None,
+                        project_id: project_id.clone(),
+                        persona_id: persona_id.clone(),
+                    })
+                    .map_err(|err| err.to_string())?
+                    .id
+            }
         }
     };
-
-    state
-        .db
-        .set_conversation_sources(
-            &conversation_id,
-            &ticket.delivery.queue_item.ownership.source_scope,
-        )
-        .map_err(|err| err.to_string())?;
+    if !agent_config_is_authoritative {
+        state
+            .db
+            .set_conversation_sources(
+                &conversation_id,
+                &ticket.delivery.queue_item.ownership.source_scope,
+            )
+            .map_err(|error| error.to_string())?;
+    }
 
     let queue_id = ticket.delivery.queue_item.queue_id.clone();
     let workflow_run_id = ticket.run.run_id.clone();
@@ -925,16 +945,17 @@ pub fn init_task_orchestrator_scheduler(app_handle: AppHandle) {
     let scheduler_state = TaskOrchestratorSchedulerState {
         shutdown: Arc::new(AtomicBool::new(false)),
         tick_lock: TokioMutex::new(()),
+        wake: Arc::new(tokio::sync::Notify::new()),
         poll_interval_secs: 60,
         max_concurrent_due_runs: 1,
     };
     let shutdown = Arc::clone(&scheduler_state.shutdown);
+    let wake = Arc::clone(&scheduler_state.wake);
     let poll_interval_secs = scheduler_state.poll_interval_secs;
     app_handle.manage(scheduler_state);
 
     let handle = app_handle.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(5)).await;
         let mut interval = tokio::time::interval(Duration::from_secs(poll_interval_secs.max(5)));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         interval.tick().await;
@@ -946,7 +967,10 @@ pub fn init_task_orchestrator_scheduler(app_handle: AppHandle) {
             if let Err(err) = run_task_orchestrator_scheduler_tick(handle.clone()).await {
                 warn!("Task Orchestrator scheduler tick failed: {err}");
             }
-            interval.tick().await;
+            tokio::select! {
+                _ = interval.tick() => {},
+                _ = wake.notified() => {},
+            }
         }
     });
 }

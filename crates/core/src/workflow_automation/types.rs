@@ -65,6 +65,9 @@ pub struct SaveWorkflowAutomationInput {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowAutomation {
     pub id: String,
+    /// Effective delivery target, including the reserved standalone conversation.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
     pub name: String,
     pub description: String,
     pub workflow_template_id: String,

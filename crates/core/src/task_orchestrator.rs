@@ -399,6 +399,7 @@ mod tests {
     fn workflow_automation(enabled: bool) -> WorkflowAutomation {
         WorkflowAutomation {
             recipe: None,
+            conversation_id: None,
             definition_revision: 1,
             id: "automation-1".to_string(),
             name: "Daily report".to_string(),

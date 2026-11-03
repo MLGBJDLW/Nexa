@@ -39,6 +39,7 @@ const SCHEDULER_RETRY_BACKOFF_SECONDS: [i64; 4] = [300, 900, 3_600, 14_400];
 const SCHEDULER_RETRY_MAX_ATTEMPTS: usize = 4;
 
 mod authoring;
+mod delivery;
 mod types;
 use authoring::*;
 pub use types::*;
@@ -158,6 +159,11 @@ fn workflow_automation_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Wor
     let persisted_next_run_at: Option<String> = row.get(12)?;
     Ok(WorkflowAutomation {
         id: row.get(0)?,
+        conversation_id: schedule_config
+            .execution_policy
+            .conversation_id
+            .clone()
+            .or(row.get(18)?),
         name: row.get(1)?,
         description: row.get(2)?,
         workflow_template_id: row.get(3)?,
@@ -323,7 +329,7 @@ fn workflow_automation_occurrence_from_row(
 
 const WORKFLOW_RUN_SELECT: &str = "SELECT id, automation_id, task_run_id, status, summary, created_at, finished_at, occurrence_id, scheduled_for, definition_revision, attempt FROM workflow_automation_runs";
 const WORKFLOW_OCCURRENCE_SELECT: &str = "SELECT id, automation_id, definition_revision, scheduled_for, status, attempt_count, retry_at, last_error, lease_token, lease_expires_at, created_at, updated_at FROM workflow_automation_occurrences";
-const WORKFLOW_AUTOMATION_SELECT: &str = "SELECT id, name, description, workflow_template_id, prompt, trigger_json, trigger_kind, source_scope_json, approval_policy_json, enabled, status, last_run_at, next_run_at, created_at, updated_at, COALESCE((SELECT config_json FROM workflow_automation_schedule_configs c WHERE c.automation_id = workflow_automations.id), '{}'), recipe_json, COALESCE((SELECT revision FROM workflow_automation_schedule_configs c WHERE c.automation_id = workflow_automations.id), 0) FROM workflow_automations";
+const WORKFLOW_AUTOMATION_SELECT: &str = "SELECT id, name, description, workflow_template_id, prompt, trigger_json, trigger_kind, source_scope_json, approval_policy_json, enabled, status, last_run_at, next_run_at, created_at, updated_at, COALESCE((SELECT config_json FROM workflow_automation_schedule_configs c WHERE c.automation_id = workflow_automations.id), '{}'), recipe_json, COALESCE((SELECT revision FROM workflow_automation_schedule_configs c WHERE c.automation_id = workflow_automations.id), 0), (SELECT conversation_id FROM workflow_automation_delivery_targets t WHERE t.automation_id = workflow_automations.id) FROM workflow_automations";
 
 fn fetch_workflow_run(
     conn: &rusqlite::Connection,

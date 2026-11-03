@@ -1257,8 +1257,16 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             );
 
             let context_started = Instant::now();
+            let scheduled_source_scope = if agent_config_override_is_authoritative && task_orchestrator_run_id_for_task.is_some() {
+                let run_id = task_orchestrator_run_id_for_task.as_deref()
+                    .ok_or_else(|| "Scheduled source authority is missing its workflow run".to_string())?;
+                let definition = db.get_workflow_definition_for_run(run_id).map_err(|error| error.to_string())?;
+                db.validate_workflow_conversation(&definition, &conv_id).map_err(|error| error.to_string())?;
+                Some(definition.source_scope)
+            } else { None };
             let mut desktop_turn_config =
                 build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+                    source_scope_override: scheduled_source_scope.as_deref(),
                     db: &db,
                     conversation: &conv,
                     turn_id: &turn_id,

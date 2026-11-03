@@ -1055,6 +1055,7 @@ mod tests {
         nexa_core::workflow_automation::WorkflowAutomationDueRun {
             automation: nexa_core::workflow_automation::WorkflowAutomation {
                 recipe: None,
+                conversation_id: None,
                 definition_revision: 1,
                 id: "automation-1".to_string(),
                 name: "Daily report".to_string(),

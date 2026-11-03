@@ -1021,6 +1021,100 @@ fn run_latest_materializes_the_last_missed_occurrence_at_or_before_now() {
 }
 
 #[test]
+fn startup_catchup_reopens_database_and_waits_for_the_origin_chat() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("schedules.db");
+    let db = Database::new(&path).unwrap();
+    let active = create_test_agent_run(&db, "human turn owns the origin chat");
+    let mut config = WorkflowAutomationScheduleConfig::default();
+    config.execution_policy.conversation_id = Some(active.conversation_id.clone());
+    let task = scheduled_automation(&db, "catch-up", "0 8 * * *", config);
+    db.conn()
+        .execute(
+            "UPDATE workflow_automations SET next_run_at='2099-01-01T08:00:00+00:00' WHERE id=?1",
+            [&task.id],
+        )
+        .unwrap();
+    drop(db);
+    let db = Database::new(&path).unwrap();
+    let due = db
+        .list_due_workflow_automations("2099-01-03T09:00:00Z")
+        .unwrap()
+        .remove(0);
+    assert!(
+        matches!(crate::workflow_execution::prepare_scheduled_workflow_launch(&db, due, "2099-01-03T09:00:00Z", None).unwrap(), crate::workflow_execution::ScheduledWorkflowLaunchPreparation::Skipped { reason } if reason == "conversation_busy")
+    );
+    assert_eq!(
+        db.get_workflow_automation(&task.id)
+            .unwrap()
+            .next_run_at
+            .as_deref(),
+        Some("2099-01-01T08:00:00+00:00")
+    );
+    assert_eq!(
+        db.conn()
+            .query_row(
+                "SELECT count(*) FROM workflow_automation_runs WHERE automation_id=?1",
+                [&task.id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    db.conn()
+        .execute(
+            "UPDATE agent_task_runs SET status='completed' WHERE id=?1",
+            [&active.id],
+        )
+        .unwrap();
+    let due = db
+        .list_due_workflow_automations("2099-01-03T09:00:00Z")
+        .unwrap()
+        .remove(0);
+    let claim = db
+        .claim_workflow_automation_due_run_at(due.clone(), "2099-01-03T09:00:00Z", None)
+        .unwrap();
+    assert_eq!(
+        claim.occurrence.unwrap().scheduled_for,
+        "2099-01-03T08:00:00+00:00"
+    );
+    assert!(claim.run.is_some());
+    assert!(db
+        .claim_workflow_automation_due_run_at(due, "2099-01-03T09:00:00Z", None)
+        .unwrap()
+        .run
+        .is_none());
+}
+
+#[test]
+fn standalone_delivery_reserves_one_chat_and_never_recreates_a_deleted_target() {
+    let db = Database::open_memory().unwrap();
+    db.conn().execute("INSERT INTO agent_configs(id,name,provider,model) VALUES('schedule-config','Schedule','open_ai','test')", []).unwrap();
+    let config = db.get_agent_config("schedule-config").unwrap();
+    let task = scheduled_automation(
+        &db,
+        "standalone",
+        "0 8 * * *",
+        WorkflowAutomationScheduleConfig::default(),
+    );
+    let first = db.workflow_delivery_conversation(&task, &config).unwrap();
+    assert_eq!(
+        db.workflow_delivery_conversation(&task, &config).unwrap(),
+        first
+    );
+    assert_eq!(
+        db.get_workflow_automation(&task.id)
+            .unwrap()
+            .conversation_id
+            .as_deref(),
+        Some(first.as_str())
+    );
+    db.delete_conversation(&first).unwrap();
+    assert!(db.workflow_delivery_conversation(&task, &config).is_err());
+    assert!(db.list_conversations().unwrap().is_empty());
+}
+
+#[test]
 fn launch_failure_retries_same_occurrence_with_a_new_attempt_run() {
     let db = Database::open_memory().unwrap();
     let automation = scheduled_automation(

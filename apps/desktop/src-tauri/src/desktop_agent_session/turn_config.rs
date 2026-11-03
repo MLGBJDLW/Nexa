@@ -101,6 +101,7 @@ pub fn build_desktop_agent_turn_config(
     request: DesktopAgentTurnConfigRequest<'_>,
 ) -> DesktopAgentTurnConfig {
     let DesktopAgentTurnConfigRequest {
+        source_scope_override,
         db,
         conversation,
         turn_id,
@@ -117,9 +118,12 @@ pub fn build_desktop_agent_turn_config(
         custom_orchestration,
     } = request;
 
-    let source_scope_ids = db
-        .get_effective_conversation_source_scope(&conversation.id)
-        .unwrap_or_default();
+    let source_scope_ids = source_scope_override
+        .map(<[String]>::to_vec)
+        .unwrap_or_else(|| {
+            db.get_effective_conversation_source_scope(&conversation.id)
+                .unwrap_or_default()
+        });
     let mut source_scope_section =
         nexa_core::conversation::build_source_scope_prompt_section(db, &source_scope_ids)
             .unwrap_or_default();

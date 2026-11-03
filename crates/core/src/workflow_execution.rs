@@ -550,6 +550,15 @@ pub fn prepare_workflow_launch_with_options(
     summary: Option<String>,
     options: &crate::workflow_authoring::WorkflowRunOptions,
 ) -> Result<ScheduledWorkflowLaunchPreparation, CoreError> {
+    // A human turn or another schedule owns this chat. Keep the due cursor and
+    // occurrence untouched, so the next tick can catch up when it becomes idle.
+    if let Some(id) = due.automation.conversation_id.as_deref() {
+        if db.workflow_conversation_is_busy(id)? {
+            return Ok(ScheduledWorkflowLaunchPreparation::Skipped {
+                reason: "conversation_busy".into(),
+            });
+        }
+    }
     let automation_id = due.automation.id.clone();
     let due_reason = due.due_reason.clone();
     let uses_durable_occurrence = due.scheduled_for.is_some();
