@@ -111,7 +111,7 @@ impl SharedModelConnection {
             reasoning_enabled: config.reasoning_enabled,
             thinking_budget: config.thinking_budget,
             reasoning_effort: config.reasoning_effort.clone(),
-            provider_streaming: config.provider_streaming.clone(),
+            provider_streaming: config.provider_streaming,
             is_default: config.is_default,
         }
     }
