@@ -3,9 +3,11 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 
 use crate::error::CoreError;
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+use crate::execution_environment::ExecutionBackendKind;
 use crate::execution_environment::{
-    review_execution_policy, ExecutionArtifact, ExecutionBackendKind, ExecutionDecision,
-    ExecutionDecisionKind, ExecutionEnvironment, ExecutionRequest,
+    review_execution_policy, ExecutionArtifact, ExecutionDecision, ExecutionDecisionKind,
+    ExecutionEnvironment, ExecutionRequest,
 };
 
 use super::native_fs::{execute_native_filesystem, is_native_filesystem_program};
@@ -17,6 +19,7 @@ const BUBBLEWRAP_WORKSPACE: &str = "/tmp/workspace";
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct LocalRunShellExecutionEnvironment;
 
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub(super) fn apply_isolated_process_sandbox(
     request: &mut ExecutionRequest,
     requested_worktree_root: &Path,
@@ -50,16 +53,22 @@ pub(super) fn apply_isolated_process_sandbox(
     )?;
     #[cfg(target_os = "macos")]
     apply_macos_sandbox(request, &worktree_root)?;
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    return Err(CoreError::InvalidInput(
-        "Code Ultra process sandbox is unavailable on this operating system.".to_string(),
-    ));
-
     request.sandbox.backend = ExecutionBackendKind::Container;
     request.sandbox.network_allowed = false;
     request.sandbox.allowed_programs.clear();
     request.sandbox.denied_programs.clear();
     Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+pub(super) fn apply_isolated_process_sandbox(
+    _request: &mut ExecutionRequest,
+    _requested_worktree_root: &Path,
+    _cwd: &Path,
+) -> Result<(), CoreError> {
+    Err(CoreError::InvalidInput(
+        "Code Ultra process sandbox is unavailable on this operating system.".into(),
+    ))
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]

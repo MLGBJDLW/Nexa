@@ -35,8 +35,7 @@ use nexa_core::capability_registry::{
 use nexa_core::companion::CompanionProjection;
 use nexa_core::conversation::memory::estimate_tokens;
 use nexa_core::conversation::{
-    conversation_message_llm_context_content, conversation_message_provider_turn,
-    conversation_message_reasoning_replay, validate_agent_config_credential_contract,
+    conversation_message_llm_context_content, validate_agent_config_credential_contract,
     AgentConfig as DbAgentConfig, AgentExecutionGraph, AgentSubtaskRun, AgentTaskArtifact,
     AgentTaskArtifactSummary, AgentTaskArtifactVersion, AgentTaskRun, AgentTaskRunEvent,
     AgentTaskRunListItem, AgentTaskRunPageCursor, AgentTaskRunSummaryPage, CheckpointBranch,
@@ -690,23 +689,7 @@ fn build_connection_probe_request(config: &SaveAgentConfigInput) -> CompletionRe
 
 /// Convert a DB [`ConversationMessage`] to an LLM [`Message`].
 fn conv_message_to_llm(msg: &ConversationMessage) -> Message {
-    let mut m = Message::text(
-        msg.role.clone(),
-        conversation_message_llm_context_content(msg),
-    );
-    m.name = msg.tool_call_id.clone();
-    m.tool_calls = if msg.tool_calls.is_empty() {
-        None
-    } else {
-        Some(msg.tool_calls.clone())
-    };
-    if msg.role == Role::Assistant {
-        m.reasoning_content = conversation_message_reasoning_replay(msg);
-        if let Some(envelope) = conversation_message_provider_turn(msg) {
-            m.set_provider_turn(envelope);
-        }
-    }
-    m
+    nexa_core::conversation::conversation_message_to_llm(msg)
 }
 
 /// Repair persisted assistant/tool replay units before they enter a live agent

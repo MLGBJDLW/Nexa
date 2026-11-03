@@ -23,6 +23,8 @@ export interface RemoteConnection {
   endpoint: RemoteEndpoint | null;
   latencyMs?: number;
 }
+/** Chat depends on the transport contract, shared by browser and native hosts. */
+export type RemoteChatClient = Pick<RemoteClient, 'models' | 'paired' | 'state' | 'rpc' | 'subscribe' | 'subscribeConnection' | 'audio' | 'recoverAudio'> & { voiceAvailable?: boolean; composerOptionsAvailable?: boolean; resumeAvailable?: boolean; modelPickerAvailable?: boolean };
 export function remoteRouteHeaders(origin: string): Record<string, string> {
   const host = new URL(origin).hostname;
   return ['.free.pinggy.net', '.pinggy.link', '.pinggy.online', '.run.pinggy-free.link'].some(suffix => host.endsWith(suffix))

@@ -144,6 +144,24 @@ pub fn conversation_message_llm_context_content(message: &ConversationMessage) -
         .unwrap_or(&message.content)
 }
 
+/// Shared replay projection for native hosts. Provider envelopes and reasoning
+/// belong to the persisted sample, including when a second host reopens it.
+pub fn conversation_message_to_llm(msg: &ConversationMessage) -> crate::llm::Message {
+    let mut message = crate::llm::Message::text(
+        msg.role.clone(),
+        conversation_message_llm_context_content(msg),
+    );
+    message.name = msg.tool_call_id.clone();
+    message.tool_calls = (!msg.tool_calls.is_empty()).then(|| msg.tool_calls.clone());
+    if msg.role == Role::Assistant {
+        message.reasoning_content = conversation_message_reasoning_replay(msg);
+        if let Some(envelope) = conversation_message_provider_turn(msg) {
+            message.set_provider_turn(envelope);
+        }
+    }
+    message
+}
+
 fn content_starts_with_heading(content: &str, heading: &str) -> bool {
     content
         .trim_start()

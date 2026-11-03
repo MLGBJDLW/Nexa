@@ -75,6 +75,17 @@ impl ExecutorAgentSession {
         self
     }
 
+    /// Hosts supply their existing cancellation and durable event delivery owners.
+    pub fn with_cancel_token(mut self, token: crate::agent::CancellationToken) -> Self {
+        self.executor = self.executor.with_cancel_token(token);
+        self
+    }
+
+    pub fn with_event_outboxes(mut self, outboxes: AgentRunEventOutboxes) -> Self {
+        self.event_outboxes = Some(outboxes);
+        self
+    }
+
     pub fn with_source_scope_override(mut self, source_scope: Vec<String>) -> Self {
         self.source_scope_override = Some(source_scope);
         self

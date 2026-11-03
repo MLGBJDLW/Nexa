@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android vector projection of apps/desktop/src-tauri/icons/tray.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="32dp" android:height="32dp" android:viewportWidth="32" android:viewportHeight="32">
+    <path android:pathData="M9.4,23.2V8.8L22.6,23.2V8.8" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="3.4" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    <path android:pathData="M18.8,16A2.8,2.8 0,1 0,13.2,16A2.8,2.8 0,1 0,18.8,16" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="1.35"/>
+    <path android:pathData="M16.65,16A0.65,0.65 0,1 0,15.35,16A0.65,0.65 0,1 0,16.65,16M10.4,8.8A1,1 0,1 0,8.4,8.8A1,1 0,1 0,10.4,8.8M23.6,23.2A1,1 0,1 0,21.6,23.2A1,1 0,1 0,23.6,23.2" android:fillColor="#FFFFFFFF"/>
+</vector>

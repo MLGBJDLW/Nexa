@@ -9,10 +9,10 @@ import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { HtmlPreviewFrame } from '../../components/chat/HtmlPreviewFrame';
 import type { FilePreview, getEvidenceCard } from '../../lib/api';
 import { useTranslation } from '../../i18n';
-import type { RemoteClient } from './remoteClient';
+import type { RemoteChatClient } from './remoteClient';
 import { remoteButton } from './remoteUi';
 
-export function RemotePreviewProvider({ client, children }: { client: RemoteClient; children: ReactNode }) {
+export function RemotePreviewProvider({ client, children }: { client: RemoteChatClient; children: ReactNode }) {
   const { t } = useTranslation();
   const [path, setPath] = useState('');
   const [preview, setPreview] = useState<FilePreview | null>(null);

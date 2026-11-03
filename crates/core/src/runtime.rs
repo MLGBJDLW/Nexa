@@ -389,6 +389,7 @@ impl StartTurnRequest {
 pub enum RuntimeHostSurface {
     #[default]
     Desktop,
+    Mobile,
     Cli,
     Ide,
     Mcp,

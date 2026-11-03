@@ -5,11 +5,11 @@ import { useVoiceRecorder } from '../voice/useVoiceRecorder';
 import type { VoiceDictationEvent } from '../voice/voiceDraftProjection';
 import { LiveAudioQueue } from '../live/liveAudioQueue';
 import { encodeLiveAudio } from '../live/liveTransport';
-import { RemoteNetworkError, type RemoteClient } from './remoteClient';
+import { RemoteNetworkError, type RemoteChatClient } from './remoteClient';
 import { remoteButton } from './remoteUi';
 
 export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
-  client: RemoteClient;
+  client: RemoteChatClient;
   disabled: boolean;
   onEvent: (event: VoiceDictationEvent) => void;
   onBusy: (busy: boolean) => void;
