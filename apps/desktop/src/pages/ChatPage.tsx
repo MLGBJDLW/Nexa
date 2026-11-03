@@ -1017,7 +1017,16 @@ export function ChatPage() {
 
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
   useEffect(() => {
-    api.listAgentConfigs().then(setAgentConfigs);
+    let active = true;
+    let generation = 0;
+    const refresh = async () => {
+      const request = ++generation;
+      try { const configs = await api.listAgentConfigs(); if (active && request === generation) setAgentConfigs(configs); }
+      catch { /* Keep the last confirmed model list during a transient read failure. */ }
+    };
+    void refresh();
+    const stop = api.onAgentConfigsChanged(() => void refresh());
+    return () => { active = false; stop(); };
   }, []);
   const selectedAgentConfig =
     agentConfigs.find((config) => config.id === chat.agentConfig?.id) ?? chat.agentConfig;

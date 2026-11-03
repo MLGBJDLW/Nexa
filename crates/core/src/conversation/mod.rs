@@ -1189,7 +1189,9 @@ fn validate_nonnegative_u32_override(field: &str, value: Option<i64>) -> Result<
     Ok(())
 }
 
-fn validate_agent_config_numeric_overrides(input: &SaveAgentConfigInput) -> Result<(), CoreError> {
+pub(crate) fn validate_agent_config_numeric_overrides(
+    input: &SaveAgentConfigInput,
+) -> Result<(), CoreError> {
     for (field, value) in [
         ("maxTokens", input.max_tokens),
         ("contextWindow", input.context_window),
@@ -5039,13 +5041,77 @@ fn resolve_agent_config_model(
     }
 }
 
+struct SharedAgentConfigWrite<'a> {
+    sync_id: &'a str,
+    previous: Option<&'a AgentConfig>,
+}
+
+fn agent_config_on_connection(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<AgentConfig, CoreError> {
+    let config = conn.query_row(
+        "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, image_generation_model, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs, provider_endpoint_id, model_id, delegation_limits_v2_json, provider_streaming_json
+         FROM agent_configs WHERE id = ?1",
+        rusqlite::params![id],
+        |row| {
+            let subagent_allowed_tools_json: Option<String> = row.get(19)?;
+            let subagent_allowed_skill_ids_json: Option<String> = row.get(20)?;
+            let delegation_limits_v2_json: Option<String> = row.get(28)?;
+            let provider_streaming_json: Option<String> = row.get(29)?;
+            Ok(AgentConfig {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                provider: row.get(2)?,
+                api_key: row.get(3)?,
+                base_url: row.get(4)?,
+                model: row.get(5)?,
+                provider_endpoint_id: row.get(26)?,
+                model_id: row.get(27)?,
+                model_selection_resolution: None,
+                temperature: row.get(6)?,
+                max_tokens: row.get(7)?,
+                context_window: row.get(8)?,
+                is_default: row.get::<_, i32>(9)? != 0,
+                reasoning_enabled: row.get(10)?,
+                thinking_budget: row.get(11)?,
+                reasoning_effort: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
+                max_iterations: row.get(15)?,
+                summarization_model: row.get(16)?,
+                summarization_provider: row.get(17)?,
+                image_generation_model: row.get(18)?,
+                subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
+                subagent_allowed_skill_ids: parse_optional_string_list(
+                    subagent_allowed_skill_ids_json,
+                ),
+                subagent_max_parallel: row.get(21)?,
+                subagent_max_calls_per_turn: row.get(22)?,
+                subagent_token_budget: row.get(23)?,
+                delegation_limits_v2: parse_delegation_limits_v2(delegation_limits_v2_json),
+                tool_timeout_secs: row.get(24)?,
+                agent_timeout_secs: row.get(25)?,
+                provider_streaming: parse_provider_streaming(provider_streaming_json),
+            })
+        },
+    )
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => {
+            CoreError::NotFound(format!("AgentConfig {id}"))
+        }
+        other => CoreError::Database(other),
+    })?;
+    decrypt_agent_config_key(config)
+}
+
 impl Database {
     /// Upsert an agent config. Returns the persisted row.
     pub fn save_agent_config(
         &self,
         input: &SaveAgentConfigInput,
     ) -> Result<AgentConfig, CoreError> {
-        self.save_agent_config_with_external_launch(input, None)
+        self.save_agent_config_with_external_launch(input, None, None)
     }
 
     pub fn save_external_agent_profile(
@@ -5061,13 +5127,27 @@ impl Database {
             launch.config_options_model = Some(input.model.clone());
         }
         launch.validate()?;
-        self.save_agent_config_with_external_launch(input, Some(&launch))
+        self.save_agent_config_with_external_launch(input, Some(&launch), None)
+    }
+
+    pub(crate) fn save_shared_agent_config(
+        &self,
+        input: &SaveAgentConfigInput,
+        sync_id: &str,
+        previous: Option<&AgentConfig>,
+    ) -> Result<AgentConfig, CoreError> {
+        self.save_agent_config_with_external_launch(
+            input,
+            None,
+            Some(SharedAgentConfigWrite { sync_id, previous }),
+        )
     }
 
     fn save_agent_config_with_external_launch(
         &self,
         input: &SaveAgentConfigInput,
         launch: Option<&crate::external_agent::ExternalAgentLaunch>,
+        sync: Option<SharedAgentConfigWrite<'_>>,
     ) -> Result<AgentConfig, CoreError> {
         validate_agent_config_credential_contract(input)?;
         validate_agent_config_numeric_overrides(input)?;
@@ -5116,6 +5196,31 @@ impl Database {
             })?;
         let mut conn = self.conn();
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(sync) = &sync {
+            let current = match agent_config_on_connection(&transaction, &id) {
+                Ok(config) => Some(config),
+                Err(CoreError::NotFound(_)) => None,
+                Err(error) => return Err(error),
+            };
+            if serde_json::to_value(current.as_ref())? != serde_json::to_value(sync.previous)? {
+                return Err(CoreError::Conflict(
+                    "Model connection changed during synchronization; retry with its current state"
+                        .into(),
+                ));
+            }
+            let linked: Option<Option<String>> = transaction
+                .query_row(
+                    "SELECT config_id FROM shared_model_connections WHERE sync_id=?1",
+                    [sync.sync_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if linked.is_some_and(|target| target.as_deref() != Some(id.as_str())) {
+                return Err(CoreError::Conflict(
+                    "Model connection was removed or relinked during synchronization".into(),
+                ));
+            }
+        }
         transaction.execute(
             "INSERT INTO agent_configs (id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, max_iterations, summarization_model, summarization_provider, image_generation_model, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs, provider_endpoint_id, model_id, delegation_limits_v2_json, provider_streaming_json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
@@ -5179,6 +5284,12 @@ impl Database {
                 &provider_streaming_json,
             ],
         )?;
+        if let Some(sync) = &sync {
+            transaction.execute(
+                "INSERT INTO shared_model_connections(sync_id,config_id) VALUES(?1,?2) ON CONFLICT(sync_id) DO NOTHING",
+                rusqlite::params![sync.sync_id, &id],
+            )?;
+        }
         if let Some(launch) = launch {
             crate::external_agent::ensure_launch_storage(&transaction)?;
             transaction.execute(
@@ -5250,60 +5361,7 @@ impl Database {
 
     /// Get a single agent config by id.
     pub fn get_agent_config(&self, id: &str) -> Result<AgentConfig, CoreError> {
-        let conn = self.conn();
-        let config = conn.query_row(
-            "SELECT id, name, provider, api_key, base_url, model, temperature, max_tokens, context_window, is_default, reasoning_enabled, thinking_budget, reasoning_effort, created_at, updated_at, max_iterations, summarization_model, summarization_provider, image_generation_model, subagent_allowed_tools_json, subagent_allowed_skill_ids_json, subagent_max_parallel, subagent_max_calls_per_turn, subagent_token_budget, tool_timeout_secs, agent_timeout_secs, provider_endpoint_id, model_id, delegation_limits_v2_json, provider_streaming_json
-             FROM agent_configs WHERE id = ?1",
-            rusqlite::params![id],
-            |row| {
-                let subagent_allowed_tools_json: Option<String> = row.get(19)?;
-                let subagent_allowed_skill_ids_json: Option<String> = row.get(20)?;
-                let delegation_limits_v2_json: Option<String> = row.get(28)?;
-                let provider_streaming_json: Option<String> = row.get(29)?;
-                Ok(AgentConfig {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    provider: row.get(2)?,
-                    api_key: row.get(3)?,
-                    base_url: row.get(4)?,
-                    model: row.get(5)?,
-                    provider_endpoint_id: row.get(26)?,
-                    model_id: row.get(27)?,
-                    model_selection_resolution: None,
-                    temperature: row.get(6)?,
-                    max_tokens: row.get(7)?,
-                    context_window: row.get(8)?,
-                    is_default: row.get::<_, i32>(9)? != 0,
-                    reasoning_enabled: row.get(10)?,
-                    thinking_budget: row.get(11)?,
-                    reasoning_effort: row.get(12)?,
-                    created_at: row.get(13)?,
-                    updated_at: row.get(14)?,
-                    max_iterations: row.get(15)?,
-                    summarization_model: row.get(16)?,
-                    summarization_provider: row.get(17)?,
-                    image_generation_model: row.get(18)?,
-                    subagent_allowed_tools: parse_optional_string_list(subagent_allowed_tools_json),
-                    subagent_allowed_skill_ids: parse_optional_string_list(
-                        subagent_allowed_skill_ids_json,
-                    ),
-                    subagent_max_parallel: row.get(21)?,
-                    subagent_max_calls_per_turn: row.get(22)?,
-                    subagent_token_budget: row.get(23)?,
-                    delegation_limits_v2: parse_delegation_limits_v2(delegation_limits_v2_json),
-                    tool_timeout_secs: row.get(24)?,
-                    agent_timeout_secs: row.get(25)?,
-                    provider_streaming: parse_provider_streaming(provider_streaming_json),
-                })
-            },
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                CoreError::NotFound(format!("AgentConfig {id}"))
-            }
-            other => CoreError::Database(other),
-        })?;
-        decrypt_agent_config_key(config)
+        agent_config_on_connection(&self.conn(), id)
     }
 
     /// Delete an agent config by id.

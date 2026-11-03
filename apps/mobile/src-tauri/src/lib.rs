@@ -1,3 +1,4 @@
+mod connections;
 mod local;
 mod phone_tool;
 mod platform;
@@ -23,10 +24,11 @@ use tauri::{AppHandle, Manager, State};
 #[tauri::command]
 async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result<Value, String> {
     runtime.get(&app).await?;
-    let saved = platform::read_secret(&app, "local-provider").await?;
-    Ok(
-        json!({"version":env!("CARGO_PKG_VERSION"),"settings":saved.as_ref().map(|v|&v["settings"]),"hosts":remote::hosts(&app).await?,"capabilities":platform::call(&app,"capabilities",json!({})).await?}),
-    )
+    let mut state = connections::public_state(&app).await?;
+    state["version"] = json!(env!("CARGO_PKG_VERSION"));
+    state["hosts"] = json!(remote::hosts(&app).await?);
+    state["capabilities"] = platform::call(&app, "capabilities", json!({})).await?;
+    Ok(state)
 }
 
 #[tauri::command]
@@ -34,37 +36,27 @@ async fn mobile_save_settings(
     app: AppHandle,
     settings: LocalSettings,
     api_key: String,
+    name: Option<String>,
+    create_new: Option<bool>,
 ) -> Result<(), String> {
-    if settings.model.trim().is_empty() {
-        return Err("Enter a model ID.".into());
+    connections::save_settings(&app, settings, api_key, name, create_new.unwrap_or(false)).await
+}
+
+#[tauri::command]
+async fn mobile_connection(app: AppHandle, action: String, id: String) -> Result<(), String> {
+    match action.as_str() {
+        "select" => connections::select(&app, &id).await,
+        "remove" => connections::remove(&app, &id).await,
+        _ => Err("Unsupported model connection operation.".into()),
     }
-    nexa_core::provider_registry::provider_type_from_key(&settings.provider_type)
-        .ok_or("Unsupported provider type.")?;
-    if let Some(url) = &settings.base_url {
-        validate_provider_url(url)?;
-    }
-    let old = platform::read_secret(&app, "local-provider").await?;
-    let same_account = old.as_ref().is_some_and(|value| {
-        value["settings"]["providerType"] == settings.provider_type
-            && value["settings"]["baseUrl"] == json!(settings.base_url)
-    });
-    let key = if api_key.is_empty() && same_account {
-        old.as_ref()
-            .and_then(|v| v["apiKey"].as_str())
-            .unwrap_or_default()
-            .to_string()
-    } else {
-        api_key
-    };
-    if key.is_empty() {
-        return Err("Enter the phone's own API key.".into());
-    }
-    platform::save_secret(
-        &app,
-        "local-provider",
-        Some(&json!({"settings":settings,"apiKey":key})),
-    )
-    .await
+}
+
+#[tauri::command]
+async fn mobile_sync_connections(
+    app: AppHandle,
+    host_id: String,
+) -> Result<connections::SyncSummary, String> {
+    connections::synchronize(&app, &host_id).await
 }
 
 #[tauri::command]
@@ -122,12 +114,8 @@ async fn mobile_local(
         }
         "approvals" => state.approvals(&string("conversationId")?).await,
         "create" => {
-            let saved = platform::read_secret(&app, "local-provider")
-                .await?
-                .ok_or("Configure a local provider first.")?;
-            state.create(
-                &serde_json::from_value(saved["settings"].clone()).map_err(|e| e.to_string())?,
-            )
+            let saved = connections::active(&app).await?;
+            state.create(&connections::settings(&saved))
         }
         "start" => {
             state
@@ -306,16 +294,15 @@ async fn mobile_remote(
         "forget" => {
             state.close(&host_id, None).await;
             remote::forget(&app, &host_id).await?;
+            connections::forget_host(&app, &host_id).await?;
             Ok(Value::Null)
         }
         "rpc" => {
-            remote::rpc(
-                &app,
-                &host_id,
-                method.ok_or("A method is required.")?,
-                params,
-            )
-            .await
+            let method = method.ok_or("A method is required.")?;
+            if method.starts_with("sync.") {
+                return Err("Credential synchronization is available only through the native connection manager.".into());
+            }
+            remote::rpc(&app, &host_id, method, params).await
         }
         _ => Err("Unsupported remote operation.".into()),
     }
@@ -330,6 +317,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             mobile_state,
             mobile_save_settings,
+            mobile_connection,
+            mobile_sync_connections,
             mobile_local,
             mobile_permission,
             mobile_pair,

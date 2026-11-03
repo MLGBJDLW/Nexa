@@ -29,6 +29,8 @@ use tokio::sync::{oneshot, Mutex};
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalSettings {
+    #[serde(default)]
+    pub connection_id: Option<String>,
     pub provider_type: String,
     pub base_url: Option<String>,
     pub model: String,
@@ -131,21 +133,18 @@ impl LocalRuntime {
         uuid::Uuid::parse_str(&request_id)
             .map_err(|_| "A stable request ID is required.".to_string())?;
         let mut active = self.active.lock().await;
-        let saved = platform::read_secret(&app, "local-provider")
-            .await?
-            .ok_or("Configure a provider for phone tasks first.")?;
-        let settings: LocalSettings =
-            serde_json::from_value(saved["settings"].clone()).map_err(err)?;
+        let saved = crate::connections::active(&app).await?;
+        let settings = crate::connections::settings(&saved);
         let provider_type =
             nexa_core::provider_registry::provider_type_from_key(&settings.provider_type)
                 .ok_or("Unsupported provider type.")?;
         let provider = create_provider(ProviderConfig {
             provider_type,
             base_url: settings.base_url.clone(),
-            api_key: saved["apiKey"].as_str().map(str::to_owned),
+            api_key: Some(saved.api_key.clone()),
             org_id: None,
-            timeout_secs: Some(120),
-            streaming: Default::default(),
+            timeout_secs: None,
+            streaming: saved.provider_streaming.clone(),
         })
         .map_err(err)?;
         let conversation = if let Some(id) = conversation_id {
@@ -291,6 +290,16 @@ impl LocalRuntime {
         let mut config = AgentConfig {
             model: Some(settings.model.clone()),
             provider_type: Some(provider_type),
+            temperature: saved.temperature.map(|value| value as f32),
+            context_window: saved.context_window.and_then(|value| value.try_into().ok()),
+            reasoning_enabled: saved.reasoning_enabled,
+            thinking_budget: saved
+                .thinking_budget
+                .and_then(|value| value.try_into().ok()),
+            reasoning_effort: saved
+                .reasoning_effort
+                .as_deref()
+                .and_then(nexa_core::llm::ReasoningEffort::from_wire),
             require_tool_confirmation: true,
             ..Default::default()
         };

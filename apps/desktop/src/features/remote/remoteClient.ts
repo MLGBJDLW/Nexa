@@ -7,6 +7,7 @@ export interface RemoteManifest {
   serverId: string;
   endpoints: RemoteEndpoint[];
   reconnectGraceSeconds: number;
+  capabilities?: string[];
 }
 export interface PairedRemote {
   token: string;

@@ -1980,19 +1980,23 @@ pub async fn list_agent_configs_cmd(
 #[tauri::command]
 pub async fn save_agent_config_cmd(
     state: tauri::State<'_, AppState>,
+    app: AppHandle,
     config: SaveAgentConfigInput,
 ) -> Result<DbAgentConfig, String> {
-    state
+    let saved = state
         .db_executor
         .write(move |db| db.save_agent_config(&config))
         .await
         .map(|execution| execution.value)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    crate::app_events::emit_app_event(&app, "agent-configs-changed", &serde_json::json!({}));
+    Ok(saved)
 }
 
 #[tauri::command]
 pub async fn delete_agent_config_cmd(
     state: tauri::State<'_, AppState>,
+    app: AppHandle,
     id: String,
 ) -> Result<(), String> {
     state
@@ -2000,12 +2004,15 @@ pub async fn delete_agent_config_cmd(
         .write(move |db| db.delete_agent_config(&id))
         .await
         .map(|execution| execution.value)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    crate::app_events::emit_app_event(&app, "agent-configs-changed", &serde_json::json!({}));
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn set_default_agent_config_cmd(
     state: tauri::State<'_, AppState>,
+    app: AppHandle,
     id: String,
 ) -> Result<(), String> {
     state
@@ -2013,7 +2020,9 @@ pub async fn set_default_agent_config_cmd(
         .write(move |db| db.set_default_agent_config(&id))
         .await
         .map(|execution| execution.value)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    crate::app_events::emit_app_event(&app, "agent-configs-changed", &serde_json::json!({}));
+    Ok(())
 }
 
 // Settings Schema V2 remains compatible with AgentConfig during PR 8. These

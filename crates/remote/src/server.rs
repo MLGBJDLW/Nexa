@@ -123,6 +123,7 @@ impl RemoteServer {
                 .unwrap_or_else(|e| e.into_inner())
                 .clone(),
             reconnect_grace_seconds: RECONNECT_GRACE.as_secs(),
+            capabilities: self.host.capabilities(),
         }
     }
     pub fn add_endpoint(&self, mut endpoint: Endpoint) -> Result<(), String> {
@@ -588,7 +589,9 @@ fn serve_html_preview(server: &RemoteServer, id: &str, document: bool) -> Respon
 }
 
 async fn health(State(server): State<Arc<RemoteServer>>) -> Json<Value> {
-    Json(json!({"serverId":server.server_id(),"version":1}))
+    Json(
+        json!({"serverId":server.server_id(),"version":1,"capabilities":server.host.capabilities()}),
+    )
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -610,15 +613,22 @@ struct PairRequest {
     code: String,
     name: String,
     client_nonce: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
 }
 async fn pair(State(server): State<Arc<RemoteServer>>, Json(input): Json<PairRequest>) -> Response {
     let pairing = server.clone();
     match tokio::task::spawn_blocking(move || {
-        pairing.auth.lock().unwrap_or_else(|e| e.into_inner()).pair(
-            &input.code,
-            &input.name,
-            &input.client_nonce,
-        )
+        pairing
+            .auth
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pair_with_capabilities(
+                &input.code,
+                &input.name,
+                &input.client_nonce,
+                &input.capabilities,
+            )
     })
     .await
     {
@@ -651,6 +661,17 @@ async fn rpc(
     };
     if let Err(error) = input.command.validate() {
         return failure(StatusCode::BAD_REQUEST, error);
+    }
+    if matches!(&input.command, crate::RemoteCommand::SyncConnections { .. })
+        && !device
+            .capabilities
+            .iter()
+            .any(|capability| capability == crate::MODEL_CONNECTION_SYNC_CAPABILITY)
+    {
+        return failure(
+            StatusCode::FORBIDDEN,
+            "Pair this device again to enable model connection sharing",
+        );
     }
     let request = server.host.execute(&device.id, input.command);
     let result = tokio::select! {biased; _ = server.shutdown.cancelled()=>Err("Remote access has stopped".into()),_=server.revoked(&device.id)=>Err("Device was revoked".into()),result=tokio::time::timeout(Duration::from_secs(150),request)=>result.unwrap_or_else(|_|Err("Remote request timed out".into()))};

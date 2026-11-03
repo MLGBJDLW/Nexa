@@ -181,13 +181,13 @@ export function RemoteChat({
   );
   useEffect(() => {
     let active = true;
-    void Promise.all([client.rpc<Connection[]>("connections.list"), list()])
+    const refresh = () => Promise.all([client.rpc<Connection[]>("connections.list"), list()])
       .then(([items]) => {
         if (active) {
           setConnections(items);
           setConnectionId(
             (current) =>
-              current ||
+              (items.some(item => item.id === current) ? current : '') ||
               items.find((item) => item.isDefault)?.id ||
               items[0]?.id ||
               "",
@@ -198,8 +198,11 @@ export function RemoteChat({
       .finally(() => {
         if (active) setLoading(false);
       });
+    void refresh();
+    const unsubscribe = client.subscribe(event => { if (event.event === 'connections:changed') void refresh(); });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [client, list]);
   useEffect(() => {

@@ -7,7 +7,7 @@ Nexa Mobile starts at version `0.1.0` with a native Android application in
 
 | Target | Runtime and credentials | Files and history |
 | --- | --- | --- |
-| This phone | Shared Rust agent core hosted on Android; configure a separate phone model connection | Android app-owned workspace and SQLite conversation/run ledger |
+| This phone | Shared Rust agent core hosted on Android; use a saved or synchronized model connection | Android app-owned workspace and SQLite conversation/run ledger |
 | My computer | The paired computer's existing agent and provider connections | Remain on that computer; the phone receives chat, approval and preview projections |
 
 Phone execution does not require a running Nexa computer. It still needs network
@@ -19,8 +19,8 @@ on the phone itself. A pairing connection always requires trusted HTTPS.
 ## Setup and use
 
 1. Install the signed ARM64 APK from the matching `nexa-mobile-v*` release.
-2. For **This phone**, open phone settings, choose a provider/model and supply
-   the phone's API key. The model catalog is shared with desktop. Enable task
+2. For **This phone**, open phone settings and add a provider/model and API key,
+   or pair with Desktop 0.18 or later to synchronize saved connections. The model catalog is shared with desktop. Enable task
    notifications so progress and **Stop** remain reachable when another app opens.
 3. Ask the agent to create or edit a file. Phone tasks use the existing scoped
    file tools; the folder action shares workspace outputs through Android's
@@ -36,6 +36,30 @@ a saved key is retained only for the same account endpoint. Android backup is
 disabled so encrypted records cannot be restored without their keystore key.
 Forgetting a computer removes this phone's saved token; revoke the device on the
 computer to invalidate any other saved copy.
+
+## Model connection synchronization
+
+Pairing the native app with Desktop 0.18 or later grants bidirectional sharing of
+portable model connections and API keys. Existing pairings need a fresh pairing
+grant; browser companion tokens do not gain credential export. Sync runs after
+pairing, reconnecting, foregrounding, and connection changes. **Sync now** in phone
+settings retries explicitly. Both devices retain their own active/default model,
+workspace, tools and approval policy. Chats and files are not copied between devices.
+
+Connections use stable shared identities and compare the last synchronized
+revision. Simultaneous edits become separate named connections, preserving both
+versions. OAuth sessions, external agent runtimes, device-local endpoints and
+other device-specific authentication stay on their original device and remain
+usable through computer mode. Portable connections require cloud HTTPS endpoints.
+
+Keys cross only the authenticated native sync route and stay in the existing
+encrypted desktop and Android stores. The renderer receives connection metadata
+and sync counts, never saved keys. Removing a connection on the phone removes its
+local copy and suppresses reimport. Deleting a desktop connection prevents the
+phone from recreating it on that desktop; the phone keeps its independent copy.
+Forgetting or revoking pairing stops future synchronization but does not erase
+keys already copied to another device. Remove those copies or rotate the provider
+key when needed.
 
 ## Optional phone control
 

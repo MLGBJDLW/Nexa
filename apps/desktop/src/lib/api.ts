@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from '@tauri-apps/api/event';
+import { connectEventSubscriptions } from './eventSubscriptions';
 import { accountSnapshotRequest, invalidateAccountSnapshot } from './accountSnapshotRequest';
 import { createTerminalInputWriter } from './terminalInput';
 export interface FontAsset {
@@ -1076,6 +1078,10 @@ export const cancelCopilotAccountLogin = async () => {
 };
 
 export const listAgentConfigs = () => invoke<AgentConfig[]>('list_agent_configs_cmd');
+
+export const onAgentConfigsChanged = (changed: () => void) => connectEventSubscriptions([
+  active => listen('agent-configs-changed', () => { if (active()) changed(); }),
+], () => {}).stop;
 
 export const saveAgentConfig = (config: SaveAgentConfigInput) =>
   invoke<AgentConfig>('save_agent_config_cmd', { config });

@@ -3,7 +3,7 @@ import type { AgentRunEvent } from '../../desktop/src/types/conversation';
 import type { RemoteChatClient, PairedRemote, RemoteConnection, RemoteEnvelope } from '../../desktop/src/features/remote/remoteClient';
 import { local } from './nativeClient';
 
-export interface PhoneSettings { providerType: string; baseUrl: string | null; model: string }
+export interface PhoneSettings { connectionId?: string | null; providerType: string; baseUrl: string | null; model: string }
 interface Run { id: string; status: string; phase: string; errorMessage?: string }
 export class LocalClient implements RemoteChatClient {
   readonly voiceAvailable = false;

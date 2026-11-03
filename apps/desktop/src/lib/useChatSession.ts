@@ -658,6 +658,34 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     loadDefaultConfig();
   }, [loadConversations, loadDefaultConfig]);
 
+  useEffect(() => {
+    let active = true;
+    let generation = 0;
+    const stop = api.onAgentConfigsChanged(() => {
+      const request = ++generation;
+      void (async () => {
+        const configs = await api.listAgentConfigs();
+        if (!active || request !== generation) return;
+        const fallback = configs.find(config => config.isDefault) ?? configs[0] ?? null;
+        const selected = configs.find(config => config.id === activeAgentConfigRef.current?.id) ?? fallback;
+        agentConfigsRef.current = configs;
+        defaultAgentConfigRef.current = fallback;
+        activeAgentConfigRef.current = selected;
+        setAgentConfig(selected);
+        if (!selected) return;
+        const resolution = await resolveContextWindowForConfig(selected);
+        if (!active || request !== generation || activeAgentConfigRef.current?.id !== selected.id) return;
+        setContextWindow(resolution.contextWindow);
+        setContextAuthority(resolution.authority);
+        if (selected.id === fallback?.id) {
+          setDefaultContextWindow(resolution.contextWindow);
+          setDefaultContextAuthority(resolution.authority);
+        }
+      })().catch(() => { /* Keep the confirmed selection if a refresh is interrupted. */ });
+    });
+    return () => { active = false; stop(); };
+  }, []);
+
   /* ── Load messages when conversation changes ────────────────────── */
   useEffect(() => {
     const generation = ++conversationHydrationGenerationRef.current;

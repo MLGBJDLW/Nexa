@@ -9,6 +9,11 @@ test.beforeEach(async ({ page }) => {
     const listeners = new Map<number, { event: string; handlerId: number }>();
     let callbackSeq = 1;
     let listenerSeq = 1;
+    (window as unknown as { __emitConnectionChange: () => void }).__emitConnectionChange = () => {
+      for (const [id, listener] of listeners) {
+        if (listener.event === 'agent-configs-changed') callbackMap.get(listener.handlerId)?.({ id, event: listener.event, payload: {} });
+      }
+    };
     let updateCheckCount = 0;
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -95,6 +100,7 @@ test.beforeEach(async ({ page }) => {
         case "get_wizard_state_cmd":
           return { completed: true };
         case "list_agent_configs_cmd":
+          return JSON.parse(localStorage.getItem('e2e-synced-connections') ?? '[]');
         case "list_conversations_cmd":
         case "list_sources":
         case "list_projects_cmd":
@@ -415,6 +421,24 @@ test('built-in skills can be disabled, restored, and retain their state after re
   await toggle.focus();
   await page.keyboard.press('Space');
   await expect(toggle).toBeChecked();
+});
+
+test('paired connection changes refresh desktop settings without a reload', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
+  await page.evaluate(() => {
+    localStorage.setItem('e2e-synced-connections', JSON.stringify([{id:'synced-phone',name:'Phone connection',provider:'deep_seek',model:'deepseek-chat',apiKey:'',baseUrl:null,isDefault:true}]));
+    (window as unknown as { __emitConnectionChange: () => void }).__emitConnectionChange();
+  });
+  await expect(page.getByText('Phone connection', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const records = JSON.parse(localStorage.getItem('e2e-synced-connections')!);
+    records[0].name = 'Updated phone connection';
+    localStorage.setItem('e2e-synced-connections', JSON.stringify(records));
+    (window as unknown as { __emitConnectionChange: () => void }).__emitConnectionChange();
+  });
+  await expect(page.getByText('Updated phone connection', { exact: true })).toBeVisible();
+  await expect(page.getByText('Phone connection', { exact: true })).toHaveCount(0);
 });
 
 test("settings agent behavior controls use the selected locale", async ({ page }) => {

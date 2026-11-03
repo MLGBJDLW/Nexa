@@ -2905,6 +2905,7 @@ Every answer that uses knowledge base search results.
     ("v158_workflow_delivery_targets", include_str!("v158_workflow_delivery_targets.sql")),
     ("v159_workflow_delivery_ownership", include_str!("v159_workflow_delivery_ownership.sql")),
     ("v160_builtin_skill_state", include_str!("v160_builtin_skill_state.sql")),
+    ("v161_shared_model_connections", include_str!("v161_shared_model_connections.sql")),
 ];
 
 /// Ensures the internal `_migrations` tracking table exists.

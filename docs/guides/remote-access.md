@@ -87,7 +87,9 @@ permission. See [Voice and Live](LIVE.md).
 The phone can browse and page through desktop conversations, send/stop work,
 answer supplemental questions, and allow or deny a single pending approval.
 Requests use the same desktop launch and approval paths; model keys are not
-sent to the phone.
+sent to the browser companion. The [native mobile app](MOBILE_APP.md#model-connection-synchronization)
+can share portable model connections and API keys through a separate pairing
+grant introduced in Desktop 0.18. Existing browser tokens do not receive that grant.
 
 Model connections and model choices come from the desktop resolver. Refresh
 available models or enter a custom ID where supported. Dictation uses the

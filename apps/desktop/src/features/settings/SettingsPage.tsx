@@ -1508,13 +1508,20 @@ export function SettingsPage() {
   const [agentSaveLoading, setAgentSaveLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AgentConfig | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const agentConfigLoadGeneration = useRef(0);
 
   const loadAgentConfigs = useCallback(() => {
-    api.listAgentConfigs().then(setAgentConfigs).catch((e) => {
+    const request = ++agentConfigLoadGeneration.current;
+    api.listAgentConfigs().then(configs => {
+      if (request === agentConfigLoadGeneration.current) setAgentConfigs(configs);
+    }).catch((e) => {
+      if (request !== agentConfigLoadGeneration.current) return;
       console.error('Failed to load AI provider configs:', e);
       toast.error(t('settings.loadStatsError'));
     });
   }, []);
+
+  useEffect(() => api.onAgentConfigsChanged(loadAgentConfigs), [loadAgentConfigs]);
 
   useEffect(() => {
     if (activeTab === 'providers' || activeTab === 'models_embedding') {

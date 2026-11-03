@@ -2,6 +2,10 @@
 
 ## 0.1.0
 
+- Share portable model connections and API keys with paired Desktop 0.18 or later,
+  with explicit pairing grants, encrypted native storage, key rotation and
+  conflict-preserving updates. Keep the active model independent on each device.
+
 - Introduce the native Android app with separate phone and computer execution targets.
 - Run phone tasks through Nexa's shared agent runtime, durable conversations, event replay, explicit approvals, cancellation and recovery checkpoints.
 - Keep local provider keys and per-computer pairing tokens encrypted with Android Keystore.

@@ -106,6 +106,29 @@ async fn host(app: &AppHandle, id: &str) -> Result<Value, String> {
         .ok_or("Pair this computer first.".into())
 }
 
+pub(crate) async fn supports_model_sync(app: &AppHandle, id: &str) -> Result<bool, String> {
+    let saved = host(app, id).await?;
+    Ok([
+        &saved["manifest"]["capabilities"],
+        &saved["device"]["capabilities"],
+    ]
+    .iter()
+    .all(|capabilities| {
+        capabilities
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "model-connection-sync-v1"))
+    }))
+}
+
+pub(crate) async fn paired_guard(
+    app: &AppHandle,
+    id: &str,
+) -> Result<tokio::sync::MutexGuard<'static, ()>, String> {
+    let guard = HOST_STORE.lock().await;
+    host(app, id).await?;
+    Ok(guard)
+}
+
 pub async fn pair(
     app: &AppHandle,
     pairing_url: String,
@@ -141,9 +164,17 @@ pub async fn pair(
     if health["version"] != 1 || health["serverId"].as_str() != Some(expected) {
         return Err("This pairing link points to a different or incompatible computer.".into());
     }
+    let mut request_body = json!({"code":code,"name":name,"clientNonce":client_nonce});
+    // Older hosts reject unknown fields, and existing pairings retain their original grants.
+    if health["capabilities"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item == "model-connection-sync-v1"))
+    {
+        request_body["capabilities"] = json!(["model-connection-sync-v1"]);
+    }
     let mut paired = response(
         request(&http, reqwest::Method::POST, &endpoint, "/api/pair")
-            .json(&json!({"code":code,"name":name,"clientNonce":client_nonce}))
+            .json(&request_body)
             .timeout(Duration::from_secs(20))
             .send()
             .await
@@ -271,7 +302,11 @@ pub async fn rpc(
                 .ok_or("Pairing token unavailable.")?,
         )
         .json(&json!({"method":method,"params":params}))
-        .timeout(Duration::from_secs(145))
+        .timeout(Duration::from_secs(if method == "sync.connections" {
+            30
+        } else {
+            145
+        }))
         .send()
         .await
         .map_err(|_| "The connection changed. Retry to recover the task.")?;

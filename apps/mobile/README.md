@@ -8,6 +8,10 @@ execution targets, permissions, acceptance boundaries and release instructions.
 The existing browser companion remains available through
 [Phone access](../../docs/guides/remote-access.md).
 
+Pair with Desktop 0.18 or later to share saved cloud model connections and API
+keys in both directions. Phone settings can also add independent connections.
+Each device keeps its own selected model, tools, history and workspace.
+
 ```sh
 npm ci --prefix apps/desktop
 npm ci --prefix apps/mobile

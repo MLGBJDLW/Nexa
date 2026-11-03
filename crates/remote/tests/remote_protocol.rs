@@ -228,6 +228,9 @@ async fn fixed_https_origins_accept_browser_normalization_for_pairing_and_websoc
 }
 #[async_trait::async_trait]
 impl RemoteHost for Host {
+    fn capabilities(&self) -> Vec<String> {
+        vec![MODEL_CONNECTION_SYNC_CAPABILITY.into()]
+    }
     async fn execute(&self, owner: &str, _command: RemoteCommand) -> Result<Value, String> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(json!({"owner":owner}))
@@ -241,6 +244,67 @@ impl RemoteHost for Host {
             mime_type: "text/html".into(),
         })
     }
+}
+#[tokio::test]
+async fn model_connection_export_requires_an_explicit_pairing_grant() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = Arc::new(Host::default());
+    let server = RemoteServer::new(AuthStore::open(dir.path()).unwrap(), host.clone());
+    let listener = server
+        .listen(([127, 0, 0, 1], 0).into(), None)
+        .await
+        .unwrap();
+    let origin = format!("http://{}", listener.address);
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let health: Value = client
+        .get(format!("{origin}/api/health"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        health["capabilities"],
+        json!([MODEL_CONNECTION_SYNC_CAPABILITY])
+    );
+    let request = || {
+        client
+            .post(format!("{origin}/api/rpc"))
+            .header("Origin", &origin)
+            .json(&json!({"method":"sync.connections","params":{"input":{}}}))
+    };
+    assert_eq!(request().send().await.unwrap().status(), 401);
+    for grant in [false, true] {
+        let mut body = json!({"code":server.pairing().code,"name":"Phone","clientNonce":uuid::Uuid::new_v4().to_string()});
+        if grant {
+            body["capabilities"] = json!([MODEL_CONNECTION_SYNC_CAPABILITY]);
+        }
+        let paired: Value = client
+            .post(format!("{origin}/api/pair"))
+            .header("Origin", &origin)
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let token = paired["token"].as_str().unwrap();
+        let reply = request().bearer_auth(token).send().await.unwrap();
+        assert_eq!(reply.status(), if grant { 200 } else { 403 });
+        assert_eq!(reply.headers()["cache-control"], "no-store");
+        assert_eq!(host.calls.load(Ordering::SeqCst), usize::from(grant));
+        server
+            .revoke(paired["device"]["id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            request().bearer_auth(token).send().await.unwrap().status(),
+            401
+        );
+    }
+    server.stop().await;
 }
 #[tokio::test]
 async fn authenticated_phone_routes_keep_origin_scope_and_revocation_on_real_sockets() {
