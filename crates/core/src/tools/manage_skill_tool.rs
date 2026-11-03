@@ -215,9 +215,9 @@ fn missing(field: &str, action: &str) -> CoreError {
 }
 
 fn load_skill_for_action(db: &Database, skill_id: &str) -> Result<Skill, CoreError> {
-    let mut skills = crate::skills::load_builtin_skills();
+    let mut skills = db.list_builtin_skills()?;
     skills.extend(db.list_skills()?);
-    skills
+    let skill = skills
         .into_iter()
         .find(|skill| {
             skill.id == skill_id
@@ -225,7 +225,13 @@ fn load_skill_for_action(db: &Database, skill_id: &str) -> Result<Skill, CoreErr
                 || skill.name == skill_id
                 || skill.id.strip_prefix("builtin-") == Some(skill_id)
         })
-        .ok_or_else(|| CoreError::NotFound(format!("Skill {skill_id}")))
+        .ok_or_else(|| CoreError::NotFound(format!("Skill {skill_id}")))?;
+    if !skill.enabled {
+        return Err(CoreError::InvalidInput(format!(
+            "Skill {skill_id} is disabled; enable it in Settings before using it"
+        )));
+    }
+    Ok(skill)
 }
 
 fn find_skill_resource<'a>(
@@ -443,7 +449,7 @@ impl Tool for ManageSkillTool {
                 })
             }
             "list_skills" => {
-                let mut skills = crate::skills::load_builtin_skills();
+                let mut skills = db.list_builtin_skills()?;
                 skills.extend(db.list_skills()?);
                 let limit = args.limit.unwrap_or(50).min(100);
                 let summaries = skills
@@ -498,17 +504,7 @@ impl Tool for ManageSkillTool {
             }
             "view_skill" | "activate_skill" => {
                 let skill_id = args.skill_id.ok_or_else(|| missing("skill_id", action))?;
-                let mut skills = crate::skills::load_builtin_skills();
-                skills.extend(db.list_skills()?);
-                let skill = skills
-                    .into_iter()
-                    .find(|skill| {
-                        skill.id == skill_id
-                            || skill.canonical_name == skill_id
-                            || skill.name == skill_id
-                            || skill.id.strip_prefix("builtin-") == Some(skill_id.as_str())
-                    })
-                    .ok_or_else(|| CoreError::NotFound(format!("Skill {skill_id}")))?;
+                let skill = load_skill_for_action(db, &skill_id)?;
                 let resources = if skill.resources.is_empty() {
                     "Resources: none".to_string()
                 } else {
@@ -849,6 +845,68 @@ mod tests {
         assert_eq!(tool.name(), "manage_skill");
         assert!(tool.description().contains("skill"));
         assert_eq!(tool.parameters_schema()["type"], "object");
+    }
+
+    #[tokio::test]
+    async fn disabled_builtin_skills_cannot_be_activated_or_used_through_resources() {
+        let db = Database::open_memory().unwrap();
+        let tool = ManageSkillTool;
+        let id = "builtin-visual-explanations";
+        db.toggle_skill(id, false).unwrap();
+        for action in [
+            "view_skill",
+            "activate_skill",
+            "view_resource",
+            "run_resource_helper",
+        ] {
+            for skill_id in [id, "visual-explanations"] {
+                let args = serde_json::json!({"action":action,"skill_id":skill_id,"resource_path":"scripts/validate.mjs"}).to_string();
+                let error = tool
+                    .execute(crate::tools::ToolExecutionContext::new(
+                        "disabled",
+                        &args,
+                        &db,
+                        &[],
+                    ))
+                    .await
+                    .unwrap_err();
+                assert!(
+                    matches!(error, CoreError::InvalidInput(ref reason) if reason.contains("disabled")),
+                    "{action}: {error}"
+                );
+            }
+        }
+        let listed = tool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "list",
+                r#"{"action":"list_skills"}"#,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        let entry = listed.artifacts.as_ref().unwrap()["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|skill| skill["id"] == id)
+            .unwrap();
+        assert_eq!(entry["enabled"], false);
+        db.toggle_skill(id, true).unwrap();
+        let activated = tool
+            .execute(crate::tools::ToolExecutionContext::new(
+                "enabled",
+                r#"{"action":"activate_skill","skill_id":"visual-explanations"}"#,
+                &db,
+                &[],
+            ))
+            .await
+            .unwrap();
+        assert!(!activated.is_error);
+        assert_eq!(
+            activated.artifacts.as_ref().unwrap()["kind"],
+            "skillActivation"
+        );
     }
 
     #[tokio::test]

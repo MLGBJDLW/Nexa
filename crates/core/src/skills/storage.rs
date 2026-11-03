@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
@@ -1244,6 +1244,49 @@ fn save_skill_on_connection(
 }
 
 impl Database {
+    pub(crate) fn builtin_skill_preferences(&self) -> Result<HashMap<String, bool>, CoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT skill_id, enabled FROM builtin_skill_state")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+        })?;
+        Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
+    }
+
+    /// List immutable bundled definitions with their effective persisted state.
+    /// Disabled entries stay visible to management surfaces so they can be restored.
+    pub fn list_builtin_skills(&self) -> Result<Vec<Skill>, CoreError> {
+        let snapshot = crate::package_host::database_backed_builtin_package_host_snapshot(self)
+            .map_err(|error| CoreError::Internal(error.to_string()))?;
+        let enabled_ids = snapshot
+            .runtime_components()
+            .into_iter()
+            .filter(|component| {
+                component.package_id == super::package::BUILTIN_SKILLS_PACKAGE_ID
+                    && component.kind == crate::package_host::PackageSurfaceKind::Skill
+            })
+            .map(|component| component.id.as_str())
+            .collect::<HashSet<_>>();
+        Ok(super::registry::load_builtin_skills()
+            .into_iter()
+            .map(|mut skill| {
+                skill.enabled = enabled_ids.contains(skill.id.as_str())
+                    || skill
+                        .id
+                        .strip_prefix("builtin-")
+                        .is_some_and(|slug| enabled_ids.contains(slug));
+                skill
+            })
+            .collect())
+    }
+
+    pub fn get_runtime_skills(&self) -> Result<Vec<Skill>, CoreError> {
+        let mut skills = self.list_builtin_skills()?;
+        skills.retain(|skill| skill.enabled);
+        skills.extend(self.get_enabled_skills()?);
+        Ok(skills)
+    }
+
     /// List all user skills, newest first. Built-ins live in the static registry,
     /// while historical database rows were removed by migration v048.
     pub fn list_skills(&self) -> Result<Vec<Skill>, CoreError> {
@@ -1309,9 +1352,20 @@ impl Database {
         Ok(())
     }
 
-    /// Toggle a user skill's enabled state.
+    /// Persist enablement without copying or modifying bundled skill content.
     pub fn toggle_skill(&self, id: &str, enabled: bool) -> Result<(), CoreError> {
         let conn = self.conn();
+        if builtin_skill_bundles()
+            .iter()
+            .any(|bundle| id == format!("builtin-{}", bundle.slug))
+        {
+            conn.execute(
+                "INSERT INTO builtin_skill_state(skill_id,enabled) VALUES(?1,?2)
+                 ON CONFLICT(skill_id) DO UPDATE SET enabled=excluded.enabled, updated_at=datetime('now')",
+                rusqlite::params![id, enabled],
+            )?;
+            return Ok(());
+        }
         let affected = conn.execute(
             "UPDATE skills SET enabled = ?2, updated_at = datetime('now') WHERE id = ?1",
             rusqlite::params![id, enabled as i32],

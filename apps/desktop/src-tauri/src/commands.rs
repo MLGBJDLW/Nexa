@@ -1422,12 +1422,19 @@ mod tests {
     #[test]
     fn desktop_builtin_skills_are_filtered_by_package_host_state() {
         let db = Database::open_memory().unwrap();
-        let skills = filter_desktop_builtin_skills_by_package_host(
-            &db,
-            nexa_core::skills::load_builtin_skills(),
-        )
-        .unwrap();
+        db.toggle_skill("builtin-evidence-first", false).unwrap();
+        let skills =
+            filter_desktop_builtin_skills_by_package_host(&db, db.list_builtin_skills().unwrap())
+                .unwrap();
         assert!(!skills.is_empty());
+        assert!(
+            !skills
+                .iter()
+                .find(|skill| skill.id == "builtin-evidence-first")
+                .unwrap()
+                .enabled,
+            "Disabled entries must remain manageable without being runtime-visible"
+        );
 
         db.set_package_host_package_enabled("builtin-skills", false)
             .unwrap();
