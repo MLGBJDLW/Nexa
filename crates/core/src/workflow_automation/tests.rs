@@ -1,5 +1,6 @@
 use super::{partial_assistant_output, WorkflowSchedulerEventType};
 use chrono::Utc;
+use std::collections::BTreeSet;
 use uuid::Uuid;
 
 use crate::agent::StreamBlockChannel;
@@ -1220,7 +1221,14 @@ fn standalone_delivery_scope_edits_are_atomic_and_preserve_user_drift() {
             .unwrap(),
         target
     );
-    assert_eq!(db.get_linked_sources(&target).unwrap(), input.source_scope);
+    // Scope is a set; inserts can share a timestamp and have no stable tie order.
+    assert_eq!(
+        db.get_linked_sources(&target)
+            .unwrap()
+            .into_iter()
+            .collect::<BTreeSet<_>>(),
+        input.source_scope.iter().cloned().collect::<BTreeSet<_>>()
+    );
     assert_eq!(
         db.get_conversation(&target).unwrap().project_id.as_deref(),
         Some("scope-project")
