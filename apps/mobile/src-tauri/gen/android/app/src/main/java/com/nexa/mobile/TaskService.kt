@@ -24,7 +24,11 @@ class TaskService : Service() {
         }
         @Synchronized fun stopped() { stopWaiters.forEach { it.resolve(JSObject()) }; stopWaiters.clear() }
         @Synchronized fun pending(id: String, invoke: Invoke) { approvals.remove(id)?.resolve(JSObject("{\"allow\":false}")); approvals[id] = invoke }
-        @Synchronized fun answer(id: String, allow: Boolean) { approvals.remove(id)?.resolve(JSObject("{\"allow\":$allow}")) }
+        @Synchronized fun answer(id: String, allow: Boolean) {
+            val pending = approvals.remove(id) ?: return
+            if (allow) PhoneAccessibilityService.instance?.dismissApprovalShade()
+            pending.resolve(JSObject("{\"allow\":$allow}"))
+        }
         @Synchronized fun denyAll(notifications: NotificationManager) { approvals.forEach { (id, invoke) -> notifications.cancel(id.hashCode()); invoke.resolve(JSObject("{\"allow\":false}")) }; approvals.clear() }
     }
     private var wakeLock: PowerManager.WakeLock? = null
@@ -53,6 +57,6 @@ class TaskService : Service() {
         }
         return START_NOT_STICKY
     }
-    override fun onDestroy() { PhonePlugin.instance?.taskStopped(); wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
+    override fun onDestroy() { stopRequested.set(true); PhonePlugin.instance?.taskStopped(); wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
     override fun onBind(intent: Intent?): IBinder? = null
 }

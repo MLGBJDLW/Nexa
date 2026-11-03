@@ -116,7 +116,9 @@ async fn mobile_local(
             } else {
                 None
             };
-            Ok(json!({"run":run,"checkpoint":checkpoint}))
+            Ok(
+                json!({"run":run,"checkpoint":checkpoint.map(|checkpoint|json!({"id":checkpoint.id}))}),
+            )
         }
         "approvals" => state.approvals(&string("conversationId")?).await,
         "create" => {

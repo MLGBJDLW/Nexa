@@ -291,13 +291,21 @@ impl AgentSession for ExecutorAgentSession {
             Ok(message) => Some(message.text_content()),
             Err(err) => {
                 if !collected.terminal_submitted {
+                    let cancelled = matches!(err, CoreError::Cancelled(_));
                     outbox
                         .submit(AgentRunEvent::terminal_error(
                             &run_id,
                             Some(&turn_id),
                             0,
-                            "Agent execution failed.",
-                            "failed",
+                            if cancelled {
+                                "Request cancelled by user."
+                            } else {
+                                collected
+                                    .error_message
+                                    .as_deref()
+                                    .unwrap_or("Agent execution failed.")
+                            },
+                            if cancelled { "cancelled" } else { "failed" },
                             Some(&serde_json::json!({ "error": err.to_string() })),
                         ))
                         .map_err(|error| {
@@ -420,6 +428,13 @@ async fn collect_run_events(
 ) -> Result<CollectedRunEvents, CoreError> {
     let mut collected = CollectedRunEvents::default();
     while let Some(event) = rx.recv().await {
+        // A provider emits its legacy display error before returning the typed
+        // outcome. Let that outcome distinguish cancellation from failure;
+        // publishing a failed terminal here would close the durable run early.
+        if let AgentEvent::Error { message } = event {
+            collected.error_message = Some(message);
+            continue;
+        }
         let run_event = AgentRunEvent::from_agent_event(&event).with_context(
             Some(&run_id),
             Some(&turn_id),
@@ -437,6 +452,7 @@ async fn collect_run_events(
 #[derive(Debug, Default)]
 struct CollectedRunEvents {
     terminal_submitted: bool,
+    error_message: Option<String>,
 }
 
 pub fn status_event_for_session(
@@ -473,6 +489,78 @@ mod tests {
     use crate::task_run::{AgentTaskRuntime, CreateTaskRunInput};
 
     struct StaticProvider;
+
+    struct CancellableProvider(Arc<tokio::sync::Notify>);
+    #[async_trait]
+    impl LlmProvider for CancellableProvider {
+        fn name(&self) -> &str {
+            "static"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec!["static-model".into()])
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            Err(CoreError::Llm("not used".into()))
+        }
+        async fn stream_events(
+            &self,
+            _: &CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            self.0.notify_one();
+            crate::llm::provider_events_from_chunk_stream(stream::pending().boxed())
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_model_request_keeps_cancelled_terminal_status() {
+        let db = Database::open_memory().unwrap();
+        let (conversation, _, run) = create_started_run(&db, "cancel-stream");
+        let started = Arc::new(tokio::sync::Notify::new());
+        let cancel = crate::agent::CancellationToken::new();
+        let mut session = ExecutorAgentSession::new(
+            AgentSessionConfig {
+                conversation_id: Some(conversation),
+                task_run_id: Some(run.clone()),
+                ..Default::default()
+            },
+            Box::new(CancellableProvider(started.clone())),
+            ToolRegistry::new(),
+            AgentConfig {
+                model: Some("static-model".into()),
+                ..Default::default()
+            },
+            db.clone(),
+        )
+        .with_cancel_token(cancel.clone());
+        let execution = tokio::spawn(async move {
+            session
+                .start_turn(AgentTurnInput::text("Wait for my stop control"))
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+            .await
+            .unwrap();
+        cancel.cancel();
+        let handle = tokio::time::timeout(std::time::Duration::from_secs(5), execution)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            handle.state,
+            AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Cancelled)
+        );
+        assert_eq!(db.get_agent_task_run(&run).unwrap().status, "cancelled");
+        let events = db.list_agent_run_events(&run).unwrap();
+        assert_eq!(events.iter().filter(|event| event.closes_run()).count(), 1);
+        assert!(!events
+            .iter()
+            .any(|event| event.status.as_deref() == Some("failed")));
+    }
 
     struct CountingProvider {
         stream_calls: Arc<AtomicUsize>,

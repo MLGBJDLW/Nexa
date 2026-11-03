@@ -19,8 +19,16 @@ class PhoneAccessibilityService : AccessibilityService() {
     private var observedAt = 0L
     override fun onServiceConnected() { instance = this }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) { /* Read only on explicit tool observation. */ }
-    override fun onInterrupt() { invalidate() }
+    override fun onInterrupt() { /* No spoken or haptic accessibility feedback to interrupt. Target checks remain authoritative. */ }
     override fun onDestroy() { invalidate(); instance = null; super.onDestroy() }
+    // Approval is an explicit user action. Dismiss its shade before the already
+    // approved target is checked; never relax the foreground identity check.
+    fun dismissApprovalShade() {
+        val root = rootInActiveWindow ?: return
+        val shade = root.packageName?.toString() == "com.android.systemui"
+        @Suppress("DEPRECATION") root.recycle()
+        if (shade) performGlobalAction(if (android.os.Build.VERSION.SDK_INT >= 31) GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE else GLOBAL_ACTION_BACK)
+    }
     @Suppress("DEPRECATION") private fun invalidate() { nodes.values.forEach { it.node.recycle() }; nodes.clear(); observation = "" }
     private fun signature(node: AccessibilityNodeInfo): String {
         val bounds = Rect(); node.getBoundsInScreen(bounds)
