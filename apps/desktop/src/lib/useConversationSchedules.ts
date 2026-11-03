@@ -17,7 +17,7 @@ export function useConversationSchedules(revision: string) {
         requested.current = false;
         try {
           const next = await listWorkflowAutomations();
-          if (mounted.current && !requested.current) setTasks(next);
+          if (mounted.current && !requested.current && Array.isArray(next)) setTasks(next);
         } catch { /* Keep the last confirmed projection during a transient disconnect. */ }
       } while (mounted.current && requested.current && document.visibilityState !== 'hidden');
     }

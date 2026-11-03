@@ -228,6 +228,7 @@ test.beforeEach(async ({ page }) => {
           return [clone(conversations[id]), clone(messagesByConversation[id] ?? [])];
         }
         case 'list_sources':
+        case 'list_workflow_automations_cmd':
         case 'get_recent_queries':
           return [];
         case 'get_conversation_sources_cmd':
