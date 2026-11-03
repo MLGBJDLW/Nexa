@@ -42,6 +42,16 @@
 * **scheduler:** refresh visibility across asynchronous reads ([0aef176](https://github.com/MLGBJDLW/Nexa/commit/0aef176d2ff816249322a32a92539ee9fd311cca))
 * **scheduler:** retain legacy delivery targets and pending refreshes ([0163186](https://github.com/MLGBJDLW/Nexa/commit/01631864df07ff60db37dfc9804953755c6e8f71))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 85ac6e0a86ec8f4daf6bf477ba58c6d02fc96131 -->
+
+### What's Changed
+* feat(mobile)!: add native Android tasks and shared connections for Nexa 0.18.0 by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/519
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.14...nexa-monorepo-v0.18.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.17.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.13...nexa-monorepo-v0.17.14) (2026-11-02)
 
 ### Highlights
