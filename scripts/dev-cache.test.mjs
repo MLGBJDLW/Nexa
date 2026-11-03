@@ -3,7 +3,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { inventory, selectPrunable, within } from './dev-cache.mjs';
+import { inventory, isActiveDevelopmentProcess, selectPrunable, within } from './dev-cache.mjs';
+
+test('idle detection distinguishes executable identity from a Nexa working-directory argument', () => {
+  assert.equal(isActiveDevelopmentProcess({ name: 'node.exe', commandLine: 'node kernel.js --working-dir D:\\coder\\Nexa' }), false);
+  assert.equal(isActiveDevelopmentProcess({ name: 'node', commandLine: 'node kernel.js --working-dir /home/dev/Nexa' }), false);
+  for (const name of ['cargo.exe', 'rustc', 'rust-lld', 'link.exe', 'Nexa.exe', 'nexa-desktop']) {
+    assert.equal(isActiveDevelopmentProcess({ name, commandLine: null }), true);
+  }
+  for (const commandLine of ['node node_modules/vite/bin/vite.js', 'node node_modules/playwright/cli.js test', 'java org.gradle.launcher.daemon.bootstrap.GradleDaemon 9.4', 'java org.gradle.wrapper.GradleWrapperMain build']) {
+    assert.equal(isActiveDevelopmentProcess({ name: 'node', commandLine }), true);
+  }
+  assert.throws(() => isActiveDevelopmentProcess({ name: 'node.exe', commandLine: null }), /Cannot inspect/);
+});
 
 test('quota evicts the oldest cache groups and keeps recent groups within budget', () => {
   const now = Date.now();

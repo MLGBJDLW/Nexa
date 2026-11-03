@@ -112,15 +112,27 @@ export function selectPrunable(entries, maxBytes, maxAgeDays, now = Date.now()) 
   });
 }
 
+export function isActiveDevelopmentProcess({ name, commandLine }) {
+  if (typeof name !== 'string' || !name) throw new Error('Cannot inspect process identity for cache cleanup.');
+  if (/^(?:cargo|rustc|rust-lld|link|nexa|nexa-desktop)(?:\.exe)?$/i.test(path.basename(name))) return true;
+  if (typeof commandLine !== 'string') throw new Error(`Cannot inspect ${name} arguments for cache cleanup.`);
+  return /\b(?:vite|playwright)(?:[.\/\\\s"]|$)/i.test(commandLine)
+    || /\bGradle(?:Daemon|WrapperMain)\b/.test(commandLine);
+}
+
 function assertIdle() {
   // Never clean an active compiler/test/server's output, including another
   // checkout sharing this machine. Failure to inspect processes fails closed.
   const listing = process.platform === 'win32'
     ? execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(cargo|rustc|rust-lld|link|nexa|nexa-desktop|node|java)(\\.exe)?$' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"], { encoding: 'utf8', windowsHide: true })
     : execFileSync('ps', ['-A', '-o', 'comm=', '-o', 'args='], { encoding: 'utf8' });
-  if (/(?:^|["/\\\s])(?:cargo|rustc|rust-lld|link|nexa|nexa-desktop)(?:\.exe)?(?:["\s]|$)/im.test(listing)
-    || /\b(?:vite|playwright)(?:[.\/\\\s"]|$)/i.test(listing)
-    || /\bGradle(?:Daemon|WrapperMain)\b/.test(listing)) {
+  const processes = process.platform === 'win32'
+    ? [JSON.parse(listing)].flat().filter(Boolean).map(item => ({ name: item.Name, commandLine: item.CommandLine }))
+    : listing.trim().split('\n').filter(Boolean).map(line => {
+      const [, name, commandLine] = line.match(/^\s*(\S+)\s+(.*)$/) ?? [];
+      return { name, commandLine };
+    });
+  if (processes.some(isActiveDevelopmentProcess)) {
     throw new Error('Stop compilers, Gradle, Nexa development app, Vite, and Playwright before applying cache cleanup.');
   }
 }
