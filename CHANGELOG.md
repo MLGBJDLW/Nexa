@@ -2,45 +2,35 @@
 
 ## [0.18.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.14...nexa-monorepo-v0.18.0) (2026-11-03)
 
+### Image editing in chat
 
-### ⚠ BREAKING CHANGES
+Paint over the part of an image you want to change, adjust the selection with a brush or eraser, undo strokes, compare against the original, and send an edit request in the same conversation. Failed submissions keep the selection for retry. The original remains unchanged; supported providers receive a validated mask or reference guide through the existing image tool.
 
-* **mobile:** deliver native Android tasks and shared connections
-* **mobile:** Native model connection synchronization requires a fresh pairing grant with Nexa Desktop 0.18 or later. Existing browser and native pairings retain their original permissions.
+### Schedules stay with their conversations
 
-### Features
+Scheduled conversations now show a clock beside their sidebar title and a summary in the existing task capsule, including the next run, timezone and pause/resume controls. Startup promptly checks overdue tasks and reuses the originating conversation. Legacy task recovery retains its delivery target, and busy or deleted conversations are handled explicitly.
 
-* **chat:** show schedules beside titles and in task controls ([2c25cf8](https://github.com/MLGBJDLW/Nexa/commit/2c25cf83dec3cf9e6b0e2db84ef73ad4075c4154))
-* **images:** edit selected regions through the conversation image tool ([fae7d21](https://github.com/MLGBJDLW/Nexa/commit/fae7d215030cf6d8fe4a7a661bf487831d1cddb5))
-* **mobile:** add an independent Android host for phone and remote tasks ([312e9c9](https://github.com/MLGBJDLW/Nexa/commit/312e9c93444ab545a5319d047cc422801cb44ab2))
-* **mobile:** deliver native Android tasks and shared connections ([85ac6e0](https://github.com/MLGBJDLW/Nexa/commit/85ac6e0a86ec8f4daf6bf477ba58c6d02fc96131))
-* **mobile:** refine drawer motion and native navigation ([0b7a6ae](https://github.com/MLGBJDLW/Nexa/commit/0b7a6ae981c38e99a6d7dc6c794713bbbaabdda0))
-* **mobile:** share model connections across paired devices ([cf4a463](https://github.com/MLGBJDLW/Nexa/commit/cf4a4638b61ea9267b9bcc786fa31e0f2e0b8f00))
-* **skills:** persist built-in enablement across management and runtime ([380d645](https://github.com/MLGBJDLW/Nexa/commit/380d645c77859a56e3e2fb2f1fba247b1f4191e3))
+### Nexa Mobile starts at 0.1.0
 
+The first native Android application has its own version and signed ARM64 release. It supports phone-local tasks and files, optional approved accessibility actions, and remote access to paired Nexa computers. It uses the shared agent runtime, durable task recovery and existing chat protocol. Credentials remain encrypted using Android Keystore.
 
-### Bug Fixes
+The phone interface reuses Nexa's logo and adds a quiet chat canvas, history drawer, bottom sheets, swipe dismissal, Android Back handling, reduced-motion support and keyboard-aware layout. Desktop and mobile composers no longer draw an outer focus glow.
 
-* **catalog:** refresh November model availability and lifecycle dates ([8f3b325](https://github.com/MLGBJDLW/Nexa/commit/8f3b325f67b319f6d7244973fcb3d37dac457b32))
-* **chat:** preserve schedules when the host returns no projection ([a473815](https://github.com/MLGBJDLW/Nexa/commit/a473815a8383516ad0c4f1633fddb41fcdd5b4c1))
-* **chat:** remove the outer composer focus glow ([a39bd5d](https://github.com/MLGBJDLW/Nexa/commit/a39bd5dc6a21c2cc6b5e32d35eb533f167efd6af))
-* **dev:** distinguish active processes from workspace arguments ([b1d5e23](https://github.com/MLGBJDLW/Nexa/commit/b1d5e234d1274de1dcdc22302ae25b06e7893aa1))
-* **images:** permit bounded local image reads in the packaged app ([d4a6b68](https://github.com/MLGBJDLW/Nexa/commit/d4a6b68388c2910da535237aa39b29eef415bf1f))
-* **mobile:** copy shared streaming settings without redundant clone ([a17b311](https://github.com/MLGBJDLW/Nexa/commit/a17b3118924ce5f70049454ff0eea7d4f2d629ec))
-* **mobile:** declare Node types for isolated frontend builds ([520e2a0](https://github.com/MLGBJDLW/Nexa/commit/520e2a056925d171e7ce4ed1b988536099b61f63))
-* **mobile:** isolate connection teardown and use supported Android build inputs ([8584a37](https://github.com/MLGBJDLW/Nexa/commit/8584a37bf561c59304ffaa326779abf5aba5d979))
-* **mobile:** keep native content clear of system bars ([fae99c6](https://github.com/MLGBJDLW/Nexa/commit/fae99c69cf3f1db194b6e6473ac1789e688fac10))
-* **mobile:** label new conversations in the history drawer ([9208107](https://github.com/MLGBJDLW/Nexa/commit/920810703dbc79003647449f40fce71c7fc5dac1))
-* **mobile:** permit packaged remote media previews and downloads ([a01ed42](https://github.com/MLGBJDLW/Nexa/commit/a01ed42697ec1d4189d7bd7c5bbe039a9d794f0b))
-* **mobile:** preserve cancellation and checkpoint presentation semantics ([8a7e0f0](https://github.com/MLGBJDLW/Nexa/commit/8a7e0f06223817001d63bd1872460c5b02a701bb))
-* **mobile:** preserve input and overlay layout during native transitions ([5cf65b6](https://github.com/MLGBJDLW/Nexa/commit/5cf65b67f47ef98998d48b57de382ac2ddbb38a2))
-* **mobile:** refresh system bar contrast on theme changes ([a578327](https://github.com/MLGBJDLW/Nexa/commit/a5783274fde646ed090b0ffb5440286aa8c7d9a1))
-* **mobile:** replace revoked clients when pairing a computer again ([57d9380](https://github.com/MLGBJDLW/Nexa/commit/57d938030933c726e45ac4a654d0b3c5b1064dbd))
-* **runtime:** preserve user cancellation before and during model work ([748eeab](https://github.com/MLGBJDLW/Nexa/commit/748eeab32cbf408de831a714ccefed6699675d37))
-* **scheduler:** reconcile approved scope edits in owned conversations ([35826c5](https://github.com/MLGBJDLW/Nexa/commit/35826c5e275be6803ac68f4df15f91fc6013ff79))
-* **scheduler:** recover due tasks in their original conversations ([485c4a7](https://github.com/MLGBJDLW/Nexa/commit/485c4a7c875c79fa23023c24803cb78257d27069))
-* **scheduler:** refresh visibility across asynchronous reads ([0aef176](https://github.com/MLGBJDLW/Nexa/commit/0aef176d2ff816249322a32a92539ee9fd311cca))
-* **scheduler:** retain legacy delivery targets and pending refreshes ([0163186](https://github.com/MLGBJDLW/Nexa/commit/01631864df07ff60db37dfc9804953755c6e8f71))
+Paired native phones and computers can synchronize portable model connections and API keys in both directions. Each device retains its selected connection and local execution policy. Simultaneous edits are preserved as separate connections, retries retain stable identities, and local deletion is not silently undone by synchronization. Credentials stay in the native encrypted stores; the phone interface receives only connection metadata.
+
+Model sharing requires Desktop 0.18 or later and a fresh native pairing grant. Existing pairings retain their previous permissions until paired again. Revoking access stops future synchronization; it does not erase credentials already copied to another device.
+
+Android is the first native platform. iOS, native HarmonyOS, local voice capture and offline model inference are not included in Mobile 0.1.0. Phone tasks require a configured model connection.
+
+### Reliability and maintenance
+
+- Preserve cancellation status, checkpoint recovery and bounded message reads across native hosts.
+- Enable or disable individual built-in skills in Settings. Choices survive restart and app updates, and the same state governs automatic selection, pinned skills, explicit activation and resource helpers.
+- Persist rotated computer endpoints and handle remote revocation consistently.
+- Refresh reviewed provider/model availability and lifecycle metadata; remove a retired image-model preset without silently rerouting saved selections.
+- Include mobile development outputs in the existing safe cache-cleanup quota while retaining release bundles and signing material.
+
+Validation includes hosted CI, focused browser regressions and native Android emulator checks using a deterministic local provider. Physical-device and paid-provider acceptance remain separate. Release verification checks public metadata, manifests and signatures without downloading installers.
 
 <!-- nexa:merged-prs:start -->
 <!-- Release notes generated using configuration in .github/release.yml at 85ac6e0a86ec8f4daf6bf477ba58c6d02fc96131 -->
