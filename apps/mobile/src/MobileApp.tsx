@@ -18,6 +18,7 @@ export function MobileApp() {
   const [state, setState] = useState<MobileState | null>(null);
   const [target, setTarget] = useState(() => localStorage.getItem('nexa.mobile.target') || 'phone');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [targetsOpen, setTargetsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [error, setError] = useState('');
@@ -51,7 +52,7 @@ export function MobileApp() {
     setBusy(true); setError('');
     try { await run(); await refresh(); } catch (error) { setError(String(error)); } finally { setBusy(false); }
   };
-  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openSettings = useCallback(() => { setSettingsLoaded(true); setSettingsOpen(true); }, []);
   const openFiles = useCallback(() => { void invoke<string[]>('mobile_files', { action: 'list' }).then(setFiles).catch(error => setError(String(error))); }, []);
   const targetLabel = target === 'phone' ? t('remote.mobilePhone') : t('remote.mobileComputer');
   const heading = <button className="mobile-target-button" onClick={() => setTargetsOpen(true)} aria-label={t('remote.mobileTarget')}><Logo size={26} decorative/><span><strong>Nexa</strong><small>{targetLabel}<ChevronDown size={12}/></small></span></button>;
@@ -65,20 +66,20 @@ export function MobileApp() {
     {!activeChat && <MobileChatHeader center={heading} onMenu={() => setDrawerOpen(true)}/>}
     {!state ? loading : target === 'phone' ? state.settings ? <Suspense fallback={loading}><LocalChat settings={state.settings} presentation={presentation}/></Suspense>
       : <section className="mobile-onboarding"><Logo size={56}/><h1>{t('remote.mobilePhoneTitle')}</h1><p>{t('remote.mobilePhoneHint')}</p><button className="mobile-primary" onClick={openSettings}>{t('remote.mobileConfigure')}<ArrowRight size={17}/></button></section>
-      : client ? <Suspense fallback={loading}><ComputerChat client={client} presentation={presentation}/></Suspense>
+      : client ? <Suspense fallback={loading}><ComputerChat key={client.paired.id} client={client} presentation={presentation}/></Suspense>
       : <section className="mobile-pair"><Logo size={40}/><h1>{t('remote.mobilePairTitle')}</h1><p>{t('remote.mobilePairHint')}</p><form onSubmit={event => { event.preventDefault(); void action(async () => {
         const paired = await invoke<NativeHost>('mobile_pair', { url: pairUrl.trim(), name: 'Nexa Mobile', requestId: pairRequest.current });
         setPairUrl(''); pairRequest.current = crypto.randomUUID(); setTarget(paired.id);
       }); }}><label>{t('remote.mobilePairLink')}<textarea aria-label={t('remote.mobilePairLink')} rows={3} value={pairUrl} onChange={event => { setPairUrl(event.target.value); pairRequest.current = crypto.randomUUID(); }} placeholder="https://…/phone#pair=…" autoCapitalize="none" autoCorrect="off" spellCheck={false}/></label><button className="mobile-primary" disabled={busy || !pairUrl.trim()}>{busy ? <Loader2 size={17} className="animate-spin"/> : <ArrowRight size={17}/>} {t('remote.pair')}</button></form><p className="mobile-footnote">{t('remote.pairAuthority')}</p></section>}
     {!activeChat && <p className="mobile-version">Nexa Mobile {state?.version ?? '0.1.0'}</p>}
     {activeChat && target !== 'phone' && connection.phase === 'revoked' && <p className="mobile-error">{t('remote.revokedHint')}</p>}
-    {drawerOpen && <MobileDialog side title="Nexa" onClose={() => setDrawerOpen(false)}><div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{drawerFooter}</div></MobileDialog>}
-    {targetsOpen && <MobileDialog title={t('remote.mobileTarget')} onClose={() => setTargetsOpen(false)}><div className="mobile-target-list">
+    <MobileDialog open={drawerOpen} side title="Nexa" onClose={() => setDrawerOpen(false)}><div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{drawerFooter}</div></MobileDialog>
+    <MobileDialog open={targetsOpen} title={t('remote.mobileTarget')} onClose={() => setTargetsOpen(false)}><div className="mobile-target-list">
       <button className={target === 'phone' ? 'selected' : ''} onClick={() => { setTarget('phone'); setTargetsOpen(false); }}><Smartphone size={21}/><span><strong>{t('remote.mobilePhone')}</strong><small>{t('remote.mobileLocalBoundary')}</small></span>{target === 'phone' && <Check size={18}/>}</button>
       {state?.hosts.map(item => <button key={item.id} className={target === item.id ? 'selected' : ''} onClick={() => { setTarget(item.id); setTargetsOpen(false); }}><Monitor size={21}/><span><strong>{t('remote.mobileComputer')}</strong><small>{new URL(item.endpoint).hostname}</small></span>{target === item.id && <Check size={18}/>}</button>)}
       <button onClick={() => { setTarget('pair'); setTargetsOpen(false); }}><Plus size={21}/><span>{t('remote.addDevice')}</span><ArrowRight size={17}/></button>
-    </div></MobileDialog>}
-    {settingsOpen && state && <Suspense fallback={loading}><PhoneSettingsSheet state={state} host={host} onClose={() => setSettingsOpen(false)} onChanged={refresh} onForgot={() => { setTarget('phone'); void refresh(); }}/></Suspense>}
-    {files && <MobileDialog title={t('remote.mobileFiles')} onClose={() => setFiles(null)}><p className="mobile-section-hint">{t('remote.mobileFilesHint')}</p><div className="mobile-file-list">{files.map(path => <button key={path} onClick={() => void action(() => invoke('mobile_files', { action: 'share', relativePath: path }))}><FolderOpen size={18}/><span>{path}</span><ArrowRight size={16}/></button>)}</div></MobileDialog>}
+    </div></MobileDialog>
+    {settingsLoaded && state && <Suspense fallback={null}><PhoneSettingsSheet open={settingsOpen} state={state} host={host} onClose={() => setSettingsOpen(false)} onChanged={refresh} onForgot={() => { setTarget('phone'); void refresh(); }}/></Suspense>}
+    <MobileDialog open={files !== null} title={t('remote.mobileFiles')} onClose={() => setFiles(null)}><p className="mobile-section-hint">{t('remote.mobileFilesHint')}</p><div className="mobile-file-list">{files?.map(path => <button key={path} onClick={() => void action(() => invoke('mobile_files', { action: 'share', relativePath: path }))}><FolderOpen size={18}/><span>{path}</span><ArrowRight size={16}/></button>)}</div></MobileDialog>
   </main>;
 }

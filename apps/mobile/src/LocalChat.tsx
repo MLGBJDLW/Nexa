@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { ArrowUpRight } from 'lucide-react';
 import { useTranslation } from '../../desktop/src/i18n';
 import { RemoteChat } from '../../desktop/src/features/remote/RemoteChat';
 import { Logo } from '../../desktop/src/components/Logo';
@@ -11,6 +12,7 @@ import { LocalClient, type PhoneSettings } from './localClient';
 export function LocalChat({ settings, presentation }: { settings: PhoneSettings | null; presentation: MobileChatPresentation }) {
   const { t } = useTranslation();
   const [error, setError] = useState('');
+  const [example, setExample] = useState('');
   const identity = JSON.stringify(settings);
   const label = t('remote.mobilePhone');
   const client = useMemo(() => new LocalClient(settings, label), [identity, label]);
@@ -19,7 +21,7 @@ export function LocalChat({ settings, presentation }: { settings: PhoneSettings 
     openFilePreview: (path: string) => { void invoke('mobile_files',{action:'share',relativePath:path}).catch(error=>setError(String(error))); },
     openWebLink: (url: string) => { try { if (/^https?:$/.test(new URL(url).protocol)) window.open(url,'_blank','noopener,noreferrer'); } catch {} },
   }), []);
-  return <FilePreviewContext.Provider value={previews}>{error && <p role="alert" className="mobile-error">{error}</p>}<RemoteChat client={client} mobile={presentation} initialDraft="" onDraftConsumed={() => {}} emptyState={
-    <div className="mobile-empty"><div className="mobile-brand"><Logo size={44}/></div><h2>{t('remote.mobilePhoneTitle')}</h2><p>{t('remote.mobileExample')}</p></div>
+  return <FilePreviewContext.Provider value={previews}>{error && <p role="alert" className="mobile-error">{error}</p>}<RemoteChat client={client} mobile={presentation} initialDraft={example} onDraftConsumed={() => setExample('')} emptyState={
+    <div className="mobile-empty"><div className="mobile-brand"><Logo size={44}/></div><h2>{t('remote.mobilePhoneTitle')}</h2><button className="mobile-example" onClick={() => setExample(t('remote.mobileExample'))}>{t('remote.mobileExample')}<ArrowUpRight size={16}/></button></div>
   }/></FilePreviewContext.Provider>;
 }

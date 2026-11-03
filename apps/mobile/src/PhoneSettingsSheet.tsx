@@ -8,7 +8,7 @@ import type { MobileState } from './MobileApp';
 import type { NativeHost } from './nativeClient';
 
 const presets = PROVIDER_PRESETS.filter(preset => !preset.runtime && preset.requiresApiKey && !['bedrock','vertex','github_copilot_api'].includes(preset.provider));
-export default function PhoneSettingsSheet({ state, host, onClose, onChanged, onForgot }: { state: MobileState; host?: NativeHost; onClose: () => void; onChanged: () => Promise<void>; onForgot: () => void }) {
+export default function PhoneSettingsSheet({ open, state, host, onClose, onChanged, onForgot }: { open: boolean; state: MobileState; host?: NativeHost; onClose: () => void; onChanged: () => Promise<void>; onForgot: () => void }) {
   const { t, locale, setLocale, availableLocales } = useTranslation();
   const initial = presets.find(preset => preset.provider === state.settings?.providerType && preset.baseUrl === state.settings.baseUrl)
     ?? presets.find(preset => preset.provider === state.settings?.providerType) ?? presets.find(preset => preset.id === 'openai')!;
@@ -20,7 +20,7 @@ export default function PhoneSettingsSheet({ state, host, onClose, onChanged, on
   const [busy, setBusy] = useState(false);
   const preset = presets.find(item => item.id === provider)!;
   const action = async (run: () => Promise<void>) => { setError(''); setBusy(true); try { await run(); await onChanged(); } catch (error) { setError(String(error)); } finally { setBusy(false); } };
-  return <MobileDialog title={t('remote.mobileSettings')} onClose={onClose}>
+  return <MobileDialog open={open} title={t('remote.mobileSettings')} onClose={onClose}>
     {error && <p role="alert" className="mobile-error">{error}</p>}
     <form className="mobile-settings-form" onSubmit={event => { event.preventDefault(); void action(async () => { await invoke('mobile_save_settings', { settings: { providerType: preset.provider, baseUrl: baseUrl.trim() || null, model: model.trim() }, apiKey }); setApiKey(''); onClose(); }); }}>
       <label>{t('settings.provider')}<select aria-label={t('settings.provider')} value={provider} onChange={event => { const next = presets.find(item => item.id === event.target.value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(next.models[0]?.id ?? ''); setApiKey(''); }}>{presets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>

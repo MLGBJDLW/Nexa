@@ -64,7 +64,7 @@ first release. The browser companion retains its existing voice/Live features.
 
 The local host uses `ExecutorAgentSession`, the shared durable launch transaction,
 run-event outboxes and cancellation token. Both phone and computer modes use the
-same chat timeline, byte-offset replay and approval UI. The native bridge adapts
+same chat timeline, bounded message/run replay and approval UI. The native bridge adapts
 transport; it does not implement another model/tool loop. Phone file access is
 confined to its app-owned workspace. One local task runs at a time to avoid two
 agents competing for the foreground app.
