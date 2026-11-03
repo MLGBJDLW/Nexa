@@ -52,23 +52,26 @@ export function MobileApp() {
     setSyncBusy(current => ({ ...current, [id]: true }));
     setSyncErrors(current => ({ ...current, [id]: '' }));
     entry.promise = (async () => {
-      let result: ConnectionSyncSummary;
-      do {
+      for (;;) {
         entry.again = false;
-        result = await invoke<ConnectionSyncSummary>('mobile_sync_connections', { hostId: id });
-        setSyncResults(current => ({ ...current, [id]: result }));
-        await refresh();
-      } while (entry.again && clients.current.has(id));
-      return result;
+        try {
+          const result = await invoke<ConnectionSyncSummary>('mobile_sync_connections', { hostId: id });
+          setSyncResults(current => ({ ...current, [id]: result }));
+          await refresh();
+          if (!entry.again || !clients.current.has(id)) return result;
+        } catch (error) {
+          if (!entry.again || !clients.current.has(id)) throw error;
+        }
+      }
     })().catch(error => { setSyncErrors(current => ({ ...current, [id]: String(error) })); throw error; })
       .finally(() => { syncRequests.current.delete(id); setSyncBusy(current => ({ ...current, [id]: false })); });
     syncRequests.current.set(id, entry);
     return entry.promise;
   }, [refresh]);
-  const hostIds = state?.hosts.map(item => item.id).sort().join('|') ?? '';
+  const pairingIds = state?.hosts.map(item => `${item.id}:${item.device.id}`).sort().join('|') ?? '';
   useEffect(() => {
     const hosts = state?.hosts ?? [];
-    for (const [id, entry] of clients.current) if (!hosts.some(host => host.id === id)) { entry.stop(); clients.current.delete(id); }
+    for (const [id, entry] of clients.current) if (!hosts.some(host => host.id === id && host.device.id === entry.client.paired.device.id)) { entry.stop(); clients.current.delete(id); }
     for (const host of hosts) if (!clients.current.has(host.id)) {
       const client = new NativeClient(host);
       const changed = () => { void syncConnections(host.id, true).catch(() => {}); };
@@ -77,7 +80,7 @@ export function MobileApp() {
       void client.start().catch(error => setSyncErrors(current => ({ ...current, [host.id]: String(error) })));
     }
     setClientVersion(value => value + 1);
-  }, [hostIds, syncConnections]);
+  }, [pairingIds, syncConnections]);
   useEffect(() => () => { clients.current.forEach(entry => entry.stop()); clients.current.clear(); }, []);
   useEffect(() => {
     let active = true;
