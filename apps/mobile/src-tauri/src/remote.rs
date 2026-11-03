@@ -16,7 +16,7 @@ static HOST_STORE: Mutex<()> = Mutex::const_new(());
 
 #[derive(Default)]
 pub struct RemoteHosts {
-    connections: Mutex<HashMap<String, CancellationToken>>,
+    connections: Mutex<HashMap<String, (String, CancellationToken)>>,
 }
 
 pub fn origin(input: &str) -> Result<String, String> {
@@ -287,19 +287,30 @@ fn emit_revoked(app: &AppHandle, id: &str) {
 }
 
 impl RemoteHosts {
-    pub async fn close(&self, id: &str) {
-        if let Some(cancel) = self.connections.lock().await.remove(id) {
-            cancel.cancel();
+    pub async fn close(&self, id: &str, connection_id: Option<&str>) {
+        let mut connections = self.connections.lock().await;
+        if connections
+            .get(id)
+            .is_some_and(|(owner, _)| connection_id.is_none_or(|id| id == owner))
+        {
+            if let Some((_, cancel)) = connections.remove(id) {
+                cancel.cancel();
+            }
         }
     }
-    pub async fn connect(self: &Arc<Self>, app: AppHandle, id: String) -> Result<(), String> {
-        self.close(&id).await;
+    pub async fn connect(
+        self: &Arc<Self>,
+        app: AppHandle,
+        id: String,
+        connection_id: String,
+    ) -> Result<(), String> {
+        let mut connections = self.connections.lock().await;
         let mut saved = host(&app, &id).await?;
         let cancel = CancellationToken::new();
-        self.connections
-            .lock()
-            .await
-            .insert(id.clone(), cancel.clone());
+        if let Some((_, previous)) = connections.insert(id.clone(), (connection_id, cancel.clone()))
+        {
+            previous.cancel();
+        }
         tokio::spawn(async move {
             let Ok(http) = client() else { return };
             let mut failures = 0u32;

@@ -12,6 +12,7 @@ export class NativeClient implements RemoteChatClient {
   private connections = new Set<(state: RemoteConnection) => void>();
   private unlisten?: UnlistenFn;
   private closed = false;
+  private readonly connectionId = crypto.randomUUID();
   constructor(readonly paired: NativeHost) {}
   subscribe(listener: (event: RemoteEnvelope) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   subscribeConnection(listener: (state: RemoteConnection) => void) { this.connections.add(listener); listener(this.state); return () => { this.connections.delete(listener); }; }
@@ -26,8 +27,8 @@ export class NativeClient implements RemoteChatClient {
     });
     if (this.closed) { unlisten(); return; }
     this.unlisten = unlisten;
-    await invoke('mobile_remote', { hostId: this.paired.id, action: 'connect' });
-    if (this.closed) await invoke('mobile_remote', { hostId: this.paired.id, action: 'close' });
+    await invoke('mobile_remote', { hostId: this.paired.id, connectionId: this.connectionId, action: 'connect' });
+    if (this.closed) await invoke('mobile_remote', { hostId: this.paired.id, connectionId: this.connectionId, action: 'close' });
   }
   rpc<T>(method: string, params?: unknown): Promise<T> {
     if (this.closed) return Promise.reject(new Error('This connection is closed.'));
@@ -35,7 +36,7 @@ export class NativeClient implements RemoteChatClient {
   }
   audio(): Promise<void> { return Promise.reject(new Error('Voice capture is unavailable in this mobile version.')); }
   recoverAudio() { /* Voice capture is capability-gated. */ }
-  close() { this.closed = true; this.unlisten?.(); void invoke('mobile_remote', { hostId: this.paired.id, action: 'close' }).catch(() => {}); }
+  close() { this.closed = true; this.unlisten?.(); void invoke('mobile_remote', { hostId: this.paired.id, connectionId: this.connectionId, action: 'close' }).catch(() => {}); }
 }
 
 export const local = <T>(action: string, input: unknown = {}) => invoke<T>('mobile_local', { action, input });

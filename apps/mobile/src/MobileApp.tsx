@@ -28,8 +28,7 @@ export function MobileApp() {
   const [files, setFiles] = useState<string[] | null>(null);
   const reads = useRef(0);
   const host = state?.hosts.find(item => item.id === target);
-  const hostIdentity = JSON.stringify(host);
-  const client = useMemo(() => host ? new NativeClient(host) : null, [hostIdentity]);
+  const client = useMemo(() => host ? new NativeClient(host) : null, [host?.id]);
   const refresh = useCallback(async () => {
     const generation = ++reads.current;
     try { const next = await invoke<MobileState>('mobile_state'); if (generation === reads.current) setState(next); }

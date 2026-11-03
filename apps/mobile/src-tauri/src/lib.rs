@@ -273,20 +273,36 @@ async fn mobile_remote(
     state: State<'_, Arc<remote::RemoteHosts>>,
     host_id: String,
     action: String,
+    connection_id: Option<String>,
     method: Option<String>,
     params: Option<Value>,
 ) -> Result<Value, String> {
     match action.as_str() {
         "connect" => {
-            state.connect(app, host_id).await?;
+            state
+                .connect(
+                    app,
+                    host_id,
+                    connection_id.ok_or("Missing connection owner.")?,
+                )
+                .await?;
             Ok(Value::Null)
         }
         "close" => {
-            state.close(&host_id).await;
+            state
+                .close(
+                    &host_id,
+                    Some(
+                        connection_id
+                            .as_deref()
+                            .ok_or("Missing connection owner.")?,
+                    ),
+                )
+                .await;
             Ok(Value::Null)
         }
         "forget" => {
-            state.close(&host_id).await;
+            state.close(&host_id, None).await;
             remote::forget(&app, &host_id).await?;
             Ok(Value::Null)
         }
