@@ -115,7 +115,7 @@ test('release PR maintenance synchronizes lock metadata before dispatching CI', 
 
 test('release notes accumulate the full candidate range and ship complete history for every update source', () => {
   assert.match(releaseWorkflow, /node scripts\/release-notes\.mjs maintain/);
-  assert.match(releaseWorkflow, /git add -- Cargo\.lock CHANGELOG\.md/);
+  assert.match(releaseWorkflow, /git add -- Cargo\.lock apps\/mobile\/src-tauri\/Cargo\.lock CHANGELOG\.md/);
   assert.match(releaseWorkflow, /--body-file "\$RELEASE_PR_BODY_FILE"/);
   assert.match(releaseWorkflow, /steps\.release_target\.outputs\.target_sha/);
   assert.doesNotMatch(releaseWorkflow, /target_sha:.*github\.sha/);

@@ -58,17 +58,28 @@ export function expectedWorkspaceLock(lockContents) {
   );
 }
 
+export function expectedMobileLock(lockContents) {
+  return [
+    ['nexa-core', 'crates/core/Cargo.toml'],
+    ['nexa-mobile', 'apps/mobile/src-tauri/Cargo.toml'],
+  ].reduce((contents,[name,manifest]) => synchronizePackageVersion(contents,name,cargoPackageVersion(manifest)),lockContents);
+}
+
 const isCli =
   process.argv[1] &&
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isCli) {
-  const lockContents = fs.readFileSync(lockPath, 'utf8');
-  const expected = expectedWorkspaceLock(lockContents);
+  const locks = [[lockPath,expectedWorkspaceLock]];
+  const mobileLock = path.join(repositoryRoot,'apps/mobile/src-tauri/Cargo.lock');
+  if (fs.existsSync(mobileLock)) locks.push([mobileLock,expectedMobileLock]);
+  for (const [file, synchronize] of locks) {
+  const lockContents = fs.readFileSync(file, 'utf8');
+  const expected = synchronize(lockContents);
   if (expected !== lockContents) {
     if (process.argv.includes('--write')) {
-      fs.writeFileSync(lockPath, expected, 'utf8');
-      process.stdout.write('updated Cargo.lock workspace package versions\n');
+      fs.writeFileSync(file, expected, 'utf8');
+      process.stdout.write(`updated ${path.relative(repositoryRoot,file)} package versions\n`);
     } else {
       process.stderr.write(
         'Cargo.lock workspace package versions are stale; run this script with --write\n',
@@ -76,6 +87,7 @@ if (isCli) {
       process.exitCode = 1;
     }
   } else {
-    process.stdout.write('Cargo.lock workspace package versions are synchronized\n');
+    process.stdout.write(`${path.relative(repositoryRoot,file)} package versions are synchronized\n`);
+  }
   }
 }
