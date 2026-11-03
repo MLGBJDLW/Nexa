@@ -17,6 +17,7 @@ class MainActivity : TauriActivity() {
   }
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
+    enableEdgeToEdge()
     window.setBackgroundDrawableResource(R.color.nexa_background)
   }
   override fun onWebViewCreate(webView: WebView) {
