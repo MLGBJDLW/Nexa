@@ -19,7 +19,7 @@ class PhoneAccessibilityService : AccessibilityService() {
     private var observedAt = 0L
     override fun onServiceConnected() { instance = this }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) { /* Read only on explicit tool observation. */ }
-    override fun onInterrupt() { /* No spoken or haptic accessibility feedback to interrupt. Target checks remain authoritative. */ }
+    override fun onInterrupt() { invalidate() }
     override fun onDestroy() { invalidate(); instance = null; super.onDestroy() }
     // Approval is an explicit user action. Dismiss its shade before the already
     // approved target is checked; never relax the foreground identity check.

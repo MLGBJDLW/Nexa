@@ -35,7 +35,10 @@ export function MobileDialog({ title, side = false, open = true, children, onClo
       animation.cancel();
       if (!open) { node.close(); setPresent(false); }
     }).catch(() => {});
-    return () => animation.cancel();
+    return () => {
+      if (node.open) node.style.transform = getComputedStyle(node).transform;
+      animation.cancel();
+    };
   }, [open, present, side]);
   useLayoutEffect(() => () => { dialog.current?.close(); }, []);
   const start = (event: PointerEvent<HTMLDialogElement>) => {

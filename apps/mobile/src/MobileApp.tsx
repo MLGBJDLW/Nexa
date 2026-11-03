@@ -26,7 +26,8 @@ export function MobileApp() {
   const [pairUrl, setPairUrl] = useState('');
   const pairRequest = useRef(crypto.randomUUID());
   const [connection, setConnection] = useState<RemoteConnection>({ phase: 'connecting', endpoint: null });
-  const [files, setFiles] = useState<string[] | null>(null);
+  const [files, setFiles] = useState<string[]>([]);
+  const [filesOpen, setFilesOpen] = useState(false);
   const reads = useRef(0);
   const host = state?.hosts.find(item => item.id === target);
   const client = useMemo(() => host ? new NativeClient(host) : null, [host?.id]);
@@ -53,7 +54,7 @@ export function MobileApp() {
     try { await run(); await refresh(); } catch (error) { setError(String(error)); } finally { setBusy(false); }
   };
   const openSettings = useCallback(() => { setSettingsLoaded(true); setSettingsOpen(true); }, []);
-  const openFiles = useCallback(() => { void invoke<string[]>('mobile_files', { action: 'list' }).then(setFiles).catch(error => setError(String(error))); }, []);
+  const openFiles = useCallback(() => { void invoke<string[]>('mobile_files', { action: 'list' }).then(files => { setFiles(files); setFilesOpen(true); }).catch(error => setError(String(error))); }, []);
   const targetLabel = target === 'phone' ? t('remote.mobilePhone') : t('remote.mobileComputer');
   const heading = <button className="mobile-target-button" onClick={() => setTargetsOpen(true)} aria-label={t('remote.mobileTarget')}><Logo size={26} decorative/><span><strong>Nexa</strong><small>{targetLabel}<ChevronDown size={12}/></small></span></button>;
   const drawerFooter = <><button onClick={() => setTargetsOpen(true)}><Smartphone size={18}/>{t('remote.mobileTarget')}</button><button onClick={openFiles}><FolderOpen size={18}/>{t('remote.mobileFiles')}</button><button onClick={openSettings}><Settings size={18}/>{t('remote.mobileSettings')}</button></>;
@@ -80,6 +81,6 @@ export function MobileApp() {
       <button onClick={() => { setTarget('pair'); setTargetsOpen(false); }}><Plus size={21}/><span>{t('remote.addDevice')}</span><ArrowRight size={17}/></button>
     </div></MobileDialog>
     {settingsLoaded && state && <Suspense fallback={null}><PhoneSettingsSheet open={settingsOpen} state={state} host={host} onClose={() => setSettingsOpen(false)} onChanged={refresh} onForgot={() => { setTarget('phone'); void refresh(); }}/></Suspense>}
-    <MobileDialog open={files !== null} title={t('remote.mobileFiles')} onClose={() => setFiles(null)}><p className="mobile-section-hint">{t('remote.mobileFilesHint')}</p><div className="mobile-file-list">{files?.map(path => <button key={path} onClick={() => void action(() => invoke('mobile_files', { action: 'share', relativePath: path }))}><FolderOpen size={18}/><span>{path}</span><ArrowRight size={16}/></button>)}</div></MobileDialog>
+    <MobileDialog open={filesOpen} title={t('remote.mobileFiles')} onClose={() => setFilesOpen(false)}><p className="mobile-section-hint">{t('remote.mobileFilesHint')}</p><div className="mobile-file-list">{files.map(path => <button key={path} onClick={() => void action(() => invoke('mobile_files', { action: 'share', relativePath: path }))}><FolderOpen size={18}/><span>{path}</span><ArrowRight size={16}/></button>)}</div></MobileDialog>
   </main>;
 }
