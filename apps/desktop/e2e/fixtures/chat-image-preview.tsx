@@ -1,3 +1,4 @@
+import { ImageEditProvider } from '../../src/components/chat/ImageEditContext';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { I18nProvider } from '../../src/i18n';
@@ -111,5 +112,5 @@ export function renderChatImages() {
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;z-index:1000;overflow:auto';
   document.body.appendChild(host);
-  createRoot(host).render(<I18nProvider><SpeechPlaybackProvider><FilePreviewContext.Provider value={{ openFilePreview() {}, openWebLink() {}, resolveFileUrl: async () => source }}>{session ? <SessionFixture /> : new URLSearchParams(location.search).has('generation') ? <GenerationFixture /> : <Fixture />}</FilePreviewContext.Provider></SpeechPlaybackProvider></I18nProvider>);
+  createRoot(host).render(<I18nProvider><ImageEditProvider conversationId="image-edit-fixture" onSubmit={async value => { (window as any).__imageEditSubmission = value; if ((window as any).__rejectImageEdit) throw new Error("fixture send rejected"); }}><SpeechPlaybackProvider><FilePreviewContext.Provider value={{ openFilePreview() {}, openWebLink() {}, resolveFileUrl: async () => source }}>{session ? <SessionFixture /> : new URLSearchParams(location.search).has('generation') ? <GenerationFixture /> : <Fixture />}</FilePreviewContext.Provider></SpeechPlaybackProvider></ImageEditProvider></I18nProvider>);
 }

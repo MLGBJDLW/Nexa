@@ -1,3 +1,5 @@
+import { ImageEditProvider } from '../components/chat/ImageEditContext';
+import { useConversationSchedules } from "../lib/useConversationSchedules";
 import { isTextToSpeechConfigured } from '../lib/autoSpeech';
 import { latestFollowupSuggestions } from '../lib/followupSuggestions';
 import type { ArtifactPayload } from '../types/conversation';
@@ -601,6 +603,7 @@ export function ChatPage() {
     draftRouteKey: location.key,
     activePersonaId,
   });
+  const schedules = useConversationSchedules(`${chat.activeId}:${chat.messages.length}:${chat.toolCalls.filter(call => call.toolName === 'automation' && call.status !== 'running').map(call => call.callId).join(',')}`);
   useEffect(() => {
     if (chat.activeConversation) setProject(chat.activeConversation.projectId ?? null);
     else if (!chat.activeId && requestedProjectId !== undefined) setProject(initialProjectId);
@@ -1014,7 +1017,16 @@ export function ChatPage() {
 
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
   useEffect(() => {
-    api.listAgentConfigs().then(setAgentConfigs);
+    let active = true;
+    let generation = 0;
+    const refresh = async () => {
+      const request = ++generation;
+      try { const configs = await api.listAgentConfigs(); if (active && request === generation) setAgentConfigs(configs); }
+      catch { /* Keep the last confirmed model list during a transient read failure. */ }
+    };
+    void refresh();
+    const stop = api.onAgentConfigsChanged(() => void refresh());
+    return () => { active = false; stop(); };
   }, []);
   const selectedAgentConfig =
     agentConfigs.find((config) => config.id === chat.agentConfig?.id) ?? chat.agentConfig;
@@ -1745,6 +1757,12 @@ export function ChatPage() {
 
   /* ── Render ──────────────────────────────────────────────────────── */
   return (
+    <ImageEditProvider conversationId={chat.activeId} disabled={chat.isStreaming || isArchivedConversation} onSubmit={async edit => {
+      const accepted = await handleChatSend(edit.prompt, edit.attachments, { visionTurnOverride: 'auto', userArtifacts: { ...edit.artifacts,
+        llmContextContent: `${edit.prompt}\n\nThis request comes from the image editor. Use generate_image with edit_current_image=true to edit the attached original within the selected area. Preserve the original file and return the generated result. Do not generate an unrelated new image or discard the selection.`,
+      } });
+      if (!accepted) throw new Error('Image edit was not accepted');
+    }}>
     <div className="flex h-full min-h-0">
       {/* Sidebar */}
       <motion.div
@@ -1757,6 +1775,7 @@ export function ChatPage() {
       >
         <div className="h-full min-h-0" style={{ width: chatSidebarWidth }}>
           <ChatSidebar
+            schedulesByConversation={schedules.byConversation}
             conversations={chat.conversations}
             activeId={chat.activeId}
             activeProjectId={activeProjectId}
@@ -1998,6 +2017,8 @@ export function ChatPage() {
               />
             </div>
             <TaskBoard
+              schedules={schedules.byConversation.get(chat.activeId ?? '')}
+              onSchedulesRefresh={schedules.refresh}
               conversationId={chat.activeId}
               isStreaming={chat.isStreaming}
               sourceRevision={String(gitSourceRevision)}
@@ -2190,6 +2211,7 @@ export function ChatPage() {
           onClose={() => setSubagentView(null)} onStatus={handleSubagentStatus} drafts={subagentDrafts.current} />
       )}
     </div>
+    </ImageEditProvider>
   );
 }
 

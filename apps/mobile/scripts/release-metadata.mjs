@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
+const lock = JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8'));
+const tauri = JSON.parse(fs.readFileSync(path.join(root,'src-tauri/tauri.conf.json'),'utf8'));
+const manifest = fs.readFileSync(path.join(root,'src-tauri/Cargo.toml'),'utf8');
+const version = manifest.match(/^version = "([^"]+)"/m)?.[1];
+if (!/^\d+\.\d+\.\d+$/.test(pkg.version) || ![version,tauri.version,lock.version,lock.packages[''].version].every(value=>value===pkg.version)) throw new Error('Mobile package, lockfile, native host and application versions must agree.');
+const tag = process.argv[2];
+if (tag && tag !== `nexa-mobile-v${pkg.version}`) throw new Error(`The tag must be nexa-mobile-v${pkg.version}.`);
+console.log(`Nexa Mobile ${pkg.version}`);
+if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT,`version=${pkg.version}\n`);

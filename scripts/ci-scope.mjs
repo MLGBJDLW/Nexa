@@ -12,6 +12,7 @@ export const RELEASE_METADATA_PATHS = new Set([
   '.release-please-manifest.json',
   'CHANGELOG.md',
   'Cargo.lock',
+  'apps/mobile/src-tauri/Cargo.lock',
   'apps/desktop/package.json',
   'apps/desktop/package-lock.json',
   'apps/desktop/src-tauri/Cargo.toml',
@@ -106,6 +107,9 @@ export function releaseMetadataContentsMatch(changedPath, baseContents, headCont
         normalizeWorkspaceLockVersions(headContents)
       );
     }
+    if (changedPath === 'apps/mobile/src-tauri/Cargo.lock') {
+      return synchronizePackageVersion(baseContents,'nexa-core',VERSION_SENTINEL) === synchronizePackageVersion(headContents,'nexa-core',VERSION_SENTINEL);
+    }
   } catch {
     return false;
   }
@@ -154,6 +158,8 @@ const NATIVE_SOURCE_PATH = /^(?:crates\/(?:core|remote|agent-eval|model-catalog)
 export function classifyCiScope(changedPaths, releaseMetadataOnly = false) {
   if (releaseMetadataOnly) return 'lightweight';
   if (changedPaths.length === 0) return 'full';
+  // The independently versioned Android workflow owns mobile-only builds.
+  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || changedPath.startsWith('apps/mobile/'))) return 'lightweight';
   if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath))) return 'lightweight';
   if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || FRONTEND_PATH.test(changedPath))) {
     return 'frontend';

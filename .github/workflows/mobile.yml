@@ -1,0 +1,138 @@
+name: Mobile
+
+on:
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'apps/desktop/src/features/remote/**'
+      - 'apps/desktop/src/lib/streaming/**'
+      - 'crates/core/**'
+      - 'crates/model-catalog/**'
+      - 'shared/**'
+      - '.github/workflows/mobile.yml'
+  push:
+    tags: ['nexa-mobile-v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing mobile tag to build and publish; empty runs checks only
+        required: false
+        type: string
+
+concurrency:
+  group: mobile-${{ github.event.pull_request.number || inputs.release_tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NDK_VERSION: '27.2.12479018'
+
+jobs:
+  android:
+    name: Android ARM64
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            apps/desktop/package-lock.json
+            apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/mobile/src-tauri -> target
+          key: mobile-arm64-ndk27
+      - name: Install build inputs
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          npm ci --prefix apps/desktop
+          npm ci --prefix apps/mobile
+      - name: Validate independent version and release tag
+        id: metadata
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
+        run: |
+          node apps/mobile/scripts/release-metadata.mjs "$REQUESTED_TAG"
+          if [ -n "$REQUESTED_TAG" ]; then
+            test "$(git rev-parse HEAD)" = "$(git rev-parse "$REQUESTED_TAG^{commit}")"
+            echo "MOBILE_RELEASE_TAG=$REQUESTED_TAG" >> "$GITHUB_ENV"
+          fi
+          node scripts/sync-workspace-lock-versions.mjs
+          npm run i18n:check --prefix apps/desktop
+      - name: Configure release signing
+        if: env.MOBILE_RELEASE_TAG != ''
+        env:
+          KEYSTORE: ${{ secrets.NEXA_MOBILE_KEYSTORE_B64 }}
+          KEY_PASSWORD: ${{ secrets.NEXA_MOBILE_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.NEXA_MOBILE_KEY_ALIAS }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib
+          for name in ['KEYSTORE','KEY_PASSWORD','KEY_ALIAS']:
+              if not os.environ.get(name): raise SystemExit(f'{name} is required for a mobile release')
+          key=pathlib.Path(os.environ['RUNNER_TEMP'])/'nexa-mobile.jks'
+          key.write_bytes(base64.b64decode(os.environ['KEYSTORE'],validate=True)); key.chmod(0o600)
+          pathlib.Path('apps/mobile/src-tauri/gen/android/keystore.properties').write_text(
+              f"storeFile={key}\npassword={os.environ['KEY_PASSWORD']}\nkeyAlias={os.environ['KEY_ALIAS']}\n")
+          PY
+      - name: Build Android application
+        working-directory: apps/mobile
+        run: npm run tauri -- android build --apk --target aarch64 -- --locked
+      - name: Verify and package signed release
+        if: env.MOBILE_RELEASE_TAG != ''
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          mkdir -p mobile-release
+          mapfile -t apks < <(find apps/mobile/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' ! -name '*unsigned*')
+          test "${#apks[@]}" = 1
+          apk="mobile-release/NexaMobile_${VERSION}_android_arm64.apk"
+          cp "${apks[0]}" "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" > mobile-release/signing-certificate.txt
+          expected=$(tr -d '\r\n ' < apps/mobile/signing-certificate.sha256)
+          actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' mobile-release/signing-certificate.txt)
+          test "$actual" = "$expected"
+          (cd mobile-release && sha256sum *.apk > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: android-arm64-unsigned
+          path: apps/mobile/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          retention-days: 3
+          if-no-files-found: error
+      - name: Publish mobile release
+        if: env.MOBILE_RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          if gh release view "$MOBILE_RELEASE_TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$MOBILE_RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$MOBILE_RELEASE_TAG" --verify-tag --draft --latest=false --title "Nexa Mobile v$VERSION" --notes-file apps/mobile/CHANGELOG.md
+          fi
+          gh release upload "$MOBILE_RELEASE_TAG" mobile-release/* --clobber
+          gh release edit "$MOBILE_RELEASE_TAG" --draft=false --latest=false

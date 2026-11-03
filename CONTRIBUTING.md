@@ -74,7 +74,10 @@ profiles, Vite/Ruff caches, Playwright reports and test results; it refuses
 symlinks/junctions and never removes release bundles, downloaded model data,
 package dependencies, or caches outside this checkout. Cargo targets identified
 by `.rustc_info.json` within the first two levels of `target`, `.artifacts`, and
-`.codex_tmp` share the same quota; only their debug profiles are pruned.
+`.codex_tmp` share the same quota; only their debug profiles are pruned. Mobile
+Cargo debug profiles, Gradle intermediates, copied native debug libraries, and
+debug APK outputs use this same owner. Stop Gradle before pruning; release APKs
+and signing material are excluded.
 
 Local Tauri dev/build wrappers run this maintenance before launching the native
 toolchain. Cleanup is skipped in CI and while a compiler, Nexa, Vite, or

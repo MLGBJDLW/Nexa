@@ -68,7 +68,7 @@ interface ExtensionsSettingsTabProps {
   onCancelSkillForm: () => void;
   onSkillEditorDirtyChange: (dirty: boolean) => void;
   onViewSkillChange: (skill: Skill | null) => void;
-  onToggleSkill: (id: string, enabled: boolean) => void;
+  onToggleSkill: (id: string, enabled: boolean) => Promise<void>;
   onEditSkill: (skill: Skill) => void;
   onDeleteSkillTargetChange: (skill: Skill | null) => void;
   onConfirmDeleteSkill: () => void;
@@ -495,6 +495,16 @@ export function ExtensionsSettingsTab({
   };
   const [previewProposal, setPreviewProposal] = useState<SkillChangeProposal | null>(null);
   const [applyProposalTarget, setApplyProposalTarget] = useState<SkillChangeProposal | null>(null);
+  const [skillToggleBusyId, setSkillToggleBusyId] = useState<string | null>(null);
+  const changeSkillEnabled = async (skill: Skill) => {
+    if (skillToggleBusyId) return;
+    setSkillToggleBusyId(skill.id);
+    try {
+      await onToggleSkill(skill.id, !skill.enabled);
+    } finally {
+      setSkillToggleBusyId(null);
+    }
+  };
   const previewTargetSkill = useMemo(
     () => findProposalTargetSkill(previewProposal, skills),
     [previewProposal, skills],
@@ -941,7 +951,7 @@ export function ExtensionsSettingsTab({
                               explicit
                             </Badge>
                           )}
-                          {!skill.enabled && !skill.builtin && (
+                          {!skill.enabled && (
                             <Badge variant="default" className="text-[10px] shrink-0 border-border text-text-tertiary">
                               {t('settings.skillFilterDisabled')}
                             </Badge>
@@ -978,10 +988,14 @@ export function ExtensionsSettingsTab({
                         >
                           <Eye size={14} />
                         </button>
-                        {!skill.builtin && (
                           <button
-                            onClick={() => onToggleSkill(skill.id, !skill.enabled)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer ${
+                            type="button"
+                            role="switch"
+                            aria-label={skill.name}
+                            aria-checked={skill.enabled}
+                            disabled={skillToggleBusyId !== null}
+                            onClick={() => void changeSkillEnabled(skill)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-fast cursor-pointer disabled:opacity-50 disabled:cursor-wait ${
                               skill.enabled ? 'bg-accent' : 'bg-surface-3'
                             }`}
                           >
@@ -989,7 +1003,6 @@ export function ExtensionsSettingsTab({
                               skill.enabled ? 'translate-x-6' : 'translate-x-1'
                             }`} />
                           </button>
-                        )}
                         {!skill.builtin && (
                           <button
                             onClick={() => onEditSkill(skill)}

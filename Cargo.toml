@@ -8,7 +8,7 @@ members = [
     "apps/desktop/src-tauri",
 ]
 
-exclude = ["vendor/rust/*"]
+exclude = ["vendor/rust/*", "apps/mobile/src-tauri"]
 
 [patch.crates-io]
 calamine = { path = "vendor/rust/calamine" }

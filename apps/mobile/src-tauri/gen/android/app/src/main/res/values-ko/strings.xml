@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Nexa Mobile</string>
+    <string name="main_activity_title">Nexa Mobile</string>
+    <string name="accessibility_description">휴대전화 제어는 선택 사항입니다. 보이는 컨트롤만 읽고 비밀번호 필드는 제외하며 실행 전에 승인을 요청합니다. 알림에서 중지할 수 있습니다.</string>
+    <string name="task_channel">휴대전화 작업</string>
+    <string name="task_running">Nexa가 작업을 실행 중입니다</string>
+    <string name="task_progress">탭하여 진행 상황을 보거나 중지하세요.</string>
+    <string name="task_stop">중지</string>
+    <string name="share_file">휴대전화 파일 공유</string>
+    <string name="approval_title">Nexa에 승인이 필요합니다</string>
+    <string name="approval_allow">한 번 허용</string>
+    <string name="approval_deny">거부</string>
+</resources>

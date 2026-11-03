@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Nexa Mobile</string>
+    <string name="main_activity_title">Nexa Mobile</string>
+    <string name="accessibility_description">端末操作は任意です。表示された操作項目を読み、パスワード欄を除外し、操作前に許可を求めます。通知から停止できます。</string>
+    <string name="task_channel">端末のタスク</string>
+    <string name="task_running">Nexa がタスクを実行中</string>
+    <string name="task_progress">タップして進行状況を確認、または停止。</string>
+    <string name="task_stop">停止</string>
+    <string name="share_file">端末のファイルを共有</string>
+    <string name="approval_title">Nexa が承認を求めています</string>
+    <string name="approval_allow">今回のみ許可</string>
+    <string name="approval_deny">拒否</string>
+</resources>

@@ -3,7 +3,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { inventory, selectPrunable, within } from './dev-cache.mjs';
+import { inventory, isActiveDevelopmentProcess, selectPrunable, within } from './dev-cache.mjs';
+
+test('idle detection distinguishes executable identity from a Nexa working-directory argument', () => {
+  assert.equal(isActiveDevelopmentProcess({ name: 'node.exe', commandLine: 'node kernel.js --working-dir D:\\coder\\Nexa' }), false);
+  assert.equal(isActiveDevelopmentProcess({ name: 'node', commandLine: 'node kernel.js --working-dir /home/dev/Nexa' }), false);
+  for (const name of ['cargo.exe', 'rustc', 'rust-lld', 'link.exe', 'Nexa.exe', 'nexa-desktop']) {
+    assert.equal(isActiveDevelopmentProcess({ name, commandLine: null }), true);
+  }
+  for (const commandLine of ['node node_modules/vite/bin/vite.js', 'node node_modules/playwright/cli.js test', 'java org.gradle.launcher.daemon.bootstrap.GradleDaemon 9.4', 'java org.gradle.wrapper.GradleWrapperMain build']) {
+    assert.equal(isActiveDevelopmentProcess({ name: 'node', commandLine }), true);
+  }
+  assert.throws(() => isActiveDevelopmentProcess({ name: 'node.exe', commandLine: null }), /Cannot inspect/);
+});
 
 test('quota evicts the oldest cache groups and keeps recent groups within budget', () => {
   const now = Date.now();
@@ -18,12 +30,13 @@ test('inventory only includes known development caches and rejects junction esca
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nexa-cache-'));
   const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'nexa-outside-'));
   try {
-    for (const dir of ['target/debug', 'target/release', 'target/copilot-cli-cache', 'apps/desktop/test-results-old', 'apps/desktop/user-data']) {
+    for (const dir of ['target/debug', 'target/release', 'target/copilot-cli-cache', 'apps/desktop/test-results-old', 'apps/desktop/user-data', 'apps/mobile/src-tauri/target/aarch64-linux-android/debug', 'apps/mobile/src-tauri/target/aarch64-linux-android/release', 'apps/mobile/src-tauri/gen/android/app/build/intermediates', 'apps/mobile/src-tauri/gen/android/app/build/outputs/apk/arm64/release']) {
       await fs.mkdir(path.join(root, dir), { recursive: true });
       await fs.writeFile(path.join(root, dir, 'data'), 'abc');
     }
     const entries = await inventory(root);
-    assert.equal(entries.length, 2);
+    assert.equal(entries.length, 4);
+    assert(entries.every(entry => !entry.path.includes('release')));
     await fs.mkdir(path.join(root, 'apps/desktop/node_modules'), { recursive: true });
     await fs.symlink(outside, path.join(root, 'apps/desktop/node_modules/.vite'), process.platform === 'win32' ? 'junction' : 'dir');
     await assert.rejects(inventory(root), /linked cache/);

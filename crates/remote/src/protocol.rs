@@ -2,6 +2,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const MODEL_CONNECTION_SYNC_CAPABILITY: &str = "model-connection-sync-v1";
+
 #[derive(Deserialize)]
 #[serde(
     tag = "method",
@@ -51,6 +53,8 @@ pub enum RemoteCommand {
     VoiceCancel { session_id: String },
     #[serde(rename = "connections.list")]
     Connections,
+    #[serde(rename = "sync.connections")]
+    SyncConnections { input: Value },
     #[serde(rename = "models.list")]
     Models { connection_id: String },
     #[serde(rename = "chat.list")]
@@ -216,6 +220,7 @@ pub struct ConnectionManifest {
     pub server_id: String,
     pub endpoints: Vec<Endpoint>,
     pub reconnect_grace_seconds: u64,
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Clone)]

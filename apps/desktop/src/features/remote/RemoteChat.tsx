@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, CircleStop, Loader2, Plus, Send } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, SquarePen } from "lucide-react";
+import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from './MobileChatShell';
 import { useTranslation } from "../../i18n";
-import { RemoteClient } from "./remoteClient";
+import type { RemoteChatClient } from "./remoteClient";
 import { remoteButton, remoteField } from "./remoteUi";
 import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
 import type { TurnModelSelection } from '../models/modelChoices';
@@ -82,12 +83,22 @@ export function RemoteChat({
   client,
   initialDraft,
   onDraftConsumed,
+  emptyState,
+  mobile,
 }: {
-  client: RemoteClient;
+  client: RemoteChatClient;
   initialDraft: string;
   onDraftConsumed: () => void;
+  emptyState?: ReactNode;
+  mobile?: MobileChatPresentation;
 }) {
   const { t } = useTranslation();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const contentScroll = useRef<HTMLDivElement>(null);
+  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const followOutput = useRef(true);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState("");
   const [modelSelection, setModelSelection] = useState<TurnModelSelection | null>(null);
@@ -122,6 +133,14 @@ export function RemoteChat({
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
+  useLayoutEffect(() => {
+    if (mobile && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
+  }, [mobile, messages, timeline]);
+  useLayoutEffect(() => {
+    if (!mobile || !composerInput.current) return;
+    composerInput.current.style.height = 'auto';
+    composerInput.current.style.height = `${Math.min(160, composerInput.current.scrollHeight)}px`;
+  }, [mobile, draft]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [answers, setAnswers] = useState<
@@ -162,13 +181,13 @@ export function RemoteChat({
   );
   useEffect(() => {
     let active = true;
-    void Promise.all([client.rpc<Connection[]>("connections.list"), list()])
+    const refresh = () => Promise.all([client.rpc<Connection[]>("connections.list"), list()])
       .then(([items]) => {
         if (active) {
           setConnections(items);
           setConnectionId(
             (current) =>
-              current ||
+              (items.some(item => item.id === current) ? current : '') ||
               items.find((item) => item.isDefault)?.id ||
               items[0]?.id ||
               "",
@@ -179,8 +198,11 @@ export function RemoteChat({
       .finally(() => {
         if (active) setLoading(false);
       });
+    void refresh();
+    const unsubscribe = client.subscribe(event => { if (event.event === 'connections:changed') void refresh(); });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [client, list]);
   useEffect(() => {
@@ -306,9 +328,11 @@ export function RemoteChat({
       }
       if (event.kind === 'done' || event.kind === 'error') {
         if (typeof payload.assistantMessageId === 'string') finalId = payload.assistantMessageId;
-        updateStatus(String(payload.status || event.status || (event.kind === 'done' ? 'completed' : 'failed')));
+        const terminalStatus = String(payload.status || event.status || (event.kind === 'done' ? 'completed' : 'failed'));
+        updateStatus(terminalStatus);
         readNeeded = true;
-        if (event.kind === 'error' && typeof payload.message === 'string') setError(payload.message);
+        if (terminalStatus === 'cancelled') setError('');
+        else if (event.kind === 'error' && typeof payload.message === 'string') setError(payload.message);
         if (!syncing) void sync();
         void list().catch(() => {});
       } else if (event.phase === 'paused' || event.phase === 'awaiting_user_input' || event.phase === 'approval') {
@@ -351,7 +375,8 @@ export function RemoteChat({
           highWater ??= page.durableHighWater;
           if (page.run.finalMessageId) finalId = page.run.finalMessageId;
           updateStatus(page.run.status, page.run.phase);
-          if (page.run.errorMessage) setError(page.run.errorMessage);
+          if (page.run.status === 'cancelled') setError('');
+          else if (page.run.errorMessage) setError(page.run.errorMessage);
           // The durable ledger omits ephemeral previews. Only a canonical
           // replay page may advance over those holes; live events stay ordered.
           const through = page.hasMore ? page.nextSequence ?? cursor
@@ -551,11 +576,23 @@ export function RemoteChat({
       if (valid()) errorText(error);
     }
   }
-  return (
-    <main
-      className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 p-4 pb-8"
-      data-testid="remote-chat"
-    >
+  const providerControls = <>
+      {connections.length > 0 && <select
+        aria-label={t("remote.providerConnection")}
+        className={remoteField}
+        value={connectionId}
+        onChange={(event) => { setConnectionId(event.target.value); setModelSelection(null); }}
+      >
+        {connections.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.name} · {item.model}
+          </option>
+        ))}
+      </select>}
+      {client.modelPickerAvailable !== false && <ConnectionModelPicker connectionId={connectionId} defaultModel={connections.find(item => item.id === connectionId)?.model || ''}
+        value={modelSelection} onChange={setModelSelection} load={client.models} label={t('remote.model')} disabled={sending} />}
+    </>;
+  const conversationControls = <>
       <div className="flex gap-2">
         <select
           aria-label={t("remote.conversation")}
@@ -569,7 +606,7 @@ export function RemoteChat({
           <option value="">{t("remote.newChat")}</option>
           {conversations.map((item) => (
             <option key={item.id} value={item.id}>
-              {item.title}
+              {item.title || t('remote.newChat')}
             </option>
           ))}
         </select>
@@ -590,20 +627,17 @@ export function RemoteChat({
           {t("remote.moreChats")}
         </button>
       )}
-      <select
-        aria-label={t("remote.providerConnection")}
-        className={remoteField}
-        value={connectionId}
-        onChange={(event) => { setConnectionId(event.target.value); setModelSelection(null); }}
-      >
-        {connections.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item.name} · {item.model}
-          </option>
-        ))}
-      </select>
-      <ConnectionModelPicker connectionId={connectionId} defaultModel={connections.find(item => item.id === connectionId)?.model || ''}
-        value={modelSelection} onChange={setModelSelection} load={client.models} label={t('remote.model')} disabled={sending} />
+    </>;
+  return (
+    <main
+      className={mobile ? "native-chat" : "mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5 p-4 pb-8"}
+      data-testid="remote-chat"
+    >
+      {mobile ? <><MobileChatHeader center={mobile.heading} onMenu={() => setDrawerOpen(true)} onNew={() => void create()} disabled={sending || !connectionId}/>
+        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connectionId} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><nav className="mobile-history">{conversations.map(item => <button key={item.id} className={item.id === conversationId ? 'selected' : ''} onClick={() => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}>{item.title || t('remote.newChat')}</button>)}</nav>{cursor && <button onClick={() => void list(cursor).catch(errorText)}>{t('remote.moreChats')}</button>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
+        <MobileDialog open={modelOpen} title={t('remote.model')} onClose={() => setModelOpen(false)}><div className="mobile-model-controls">{providerControls}</div></MobileDialog>
+      </> : <>{conversationControls}{providerControls}</>}
+      <div ref={contentScroll} className={mobile ? 'native-chat-content' : 'contents'} onScroll={mobile ? event => { const view = event.currentTarget; followOutput.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; } : undefined}>
       {error && (
         <p
           role="alert"
@@ -640,6 +674,7 @@ export function RemoteChat({
                         : t('remote.runRunning')
           }</span>
           {running && progress && <span className="min-w-0 flex-1 truncate text-text-tertiary">{progress}</span>}
+          {runStatus === 'paused' && client.resumeAvailable && <button className={remoteButton} onClick={() => void act('chat.continue', { conversationId })}>{t('chat.resumeTask')}</button>}
         </div>
       )}
       {approvals.map((item) => (
@@ -797,56 +832,60 @@ export function RemoteChat({
         </form>
       ))}
       {!messages.length && !timeline.length && !loading && (
-        <div className="py-8 text-center text-sm leading-7 text-text-secondary">
-          {t("remote.chatEmpty")}
+        <div className={mobile ? "native-chat-empty" : "py-8 text-center text-sm leading-7 text-text-secondary"}>
+          {emptyState ?? t("remote.chatEmpty")}
         </div>
       )}
+      </div>
       <form
         data-testid="remote-composer"
-        className="remote-composer sticky bottom-3 z-20 mt-auto rounded-2xl border border-border p-3 shadow-lg"
+        className={mobile ? "remote-composer native-composer" : "remote-composer sticky bottom-3 z-20 mt-auto rounded-2xl border border-border p-3"}
         onSubmit={(event) => {
           event.preventDefault();
-          void send();
+          followOutput.current = true; void send();
         }}
       >
-        <textarea
+        <textarea ref={composerInput} rows={mobile ? 1 : undefined}
           aria-label={t("remote.message")}
-          className="remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"
+          className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
           maxLength={64000}
           placeholder={t("remote.messageHint")}
           value={draft}
           onChange={(event) => { draftRef.current = event.target.value; setDraft(event.target.value); }}
         />
-        <div className="mb-3"><RemoteComposerOptions attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} /></div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <RemoteVoiceInput key={conversationId} client={client} disabled={sending} onBusy={setDictating} onEvent={event => {
+        {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} /></div>}
+        <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
+          {mobile && <><button type="button" className="mobile-icon-button" aria-label={client.composerOptionsAvailable === false ? t('remote.mobileFiles') : t('remote.addAttachments')} onClick={() => client.composerOptionsAvailable === false ? mobile.onFiles() : setOptionsOpen(value => !value)}>{client.composerOptionsAvailable === false ? <FolderOpen size={20}/> : <Plus size={20}/>}</button><button type="button" className="mobile-model-chip" onClick={() => client.modelPickerAvailable === false ? mobile.onConfigure() : setModelOpen(true)}>{modelSelection?.model || connections.find(item => item.id === connectionId)?.model || t('remote.model')}<ChevronDown size={13}/></button><span className="native-composer-spacer"/></>}
+          {client.voiceAvailable !== false && <RemoteVoiceInput key={conversationId} client={client} disabled={sending} onBusy={setDictating} onEvent={event => {
             const projected = applyVoiceDictationEvent(draftRef.current, voiceDraft.current, event);
             voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
-          }} />
+          }} />}
           {running && (
             <button
               type="button"
-              className={`${remoteButton} text-danger`}
+              className={mobile ? "native-stop" : `${remoteButton} text-danger`}
               onClick={() => void act("chat.stop", { conversationId })}
             >
               <CircleStop size={16} />
-              {t("remote.stop")}
+              <span className={mobile ? "sr-only" : undefined}>{t("remote.stop")}</span>
             </button>
           )}
           <button
             type="submit"
-            className={`${remoteButton} !border-accent !bg-accent text-white`}
+            className={mobile ? "native-send" : `${remoteButton} !border-accent !bg-accent text-white`}
+            aria-label={t("remote.send")}
             disabled={sending || dictating || loadingAttachments || !connectionId || (!draft.trim() && !attachments.length)}
           >
             {sending ? (
               <Loader2 size={16} className="animate-spin" />
             ) : (
-              <Send size={16} />
+              mobile ? <ArrowUp size={20}/> : <Send size={16} />
             )}
-            {t("remote.send")}
+            <span className={mobile ? "sr-only" : undefined}>{t("remote.send")}</span>
           </button>
         </div>
       </form>
+      {mobile && <p className="native-chat-caption">{mobile.caption}</p>}
     </main>
   );
 }

@@ -9,6 +9,11 @@ test.beforeEach(async ({ page }) => {
     const listeners = new Map<number, { event: string; handlerId: number }>();
     let callbackSeq = 1;
     let listenerSeq = 1;
+    (window as unknown as { __emitConnectionChange: () => void }).__emitConnectionChange = () => {
+      for (const [id, listener] of listeners) {
+        if (listener.event === 'agent-configs-changed') callbackMap.get(listener.handlerId)?.({ id, event: listener.event, payload: {} });
+      }
+    };
     let updateCheckCount = 0;
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -95,6 +100,7 @@ test.beforeEach(async ({ page }) => {
         case "get_wizard_state_cmd":
           return { completed: true };
         case "list_agent_configs_cmd":
+          return JSON.parse(localStorage.getItem('e2e-synced-connections') ?? '[]');
         case "list_conversations_cmd":
         case "list_sources":
         case "list_projects_cmd":
@@ -102,8 +108,17 @@ test.beforeEach(async ({ page }) => {
         case "list_checkpoints_cmd":
         case "list_user_memories_cmd":
         case "list_skills_cmd":
+        case "list_personas_cmd":
+        case "list_skill_change_proposals_cmd":
+        case "get_web_search_status_cmd":
         case "list_mcp_servers_cmd":
           return [];
+        case "list_builtin_skills_cmd":
+          return [{ id: 'builtin-evidence-first', canonicalName: 'evidence-first', name: 'Evidence First', description: 'Ground answers in evidence.', content: 'Verify claims before answering.', builtin: true, enabled: localStorage.getItem('e2e-builtin-enabled') !== 'false', resources: [] }];
+        case "toggle_skill_cmd":
+          if (localStorage.getItem('e2e-skill-save-fails') === 'true') throw new Error('Fixture persistence failed');
+          localStorage.setItem('e2e-builtin-enabled', String(_args.enabled));
+          return null;
         case "list_tool_permission_policies_cmd":
           return { persisted: [], session: [] };
         case "discover_shell_environments_cmd":
@@ -383,6 +398,47 @@ test("layout performs the silent startup update check", async ({ page }) => {
     undefined,
     { timeout: 7000 },
   );
+});
+
+test('built-in skills can be disabled, restored, and retain their state after reload', async ({ page }, testInfo) => {
+  await page.goto('/settings?tab=extensions');
+  await page.getByRole('button', { name: /^Skills/ }).click();
+  const toggle = page.getByRole('switch', { name: 'Evidence First', exact: true });
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await page.getByRole('button', { name: 'Disabled', exact: true }).click();
+  await expect(toggle).toBeVisible();
+  await page.locator('section').filter({ has: page.getByRole('heading', { name: 'Skills', exact: true }) }).screenshot({ path: testInfo.outputPath('builtin-skill-controls.png') });
+  await page.reload();
+  await page.getByRole('button', { name: /^Skills/ }).click();
+  await expect(toggle).not.toBeChecked();
+  await page.evaluate(() => localStorage.setItem('e2e-skill-save-fails', 'true'));
+  await toggle.click();
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked();
+  await page.evaluate(() => localStorage.removeItem('e2e-skill-save-fails'));
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  await expect(toggle).toBeChecked();
+});
+
+test('paired connection changes refresh desktop settings without a reload', async ({ page }) => {
+  await page.goto('/settings');
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
+  await page.evaluate(() => {
+    localStorage.setItem('e2e-synced-connections', JSON.stringify([{id:'synced-phone',name:'Phone connection',provider:'deep_seek',model:'deepseek-chat',apiKey:'',baseUrl:null,isDefault:true}]));
+    (window as unknown as { __emitConnectionChange: () => void }).__emitConnectionChange();
+  });
+  await expect(page.getByText('Phone connection', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const records = JSON.parse(localStorage.getItem('e2e-synced-connections')!);
+    records[0].name = 'Updated phone connection';
+    localStorage.setItem('e2e-synced-connections', JSON.stringify(records));
+    (window as unknown as { __emitConnectionChange: () => void }).__emitConnectionChange();
+  });
+  await expect(page.getByText('Updated phone connection', { exact: true })).toBeVisible();
+  await expect(page.getByText('Phone connection', { exact: true })).toHaveCount(0);
 });
 
 test("settings agent behavior controls use the selected locale", async ({ page }) => {

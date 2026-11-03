@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Nexa Mobile</string>
+    <string name="main_activity_title">Nexa Mobile</string>
+    <string name="accessibility_description">Управление телефоном необязательно. Nexa читает видимые элементы, исключает поля паролей и запрашивает одобрение. Остановить задачу можно из уведомления.</string>
+    <string name="task_channel">Задачи телефона</string>
+    <string name="task_running">Nexa выполняет задачу</string>
+    <string name="task_progress">Нажмите для просмотра или остановки задачи.</string>
+    <string name="task_stop">Остановить</string>
+    <string name="share_file">Поделиться файлом</string>
+    <string name="approval_title">Nexa запрашивает одобрение</string>
+    <string name="approval_allow">Разрешить один раз</string>
+    <string name="approval_deny">Отклонить</string>
+</resources>

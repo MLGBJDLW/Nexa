@@ -22,6 +22,9 @@ pub fn pairing_qr(url: &str) -> Result<String, String> {
 
 #[async_trait::async_trait]
 pub trait RemoteHost: Send + Sync + 'static {
+    fn capabilities(&self) -> Vec<String> {
+        Vec::new()
+    }
     async fn execute(
         &self,
         owner: &str,

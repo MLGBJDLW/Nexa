@@ -1,3 +1,5 @@
+import type { WorkflowAutomation } from "../../types/workflows";
+import { ConversationScheduleBadge } from "./ConversationSchedules";
 import { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -42,6 +44,7 @@ import type { Conversation } from '../../types/conversation';
 /* ------------------------------------------------------------------ */
 
 interface ChatSidebarProps {
+  schedulesByConversation?: ReadonlyMap<string, WorkflowAutomation[]>;
   conversations: Conversation[];
   activeId: string | null;
   activeProjectId: string | null;
@@ -157,6 +160,7 @@ const listItemVariants = {
 
 function ConversationItem({
   conv,
+  schedules,
   isActive,
   isRunning,
   hasPendingQuestion,
@@ -175,6 +179,7 @@ function ConversationItem({
   t,
 }: {
   conv: Conversation;
+  schedules?: readonly WorkflowAutomation[];
   isActive: boolean;
   isRunning: boolean;
   hasPendingQuestion: boolean;
@@ -303,6 +308,7 @@ function ConversationItem({
             <span className="min-w-0 flex-1 truncate text-xs font-medium" title={conv.title || t('chat.newConversation')}>
               {conv.title || t('chat.newConversation')}
             </span>
+            {!!schedules?.length && <ConversationScheduleBadge tasks={schedules} />}
             {!hovered && !actionsOpen && (
               <span className="shrink-0 text-[10px] text-text-tertiary">{relativeTime(conv.updatedAt, t)}</span>
             )}
@@ -440,6 +446,7 @@ function ConversationItem({
 /* ------------------------------------------------------------------ */
 
 function ChatSidebarComponent({
+  schedulesByConversation,
   conversations,
   activeId,
   activeProjectId,
@@ -1022,6 +1029,7 @@ function ChatSidebarComponent({
                     <div key={conv.id} onContextMenu={(e) => handleConvContextMenu(e, conv.id)}>
                       <ConversationItem
                         conv={conv}
+                        schedules={schedulesByConversation?.get(conv.id)}
                         isActive={conv.id === activeId}
                         isRunning={runningConversationIds.has(conv.id)}
                         hasPendingQuestion={pendingQuestionConversationIds.has(conv.id)}

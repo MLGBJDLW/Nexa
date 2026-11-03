@@ -8,6 +8,7 @@ pub(crate) struct SubscriptionImage {
 
 pub(crate) async fn generate_subscription_image(
     prompt: &str,
+    references: &[(String, String)],
     requested_model: Option<&str>,
     cancellation: &nexa_core::agent::CancellationToken,
 ) -> Result<SubscriptionImage, CoreError> {
@@ -73,7 +74,7 @@ pub(crate) async fn generate_subscription_image(
         );
         drop(config);
         drop(skills);
-        let response = wire.request("thread/start", json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":"Generate exactly one image with the available image generation capability. If it is exposed through functions.exec or another code-mode wrapper, use that wrapper to call image_gen.imagegen and display its result with generatedImage. Preserve the user's requested prompt. Do not run shell commands, read workspace files, browse the web, or use unrelated capabilities. Stop after image generation completes.","approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await?;
+        let response = wire.request("thread/start", json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":"Generate or edit exactly one image with the available image generation capability. When input images are provided, edit the first image using the other image as the selection guide; include the input images in the image tool call. If it is exposed through functions.exec or another code-mode wrapper, use that wrapper to call image_gen.imagegen and display its result with generatedImage. Preserve the user's requested prompt. Do not run shell commands, read workspace files, browse the web, or use unrelated capabilities. Stop after image generation completes.","approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await?;
         if response["model"] != model_id
             || response["modelProvider"] != "openai"
             || response["approvalPolicy"] != "never"
@@ -88,7 +89,7 @@ pub(crate) async fn generate_subscription_image(
             .and_then(Value::as_str)
             .ok_or_else(|| protocol_error("Codex created no image thread"))?
             .to_string();
-        let response = wire.request("turn/start", json!({"threadId":thread_id,"input":user_input(prompt,&[]),"approvalPolicy":"never","sandboxPolicy":{"type":"readOnly","networkAccess":false}})).await?;
+        let response = wire.request("turn/start", json!({"threadId":thread_id,"input":user_input(prompt,references),"approvalPolicy":"never","sandboxPolicy":{"type":"readOnly","networkAccess":false}})).await?;
         let turn_id = response
             .pointer("/turn/id")
             .and_then(Value::as_str)
@@ -145,7 +146,7 @@ pub(crate) async fn generate_subscription_image(
     };
     tokio::select! {
         _ = cancellation.cancelled() => Err(CoreError::Cancelled("Subscription image generation cancelled".into())),
-        result = tokio::time::timeout(Duration::from_secs(300), work) => result.map_err(|_| protocol_error("Codex subscription image generation timed out; no API-key fallback was attempted"))?,
+        result = work => result,
     }
 }
 
@@ -206,7 +207,7 @@ mod image_tests {
         let cancellation = nexa_core::agent::CancellationToken::new();
         cancellation.cancel();
         assert!(matches!(
-            generate_subscription_image("test", None, &cancellation).await,
+            generate_subscription_image("test", &[], None, &cancellation).await,
             Err(CoreError::Cancelled(_))
         ));
     }
@@ -215,6 +216,7 @@ mod image_tests {
     async fn native_codex_subscription_image_smoke() {
         let result = generate_subscription_image(
             "Generate one simple teal circle centered on a white background. No text.",
+            &[],
             None,
             &nexa_core::agent::CancellationToken::new(),
         )

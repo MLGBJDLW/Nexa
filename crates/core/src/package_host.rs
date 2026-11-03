@@ -405,6 +405,23 @@ where
             }
         })?;
         apply_package_host_state(&mut snapshot, &states);
+        let skill_preferences = self.db.builtin_skill_preferences().map_err(|err| {
+            PackageHostContractError::StateStore {
+                message: err.to_string(),
+            }
+        })?;
+        for component in snapshot
+            .records
+            .iter_mut()
+            .flat_map(|record| &mut record.components)
+        {
+            if component.package_id == crate::skills::package::BUILTIN_SKILLS_PACKAGE_ID
+                && component.kind == PackageSurfaceKind::Skill
+            {
+                let id = format!("builtin-{}", component.id.trim_start_matches("builtin-"));
+                component.enabled &= skill_preferences.get(&id).copied().unwrap_or(true);
+            }
+        }
         snapshot.validate()?;
         Ok(snapshot)
     }

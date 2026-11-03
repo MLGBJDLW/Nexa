@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use nexa_core::app_settings::ImageGenerationSource;
 use nexa_core::error::CoreError;
-use nexa_core::tools::image_generation_tool::{codex_subscription_image_result, GenerateImageTool};
+use nexa_core::tools::image_generation_tool::{
+    codex_subscription_image_result, current_image_edit, GenerateImageTool, GUIDE_INSTRUCTION,
+};
 use nexa_core::tools::{Tool, ToolExecutionContext, ToolRegistry, ToolResult};
 use serde_json::{json, Value};
 
@@ -73,7 +75,7 @@ impl Tool for DesktopImageGenerationTool {
     fn description(&self) -> &str {
         match self.route {
             ImageRoute::ApiKey => GenerateImageTool.description(),
-            ImageRoute::Codex => "Generate one image using the user's signed-in ChatGPT/Codex subscription and return a Nexa preview. This route never falls back to an API key. The subscription runtime manages its image model and output options.",
+            ImageRoute::Codex => "Generate or edit one image using the user's signed-in ChatGPT/Codex subscription and return a Nexa preview. This route never falls back to an API key. The subscription runtime manages its image model and output options.",
             ImageRoute::UnsupportedSubscription => "Image generation is unavailable through this chat's Copilot subscription. The user can select a signed-in Codex subscription or API Key in image settings.",
         }
     }
@@ -81,15 +83,16 @@ impl Tool for DesktopImageGenerationTool {
         match self.route {
             ImageRoute::ApiKey => GenerateImageTool.parameters_schema(),
             _ => {
-                json!({"type":"object","properties":{"prompt":{"type":"string","description":"The complete image prompt."},"filename":{"type":"string","description":"Optional suggested PNG filename."}},"required":["prompt"],"additionalProperties":false})
+                json!({"type":"object","properties":{"prompt":{"type":"string","description":"The complete image prompt."},"edit_current_image":{"type":"boolean","description":"Use the current user turn image editor selection, preserving the original and changing the selected area."},"filename":{"type":"string","description":"Optional suggested PNG filename."}},"required":["prompt"],"additionalProperties":false})
             }
         }
     }
     fn requires_confirmation(&self, args: &Value) -> bool {
-        self.route == ImageRoute::ApiKey && GenerateImageTool.requires_confirmation(args)
+        (self.route == ImageRoute::ApiKey && GenerateImageTool.requires_confirmation(args))
+            || (self.route == ImageRoute::Codex && args["edit_current_image"] == true)
     }
     fn confirmation_message(&self, args: &Value) -> Option<String> {
-        if self.route == ImageRoute::ApiKey {
+        if self.requires_confirmation(args) {
             GenerateImageTool.confirmation_message(args)
         } else {
             None
@@ -103,8 +106,12 @@ impl Tool for DesktopImageGenerationTool {
                 let args: Value = serde_json::from_str(context.arguments).map_err(|e| CoreError::InvalidInput(e.to_string()))?;
                 let prompt = args["prompt"].as_str().map(str::trim).filter(|v| !v.is_empty()).ok_or_else(|| CoreError::InvalidInput("Image prompt cannot be empty".into()))?;
                 if prompt.chars().count() > 32_000 { return Err(CoreError::InvalidInput("Keep an image prompt under 32000 characters".into())); }
+                let editing = args["edit_current_image"] == true;
+                let inputs = if editing { Some(current_image_edit(&context)?) } else { None };
+                let references = inputs.as_ref().map(|input| vec![("image/png".to_string(), input.original.split_once(',').unwrap().1.to_string()), ("image/png".to_string(), input.guide.split_once(',').unwrap().1.to_string())]).unwrap_or_default();
+                let edit_prompt = if editing { format!("{prompt}\n\n{GUIDE_INSTRUCTION}") } else { prompt.to_string() };
                 let token = context.cancel_token.cloned().unwrap_or_default();
-                let image = crate::agent_runtime::codex::generate_subscription_image(prompt, self.model.as_deref(), &token).await?;
+                let image = crate::agent_runtime::codex::generate_subscription_image(&edit_prompt, &references, self.model.as_deref(), &token).await?;
                 codex_subscription_image_result(context.call_id, prompt, &image.encoded, image.revised_prompt.as_deref(), args["filename"].as_str())
             }
         }

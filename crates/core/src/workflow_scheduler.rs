@@ -76,6 +76,10 @@ pub enum WorkflowScheduleWorkspacePolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowAutomationExecutionPolicy {
+    /// Chat-authored schedules return to their originating conversation.
+    /// Standalone schedules reserve a conversation on first delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
     /// Optional Nexa project authority. Scheduled conversations bind to this
     /// project so its instructions, memories, and source boundary are stable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -115,6 +119,7 @@ pub struct WorkflowAutomationExecutionPolicy {
 impl Default for WorkflowAutomationExecutionPolicy {
     fn default() -> Self {
         Self {
+            conversation_id: None,
             project_id: None,
             workspace_policy: WorkflowScheduleWorkspacePolicy::DenyWrites,
             source_root_fingerprint: None,

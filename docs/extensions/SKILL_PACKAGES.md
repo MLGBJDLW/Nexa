@@ -10,6 +10,21 @@ Skills are not native plugins. They may include instructions, references,
 metadata, scripts, and assets, but they must run through existing Nexa tools and
 approval policy.
 
+## Enablement
+
+Open **Settings → Extensions → Skills** to enable or disable individual bundled
+or installed skills. Disabled entries remain in the list and the Disabled filter,
+so the same switch can restore them. Choices survive restart and application
+updates. Bundled content continues to update with Nexa; changing its availability
+does not create an editable copy or remove its resources.
+
+The Package Host applies each choice to the shared runtime catalog. Subsequent
+task selection excludes disabled skills even when a persona pins them or a prompt
+names them explicitly. Skill activation, resource reads, and resource helpers also
+reject disabled IDs and aliases. Instructions already loaded by an active task are
+not retroactively removed from its context. The whole **Built-in Skills** package
+switch remains the parent gate; enable that package before managing its entries.
+
 ## Package Shape
 
 The portable shape is:

@@ -309,6 +309,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         .unwrap_or_default();
     if creating {
         config.timezone = required(args.timezone.as_deref(), "timezone")?.into();
+        config.execution_policy.conversation_id = Some(conversation_id.to_string());
     }
     if let Some(value) = args.name {
         input.name = value;
@@ -463,7 +464,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         Err(error) => return Err(error),
     };
     Ok(
-        json!({"task":task,"preview":preview,"created":created,"runtime":"Nexa must remain running"}),
+        json!({"task":task,"preview":preview,"created":created,"runtime":"Runs while Nexa is open; missed runs catch up on startup in the same conversation"}),
     )
 }
 
@@ -508,6 +509,10 @@ mod tests {
         assert_eq!(retry["created"], false);
         assert_eq!(db.list_workflow_automations().unwrap().len(), 1);
         assert_eq!(first["task"]["definitionRevision"], 1);
+        assert_eq!(
+            first["task"]["scheduleConfig"]["executionPolicy"]["conversationId"],
+            conversation
+        );
         assert_eq!(first["task"]["approvalPolicy"]["allowedTools"], json!([]));
         assert_eq!(first["preview"]["occurrences"].as_array().unwrap().len(), 5);
         let id = first["task"]["id"].as_str().unwrap();

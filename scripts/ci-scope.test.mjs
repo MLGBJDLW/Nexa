@@ -28,6 +28,14 @@ version = "0.13.2"
 name = "serde"
 version = "1.0.0"
 `,
+  'apps/mobile/src-tauri/Cargo.lock': `[[package]]
+name = "nexa-core"
+version = "0.13.2"
+
+[[package]]
+name = "nexa-mobile"
+version = "0.1.0"
+`,
   'apps/desktop/package.json':
     '{"name":"nexa-desktop","version":"0.13.2","dependencies":{"react":"19.0.0"}}\n',
   'apps/desktop/package-lock.json':
@@ -171,6 +179,8 @@ test('small changes omit unrelated runtime jobs while shared or unknown changes 
   assert.equal(classifyCiScope(['docs/runtime/LIVE.md', 'CONTRIBUTING.md']), 'lightweight');
   assert.equal(classifyCiScope(['apps/desktop/src/features/chat/ChatInput.tsx', 'docs/README.md']), 'frontend');
   assert.equal(classifyCiScope(['README.zh-CN.md']), 'lightweight');
+  assert.equal(classifyCiScope(['apps/mobile/src/MobileApp.tsx', 'apps/mobile/src-tauri/src/local.rs']), 'lightweight');
+  assert.equal(classifyCiScope(['apps/mobile/src/MobileApp.tsx', 'crates/core/src/lib.rs']), 'full');
   assert.equal(classifyCiScope(['apps/desktop/src-tauri/src/main.rs', 'crates/core/src/lib.rs', 'docs/README.md']), 'native');
   assert.equal(classifyCiScope(['apps/desktop/src/components/chat/ChatInput.tsx', 'crates/core/src/lib.rs']), 'full');
   for (const changedPath of ['apps/desktop/src-tauri/migrations/v1.sql',

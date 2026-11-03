@@ -1094,6 +1094,7 @@ fn context_policy_reaches_the_executor_and_matches_the_ui_budget() {
     let app = AppConfig::default();
     let build = || {
         build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+            source_scope_override: None,
             db: &db,
             conversation: &conversation,
             turn_id: "policy-test",
@@ -1248,6 +1249,7 @@ fn project_workspace_instructions_are_live_and_episodes_are_evidence() {
         app_cfg: &'a AppConfig,
     ) -> DesktopAgentTurnConfigRequest<'a> {
         DesktopAgentTurnConfigRequest {
+            source_scope_override: None,
             db,
             conversation,
             turn_id: "turn-current",
@@ -1390,6 +1392,7 @@ fn desktop_agent_turn_config_projects_prompt_and_executor_fields() {
     db_config.tool_timeout_secs = Some(37);
     db_config.agent_timeout_secs = Some(91);
     let turn_config = build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+        source_scope_override: None,
         db: &db,
         conversation: &conversation,
         turn_id: "turn-1",
@@ -1477,6 +1480,7 @@ fn desktop_agent_turn_config_projects_prompt_and_executor_fields() {
         ..Default::default()
     });
     let nexus = build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+        source_scope_override: None,
         db: &db,
         conversation: &conversation,
         turn_id: "turn-2",
@@ -1522,6 +1526,7 @@ fn desktop_agent_turn_config_projects_prompt_and_executor_fields() {
     nexus_auto_db_config.subagent_max_calls_per_turn = None;
     nexus_auto_db_config.subagent_token_budget = None;
     let nexus_auto = build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+        source_scope_override: None,
         db: &db,
         conversation: &conversation,
         turn_id: "turn-nexus-auto",
@@ -1558,6 +1563,7 @@ fn desktop_agent_turn_config_projects_prompt_and_executor_fields() {
         ..Default::default()
     });
     let custom = build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+        source_scope_override: None,
         db: &db,
         conversation: &conversation,
         turn_id: "turn-3",
@@ -1686,6 +1692,7 @@ fn empty_learned_memory_does_not_call_embedding_before_the_model_request() {
     let app_cfg = AppConfig::default();
     let started = std::time::Instant::now();
     let _turn = build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
+        source_scope_override: None,
         db: &db,
         conversation: &conversation,
         turn_id: "startup-test",

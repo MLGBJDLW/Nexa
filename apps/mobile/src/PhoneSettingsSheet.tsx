@@ -1,0 +1,84 @@
+import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { Check, ChevronRight, Loader2, Plus, RefreshCw } from 'lucide-react';
+import { useTranslation } from '../../desktop/src/i18n';
+import { PROVIDER_PRESETS } from '../../desktop/src/lib/providerPresets';
+import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell';
+import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
+import { hostLabel, type NativeHost } from './nativeClient';
+
+const presets = PROVIDER_PRESETS.filter(preset => !preset.runtime && preset.requiresApiKey && !['bedrock','vertex','github_copilot_api'].includes(preset.provider));
+const presetFor = (record?: PhoneConnection) => presets.find(preset => preset.provider === record?.provider && preset.baseUrl === record.baseUrl)
+  ?? presets.find(preset => preset.provider === record?.provider) ?? presets.find(preset => preset.id === 'openai')!;
+
+export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncErrors, onSync, onClose, onChanged, onForgot }: {
+  open: boolean; state: MobileState; host?: NativeHost; syncBusy: Record<string, boolean>; syncErrors: Record<string, string>;
+  onSync: (id: string) => Promise<ConnectionSyncSummary>; onClose: () => void; onChanged: () => Promise<void>; onForgot: () => void;
+}) {
+  const { t, locale, setLocale, availableLocales } = useTranslation();
+  const initialRecord = state.connections?.find(record => record.id === state.activeConnectionId);
+  const initial = presetFor(initialRecord);
+  const [selectedId, setSelectedId] = useState(initialRecord?.id ?? '');
+  const [name, setName] = useState(initialRecord?.name ?? '');
+  const [provider, setProvider] = useState(initial.id);
+  const [model, setModel] = useState(initialRecord?.model ?? initial.models[0]?.id ?? '');
+  const [baseUrl, setBaseUrl] = useState(initialRecord?.baseUrl ?? initial.baseUrl);
+  const [apiKey, setApiKey] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<PhoneConnection | null>(null);
+  const preset = presets.find(item => item.id === provider)!;
+  const loadRecord = (record?: PhoneConnection) => {
+    const preset = presetFor(record);
+    setSelectedId(record?.id ?? ''); setName(record?.name ?? ''); setProvider(preset.id);
+    setModel(record?.model ?? preset.models[0]?.id ?? ''); setBaseUrl(record?.baseUrl ?? preset.baseUrl); setApiKey(''); setError('');
+  };
+  // Preserve an in-progress form while background sync updates the library.
+  useEffect(() => { if (open) loadRecord(state.connections?.find(record => record.id === state.activeConnectionId)); }, [open]);
+  const action = async (run: () => Promise<void>) => { setError(''); setBusy(true); try { await run(); await onChanged(); } catch (error) { setError(String(error)); } finally { setBusy(false); } };
+  return <>
+    <MobileDialog open={open} title={t('remote.mobileSettings')} onClose={onClose}>
+      {error && <p role="alert" className="mobile-error">{error}</p>}
+      {!!state.connections?.length && <label className="mobile-connection-picker">{t('remote.mobileConnections')}<select aria-label={t('remote.mobileConnections')} value={selectedId} disabled={busy} onChange={event => {
+        const record = state.connections?.find(record => record.id === event.target.value);
+        if (record) void action(async () => { await invoke('mobile_connection', { action: 'select', id: record.id }); loadRecord(record); });
+      }}><option value="" disabled>{t('remote.mobileAddConnection')}</option>{state.connections.map(record => <option key={record.id} value={record.id}>{record.name} · {record.model}</option>)}</select></label>}
+      <button className="mobile-add-connection" disabled={busy} onClick={() => loadRecord()}><Plus size={16}/>{t('remote.mobileAddConnection')}</button>
+      <form className="mobile-settings-form" onSubmit={event => { event.preventDefault(); void action(async () => {
+        await invoke('mobile_save_settings', { settings: { connectionId: selectedId || null, providerType: preset.provider, baseUrl: baseUrl.trim() || null, model: model.trim() }, apiKey, name: name.trim() || model.trim(), createNew: !selectedId });
+        setApiKey(''); onClose();
+      }); }}>
+        <label>{t('settings.providerName')}<input aria-label={t('settings.providerName')} value={name} onChange={event => setName(event.target.value)} placeholder={model}/></label>
+        <label>{t('settings.provider')}<select aria-label={t('settings.provider')} value={provider} onChange={event => { const next = presets.find(item => item.id === event.target.value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(next.models[0]?.id ?? ''); setApiKey(''); }}>{presets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>{t('remote.model')}<input aria-label={t('remote.model')} list="phone-models" value={model} onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/></label><datalist id="phone-models">{preset.models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist>
+        <label>{t('settings.apiKey')}<input aria-label={t('settings.apiKey')} type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={selectedId ? '••••••••' : ''} autoComplete="off"/></label>
+        <details className="mobile-advanced" open={baseUrl !== preset.baseUrl || undefined}><summary>{t('remote.advancedOptions')}</summary><label>{t('settings.baseUrl')}<input aria-label={t('settings.baseUrl')} type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} autoCapitalize="none" spellCheck={false}/></label></details>
+        <p className="mobile-section-hint">{t('remote.mobileCredentials')}</p><button className="mobile-primary" disabled={busy}>{busy && <Loader2 size={16} className="animate-spin"/>}{t('common.save')}</button>
+      </form>
+      {selectedId && <button className="mobile-forget" disabled={busy} onClick={() => setRemoveTarget(state.connections?.find(record => record.id === selectedId) ?? null)}>{t('remote.mobileRemoveConnection')}</button>}
+      {!!state.hosts.length && <section className="mobile-settings-section"><h3>{t('remote.mobileConnectionSync')}</h3><p className="mobile-section-hint">{t('remote.mobileSyncTrustedHint')}</p>
+        {state.hosts.map(computer => {
+          const summary = state.connectionSync?.[computer.id];
+          return <div className="mobile-sync-host" key={computer.id}><strong>{hostLabel(computer)}</strong>
+            {summary && <p className="mobile-section-hint">{summary.supported ? t('remote.mobileSyncSummary', { count: summary.connections }) : t('remote.mobileSyncUnsupported')}</p>}
+            {!!summary?.conflicts && <p className="mobile-section-hint">{t('remote.mobileSyncConflicts', { count: summary.conflicts })}</p>}
+            {!!summary?.deviceOnly && <p className="mobile-section-hint">{t('remote.mobileSyncDeviceOnly', { count: summary.deviceOnly })}</p>}
+            {syncErrors[computer.id] && <p className="mobile-error" role="status">{syncErrors[computer.id]}</p>}
+            <button disabled={!!syncBusy[computer.id]} onClick={() => void action(async () => { await onSync(computer.id); })}>{syncBusy[computer.id] ? t('remote.mobileSyncing') : t('remote.mobileSyncNow')}{syncBusy[computer.id] ? <Loader2 size={16} className="animate-spin"/> : <RefreshCw size={16}/>}</button>
+          </div>;
+        })}
+      </section>}
+      <section className="mobile-settings-section"><h3>{t('remote.mobilePermissions')}</h3><p className="mobile-section-hint">{t('remote.mobileControlHint')}</p>
+        <button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'notifications' }); })}>{t('remote.mobileNotifications')}{state.capabilities.notifications ? <Check size={17}/> : <ChevronRight size={17}/>}</button>
+        <button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'accessibility' }); })}>{t('remote.mobileAccessibility')}{state.capabilities.accessibility ? <Check size={17}/> : <ChevronRight size={17}/>}</button>
+      </section>
+      <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
+      {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}
+      <p className="mobile-version">Nexa Mobile {state.version}</p>
+    </MobileDialog>
+    <MobileDialog open={!!removeTarget} title={t('remote.mobileRemoveConnection')} onClose={() => setRemoveTarget(null)}>
+      <p>{removeTarget?.name}</p><p className="mobile-section-hint">{t('remote.mobileRemoveConnectionHint')}</p>
+      <div className="mobile-confirm-actions"><button onClick={() => setRemoveTarget(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={busy} onClick={() => void action(async () => { if (removeTarget) await invoke('mobile_connection', { action: 'remove', id: removeTarget.id }); setRemoveTarget(null); onClose(); })}>{t('common.delete')}</button></div>
+    </MobileDialog>
+  </>;
+}

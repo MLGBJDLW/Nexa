@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Nexa Mobile</string>
+    <string name="main_activity_title">Nexa Mobile</string>
+    <string name="accessibility_description">手机控制为可选功能。Nexa 读取可见控件、忽略密码字段，并在操作前请求批准。可随时通过通知停止任务。</string>
+    <string name="task_channel">手机任务</string>
+    <string name="task_running">Nexa 正在执行手机任务</string>
+    <string name="task_progress">点按查看进度，或停止任务。</string>
+    <string name="task_stop">停止</string>
+    <string name="share_file">分享手机文件</string>
+    <string name="approval_title">Nexa 需要你的批准</string>
+    <string name="approval_allow">允许一次</string>
+    <string name="approval_deny">拒绝</string>
+</resources>

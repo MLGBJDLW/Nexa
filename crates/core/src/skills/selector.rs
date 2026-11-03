@@ -5,7 +5,6 @@ use crate::error::CoreError;
 use strsim::jaro_winkler;
 
 use super::model::Skill;
-use super::registry::load_builtin_skills;
 
 const MAX_AVAILABLE_SKILL_METADATA: usize = 12;
 
@@ -456,7 +455,9 @@ pub fn select_skills_from_pool(skills: Vec<Skill>, query: &str, max_skills: usiz
     let skills = skills
         .into_iter()
         .filter(|skill| {
-            skill.policy.allow_implicit_invocation || is_skill_explicitly_requested(skill, query)
+            skill.enabled
+                && (skill.policy.allow_implicit_invocation
+                    || is_skill_explicitly_requested(skill, query))
         })
         .collect::<Vec<_>>();
     if skills.is_empty() {
@@ -519,7 +520,7 @@ pub fn select_skills_from_pool_with_pinned(
     }
 
     let mut by_id = BTreeMap::new();
-    for skill in &skills {
+    for skill in skills.iter().filter(|skill| skill.enabled) {
         by_id.insert(skill.id.clone(), skill.clone());
     }
 
@@ -578,6 +579,9 @@ pub fn select_available_skills_from_pool_with_pinned(
     let mut ranked = skills
         .into_iter()
         .filter_map(|skill| {
+            if !skill.enabled {
+                return None;
+            }
             let pinned = is_skill_pinned(&skill, pinned_skill_ids);
             let explicit = is_skill_explicitly_requested(&skill, query);
             if !skill.policy.allow_implicit_invocation && !pinned && !explicit {
@@ -636,8 +640,7 @@ pub fn get_active_skills_for_query(
     query: &str,
     max_skills: usize,
 ) -> Result<Vec<Skill>, CoreError> {
-    let mut all: Vec<Skill> = load_builtin_skills();
-    all.extend(db.get_enabled_skills()?);
+    let all = db.get_runtime_skills()?;
     Ok(select_skills_from_pool(all, query, max_skills))
 }
 
@@ -647,8 +650,7 @@ pub fn get_active_skills_for_query_with_pinned(
     max_skills: usize,
     pinned_skill_ids: &[String],
 ) -> Result<Vec<Skill>, CoreError> {
-    let mut all: Vec<Skill> = load_builtin_skills();
-    all.extend(db.get_enabled_skills()?);
+    let all = db.get_runtime_skills()?;
     Ok(select_skills_from_pool_with_pinned(
         all,
         query,
@@ -665,8 +667,7 @@ pub fn get_active_skills_for_query_with_pinned(
 /// policy opts out of implicit invocation unless the user explicitly names them
 /// or a persona pins them.
 pub fn get_available_skills_for_query(db: &Database, query: &str) -> Result<Vec<Skill>, CoreError> {
-    let mut all: Vec<Skill> = load_builtin_skills();
-    all.extend(db.get_enabled_skills()?);
+    let all = db.get_runtime_skills()?;
     Ok(select_available_skills_from_pool(all, query))
 }
 
@@ -675,8 +676,7 @@ pub fn get_available_skills_for_query_with_pinned(
     query: &str,
     pinned_skill_ids: &[String],
 ) -> Result<Vec<Skill>, CoreError> {
-    let mut all: Vec<Skill> = load_builtin_skills();
-    all.extend(db.get_enabled_skills()?);
+    let all = db.get_runtime_skills()?;
     Ok(select_available_skills_from_pool_with_pinned(
         all,
         query,

@@ -3,6 +3,7 @@ import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { readFileSync } from 'node:fs';
 const previewPolicies = readFileSync(new URL('../../../crates/remote/src/html_preview.rs', import.meta.url), 'utf8');
 const previewPolicy = (name: string) => previewPolicies.match(new RegExp(`pub const ${name}: &str = "([^"]+)"`))![1];
+const nativePhoneCsp = JSON.parse(readFileSync(new URL('../../mobile/src-tauri/tauri.conf.json', import.meta.url), 'utf8')).app.security.csp as string;
 test.use({
   viewport: { width: 390, height: 844 },
   launchOptions: {
@@ -221,7 +222,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
           resumeCalls++;
           value = {
             run: runEvents.length
-              ? { id: currentRunId, status: runStatus, finalMessageId: finalAnswer == null ? null : 'final-message' }
+              ? { id: currentRunId, status: runStatus, errorMessage: runStatus === 'cancelled' ? 'Request cancelled by user.' : null, finalMessageId: finalAnswer == null ? null : 'final-message' }
               : null,
             events: runEvents.filter(
               (event) =>
@@ -390,6 +391,9 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
     skipEphemeral: () => { eventSequence++; },
     finishRun: (text: string, deliver = false) => {
       finalAnswer = text; runStatus = 'completed'; emit('done', { status: 'completed' }, deliver);
+    },
+    cancelRun: () => {
+      runStatus = 'cancelled'; emit('error', { status:'cancelled', message:'Request cancelled by user.' });
     },
     leaveLan: () => { lan = false; socket?.close({code:1001}); },
     connectedUrl: () => socket?.url(),
@@ -566,6 +570,20 @@ test('phone catches a missed completion without sending another message', async 
   expect(app.counts().launches).toHaveLength(0);
 });
 
+test('phone presents user cancellation as stopped across live updates and reload', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await selectControl(page.getByLabel('Conversation', { exact: true }), 'chat-1');
+  app.emit('outputDelta', {blockId:'answer',channel:'answer',offset:0,delta:'Partial work'});
+  await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+  app.cancelRun();
+  await expect(page.getByText('Stopped',{exact:true})).toBeVisible();
+  await expect(page.getByText('Request cancelled by user.',{exact:true})).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText('Stopped',{exact:true})).toBeVisible();
+  await expect(page.getByText('Request cancelled by user.',{exact:true})).toHaveCount(0);
+});
+
 test('phone replays durable events across missing ephemeral sequence numbers', async ({ page }) => {
   const app = await fixture(page);
   await page.goto('/phone.html#pair=123456&server=desktop-1');
@@ -693,6 +711,35 @@ test('phone sends attachments and execution choices with an idempotent retry', a
   expect(requests[0]).toEqual(requests[1]);
   expect(requests[0]).toMatchObject({ executionMode:'plan', powerMode:'nexus', attachments:[{originalName:'brief.txt',base64Data:Buffer.from('Review the product brief').toString('base64')}] });
   await expect(page.getByText('brief.txt', {exact:true})).toHaveCount(0);
+});
+
+test('native phone policy permits data media and file reads without allowing remote scripts', async ({ page }) => {
+  const wave = Buffer.alloc(44 + 8000, 128);
+  wave.write('RIFF', 0); wave.writeUInt32LE(wave.length - 8, 4); wave.write('WAVEfmt ', 8);
+  wave.writeUInt32LE(16, 16); wave.writeUInt16LE(1, 20); wave.writeUInt16LE(1, 22);
+  wave.writeUInt32LE(8000, 24); wave.writeUInt32LE(8000, 28); wave.writeUInt16LE(1, 32); wave.writeUInt16LE(8, 34);
+  wave.write('data', 36); wave.writeUInt32LE(8000, 40);
+  await page.setContent('<!doctype html><html><head></head><body></body></html>');
+  const result = await page.evaluate(async ({ policy, source }) => {
+    const violations: string[] = [];
+    document.addEventListener('securitypolicyviolation', event => violations.push(event.effectiveDirective));
+    const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = policy; document.head.append(meta);
+    const media = document.createElement('audio'); media.controls = true; media.muted = true; document.body.replaceChildren(media);
+    const ready = new Promise<boolean>(resolve => {
+      const deadline = setTimeout(() => resolve(false), 5000);
+      media.onloadedmetadata = () => { clearTimeout(deadline); resolve(true); };
+      media.onerror = () => { clearTimeout(deadline); resolve(false); };
+    });
+    media.src = source;
+    const readable = await fetch(source).then(response => response.blob()).then(blob => blob.size === 8044 && blob.type === 'audio/wav').catch(() => false);
+    const playable = await ready;
+    if (playable) { await media.play(); media.pause(); }
+    return { readable, playable, violations };
+  }, { policy: nativePhoneCsp, source: `data:audio/wav;base64,${wave.toString('base64')}` });
+  expect(result.readable).toBe(true);
+  expect(result.playable).toBe(true);
+  expect(result.violations).toEqual([]);
+  expect(nativePhoneCsp.split(';').find(part => part.trim().startsWith('script-src'))?.trim()).toBe("script-src 'self'");
 });
 
 test('phone previews local images and interactive HTML without exposing the paired page', async ({ page }, testInfo) => {

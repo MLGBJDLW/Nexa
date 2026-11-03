@@ -1357,6 +1357,15 @@ fn main() {
     app.run(|app_handle, event| match event {
         tauri::RunEvent::WindowEvent {
             label,
+            event: tauri::WindowEvent::Focused(true),
+            ..
+        } if label == "main" => {
+            if let Some(scheduler) = app_handle.try_state::<TaskOrchestratorSchedulerState>() {
+                scheduler.wake.notify_one();
+            }
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
             event: tauri::WindowEvent::CloseRequested { api, .. },
             ..
         } if label == "main" => {

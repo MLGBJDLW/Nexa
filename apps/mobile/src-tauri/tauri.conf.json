@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nexa Mobile",
+  "version": "0.1.0",
+  "identifier": "com.nexa.mobile",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1422",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "title": "Nexa Mobile", "label": "main", "width": 430, "height": 880 }],
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost data: blob:; frame-src https: data:; object-src 'none'; base-uri 'self'" }
+  },
+  "bundle": { "active": true, "targets": "all", "android": { "minSdkVersion": 28 } }
+}

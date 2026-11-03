@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Bundled mobile UI may subscribe to its native runtime.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

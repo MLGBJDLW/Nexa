@@ -15,6 +15,8 @@ pub struct Device {
     pub id: String,
     pub name: String,
     pub created_at: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct StoredDevice {
@@ -130,6 +132,22 @@ impl AuthStore {
         }
     }
     pub fn pair(&mut self, code: &str, name: &str, nonce: &str) -> Result<PairedDevice, String> {
+        self.pair_with_capabilities(code, name, nonce, &[])
+    }
+    pub fn pair_with_capabilities(
+        &mut self,
+        code: &str,
+        name: &str,
+        nonce: &str,
+        capabilities: &[String],
+    ) -> Result<PairedDevice, String> {
+        if capabilities.len() > 1
+            || capabilities
+                .iter()
+                .any(|capability| capability != crate::MODEL_CONNECTION_SYNC_CAPABILITY)
+        {
+            return Err("Unsupported device capability".into());
+        }
         if name.trim().is_empty()
             || name.chars().count() > 80
             || uuid::Uuid::parse_str(nonce).is_err()
@@ -170,6 +188,7 @@ impl AuthStore {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.trim().into(),
             created_at: chrono::Utc::now().to_rfc3339(),
+            capabilities: capabilities.to_vec(),
         };
         let token = format!(
             "{}{}",
@@ -223,6 +242,42 @@ impl AuthStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capability_grants_require_a_new_pairing_and_survive_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = AuthStore::open(dir.path()).unwrap();
+        let code = store.rotate_pairing().code;
+        let nonce = uuid::Uuid::new_v4().to_string();
+        let old = store.pair(&code, "Browser", &nonce).unwrap();
+        let capabilities = vec![crate::MODEL_CONNECTION_SYNC_CAPABILITY.to_string()];
+        let retried = store
+            .pair_with_capabilities(&code, "Phone", &nonce, &capabilities)
+            .unwrap();
+        assert_eq!(old.token, retried.token);
+        assert!(retried.device.capabilities.is_empty());
+        let code = store.rotate_pairing().code;
+        let native = store
+            .pair_with_capabilities(
+                &code,
+                "Phone",
+                &uuid::Uuid::new_v4().to_string(),
+                &capabilities,
+            )
+            .unwrap();
+        assert_eq!(
+            AuthStore::open(dir.path())
+                .unwrap()
+                .authenticate(&native.token)
+                .unwrap()
+                .capabilities,
+            capabilities
+        );
+        let legacy: Device = serde_json::from_value(
+            serde_json::json!({"id":"old", "name":"Browser", "createdAt":"2026-01-01"}),
+        )
+        .unwrap();
+        assert!(legacy.capabilities.is_empty());
+    }
     #[test]
     fn pairing_is_one_time_idempotent_revocable_and_never_persists_raw_tokens() {
         let dir = tempfile::tempdir().unwrap();

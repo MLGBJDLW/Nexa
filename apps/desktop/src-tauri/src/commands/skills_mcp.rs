@@ -109,8 +109,10 @@ pub(crate) fn filter_desktop_builtin_skills_by_package_host(
 ) -> Result<Vec<Skill>, String> {
     let snapshot = desktop_package_host_snapshot(db)?;
     let visible_skill_ids = snapshot
-        .runtime_components()
-        .into_iter()
+        .records
+        .iter()
+        .filter(|record| record.is_runtime_visible())
+        .flat_map(|record| &record.components)
         .filter(|component| component.kind == PackageSurfaceKind::Skill)
         .map(|component| component.id.as_str())
         .collect::<std::collections::HashSet<_>>();
@@ -130,7 +132,10 @@ pub(crate) fn filter_desktop_builtin_skills_by_package_host(
 pub fn list_builtin_skills_cmd(state: tauri::State<'_, AppState>) -> Result<Vec<Skill>, String> {
     filter_desktop_builtin_skills_by_package_host(
         state.db.as_ref(),
-        nexa_core::skills::load_builtin_skills(),
+        state
+            .db
+            .list_builtin_skills()
+            .map_err(|error| error.to_string())?,
     )
 }
 

@@ -622,6 +622,12 @@ impl Database {
             .map(|revision| revision.saturating_add(1))
             .unwrap_or(1);
         if exists {
+            super::delivery::reconcile_owned_delivery_scope(
+                &tx,
+                &id,
+                &source_scope,
+                schedule_config,
+            )?;
             tx.execute(
                 "UPDATE workflow_automations
                  SET name = ?2,

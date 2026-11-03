@@ -64,6 +64,12 @@ impl RemoteState {
         }
     }
     pub fn publish<T: Serialize + ?Sized>(&self, event: &str, payload: &T) {
+        if event == "agent-configs-changed" {
+            if let Ok(server) = self.server() {
+                server.publish(None, "connections:changed", json!({}));
+            }
+            return;
+        }
         if event != "agent://run-event" {
             return;
         }
@@ -430,6 +436,9 @@ fn project_run_event(mut event: Value) -> Value {
 }
 #[async_trait::async_trait]
 impl RemoteHost for DesktopHost {
+    fn capabilities(&self) -> Vec<String> {
+        vec!["model-connection-sync-v1".into()]
+    }
     async fn execute(&self, owner: &str, command: RemoteCommand) -> Result<Value, String> {
         let app = &self.app;
         let state = app.state::<AppState>();
@@ -493,6 +502,19 @@ impl RemoteHost for DesktopHost {
                     json!({"id":config.id,"name":config.name,"provider":config.provider,"model":config.model,"isDefault":config.is_default})
                 }).collect::<Vec<_>>())
             }).await.map_err(|e| e.to_string()).and_then(|result| value(result.value)),
+            SyncConnections { input } => {
+                let request = serde_json::from_value::<nexa_core::connection_sync::ConnectionExchange>(input)
+                    .map_err(|_| "Invalid model connection sync request.")?;
+                let device_name = app.state::<RemoteState>().server()?.devices().into_iter()
+                    .find(|device| device.id == owner).map(|device| device.name)
+                    .ok_or("This device is no longer paired.")?;
+                let result = state.db_executor.write(move |db| db.exchange_model_connections(&request, &device_name))
+                    .await.map_err(|error| error.to_string())?.value;
+                if result.created > 0 || result.updated > 0 {
+                    crate::app_events::emit_app_event(app,"agent-configs-changed",&json!({}));
+                }
+                value(result)
+            }
             Models { connection_id } => value(commands::model_choices::model_choices(app, connection_id).await?),
             Conversations { before } => state.db_executor
                 .read(move |db| db.remote_conversations(before.as_deref()))

@@ -30,6 +30,7 @@ pub mod citations;
 pub mod code_review;
 pub mod companion;
 pub mod compile;
+pub mod connection_sync;
 pub mod context_history;
 pub mod context_maintenance;
 pub mod context_pack;

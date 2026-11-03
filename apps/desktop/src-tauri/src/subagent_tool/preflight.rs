@@ -57,8 +57,7 @@ pub(super) fn filter_enabled_skills(
     }
 }
 pub(super) fn load_skill_index_snapshot(db: &Database) -> SkillIndexSnapshot {
-    let mut skills = nexa_core::skills::load_builtin_skills();
-    skills.extend(db.get_enabled_skills().unwrap_or_default());
+    let skills = db.get_runtime_skills().unwrap_or_default();
     let encoded = serde_json::to_vec(&skills).unwrap_or_default();
     SkillIndexSnapshot {
         generation: blake3::hash(&encoded).to_hex().to_string(),

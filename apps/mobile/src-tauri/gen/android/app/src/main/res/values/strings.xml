@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Nexa Mobile</string>
+    <string name="main_activity_title">Nexa Mobile</string>
+    <string name="accessibility_description">Phone control is optional. Nexa reads visible controls, omits password fields, and asks before acting. Stop any task from its notification.</string>
+    <string name="task_channel">Phone tasks</string>
+    <string name="task_running">Nexa is running a phone task</string>
+    <string name="task_progress">Tap to view progress or stop the task.</string>
+    <string name="task_stop">Stop</string>
+    <string name="share_file">Share phone file</string>
+    <string name="approval_title">Nexa needs your approval</string>
+    <string name="approval_allow">Allow once</string>
+    <string name="approval_deny">Deny</string>
+</resources>

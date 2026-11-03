@@ -2116,6 +2116,57 @@
         ]
       },
       {
+        "id": "z-ai/glm-5.3-flashx-legal",
+        "name": "Z.ai: GLM 5.3 FlashX Legal",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-03",
+        "documentationRef": "https://openrouter.ai/z-ai/glm-5.3-flashx-legal",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "max",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ]
+      },
+      {
         "id": "z-ai/glm-5.3-flashx",
         "name": "Z.ai: GLM 5.3 FlashX",
         "source": "official",
@@ -22458,9 +22509,10 @@
           }
         },
         "status": "deprecated",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-03",
         "documentationRef": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
-        "replacementModelId": "claude-sonnet-5-5"
+        "replacementModelId": "claude-sonnet-5-5",
+        "deprecationDate": "2026-11-30"
       },
       {
         "id": "claude-haiku-4-5",
@@ -23713,8 +23765,8 @@
           }
         },
         "access": "account_enablement",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://ai.google.dev/gemini-api/docs/models",
+        "lastVerifiedAt": "2026-11-03",
+        "documentationRef": "https://aistudio.google.com/docs/deprecations",
         "nativeWebSearch": {
           "dialect": "geminiGoogleSearch",
           "supportsDomains": false,
@@ -23724,7 +23776,11 @@
           "supportsCitations": true,
           "supportsStreamEvents": true,
           "canMixClientTools": false
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2026-12-01",
+        "replacementModelId": "gemini-3.8-flash"
       },
       {
         "id": "gemini-2.5-flash",
@@ -23744,8 +23800,8 @@
           }
         },
         "access": "account_enablement",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://ai.google.dev/gemini-api/docs/models",
+        "lastVerifiedAt": "2026-11-03",
+        "documentationRef": "https://aistudio.google.com/docs/deprecations",
         "nativeWebSearch": {
           "dialect": "geminiGoogleSearch",
           "supportsDomains": false,
@@ -23755,7 +23811,11 @@
           "supportsCitations": true,
           "supportsStreamEvents": true,
           "canMixClientTools": false
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2026-12-01",
+        "replacementModelId": "gemini-3.5-flash-lite"
       },
       {
         "id": "gemini-2.5-flash-lite",

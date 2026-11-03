@@ -1,5 +1,6 @@
 use super::{partial_assistant_output, WorkflowSchedulerEventType};
 use chrono::Utc;
+use std::collections::BTreeSet;
 use uuid::Uuid;
 
 use crate::agent::StreamBlockChannel;
@@ -76,6 +77,53 @@ fn scheduled_automation_requiring_approval(
         &WorkflowAutomationScheduleConfig::default(),
     )
     .unwrap()
+}
+
+#[test]
+fn legacy_run_without_snapshot_recovers_revision_and_delivery_target() {
+    let db = Database::open_memory().unwrap();
+    let task = scheduled_automation(
+        &db,
+        "legacy recovery",
+        "0 9 * * *",
+        WorkflowAutomationScheduleConfig::default(),
+    );
+    let target = create_test_agent_run(&db, "original chat").conversation_id;
+    db.conn().execute("INSERT INTO workflow_automation_delivery_targets(automation_id,conversation_id) VALUES(?1,?2)",rusqlite::params![task.id,target]).unwrap();
+    let due_at = task.next_run_at.as_ref().unwrap();
+    let due = db
+        .list_due_workflow_automations(due_at)
+        .unwrap()
+        .into_iter()
+        .find(|due| due.automation.id == task.id)
+        .unwrap();
+    let run = db
+        .claim_workflow_automation_due_run_at(due, due_at, None)
+        .unwrap()
+        .run
+        .unwrap();
+    db.conn()
+        .execute(
+            "DELETE FROM workflow_automation_run_snapshots WHERE run_id=?1",
+            [&run.id],
+        )
+        .unwrap();
+    let recovered = db.get_workflow_due_for_run(&run.id).unwrap();
+    assert_eq!(
+        recovered.automation.definition_revision,
+        task.definition_revision
+    );
+    assert_eq!(
+        recovered.automation.conversation_id.as_deref(),
+        Some(target.as_str())
+    );
+    assert_eq!(
+        db.get_workflow_definition_for_run(&run.id)
+            .unwrap()
+            .conversation_id
+            .as_deref(),
+        Some(target.as_str())
+    );
 }
 
 fn create_test_agent_run(db: &Database, label: &str) -> AgentTaskRun {
@@ -1018,6 +1066,253 @@ fn run_latest_materializes_the_last_missed_occurrence_at_or_before_now() {
         claim.due_run.scheduled_for.as_deref(),
         Some("2099-01-01T00:00:00+00:00")
     );
+}
+
+#[test]
+fn startup_catchup_reopens_database_and_waits_for_the_origin_chat() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("schedules.db");
+    let db = Database::new(&path).unwrap();
+    let active = create_test_agent_run(&db, "human turn owns the origin chat");
+    let mut config = WorkflowAutomationScheduleConfig::default();
+    config.execution_policy.conversation_id = Some(active.conversation_id.clone());
+    let task = scheduled_automation(&db, "catch-up", "0 8 * * *", config);
+    db.conn()
+        .execute(
+            "UPDATE workflow_automations SET next_run_at='2099-01-01T08:00:00+00:00' WHERE id=?1",
+            [&task.id],
+        )
+        .unwrap();
+    drop(db);
+    let db = Database::new(&path).unwrap();
+    let due = db
+        .list_due_workflow_automations("2099-01-03T09:00:00Z")
+        .unwrap()
+        .remove(0);
+    assert!(
+        matches!(crate::workflow_execution::prepare_scheduled_workflow_launch(&db, due, "2099-01-03T09:00:00Z", None).unwrap(), crate::workflow_execution::ScheduledWorkflowLaunchPreparation::Skipped { reason } if reason == "conversation_busy")
+    );
+    assert_eq!(
+        db.get_workflow_automation(&task.id)
+            .unwrap()
+            .next_run_at
+            .as_deref(),
+        Some("2099-01-01T08:00:00+00:00")
+    );
+    assert_eq!(
+        db.conn()
+            .query_row(
+                "SELECT count(*) FROM workflow_automation_runs WHERE automation_id=?1",
+                [&task.id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    db.conn()
+        .execute(
+            "UPDATE agent_task_runs SET status='completed' WHERE id=?1",
+            [&active.id],
+        )
+        .unwrap();
+    let due = db
+        .list_due_workflow_automations("2099-01-03T09:00:00Z")
+        .unwrap()
+        .remove(0);
+    let claim = db
+        .claim_workflow_automation_due_run_at(due.clone(), "2099-01-03T09:00:00Z", None)
+        .unwrap();
+    assert_eq!(
+        claim.occurrence.unwrap().scheduled_for,
+        "2099-01-03T08:00:00+00:00"
+    );
+    assert!(claim.run.is_some());
+    assert!(db
+        .claim_workflow_automation_due_run_at(due, "2099-01-03T09:00:00Z", None)
+        .unwrap()
+        .run
+        .is_none());
+}
+
+#[test]
+fn standalone_delivery_reserves_one_chat_and_never_recreates_a_deleted_target() {
+    let db = Database::open_memory().unwrap();
+    db.conn().execute("INSERT INTO agent_configs(id,name,provider,model) VALUES('schedule-config','Schedule','open_ai','test')", []).unwrap();
+    let config = db.get_agent_config("schedule-config").unwrap();
+    let task = scheduled_automation(
+        &db,
+        "standalone",
+        "0 8 * * *",
+        WorkflowAutomationScheduleConfig::default(),
+    );
+    let first = db.workflow_delivery_conversation(&task, &config).unwrap();
+    assert_eq!(
+        db.workflow_delivery_conversation(&task, &config).unwrap(),
+        first
+    );
+    assert_eq!(
+        db.get_workflow_automation(&task.id)
+            .unwrap()
+            .conversation_id
+            .as_deref(),
+        Some(first.as_str())
+    );
+    db.delete_conversation(&first).unwrap();
+    assert!(db.workflow_delivery_conversation(&task, &config).is_err());
+    assert!(db.list_conversations().unwrap().is_empty());
+}
+
+#[test]
+fn standalone_delivery_scope_edits_are_atomic_and_preserve_user_drift() {
+    let db = Database::open_memory().unwrap();
+    let dirs: Vec<_> = (0..3).map(|_| tempfile::tempdir().unwrap()).collect();
+    let sources: Vec<_> = dirs
+        .iter()
+        .map(|dir| {
+            db.add_source(crate::sources::CreateSourceInput {
+                root_path: dir.path().to_string_lossy().into(),
+                include_globs: vec![],
+                exclude_globs: vec![],
+                watch_enabled: false,
+            })
+            .unwrap()
+            .id
+        })
+        .collect();
+    db.conn().execute("INSERT INTO agent_configs(id,name,provider,model) VALUES('scope-config','Scope','open_ai','test')", []).unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO projects(id,name) VALUES('scope-project','Scope project')",
+            [],
+        )
+        .unwrap();
+    let agent_config = db.get_agent_config("scope-config").unwrap();
+    let mut task = scheduled_automation(
+        &db,
+        "scope edit",
+        "0 8 * * *",
+        WorkflowAutomationScheduleConfig::default(),
+    );
+    let mut input = SaveWorkflowAutomationInput {
+        id: Some(task.id.clone()),
+        name: task.name.clone(),
+        description: task.description.clone(),
+        workflow_template_id: task.workflow_template_id.clone(),
+        prompt: task.prompt.clone(),
+        trigger: task.trigger.clone(),
+        source_scope: vec![sources[0].clone()],
+        approval_policy: task.approval_policy.clone(),
+        enabled: true,
+    };
+    task = db
+        .save_workflow_automation_with_schedule_config(&input, &task.schedule_config)
+        .unwrap();
+    let target = db
+        .workflow_delivery_conversation(&task, &agent_config)
+        .unwrap();
+    input.source_scope = vec![sources[1].clone(), sources[0].clone()];
+    let mut config = task.schedule_config.clone();
+    config.execution_policy.project_id = Some("scope-project".into());
+    task = db
+        .save_authored_workflow_automation(&input, &config, None, Some(task.definition_revision))
+        .unwrap();
+    assert_eq!(
+        db.workflow_delivery_conversation(&task, &agent_config)
+            .unwrap(),
+        target
+    );
+    // Scope is a set; inserts can share a timestamp and have no stable tie order.
+    assert_eq!(
+        db.get_linked_sources(&target)
+            .unwrap()
+            .into_iter()
+            .collect::<BTreeSet<_>>(),
+        input.source_scope.iter().cloned().collect::<BTreeSet<_>>()
+    );
+    assert_eq!(
+        db.get_conversation(&target).unwrap().project_id.as_deref(),
+        Some("scope-project")
+    );
+
+    // A later edit still recognizes an equivalent source set in a different order.
+    db.set_conversation_sources(&target, &[sources[0].clone(), sources[1].clone()])
+        .unwrap();
+    input.source_scope = vec![sources[1].clone()];
+    task = db
+        .save_authored_workflow_automation(&input, &config, None, Some(task.definition_revision))
+        .unwrap();
+    db.validate_workflow_conversation(&task, &target).unwrap();
+
+    // Invalid source IDs roll back both the target and the definition revision.
+    input.source_scope = vec!["missing-source".into()];
+    assert!(db
+        .save_authored_workflow_automation(&input, &config, None, Some(task.definition_revision))
+        .is_err());
+    assert_eq!(
+        db.get_linked_sources(&target).unwrap(),
+        vec![sources[1].clone()]
+    );
+    assert_eq!(
+        db.get_workflow_automation(&task.id)
+            .unwrap()
+            .definition_revision,
+        task.definition_revision
+    );
+
+    // Independently changed chat sources are never overwritten by a task edit.
+    db.set_conversation_sources(&target, &[sources[2].clone()])
+        .unwrap();
+    input.source_scope = vec![sources[0].clone()];
+    assert!(matches!(
+        db.save_authored_workflow_automation(&input, &config, None, Some(task.definition_revision)),
+        Err(CoreError::Conflict(_))
+    ));
+    assert_eq!(
+        db.get_linked_sources(&target).unwrap(),
+        vec![sources[2].clone()]
+    );
+    assert_eq!(
+        db.get_workflow_automation(&task.id)
+            .unwrap()
+            .definition_revision,
+        task.definition_revision
+    );
+    db.set_conversation_sources(&target, &[sources[1].clone()])
+        .unwrap();
+    db.conn()
+        .execute(
+            "UPDATE conversations SET project_id=NULL WHERE id=?1",
+            [&target],
+        )
+        .unwrap();
+    assert!(matches!(
+        db.save_authored_workflow_automation(&input, &config, None, Some(task.definition_revision)),
+        Err(CoreError::Conflict(_))
+    ));
+    assert_eq!(db.get_conversation(&target).unwrap().project_id, None);
+
+    // Historical bindings and explicit chat-authored targets have no write ownership.
+    for explicit in [false, true] {
+        let mut config = WorkflowAutomationScheduleConfig::default();
+        if explicit {
+            config.execution_policy.conversation_id = Some(target.clone());
+        }
+        let task = scheduled_automation(&db, "user chat", "0 8 * * *", config.clone());
+        if !explicit {
+            db.conn().execute("INSERT INTO workflow_automation_delivery_targets(automation_id,conversation_id) VALUES(?1,?2)", rusqlite::params![task.id, target]).unwrap();
+        }
+        input.id = Some(task.id.clone());
+        let updated = db
+            .save_workflow_automation_with_schedule_config(&input, &config)
+            .unwrap();
+        assert_eq!(
+            db.get_linked_sources(&target).unwrap(),
+            vec![sources[1].clone()]
+        );
+        assert!(db
+            .validate_workflow_conversation(&updated, &target)
+            .is_err());
+    }
 }
 
 #[test]

@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Nexa Mobile</string>
+    <string name="main_activity_title">Nexa Mobile</string>
+    <string name="accessibility_description">Telefonsteuerung ist optional. Nexa liest sichtbare Elemente, lässt Passwortfelder aus und fragt vor Aktionen. Stoppen ist über die Benachrichtigung möglich.</string>
+    <string name="task_channel">Telefonaufgaben</string>
+    <string name="task_running">Nexa führt eine Aufgabe aus</string>
+    <string name="task_progress">Antippen, um den Fortschritt zu sehen oder zu stoppen.</string>
+    <string name="task_stop">Stoppen</string>
+    <string name="share_file">Datei teilen</string>
+    <string name="approval_title">Nexa benötigt deine Zustimmung</string>
+    <string name="approval_allow">Einmal erlauben</string>
+    <string name="approval_deny">Ablehnen</string>
+</resources>

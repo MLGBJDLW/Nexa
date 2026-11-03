@@ -90,6 +90,7 @@ export type WorkflowScheduleOverlapPolicy = 'skip' | 'allow';
 export type WorkflowScheduleWorkspacePolicy = 'deny_writes' | 'isolated_patch';
 
 export interface WorkflowAutomationExecutionPolicy {
+  conversationId?: string | null;
   projectId?: string | null;
   workspacePolicy: WorkflowScheduleWorkspacePolicy;
   sourceRootFingerprint?: string | null;
@@ -143,6 +144,7 @@ export interface SaveWorkflowAutomationInput {
 }
 
 export interface WorkflowAutomation {
+  conversationId?: string | null;
   id: string;
   name: string;
   description: string;

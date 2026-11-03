@@ -418,12 +418,82 @@ mod tests {
     }
 
     #[test]
-    fn test_builtin_skills_reject_write_operations() {
+    fn builtin_toggle_persists_and_blocks_implicit_explicit_and_pinned_selection() {
+        let directory = tempdir().unwrap();
+        let database_path = directory.path().join("skills.db");
+        let db = Database::new(&database_path).unwrap();
+        let id = "builtin-evidence-first";
+        assert!(get_active_skills_for_query(&db, "evidence-first", 20)
+            .unwrap()
+            .iter()
+            .any(|skill| skill.id == id));
+        db.toggle_skill(id, false).unwrap();
+        drop(db);
+        let db = Database::new(&database_path).unwrap();
+        assert!(
+            !db.list_builtin_skills()
+                .unwrap()
+                .iter()
+                .find(|skill| skill.id == id)
+                .unwrap()
+                .enabled
+        );
+        let snapshot =
+            crate::package_host::database_backed_builtin_package_host_snapshot(&db).unwrap();
+        assert!(snapshot
+            .runtime_components()
+            .iter()
+            .all(|component| component.id != "evidence-first"));
+        for skills in [
+            get_active_skills_for_query(&db, "verify claims with evidence and citations", 20)
+                .unwrap(),
+            get_active_skills_for_query_with_pinned(&db, "evidence-first", 20, &[id.into()])
+                .unwrap(),
+            get_available_skills_for_query_with_pinned(
+                &db,
+                "evidence-first",
+                &["evidence-first".into()],
+            )
+            .unwrap(),
+        ] {
+            assert!(skills.iter().all(|skill| skill.id != id));
+        }
+        assert!(
+            db.list_skills().unwrap().is_empty(),
+            "A built-in preference must not create a user-skill copy"
+        );
+        assert!(
+            load_builtin_skills()
+                .iter()
+                .find(|skill| skill.id == id)
+                .unwrap()
+                .enabled
+        );
+        db.toggle_skill(id, true).unwrap();
+        assert!(get_active_skills_for_query(&db, "evidence-first", 20)
+            .unwrap()
+            .iter()
+            .any(|skill| skill.id == id));
+        db.set_package_host_package_enabled(package::BUILTIN_SKILLS_PACKAGE_ID, false)
+            .unwrap();
+        assert!(get_active_skills_for_query(&db, "evidence-first", 20)
+            .unwrap()
+            .is_empty());
+        db.toggle_skill(id, false).unwrap();
+        db.set_package_host_package_enabled(package::BUILTIN_SKILLS_PACKAGE_ID, true)
+            .unwrap();
+        assert!(get_active_skills_for_query(&db, "evidence-first", 20)
+            .unwrap()
+            .iter()
+            .all(|skill| skill.id != id));
+    }
+
+    #[test]
+    fn test_builtin_skill_contents_remain_read_only() {
         let db = Database::open_memory().unwrap();
         assert!(db.delete_skill("builtin-visual-explanations").is_err());
-        assert!(db
-            .toggle_skill("builtin-visual-explanations", false)
-            .is_err());
+        db.toggle_skill("builtin-visual-explanations", false)
+            .unwrap();
         assert!(db
             .save_skill(&SaveSkillInput {
                 id: Some("builtin-visual-explanations".into()),

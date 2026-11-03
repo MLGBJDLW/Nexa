@@ -11,6 +11,7 @@
 | [Optional cloud vector storage](VECTOR_STORES.md) | Configure Qdrant, Pinecone, DashVector, Milvus/Zilliz or Tencent, synchronization and local/cloud fusion |
 | [Subscription agents](SUBSCRIPTION_AGENTS.md) | Sign in to supported Copilot/Codex runtimes or understand their execution limits |
 | [Phone access](remote-access.md) | Pair a phone, select LAN/public routes, use remote chat, or diagnose a connection |
+| [Native mobile application](MOBILE_APP.md) | Run tasks on Android, pair a computer, manage phone-control permissions, or build the independent mobile release |
 | [Voice and Live](LIVE.md) | Use dictation, live audio/video input, records, and summaries |
 | [Computer Use and local images](COMPUTER_USE.md) | Native input, physical coordinates, control feedback, recovery, and direct image inspection |
 | [Local HTML preview](local-html-preview.md) | Open interactive local HTML with an explicit asset list |
