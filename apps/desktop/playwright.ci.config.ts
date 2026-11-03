@@ -11,6 +11,7 @@ export default defineConfig({
       name: "chat",
       testMatch: [
         "**/e2e/chat-conversation-archive.spec.ts",
+        "**/e2e/chat-schedules.spec.ts",
         "**/e2e/chat-slash-commands.spec.ts",
         "**/e2e/chat-stream-markdown-throttle.spec.ts",
         "**/e2e/chat-stream-rounds.spec.ts",
@@ -33,6 +34,7 @@ export default defineConfig({
       ],
       grep: new RegExp([
         "web search settings keep",
+        "sidebar and capsule share scheduled task",
         "settings persists the selected context",
         "followup recommendations",
         "provider icon restores",

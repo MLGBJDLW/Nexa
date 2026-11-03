@@ -960,5 +960,11 @@
   "interactionObserved": "Observation received",
   "agentReceiving": "Receiving model output",
   "agentReasoningUnavailable": "This response does not include a readable reasoning summary.",
-  "subagentParentVerification": "Interactive checks belong to the parent"
+  "subagentParentVerification": "Interactive checks belong to the parent",
+  "scheduledTasks": "Scheduled tasks",
+  "scheduleManage": "Manage",
+  "scheduleNext": "Next",
+  "schedulePaused": "Paused",
+  "schedulePause": "Pause task",
+  "scheduleResume": "Resume task"
 }

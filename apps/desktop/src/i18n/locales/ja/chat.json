@@ -960,5 +960,11 @@
   "interactionObserved": "画面を取得済み",
   "agentReceiving": "モデルの出力を受信中",
   "agentReasoningUnavailable": "この応答には読める推論の要約が含まれていません。",
-  "subagentParentVerification": "対話操作の検証は親エージェントが担当します"
+  "subagentParentVerification": "対話操作の検証は親エージェントが担当します",
+  "scheduledTasks": "定期タスク",
+  "scheduleManage": "管理",
+  "scheduleNext": "次回",
+  "schedulePaused": "一時停止中",
+  "schedulePause": "タスクを一時停止",
+  "scheduleResume": "タスクを再開"
 }

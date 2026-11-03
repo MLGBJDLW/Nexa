@@ -1,3 +1,5 @@
+import type { WorkflowAutomation } from "../../types/workflows";
+import { ConversationScheduleBadge, ConversationSchedules } from "./ConversationSchedules";
 import { AlertTriangle, CheckCircle2, ChevronDown, Circle, ClipboardList, GitBranch, Loader2, ShieldCheck, Target, XCircle } from 'lucide-react';
 import {
   useCallback,
@@ -251,6 +253,8 @@ function currentPlanTranslation(element: HTMLElement): { x: number; y: number } 
 }
 
 export function PlanProgressPanel({
+  schedules = [],
+  onSchedulesRefresh,
   plan,
   goal = null,
   subtasks = [],
@@ -258,6 +262,8 @@ export function PlanProgressPanel({
   conversationId,
   onOpenSubagent,
 }: {
+  schedules?: readonly WorkflowAutomation[];
+  onSchedulesRefresh?: () => void;
   plan?: PlanArtifact | null;
   goal?: ActiveGoalContext | null;
   subtasks?: SubtaskRunArtifact[];
@@ -281,11 +287,11 @@ export function PlanProgressPanel({
     ? t('chat.goalStatusTitle')
     : plan
       ? t('chat.planLabel')
-      : subtasks.length ? t('chat.subtasksLabel') : 'Git';
+      : subtasks.length ? t('chat.subtasksLabel') : schedules.length ? t('chat.scheduledTasks') : 'Git';
   const panelTitle = compactTaskLabel(goal?.objective
     ?? current?.title
     ?? plan?.title
-    ?? (subtasks.length ? t('chat.subtasksDefaultSummary') : git?.repos[0]?.branch ?? 'Git'));
+    ?? (subtasks.length ? t('chat.subtasksDefaultSummary') : schedules[0]?.name ?? git?.repos[0]?.branch ?? 'Git'));
   let currentIcon = goal
     ? <Target className="h-3 w-3 text-accent" />
     : plan
@@ -479,6 +485,7 @@ export function PlanProgressPanel({
             {counts.completed}/{counts.total}
           </span>
         )}
+        {schedules.length > 0 && <ConversationScheduleBadge tasks={schedules} />}
         {git && git.repos.length > 0 && <span data-testid="git-workspace-summary" className="inline-flex max-w-36 shrink-0 items-center gap-1 text-[10px] text-text-secondary" title={git.repos.map(repo => `${repo.branch} · ${repo.root}`).join('\n')}>
           <GitBranch className="h-3 w-3 shrink-0 text-accent" /><span className="truncate">{git.repos.length > 1 ? git.repos.length : git.repos[0].branch === '(detached)' ? git.repos[0].oid.slice(0, 8) : git.repos[0].branch}</span>
           <span className="shrink-0 tabular-nums">· {git.repos.reduce((sum, repo) => sum + repo.files.length, 0)}{git.repos.some(repo => repo.truncated) ? '+' : ''}</span>
@@ -536,6 +543,7 @@ export function PlanProgressPanel({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 rotate-180 text-text-tertiary transition-transform" />
         </button>
 
+        {open && schedules.length > 0 && <ConversationSchedules tasks={schedules} onRefresh={onSchedulesRefresh} />}
         {open && conversationId && git && <GitWorkspaceDetails conversationId={conversationId} {...git} onRefresh={git.refresh} />}
         {plan && (
           <>

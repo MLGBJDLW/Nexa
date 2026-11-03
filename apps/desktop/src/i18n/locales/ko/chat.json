@@ -960,5 +960,11 @@
   "interactionObserved": "화면 확인됨",
   "agentReceiving": "모델 출력 수신 중",
   "agentReasoningUnavailable": "이 응답에는 읽을 수 있는 추론 요약이 포함되어 있지 않습니다.",
-  "subagentParentVerification": "대화형 검증은 상위 에이전트가 담당합니다"
+  "subagentParentVerification": "대화형 검증은 상위 에이전트가 담당합니다",
+  "scheduledTasks": "예약 작업",
+  "scheduleManage": "관리",
+  "scheduleNext": "다음 실행",
+  "schedulePaused": "일시 중지됨",
+  "schedulePause": "작업 일시 중지",
+  "scheduleResume": "작업 재개"
 }

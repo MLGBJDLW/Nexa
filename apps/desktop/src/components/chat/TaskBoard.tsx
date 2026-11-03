@@ -1,3 +1,4 @@
+import type { WorkflowAutomation } from "../../types/workflows";
 import { memo, useMemo } from 'react';
 import type {
   AgentTaskRun,
@@ -16,6 +17,8 @@ import { PlanProgressPanel } from './TaskPanels';
 import { useGitWorkspace } from '../../lib/gitWorkspace';
 
 interface TaskBoardProps {
+  schedules?: readonly WorkflowAutomation[];
+  onSchedulesRefresh?: () => void;
   conversationId?: string | null;
   isStreaming?: boolean;
   sourceRevision?: string;
@@ -29,6 +32,8 @@ interface TaskBoardProps {
 }
 
 export const TaskBoard = memo(function TaskBoard({
+  schedules = [],
+  onSchedulesRefresh,
   conversationId,
   isStreaming = false,
   sourceRevision = '',
@@ -60,11 +65,11 @@ export const TaskBoard = memo(function TaskBoard({
   );
 
   const hasGitContext = git.checkedSources > 0 || git.issues.length > 0 || !!git.error;
-  if (!plan && !goal && subtasks.length === 0 && !hasGitContext) {
+  if (!plan && !goal && subtasks.length === 0 && !hasGitContext && schedules.length === 0) {
     return null;
   }
 
-  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0 && !hasGitContext) {
+  if (!goal && plan?.routeKind === 'DirectResponse' && subtasks.length === 0 && !hasGitContext && schedules.length === 0) {
     return null;
   }
 
@@ -73,7 +78,7 @@ export const TaskBoard = memo(function TaskBoard({
       data-testid="task-board"
       className="pointer-events-none absolute right-3 top-14 z-20 w-[min(22rem,calc(100%-1.5rem))] md:right-4"
     >
-      <PlanProgressPanel key={conversationId} plan={plan?.routeKind === 'DirectResponse' ? null : plan} goal={goal} subtasks={subtasks.map(task => {
+      <PlanProgressPanel schedules={schedules} onSchedulesRefresh={onSchedulesRefresh} key={conversationId} plan={plan?.routeKind === 'DirectResponse' ? null : plan} goal={goal} subtasks={subtasks.map(task => {
         const live = subagentStatuses?.[task.rowId || task.lifecycleId || task.id];
         if (!live) return task;
         const active = ['queued', 'running', 'cancelling'].includes(live);

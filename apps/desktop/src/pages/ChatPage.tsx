@@ -1,3 +1,4 @@
+import { useConversationSchedules } from "../lib/useConversationSchedules";
 import { isTextToSpeechConfigured } from '../lib/autoSpeech';
 import { latestFollowupSuggestions } from '../lib/followupSuggestions';
 import type { ArtifactPayload } from '../types/conversation';
@@ -601,6 +602,7 @@ export function ChatPage() {
     draftRouteKey: location.key,
     activePersonaId,
   });
+  const schedules = useConversationSchedules(`${chat.activeId}:${chat.messages.length}:${chat.toolCalls.filter(call => call.toolName === 'automation' && call.status !== 'running').map(call => call.callId).join(',')}`);
   useEffect(() => {
     if (chat.activeConversation) setProject(chat.activeConversation.projectId ?? null);
     else if (!chat.activeId && requestedProjectId !== undefined) setProject(initialProjectId);
@@ -1757,6 +1759,7 @@ export function ChatPage() {
       >
         <div className="h-full min-h-0" style={{ width: chatSidebarWidth }}>
           <ChatSidebar
+            schedulesByConversation={schedules.byConversation}
             conversations={chat.conversations}
             activeId={chat.activeId}
             activeProjectId={activeProjectId}
@@ -1998,6 +2001,8 @@ export function ChatPage() {
               />
             </div>
             <TaskBoard
+              schedules={schedules.byConversation.get(chat.activeId ?? '')}
+              onSchedulesRefresh={schedules.refresh}
               conversationId={chat.activeId}
               isStreaming={chat.isStreaming}
               sourceRevision={String(gitSourceRevision)}

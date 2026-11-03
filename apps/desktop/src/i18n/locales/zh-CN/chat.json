@@ -960,5 +960,11 @@
   "interactionObserved": "已获取观察",
   "agentReceiving": "正在接收模型输出",
   "agentReasoningUnavailable": "此响应未提供可读的思考摘要。",
-  "subagentParentVerification": "交互验证由主代理负责"
+  "subagentParentVerification": "交互验证由主代理负责",
+  "scheduledTasks": "定时任务",
+  "scheduleManage": "管理",
+  "scheduleNext": "下次执行",
+  "schedulePaused": "已暂停",
+  "schedulePause": "暂停任务",
+  "scheduleResume": "恢复任务"
 }

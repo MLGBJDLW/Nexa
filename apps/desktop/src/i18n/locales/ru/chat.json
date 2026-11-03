@@ -960,5 +960,11 @@
   "interactionObserved": "Наблюдение получено",
   "agentReceiving": "Получение ответа модели",
   "agentReasoningUnavailable": "Этот ответ не содержит читаемого резюме рассуждений.",
-  "subagentParentVerification": "Интерактивные проверки выполняет основной агент"
+  "subagentParentVerification": "Интерактивные проверки выполняет основной агент",
+  "scheduledTasks": "Задачи по расписанию",
+  "scheduleManage": "Управление",
+  "scheduleNext": "Следующий запуск",
+  "schedulePaused": "Приостановлено",
+  "schedulePause": "Приостановить задачу",
+  "scheduleResume": "Возобновить задачу"
 }

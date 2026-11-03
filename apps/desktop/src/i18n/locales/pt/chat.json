@@ -960,5 +960,11 @@
   "interactionObserved": "Observação recebida",
   "agentReceiving": "Recebendo a resposta do modelo",
   "agentReasoningUnavailable": "Esta resposta não inclui um resumo legível do raciocínio.",
-  "subagentParentVerification": "As verificações interativas cabem ao agente principal"
+  "subagentParentVerification": "As verificações interativas cabem ao agente principal",
+  "scheduledTasks": "Tarefas agendadas",
+  "scheduleManage": "Gerenciar",
+  "scheduleNext": "Próxima execução",
+  "schedulePaused": "Em pausa",
+  "schedulePause": "Pausar tarefa",
+  "scheduleResume": "Retomar tarefa"
 }

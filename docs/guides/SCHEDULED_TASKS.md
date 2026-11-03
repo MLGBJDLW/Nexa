@@ -11,8 +11,11 @@ palette (search for `cron`, `schedules`, or `automations`). This opens the
 existing workflow automation view at `/workflows?tab=automations`, with saved
 tasks, next/last run times, timezone, pause/resume, approvals, and run history.
 The selected tab survives refresh and browser back/forward navigation. The
-Workflows entry still opens templates. Local schedules require Nexa to remain
-running; this entry does not create an operating-system or cloud scheduler.
+Workflows entry still opens templates. Local schedules run while Nexa is open. On startup and when the main window
+regains focus, the existing scheduler immediately checks for overdue work. The
+default `run_latest` policy coalesces missed occurrences into one catch-up run;
+explicit `skip` policies still apply. This does not create an operating-system
+or cloud scheduler.
 
 ## Design sources
 
@@ -74,6 +77,24 @@ are real schedule fields; no field may be accepted and then ignored. The UI must
 show the timezone and upcoming occurrences before save. RFC 5545 recurrence is a
 future-compatible direction, not an accepted syntax until the runtime can parse,
 preview, migrate, and execute it with the same guarantees.
+
+## Conversation delivery
+
+A task created from chat stays in that conversation. Existing chat-authored tasks
+recover their original target from a successful creation receipt during migration.
+A standalone task reserves one conversation before its first launch and reuses it
+across retries and later occurrences. Deleting that conversation does not silently
+create another one; review the task before running it again.
+
+If a human turn or another task is active in the target conversation, the due
+cursor stays pending until it becomes idle. The saved source snapshot is applied
+only to the scheduled turn; running a task never rewrites the chat's selected
+sources. Project changes or removal of an authorized source fail closed.
+
+A clock after the sidebar title identifies conversations with schedules, including
+paused tasks. The existing chat capsule shows their names, next execution times
+in the saved timezone, pause/resume controls, and a link to Scheduled tasks. Both
+surfaces share one projection rather than polling separately for every chat.
 
 ## Execution policy
 

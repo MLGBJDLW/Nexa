@@ -1160,6 +1160,11 @@ export const listProviderPresets = () =>
 export const listWorkflowTemplates = () =>
   invoke<WorkflowCatalogTemplate[]>('list_workflow_templates_cmd');
 
+function notifyScheduleChange<T>(value: T): T {
+  window.dispatchEvent(new Event('nexa:schedules-changed'));
+  return value;
+}
+
 export const saveWorkflowAutomation = (input: SaveWorkflowAutomationInput) => {
   const { scheduleConfig, recipe, expectedRevision, ...coreInput } = input;
   return invoke<WorkflowAutomation>('save_workflow_automation_cmd', {
@@ -1167,7 +1172,7 @@ export const saveWorkflowAutomation = (input: SaveWorkflowAutomationInput) => {
     scheduleConfig: scheduleConfig ?? null,
     recipe: recipe ?? null,
     expectedRevision: expectedRevision ?? null,
-  });
+  }).then(notifyScheduleChange);
 };
 
 export const previewWorkflowAuthoring = (input: SaveWorkflowAutomationInput) => {
@@ -1191,10 +1196,10 @@ export const getAgentTaskRunSummary = (runId: string) =>
   invoke<AgentTaskRunListItem>('get_agent_task_run_summary_cmd', { runId });
 
 export const deleteWorkflowAutomation = (id: string) =>
-  invoke<void>('delete_workflow_automation_cmd', { id });
+  invoke<void>('delete_workflow_automation_cmd', { id }).then(notifyScheduleChange);
 
 export const setWorkflowAutomationEnabled = (id: string, enabled: boolean) =>
-  invoke<WorkflowAutomation>('set_workflow_automation_enabled_cmd', { id, enabled });
+  invoke<WorkflowAutomation>('set_workflow_automation_enabled_cmd', { id, enabled }).then(notifyScheduleChange);
 
 export const listDueWorkflowAutomations = (now?: string | null) =>
   invoke<WorkflowAutomationDueRun[]>('list_due_workflow_automations_cmd', { now: now ?? null });
