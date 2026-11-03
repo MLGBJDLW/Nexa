@@ -127,6 +127,18 @@ reference images and its per-model raster formats and sizes. Google's direct
 `gemini-nano-banana-2.1`, following the
 [official lifecycle notice](https://ai.google.dev/gemini-api/docs/changelog).
 
+The November 3 review adds OpenRouter's
+[GLM 5.3 FlashX Legal](https://openrouter.ai/z-ai/glm-5.3-flashx-legal), retaining
+its mandatory reasoning, tool/structured-output support, and multimodal inputs.
+OpenRouter's retired `x-ai/grok-imagine-image-quality` is hidden from new
+selection; saved identifiers remain readable and are not silently rerouted.
+[The xAI retirement notice](https://docs.x.ai/developers/migration/imagine-image-quality-nov-2)
+is specific to the direct xAI behavior. Google's `gemini-2.5-pro` and
+`gemini-2.5-flash` retain access for eligible existing accounts but now show
+[their December 1 lifecycle and replacement metadata](https://aistudio.google.com/docs/deprecations).
+Flash Lite remains active. Claude Sonnet 4.5 retains its deprecated state with
+[the November 30 retirement date](https://platform.claude.com/docs/en/about-claude/model-deprecations).
+
 This audit checks public documentation, shared projections and public discovery.
 It does not establish paid inference, account entitlement, local model installation,
 or authenticated discovery for credentials unavailable to the audit process.
