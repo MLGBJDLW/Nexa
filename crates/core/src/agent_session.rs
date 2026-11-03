@@ -517,49 +517,63 @@ mod tests {
 
     #[tokio::test]
     async fn cancelled_model_request_keeps_cancelled_terminal_status() {
-        let db = Database::open_memory().unwrap();
-        let (conversation, _, run) = create_started_run(&db, "cancel-stream");
-        let started = Arc::new(tokio::sync::Notify::new());
-        let cancel = crate::agent::CancellationToken::new();
-        let mut session = ExecutorAgentSession::new(
-            AgentSessionConfig {
-                conversation_id: Some(conversation),
-                task_run_id: Some(run.clone()),
-                ..Default::default()
-            },
-            Box::new(CancellableProvider(started.clone())),
-            ToolRegistry::new(),
-            AgentConfig {
-                model: Some("static-model".into()),
-                ..Default::default()
-            },
-            db.clone(),
-        )
-        .with_cancel_token(cancel.clone());
-        let execution = tokio::spawn(async move {
-            session
-                .start_turn(AgentTurnInput::text("Wait for my stop control"))
+        for before_start in [false, true] {
+            let db = Database::open_memory().unwrap();
+            let (conversation, _, run) = create_started_run(&db, "cancel-stream");
+            let started = Arc::new(tokio::sync::Notify::new());
+            let cancel = crate::agent::CancellationToken::new();
+            let mut session = ExecutorAgentSession::new(
+                AgentSessionConfig {
+                    conversation_id: Some(conversation),
+                    task_run_id: Some(run.clone()),
+                    ..Default::default()
+                },
+                Box::new(CancellableProvider(started.clone())),
+                ToolRegistry::new(),
+                AgentConfig {
+                    model: Some("static-model".into()),
+                    ..Default::default()
+                },
+                db.clone(),
+            )
+            .with_cancel_token(cancel.clone());
+            if before_start {
+                cancel.cancel();
+            }
+            let execution = tokio::spawn(async move {
+                session
+                    .start_turn(AgentTurnInput::text("Wait for my stop control"))
+                    .await
+            });
+            if !before_start {
+                tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+                    .await
+                    .unwrap();
+                cancel.cancel();
+            }
+            let handle = tokio::time::timeout(std::time::Duration::from_secs(5), execution)
                 .await
-        });
-        tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
-            .await
-            .unwrap();
-        cancel.cancel();
-        let handle = tokio::time::timeout(std::time::Duration::from_secs(5), execution)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            handle.state,
-            AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Cancelled)
-        );
-        assert_eq!(db.get_agent_task_run(&run).unwrap().status, "cancelled");
-        let events = db.list_agent_run_events(&run).unwrap();
-        assert_eq!(events.iter().filter(|event| event.closes_run()).count(), 1);
-        assert!(!events
-            .iter()
-            .any(|event| event.status.as_deref() == Some("failed")));
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                handle.state,
+                AgentTurnState::Terminal(crate::runtime::RuntimeTerminalStatus::Cancelled)
+            );
+            assert_eq!(db.get_agent_task_run(&run).unwrap().status, "cancelled");
+            let events = db.list_agent_run_events(&run).unwrap();
+            assert_eq!(events.iter().filter(|event| event.closes_run()).count(), 1);
+            assert!(!events
+                .iter()
+                .any(|event| event.status.as_deref() == Some("failed")));
+            if before_start {
+                use futures::FutureExt;
+                assert!(
+                    started.notified().now_or_never().is_none(),
+                    "pre-cancelled turns must not call the provider"
+                );
+            }
+        }
     }
 
     struct CountingProvider {

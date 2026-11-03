@@ -325,9 +325,11 @@ export function RemoteChat({
       }
       if (event.kind === 'done' || event.kind === 'error') {
         if (typeof payload.assistantMessageId === 'string') finalId = payload.assistantMessageId;
-        updateStatus(String(payload.status || event.status || (event.kind === 'done' ? 'completed' : 'failed')));
+        const terminalStatus = String(payload.status || event.status || (event.kind === 'done' ? 'completed' : 'failed'));
+        updateStatus(terminalStatus);
         readNeeded = true;
-        if (event.kind === 'error' && typeof payload.message === 'string') setError(payload.message);
+        if (terminalStatus === 'cancelled') setError('');
+        else if (event.kind === 'error' && typeof payload.message === 'string') setError(payload.message);
         if (!syncing) void sync();
         void list().catch(() => {});
       } else if (event.phase === 'paused' || event.phase === 'awaiting_user_input' || event.phase === 'approval') {
@@ -370,7 +372,8 @@ export function RemoteChat({
           highWater ??= page.durableHighWater;
           if (page.run.finalMessageId) finalId = page.run.finalMessageId;
           updateStatus(page.run.status, page.run.phase);
-          if (page.run.errorMessage) setError(page.run.errorMessage);
+          if (page.run.status === 'cancelled') setError('');
+          else if (page.run.errorMessage) setError(page.run.errorMessage);
           // The durable ledger omits ephemeral previews. Only a canonical
           // replay page may advance over those holes; live events stay ordered.
           const through = page.hasMore ? page.nextSequence ?? cursor

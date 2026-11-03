@@ -221,7 +221,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
           resumeCalls++;
           value = {
             run: runEvents.length
-              ? { id: currentRunId, status: runStatus, finalMessageId: finalAnswer == null ? null : 'final-message' }
+              ? { id: currentRunId, status: runStatus, errorMessage: runStatus === 'cancelled' ? 'Request cancelled by user.' : null, finalMessageId: finalAnswer == null ? null : 'final-message' }
               : null,
             events: runEvents.filter(
               (event) =>
@@ -390,6 +390,9 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
     skipEphemeral: () => { eventSequence++; },
     finishRun: (text: string, deliver = false) => {
       finalAnswer = text; runStatus = 'completed'; emit('done', { status: 'completed' }, deliver);
+    },
+    cancelRun: () => {
+      runStatus = 'cancelled'; emit('error', { status:'cancelled', message:'Request cancelled by user.' });
     },
     leaveLan: () => { lan = false; socket?.close({code:1001}); },
     connectedUrl: () => socket?.url(),
@@ -564,6 +567,20 @@ test('phone catches a missed completion without sending another message', async 
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0);
   await expect(page.getByText('Working on the report', { exact: true })).not.toBeVisible();
   expect(app.counts().launches).toHaveLength(0);
+});
+
+test('phone presents user cancellation as stopped across live updates and reload', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await selectControl(page.getByLabel('Conversation', { exact: true }), 'chat-1');
+  app.emit('outputDelta', {blockId:'answer',channel:'answer',offset:0,delta:'Partial work'});
+  await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+  app.cancelRun();
+  await expect(page.getByText('Stopped',{exact:true})).toBeVisible();
+  await expect(page.getByText('Request cancelled by user.',{exact:true})).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText('Stopped',{exact:true})).toBeVisible();
+  await expect(page.getByText('Request cancelled by user.',{exact:true})).toHaveCount(0);
 });
 
 test('phone replays durable events across missing ephemeral sequence numbers', async ({ page }) => {

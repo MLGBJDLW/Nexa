@@ -723,7 +723,7 @@ impl AgentExecutor {
                     context_breakdown: None,
                     assistant_message_id: None,
                     cached: false,
-                    finish_reason: Some("stop".to_string()),
+                    finish_reason: Some("cancelled".to_string()),
                 })
                 .await;
             return Ok(msg);
