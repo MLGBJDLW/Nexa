@@ -53,7 +53,23 @@ export async function inventory(workspace) {
   const bases = [
     ['.ruff_cache'], ['apps', 'desktop', 'node_modules', '.vite'],
     ['apps', 'desktop', 'playwright-report'],
+    ['apps', 'mobile', 'node_modules', '.vite'],
+    ['apps', 'mobile', 'src-tauri', 'gen', 'android', '.gradle'],
+    ['apps', 'mobile', 'src-tauri', 'gen', 'android', 'buildSrc', 'build'],
   ];
+  const android = ['apps', 'mobile', 'src-tauri', 'gen', 'android', 'app'];
+  for (const name of ['intermediates', 'tmp', 'kotlin', 'generated']) bases.push([...android, 'build', name]);
+  for (const abi of ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']) {
+    // Windows may copy this library when symlinks are unavailable. Never
+    // traverse or remove Tauri's symlink on other hosts.
+    const copy = [...android, 'src', 'main', 'jniLibs', abi, 'libnexa_mobile_lib.so'];
+    const info = await fs.lstat(path.join(workspace, ...copy)).catch(error => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (info?.isFile() && !info.isSymbolicLink()) bases.push(copy);
+  }
+  for (const target of ['arm64', 'arm', 'x86', 'x86_64', 'universal']) bases.push([...android, 'build', 'outputs', 'apk', target, 'debug']);
   const desktop = path.join(workspace, 'apps', 'desktop');
   for (const name of await fs.readdir(desktop).catch(() => [])) {
     if (/^test-results(?:[-\w]*)$/.test(name)) bases.push(['apps', 'desktop', name]);
@@ -61,7 +77,7 @@ export async function inventory(workspace) {
   // Cargo has no build-output quota. Manage whole debug profiles, including
   // deps/build/incremental together, so fingerprint and artifact state agree.
   // Release bundles and the pinned Copilot archive are deliberately excluded.
-  for (const base of [['target'], ['apps', 'desktop', 'src-tauri', 'target'], ...await scratchCargoTargets(workspace)]) {
+  for (const base of [['target'], ['apps', 'desktop', 'src-tauri', 'target'], ['apps', 'mobile', 'src-tauri', 'target'], ...await scratchCargoTargets(workspace)]) {
     bases.push([...base, 'debug']);
     for (const name of await fs.readdir(path.join(workspace, ...base)).catch(() => [])) {
       if (/^(?:x86_64|aarch64|i686|armv7|wasm32)-/.test(name)) bases.push([...base, name, 'debug']);
@@ -100,11 +116,12 @@ function assertIdle() {
   // Never clean an active compiler/test/server's output, including another
   // checkout sharing this machine. Failure to inspect processes fails closed.
   const listing = process.platform === 'win32'
-    ? execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(cargo|rustc|rust-lld|link|nexa|nexa-desktop|node)(\\.exe)?$' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"], { encoding: 'utf8', windowsHide: true })
+    ? execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(cargo|rustc|rust-lld|link|nexa|nexa-desktop|node|java)(\\.exe)?$' } | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"], { encoding: 'utf8', windowsHide: true })
     : execFileSync('ps', ['-A', '-o', 'comm=', '-o', 'args='], { encoding: 'utf8' });
   if (/(?:^|["/\\\s])(?:cargo|rustc|rust-lld|link|nexa|nexa-desktop)(?:\.exe)?(?:["\s]|$)/im.test(listing)
-    || /\b(?:vite|playwright)(?:[.\/\\\s"]|$)/i.test(listing)) {
-    throw new Error('Stop compilers, Nexa development app, Vite, and Playwright before applying cache cleanup.');
+    || /\b(?:vite|playwright)(?:[.\/\\\s"]|$)/i.test(listing)
+    || /\bGradle(?:Daemon|WrapperMain)\b/.test(listing)) {
+    throw new Error('Stop compilers, Gradle, Nexa development app, Vite, and Playwright before applying cache cleanup.');
   }
 }
 

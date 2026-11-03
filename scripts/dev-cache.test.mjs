@@ -18,12 +18,13 @@ test('inventory only includes known development caches and rejects junction esca
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nexa-cache-'));
   const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'nexa-outside-'));
   try {
-    for (const dir of ['target/debug', 'target/release', 'target/copilot-cli-cache', 'apps/desktop/test-results-old', 'apps/desktop/user-data']) {
+    for (const dir of ['target/debug', 'target/release', 'target/copilot-cli-cache', 'apps/desktop/test-results-old', 'apps/desktop/user-data', 'apps/mobile/src-tauri/target/aarch64-linux-android/debug', 'apps/mobile/src-tauri/target/aarch64-linux-android/release', 'apps/mobile/src-tauri/gen/android/app/build/intermediates', 'apps/mobile/src-tauri/gen/android/app/build/outputs/apk/arm64/release']) {
       await fs.mkdir(path.join(root, dir), { recursive: true });
       await fs.writeFile(path.join(root, dir, 'data'), 'abc');
     }
     const entries = await inventory(root);
-    assert.equal(entries.length, 2);
+    assert.equal(entries.length, 4);
+    assert(entries.every(entry => !entry.path.includes('release')));
     await fs.mkdir(path.join(root, 'apps/desktop/node_modules'), { recursive: true });
     await fs.symlink(outside, path.join(root, 'apps/desktop/node_modules/.vite'), process.platform === 'win32' ? 'junction' : 'dir');
     await assert.rejects(inventory(root), /linked cache/);
