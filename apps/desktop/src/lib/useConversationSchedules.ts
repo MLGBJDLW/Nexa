@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listWorkflowAutomations } from './api';
 import type { WorkflowAutomation } from '../types/workflows';
 
+const isVisible = () => document.visibilityState !== 'hidden';
+
 /** One projection for the entire chat surface, never a poll per sidebar row. */
 export function useConversationSchedules(revision: string) {
   const [tasks, setTasks] = useState<WorkflowAutomation[]>([]);
@@ -10,7 +12,7 @@ export function useConversationSchedules(revision: string) {
   const mounted = useRef(false);
   const refresh = useCallback(async () => {
     requested.current = true;
-    if (pending.current || document.visibilityState === 'hidden') return;
+    if (pending.current || !isVisible()) return;
     pending.current = true;
     try {
       do {
@@ -19,7 +21,7 @@ export function useConversationSchedules(revision: string) {
           const next = await listWorkflowAutomations();
           if (mounted.current && !requested.current && Array.isArray(next)) setTasks(next);
         } catch { /* Keep the last confirmed projection during a transient disconnect. */ }
-      } while (mounted.current && requested.current && document.visibilityState !== 'hidden');
+      } while (mounted.current && requested.current && isVisible());
     }
     finally { pending.current = false; }
   }, []);
