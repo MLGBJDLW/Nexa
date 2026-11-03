@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+const packagedCsp = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8')).app.security.csp as string;
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('nexa-locale', 'en'));
@@ -6,6 +8,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('image selection preserves pixels and exports the edit mask after undo and retry', async ({ page }, testInfo) => {
+  // Exercise the packaged connection policy: img-src alone does not authorize
+  // reading an uploaded data URL or a local asset through fetch.
+  await page.evaluate(policy => {
+    const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy';
+    meta.content = policy; document.head.append(meta);
+  }, packagedCsp.split(';').find(directive => directive.trim().startsWith('connect-src'))!);
   await page.getByRole('img', { name: 'Markdown screenshot', exact: true }).click();
   await page.getByRole('button', { name: 'Edit image', exact: true }).click();
   const editor = page.getByTestId('image-editor');
