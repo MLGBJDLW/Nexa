@@ -9,8 +9,13 @@ import type { WorkflowAutomation } from '../../src/types/workflows';
 import type { Conversation } from '../../src/types/conversation';
 
 const task: WorkflowAutomation = { id: 'daily', conversationId: 'scheduled-chat', name: 'Morning research', description: '', workflowTemplateId: 'report_brief', prompt: 'Research', sourceScope: [], enabled: true, status: 'completed', triggerKind: 'schedule', trigger: { kind: 'schedule', cron: '0 8 * * *' }, approvalPolicy: { requireBeforeRun: false, allowedTools: [], riskLevel: 'medium' }, scheduleConfig: { version: 2, timezone: 'Asia/Shanghai', misfirePolicy: 'run_latest', misfireGraceSeconds: 300, overlapPolicy: 'skip', legacyNeedsReview: false, executionPolicy: { workspacePolicy: 'deny_writes', powerMode: 'standard', orchestrationProfile: 'balanced', collaborationMode: 'direct' } }, nextRunAt: '2026-11-04T00:00:00Z', createdAt: '2026-11-02T00:00:00Z', updatedAt: '2026-11-03T00:38:55Z' };
-Object.assign(window, { __TAURI_INTERNALS__: { async invoke(command: string, args: any) {
-  if (command === 'list_workflow_automations_cmd') return [structuredClone(task)];
+let deferNextRead = false;
+Object.assign(window, { holdNextScheduleRead() { deferNextRead = true; window.dispatchEvent(new Event('nexa:schedules-changed')); }, __TAURI_INTERNALS__: { async invoke(command: string, args: any) {
+  if (command === 'list_workflow_automations_cmd') {
+    const snapshot = [structuredClone(task)];
+    if (deferNextRead) { deferNextRead = false; return new Promise(resolve => Object.assign(window, { releaseScheduleRead: () => resolve(snapshot) })); }
+    return snapshot;
+  }
   if (command === 'set_workflow_automation_enabled_cmd') { task.enabled = args.enabled; return structuredClone(task); }
   return [];
 } } });

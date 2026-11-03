@@ -108,7 +108,7 @@ pub(super) fn fetch_definition_revision(
     automation_id: &str,
     revision: i64,
 ) -> Result<WorkflowAutomation, CoreError> {
-    conn.query_row("SELECT a.id,d.name,d.description,d.workflow_template_id,d.prompt,d.trigger_json,d.trigger_kind,d.source_scope_json,d.approval_policy_json,a.enabled,a.status,a.last_run_at,a.next_run_at,a.created_at,a.updated_at,d.schedule_config_json,d.recipe_json,d.revision FROM workflow_automations a JOIN workflow_automation_definition_revisions d ON d.automation_id=a.id WHERE a.id=?1 AND d.revision=?2", rusqlite::params![automation_id, revision], workflow_automation_from_row).map_err(CoreError::from)
+    conn.query_row("SELECT a.id,d.name,d.description,d.workflow_template_id,d.prompt,d.trigger_json,d.trigger_kind,d.source_scope_json,d.approval_policy_json,a.enabled,a.status,a.last_run_at,a.next_run_at,a.created_at,a.updated_at,d.schedule_config_json,d.recipe_json,d.revision,(SELECT conversation_id FROM workflow_automation_delivery_targets WHERE automation_id=a.id) FROM workflow_automations a JOIN workflow_automation_definition_revisions d ON d.automation_id=a.id WHERE a.id=?1 AND d.revision=?2", rusqlite::params![automation_id, revision], workflow_automation_from_row).map_err(CoreError::from)
 }
 
 pub(super) fn consume_folder_occurrence_cutoff(

@@ -10,7 +10,10 @@ test('sidebar and capsule share scheduled task state and preserve the paused ind
   const schedules = page.getByTestId('conversation-schedules');
   await expect(schedules).toContainText('Morning research');
   await expect(schedules).toContainText('Asia/Shanghai');
+  await page.evaluate(() => (window as any).holdNextScheduleRead());
+  await page.waitForFunction(() => typeof (window as any).releaseScheduleRead === 'function');
   await schedules.getByRole('button', { name: 'Pause task: Morning research' }).click();
+  await page.evaluate(() => (window as any).releaseScheduleRead());
   await expect(schedules).toContainText('Paused');
   await expect(badges.first()).toHaveAttribute('title', /Paused/);
   await page.screenshot({ path: testInfo.outputPath('schedule-capsule-paused.png') });

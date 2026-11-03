@@ -78,6 +78,53 @@ fn scheduled_automation_requiring_approval(
     .unwrap()
 }
 
+#[test]
+fn legacy_run_without_snapshot_recovers_revision_and_delivery_target() {
+    let db = Database::open_memory().unwrap();
+    let task = scheduled_automation(
+        &db,
+        "legacy recovery",
+        "0 9 * * *",
+        WorkflowAutomationScheduleConfig::default(),
+    );
+    let target = create_test_agent_run(&db, "original chat").conversation_id;
+    db.conn().execute("INSERT INTO workflow_automation_delivery_targets(automation_id,conversation_id) VALUES(?1,?2)",rusqlite::params![task.id,target]).unwrap();
+    let due_at = task.next_run_at.as_ref().unwrap();
+    let due = db
+        .list_due_workflow_automations(due_at)
+        .unwrap()
+        .into_iter()
+        .find(|due| due.automation.id == task.id)
+        .unwrap();
+    let run = db
+        .claim_workflow_automation_due_run_at(due, due_at, None)
+        .unwrap()
+        .run
+        .unwrap();
+    db.conn()
+        .execute(
+            "DELETE FROM workflow_automation_run_snapshots WHERE run_id=?1",
+            [&run.id],
+        )
+        .unwrap();
+    let recovered = db.get_workflow_due_for_run(&run.id).unwrap();
+    assert_eq!(
+        recovered.automation.definition_revision,
+        task.definition_revision
+    );
+    assert_eq!(
+        recovered.automation.conversation_id.as_deref(),
+        Some(target.as_str())
+    );
+    assert_eq!(
+        db.get_workflow_definition_for_run(&run.id)
+            .unwrap()
+            .conversation_id
+            .as_deref(),
+        Some(target.as_str())
+    );
+}
+
 fn create_test_agent_run(db: &Database, label: &str) -> AgentTaskRun {
     let conversation = db
         .create_conversation(&CreateConversationInput {
