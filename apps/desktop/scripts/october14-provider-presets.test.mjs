@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 const read = name => JSON.parse(readFileSync(new URL(`../../../shared/${name}.json`, import.meta.url), 'utf8'));
 const providers = read('provider-presets');
-const model = (provider, id) => providers.find(item => item.id === provider).models.find(item => item.id === id);
+const model = (provider, id) => providers.find(item => item.id === provider).models.find(item => item.id === id || item.aliases?.includes(id));
 
 test('October 29 catalog keeps Particle capabilities and retires unavailable free decision routes without remapping them', () => {
   const particle = model('openrouter', 'particle-ai/particle-1');
@@ -84,7 +84,7 @@ test('Titan embeddings expose only supported text dimensions and canonical decis
   assert.equal(embeddings.some(row => row.id === 'amazon/titan-embed-image-v1'), false,
     'the 128-token multimodal model needs a dedicated input budget, not tiny general-index chunks');
   assert.equal(decisions.find(row => row.id === 'liquid/d1.1').contextTokens, 65_536);
-  assert.equal(decisions.some(row => row.id === '~liquid/d1-latest'), false);
+  assert.equal(decisions.find(row => row.id === '~liquid/d1-latest').contextTokens, 65_536);
 });
 
 test('new embedding routes preserve exact dimensions and text adapter boundaries', () => {
@@ -98,7 +98,7 @@ test('new embedding routes preserve exact dimensions and text adapter boundaries
     assert.equal(row.minDimensions, 32);
     assert.equal(row.maxDimensions, dimensions);
   }
-  for (const [id, dimensions] of [['voyageai/voyage-4', 1024], ['voyageai/voyage-4-large', 1024], ['voyageai/voyage-4-lite', 1024], ['voyageai/voyage-code-4', 1024], ['qwen/qwen3-embedding-4b', 2560], ['mistralai/mistral-embed-2312', 1024], ['mistralai/codestral-embed-2505', 1536]]) {
+  for (const [id, dimensions] of [['mongodb/voyage-4', 1024], ['mongodb/voyage-4-large', 1024], ['mongodb/voyage-4-lite', 1024], ['mongodb/voyage-code-4', 1024], ['qwen/qwen3-embedding-4b', 2560], ['mistralai/mistral-embed-2312', 1024], ['mistralai/codestral-embed-2505', 1536]]) {
     const row = lookup('openrouter', id);
     assert.equal(row.dimensions, dimensions);
     assert.equal(row.supportsDimensionOverride, false);
@@ -189,7 +189,7 @@ test('routed aliases retain compatibility and new embedding routes use supported
     ['liquid/lfm-2.5-embedding-350m:free', 1024, 512],
     ['nvidia/nemotron-3-embed-1b:free', 2048, 32768],
     ['google/gemini-embedding-2', 3072, 8192],
-    ['voyageai/voyage-multimodal-3.5', 1024, 32000],
+    ['mongodb/voyage-multimodal-3.5', 1024, 32000],
   ]) {
     const row = embeddings.find(row => row.id === id);
     assert.equal(row.dimensions, dimensions);
@@ -197,4 +197,12 @@ test('routed aliases retain compatibility and new embedding routes use supported
     assert.deepEqual(row.inputModalities, ['text']);
     assert.equal(row.supportsDimensionOverride, false);
   }
+});
+
+test('November 4 hosted reasoning and Voyage aliases follow their endpoint contracts', () => {
+  for(const id of ['mistral-large-4','mistral-large-4-0']) assert.deepEqual(model('mistral',id).capabilities.reasoning.effortLevels,['low','medium','high']);
+  assert.deepEqual(model('mistral','zai-glm-5-3').capabilities.reasoning.effortLevels,['low','high','max']);
+  assert.equal(model('mistral','deepseek-v4-1-flash-1017').status,'preview');
+  assert.equal(model('siliconflow','zai-org/GLM-4.5V').status,'deprecated');
+  for(const row of read('embedding-provider-presets').find(x=>x.id==='openrouter').models.filter(x=>x.id.startsWith('mongodb/'))) assert(row.aliases.includes(row.id.replace('mongodb/','voyageai/')));
 });

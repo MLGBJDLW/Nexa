@@ -41,6 +41,8 @@ pub struct EmbeddingProviderPreset {
 #[serde(rename_all = "camelCase")]
 pub struct EmbeddingModelPreset {
     pub id: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
     pub name: String,
     pub dimensions: usize,
     pub supports_dimension_override: bool,
@@ -73,7 +75,10 @@ pub fn find_embedding_model(base_url: &str, model: &str) -> Option<EmbeddingMode
     find_embedding_provider(base_url)?
         .models
         .iter()
-        .find(|candidate| candidate.id == model.trim())
+        .find(|candidate| {
+            candidate.id == model.trim()
+                || candidate.aliases.iter().any(|alias| alias == model.trim())
+        })
         .cloned()
 }
 

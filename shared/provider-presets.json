@@ -24996,11 +24996,44 @@
     "baseUrl": "https://api.mistral.ai/v1",
     "requiresApiKey": true,
     "icon": "🌪️",
-    "description": "Mistral Medium 3.5, Large 3, Small 4, Ministral 3, Devstral 2",
+    "description": "Mistral Large 4, Medium 3.5, hosted GLM 5.3 and DeepSeek V4.1 Flash",
     "capabilities": {
       "vision": false
     },
     "models": [
+      {
+        "id": "deepseek-v4-1-flash-1017",
+        "name": "DeepSeek V4.1 Flash 1017",
+        "source": "official",
+        "status": "preview",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-04",
+        "releaseDate": "2026-10-28",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.mistral.ai/models/deepseek-v4-flash-1017"
+      },
       {
         "id": "mistral-medium-3-5",
         "name": "Mistral Medium 3.5",
@@ -25056,7 +25089,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-10-20",
+        "lastVerifiedAt": "2026-11-04",
         "inputModalities": [
           "text"
         ],
@@ -25064,11 +25097,21 @@
           "text"
         ],
         "supportsTools": true,
-        "documentationRef": "https://docs.mistral.ai/resources/changelogs",
+        "documentationRef": "https://docs.mistral.ai/studio/conversations/reasoning",
         "supportsStructuredOutput": true,
         "capabilities": {
           "vision": false,
-          "reasoning": null
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
         },
         "contextTokens": 1000000,
         "maxOutputTokens": 128000,
@@ -25148,7 +25191,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-10-20",
+        "lastVerifiedAt": "2026-11-04",
         "inputModalities": [
           "text",
           "image"
@@ -25163,21 +25206,24 @@
         "status": "preview",
         "access": "public",
         "contextTokens": 1048576,
-        "documentationRef": "https://docs.mistral.ai/models/mistral-large-4-0",
+        "documentationRef": "https://docs.mistral.ai/studio/conversations/reasoning",
         "capabilities": {
           "vision": true,
           "reasoning": {
-            "mode": "optional",
+            "mode": "always",
             "effortLevels": [
-              "none",
+              "low",
+              "medium",
               "high"
             ],
             "thinkingBudget": {
               "enabled": false
-            },
-            "effortBudgetExclusive": true
+            }
           }
-        }
+        },
+        "aliases": [
+          "mistral-large-4-0"
+        ]
       },
       {
         "id": "zai-glm-5-3-flash",
@@ -26310,7 +26356,12 @@
         "name": "GLM-4.5V",
         "capabilities": {
           "vision": true
-        }
+        },
+        "status": "deprecated",
+        "deprecationDate": "2026-11-16",
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
+        "recommended": false
       },
       {
         "id": "Pro/moonshotai/Kimi-K2.5",

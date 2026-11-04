@@ -28,20 +28,25 @@ export function compareCapabilities(curated, discovered) {
 /** Compare one endpoint/credential snapshot without crossing identity scopes. */
 export function compareEndpointModels(endpoint, liveModels) {
   const curatedById = new Map(endpoint.models.map((model) => [model.id, model]));
-  const canonicalBySelectionId = new Map(endpoint.models.flatMap((model) =>
-    [model.id, ...(Array.isArray(model.aliases) ? model.aliases : [])]
-      .map((id) => [String(id).trim().toLowerCase(), model.id])));
+  const selectionIds = model => [model.id, model.discoveryId, ...(Array.isArray(model.aliases) ? model.aliases : [])]
+    .filter(Boolean).map(id => String(id).trim().toLowerCase());
+  const knownIds = new Set(endpoint.models.flatMap(selectionIds));
+  const liveSelections = new Map();
   const liveById = new Map();
   const newIdSet = new Set();
   for (const live of Array.isArray(liveModels) ? liveModels : []) {
     if (typeof live?.id !== 'string' || !live.id.trim()) continue;
-    const canonicalId = canonicalBySelectionId.get(live.id.trim().toLowerCase());
-    if (!canonicalId) {
+    const id = live.id.trim().toLowerCase();
+    liveSelections.set(id, live);
+    if (!knownIds.has(id)) {
       newIdSet.add(live.id);
-      continue;
     }
-    const current = liveById.get(canonicalId);
-    if (!current || live.id === canonicalId) liveById.set(canonicalId, live);
+  }
+  // Multiple supported wire aliases can resolve to one discovery ID. Match
+  // each selection independently instead of losing aliases to a Map collision.
+  for (const curated of endpoint.models) {
+    const live = selectionIds(curated).map(id => liveSelections.get(id)).find(Boolean);
+    if (live) liveById.set(curated.id, live);
   }
   const newIds = [...newIdSet].sort();
   const missingIds = [...curatedById.keys()].filter((id) => !liveById.has(id)).sort();

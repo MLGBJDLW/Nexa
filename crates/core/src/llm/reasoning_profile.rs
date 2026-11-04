@@ -845,13 +845,36 @@ pub fn resolve_reasoning_profile(
             "mistral-large-4" | "mistral-large-4-0" => profile(
                 key,
                 "mistral-large4-reasoning-v1",
-                ThinkingModeControl::ProviderDefault,
+                ThinkingModeControl::AlwaysOn,
                 ReasoningEffortField::TopLevel,
                 ReasoningEffortMapping::Exact,
-                (&[ReasoningEffort::None, ReasoningEffort::High], None),
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::High,
+                    ],
+                    None,
+                ),
                 ReasoningBudgetField::None,
             ),
-            "zai-glm-5-3-flash" | "zai-glm-5-3" | "zai-glm-5-2" => profile(
+            "zai-glm-5-3" => profile(
+                key,
+                "mistral-hosted-glm53-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::High,
+                        ReasoningEffort::Max,
+                    ],
+                    None,
+                ),
+                ReasoningBudgetField::None,
+            ),
+            "zai-glm-5-3-flash" | "zai-glm-5-2" => profile(
                 key,
                 "mistral-hosted-glm-v1",
                 ThinkingModeControl::ProviderDefault,
@@ -879,7 +902,7 @@ pub fn resolve_reasoning_profile(
                 ),
                 ReasoningBudgetField::None,
             ),
-            "magistral-medium-2509" => profile(
+            "magistral-medium-2509" | "deepseek-v4-1-flash-1017" => profile(
                 key,
                 "mistral-native-reasoning-v1",
                 ThinkingModeControl::AlwaysOn,
