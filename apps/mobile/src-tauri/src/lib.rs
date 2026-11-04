@@ -174,10 +174,18 @@ fn validate_provider_url(input: &str) -> Result<(), String> {
 
 #[tauri::command]
 async fn mobile_permission(app: AppHandle, permission: String) -> Result<Value, String> {
-    if !matches!(permission.as_str(), "notifications" | "accessibility") {
+    if !matches!(
+        permission.as_str(),
+        "notifications" | "accessibility" | "app_info" | "battery"
+    ) {
         return Err("Unsupported permission.".into());
     }
     platform::call(&app, "requestPermission", json!({"permission":permission})).await
+}
+
+#[tauri::command]
+async fn mobile_scan_pairing(app: AppHandle) -> Result<Value, String> {
+    platform::call(&app, "scanPairing", json!({})).await
 }
 
 #[tauri::command]
@@ -321,6 +329,7 @@ pub fn run() {
             mobile_sync_connections,
             mobile_local,
             mobile_permission,
+            mobile_scan_pairing,
             mobile_pair,
             mobile_remote,
             mobile_files

@@ -14,16 +14,16 @@ impl Tool for PhoneTool {
         "phone_control"
     }
     fn description(&self) -> &str {
-        "Observe the Android accessibility UI, then perform one verified-target action with the returned observation ID. Sensitive/password fields are unavailable. Observe again to verify the outcome."
+        "Check status for Android control availability. Observe the accessibility UI, then perform one verified-target action with the returned observation ID. Sensitive/password fields are unavailable. Observe again to verify the outcome. If access is unavailable, show the recovery steps to the user and wait; repeated calls cannot grant system permissions."
     }
     fn parameters_schema(&self) -> Value {
         json!({"type":"object","properties":{
-            "action":{"type":"string","enum":["observe","click","set_text","scroll_forward","scroll_backward","back","home","open_app"]},
+            "action":{"type":"string","enum":["status","observe","click","set_text","scroll_forward","scroll_backward","back","home","open_app"]},
             "observationId":{"type":"string"},"nodeId":{"type":"integer"},"packageName":{"type":"string"},"text":{"type":"string"}
         },"required":["action"]})
     }
     fn requires_confirmation(&self, args: &Value) -> bool {
-        args["action"] != "observe"
+        !matches!(args["action"].as_str(), Some("observe" | "status"))
     }
     fn confirmation_message(&self, args: &Value) -> Option<String> {
         Some(format!(
@@ -40,7 +40,7 @@ impl Tool for PhoneTool {
         Ok(ToolResult {
             call_id: context.call_id.into(),
             content: value.to_string(),
-            is_error: false,
+            is_error: value["requiresUserAction"] == true,
             artifacts: Some(json!({"kind":"phoneObservation","result":value})),
         })
     }

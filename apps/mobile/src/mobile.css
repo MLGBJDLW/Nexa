@@ -100,6 +100,10 @@
 .mobile-advanced label { margin-top: 7px; }
 .mobile-settings-section { border-top: 1px solid var(--color-border); margin-top: 24px; padding-top: 20px; }
 .mobile-settings-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 9px; }
+.mobile-permission-status { margin: 12px 0; font-size: 12px; color: var(--color-text-secondary); }
+.mobile-permission-help { margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--color-surface-1); font-size: 12px; line-height: 1.65; }
+.mobile-permission-help p { margin: 8px 0; }
+.mobile-permission-help summary { cursor: pointer; min-height: 32px; }
 .mobile-settings-section button { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 48px; font-size: 13px; border-bottom: 1px solid var(--color-border); }
 .mobile-language { margin-top: 22px; }
 .mobile-model-controls { display: flex; flex-direction: column; gap: 16px; padding-bottom: 18px; }
@@ -119,6 +123,11 @@
 .mobile-pair > p { font-size: 13px; line-height: 1.75; color: var(--color-text-secondary); }
 .mobile-pair form { margin: 25px 0; display: flex; flex-direction: column; gap: 16px; }
 .mobile-pair .mobile-footnote { font-size: 11px; color: var(--color-text-tertiary); }
+.mobile-setup-choices { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 330px; margin-top: 20px; }
+.mobile-setup-choices button, .mobile-scan-button { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; border-radius: 12px; padding: 12px; font-size: 14px; }
+.mobile-setup-choices button:not(.mobile-primary) { border: 1px solid var(--color-border); }
+.mobile-scan-button { margin-top: 22px; width: 100%; }
+.mobile-skip { display: block; min-height: 44px; margin: 16px auto 0; font-size: 13px; color: var(--color-text-secondary); }
 .mobile-file-list button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 50px; text-align: left; border-bottom: 1px solid var(--color-border); font-size: 13px; }
 .mobile-file-list span { flex: 1; overflow-wrap: anywhere; }
 .mobile-forget { margin: 24px 0 0; color: #b0534a; font-size: 12px; min-height: 44px; }

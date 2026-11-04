@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { ArrowRight, Check, ChevronDown, FolderOpen, Loader2, Monitor, Plus, Settings, Smartphone } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, FolderOpen, Loader2, Monitor, Plus, ScanLine, Settings, Smartphone } from 'lucide-react';
 import { Logo } from '../../desktop/src/components/Logo';
 import { useTranslation } from '../../desktop/src/i18n';
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from '../../desktop/src/features/remote/MobileChatShell';
@@ -14,12 +14,14 @@ const ComputerChat = lazy(() => import('./ComputerChat'));
 const PhoneSettingsSheet = lazy(() => import('./PhoneSettingsSheet'));
 export interface PhoneConnection { id: string; name: string; provider: string; model: string; baseUrl: string | null }
 export interface ConnectionSyncSummary { supported: boolean; checkedAt: string; connections: number; received: number; sent: number; conflicts: number; deviceOnly: number }
-export interface MobileState { version: string; settings: PhoneSettings | null; activeConnectionId?: string | null; connections?: PhoneConnection[]; connectionSync?: Record<string, ConnectionSyncSummary>; hosts: NativeHost[]; capabilities: { accessibility: boolean; notifications: boolean } }
+export interface PhoneCapabilities { accessibility: boolean; accessibilityEnabled?: boolean; accessibilityStatus?: 'connected' | 'disconnected' | 'disabled'; notifications: boolean; restrictedSettingsMayApply?: boolean; batteryOptimized?: boolean; backgroundRestricted?: boolean; manufacturer?: string; androidVersion?: number; screenCapture?: boolean }
+export interface MobileState { version: string; settings: PhoneSettings | null; activeConnectionId?: string | null; connections?: PhoneConnection[]; connectionSync?: Record<string, ConnectionSyncSummary>; hosts: NativeHost[]; capabilities: PhoneCapabilities }
 
 export function MobileApp() {
   const { t } = useTranslation();
   const [state, setState] = useState<MobileState | null>(null);
   const [target, setTarget] = useState(() => localStorage.getItem('nexa.mobile.target') || 'phone');
+  const [setupSkipped, setSetupSkipped] = useState(() => localStorage.getItem('nexa.mobile.setupSkipped') === 'true');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [targetsOpen, setTargetsOpen] = useState(false);
@@ -96,7 +98,8 @@ export function MobileApp() {
     void refresh();
     const foreground = () => { if (document.visibilityState !== 'hidden') { void refresh(); for (const id of clients.current.keys()) void syncConnections(id).catch(() => {}); } };
     document.addEventListener('visibilitychange', foreground);
-    return () => document.removeEventListener('visibilitychange', foreground);
+    window.addEventListener('focus', foreground);
+    return () => { document.removeEventListener('visibilitychange', foreground); window.removeEventListener('focus', foreground); };
   }, [refresh, syncConnections]);
   useEffect(() => { localStorage.setItem('nexa.mobile.target', target); }, [target]);
   useEffect(() => {
@@ -113,19 +116,28 @@ export function MobileApp() {
   const heading = <button className="mobile-target-button" onClick={() => setTargetsOpen(true)} aria-label={t('remote.mobileTarget')}><Logo size={26} decorative/><span><strong>Nexa</strong><small>{targetLabel}<ChevronDown size={12}/></small></span></button>;
   const drawerFooter = <><button onClick={() => setTargetsOpen(true)}><Smartphone size={18}/>{t('remote.mobileTarget')}</button><button onClick={openFiles}><FolderOpen size={18}/>{t('remote.mobileFiles')}</button><button onClick={openSettings}><Settings size={18}/>{t('remote.mobileSettings')}</button></>;
   const presentation: MobileChatPresentation = { heading, drawerFooter, caption: target === 'phone' ? t('remote.mobileLocalBoundary') : t('remote.mobileRemoteBoundary'), onConfigure: openSettings, onFiles: openFiles };
-  const activeChat = !!state && (target === 'phone' ? !!state.settings : !!client);
+  const activeChat = !!state && (target === 'phone' ? !!state.settings || setupSkipped : !!client);
+  const skipSetup = () => { localStorage.setItem('nexa.mobile.setupSkipped', 'true'); setSetupSkipped(true); setTarget('phone'); };
+  const scanPairing = () => action(async () => {
+    const result = await invoke<{ url: string | null }>('mobile_scan_pairing');
+    if (!result.url) return;
+    const url = new URL(result.url);
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    if (url.protocol !== 'https:' || url.username || url.password || !fragment.get('pair') || !fragment.get('server')) throw new Error(t('remote.mobileScanInvalid'));
+    setPairUrl(result.url); pairRequest.current = crypto.randomUUID();
+  });
   const loading = <div className="mobile-loading"><Loader2 size={22} className="animate-spin"/></div>;
 
   return <main className="mobile-app" data-testid="native-mobile-app">
     {error && <div className="mobile-error" role="alert">{error}<button onClick={() => setError('')} aria-label={t('common.close')}>×</button></div>}
     {!activeChat && <MobileChatHeader center={heading} onMenu={() => setDrawerOpen(true)}/>}
-    {!state ? loading : target === 'phone' ? state.settings ? <Suspense fallback={loading}><LocalChat settings={state.settings} presentation={presentation}/></Suspense>
-      : <section className="mobile-onboarding"><Logo size={56}/><h1>{t('remote.mobilePhoneTitle')}</h1><p>{t('remote.mobilePhoneHint')}</p><button className="mobile-primary" onClick={openSettings}>{t('remote.mobileConfigure')}<ArrowRight size={17}/></button></section>
+    {!state ? loading : target === 'phone' ? state.settings || setupSkipped ? <Suspense fallback={loading}><LocalChat settings={state.settings} presentation={presentation}/></Suspense>
+      : <section className="mobile-onboarding"><Logo size={56}/><h1>{t('remote.mobilePhoneTitle')}</h1><p>{t('remote.mobilePhoneHint')}</p><div className="mobile-setup-choices"><button className="mobile-primary" onClick={() => setTarget('pair')}><Monitor size={17}/>{t('remote.mobileConnectComputer')}<ArrowRight size={17}/></button>{state.hosts.map(computer => <button key={computer.id} onClick={() => setTarget(computer.id)}><Monitor size={17}/>{hostLabel(computer)}<ArrowRight size={17}/></button>)}<button onClick={openSettings}><Smartphone size={17}/>{t('remote.mobileConfigure')}<ArrowRight size={17}/></button><button onClick={skipSetup}>{t('remote.mobileSkipSetup')}</button></div></section>
       : client ? <Suspense fallback={loading}><ComputerChat key={client.paired.id} client={client} presentation={presentation}/></Suspense> : host ? loading
-      : <section className="mobile-pair"><Logo size={40}/><h1>{t('remote.mobilePairTitle')}</h1><p>{t('remote.mobilePairHint')}</p><form onSubmit={event => { event.preventDefault(); void action(async () => {
+      : <section className="mobile-pair"><Logo size={40}/><h1>{t('remote.mobilePairTitle')}</h1><p>{t('remote.mobilePairHint')}</p><button className="mobile-scan-button mobile-primary" disabled={busy} onClick={() => void scanPairing()}><ScanLine size={20}/>{t('remote.mobileScanPairing')}</button><form onSubmit={event => { event.preventDefault(); void action(async () => {
         const paired = await invoke<NativeHost>('mobile_pair', { url: pairUrl.trim(), name: 'Nexa Mobile', requestId: pairRequest.current });
         setPairUrl(''); pairRequest.current = crypto.randomUUID(); setTarget(paired.id);
-      }); }}><label>{t('remote.mobilePairLink')}<textarea aria-label={t('remote.mobilePairLink')} rows={3} value={pairUrl} onChange={event => { setPairUrl(event.target.value); pairRequest.current = crypto.randomUUID(); }} placeholder="https://…/phone#pair=…" autoCapitalize="none" autoCorrect="off" spellCheck={false}/></label><p className="mobile-section-hint">{t('remote.mobileSyncTrustedHint')}</p><button className="mobile-primary" disabled={busy || !pairUrl.trim()}>{busy ? <Loader2 size={17} className="animate-spin"/> : <ArrowRight size={17}/>} {t('remote.pair')}</button></form><p className="mobile-footnote">{t('remote.pairAuthority')}</p></section>}
+      }); }}><label>{t('remote.mobilePairLink')}<textarea aria-label={t('remote.mobilePairLink')} rows={3} value={pairUrl} onChange={event => { setPairUrl(event.target.value); pairRequest.current = crypto.randomUUID(); }} placeholder="https://…/phone#pair=…" autoCapitalize="none" autoCorrect="off" spellCheck={false}/></label><p className="mobile-section-hint">{t('remote.mobileSyncTrustedHint')}</p><button className="mobile-primary" disabled={busy || !pairUrl.trim()}>{busy ? <Loader2 size={17} className="animate-spin"/> : <ArrowRight size={17}/>} {t('remote.pair')}</button></form><p className="mobile-footnote">{t('remote.pairAuthority')}</p><button className="mobile-skip" onClick={skipSetup}>{t('remote.mobileSkipSetup')}</button></section>}
     {!activeChat && <p className="mobile-version">Nexa Mobile {state?.version ?? '0.1.0'}</p>}
     {activeChat && target !== 'phone' && connection.phase === 'revoked' && <p className="mobile-error">{t('remote.revokedHint')}</p>}
     <MobileDialog open={drawerOpen} side title="Nexa" onClose={() => setDrawerOpen(false)}><div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{drawerFooter}</div></MobileDialog>

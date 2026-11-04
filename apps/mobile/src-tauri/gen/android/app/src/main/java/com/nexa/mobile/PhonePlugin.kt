@@ -9,6 +9,10 @@ import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
+import app.tauri.annotation.ActivityCallback
+import androidx.activity.result.ActivityResult
+import com.journeyapps.barcodescanner.ScanOptions
+import com.journeyapps.barcodescanner.ScanIntentResult
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Plugin
 import app.tauri.plugin.Invoke
@@ -22,18 +26,32 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     private val secrets = SecretStore(activity)
     private fun guarded(invoke: Invoke, action: () -> JSObject) { try { invoke.resolve(action()) } catch (error: Exception) { invoke.reject(error.message ?: "Native service unavailable.") } }
     @Command fun secureRead(invoke: Invoke) = guarded(invoke) { JSObject().apply { put("value",secrets.read(invoke.getArgs().getString("key"))) } }
+    @Command fun scanPairing(invoke: Invoke) {
+        try {
+            val options = ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setBeepEnabled(false).setOrientationLocked(false)
+            startActivityForResult(invoke, options.createScanIntent(activity), "pairingScanned")
+        } catch (error: Exception) { invoke.reject(error.message ?: "The camera could not be opened. Paste the pairing link instead.") }
+    }
+    @ActivityCallback private fun pairingScanned(invoke: Invoke, result: ActivityResult) = guarded(invoke) {
+        val scanned = ScanIntentResult.parseActivityResult(result.resultCode, result.data)
+        JSObject().apply { put("url", scanned.contents) }
+    }
     @Command fun secureWrite(invoke: Invoke) = guarded(invoke) {
         val args = invoke.getArgs(); secrets.write(args.getString("key"),args.getString("value",null)); JSObject()
     }
-    @Command fun capabilities(invoke: Invoke) = guarded(invoke) { JSObject().apply {
-        put("platform","android"); put("accessibility",PhoneAccessibilityService.instance != null)
-        put("notifications",activity.getSystemService(NotificationManager::class.java).areNotificationsEnabled())
-        put("screenCapture",false); put("phoneFiles",true); put("localAgent",true)
-    } }
+    @Command fun capabilities(invoke: Invoke) = guarded(invoke) { PhoneAccess.status(activity) }
     @Command fun requestPermission(invoke: Invoke) = guarded(invoke) {
         when(invoke.getArgs().getString("permission")) {
-            "accessibility" -> activity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            "notifications" -> if (Build.VERSION.SDK_INT >= 33) activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),702)
+            "accessibility", "app_info", "battery" -> PhoneAccess.open(activity, invoke.getArgs().getString("permission"))
+            "notifications" -> {
+                val preferences = activity.getPreferences(Activity.MODE_PRIVATE)
+                if (Build.VERSION.SDK_INT >= 33 && !preferences.getBoolean("notificationsRequested", false) &&
+                    ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    preferences.edit().putBoolean("notificationsRequested", true).apply()
+                    activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),702)
+                } else PhoneAccess.open(activity, "notifications")
+            }
             else -> error("Unsupported permission.")
         }; JSObject()
     }
@@ -49,8 +67,8 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
     @Command fun phoneControl(invoke: Invoke) = guarded(invoke) {
-        val service = PhoneAccessibilityService.instance ?: error("Enable Nexa in Android Accessibility settings to use phone control.")
-        service.action(invoke.getArgs())
+        if (invoke.getArgs().getString("action") == "status") PhoneAccess.status(activity)
+        else PhoneAccessibilityService.instance?.action(invoke.getArgs()) ?: PhoneAccess.recovery(activity)
     }
     @Command fun shareFile(invoke: Invoke) = guarded(invoke) {
         val file = java.io.File(invoke.getArgs().getString("path")).canonicalFile
