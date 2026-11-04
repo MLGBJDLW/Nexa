@@ -163,6 +163,21 @@ test('confirmed route removals remain tombstones while future retirements remain
   assert.equal(read('image-provider-presets').flatMap(item => item.models).find(item => item.id === 'inclusionai/ming-image-0.1-design').status, 'removed');
 });
 
+test('Bailian Kimi K3.1 Pro has distinct Beijing direct-supply entries and fixed maximum effort', () => {
+  for (const id of ['kimi/kimi-k3.1-pro', 'kimi/kimi-k3.1-pro-highspeed']) {
+    const entry = model('alibaba-model-studio', id);
+    assert.ok(entry, `${id} must be selectable without a discovery credential`);
+    assert.equal(entry.capabilities.reasoning.mode, 'always');
+    assert.deepEqual(entry.capabilities.reasoning.effortLevels, ['max']);
+    assert.equal(entry.capabilities.reasoning.thinkingBudget.enabled, false);
+    assert.equal(entry.capabilities.vision, true);
+    assert.equal(entry.supportsTools, true);
+    assert.equal(entry.contextTokens, 1_048_576);
+    assert.deepEqual(entry.regions, ['cn-beijing']);
+    assert.ok(!read('provider-presets').find(item=>item.id==='qwen-cloud-intl').models.some(item=>item.id===id));
+  }
+});
+
 test('routed aliases retain compatibility and new embedding routes use supported text contracts', () => {
   for (const [id, replacement] of [['gemini-3.7-flash', 'gemini-3.8-flash'], ['gemini-3.5-flash', 'gemini-3.6-flash']]) {
     assert.equal(model('google', id).status, 'deprecated');

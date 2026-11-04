@@ -1061,6 +1061,7 @@ fn build_request_body_with_config(
     let ling31_contract = reasoning_profile.id == "alibaba-ling31-flash-v1";
     let supports_parallel_tool_calls = !any_glm53_contract
         && !ling31_contract
+        && reasoning_profile.id != "alibaba-moonshot-kimi-k31-pro-v1"
         && reasoning_profile.id != "alibaba-minimax-m31-flash-v1";
     let reasoning_history_encoding = reasoning_profile.reasoning_history_encoding;
     let needs_completion_tokens = reasoning_profile.use_max_completion_tokens
@@ -1216,7 +1217,7 @@ fn build_request_body_with_config(
                 .is_some_and(|tools| !tools.is_empty()))
         .then_some(true),
         parallel_tool_calls: match request.tools.as_ref() {
-            // These exact trusted GLM, Ling and hosted MiniMax routes do not support
+            // These exact trusted GLM, Ling, Kimi and hosted MiniMax routes do not support
             // `parallel_tool_calls` in their current request contract.
             Some(tools)
                 if !tools.is_empty()
@@ -5913,6 +5914,70 @@ data: [DONE]
         ))
         .unwrap();
         assert_eq!(body["reasoning_effort"], "max");
+    }
+
+    #[test]
+    fn alibaba_routed_k31_pro_keeps_replay_and_omits_unsupported_fields() {
+        for model in ["kimi/kimi-k3.1-pro", "kimi/kimi-k3.1-pro-highspeed"] {
+            let mut request = endpoint_reasoning_request(model);
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = Some(ReasoningEffort::Max);
+            request.thinking_budget = Some(2048);
+            request.tools = Some(vec![ToolDefinition {
+                name: "inspect".into(),
+                description: "Inspect".into(),
+                parameters: serde_json::json!({"oneOf":[{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}]}),
+            }]);
+            let mut prior = Message::text(Role::Assistant, "Inspecting");
+            prior.reasoning_content = Some("Need current screen evidence".into());
+            request.messages.push(prior);
+            for endpoint in [
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            ] {
+                let config = endpoint_config(ProviderType::AlibabaModelStudio, endpoint);
+                for stream in [false, true] {
+                    let body = serde_json::to_value(build_request_body_with_config(
+                        &request,
+                        stream,
+                        Some(&config),
+                    ))
+                    .unwrap();
+                    assert_eq!(body["reasoning_effort"], "max", "{model}");
+                    assert_eq!(body["preserve_thinking"], true);
+                    assert_eq!(
+                        body["messages"][1]["reasoning_content"],
+                        "Need current screen evidence"
+                    );
+                    assert_eq!(body["tools"][0]["function"]["parameters"]["type"], "object");
+                    for field in [
+                        "parallel_tool_calls",
+                        "n",
+                        "thinking_budget",
+                        "enable_thinking",
+                        "thinking",
+                        "temperature",
+                    ] {
+                        assert!(body.get(field).is_none(), "{model}: {field}");
+                    }
+                }
+            }
+            for endpoint in [
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "https://private.example/v1",
+            ] {
+                let config = endpoint_config(ProviderType::AlibabaModelStudio, endpoint);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert!(body.get("preserve_thinking").is_none(), "{endpoint}");
+                assert!(body.get("reasoning_effort").is_none(), "{endpoint}");
+            }
+        }
     }
 
     #[test]

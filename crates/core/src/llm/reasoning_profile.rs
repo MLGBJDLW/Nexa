@@ -1489,6 +1489,27 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
+        if beijing_payg
+            && matches!(
+                model.as_str(),
+                "kimi/kimi-k3.1-pro" | "kimi/kimi-k3.1-pro-highspeed"
+            )
+        {
+            let mut value = profile(
+                key,
+                "alibaba-moonshot-kimi-k31-pro-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (&[ReasoningEffort::Max], Some(ReasoningEffort::Max)),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.send_preserve_thinking = true;
+            value.omit_temperature_when_reasoning = true;
+            return value;
+        }
+
         if model == "kimi/kimi-k3" {
             let mut value = profile(
                 key,

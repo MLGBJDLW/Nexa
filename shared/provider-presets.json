@@ -12372,9 +12372,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-20",
-        "documentationRef": "https://openrouter.ai/qwen/qwen3-next-80b-a3b-thinking",
-        "maxOutputTokens": 235929
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/qwen/qwen3-next-80b-a3b-thinking/endpoints",
+        "maxOutputTokens": 235929,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "qwen/qwen3-next-80b-a3b-instruct:free",
@@ -14754,9 +14756,11 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/openai/o4-mini-high",
-        "maxOutputTokens": 100000
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/openai/o4-mini-high/endpoints",
+        "maxOutputTokens": 100000,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "openai/o3",
@@ -14836,9 +14840,11 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/openai/o4-mini",
-        "maxOutputTokens": 100000
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/openai/o4-mini/endpoints",
+        "maxOutputTokens": 100000,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "openai/gpt-4.1",
@@ -15098,9 +15104,11 @@
           "structured_outputs"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/openai/o1-pro",
-        "maxOutputTokens": 100000
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/openai/o1-pro/endpoints",
+        "maxOutputTokens": 100000,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "mistralai/mistral-small-3.1-24b-instruct",
@@ -15600,9 +15608,11 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/openai/o3-mini-high",
-        "maxOutputTokens": 100000
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/openai/o3-mini-high/endpoints",
+        "maxOutputTokens": 100000,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "google/gemini-2.0-flash-001",
@@ -15803,9 +15813,11 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/openai/o3-mini",
-        "maxOutputTokens": 100000
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/openai/o3-mini/endpoints",
+        "maxOutputTokens": 100000,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "mistralai/mistral-small-24b-instruct-2501",
@@ -16159,9 +16171,11 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/openai/o1",
-        "maxOutputTokens": 100000
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/openai/o1/endpoints",
+        "maxOutputTokens": 100000,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "cohere/command-r7b-12-2024",
@@ -16883,9 +16897,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/nousresearch/hermes-3-llama-3.1-70b",
-        "maxOutputTokens": 16384
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/nousresearch/hermes-3-llama-3.1-70b/endpoints",
+        "maxOutputTokens": 16384,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "nousresearch/hermes-3-llama-3.1-405b:free",
@@ -16929,9 +16945,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/nousresearch/hermes-3-llama-3.1-405b",
-        "maxOutputTokens": 16384
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/nousresearch/hermes-3-llama-3.1-405b/endpoints",
+        "maxOutputTokens": 16384,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "sao10k/l3-lunaris-8b",
@@ -17469,9 +17487,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/openai/gpt-4-turbo",
-        "maxOutputTokens": 4096
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/openai/gpt-4-turbo/endpoints",
+        "maxOutputTokens": 4096,
+        "status": "removed",
+        "recommended": false
       },
       {
         "id": "anthropic/claude-3-haiku",
@@ -19710,7 +19730,7 @@
       {
         "id": "poolside/laguna-s-2.1",
         "name": "Poolside: Laguna S 2.1",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19732,8 +19752,8 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/poolside/laguna-s-2.1",
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/poolside/laguna-s-2.1/endpoints",
         "maxOutputTokens": 131072,
         "capabilities": {
           "vision": false,
@@ -19751,7 +19771,7 @@
       {
         "id": "poolside/laguna-s-2.1:free",
         "name": "Poolside: Laguna S 2.1 (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19773,8 +19793,8 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/poolside/laguna-s-2.1:free",
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/poolside/laguna-s-2.1:free/endpoints",
         "maxOutputTokens": 32768,
         "capabilities": {
           "vision": false,
@@ -20208,7 +20228,7 @@
       {
         "id": "poolside/laguna-xs-2.1",
         "name": "Poolside: Laguna XS 2.1",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -20230,8 +20250,8 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/poolside/laguna-xs-2.1",
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/poolside/laguna-xs-2.1/endpoints",
         "maxOutputTokens": 32768,
         "capabilities": {
           "vision": false,
@@ -20249,7 +20269,7 @@
       {
         "id": "poolside/laguna-xs-2.1:free",
         "name": "Poolside: Laguna XS 2.1 (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -20271,8 +20291,8 @@
           "tools"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/poolside/laguna-xs-2.1:free",
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/api/v1/models/poolside/laguna-xs-2.1:free/endpoints",
         "maxOutputTokens": 32768,
         "capabilities": {
           "vision": false,
@@ -22027,6 +22047,54 @@
           "top_logprobs",
           "top_p"
         ]
+      },
+      {
+        "id": "stealth/crouton-alpha",
+        "name": "Crouton Alpha",
+        "status": "preview",
+        "recommended": false,
+        "access": "public",
+        "productReadiness": "known",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "file",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        },
+        "source": "official",
+        "lastVerifiedAt": "2026-11-04",
+        "documentationRef": "https://openrouter.ai/stealth/crouton-alpha"
       }
     ]
   },
@@ -28732,6 +28800,94 @@
             }
           }
         }
+      },
+      {
+        "id": "kimi/kimi-k3.1-pro-highspeed",
+        "name": "Kimi K3.1 Pro Highspeed (Moonshot direct)",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-11-04",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "capabilities": {
+          "vision": true,
+          "videoInput": false,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "recommended": false,
+        "productReadiness": "known",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsStructuredOutput": true,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k3-1-pro-highspeed-by-moonshot"
+      },
+      {
+        "id": "kimi/kimi-k3.1-pro",
+        "name": "Kimi K3.1 Pro (Moonshot direct)",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-11-04",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "capabilities": {
+          "vision": true,
+          "videoInput": false,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "recommended": true,
+        "productReadiness": "known",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsStructuredOutput": true,
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k3-1-pro-by-moonshot"
       },
       {
         "id": "kimi/kimi-k2.7-code-highspeed",
