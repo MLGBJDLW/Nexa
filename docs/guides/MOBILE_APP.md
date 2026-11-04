@@ -103,10 +103,12 @@ Stop remains available while the task is active.
 
 Use the commands and prerequisites in the [application README](../../apps/mobile/README.md).
 The [Mobile workflow](../../.github/workflows/mobile.yml) builds Android separately
-from desktop. Mobile-only PRs keep the desktop repository/metadata checks and
-use the Android workflow for their native build. Shared core changes still run
-both relevant platform gates. No emulator or phone toolchain is added to the
-ordinary desktop jobs.
+from desktop. PRs validate the mobile frontend and version contracts without
+installing an Android toolchain or packaging an APK. Content-verified Release
+Please metadata updates skip the redundant mobile frontend build. Full signed
+Android builds run only for a `nexa-mobile-v*` tag or an explicit release-tag
+dispatch. Shared core changes retain the desktop core checks. Native Android
+compilation and signing remain required before mobile release publication.
 
 To release, update the mobile package, npm lockfile, native Cargo package and
 Tauri versions together, write the English mobile changelog, and synchronize
