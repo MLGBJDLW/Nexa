@@ -684,6 +684,33 @@ mod tests {
     }
 
     #[test]
+    fn voyage_namespace_alias_keeps_saved_dimensions_and_vector_identity() {
+        let base = "https://openrouter.ai/api/v1";
+        for suffix in [
+            "voyage-4",
+            "voyage-4-large",
+            "voyage-4-lite",
+            "voyage-code-4",
+            "voyage-multimodal-3.5",
+        ] {
+            let old = format!("voyageai/{suffix}");
+            let canonical = format!("mongodb/{suffix}");
+            assert_eq!(find_embedding_model(base, &old).unwrap().dimensions, 1024);
+            assert_eq!(
+                find_embedding_model(base, &canonical).unwrap().dimensions,
+                1024
+            );
+            let original = client(base, &old, 1024);
+            assert_eq!(original.model_name(), old);
+            assert_eq!(
+                original.vector_space_id(),
+                ApiEmbedder::space_identity(base, &old, 1024, EmbeddingApiStyle::Openai)
+            );
+            assert_eq!(original.request(&["query"], false).1["model"], old);
+        }
+    }
+
+    #[test]
     fn fixed_and_provider_specific_dimensions_are_validated_before_requests() {
         for (base, model, dimension) in [
             ("https://api.mistral.ai/v1", "mistral-embed", 512),

@@ -26,6 +26,7 @@ export function NexaCombobox({
   placeholder = 'Select…',
   searchPlaceholder = 'Search…',
   value,
+  disabled = false,
 }: {
   ariaLabel: string;
   className?: string;
@@ -36,6 +37,7 @@ export function NexaCombobox({
   placeholder?: string;
   searchPlaceholder?: string;
   value?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selected = useMemo(() => options.find(option => option.value === value), [options, value]);
@@ -45,6 +47,7 @@ export function NexaCombobox({
       <NexaPopoverTrigger asChild>
         <button
           type="button"
+          disabled={disabled}
           className={`nexa-select-trigger ${className}`}
           aria-label={ariaLabel}
           aria-expanded={open}

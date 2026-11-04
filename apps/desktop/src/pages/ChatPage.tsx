@@ -1002,8 +1002,8 @@ export function ChatPage() {
   const [advancedControlsOpened, setAdvancedControlsOpened] = useState(false);
   const handleToggleBrowser = useCallback(() => { setSubagentView(null); setBrowserOpen((value) => !value); }, []);
   const handleBrowserOpenChange = useCallback((open: boolean) => { if (open) setSubagentView(null); setBrowserOpen(open); }, []);
-  useAppCommand({ id: 'chat.browser', label: 'shortcuts.toggleBrowser', keywords: 'browser workspace 浏览器', run: handleToggleBrowser });
-  useAppCommand({ id: 'chat.terminal', label: 'shortcuts.toggleTerminal', keywords: 'terminal shell 终端', run: handleToggleTerminal });
+  useAppCommand({ id: 'chat.browser', label: 'shortcuts.toggleBrowser', keywords: 'browser workspace 浏览器', enabled: !!chat.agentConfig && !chat.loadingConfig, run: handleToggleBrowser });
+  useAppCommand({ id: 'chat.terminal', label: 'shortcuts.toggleTerminal', keywords: 'terminal shell 终端', enabled: !!chat.agentConfig && !chat.loadingConfig, run: handleToggleTerminal });
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'b') {
@@ -1292,6 +1292,7 @@ export function ChatPage() {
     if (projectId === activeProjectId && displayedProjectMatches) return;
     handleNewConversation(projectId, true);
   }, [activeProjectId, chat.activeId, chat.activeConversation, initialProjectId, handleNewConversation]);
+  useAppCommand({ id: 'chat.new', label: 'chat.newChat', keywords: 'new chat conversation 新聊天', run: () => handleNewConversation() });
 
   const handleCheckpointBranch = useCallback((conversation: Conversation) => {
     chat.setConversations((prev) => [conversation, ...prev.filter((c) => c.id !== conversation.id)]);
@@ -1717,6 +1718,15 @@ export function ChatPage() {
   const pendingChatAction = (
     location.state as { pendingChatAction?: string } | null
   )?.pendingChatAction;
+  const consumedWorkspaceAction = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pendingChatAction || !['new','browser','terminal'].includes(pendingChatAction) || chat.loadingConfig || consumedWorkspaceAction.current === location.key) return;
+    consumedWorkspaceAction.current = location.key;
+    navigate(location.pathname, { replace: true, state: null });
+    if (pendingChatAction === 'new') handleNewConversation();
+    else if (chat.agentConfig && pendingChatAction === 'browser') handleToggleBrowser();
+    else if (chat.agentConfig && pendingChatAction === 'terminal') handleToggleTerminal();
+  }, [pendingChatAction, chat.loadingConfig, chat.agentConfig, location.key, location.pathname, navigate, handleNewConversation, handleToggleBrowser, handleToggleTerminal]);
 
   useEffect(() => {
     if (pendingChatAction !== 'compact') return;

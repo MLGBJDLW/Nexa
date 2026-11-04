@@ -150,6 +150,39 @@ test('keeps the navigation rail fixed, optically centered, and metadata visible'
   expect(versionBox!.y + versionBox!.height).toBeLessThanOrEqual(railBox!.y + railBox!.height);
 });
 
+test('themed workspace radial menu keeps editing menus, fits edges and executes existing commands', async ({ page }, info) => {
+  await page.goto('/missing-route');
+  const main = page.locator('main').first();
+  await expect(main).toBeVisible();
+  await main.click({button:'right',position:{x:420,y:100}});
+  const menu = page.getByTestId('workspace-radial-menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem')).toHaveCount(5);
+  await menu.screenshot({path:info.outputPath('radial-theme.png')});
+  const before = await menu.locator('.workspace-radial-shape path').first().evaluate(element=>getComputedStyle(element).stroke);
+  await page.evaluate(()=>document.documentElement.style.setProperty('--color-border','rgb(119, 88, 173)'));
+  await expect.poll(()=>menu.locator('.workspace-radial-shape path').first().evaluate(element=>getComputedStyle(element).stroke)).not.toBe(before);
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await page.evaluate(()=>{
+    const input=document.createElement('textarea'); input.dataset.testid='radial-editing-target'; input.value='Preserve editing menu';
+    input.style.cssText='position:fixed;left:300px;top:150px;width:220px;height:50px'; document.querySelector('main')!.appendChild(input);
+  });
+  await page.getByTestId('radial-editing-target').click({button:'right'});
+  await expect(menu).toBeHidden();
+  await page.keyboard.press('Escape');
+  await page.getByTestId('radial-editing-target').evaluate(element=>element.remove());
+  await page.mouse.click(1340,75,{button:'right'});
+  await expect(menu).toBeVisible();
+  const box=await menu.boundingBox(); expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(9); expect(box!.y).toBeGreaterThanOrEqual(9);
+  expect(box!.x+box!.width).toBeLessThanOrEqual(1351); expect(box!.y+box!.height).toBeLessThanOrEqual(891);
+  await menu.getByRole('menuitem',{name:'Command Palette',exact:true}).focus();
+  await page.keyboard.press('Enter');
+  await expect(menu).toBeHidden();
+  await expect(page.getByRole('dialog',{name:'Command Palette',exact:true})).toBeVisible();
+});
+
 test('keeps native controls synchronized with the active color scheme', async ({ page }) => {
   await page.goto('/missing-route');
 

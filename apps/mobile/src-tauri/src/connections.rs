@@ -113,14 +113,30 @@ pub async fn public_state(app: &AppHandle) -> Result<Value, String> {
 }
 
 pub async fn active(app: &AppHandle) -> Result<SharedModelConnection, String> {
+    get(app, None).await
+}
+
+pub async fn get(app: &AppHandle, id: Option<&str>) -> Result<SharedModelConnection, String> {
     let _guard = STORE.lock().await;
     let store = load(app).await?;
-    store
-        .active_id
-        .as_ref()
+    id.or(store.active_id.as_deref())
         .and_then(|id| store.connections.get(id))
         .cloned()
         .ok_or("Configure or synchronize a model connection first.".into())
+}
+
+pub fn provider_config(
+    saved: &SharedModelConnection,
+) -> Result<nexa_core::llm::ProviderConfig, String> {
+    Ok(nexa_core::llm::ProviderConfig {
+        provider_type: nexa_core::provider_registry::provider_type_from_key(&saved.provider)
+            .ok_or("Unsupported provider type.")?,
+        base_url: saved.base_url.clone(),
+        api_key: Some(saved.api_key.clone()),
+        org_id: None,
+        timeout_secs: None,
+        streaming: saved.provider_streaming.clone(),
+    })
 }
 
 pub async fn save_settings(

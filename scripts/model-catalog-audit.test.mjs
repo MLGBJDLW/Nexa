@@ -50,6 +50,12 @@ assert.deepEqual(aliasOnly.missingIds, []);
 assert.equal(driftDetected(aliasOnly), false);
 
 const requiredPublicIds = ['z-ai/glm-5.3', 'z-ai/glm-5.3-flash'];
+const resolvedAliases = compareEndpointModels({ models: [
+  { id:'jev-latest', discoveryId:'~typesafe/jev-latest', capabilities:{} },
+  { id:'~typesafe/jev-latest', capabilities:{} },
+] }, [{ id:'~typesafe/jev-latest' }]);
+assert.deepEqual(resolvedAliases.missingIds, []);
+assert.deepEqual(resolvedAliases.newIds, []);
 const publicExact = compareRequiredModelIds(requiredPublicIds, [
   { id: 'unrelated/provider-model' },
   { id: 'Z-AI/GLM-5.3' },

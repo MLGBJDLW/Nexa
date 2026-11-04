@@ -1,22 +1,26 @@
 //! Phone host over the shared executor, run ledger, approvals and file tools.
-use crate::{phone_tool::PhoneTool, platform};
+use crate::{connections, phone_tool::PhoneTool, platform};
+use base64::Engine;
 use nexa_core::{
-    agent::{AgentConfig, CancellationToken},
+    agent::{AgentConfig, AgentExecutionMode, CancellationToken},
     agent_run::AgentRunEvent,
     agent_session::ExecutorAgentSession,
-    approval::{ApprovalDecision, ApprovalRequest},
+    approval::{ApprovalDecision, ApprovalRequest, ToolApprovalMode},
     conversation::{
         conversation_message_is_model_history, conversation_message_to_llm, AgentTaskRun,
-        ConversationMessage, CreateConversationInput,
+        ConversationMessage, CreateConversationInput, ImageAttachment, TurnModelSelection,
     },
     db::Database,
     db_executor::DatabaseExecutor,
-    llm::{create_provider, ProviderConfig, Role},
+    llm::{create_provider, Role},
     run_event_outbox::{AgentRunEventDelivery, AgentRunEventOutboxes},
-    runtime::{AgentSession, AgentSessionConfig, AgentTurnInput, RuntimeHostSurface},
+    runtime::{
+        AgentSession, AgentSessionConfig, AgentTurnAttachment, AgentTurnInput, RuntimeHostSurface,
+    },
     tools::{
-        create_file_tool::CreateFileTool, edit_file_tool::EditFileTool, file_tool::FileTool,
-        list_dir_tool::ListDirTool, ToolRegistry,
+        create_file_tool::CreateFileTool, edit_file_tool::EditFileTool,
+        fetch_url_tool::FetchUrlTool, file_tool::FileTool, list_dir_tool::ListDirTool,
+        web_search_tool::WebSearchTool, ToolRegistry,
     },
     workspace::Workspace,
 };
@@ -34,6 +38,56 @@ pub struct LocalSettings {
     pub provider_type: String,
     pub base_url: Option<String>,
     pub model: String,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnOptions {
+    pub connection_id: Option<String>,
+    pub model_selection: Option<TurnModelSelection>,
+    #[serde(default)]
+    pub attachments: Vec<ImageAttachment>,
+    #[serde(default)]
+    pub execution_mode: AgentExecutionMode,
+    #[serde(default)]
+    pub tool_approval_mode: ToolApprovalMode,
+}
+
+impl TurnOptions {
+    fn validate_attachments(&self) -> Result<(), String> {
+        if self.attachments.len() > 8
+            || self
+                .attachments
+                .iter()
+                .map(|a| a.base64_data.len())
+                .sum::<usize>()
+                > 11_200_000
+        {
+            return Err("Attachments exceed 8 images or 8 MiB in total.".into());
+        }
+        let mut bytes = 0;
+        for attachment in &self.attachments {
+            if !matches!(
+                attachment.media_type.as_str(),
+                "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+            ) {
+                return Err(
+                    "Phone attachments currently support PNG, JPEG, WebP and GIF images.".into(),
+                );
+            }
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(&attachment.base64_data)
+                .map_err(|_| "Invalid image encoding.")?;
+            if decoded.is_empty() {
+                return Err("The image is empty.".into());
+            }
+            bytes += decoded.len();
+        }
+        if bytes > 8 * 1024 * 1024 {
+            return Err("Attachments exceed 8 MiB in total.".into());
+        }
+        Ok(())
+    }
 }
 
 struct Delivery(AppHandle);
@@ -115,6 +169,7 @@ impl LocalRuntime {
         mut text: String,
         request_id: String,
         checkpoint_id: Option<String>,
+        mut options: TurnOptions,
     ) -> Result<Value, String> {
         if let Some(id) = &checkpoint_id {
             let checkpoint = self.db.get_task_resume_checkpoint(id).map_err(err)?;
@@ -125,28 +180,48 @@ impl LocalRuntime {
             if conversation_id.as_deref() != Some(&run.conversation_id) {
                 return Err("Checkpoint belongs to another conversation.".into());
             }
+            // A continuation retains the original task's authority. Renderer
+            // defaults after restart must never turn Plan + Allow all into a
+            // write-capable task or silently select another model account.
+            let messages = self.db.get_messages(&run.conversation_id).map_err(err)?;
+            let original = messages
+                .iter()
+                .find(|message| message.id == run.user_message_id)
+                .ok_or("The original task settings are unavailable; start a new task.")?;
+            options = original
+                .artifacts
+                .as_ref()
+                .and_then(|value| value.get("phoneTurnOptions"))
+                .map(|value| serde_json::from_value(value.clone()).map_err(err))
+                .transpose()?
+                .unwrap_or_default();
             text = checkpoint.resume_prompt;
         }
-        if text.trim().is_empty() {
+        options.validate_attachments()?;
+        if text.trim().is_empty() && options.attachments.is_empty() {
             return Err("Enter a message first.".into());
         }
         uuid::Uuid::parse_str(&request_id)
             .map_err(|_| "A stable request ID is required.".to_string())?;
         let mut active = self.active.lock().await;
-        let saved = crate::connections::active(&app).await?;
+        let mut saved = connections::get(&app, options.connection_id.as_deref()).await?;
+        if let Some(selection) = &options.model_selection {
+            selection.apply_to_shared(&mut saved).map_err(err)?;
+        }
+        if nexa_core::provider_catalog::retired_model_for_endpoint(
+            &saved.provider,
+            saved.base_url.as_deref(),
+            &saved.model,
+        )
+        .is_some()
+        {
+            return Err("This model is no longer available on this provider. Choose a supported model from the model picker.".into());
+        }
         let settings = crate::connections::settings(&saved);
         let provider_type =
             nexa_core::provider_registry::provider_type_from_key(&settings.provider_type)
                 .ok_or("Unsupported provider type.")?;
-        let provider = create_provider(ProviderConfig {
-            provider_type,
-            base_url: settings.base_url.clone(),
-            api_key: Some(saved.api_key.clone()),
-            org_id: None,
-            timeout_secs: None,
-            streaming: saved.provider_streaming.clone(),
-        })
-        .map_err(err)?;
+        let provider = create_provider(connections::provider_config(&saved)?).map_err(err)?;
         let conversation = if let Some(id) = conversation_id {
             self.db.get_conversation(&id).map_err(err)?
         } else {
@@ -181,7 +256,9 @@ impl LocalRuntime {
             content: text.clone(),
             tool_call_id: None,
             tool_calls: Vec::new(),
-            artifacts: None,
+            artifacts: Some(
+                json!({"phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
+            ),
             token_count: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
             sort_order: self
@@ -189,7 +266,8 @@ impl LocalRuntime {
                 .next_message_sort_order(&conversation.id)
                 .map_err(err)?,
             thinking: None,
-            image_attachments: None,
+            image_attachments: (!options.attachments.is_empty())
+                .then(|| options.attachments.clone()),
         };
         if previous.is_some() {
             // Re-enter the authoritative payload check, rather than merely
@@ -287,11 +365,22 @@ impl LocalRuntime {
         tools.register(Box::new(CreateFileTool));
         tools.register(Box::new(EditFileTool));
         tools.register(Box::new(PhoneTool(app.clone())));
+        tools.register(Box::new(WebSearchTool));
+        tools.register(Box::new(FetchUrlTool));
+        let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(
+            provider_type,
+            saved.base_url.as_deref(),
+            &saved.model,
+        );
+        let context_window = saved.context_window.and_then(|value| value.try_into().ok());
         let mut config = AgentConfig {
             model: Some(settings.model.clone()),
             provider_type: Some(provider_type),
             temperature: saved.temperature.map(|value| value as f32),
-            context_window: saved.context_window.and_then(|value| value.try_into().ok()),
+            context_window,
+            context_window_resolution: Some(contract.context_window(context_window)),
+            catalog_limits_authoritative: Some(contract.catalog_authoritative),
+            resolved_catalog_limits: contract.catalog_limits(),
             reasoning_enabled: saved.reasoning_enabled,
             thinking_budget: saved
                 .thinking_budget
@@ -301,9 +390,14 @@ impl LocalRuntime {
                 .as_deref()
                 .and_then(nexa_core::llm::ReasoningEffort::from_wire),
             require_tool_confirmation: true,
+            tool_approval_mode: options.tool_approval_mode,
+            execution_mode: options.execution_mode,
             ..Default::default()
         };
         config.volatile_system_sections.push(format!("You run on the user's Android phone. Files are confined to {}. Only advertise the registered tools. phone_control observes Android accessibility UI and acts only on a fresh observation. The user must explicitly enable accessibility. After any phone action observe and verify its result. Do not infer success from dispatch alone. Ask in chat when more user input is needed.", self.workspace.roots[0]));
+        config
+            .volatile_system_sections
+            .push(options.tool_approval_mode.prompt_guidance().into());
         let runtime = self.clone();
         let approval_runtime = self.clone();
         let confirmation_runtime = self.clone();
@@ -348,8 +442,23 @@ impl LocalRuntime {
             })
         }));
         let launch_result = serde_json::to_value(&launch).map_err(err)?;
+        let mut turn_input = AgentTurnInput::text(text);
+        turn_input.mode = options.execution_mode;
+        turn_input.attachments = options
+            .attachments
+            .into_iter()
+            .map(|image| AgentTurnAttachment {
+                id: image
+                    .attachment_id
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                kind: Some("image".into()),
+                path: None,
+                mime_type: Some(image.media_type),
+                base64_data: Some(image.base64_data),
+            })
+            .collect();
         tokio::spawn(async move {
-            let result = session.start_turn(AgentTurnInput::text(text)).await;
+            let result = session.start_turn(turn_input).await;
             if let Err(error) = result {
                 if let Ok(outbox) = runtime
                     .outboxes
@@ -370,6 +479,9 @@ impl LocalRuntime {
             runtime.pending.lock().await.clear();
             let mut active = runtime.active.lock().await;
             let _ = platform::call(&app, "taskService", json!({"active":false})).await;
+            if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
+                let _ = platform::call(&app, "taskResult", json!({"status":run.status})).await;
+            }
             let _ = platform::call(
                 &app,
                 "removeListener",

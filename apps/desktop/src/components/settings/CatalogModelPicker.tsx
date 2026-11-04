@@ -80,7 +80,7 @@ export function CatalogModelPicker({
         options={options}
         placeholder={placeholder ?? t('settings.selectModel')}
         searchPlaceholder={t('settings.modelSearchPlaceholder')}
-        value={value}
+        value={models.find(model => model.id === value || model.descriptor.aliases.includes(value))?.id ?? value}
       />
     </div>
   );

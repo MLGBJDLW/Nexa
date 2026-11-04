@@ -93,7 +93,7 @@
 .nexa-overlay-item[data-highlighted] { background: var(--overlay-item-hover); }
 .nexa-overlay-item[data-state='checked'] { background: var(--overlay-item-selected); }
 .nexa-overlay-item[data-highlighted][data-state='checked'] { background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface-1)); }
-.nexa-overlay-item[data-disabled] { pointer-events: none; opacity: 0.42; }
+.nexa-overlay-item[data-disabled=''], .nexa-overlay-item[data-disabled='true'] { pointer-events: none; opacity: 0.42; }
 
 .nexa-select-trigger {
   display: inline-flex;

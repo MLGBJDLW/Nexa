@@ -17,6 +17,20 @@ const desktopPackage = JSON.parse(fs.readFileSync(
   path.join(repositoryRoot, 'apps', 'desktop', 'package.json'),
   'utf8',
 ));
+const mobileWorkflow = fs.readFileSync(path.join(repositoryRoot, '.github/workflows/mobile.yml'), 'utf8').replaceAll('\r\n', '\n');
+
+test('Android packaging runs only for a versioned release, while PRs validate mobile sources', () => {
+  const android = mobileWorkflow.split('  android:')[1];
+  assert.match(android, /if: github.event_name != 'pull_request' && \(startsWith\(github.ref, 'refs\/tags\/nexa-mobile-v'\) \|\| inputs.release_tag != ''\)/);
+  assert.match(android, /needs: checks/);
+  const checks = mobileWorkflow.split('  checks:')[1]?.split('  android:')[0];
+  assert.ok(checks, 'PRs must still validate mobile TypeScript and metadata');
+  assert.match(checks, /npm run build --prefix apps\/mobile/);
+  assert.match(checks, /node scripts\/ci-scope.mjs/);
+  assert.match(checks, /release_metadata_only != 'true'/);
+  assert.doesNotMatch(checks, /setup-java|setup-android|android build|sdkmanager/);
+  assert.doesNotMatch(android, /name: android-arm64-unsigned/);
+});
 const releaseConfig = JSON.parse(fs.readFileSync(
   path.join(repositoryRoot, 'release-please-config.json'), 'utf8',
 ));

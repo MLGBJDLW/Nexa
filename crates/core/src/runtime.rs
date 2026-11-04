@@ -554,6 +554,9 @@ pub struct AgentTurnAttachment {
     pub path: Option<String>,
     #[serde(default)]
     pub mime_type: Option<String>,
+    /// Inline image bytes supplied by a host after validating its upload budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base64_data: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

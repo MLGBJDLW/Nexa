@@ -84,6 +84,7 @@ pub mod media_generation;
 pub mod migrations;
 pub mod mixture_of_agents;
 pub mod model_catalog;
+pub mod model_choices;
 pub mod models;
 pub mod observed_interaction;
 #[cfg(feature = "ocr")]

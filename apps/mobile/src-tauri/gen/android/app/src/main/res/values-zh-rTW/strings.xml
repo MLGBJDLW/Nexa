@@ -10,4 +10,7 @@
     <string name="approval_title">Nexa 需要你的批准</string>
     <string name="approval_allow">允許一次</string>
     <string name="approval_deny">拒絕</string>
+    <string name="task_attention_channel">回覆與審批</string>
+    <string name="task_reply_ready">Nexa 已回覆</string>
+    <string name="task_reply_open">點一下查看回覆。</string>
 </resources>

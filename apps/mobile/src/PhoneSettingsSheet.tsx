@@ -4,6 +4,7 @@ import { Check, ChevronRight, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../../desktop/src/i18n';
 import { PROVIDER_PRESETS } from '../../desktop/src/lib/providerPresets';
 import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell';
+import { NexaCombobox } from '../../desktop/src/components/ui/overlay/Combobox';
 import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
 import { hostLabel, type NativeHost } from './nativeClient';
 
@@ -49,7 +50,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         setApiKey(''); onClose();
       }); }}>
         <label>{t('settings.providerName')}<input aria-label={t('settings.providerName')} value={name} onChange={event => setName(event.target.value)} placeholder={model}/></label>
-        <label>{t('settings.provider')}<select aria-label={t('settings.provider')} value={provider} onChange={event => { const next = presets.find(item => item.id === event.target.value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(next.models[0]?.id ?? ''); setApiKey(''); }}>{presets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={presets.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = presets.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(next.models[0]?.id ?? ''); setApiKey(''); }}/></label>
         <label>{t('remote.model')}<input aria-label={t('remote.model')} list="phone-models" value={model} onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/></label><datalist id="phone-models">{preset.models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist>
         <label>{t('settings.apiKey')}<input aria-label={t('settings.apiKey')} type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={selectedId ? '••••••••' : ''} autoComplete="off"/></label>
         <details className="mobile-advanced" open={baseUrl !== preset.baseUrl || undefined}><summary>{t('remote.advancedOptions')}</summary><label>{t('settings.baseUrl')}<input aria-label={t('settings.baseUrl')} type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} autoCapitalize="none" spellCheck={false}/></label></details>
@@ -69,8 +70,13 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         })}
       </section>}
       <section className="mobile-settings-section"><h3>{t('remote.mobilePermissions')}</h3><p className="mobile-section-hint">{t('remote.mobileControlHint')}</p>
+        <p role="status" className="mobile-permission-status">{t(state.capabilities.accessibility ? 'remote.mobileAccessConnected' : state.capabilities.accessibilityEnabled ? 'remote.mobileAccessDisconnected' : 'remote.mobileAccessDisabled')}</p>
         <button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'notifications' }); })}>{t('remote.mobileNotifications')}{state.capabilities.notifications ? <Check size={17}/> : <ChevronRight size={17}/>}</button>
         <button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'accessibility' }); })}>{t('remote.mobileAccessibility')}{state.capabilities.accessibility ? <Check size={17}/> : <ChevronRight size={17}/>}</button>
+        <label className="mobile-overlay-toggle"><span>{t('remote.mobileFloatingAssistant')}</span><input type="checkbox" checked={state.capabilities.assistantOverlay ?? false} disabled={busy || (!state.capabilities.accessibility && !state.capabilities.assistantOverlay)} onChange={event => { const enabled = event.target.checked; void action(async () => { await invoke('mobile_overlay', { enabled }); }); }}/></label><p className="mobile-section-hint">{t('remote.mobileFloatingAssistantHint')}</p>
+        {!state.capabilities.accessibility && <div className="mobile-permission-help"><p>{t(state.capabilities.accessibilityEnabled ? 'remote.mobileReconnectAccessHint' : 'remote.mobileEnableAccessHint')}</p>{state.capabilities.restrictedSettingsMayApply && <p>{t('remote.mobileRestrictedSettingsHint')}</p>}<button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'app_info' }); })}>{t('remote.mobileAppInfo')}<ChevronRight size={17}/></button></div>}
+        <details className="mobile-permission-help"><summary>{t('remote.mobileBackgroundHelp')}</summary><p>{t('remote.mobileBackgroundHint')}</p>{/samsung/i.test(state.capabilities.manufacturer ?? '') && <p>{t('remote.mobileSamsungBatteryHint')}</p>}{/xiaomi|redmi|poco|oppo|vivo|oneplus|huawei|honor/i.test(state.capabilities.manufacturer ?? '') && <p>{t('remote.mobileVendorBatteryHint')}</p>}{state.capabilities.backgroundRestricted && <p>{t('remote.mobileBackgroundRestricted')}</p>}<button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'battery' }); })}>{t('remote.mobileBatterySettings')}<ChevronRight size={17}/></button></details>
+        <button disabled={busy} onClick={() => void action(onChanged)}>{t('remote.mobileRefreshPermissions')}<RefreshCw size={17}/></button>
       </section>
       <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
       {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}

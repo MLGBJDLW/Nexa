@@ -22,6 +22,14 @@ test('same-length edited content replaces an expanded copy', () => {
   assert.equal(mergeRemoteHistory(current, incoming)[0], incoming[0]);
 });
 
+test('thought pagination survives refresh and new thought text replaces stale expansion', () => {
+  const current = [{ ...message(1), thinking: 'first second third', thinkingTotalChars: 18 }];
+  const prefix = [{ ...message(1), thinking: 'first', thinkingTotalChars: 18 }];
+  assert.equal(mergeRemoteHistory(current, prefix)[0].thinking, 'first second third');
+  const edited = [{ ...message(1), thinking: 'changed', thinkingTotalChars: 18 }];
+  assert.equal(mergeRemoteHistory(current, edited)[0].thinking, 'changed');
+});
+
 test('history merge indexes each current id once instead of scanning for every incoming record', () => {
   let reads = 0;
   const current = Array.from({ length: 10000 }, (_, id) => ({ ...message(id), get id() { reads += 1; return String(id); } }));

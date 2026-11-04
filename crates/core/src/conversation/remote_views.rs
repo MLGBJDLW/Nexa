@@ -46,8 +46,8 @@ impl Database {
         self.require_remote_conversation(conversation_id)?;
         let conversation = self.get_conversation(conversation_id)?;
         let conn = self.conn();
-        let mut query=conn.prepare("SELECT id,role,substr(content,1,8000),length(content),sort_order,created_at FROM messages WHERE conversation_id=?1 AND role IN ('user','assistant') AND content <> '' AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext') AND (?2 IS NULL OR sort_order<?2) ORDER BY sort_order DESC LIMIT 31")?;
-        let mut rows=query.query_map(params![conversation_id,before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"role":row.get::<_,String>(1)?,"content":row.get::<_,String>(2)?,"totalChars":row.get::<_,u64>(3)?,"sortOrder":row.get::<_,i64>(4)?,"createdAt":row.get::<_,String>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+        let mut query=conn.prepare("SELECT id,role,substr(content,1,8000),length(content),sort_order,created_at,substr(COALESCE(thinking,''),1,4000),length(COALESCE(thinking,'')) FROM messages WHERE conversation_id=?1 AND role IN ('user','assistant') AND (content <> '' OR COALESCE(thinking,'') <> '' OR image_attachments_json IS NOT NULL) AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext') AND (?2 IS NULL OR sort_order<?2) ORDER BY sort_order DESC LIMIT 31")?;
+        let mut rows=query.query_map(params![conversation_id,before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"role":row.get::<_,String>(1)?,"content":row.get::<_,String>(2)?,"totalChars":row.get::<_,u64>(3)?,"sortOrder":row.get::<_,i64>(4)?,"createdAt":row.get::<_,String>(5)?,"thinking":row.get::<_,String>(6)?,"thinkingTotalChars":row.get::<_,u64>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
         let more = rows.len() > 30;
         rows.truncate(30);
         let cursor = more.then(|| rows.last().unwrap()["sortOrder"].clone());
@@ -69,6 +69,16 @@ impl Database {
     pub fn remote_latest_run(&self, conversation_id: &str) -> Result<Option<String>, CoreError> {
         let conn = self.conn();
         Ok(conn.query_row("SELECT r.id FROM agent_task_runs r JOIN conversations c ON c.id=r.conversation_id WHERE r.conversation_id=?1 AND c.parent_conversation_id IS NULL ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1",[conversation_id],|row|row.get(0)).optional()?)
+    }
+
+    pub fn remote_message_thinking(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        offset: u32,
+    ) -> Result<Value, CoreError> {
+        self.require_remote_conversation(conversation_id)?;
+        Ok(self.conn().query_row("SELECT substr(COALESCE(thinking,''),?3+1,4000),length(COALESCE(thinking,'')) FROM messages WHERE conversation_id=?1 AND id=?2 AND role='assistant' AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext')",params![conversation_id,message_id,offset],|row|Ok(json!({"content":row.get::<_,String>(0)?,"totalChars":row.get::<_,u64>(1)?,"offset":offset})))?)
     }
 
     /// A bounded run projection with a frozen ledger head. Sequence holes are
@@ -242,6 +252,56 @@ mod tests {
             db.get_conversation(&child.id).is_ok(),
             "the desktop child workspace remains available"
         );
+    }
+
+    #[test]
+    fn remote_history_preserves_readable_thinking_without_private_replay() {
+        let db = Database::open_memory().unwrap();
+        let chat = db
+            .create_conversation(&CreateConversationInput {
+                provider: "custom".into(),
+                model: "fixture".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        db.add_message(&ConversationMessage {
+            id: "thinking-history".into(),
+            conversation_id: chat.id.clone(),
+            role: Role::Assistant,
+            content: "Result".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: Some(
+                json!({"providerTurnEnvelope":{"secret":"opaque replay must stay private"}}),
+            ),
+            token_count: 1,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: Some("思考🙂".repeat(3000)),
+            image_attachments: None,
+        })
+        .unwrap();
+        let page = db.remote_messages(&chat.id, None).unwrap();
+        assert_eq!(page["messages"][0]["thinkingTotalChars"], 9000);
+        assert_eq!(
+            page["messages"][0]["thinking"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count(),
+            4000
+        );
+        assert!(!page.to_string().contains("opaque replay"));
+        let tail = db
+            .remote_message_thinking(&chat.id, "thinking-history", 8000)
+            .unwrap();
+        assert_eq!(tail["content"].as_str().unwrap().chars().count(), 1000);
+        assert!(db
+            .remote_message_thinking("other", "thinking-history", 0)
+            .is_err());
     }
 
     #[test]

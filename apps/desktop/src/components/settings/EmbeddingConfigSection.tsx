@@ -81,7 +81,7 @@ export function EmbeddingConfigSection({
     ? findEmbeddingProviderPreset(embedConfig.apiBaseUrl)
     : null;
   const selectedModel = activeApiPreset?.models.find(
-    (model) => model.id === embedConfig?.apiModel,
+    (model) => model.id === embedConfig?.apiModel || model.descriptor.aliases.includes(embedConfig?.apiModel ?? ''),
   );
   const selectedModelDescriptor = selectedModel?.descriptor;
   const sharedKeySource = embedConfig && activeApiPreset

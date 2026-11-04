@@ -10,4 +10,7 @@
     <string name="approval_title">Nexa benötigt deine Zustimmung</string>
     <string name="approval_allow">Einmal erlauben</string>
     <string name="approval_deny">Ablehnen</string>
+    <string name="task_attention_channel">Antworten und Genehmigungen</string>
+    <string name="task_reply_ready">Nexa hat geantwortet</string>
+    <string name="task_reply_open">Tippen, um die Antwort zu sehen.</string>
 </resources>

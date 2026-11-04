@@ -1011,10 +1011,12 @@ fn build_request_body_with_config(
     let effort_can_encode_disabled =
         reasoning_profile.mode_control == ThinkingModeControl::ProviderDefault;
     let requested_effort = if reasoning_profile.id == "mistral-large4-reasoning-v1" {
-        // Large 4 documents none/high, but no omitted-effort default. Preserve
-        // omission unless the caller explicitly selects a thinking mode.
-        if requested_reasoning_mode == Some(false) {
-            Some(&ReasoningEffort::None)
+        // The stable low/medium/high contract replaces the preview none/high
+        // ladder. Migrate saved disabled/none choices only on this endpoint.
+        if request.reasoning_enabled == Some(false)
+            || request.reasoning_effort == Some(ReasoningEffort::None)
+        {
+            Some(&ReasoningEffort::Low)
         } else if request.reasoning_enabled == Some(true) && request.reasoning_effort.is_none() {
             Some(&ReasoningEffort::High)
         } else {
@@ -1061,6 +1063,7 @@ fn build_request_body_with_config(
     let ling31_contract = reasoning_profile.id == "alibaba-ling31-flash-v1";
     let supports_parallel_tool_calls = !any_glm53_contract
         && !ling31_contract
+        && reasoning_profile.id != "alibaba-moonshot-kimi-k31-pro-v1"
         && reasoning_profile.id != "alibaba-minimax-m31-flash-v1";
     let reasoning_history_encoding = reasoning_profile.reasoning_history_encoding;
     let needs_completion_tokens = reasoning_profile.use_max_completion_tokens
@@ -1216,7 +1219,7 @@ fn build_request_body_with_config(
                 .is_some_and(|tools| !tools.is_empty()))
         .then_some(true),
         parallel_tool_calls: match request.tools.as_ref() {
-            // These exact trusted GLM, Ling and hosted MiniMax routes do not support
+            // These exact trusted GLM, Ling, Kimi and hosted MiniMax routes do not support
             // `parallel_tool_calls` in their current request contract.
             Some(tools)
                 if !tools.is_empty()
@@ -4358,7 +4361,7 @@ mod tests {
             for (enabled, effort) in [
                 (None, None),
                 (Some(true), Some("high")),
-                (Some(false), Some("none")),
+                (Some(false), Some("low")),
             ] {
                 request.reasoning_enabled = enabled;
                 let body = serde_json::to_value(build_request_body_with_config(
@@ -4371,17 +4374,61 @@ mod tests {
                     body.get("reasoning_effort").and_then(|v| v.as_str()),
                     effort
                 );
-                if enabled != Some(false) {
-                    assert_eq!(
-                        body["messages"][0]["content"][0]["thinking"][0]["text"],
-                        "First part\nSecond part 中文"
-                    );
-                    assert_eq!(body["messages"][0]["content"][1]["text"], "Conclusion");
-                } else {
-                    assert_eq!(body["messages"][0]["content"], "Conclusion");
-                }
+                assert_eq!(
+                    body["messages"][0]["content"][0]["thinking"][0]["text"],
+                    "First part\nSecond part 中文"
+                );
+                assert_eq!(body["messages"][0]["content"][1]["text"], "Conclusion");
                 assert!(body.get("thinking_budget").is_none());
             }
+            request.reasoning_enabled = None;
+            for (effort, expected) in [
+                (ReasoningEffort::None, "low"),
+                (ReasoningEffort::Low, "low"),
+                (ReasoningEffort::Medium, "medium"),
+                (ReasoningEffort::High, "high"),
+            ] {
+                request.reasoning_effort = Some(effort);
+                for stream in [false, true] {
+                    let body = serde_json::to_value(build_request_body_with_config(
+                        &request,
+                        stream,
+                        Some(&config),
+                    ))
+                    .unwrap();
+                    assert_eq!(body["reasoning_effort"], expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mistral_hosted_models_keep_their_own_reasoning_contract() {
+        let config = endpoint_config(ProviderType::OpenAi, "https://api.mistral.ai/v1");
+        for (effort, expected) in [
+            (ReasoningEffort::Low, "low"),
+            (ReasoningEffort::High, "high"),
+            (ReasoningEffort::Max, "max"),
+        ] {
+            let mut request = endpoint_reasoning_request("zai-glm-5-3");
+            request.reasoning_effort = Some(effort);
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert_eq!(body["reasoning_effort"], expected);
+            assert!(body.get("thinking").is_none());
+            request.model = "deepseek-v4-1-flash-1017".into();
+            let body = serde_json::to_value(build_request_body_with_config(
+                &request,
+                false,
+                Some(&config),
+            ))
+            .unwrap();
+            assert!(body.get("reasoning_effort").is_none());
+            assert!(body.get("thinking").is_none());
         }
     }
 
@@ -4764,7 +4811,7 @@ mod tests {
 
     #[test]
     fn september_hosted_routes_keep_their_own_thinking_dialects() {
-        for model in ["zai-glm-5-3", "zai-glm-5-2"] {
+        for model in ["zai-glm-5-3", "zai-glm-5-3-flash", "zai-glm-5-2"] {
             let config = endpoint_config(ProviderType::OpenAi, "https://api.mistral.ai/v1");
             let provider = OpenAiProvider::new(config.clone()).unwrap();
             let mut request = endpoint_reasoning_request(model);
@@ -4776,14 +4823,14 @@ mod tests {
                 Some(&config),
             ))
             .unwrap();
-            for field in [
-                "thinking",
-                "reasoning_effort",
-                "thinking_budget",
-                "enable_thinking",
-            ] {
+            for field in ["thinking", "thinking_budget", "enable_thinking"] {
                 assert!(body.get(field).is_none(), "{model}: {field}");
             }
+            assert_eq!(
+                body.get("reasoning_effort")
+                    .and_then(|value| value.as_str()),
+                (model == "zai-glm-5-3").then_some("max")
+            );
             assert_eq!(
                 provider.route_snapshot(&request).replay_policy,
                 ReasoningReplayPolicy::NotRequired
@@ -5913,6 +5960,70 @@ data: [DONE]
         ))
         .unwrap();
         assert_eq!(body["reasoning_effort"], "max");
+    }
+
+    #[test]
+    fn alibaba_routed_k31_pro_keeps_replay_and_omits_unsupported_fields() {
+        for model in ["kimi/kimi-k3.1-pro", "kimi/kimi-k3.1-pro-highspeed"] {
+            let mut request = endpoint_reasoning_request(model);
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = Some(ReasoningEffort::Max);
+            request.thinking_budget = Some(2048);
+            request.tools = Some(vec![ToolDefinition {
+                name: "inspect".into(),
+                description: "Inspect".into(),
+                parameters: serde_json::json!({"oneOf":[{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}]}),
+            }]);
+            let mut prior = Message::text(Role::Assistant, "Inspecting");
+            prior.reasoning_content = Some("Need current screen evidence".into());
+            request.messages.push(prior);
+            for endpoint in [
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            ] {
+                let config = endpoint_config(ProviderType::AlibabaModelStudio, endpoint);
+                for stream in [false, true] {
+                    let body = serde_json::to_value(build_request_body_with_config(
+                        &request,
+                        stream,
+                        Some(&config),
+                    ))
+                    .unwrap();
+                    assert_eq!(body["reasoning_effort"], "max", "{model}");
+                    assert_eq!(body["preserve_thinking"], true);
+                    assert_eq!(
+                        body["messages"][1]["reasoning_content"],
+                        "Need current screen evidence"
+                    );
+                    assert_eq!(body["tools"][0]["function"]["parameters"]["type"], "object");
+                    for field in [
+                        "parallel_tool_calls",
+                        "n",
+                        "thinking_budget",
+                        "enable_thinking",
+                        "thinking",
+                        "temperature",
+                    ] {
+                        assert!(body.get(field).is_none(), "{model}: {field}");
+                    }
+                }
+            }
+            for endpoint in [
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+                "https://private.example/v1",
+            ] {
+                let config = endpoint_config(ProviderType::AlibabaModelStudio, endpoint);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&config),
+                ))
+                .unwrap();
+                assert!(body.get("preserve_thinking").is_none(), "{endpoint}");
+                assert!(body.get("reasoning_effort").is_none(), "{endpoint}");
+            }
+        }
     }
 
     #[test]

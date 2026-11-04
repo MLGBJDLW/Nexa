@@ -50,9 +50,17 @@ impl ExecutorAgentSession {
         config: AgentSessionConfig,
         provider: Box<dyn LlmProvider>,
         tools: ToolRegistry,
-        executor_config: AgentConfig,
+        mut executor_config: AgentConfig,
         db: Database,
     ) -> Self {
+        let tools = if executor_config.execution_mode.is_plan() {
+            executor_config
+                .volatile_system_sections
+                .push(crate::agent::plan_mode_prompt_section().into());
+            tools.plan_mode_filtered()
+        } else {
+            tools
+        };
         Self {
             config,
             executor: AgentExecutor::new(provider, tools, executor_config).with_activity_runtime(
@@ -211,7 +219,9 @@ impl AgentSession for ExecutorAgentSession {
             text: input.user_text,
         }];
         for attachment in input.attachments {
-            if let Some(path) = attachment.path {
+            if let (Some(data), Some(media_type)) = (attachment.base64_data, attachment.mime_type) {
+                user_parts.push(ContentPart::Image { data, media_type });
+            } else if let Some(path) = attachment.path {
                 user_parts.push(ContentPart::Text {
                     text: format!("[Attachment: {}]", path),
                 });
@@ -489,6 +499,135 @@ mod tests {
     use crate::task_run::{AgentTaskRuntime, CreateTaskRunInput};
 
     struct StaticProvider;
+
+    struct InputProbeProvider {
+        seen: Arc<std::sync::Mutex<Vec<ContentPart>>>,
+        calls: std::sync::atomic::AtomicUsize,
+        write_path: Option<String>,
+    }
+    #[async_trait]
+    impl LlmProvider for InputProbeProvider {
+        fn name(&self) -> &str {
+            "static"
+        }
+        async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+            Ok(vec!["static-model".into()])
+        }
+        async fn health_check(&self) -> Result<(), CoreError> {
+            Ok(())
+        }
+        async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+            Err(CoreError::Llm("unused".into()))
+        }
+        async fn stream_events(
+            &self,
+            request: &CompletionRequest,
+        ) -> Result<futures::stream::BoxStream<'_, crate::llm::ProviderStreamEvent>, CoreError>
+        {
+            self.seen.lock().unwrap().extend(
+                request
+                    .messages
+                    .iter()
+                    .flat_map(|m| m.parts.iter().cloned()),
+            );
+            let write = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0
+                && self.write_path.is_some();
+            let chunk = StreamChunk {
+                delta: if write {
+                    String::new()
+                } else {
+                    "session answer".into()
+                },
+                tool_call_delta: write.then(|| ToolCallDelta {
+                    id: "plan-write".into(),
+                    name: Some("create_file".into()),
+                    index: Some(0),
+                    thought_signature: None,
+                    arguments_delta:
+                        serde_json::json!({"path":self.write_path,"content":"must not be written"})
+                            .to_string()
+                            .into(),
+                }),
+                finish_reason: Some(if write {
+                    FinishReason::ToolCalls
+                } else {
+                    FinishReason::Stop
+                }),
+                usage: None,
+                thinking_delta: None,
+            };
+            crate::llm::provider_events_from_chunk_stream(stream::iter(vec![Ok(chunk)]).boxed())
+        }
+    }
+
+    #[tokio::test]
+    async fn executor_session_keeps_inline_images_and_enforces_plan_tools_with_full_access() {
+        for plan in [false, true] {
+            let db = Database::open_memory().unwrap();
+            let (conversation_id, _, run_id) = create_started_run(&db, "phone-input");
+            let directory = tempfile::tempdir().unwrap();
+            let target = directory.path().join("must-not-exist.txt");
+            let mut tools = ToolRegistry::new().with_workspace(Some(
+                crate::workspace::Workspace::validate(&[directory.path().to_string_lossy().into()])
+                    .unwrap(),
+            ));
+            tools.register(Box::new(crate::tools::create_file_tool::CreateFileTool));
+            let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let mut session = ExecutorAgentSession::new(
+                AgentSessionConfig {
+                    conversation_id: Some(conversation_id),
+                    task_run_id: Some(run_id),
+                    ..Default::default()
+                },
+                Box::new(InputProbeProvider {
+                    seen: seen.clone(),
+                    calls: std::sync::atomic::AtomicUsize::new(0),
+                    write_path: plan.then(|| target.to_string_lossy().into()),
+                }),
+                tools,
+                AgentConfig {
+                    model: Some("static-model".into()),
+                    native_vision: Some(true),
+                    execution_mode: if plan {
+                        crate::agent::AgentExecutionMode::Plan
+                    } else {
+                        crate::agent::AgentExecutionMode::Normal
+                    },
+                    tool_approval_mode: crate::approval::ToolApprovalMode::AllowAll,
+                    ..Default::default()
+                },
+                db,
+            )
+            .with_history(vec![], 1);
+            let mut input =
+                AgentTurnInput::text("Review the attached image without changing files");
+            input.attachments.push(crate::runtime::AgentTurnAttachment {
+                id: "image".into(),
+                kind: Some("image".into()),
+                path: None,
+                mime_type: Some("image/png".into()),
+                base64_data: Some("aW1hZ2U=".into()),
+            });
+            tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                session.start_turn(input),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(
+                !target.exists(),
+                "Plan mode must filter writes even with Allow all"
+            );
+            assert!(
+                seen.lock()
+                    .unwrap()
+                    .iter()
+                    .any(|part| matches!(part,ContentPart::Image {data,..} if data=="aW1hZ2U=")),
+                "the shared session must forward inline image parts"
+            );
+        }
+    }
 
     struct CancellableProvider(Arc<tokio::sync::Notify>);
     #[async_trait]

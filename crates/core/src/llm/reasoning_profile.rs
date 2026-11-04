@@ -845,13 +845,36 @@ pub fn resolve_reasoning_profile(
             "mistral-large-4" | "mistral-large-4-0" => profile(
                 key,
                 "mistral-large4-reasoning-v1",
-                ThinkingModeControl::ProviderDefault,
+                ThinkingModeControl::AlwaysOn,
                 ReasoningEffortField::TopLevel,
                 ReasoningEffortMapping::Exact,
-                (&[ReasoningEffort::None, ReasoningEffort::High], None),
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::High,
+                    ],
+                    None,
+                ),
                 ReasoningBudgetField::None,
             ),
-            "zai-glm-5-3-flash" | "zai-glm-5-3" | "zai-glm-5-2" => profile(
+            "zai-glm-5-3" => profile(
+                key,
+                "mistral-hosted-glm53-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::High,
+                        ReasoningEffort::Max,
+                    ],
+                    None,
+                ),
+                ReasoningBudgetField::None,
+            ),
+            "zai-glm-5-3-flash" | "zai-glm-5-2" => profile(
                 key,
                 "mistral-hosted-glm-v1",
                 ThinkingModeControl::ProviderDefault,
@@ -879,7 +902,7 @@ pub fn resolve_reasoning_profile(
                 ),
                 ReasoningBudgetField::None,
             ),
-            "magistral-medium-2509" => profile(
+            "magistral-medium-2509" | "deepseek-v4-1-flash-1017" => profile(
                 key,
                 "mistral-native-reasoning-v1",
                 ThinkingModeControl::AlwaysOn,
@@ -1489,6 +1512,27 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
+        if beijing_payg
+            && matches!(
+                model.as_str(),
+                "kimi/kimi-k3.1-pro" | "kimi/kimi-k3.1-pro-highspeed"
+            )
+        {
+            let mut value = profile(
+                key,
+                "alibaba-moonshot-kimi-k31-pro-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (&[ReasoningEffort::Max], Some(ReasoningEffort::Max)),
+                ReasoningBudgetField::None,
+            );
+            value.preserve_reasoning_history = true;
+            value.send_preserve_thinking = true;
+            value.omit_temperature_when_reasoning = true;
+            return value;
+        }
+
         if model == "kimi/kimi-k3" {
             let mut value = profile(
                 key,
@@ -1976,7 +2020,25 @@ mod tests {
                 hosted_glm.reasoning_history_encoding,
                 ReasoningHistoryEncoding::MistralContentChunks
             );
-            assert_eq!(hosted_glm.effort_field, ReasoningEffortField::None);
+            if model == "zai-glm-5-3" {
+                assert_eq!(hosted_glm.effort_field, ReasoningEffortField::TopLevel);
+                assert_eq!(
+                    hosted_glm.accepted_efforts,
+                    [
+                        ReasoningEffort::Low,
+                        ReasoningEffort::High,
+                        ReasoningEffort::Max
+                    ]
+                );
+                assert_eq!(
+                    hosted_glm
+                        .wire_effort(Some(&ReasoningEffort::Max))
+                        .as_deref(),
+                    Some("max")
+                );
+            } else {
+                assert_eq!(hosted_glm.effort_field, ReasoningEffortField::None);
+            }
         }
         assert_eq!(meta.key.endpoint_id, "meta-model-api-public");
         assert_eq!(meta.mode_control, ThinkingModeControl::AlwaysOn);

@@ -14,12 +14,36 @@ pub struct TurnModelSelection {
 
 impl TurnModelSelection {
     pub fn apply(&self, saved: &AgentConfig) -> Result<AgentConfig, CoreError> {
+        self.validate_for_provider(&saved.provider)?;
+        let mut selected = saved.clone();
+        selected.model = self.model.trim().into();
+        selected.model_id = Some(selected.model.clone());
+        selected.model_selection_resolution = None;
+        selected.reasoning_enabled = self.reasoning_enabled;
+        selected.reasoning_effort = self.reasoning_effort.clone();
+        selected.thinking_budget = self.thinking_budget;
+        Ok(selected)
+    }
+
+    pub fn apply_to_shared(
+        &self,
+        saved: &mut crate::connection_sync::SharedModelConnection,
+    ) -> Result<(), CoreError> {
+        self.validate_for_provider(&saved.provider)?;
+        saved.model = self.model.trim().into();
+        saved.reasoning_enabled = self.reasoning_enabled;
+        saved.reasoning_effort = self.reasoning_effort.clone();
+        saved.thinking_budget = self.thinking_budget;
+        Ok(())
+    }
+
+    fn validate_for_provider(&self, provider: &str) -> Result<(), CoreError> {
         let model = self.model.trim();
         if model.is_empty() || model.len() > 512 || model.chars().any(char::is_control) {
             return Err(CoreError::InvalidInput("Choose a valid model ID".into()));
         }
         if self.reasoning_effort.as_deref().is_some_and(|effort| {
-            if crate::external_agent::preset(&saved.provider).is_some() {
+            if crate::external_agent::preset(provider).is_some() {
                 // ACP option IDs are opaque. The connected session validates
                 // membership after selecting the actual model, before prompting.
                 effort.is_empty() || effort.len() > 512 || effort.chars().any(char::is_control)
@@ -37,14 +61,7 @@ impl TurnModelSelection {
                 "Invalid model reasoning options".into(),
             ));
         }
-        let mut selected = saved.clone();
-        selected.model = model.into();
-        selected.model_id = Some(model.into());
-        selected.model_selection_resolution = None;
-        selected.reasoning_enabled = self.reasoning_enabled;
-        selected.reasoning_effort = self.reasoning_effort.clone();
-        selected.thinking_budget = self.thinking_budget;
-        Ok(selected)
+        Ok(())
     }
 }
 

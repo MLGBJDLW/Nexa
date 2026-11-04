@@ -69,6 +69,7 @@ pub enum RemoteCommand {
         conversation_id: String,
         message_id: String,
         offset: u32,
+        channel: Option<String>,
     },
     #[serde(rename = "chat.create")]
     CreateConversation {
@@ -139,6 +140,15 @@ pub enum RemoteCommand {
 
 impl RemoteCommand {
     pub fn validate(&self) -> Result<(), String> {
+        if let Self::Message {
+            channel: Some(channel),
+            ..
+        } = self
+        {
+            if !matches!(channel.as_str(), "content" | "thinking") {
+                return Err("Unsupported message channel".into());
+            }
+        }
         if let Self::StartTurn {
             message,
             idempotency_key,

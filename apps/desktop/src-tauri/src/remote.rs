@@ -522,8 +522,8 @@ impl RemoteHost for DesktopHost {
             Conversation { conversation_id, before_order } => state.db_executor
                 .read(move |db| db.remote_messages(&conversation_id, before_order))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
-            Message { conversation_id, message_id, offset } => state.db_executor
-                .read(move |db| db.remote_message_text(&conversation_id, &message_id, offset))
+            Message { conversation_id, message_id, offset, channel } => state.db_executor
+                .read(move |db| if channel.as_deref() == Some("thinking") { db.remote_message_thinking(&conversation_id, &message_id, offset) } else { db.remote_message_text(&conversation_id, &message_id, offset) })
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
             CreateConversation { connection_id, model_selection } => state.db_executor.write(move |db| {
                 let saved = db.get_agent_config(&connection_id)?;

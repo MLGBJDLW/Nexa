@@ -8,7 +8,7 @@ export default defineConfig({
   resolve: { dedupe: ['react', 'react-dom'], alias: {
     '@': fileURLToPath(new URL('../desktop/src', import.meta.url)),
   } },
-  server: { strictPort: true, port: 1422, host: '0.0.0.0', fs: { allow: ['../..'] } },
+  server: { strictPort: true, port: 1422, host: '0.0.0.0', fs: { allow: ['../..'] }, watch: { ignored: ['**/src-tauri/**', '**/target/**'] } },
   build: { target: 'es2022' },
   clearScreen: false,
 });

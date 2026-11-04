@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { Menu, SquarePen, X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
+import { OverlayProvider } from '../../components/ui/overlay/OverlayProvider';
 
 export function MobileChatHeader({ center, onMenu, onNew, disabled }: { center: ReactNode; onMenu: () => void; onNew?: () => void; disabled?: boolean }) {
   const { t } = useTranslation();
@@ -77,7 +78,7 @@ export function MobileDialog({ title, side = false, open = true, children, onClo
     onPointerDown={start} onPointerMove={move} onPointerUp={event=>finish(event)} onPointerCancel={event=>finish(event,true)}
     onClickCapture={event=>{if(suppressClick.current){event.preventDefault();event.stopPropagation();suppressClick.current=false;}}}
     onClick={event => { if (event.target === event.currentTarget) close.current(); }}>
-    <div className="mobile-dialog-body">{!side && <div className="mobile-sheet-handle" data-mobile-drag-handle aria-hidden="true"><span/></div>}<header data-mobile-drag-handle><h2>{title}</h2><button className="mobile-icon-button" onClick={()=>close.current()} aria-label={t('common.close')}><X size={20}/></button></header>{children}</div>
+    <OverlayProvider local><div className="mobile-dialog-body">{!side && <div className="mobile-sheet-handle" data-mobile-drag-handle aria-hidden="true"><span/></div>}<header data-mobile-drag-handle><h2>{title}</h2><button className="mobile-icon-button" onClick={()=>close.current()} aria-label={t('common.close')}><X size={20}/></button></header>{children}</div></OverlayProvider>
   </dialog>;
 }
 

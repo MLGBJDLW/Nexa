@@ -1,34 +1,9 @@
-//! Safe model discovery shared by the phone picker and desktop Live.
+//! Host credentials and subscription discovery; shared core owns cloud choices.
 use super::{db_config_to_provider_config, list_subscription_models_cmd, AppState};
-use nexa_core::{
-    llm::create_provider,
-    provider_catalog::{
-        build_effective_model_catalog, retired_model_for_endpoint, ReasoningCapability,
-    },
-};
-use serde::Serialize;
-use std::time::Duration;
+pub use nexa_core::model_choices::ModelChoices;
+use nexa_core::model_choices::{cloud_model_choices, ModelChoice};
+use nexa_core::provider_catalog::ReasoningCapability;
 use tauri::{AppHandle, Manager};
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelChoice {
-    id: String,
-    name: String,
-    reasoning: Option<ReasoningCapability>,
-    vision: Option<bool>,
-    available: bool,
-    replacement_model_id: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelChoices {
-    connection_id: String,
-    models: Vec<ModelChoice>,
-    discovery_succeeded: bool,
-    error: Option<&'static str>,
-}
 
 pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<ModelChoices, String> {
     let id = connection_id.clone();
@@ -39,106 +14,50 @@ pub async fn model_choices(app: &AppHandle, connection_id: String) -> Result<Mod
         .await
         .map_err(|e| e.to_string())?
         .value;
-    let subscription =
-        crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider).is_some();
-    let (mut models, discovery_succeeded) = if subscription {
-        match list_subscription_models_cmd(
-            app.state(),
-            config.provider.clone(),
-            Some(config.id.clone()),
+    if crate::agent_runtime::AgentRuntimeKind::from_provider(&config.provider).is_none() {
+        return cloud_model_choices(
+            connection_id,
+            &config.provider,
+            &config.model,
+            db_config_to_provider_config(&config, Some(12)),
         )
         .await
-        {
-            Ok(models) => (
-                models
-                    .into_iter()
-                    .map(|model| ModelChoice {
-                        id: model.id,
-                        name: model.name,
-                        vision: None,
-                        available: true,
-                        replacement_model_id: None,
-                        reasoning: (!model.reasoning_efforts.is_empty()).then_some(
-                            ReasoningCapability {
-                                mode: Some("optional".into()),
-                                disabled_mode: None,
-                                effort_levels: model.reasoning_efforts,
-                                default_effort: None,
-                                default_enabled: None,
-                                effort_budget_exclusive: true,
-                                thinking_budget: None,
-                            },
-                        ),
-                    })
-                    .collect::<Vec<_>>(),
-                true,
-            ),
-            Err(_) => (vec![], false),
-        }
-    } else {
-        let provider = create_provider(db_config_to_provider_config(&config, Some(12)))
-            .map_err(|e| e.to_string())?;
-        let rich_snapshot =
-            tokio::time::timeout(Duration::from_secs(12), provider.model_catalog_snapshot())
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .flatten();
-        let live = tokio::time::timeout(Duration::from_secs(12), provider.list_models())
-            .await
-            .ok()
-            .and_then(Result::ok);
-        let discovered = live.is_some() || rich_snapshot.is_some();
-        let snapshot = rich_snapshot.unwrap_or_else(|| {
-            build_effective_model_catalog(
-                &config.provider,
-                config.base_url.as_deref(),
-                live,
-                None,
-                chrono::Utc::now().to_rfc3339(),
-            )
-        });
-        (
-            snapshot
-                .models
-                .into_iter()
-                .take(1500)
-                .map(|model| ModelChoice {
-                    id: model.id,
-                    name: model.name,
-                    reasoning: model
-                        .capabilities
-                        .as_ref()
-                        .and_then(|cap| cap.reasoning.clone()),
-                    vision: model.capabilities.as_ref().and_then(|cap| cap.vision),
-                    available: true,
-                    replacement_model_id: None,
-                })
-                .collect(),
-            discovered,
-        )
-    };
-    if !models.iter().any(|model| model.id == config.model) {
-        let retired =
-            retired_model_for_endpoint(&config.provider, config.base_url.as_deref(), &config.model);
-        models.insert(
-            0,
-            ModelChoice {
-                id: config.model.clone(),
-                name: config.model,
-                reasoning: None,
-                vision: None,
-                available: retired.is_none(),
-                replacement_model_id: retired.and_then(|model| model.replacement_model_id),
-            },
-        );
+        .map_err(|e| e.to_string());
     }
+    let discovered = list_subscription_models_cmd(
+        app.state(),
+        config.provider.clone(),
+        Some(config.id.clone()),
+    )
+    .await
+    .ok();
+    let succeeded = discovered.is_some();
     Ok(ModelChoices {
         connection_id,
-        models,
-        discovery_succeeded,
-        error: (!discovery_succeeded).then_some("discovery_unavailable"),
-    })
+        models: discovered
+            .unwrap_or_default()
+            .into_iter()
+            .map(|model| ModelChoice {
+                id: model.id,
+                name: model.name,
+                vision: None,
+                available: true,
+                replacement_model_id: None,
+                reasoning: (!model.reasoning_efforts.is_empty()).then_some(ReasoningCapability {
+                    mode: Some("optional".into()),
+                    disabled_mode: None,
+                    effort_levels: model.reasoning_efforts,
+                    default_effort: None,
+                    default_enabled: None,
+                    effort_budget_exclusive: true,
+                    thinking_budget: None,
+                }),
+            })
+            .collect(),
+        discovery_succeeded: succeeded,
+        error: (!succeeded).then_some("discovery_unavailable"),
+    }
+    .retain_selected(&config.provider, config.base_url.as_deref(), &config.model))
 }
 
 #[tauri::command]

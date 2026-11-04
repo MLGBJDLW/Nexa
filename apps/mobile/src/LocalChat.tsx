@@ -15,13 +15,13 @@ export function LocalChat({ settings, presentation }: { settings: PhoneSettings 
   const [example, setExample] = useState('');
   const identity = JSON.stringify(settings);
   const label = t('remote.mobilePhone');
-  const client = useMemo(() => new LocalClient(settings, label), [identity, label]);
+  const client = useMemo(() => new LocalClient(), [identity, label]);
   useEffect(() => { void client.start(); return () => client.close(); }, [client]);
   const previews = useMemo(() => ({ remote: true,
     openFilePreview: (path: string) => { void invoke('mobile_files',{action:'share',relativePath:path}).catch(error=>setError(String(error))); },
     openWebLink: (url: string) => { try { if (/^https?:$/.test(new URL(url).protocol)) window.open(url,'_blank','noopener,noreferrer'); } catch {} },
   }), []);
   return <FilePreviewContext.Provider value={previews}>{error && <p role="alert" className="mobile-error">{error}</p>}<RemoteChat client={client} mobile={presentation} initialDraft={example} onDraftConsumed={() => setExample('')} emptyState={
-    <div className="mobile-empty"><div className="mobile-brand"><Logo size={44}/></div><h2>{t('remote.mobilePhoneTitle')}</h2><button className="mobile-example" onClick={() => setExample(t('remote.mobileExample'))}>{t('remote.mobileExample')}<ArrowUpRight size={16}/></button></div>
+    <div className="mobile-empty"><div className="mobile-brand"><Logo size={44}/></div><h2>{t('remote.mobilePhoneTitle')}</h2>{settings ? <button className="mobile-example" onClick={() => setExample(t('remote.mobileExample'))}>{t('remote.mobileExample')}<ArrowUpRight size={16}/></button> : <button className="mobile-example" onClick={presentation.onConfigure}>{t('remote.mobileConfigure')}<ArrowUpRight size={16}/></button>}</div>
   }/></FilePreviewContext.Provider>;
 }

@@ -28,6 +28,13 @@ pub(super) fn uses_moonshot_schema(
             && is_alibaba_chat_endpoint(ProviderType::AlibabaModelStudio, base_url));
     let model = model.to_ascii_lowercase();
     if alibaba {
+        if matches!(
+            model.as_str(),
+            "kimi/kimi-k3.1-pro" | "kimi/kimi-k3.1-pro-highspeed"
+        ) {
+            return crate::provider_catalog::find_provider_preset("alibaba_model_studio", base_url)
+                .is_some_and(|preset| preset.id == "alibaba-model-studio");
+        }
         return matches!(
             model.strip_prefix("kimi/").unwrap_or(&model),
             "kimi-k3"

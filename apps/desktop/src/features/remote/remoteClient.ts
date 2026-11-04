@@ -25,7 +25,13 @@ export interface RemoteConnection {
   latencyMs?: number;
 }
 /** Chat depends on the transport contract, shared by browser and native hosts. */
-export type RemoteChatClient = Pick<RemoteClient, 'models' | 'paired' | 'state' | 'rpc' | 'subscribe' | 'subscribeConnection' | 'audio' | 'recoverAudio'> & { voiceAvailable?: boolean; composerOptionsAvailable?: boolean; resumeAvailable?: boolean; modelPickerAvailable?: boolean };
+export interface NativeSpeech {
+  listen: (language: string) => Promise<string>;
+  cancel: () => Promise<unknown>;
+  speak: (text: string, language: string) => Promise<unknown>;
+  stop: () => Promise<unknown>;
+}
+export type RemoteChatClient = Pick<RemoteClient, 'models' | 'paired' | 'state' | 'rpc' | 'subscribe' | 'subscribeConnection' | 'audio' | 'recoverAudio'> & { voiceAvailable?: boolean; composerOptionsAvailable?: boolean; resumeAvailable?: boolean; modelPickerAvailable?: boolean; extendedModesAvailable?: boolean; imagesOnly?: boolean; approvalModeAvailable?: boolean; nativeSpeech?: NativeSpeech };
 export function remoteRouteHeaders(origin: string): Record<string, string> {
   const host = new URL(origin).hostname;
   return ['.free.pinggy.net', '.pinggy.link', '.pinggy.online', '.run.pinggy-free.link'].some(suffix => host.endsWith(suffix))
@@ -303,6 +309,7 @@ export class RemoteClient {
             else pending.reject(new Error(event.payload.message));
           }
         }
+        if (event.event === 'connections:changed') this.models.invalidate();
         for (const listener of this.listeners) listener(event);
       };
       socket.onerror = () => {
