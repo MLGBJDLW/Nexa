@@ -3,6 +3,7 @@ package com.nexa.mobile
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.NotificationManager
+import android.app.KeyguardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -31,8 +32,21 @@ object PhoneAccess {
             put("backgroundRestricted", context.getSystemService(ActivityManager::class.java).isBackgroundRestricted)
             put("notifications", context.getSystemService(NotificationManager::class.java).areNotificationsEnabled())
             put("screenCapture", connected && Build.VERSION.SDK_INT >= 30)
+            put("screenInteractive", context.getSystemService(PowerManager::class.java).isInteractive)
+            put("screenLocked", context.getSystemService(KeyguardManager::class.java).isKeyguardLocked)
+            put("assistantOverlay", context.getSharedPreferences("phone-assistant", Context.MODE_PRIVATE).getBoolean("overlay", false))
             put("phoneFiles", true)
             put("localAgent", true)
+        }
+    }
+
+    fun screenRecovery(context: Context): JSObject? {
+        val state = status(context)
+        if (state.getBoolean("screenInteractive") && !state.getBoolean("screenLocked")) return null
+        return JSObject().apply {
+            put("code", "screen_locked_or_asleep"); put("requiresUserAction", true); put("retryable", false)
+            put("message", "Wake and unlock the phone to continue phone control. Accessibility is still connected; no new permission is needed.")
+            put("recovery", "Ask the user to wake/unlock the phone, then observe again. Never bypass the lock screen.")
         }
     }
 

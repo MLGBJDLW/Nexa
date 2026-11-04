@@ -2,7 +2,7 @@
 
 [Guide index](README.md) · [Documentation home](../README.md)
 
-Nexa Mobile starts at version `0.1.0` with a native Android application in
+Nexa Mobile `0.2.0` is a native Android application in
 [`apps/mobile`](../../apps/mobile/README.md). It has two explicit execution targets.
 
 | Target | Runtime and credentials | Files and history |
@@ -19,14 +19,16 @@ on the phone itself. A pairing connection always requires trusted HTTPS.
 ## Setup and use
 
 1. Install the signed ARM64 APK from the matching `nexa-mobile-v*` release.
-2. For **This phone**, open phone settings and add a provider/model and API key,
+2. Choose **This phone**, **Connect computer**, or **Set up later** on first launch.
+   For **This phone**, open phone settings and add a provider/model and API key,
    or pair with Desktop 0.18 or later to synchronize saved connections. The model catalog is shared with desktop. Enable task
    notifications so progress and **Stop** remain reachable when another app opens.
 3. Ask the agent to create or edit a file. Phone tasks use the existing scoped
    file tools; the folder action shares workspace outputs through Android's
    chooser with a temporary content grant.
-4. For **My computer**, enable public Phone access on the computer, then paste
-   its complete HTTPS pairing link. The link includes both a one-use code and
+4. For **My computer**, enable public Phone access on the computer, then scan
+   its QR code with the in-app scanner or paste its complete HTTPS pairing link.
+   The scanner works without Google Play Services. The link includes both a one-use code and
    the expected computer identity. Select a saved computer to reconnect.
 
 API keys and per-host pairing tokens are encrypted with a key held by Android
@@ -65,24 +67,58 @@ key when needed.
 
 Enable Nexa's accessibility service explicitly in Android settings. The adapter
 reads visible controls on demand, omits password fields, and exposes observation,
-click, text, scrolling, back/home and installed-app launch. Each action requires
+click, text, scrolling, back/home and installed-app search/launch. Android 11 and
+later also support screenshots and coordinate taps using the captured image's
+pixel coordinates. Captures are resized before entering the shared vision/tool
+pipeline; use a model that accepts images. Each action requires
 the current observation ID and checks the foreground package and target again.
 A successful dispatch is not reported as verified completion: the agent must
 observe and verify the result. Changed targets, expired observations, permission
 loss and locked/unavailable screens stop the action.
 
+Phone settings distinguish a disabled service, an enabled service that has not
+connected, notification access, battery restrictions and a locked/asleep screen.
+On Android 13 and later, a sideloaded APK can be subject to **Restricted settings**.
+Open Nexa's system App info, use **Allow restricted settings** in the overflow
+menu when offered, then return to Accessibility and enable Nexa. Samsung and
+other vendors may place this control differently. Device policy can prohibit
+the change; the app cannot bypass that restriction. Settings provides the relevant
+system pages and vendor-aware guidance. If a service was reclaimed, toggle it
+off/on and review the app's battery restrictions. No extra permission can
+guarantee survival of force-stop or vendor background restrictions.
+
 Actions use the existing approval path. Approval notifications let the user
 approve once or deny without switching away from the target app. The task's
 persistent notification provides Stop. A foreground service and a task-scoped
-wake lock support user-started work; the app does not promise survival of a
+wake lock support user-started work. Phone control keeps an already-active screen
+visible during its task but never unlocks or wakes a deliberately locked screen.
+An optional draggable assistant bubble opens Nexa; hold it to reveal Stop.
+It uses the enabled accessibility service's overlay and requires no separate
+draw-over-other-apps permission. The app does not promise survival of a
 force-stop, reboot, vendor power restriction or permission revocation.
 
 The distribution target is a signed GitHub APK. This is not a claim of Google
 Play acceptance for autonomous accessibility-based control. iOS and native
 HarmonyOS need their own platform adapters, signing and device validation;
-the Android APK does not establish support for either platform. Screen capture,
-local voice input and local image attachments are capability-gated out of this
-first release. The browser companion retains its existing voice/Live features.
+the Android APK does not establish support for either platform. Secure system
+screens, password input and apps that prohibit capture remain protected.
+
+## Chat and assistant capabilities
+
+Phone tasks share desktop model discovery and searchable provider/model choices,
+web search and URL fetching, image attachments, follow-up suggestions and saved
+thinking history. Long thinking blocks load on demand. Choose **Ask** or
+**Allow all** beside the composer; Plan mode still excludes mutating tools even
+when Allow all is selected. Model selection is independent for each device.
+
+The microphone uses Android's installed speech recognizer and requests microphone
+permission only when needed. Read aloud uses Android text-to-speech, reading the
+answer without tool output, thinking or suggestion metadata. Availability,
+supported languages and network requirements depend on the installed system
+engines. Stop/cancel and activity teardown release speech sessions. Live voice
+conversation and desktop-only terminal/browser automation are not local phone tools.
+Opening another app and interacting with its visible controls is supported;
+completion, such as sending a message, must be verified from a fresh observation.
 
 ## Runtime and recovery
 

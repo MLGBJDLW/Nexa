@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.ActivityCallback
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import androidx.activity.result.ActivityResult
 import com.journeyapps.barcodescanner.ScanOptions
 import com.journeyapps.barcodescanner.ScanIntentResult
@@ -18,12 +20,29 @@ import app.tauri.plugin.Plugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 
-@TauriPlugin
+@TauriPlugin(permissions = [Permission(strings = [Manifest.permission.RECORD_AUDIO], alias = "microphone")])
 class PhonePlugin(private val activity: Activity): Plugin(activity) {
     companion object { var instance: PhonePlugin? = null }
     override fun load(webView: android.webkit.WebView) { instance = this }
     fun taskStopped() { trigger("taskStop",JSObject()) }
     private val secrets = SecretStore(activity)
+    private val speech = PhoneSpeech(activity)
+    override fun onPause(activity: androidx.appcompat.app.AppCompatActivity) { speech.stop() }
+    override fun onDestroy(activity: androidx.appcompat.app.AppCompatActivity) { speech.destroy(); if (instance === this) instance = null }
+    @Command fun speech(invoke: Invoke) = activity.runOnUiThread {
+        when (invoke.getArgs().getString("action")) {
+            "listen" -> if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) speech.listen(invoke)
+                else requestPermissionForAlias("microphone", invoke, "microphoneGranted")
+            "cancel" -> { speech.cancelListening(); invoke.resolve(JSObject()) }
+            "speak" -> speech.speak(invoke)
+            "stop" -> { speech.stopSpeech(); invoke.resolve(JSObject()) }
+            else -> invoke.reject("Unsupported speech operation.")
+        }
+    }
+    @PermissionCallback private fun microphoneGranted(invoke: Invoke) {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) speech.listen(invoke)
+        else invoke.reject("Microphone access was not granted. Enable it in Android app settings or use the keyboard.")
+    }
     private fun guarded(invoke: Invoke, action: () -> JSObject) { try { invoke.resolve(action()) } catch (error: Exception) { invoke.reject(error.message ?: "Native service unavailable.") } }
     @Command fun secureRead(invoke: Invoke) = guarded(invoke) { JSObject().apply { put("value",secrets.read(invoke.getArgs().getString("key"))) } }
     @Command fun scanPairing(invoke: Invoke) {
@@ -66,9 +85,24 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
         JSObject()
         }
     }
-    @Command fun phoneControl(invoke: Invoke) = guarded(invoke) {
-        if (invoke.getArgs().getString("action") == "status") PhoneAccess.status(activity)
-        else PhoneAccessibilityService.instance?.action(invoke.getArgs()) ?: PhoneAccess.recovery(activity)
+    @Command fun phoneControl(invoke: Invoke) {
+        try {
+            if (invoke.getArgs().getString("action") == "status") invoke.resolve(PhoneAccess.status(activity))
+            else {
+                val service = PhoneAccessibilityService.instance
+                if (service == null) invoke.resolve(PhoneAccess.recovery(activity)) else service.execute(invoke)
+            }
+        } catch (error: Exception) { invoke.reject(error.message ?: "Phone control is unavailable.") }
+    }
+    @Command fun assistantOverlay(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            val enabled = invoke.getArgs().getBoolean("enabled")
+            val service = PhoneAccessibilityService.instance
+            check(!enabled || service != null) { "Enable phone control access before using the floating assistant." }
+            service?.setOverlay(enabled)
+            activity.getSharedPreferences("phone-assistant", Activity.MODE_PRIVATE).edit().putBoolean("overlay", enabled).apply()
+            JSObject()
+        }
     }
     @Command fun shareFile(invoke: Invoke) = guarded(invoke) {
         val file = java.io.File(invoke.getArgs().getString("path")).canonicalFile

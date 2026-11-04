@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "部分系統在應用程式資訊中提供「自動啟動」「背景活動」或「省電策略」。需要時允許 Nexa 在背景執行；名稱隨系統版本變化。",
   "mobileBackgroundRestricted": "Android 目前限制此應用程式的背景活動。",
   "mobileBatterySettings": "開啟電池設定",
-  "mobileRefreshPermissions": "重新檢查權限"
+  "mobileRefreshPermissions": "重新檢查權限",
+  "readAloud": "朗讀",
+  "stopReading": "停止朗讀",
+  "mobileFloatingAssistant": "懸浮助手",
+  "mobileFloatingAssistantHint": "可拖曳的跨應用 Nexa 入口。輕點開啟聊天，長按顯示停止按鈕。需先啟用手機控制。"
 }

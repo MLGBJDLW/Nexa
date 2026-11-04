@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="nexa_background">#20211F</color>
+    <color name="nexa_overlay_text">#EFEEE8</color>
+    <color name="nexa_overlay_border">#3C3E37</color>
 </resources>

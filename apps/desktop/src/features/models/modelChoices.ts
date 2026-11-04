@@ -27,9 +27,9 @@ export interface ModelChoices {
 export type ModelChoicesLoader = (connectionId: string, refresh?: boolean) => Promise<ModelChoices>;
 
 /** Each transport owns its account/endpoint-scoped cache. Never share across paired hosts. */
-export function cachedModelChoices(load: (id: string) => Promise<ModelChoices>): ModelChoicesLoader {
+export function cachedModelChoices(load: (id: string) => Promise<ModelChoices>): ModelChoicesLoader & { invalidate: () => void } {
   const entries = new Map<string, { at: number; value?: ModelChoices; pending?: Promise<ModelChoices> }>();
-  return (id, refresh = false) => {
+  const loader: ModelChoicesLoader = (id, refresh = false) => {
     const current = entries.get(id);
     if (current?.pending) return current.pending;
     if (!refresh && current?.value && Date.now() - current.at < 120_000) return Promise.resolve(current.value);
@@ -43,4 +43,5 @@ export function cachedModelChoices(load: (id: string) => Promise<ModelChoices>):
     entries.set(id, entry);
     return entry.pending;
   };
+  return Object.assign(loader, { invalidate: () => entries.clear() });
 }

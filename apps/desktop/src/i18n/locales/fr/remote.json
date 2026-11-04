@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "Certains appareils proposent aussi Démarrage automatique ou Activité en arrière-plan dans les infos de l'application. Autorisez Nexa si nécessaire ; les noms varient.",
   "mobileBackgroundRestricted": "Android restreint actuellement l'activité en arrière-plan de cette application.",
   "mobileBatterySettings": "Ouvrir les paramètres de batterie",
-  "mobileRefreshPermissions": "Vérifier les autorisations"
+  "mobileRefreshPermissions": "Vérifier les autorisations",
+  "readAloud": "Lire à voix haute",
+  "stopReading": "Arrêter la lecture",
+  "mobileFloatingAssistant": "Assistant flottant",
+  "mobileFloatingAssistantHint": "Raccourci Nexa déplaçable au-dessus des autres apps. Touchez pour le chat, maintenez pour afficher Arrêter. Nécessite le contrôle du téléphone."
 }

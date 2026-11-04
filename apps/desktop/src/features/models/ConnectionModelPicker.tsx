@@ -1,4 +1,5 @@
 import { NexaSelect } from '../../components/ui/overlay';
+import { NexaCombobox } from '../../components/ui/overlay/Combobox';
 import { useEffect, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { useTranslation } from '../../i18n';
@@ -48,10 +49,9 @@ export function ConnectionModelPicker({ connectionId, defaultModel, value, onCha
         <span>{label}</span>
         {custom ? <input className={field} aria-label={label} value={model} maxLength={512} disabled={disabled}
           onChange={event => changeModel(event.target.value)} /> :
-          <NexaSelect className={field} aria-label={label} value={model} disabled={disabled || !connectionId} onChange={event => changeModel(event.target.value)}>
-            {!selected && <option value={model}>{model || t('settings.defaultModel')}</option>}
-            {choices.map(item => <option key={item.id} value={item.id} disabled={item.available === false}>{item.name}{item.available === false ? ` · ${t('settings.modelLifecycleRemoved')}` : ''}</option>)}
-          </NexaSelect>}
+          <NexaCombobox className={field} ariaLabel={label} value={model} disabled={disabled || !connectionId} onValueChange={changeModel}
+            searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}
+            options={[...(!selected ? [{value:model,label:model || t('settings.defaultModel')}] : []), ...choices.map(item => ({value:item.id,label:item.name,description:item.available === false ? t('settings.modelLifecycleRemoved') : item.id,disabled:item.available === false}))]}/>}
       </label>
       <button type="button" className="rounded-xl border border-border p-3 text-text-secondary disabled:opacity-40" aria-label={t('remote.refreshModels')} disabled={loading || disabled || !connectionId} onClick={() => setRevision(current => current + 1)}>
         {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}

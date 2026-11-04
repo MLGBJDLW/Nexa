@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "機種によって自動起動やバックグラウンド動作の設定もあります。必要に応じて Nexa を許可してください。名称は OS により異なります。",
   "mobileBackgroundRestricted": "Android がバックグラウンド動作を制限しています。",
   "mobileBatterySettings": "電池設定を開く",
-  "mobileRefreshPermissions": "権限を再確認"
+  "mobileRefreshPermissions": "権限を再確認",
+  "readAloud": "読み上げ",
+  "stopReading": "読み上げを停止",
+  "mobileFloatingAssistant": "フローティングアシスタント",
+  "mobileFloatingAssistantHint": "他のアプリ上に表示する移動可能な Nexa ボタン。タップでチャット、長押しで停止ボタンを表示します。スマートフォン操作の許可が必要です。"
 }

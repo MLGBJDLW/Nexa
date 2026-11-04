@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "Alguns aparelhos têm Início automático ou Atividade em segundo plano nas informações do app. Permita Nexa quando necessário; os nomes variam.",
   "mobileBackgroundRestricted": "Android restringe a atividade deste app em segundo plano.",
   "mobileBatterySettings": "Abrir configurações de bateria",
-  "mobileRefreshPermissions": "Verificar permissões"
+  "mobileRefreshPermissions": "Verificar permissões",
+  "readAloud": "Ler em voz alta",
+  "stopReading": "Parar leitura",
+  "mobileFloatingAssistant": "Assistente flutuante",
+  "mobileFloatingAssistantHint": "Atalho móvel do Nexa sobre outros apps. Toque para abrir o chat; segure para mostrar Parar. Requer controle do telefone."
 }

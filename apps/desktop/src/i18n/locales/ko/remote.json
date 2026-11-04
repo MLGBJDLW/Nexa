@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "기기에 따라 자동 실행, 백그라운드 활동 또는 배터리 절약 설정이 있습니다. 필요할 때 Nexa를 허용하세요. 이름은 버전마다 다릅니다.",
   "mobileBackgroundRestricted": "Android가 이 앱의 백그라운드 활동을 제한하고 있습니다.",
   "mobileBatterySettings": "배터리 설정 열기",
-  "mobileRefreshPermissions": "권한 다시 확인"
+  "mobileRefreshPermissions": "권한 다시 확인",
+  "readAloud": "소리 내어 읽기",
+  "stopReading": "읽기 중지",
+  "mobileFloatingAssistant": "플로팅 어시스턴트",
+  "mobileFloatingAssistantHint": "다른 앱 위에서 이동 가능한 Nexa 바로가기입니다. 탭하면 채팅, 길게 누르면 중지가 표시됩니다. 휴대폰 제어 권한이 필요합니다."
 }

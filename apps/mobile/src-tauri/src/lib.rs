@@ -74,6 +74,32 @@ async fn mobile_local(
             .ok_or_else(|| format!("Missing {key}."))
     };
     match action.as_str() {
+        "connections" => {
+            let library = connections::public_state(&app).await?;
+            let mut records = library["connections"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for record in &mut records {
+                record["isDefault"] = json!(record["id"] == library["activeConnectionId"]);
+            }
+            Ok(json!(records))
+        }
+        "models" => {
+            let id = string("connectionId")?;
+            let saved = connections::get(&app, Some(&id)).await?;
+            serde_json::to_value(
+                nexa_core::model_choices::cloud_model_choices(
+                    id,
+                    &saved.provider,
+                    &saved.model,
+                    connections::provider_config(&saved)?,
+                )
+                .await
+                .map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())
+        }
         "list" => state
             .db
             .remote_conversations(input["before"].as_str())
@@ -81,6 +107,18 @@ async fn mobile_local(
         "messages" => state
             .db
             .remote_messages(&string("conversationId")?, input["beforeOrder"].as_i64())
+            .map_err(|e| e.to_string()),
+        "thinking" => state
+            .db
+            .remote_message_thinking(
+                &string("conversationId")?,
+                &string("messageId")?,
+                input["offset"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .try_into()
+                    .map_err(|_| "Invalid message offset.")?,
+            )
             .map_err(|e| e.to_string()),
         "message" => state
             .db
@@ -114,7 +152,15 @@ async fn mobile_local(
         }
         "approvals" => state.approvals(&string("conversationId")?).await,
         "create" => {
-            let saved = connections::active(&app).await?;
+            let mut saved = connections::get(&app, input["connectionId"].as_str()).await?;
+            if !input["modelSelection"].is_null() {
+                let selection: nexa_core::conversation::TurnModelSelection =
+                    serde_json::from_value(input["modelSelection"].clone())
+                        .map_err(|e| e.to_string())?;
+                selection
+                    .apply_to_shared(&mut saved)
+                    .map_err(|e| e.to_string())?;
+            }
             state.create(&connections::settings(&saved))
         }
         "start" => {
@@ -125,6 +171,10 @@ async fn mobile_local(
                     string("message")?,
                     string("requestId")?,
                     input["checkpointId"].as_str().map(str::to_owned),
+                    serde_json::from_value(
+                        input.get("options").cloned().unwrap_or_else(|| json!({})),
+                    )
+                    .map_err(|e| e.to_string())?,
                 )
                 .await
         }
@@ -181,6 +231,27 @@ async fn mobile_permission(app: AppHandle, permission: String) -> Result<Value, 
         return Err("Unsupported permission.".into());
     }
     platform::call(&app, "requestPermission", json!({"permission":permission})).await
+}
+
+#[tauri::command]
+async fn mobile_overlay(app: AppHandle, enabled: bool) -> Result<Value, String> {
+    platform::call(&app, "assistantOverlay", json!({"enabled":enabled})).await
+}
+
+#[tauri::command]
+async fn mobile_speech(
+    app: AppHandle,
+    action: String,
+    text: Option<String>,
+    language: Option<String>,
+) -> Result<Value, String> {
+    if !matches!(action.as_str(), "listen" | "cancel" | "speak" | "stop") {
+        return Err("Unsupported speech action.".into());
+    }
+    if text.as_ref().is_some_and(|text| text.len() > 512_000) {
+        return Err("Load and read a smaller message section.".into());
+    }
+    platform::call(&app, "speech", json!({"action":action,"text":text.unwrap_or_default(),"language":language.unwrap_or_else(|| "en".into())})).await
 }
 
 #[tauri::command]
@@ -330,6 +401,8 @@ pub fn run() {
             mobile_local,
             mobile_permission,
             mobile_scan_pairing,
+            mobile_speech,
+            mobile_overlay,
             mobile_pair,
             mobile_remote,
             mobile_files

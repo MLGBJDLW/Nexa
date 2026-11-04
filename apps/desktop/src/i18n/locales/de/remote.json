@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "Je nach Gerät gibt es zusätzlich Autostart oder Hintergrundaktivität unter App-Info. Erlauben Sie Nexa bei Bedarf; die Namen variieren.",
   "mobileBackgroundRestricted": "Android beschränkt die Hintergrundaktivität dieser App.",
   "mobileBatterySettings": "Akkueinstellungen öffnen",
-  "mobileRefreshPermissions": "Berechtigungen erneut prüfen"
+  "mobileRefreshPermissions": "Berechtigungen erneut prüfen",
+  "readAloud": "Vorlesen",
+  "stopReading": "Vorlesen stoppen",
+  "mobileFloatingAssistant": "Schwebender Assistent",
+  "mobileFloatingAssistantHint": "Verschiebbare Nexa-Verknüpfung über anderen Apps. Tippen öffnet den Chat, langes Drücken zeigt Stopp. Telefonsteuerung muss aktiviert sein."
 }

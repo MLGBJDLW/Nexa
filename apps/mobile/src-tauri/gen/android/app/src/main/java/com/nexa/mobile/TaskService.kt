@@ -14,6 +14,8 @@ class TaskService : Service() {
         const val CHANNEL = "nexa_phone_tasks"
         const val NOTIFICATION = 71
         val stopRequested = AtomicBoolean(false)
+        @Volatile private var activeService: TaskService? = null
+        fun keepControlScreenOn() { activeService?.holdControlScreen() }
         private val approvals = mutableMapOf<String, Invoke>()
         private val stopWaiters = mutableListOf<Invoke>()
         @Synchronized fun stopAndWait(activity: Activity, invoke: Invoke) {
@@ -32,8 +34,18 @@ class TaskService : Service() {
         @Synchronized fun denyAll(notifications: NotificationManager) { approvals.forEach { (id, invoke) -> notifications.cancel(id.hashCode()); invoke.resolve(JSObject("{\"allow\":false}")) }; approvals.clear() }
     }
     private var wakeLock: PowerManager.WakeLock? = null
+    private var controlWakeLock: PowerManager.WakeLock? = null
+    @Suppress("DEPRECATION") private fun holdControlScreen() {
+        val power = getSystemService(PowerManager::class.java)
+        if (controlWakeLock == null && power.isInteractive && !stopRequested.get()) {
+            // Keep an already-unlocked display visible during the user's task.
+            // No ACQUIRE_CAUSES_WAKEUP: a deliberate lock still stops input.
+            controlWakeLock = power.newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, "Nexa:PhoneControl").apply { acquire() }
+        }
+    }
     override fun onCreate() {
         super.onCreate()
+        activeService = this
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.task_channel), NotificationManager.IMPORTANCE_DEFAULT))
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -57,6 +69,6 @@ class TaskService : Service() {
         }
         return START_NOT_STICKY
     }
-    override fun onDestroy() { stopRequested.set(true); PhonePlugin.instance?.taskStopped(); wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
+    override fun onDestroy() { activeService = null; stopRequested.set(true); PhonePlugin.instance?.taskStopped(); controlWakeLock?.let { if (it.isHeld) it.release() }; controlWakeLock = null; wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
     override fun onBind(intent: Intent?): IBinder? = null
 }

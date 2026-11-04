@@ -15,7 +15,7 @@ export function LocalChat({ settings, presentation }: { settings: PhoneSettings 
   const [example, setExample] = useState('');
   const identity = JSON.stringify(settings);
   const label = t('remote.mobilePhone');
-  const client = useMemo(() => new LocalClient(settings, label), [identity, label]);
+  const client = useMemo(() => new LocalClient(), [identity, label]);
   useEffect(() => { void client.start(); return () => client.close(); }, [client]);
   const previews = useMemo(() => ({ remote: true,
     openFilePreview: (path: string) => { void invoke('mobile_files',{action:'share',relativePath:path}).catch(error=>setError(String(error))); },

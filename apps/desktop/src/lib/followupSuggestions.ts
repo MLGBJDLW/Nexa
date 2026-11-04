@@ -36,9 +36,10 @@ export function stripFollowupBlocks(content: string): string {
   return content;
 }
 
-export function latestFollowupSuggestions(messages: ConversationMessage[]): { key: string; items: FollowupSuggestion[] } | null {
+type FollowupMessage = Pick<ConversationMessage, 'id' | 'content'> & { role: string; toolCalls?: ConversationMessage['toolCalls']; artifacts?: ConversationMessage['artifacts'] };
+export function latestFollowupSuggestions(messages: FollowupMessage[]): { key: string; items: FollowupSuggestion[] } | null {
   const message = [...messages].reverse().find(item => item.role === 'user' || item.role === 'assistant');
-  if (!message || message.role !== 'assistant' || message.toolCalls.length) return null;
+  if (!message || message.role !== 'assistant' || message.toolCalls?.length) return null;
   if (message.artifacts && !Array.isArray(message.artifacts) && message.artifacts.phase === 'commentary') return null;
   // Parse Markdown structure so examples inside longer fences cannot become actions.
   const children = fromMarkdown(message.content).children;

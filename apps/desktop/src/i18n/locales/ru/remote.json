@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "На устройстве также могут быть настройки автозапуска и фоновой активности. Разрешите Nexa при необходимости; названия зависят от версии системы.",
   "mobileBackgroundRestricted": "Android ограничивает фоновую активность этого приложения.",
   "mobileBatterySettings": "Открыть настройки батареи",
-  "mobileRefreshPermissions": "Проверить разрешения"
+  "mobileRefreshPermissions": "Проверить разрешения",
+  "readAloud": "Прочитать вслух",
+  "stopReading": "Остановить чтение",
+  "mobileFloatingAssistant": "Плавающий помощник",
+  "mobileFloatingAssistantHint": "Перемещаемая кнопка Nexa поверх других приложений. Нажмите для чата, удерживайте для кнопки остановки. Требуется управление телефоном."
 }

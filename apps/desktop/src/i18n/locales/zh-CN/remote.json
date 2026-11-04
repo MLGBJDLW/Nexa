@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "部分系统还在应用信息中提供“自启动”“后台活动”或“省电策略”。需要时允许 Nexa 后台运行；具体名称随系统版本变化。",
   "mobileBackgroundRestricted": "Android 当前限制了此应用的后台活动。",
   "mobileBatterySettings": "打开电池设置",
-  "mobileRefreshPermissions": "重新检查权限"
+  "mobileRefreshPermissions": "重新检查权限",
+  "readAloud": "朗读",
+  "stopReading": "停止朗读",
+  "mobileFloatingAssistant": "悬浮助手",
+  "mobileFloatingAssistantHint": "可拖动的跨应用 Nexa 入口。轻点打开聊天，长按显示停止按钮。需要先开启手机控制。"
 }

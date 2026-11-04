@@ -1,11 +1,19 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { cachedModelChoices, type ModelChoices } from '../../desktop/src/features/models/modelChoices';
-import type { RemoteChatClient, PairedRemote, RemoteConnection, RemoteEnvelope } from '../../desktop/src/features/remote/remoteClient';
+import type { NativeSpeech, RemoteChatClient, PairedRemote, RemoteConnection, RemoteEnvelope } from '../../desktop/src/features/remote/remoteClient';
+
+export const phoneSpeech: NativeSpeech = {
+  listen: language => invoke<{ text: string }>('mobile_speech', { action: 'listen', language }).then(result => result.text),
+  cancel: () => invoke('mobile_speech', { action: 'cancel' }),
+  speak: (text, language) => invoke('mobile_speech', { action: 'speak', text, language }),
+  stop: () => invoke('mobile_speech', { action: 'stop' }),
+};
 
 export interface NativeHost extends PairedRemote { id: string; endpoint: string }
 export const hostLabel = (host: NativeHost) => { try { return new URL(host.endpoint).hostname; } catch { return host.device.name; } };
 export class NativeClient implements RemoteChatClient {
+  readonly nativeSpeech = phoneSpeech;
   readonly voiceAvailable = false;
   readonly models = cachedModelChoices(id => this.rpc<ModelChoices>('models.list', { connectionId: id }));
   state: RemoteConnection = { phase: 'connecting', endpoint: null };
@@ -24,7 +32,7 @@ export class NativeClient implements RemoteChatClient {
         this.state = payload.payload;
         this.connections.forEach(listener => listener(this.state));
         if (this.state.phase === 'connected') this.listeners.forEach(listener => listener({ event: 'connection:resync', payload: {} }));
-      } else this.listeners.forEach(listener => listener(payload));
+      } else { if (payload.event === 'connections:changed') this.models.invalidate(); this.listeners.forEach(listener => listener(payload)); }
     });
     if (this.closed) { unlisten(); return; }
     this.unlisten = unlisten;

@@ -189,5 +189,9 @@
   "mobileVendorBatteryHint": "Your device may also have Auto-launch, Background activity or Battery saver settings under App info. Allow background activity for Nexa when needed; names vary by system version.",
   "mobileBackgroundRestricted": "Android currently restricts this app's background activity.",
   "mobileBatterySettings": "Open battery settings",
-  "mobileRefreshPermissions": "Check permissions again"
+  "mobileRefreshPermissions": "Check permissions again",
+  "readAloud": "Read aloud",
+  "stopReading": "Stop reading",
+  "mobileFloatingAssistant": "Floating assistant",
+  "mobileFloatingAssistantHint": "A draggable shortcut to Nexa over other apps. Tap to open chat; hold to show Stop. Requires phone control access."
 }

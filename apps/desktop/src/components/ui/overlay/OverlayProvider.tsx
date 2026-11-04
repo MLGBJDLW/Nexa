@@ -7,7 +7,7 @@ import {
 
 const OverlayRootContext = createContext<HTMLElement | null>(null);
 
-export function OverlayProvider({ children }: { children: ReactNode }) {
+export function OverlayProvider({ children, local = false }: { children: ReactNode; local?: boolean }) {
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
 
   return (
@@ -15,7 +15,7 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       {children}
       <div
         ref={setRoot}
-        id="nexa-overlay-root"
+        id={local ? undefined : 'nexa-overlay-root'}
         data-nexa-overlay-root="true"
         className="contents"
       />
