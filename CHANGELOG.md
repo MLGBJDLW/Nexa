@@ -2,23 +2,27 @@
 
 ## [0.18.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.0...nexa-monorepo-v0.18.1) (2026-11-04)
 
+### Android assistant and Mobile 0.2.0
 
-### Features
+First launch now offers local setup, computer pairing or setup deferral. Scan the desktop pairing QR code with the native camera, or paste the link. Phone settings explain restricted settings, disconnected accessibility services and vendor battery restrictions with relevant system links.
 
-* **desktop:** add theme-aware workspace radial menu ([fbeab43](https://github.com/MLGBJDLW/Nexa/commit/fbeab43be2c5f5a156282edb63ad5a5981adadcc))
-* **mobile:** add QR onboarding and actionable phone access recovery ([00903fe](https://github.com/MLGBJDLW/Nexa/commit/00903fe1bce7c655bc2a31c127ef6ff8905f53d8))
-* **mobile:** share assistant capabilities and native phone interaction ([6f022ba](https://github.com/MLGBJDLW/Nexa/commit/6f022bafac12c66da4b9a2acb23ea56d36701c42))
-* **mobile:** upgrade Android assistant capabilities and desktop interaction ([2382e30](https://github.com/MLGBJDLW/Nexa/commit/2382e30e5ac147baa964a41062dafd711355ad1b))
-* **mobile:** upgrade the Android assistant and shared provider experience ([#521](https://github.com/MLGBJDLW/Nexa/issues/521)) ([2382e30](https://github.com/MLGBJDLW/Nexa/commit/2382e30e5ac147baa964a41062dafd711355ad1b))
+Phone chat gains Android dictation and read-aloud, web search and URL fetching, image input, searchable BYOK provider/model choices, saved thinking with on-demand paging, and follow-up suggestions. Ask/Allow all is available beside the composer. Plan remains read-only, including after interruption and restart; continuation restores the original model connection and execution policy.
 
+Android 11+ screenshot observations support verified coordinate taps. An optional draggable assistant bubble opens chat and exposes Stop. Notification approval preserves the intended target while still rejecting changed content, foreground identity, geometry or lock state. Routine task notifications are silent; approval requests and completed background replies remain visible. Launcher icons now use a consistent safe area.
 
-### Bug Fixes
+### Desktop interaction
 
-* **android:** hide the assistant overlay during coordinate taps ([9b581e9](https://github.com/MLGBJDLW/Nexa/commit/9b581e9325eaedab0e5e9c313af01a9740bf00d4))
-* **android:** retain verified targets across notification approvals ([b8a40dc](https://github.com/MLGBJDLW/Nexa/commit/b8a40dc57147ea1e61b855e957a928a3bd645e0b))
-* **mobile:** preserve resumed task policy and quiet routine notifications ([74369ca](https://github.com/MLGBJDLW/Nexa/commit/74369ca6e5cfc70d504b190cf561921fd9b7fa69))
-* **providers:** integrate Bailian Kimi K3.1 Pro and retire unavailable routes ([35221e0](https://github.com/MLGBJDLW/Nexa/commit/35221e09ee31c51c43f4f73df8ef71587d30fd98))
-* **providers:** refresh hosted reasoning contracts and catalog aliases ([4d97b5c](https://github.com/MLGBJDLW/Nexa/commit/4d97b5c91589ba7757f6f099b50d39538746c895))
+A compact radial menu opens on blank workspace areas and follows the active theme. It reuses existing commands for sources, browser, new chat, terminal and the command palette, respects native editing menus, fits viewport edges and supports keyboard navigation.
+
+### Provider contracts and maintenance
+
+- Add Bailian Beijing Kimi K3.1 Pro and Highspeed with endpoint-specific reasoning replay, tool schema and parameter handling.
+- Refresh Mistral Large 4 and GLM 5.3 reasoning controls, including migration of the former Large 4 disabled setting, and add the documented hosted DeepSeek V4.1 Flash 1017 route.
+- Preserve saved Voyage embedding aliases and index identities after the OpenRouter namespace change; refresh documented Decisions choices and endpoint-specific retirement metadata without silently moving free or retired selections to paid alternatives.
+- Reuse cloud model discovery across hosts, invalidate stale picker caches after connection changes and keep readable answer text separate from thinking and suggestion metadata.
+- Reserve Android APK packaging for independently versioned mobile releases. Ordinary PRs use lightweight mobile source checks; verified Release Please metadata updates skip redundant frontend builds.
+
+Validation includes hosted CI, browser regressions, focused provider wire contracts and Android 16 emulator checks using a deterministic local provider. Native checks cover camera QR decoding, speech lifecycle, screenshot/action/outcome verification, notification approvals, overlay cancellation and Plan recovery. Physical-phone/OEM battery behavior, real speech recognition quality and paid-provider entitlement remain separate acceptance boundaries. Release verification checks public metadata, manifests and signing receipts without downloading installers.
 
 <!-- nexa:merged-prs:start -->
 <!-- Release notes generated using configuration in .github/release.yml at 2382e30e5ac147baa964a41062dafd711355ad1b -->
