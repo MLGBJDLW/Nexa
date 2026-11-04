@@ -4827,7 +4827,8 @@ mod tests {
                 assert!(body.get(field).is_none(), "{model}: {field}");
             }
             assert_eq!(
-                body.get("reasoning_effort").and_then(|value| value.as_str()),
+                body.get("reasoning_effort")
+                    .and_then(|value| value.as_str()),
                 (model == "zai-glm-5-3").then_some("max")
             );
             assert_eq!(
