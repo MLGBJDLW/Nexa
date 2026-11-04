@@ -20,6 +20,16 @@
 * **providers:** integrate Bailian Kimi K3.1 Pro and retire unavailable routes ([35221e0](https://github.com/MLGBJDLW/Nexa/commit/35221e09ee31c51c43f4f73df8ef71587d30fd98))
 * **providers:** refresh hosted reasoning contracts and catalog aliases ([4d97b5c](https://github.com/MLGBJDLW/Nexa/commit/4d97b5c91589ba7757f6f099b50d39538746c895))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 2382e30e5ac147baa964a41062dafd711355ad1b -->
+
+### What's Changed
+* feat(mobile): upgrade Android assistant capabilities and desktop interaction by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/521
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.0...nexa-monorepo-v0.18.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.18.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.14...nexa-monorepo-v0.18.0) (2026-11-03)
 
 ### Image editing in chat
