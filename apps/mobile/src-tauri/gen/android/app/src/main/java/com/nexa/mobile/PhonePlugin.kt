@@ -27,7 +27,9 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     fun taskStopped() { trigger("taskStop",JSObject()) }
     private val secrets = SecretStore(activity)
     private val speech = PhoneSpeech(activity)
-    override fun onPause(activity: androidx.appcompat.app.AppCompatActivity) { speech.stop() }
+    private var foreground = true
+    override fun onResume(activity: androidx.appcompat.app.AppCompatActivity) { foreground = true }
+    override fun onPause(activity: androidx.appcompat.app.AppCompatActivity) { foreground = false; speech.stop() }
     override fun onDestroy(activity: androidx.appcompat.app.AppCompatActivity) { speech.destroy(); if (instance === this) instance = null }
     @Command fun speech(invoke: Invoke) = activity.runOnUiThread {
         when (invoke.getArgs().getString("action")) {
@@ -41,7 +43,7 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     }
     @PermissionCallback private fun microphoneGranted(invoke: Invoke) {
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) speech.listen(invoke)
-        else invoke.reject("Microphone access was not granted. Enable it in Android app settings or use the keyboard.")
+        else invoke.reject("speech_permission")
     }
     private fun guarded(invoke: Invoke, action: () -> JSObject) { try { invoke.resolve(action()) } catch (error: Exception) { invoke.reject(error.message ?: "Native service unavailable.") } }
     @Command fun secureRead(invoke: Invoke) = guarded(invoke) { JSObject().apply { put("value",secrets.read(invoke.getArgs().getString("key"))) } }
@@ -111,6 +113,19 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
         val intent = Intent(Intent.ACTION_SEND).setType("*/*").putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         activity.startActivity(Intent.createChooser(intent,activity.getString(R.string.share_file))); JSObject()
     }
+    @Command fun taskResult(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            if (!foreground && invoke.getArgs().getString("status") == "completed") {
+                TaskService.ensureChannels(activity)
+                val open = PendingIntent.getActivity(activity, 2, Intent(activity, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                activity.getSystemService(NotificationManager::class.java).notify(TaskService.REPLY_NOTIFICATION,
+                    NotificationCompat.Builder(activity, TaskService.CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
+                        .setContentTitle(activity.getString(R.string.task_reply_ready)).setContentText(activity.getString(R.string.task_reply_open))
+                        .setContentIntent(open).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE).build())
+            }
+            JSObject()
+        }
+    }
     @Command fun approval(invoke: Invoke) {
         try {
             val args = invoke.getArgs(); val id = args.getString("id")
@@ -119,10 +134,12 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
             TaskService.pending(id,invoke)
             fun action(allow: Boolean): PendingIntent = PendingIntent.getService(activity,31*id.hashCode()+if(allow)1 else 0,
                 Intent(activity,TaskService::class.java).setAction(if(allow) "allow" else "deny").putExtra("approvalId",id),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            TaskService.ensureChannels(activity)
             notifications.notify(id.hashCode(),NotificationCompat.Builder(activity,TaskService.CHANNEL)
                 .setSmallIcon(R.drawable.ic_nexa_notification).setContentTitle(activity.getString(R.string.approval_title))
                 .setContentText(args.getString("reason")).setStyle(NotificationCompat.BigTextStyle().bigText(args.getString("reason")))
-                .setOngoing(true).addAction(0,activity.getString(R.string.approval_allow),action(true)).addAction(0,activity.getString(R.string.approval_deny),action(false)).build())
+                .setOngoing(true).setOnlyAlertOnce(true).setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+                .addAction(0,activity.getString(R.string.approval_allow),action(true)).addAction(0,activity.getString(R.string.approval_deny),action(false)).build())
         } catch(error: Exception) { invoke.reject(error.message ?: "Approval notification failed.") }
     }
 }

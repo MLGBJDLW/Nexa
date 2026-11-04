@@ -193,5 +193,13 @@
   "readAloud": "Leer en voz alta",
   "stopReading": "Detener lectura",
   "mobileFloatingAssistant": "Asistente flotante",
-  "mobileFloatingAssistantHint": "Acceso móvil a Nexa sobre otras apps. Toca para abrir el chat y mantén pulsado para mostrar Detener. Requiere control del teléfono."
+  "mobileFloatingAssistantHint": "Acceso móvil a Nexa sobre otras apps. Toca para abrir el chat y mantén pulsado para mostrar Detener. Requiere control del teléfono.",
+  "speechPermission": "Permite el micrófono en los ajustes de la aplicación de Android o usa el teclado.",
+  "speechUnavailable": "Instala o activa un motor de voz en los ajustes de Android.",
+  "speechNetwork": "No se pudo conectar al servicio de voz. Revisa la red o elige un motor sin conexión.",
+  "speechNoMatch": "No se reconoció voz. Inténtalo de nuevo.",
+  "speechTimeout": "El motor de voz no responde. Reintenta o revisa los ajustes de voz de Android.",
+  "speechLanguage": "Instala los datos de este idioma en los ajustes de texto a voz de Android.",
+  "speechBusy": "La voz ya está en uso. Detenla o cierra otras aplicaciones de micrófono y reintenta.",
+  "speechFailed": "No se pudo completar la operación de voz. Revisa los ajustes de voz de Android y reintenta."
 }

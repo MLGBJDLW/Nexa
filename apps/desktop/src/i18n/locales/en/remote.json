@@ -193,5 +193,13 @@
   "readAloud": "Read aloud",
   "stopReading": "Stop reading",
   "mobileFloatingAssistant": "Floating assistant",
-  "mobileFloatingAssistantHint": "A draggable shortcut to Nexa over other apps. Tap to open chat; hold to show Stop. Requires phone control access."
+  "mobileFloatingAssistantHint": "A draggable shortcut to Nexa over other apps. Tap to open chat; hold to show Stop. Requires phone control access.",
+  "speechPermission": "Allow microphone access in Android app settings, or use the keyboard.",
+  "speechUnavailable": "Install or enable a speech engine in Android settings.",
+  "speechNetwork": "The speech service could not connect. Check the network or choose an offline engine.",
+  "speechNoMatch": "No speech recognized. Try again.",
+  "speechTimeout": "The speech engine stopped responding. Try again or check Android voice settings.",
+  "speechLanguage": "Install voice data for this language in Android text-to-speech settings.",
+  "speechBusy": "Speech is already active. Stop it or close other microphone apps and try again.",
+  "speechFailed": "Speech could not complete. Check Android voice settings and try again."
 }

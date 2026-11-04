@@ -10,4 +10,7 @@
     <string name="approval_title">Nexa에 승인이 필요합니다</string>
     <string name="approval_allow">한 번 허용</string>
     <string name="approval_deny">거부</string>
+    <string name="task_attention_channel">답변 및 승인</string>
+    <string name="task_reply_ready">Nexa가 답변했습니다</string>
+    <string name="task_reply_open">탭하여 답변을 확인하세요.</string>
 </resources>

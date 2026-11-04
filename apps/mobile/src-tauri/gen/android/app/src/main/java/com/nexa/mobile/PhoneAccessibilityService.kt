@@ -44,12 +44,24 @@ class PhoneAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() { instance = this; if (getSharedPreferences("phone-assistant", MODE_PRIVATE).getBoolean("overlay", false)) overlay.show() }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event != null) lastUiEventAt = android.os.SystemClock.elapsedRealtime()
-        if (event?.packageName?.toString() == observedPackage && event.windowId == observedWindow) revision++
+        if (event != null) {
+            val windowChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+            // Our assistant overlay is not the active app. Hiding/restoring it
+            // must not stale the capture it just produced.
+            if ((event.packageName?.toString() == observedPackage && event.windowId == observedWindow)
+                || (windowChanged && !foregroundMatchesObservation())) revision++
+        }
     }
     override fun onInterrupt() { invalidate() }
     override fun onDestroy() { capture.close(); overlay.hide(); invalidate(); instance = null; super.onDestroy() }
     fun setOverlay(enabled: Boolean) { if (enabled) overlay.show() else overlay.hide() }
     @Suppress("DEPRECATION") private fun rotation() = getSystemService(WindowManager::class.java).defaultDisplay.rotation
+    @Suppress("DEPRECATION") private fun foregroundMatchesObservation(): Boolean {
+        if (PhoneAccess.screenRecovery(this) != null) return false
+        val root = rootInActiveWindow ?: return false
+        return try { root.packageName?.toString() == observedPackage && root.windowId == observedWindow }
+        finally { root.recycle() }
+    }
     private fun checkUnlocked() { check(!getSystemService(KeyguardManager::class.java).isKeyguardLocked) { "Unlock the phone before using phone control." } }
     // Approval is an explicit user action. Dismiss its shade before the already
     // approved target is checked; never relax the foreground identity check.
@@ -124,7 +136,7 @@ class PhoneAccessibilityService : AccessibilityService() {
                             check(!sensitive && !state.getBoolean("truncated")) { "This screen contains sensitive controls or an incomplete UI tree. Use accessible controls; screenshot input is unavailable." }
                             val id = observation; val version = revision; val screenRotation = observedRotation
                             capture.capture(invoke, state,
-                                { observation == id && revision == version && rotation() == screenRotation && !TaskService.stopRequested.get() && instance === this },
+                                { observation == id && revision == version && rotation() == screenRotation && !TaskService.stopRequested.get() && instance === this && foregroundMatchesObservation() },
                                 { overlay.restore() },
                                 { width, height, fullWidth, fullHeight -> screenshotRevision = version; screenshotWidth = width; screenshotHeight = height; displayWidth = fullWidth; displayHeight = fullHeight })
                         } catch (error: Exception) { overlay.restore(); finishError(invoke, error) }

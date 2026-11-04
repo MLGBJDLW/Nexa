@@ -3,6 +3,7 @@ import { Mic, Square } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type { NativeSpeech } from './remoteClient';
 import type { VoiceDictationEvent } from '../voice/voiceDraftProjection';
+import { nativeSpeechErrorKey } from './nativeSpeechErrors';
 
 export function NativeDictationInput({ speech, disabled, onEvent, onBusy }: {
   speech: NativeSpeech; disabled: boolean; onEvent: (event: VoiceDictationEvent) => void; onBusy: (busy: boolean) => void;
@@ -21,7 +22,7 @@ export function NativeDictationInput({ speech, disabled, onEvent, onBusy }: {
     try {
       const text = await speech.listen(locale);
       if (generation.current === request) callbacks.current.onEvent({ kind:'final', text });
-    } catch (error) { if (generation.current === request) setError(String(error)); }
+    } catch (error) { if (generation.current === request) setError(t(nativeSpeechErrorKey(error))); }
     finally { if (generation.current === request) { active.current = false; setBusy(false); callbacks.current.onBusy(false); callbacks.current.onEvent({ kind:'end' }); } }
   }
   return <div className="native-dictation"><button type="button" className="mobile-icon-button" disabled={disabled && !busy} aria-label={busy ? t('common.cancel') : t('remote.voiceInput')} aria-pressed={busy} onClick={() => void dictate()}>{busy ? <Square size={18}/> : <Mic size={18}/>}</button>{error && <p className="native-dictation-error" role="alert">{error}<button type="button" aria-label={t('common.close')} onClick={() => setError('')}>×</button></p>}</div>;

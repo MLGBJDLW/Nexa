@@ -169,7 +169,7 @@ impl LocalRuntime {
         mut text: String,
         request_id: String,
         checkpoint_id: Option<String>,
-        options: TurnOptions,
+        mut options: TurnOptions,
     ) -> Result<Value, String> {
         if let Some(id) = &checkpoint_id {
             let checkpoint = self.db.get_task_resume_checkpoint(id).map_err(err)?;
@@ -180,6 +180,21 @@ impl LocalRuntime {
             if conversation_id.as_deref() != Some(&run.conversation_id) {
                 return Err("Checkpoint belongs to another conversation.".into());
             }
+            // A continuation retains the original task's authority. Renderer
+            // defaults after restart must never turn Plan + Allow all into a
+            // write-capable task or silently select another model account.
+            let messages = self.db.get_messages(&run.conversation_id).map_err(err)?;
+            let original = messages
+                .iter()
+                .find(|message| message.id == run.user_message_id)
+                .ok_or("The original task settings are unavailable; start a new task.")?;
+            options = original
+                .artifacts
+                .as_ref()
+                .and_then(|value| value.get("phoneTurnOptions"))
+                .map(|value| serde_json::from_value(value.clone()).map_err(err))
+                .transpose()?
+                .unwrap_or_default();
             text = checkpoint.resume_prompt;
         }
         options.validate_attachments()?;
@@ -242,7 +257,7 @@ impl LocalRuntime {
             tool_call_id: None,
             tool_calls: Vec::new(),
             artifacts: Some(
-                json!({"phoneTurnOptions":{"connectionId":saved.id,"modelSelection":options.model_selection,"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
+                json!({"phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
             ),
             token_count: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -464,6 +479,9 @@ impl LocalRuntime {
             runtime.pending.lock().await.clear();
             let mut active = runtime.active.lock().await;
             let _ = platform::call(&app, "taskService", json!({"active":false})).await;
+            if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
+                let _ = platform::call(&app, "taskResult", json!({"status":run.status})).await;
+            }
             let _ = platform::call(
                 &app,
                 "removeListener",

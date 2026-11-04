@@ -12,7 +12,17 @@ import app.tauri.plugin.JSObject
 class TaskService : Service() {
     companion object {
         const val CHANNEL = "nexa_phone_tasks"
+        const val STATUS_CHANNEL = "nexa_phone_task_status_v2"
         const val NOTIFICATION = 71
+        const val REPLY_NOTIFICATION = 72
+        fun ensureChannels(context: android.content.Context) {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            // Keep the existing attention channel's user settings. A new low
+            // importance channel is needed because Android cannot downgrade an
+            // already-created channel's importance programmatically.
+            manager.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.task_attention_channel), NotificationManager.IMPORTANCE_DEFAULT))
+            manager.createNotificationChannel(NotificationChannel(STATUS_CHANNEL, context.getString(R.string.task_channel), NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
+        }
         val stopRequested = AtomicBoolean(false)
         @Volatile private var activeService: TaskService? = null
         fun keepControlScreenOn() { activeService?.holdControlScreen() }
@@ -46,7 +56,7 @@ class TaskService : Service() {
     override fun onCreate() {
         super.onCreate()
         activeService = this
-        getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.task_channel), NotificationManager.IMPORTANCE_DEFAULT))
+        ensureChannels(this)
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -60,8 +70,10 @@ class TaskService : Service() {
         }
         val stop = PendingIntent.getService(this, 1, Intent(this, TaskService::class.java).setAction("stop"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
+        getSystemService(NotificationManager::class.java).cancel(REPLY_NOTIFICATION)
+        val notification = NotificationCompat.Builder(this, STATUS_CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
             .setContentTitle(getString(R.string.task_running)).setContentText(getString(R.string.task_progress))
+            .setSilent(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(open).setOngoing(true).addAction(0,getString(R.string.task_stop),stop).build()
         startForeground(NOTIFICATION, notification)
         if (wakeLock == null) {

@@ -193,5 +193,13 @@
   "readAloud": "朗读",
   "stopReading": "停止朗读",
   "mobileFloatingAssistant": "悬浮助手",
-  "mobileFloatingAssistantHint": "可拖动的跨应用 Nexa 入口。轻点打开聊天，长按显示停止按钮。需要先开启手机控制。"
+  "mobileFloatingAssistantHint": "可拖动的跨应用 Nexa 入口。轻点打开聊天，长按显示停止按钮。需要先开启手机控制。",
+  "speechPermission": "请在 Android 应用设置中允许麦克风权限，或使用键盘输入。",
+  "speechUnavailable": "请在 Android 设置中安装或启用语音引擎。",
+  "speechNetwork": "语音服务无法连接，请检查网络或选择离线引擎。",
+  "speechNoMatch": "未识别到语音，请重试。",
+  "speechTimeout": "语音引擎未响应，请重试或检查 Android 语音设置。",
+  "speechLanguage": "请在 Android 文字转语音设置中安装该语言的语音数据。",
+  "speechBusy": "语音正在使用中，请停止当前语音或关闭其他麦克风应用后重试。",
+  "speechFailed": "语音操作未完成，请检查 Android 语音设置后重试。"
 }

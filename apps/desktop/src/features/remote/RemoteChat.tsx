@@ -8,6 +8,7 @@ import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
 import type { TurnModelSelection } from '../models/modelChoices';
 import { RemoteVoiceInput } from './RemoteVoiceInput';
 import { NativeDictationInput } from './NativeDictationInput';
+import { nativeSpeechErrorKey } from './nativeSpeechErrors';
 import { NexaCombobox } from '../../components/ui/overlay/Combobox';
 import { finalAnswerToSpeechText } from '../../lib/autoSpeech';
 import { latestFollowupSuggestions, stripFollowupBlocks } from '../../lib/followupSuggestions';
@@ -109,8 +110,21 @@ export function RemoteChat({
     setSpeakingId(null); await speech.stop().catch(() => {});
     if (stopping || generation !== speechGeneration.current) return;
     setSpeakingId(message.id);
-    try { await speech.speak(finalAnswerToSpeechText(message.content), locale); }
-    catch (error) { if (generation === speechGeneration.current) setError(String(error)); }
+    try {
+      const parts = [message.content];
+      let offset = [...message.content].length;
+      while (offset < message.totalChars) {
+        const page = await client.rpc<{ content: string; totalChars: number }>('chat.message', {
+          conversationId, messageId: message.id, offset,
+        });
+        if (generation !== speechGeneration.current) return;
+        const count = [...page.content].length;
+        if (!count) throw new Error('speech_failed');
+        parts.push(page.content); offset += count;
+      }
+      if (generation === speechGeneration.current) await speech.speak(finalAnswerToSpeechText(parts.join('')), locale);
+    }
+    catch (error) { if (generation === speechGeneration.current) setError(t(nativeSpeechErrorKey(error))); }
     finally { if (generation === speechGeneration.current) setSpeakingId(null); }
   };
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -132,6 +146,10 @@ export function RemoteChat({
       ) || "",
   );
   const selectedConversation = useRef(conversationId);
+  useEffect(() => {
+    speechGeneration.current++; setSpeakingId(null);
+    void client.nativeSpeech?.stop().catch(() => {});
+  }, [client, conversationId]);
   const selectConversation = (id: string) => {
     selectedConversation.current = id;
     setConversationId(id);
@@ -477,8 +495,8 @@ export function RemoteChat({
       setSending(false);
     }
   }
-  async function send() {
-    if (sending || dictating || loadingAttachments || (!draft.trim() && !attachments.length) || !connectionId) return;
+  async function send(message = draft) {
+    if (sending || dictating || loadingAttachments || (!message.trim() && !attachments.length) || !connectionId) return;
     const generation = scope.current;
     setSending(true);
     setError("");
@@ -503,14 +521,14 @@ export function RemoteChat({
       const previous = pendingSend.current;
       const request =
         previous &&
-        previous.message === draft &&
+        previous.message === message &&
         previous.conversationId === id &&
         previous.connectionId === connectionId &&
         previous.attachments === attachments && previous.settings === composerSettings &&
         JSON.stringify(previous.modelSelection) === JSON.stringify(modelSelection)
           ? previous
           : {
-              message: draft,
+              message,
               id: crypto.randomUUID(),
               conversationId: id,
               connectionId,
@@ -873,7 +891,7 @@ export function RemoteChat({
           followOutput.current = true; void send();
         }}
       >
-        {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; composerInput.current?.focus(); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
+        {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
         <textarea ref={composerInput} rows={mobile ? 1 : undefined}
           aria-label={t("remote.message")}
           className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
@@ -881,6 +899,12 @@ export function RemoteChat({
           placeholder={t("remote.messageHint")}
           value={draft}
           onChange={(event) => { draftRef.current = event.target.value; setDraft(event.target.value); }}
+          aria-description={followups?.items[0] ? t('chat.followupTabHint', { prompt: followups.items[0].prompt }) : undefined}
+          onKeyDown={event => {
+            if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing && followups?.items[0]) {
+              event.preventDefault(); draftRef.current = followups.items[0].prompt; setDraft(followups.items[0].prompt);
+            }
+          }}
         />
         {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>

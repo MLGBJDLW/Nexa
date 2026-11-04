@@ -89,7 +89,9 @@ guarantee survival of force-stop or vendor background restrictions.
 
 Actions use the existing approval path. Approval notifications let the user
 approve once or deny without switching away from the target app. The task's
-persistent notification provides Stop. A foreground service and a task-scoped
+persistent notification provides Stop silently. Routine progress does not alert;
+approval requests and a final reply received while Nexa is in the background use
+the attention channel. A foreground service and a task-scoped
 wake lock support user-started work. Phone control keeps an already-active screen
 visible during its task but never unlocks or wakes a deliberately locked screen.
 An optional draggable assistant bubble opens Nexa; hold it to reveal Stop.
@@ -134,6 +136,8 @@ become explicit recovery checkpoints after process restart; they do not silently
 repeat a possibly completed phone action. **Resume task** starts the shared
 checkpoint continuation path, retaining the original run identity. An explicit
 Stop remains available while the task is active.
+Continuation restores the original connection, selected model and execution
+policy; a renderer restart cannot change a Plan task into a write-capable task.
 
 ## Build and release
 

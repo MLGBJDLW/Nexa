@@ -10,6 +10,7 @@
 - Add Android 11+ screenshot observations, verified coordinate taps, installed-app search and an optional draggable assistant overlay with Stop.
 - Keep an already-active screen visible during phone-control tasks and report protected or unavailable screens without permission retry loops.
 - Scale adaptive launcher icons to a consistent safe area.
+- Keep foreground task progress silent and alert only for approval requests or completed replies while the app is in the background.
 - Reserve signed APK packaging for mobile releases; keep PR checks lightweight and skip verified release-only metadata builds.
 
 System speech engines, model vision support and explicit Android permissions are required for the corresponding features. Secure screens and device policy remain protected. Physical-device/OEM behavior and paid-provider inference are separate acceptance boundaries.

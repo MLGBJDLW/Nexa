@@ -10,4 +10,7 @@
     <string name="approval_title">Nexa が承認を求めています</string>
     <string name="approval_allow">今回のみ許可</string>
     <string name="approval_deny">拒否</string>
+    <string name="task_attention_channel">返信と承認</string>
+    <string name="task_reply_ready">Nexa から返信があります</string>
+    <string name="task_reply_open">タップして返信を表示します。</string>
 </resources>

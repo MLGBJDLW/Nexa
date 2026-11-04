@@ -24,12 +24,18 @@ class PhoneSpeech(private val activity: Activity) {
     private var ready = false
     private var speaking: Invoke? = null
     private var speechId = ""
-    private val recognitionTimeout = Runnable { finishRecognition(error = "Speech recognition stopped responding. Try again or use the keyboard.") }
-    private val initTimeout = Runnable { finishSpeech("The speech engine did not initialize. Check Android text-to-speech settings."); tts?.shutdown(); tts = null; ready = false }
+    private var engineGeneration = 0L
+    private var initTimeout: Runnable? = null
+    private val recognitionTimeout = Runnable { finishRecognition(error = "speech_timeout") }
+    private fun resetEngine() {
+        engineGeneration++
+        initTimeout?.let { main.removeCallbacks(it) }; initTimeout = null
+        tts?.shutdown(); tts = null; ready = false
+    }
 
     fun listen(invoke: Invoke) = activity.runOnUiThread {
-        if (listening != null) { invoke.reject("A dictation is already active."); return@runOnUiThread }
-        if (!SpeechRecognizer.isRecognitionAvailable(activity)) { invoke.reject("No Android speech recognition service is installed. Choose one in system voice input settings, or use the keyboard."); return@runOnUiThread }
+        if (listening != null) { invoke.reject("speech_busy"); return@runOnUiThread }
+        if (!SpeechRecognizer.isRecognitionAvailable(activity)) { invoke.reject("speech_unavailable"); return@runOnUiThread }
         try {
             stopSpeech()
             listening = invoke
@@ -44,11 +50,11 @@ class PhoneSpeech(private val activity: Activity) {
                 override fun onError(error: Int) {
                     if (listening !== invoke) return
                     val message = when (error) {
-                        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech recognized. Try again."
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Allow microphone access in Android app settings."
-                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "The speech service could not connect. Check the network or select an offline speech engine."
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The speech service is busy. Close other microphone apps and try again."
-                        else -> "Android speech recognition failed (code $error). Check the installed voice input service."
+                        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "speech_no_match"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "speech_permission"
+                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "speech_network"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "speech_busy"
+                        else -> "speech_failed"
                     }
                     finishRecognition(error = message)
                 }
@@ -64,7 +70,7 @@ class PhoneSpeech(private val activity: Activity) {
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true))
             armRecognitionTimeout()
-        } catch (error: Exception) { finishRecognition(error = error.message ?: "Speech input is unavailable.") }
+        } catch (error: Exception) { finishRecognition(error = "speech_failed") }
     }
     private fun armRecognitionTimeout() { main.removeCallbacks(recognitionTimeout); main.postDelayed(recognitionTimeout, 15_000) }
     private fun finishRecognition(text: String = "", error: String? = null) {
@@ -81,32 +87,41 @@ class PhoneSpeech(private val activity: Activity) {
         val requestId = UUID.randomUUID().toString(); speechId = requestId
         if (ready) play(invoke, requestId)
         else if (tts == null) {
-            main.postDelayed(initTimeout, 15_000)
+            val generation = ++engineGeneration
+            val timeout = Runnable {
+                if (generation == engineGeneration) { finishSpeech("speech_timeout"); resetEngine() }
+            }
+            initTimeout = timeout; main.postDelayed(timeout, 15_000)
             tts = TextToSpeech(activity) { result -> main.post {
-                main.removeCallbacks(initTimeout)
+                if (generation != engineGeneration) return@post
+                main.removeCallbacks(timeout); initTimeout = null
                 ready = result == TextToSpeech.SUCCESS
-                if (!ready) { finishSpeech("Android text-to-speech is unavailable. Install or enable a speech engine."); tts?.shutdown(); tts = null }
+                if (!ready) { finishSpeech("speech_unavailable"); resetEngine() }
                 else speaking?.let { play(it, speechId) }
             } }
         }
     }
     private fun play(invoke: Invoke, requestId: String) {
-        val engine = tts ?: return
+        val engine = tts ?: run { ready = false; finishSpeech("speech_unavailable"); return }
         val text = invoke.getArgs().getString("text", "").orEmpty()
         val locale = Locale.forLanguageTag(invoke.getArgs().getString("language", Locale.getDefault().toLanguageTag()))
-        if (engine.setLanguage(locale) < TextToSpeech.LANG_AVAILABLE) { finishSpeech("This voice language is unavailable. Install its voice data in Android text-to-speech settings."); return }
+        if (engine.setLanguage(locale) < TextToSpeech.LANG_AVAILABLE) { finishSpeech("speech_language"); return }
         val size = minOf(3000, TextToSpeech.getMaxSpeechInputLength() - 1)
-        // Chunk by Unicode code points so supplementary characters stay intact.
-        val points = text.codePoints().toArray()
-        val chunks = points.toList().chunked(size).map { String(it.toIntArray(), 0, it.size) }
+        // Android's limit counts UTF-16 units; keep surrogate pairs together.
+        val chunks = mutableListOf<String>(); var start = 0
+        while (start < text.length) {
+            var end = minOf(text.length, start + size)
+            if (end < text.length && text[end - 1].isHighSurrogate()) end--
+            chunks.add(text.substring(start, end)); start = end
+        }
         if (chunks.isEmpty()) { finishSpeech(); return }
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) { if (utteranceId == "$requestId:${chunks.lastIndex}") main.post { if (speechId == requestId) finishSpeech() } }
-            @Deprecated("Android legacy callback") override fun onError(utteranceId: String?) { main.post { if (speechId == requestId) finishSpeech("The Android speech engine could not read this message.") } }
+            @Deprecated("Android legacy callback") override fun onError(utteranceId: String?) { main.post { if (speechId == requestId) finishSpeech("speech_failed") } }
         })
         for ((index, chunk) in chunks.withIndex()) {
-            if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$requestId:$index") == TextToSpeech.ERROR) { engine.stop(); finishSpeech("The Android speech engine could not start playback."); break }
+            if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$requestId:$index") == TextToSpeech.ERROR) { engine.stop(); finishSpeech("speech_failed"); break }
         }
     }
     private fun finishSpeech(error: String? = null) {
@@ -115,5 +130,5 @@ class PhoneSpeech(private val activity: Activity) {
     }
     fun stopSpeech() { tts?.stop(); finishSpeech() }
     fun stop() = activity.runOnUiThread { finishRecognition(); stopSpeech() }
-    fun destroy() = activity.runOnUiThread { stop(); main.removeCallbacksAndMessages(null); tts?.shutdown(); tts = null; ready = false }
+    fun destroy() = activity.runOnUiThread { stop(); resetEngine(); main.removeCallbacksAndMessages(null) }
 }

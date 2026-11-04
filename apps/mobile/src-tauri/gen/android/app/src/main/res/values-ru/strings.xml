@@ -10,4 +10,7 @@
     <string name="approval_title">Nexa запрашивает одобрение</string>
     <string name="approval_allow">Разрешить один раз</string>
     <string name="approval_deny">Отклонить</string>
+    <string name="task_attention_channel">Ответы и подтверждения</string>
+    <string name="task_reply_ready">Nexa ответила</string>
+    <string name="task_reply_open">Нажмите, чтобы посмотреть ответ.</string>
 </resources>
