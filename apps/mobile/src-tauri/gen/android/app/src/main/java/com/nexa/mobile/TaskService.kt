@@ -35,13 +35,14 @@ class TaskService : Service() {
             }
         }
         @Synchronized fun stopped() { stopWaiters.forEach { it.resolve(JSObject()) }; stopWaiters.clear() }
-        @Synchronized fun pending(id: String, invoke: Invoke) { approvals.remove(id)?.resolve(JSObject("{\"allow\":false}")); approvals[id] = invoke }
+        @Synchronized fun pending(id: String, invoke: Invoke) { approvals.remove(id)?.resolve(JSObject("{\"allow\":false}")); approvals[id] = invoke; PhoneAccessibilityService.instance?.beginApproval(id) }
         @Synchronized fun answer(id: String, allow: Boolean) {
             val pending = approvals.remove(id) ?: return
+            PhoneAccessibilityService.instance?.finishApproval(id)
             if (allow) PhoneAccessibilityService.instance?.dismissApprovalShade()
             pending.resolve(JSObject("{\"allow\":$allow}"))
         }
-        @Synchronized fun denyAll(notifications: NotificationManager) { approvals.forEach { (id, invoke) -> notifications.cancel(id.hashCode()); invoke.resolve(JSObject("{\"allow\":false}")) }; approvals.clear() }
+        @Synchronized fun denyAll(notifications: NotificationManager) { approvals.forEach { (id, invoke) -> PhoneAccessibilityService.instance?.finishApproval(id); notifications.cancel(id.hashCode()); invoke.resolve(JSObject("{\"allow\":false}")) }; approvals.clear() }
     }
     private var wakeLock: PowerManager.WakeLock? = null
     private var controlWakeLock: PowerManager.WakeLock? = null

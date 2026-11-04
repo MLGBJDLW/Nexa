@@ -44,18 +44,19 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
         open.setOnClickListener { service.startActivity(Intent(service, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
         open.setOnLongClickListener { stop.visibility = if (stop.visibility == View.VISIBLE) View.GONE else View.VISIBLE; true }
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var dragged = false
-        open.setOnTouchListener { _, event ->
+        open.setOnTouchListener { control, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { downX = event.rawX; downY = event.rawY; startX = params.x; startY = params.y; dragged = false; false }
                 MotionEvent.ACTION_MOVE -> {
                     if (abs(event.rawX-downX) + abs(event.rawY-downY) > dp(8)) dragged = true
                     if (dragged) {
+                        control.cancelLongPress(); control.isPressed = false
                         params.x = (startX-(event.rawX-downX).toInt()).coerceIn(0, maxOf(0, service.resources.displayMetrics.widthPixels-dp(50)))
                         params.y = (startY+(event.rawY-downY).toInt()).coerceIn(dp(24), maxOf(dp(24), service.resources.displayMetrics.heightPixels-dp(130)))
                         manager.updateViewLayout(layout, params)
                     }; dragged
                 }
-                MotionEvent.ACTION_UP -> dragged
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (dragged) control.isPressed = false; dragged }
                 else -> false
             }
         }

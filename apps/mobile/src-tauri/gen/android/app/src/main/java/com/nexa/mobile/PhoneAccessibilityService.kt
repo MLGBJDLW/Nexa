@@ -38,6 +38,9 @@ class PhoneAccessibilityService : AccessibilityService() {
     private var sensitive = false
     private var lastActionAt = 0L
     private var lastUiEventAt = 0L
+    private var approvalResolvedAt = 0L
+    private data class ApprovalWait(val id: String, val observation: String, val revision: Long, val started: Long, val resolved: Boolean = false)
+    private var approvalWait: ApprovalWait? = null
     private val main = Handler(Looper.getMainLooper())
     private val capture by lazy { PhoneScreenCapture(this) }
     private val overlay by lazy { PhoneAssistantOverlay(this) }
@@ -46,10 +49,14 @@ class PhoneAccessibilityService : AccessibilityService() {
         if (event != null) lastUiEventAt = android.os.SystemClock.elapsedRealtime()
         if (event != null) {
             val windowChanged = event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
-            // Our assistant overlay is not the active app. Hiding/restoring it
-            // must not stale the capture it just produced.
-            if ((event.packageName?.toString() == observedPackage && event.windowId == observedWindow)
-                || (windowChanged && !foregroundMatchesObservation())) revision++
+            val contentChanged = event.eventType in listOf(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+                AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+                AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED, AccessibilityEvent.TYPE_VIEW_SELECTED,
+                AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED)
+            // Our overlay and the explicit approval shade are separate from
+            // target content. Foreground identity is checked again on return.
+            if ((contentChanged && event.packageName?.toString() == observedPackage && event.windowId == observedWindow)
+                || (windowChanged && !foregroundMatchesObservation() && !approvalShadeVisible())) revision++
         }
     }
     override fun onInterrupt() { invalidate() }
@@ -61,6 +68,22 @@ class PhoneAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return false
         return try { root.packageName?.toString() == observedPackage && root.windowId == observedWindow }
         finally { root.recycle() }
+    }
+    @Suppress("DEPRECATION") private fun approvalShadeVisible(): Boolean {
+        if (approvalWait == null || PhoneAccess.screenRecovery(this) != null) return false
+        val root = rootInActiveWindow ?: return false
+        return try { root.packageName?.toString() == "com.android.systemui" } finally { root.recycle() }
+    }
+    fun beginApproval(id: String) { approvalWait = ApprovalWait(id, observation, revision, android.os.SystemClock.elapsedRealtime()) }
+    fun finishApproval(id: String) {
+        val wait = approvalWait ?: return
+        if (wait.id != id || wait.resolved) return
+        // Human review time is not model delay. Any underlying content/app
+        // change still invalidates the screenshot, including while waiting.
+        if (wait.observation == observation && wait.revision == revision) observedAt += android.os.SystemClock.elapsedRealtime() - wait.started
+        approvalResolvedAt = android.os.SystemClock.elapsedRealtime()
+        approvalWait = wait.copy(resolved = true)
+        main.postDelayed({ if (approvalWait?.id == id && approvalWait?.resolved == true) approvalWait = null }, 1500)
     }
     private fun checkUnlocked() { check(!getSystemService(KeyguardManager::class.java).isKeyguardLocked) { "Unlock the phone before using phone control." } }
     // Approval is an explicit user action. Dismiss its shade before the already
@@ -113,7 +136,11 @@ class PhoneAccessibilityService : AccessibilityService() {
         fun ready() {
             val now = android.os.SystemClock.elapsedRealtime()
             val read = invoke.getArgs().getString("action") in listOf("observe", "screenshot")
-            if (read && now-started < 1200 && (now-lastActionAt < 350 || now-lastUiEventAt < 200)) {
+            // SystemUI can expose the underlying root before its dismissal
+            // animation stops intercepting gestures. Settle explicit approvals
+            // before dispatching input, without replaying the input itself.
+            val approvalSettling = now - approvalResolvedAt < 1000 || (approvalWait?.resolved == true && !foregroundMatchesObservation())
+            if (now-started < 2000 && (approvalSettling || (read && now-started < 1200 && (now-lastActionAt < 350 || now-lastUiEventAt < 200)))) {
                 main.postDelayed({ ready() }, 60)
             } else executeNow(invoke)
         }
@@ -171,11 +198,13 @@ class PhoneAccessibilityService : AccessibilityService() {
         val currentPackage = currentRoot.packageName?.toString(); val currentWindow = currentRoot.windowId
         @Suppress("DEPRECATION") currentRoot.recycle()
         require(currentPackage == observedPackage && currentWindow == observedWindow) { "The foreground app changed; observe again." }
+        if (approvalWait?.resolved == true) approvalWait = null
         if (args.getString("action") != "open_app") require(args.getString("packageName") == observedPackage) { "The target package must match the observation." }
     }
     private fun tap(invoke: Invoke, args: JSObject) {
         validateTarget(args)
         require(screenshotRevision >= 0 && screenshotRevision == revision && rotation() == observedRotation) { "Take a fresh screenshot before tapping coordinates; the screen changed." }
+        require(nodes.values.all { it.node.refresh() && signature(it.node) == it.signature }) { "The observed controls changed during approval; capture again." }
         require(android.os.SystemClock.elapsedRealtime() - observedAt < 10_000) { "The screenshot expired; capture again before tapping." }
         val x = args.getDouble("x"); val y = args.getDouble("y")
         require(x.isFinite() && y.isFinite() && x >= 0 && y >= 0 && x < screenshotWidth && y < screenshotHeight) { "Tap coordinates must be inside the returned screenshot." }

@@ -82,6 +82,7 @@ class PhoneSpeech(private val activity: Activity) {
     fun cancelListening() = activity.runOnUiThread { finishRecognition() }
 
     fun speak(invoke: Invoke) = activity.runOnUiThread {
+        finishRecognition()
         stopSpeech()
         speaking = invoke
         val requestId = UUID.randomUUID().toString(); speechId = requestId
@@ -118,7 +119,7 @@ class PhoneSpeech(private val activity: Activity) {
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) { if (utteranceId == "$requestId:${chunks.lastIndex}") main.post { if (speechId == requestId) finishSpeech() } }
-            @Deprecated("Android legacy callback") override fun onError(utteranceId: String?) { main.post { if (speechId == requestId) finishSpeech("speech_failed") } }
+            @Deprecated("Android legacy callback") override fun onError(utteranceId: String?) { main.post { if (speechId == requestId) { engine.stop(); finishSpeech("speech_failed") } } }
         })
         for ((index, chunk) in chunks.withIndex()) {
             if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$requestId:$index") == TextToSpeech.ERROR) { engine.stop(); finishSpeech("speech_failed"); break }
