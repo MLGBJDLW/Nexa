@@ -4811,7 +4811,7 @@ mod tests {
 
     #[test]
     fn september_hosted_routes_keep_their_own_thinking_dialects() {
-        for model in ["zai-glm-5-3", "zai-glm-5-2"] {
+        for model in ["zai-glm-5-3", "zai-glm-5-3-flash", "zai-glm-5-2"] {
             let config = endpoint_config(ProviderType::OpenAi, "https://api.mistral.ai/v1");
             let provider = OpenAiProvider::new(config.clone()).unwrap();
             let mut request = endpoint_reasoning_request(model);
@@ -4823,14 +4823,13 @@ mod tests {
                 Some(&config),
             ))
             .unwrap();
-            for field in [
-                "thinking",
-                "reasoning_effort",
-                "thinking_budget",
-                "enable_thinking",
-            ] {
+            for field in ["thinking", "thinking_budget", "enable_thinking"] {
                 assert!(body.get(field).is_none(), "{model}: {field}");
             }
+            assert_eq!(
+                body.get("reasoning_effort").and_then(|value| value.as_str()),
+                (model == "zai-glm-5-3").then_some("max")
+            );
             assert_eq!(
                 provider.route_snapshot(&request).replay_policy,
                 ReasoningReplayPolicy::NotRequired

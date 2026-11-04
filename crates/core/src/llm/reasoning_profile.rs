@@ -2020,7 +2020,25 @@ mod tests {
                 hosted_glm.reasoning_history_encoding,
                 ReasoningHistoryEncoding::MistralContentChunks
             );
-            assert_eq!(hosted_glm.effort_field, ReasoningEffortField::None);
+            if model == "zai-glm-5-3" {
+                assert_eq!(hosted_glm.effort_field, ReasoningEffortField::TopLevel);
+                assert_eq!(
+                    hosted_glm.accepted_efforts,
+                    [
+                        ReasoningEffort::Low,
+                        ReasoningEffort::High,
+                        ReasoningEffort::Max
+                    ]
+                );
+                assert_eq!(
+                    hosted_glm
+                        .wire_effort(Some(&ReasoningEffort::Max))
+                        .as_deref(),
+                    Some("max")
+                );
+            } else {
+                assert_eq!(hosted_glm.effort_field, ReasoningEffortField::None);
+            }
         }
         assert_eq!(meta.key.endpoint_id, "meta-model-api-public");
         assert_eq!(meta.mode_control, ThinkingModeControl::AlwaysOn);
