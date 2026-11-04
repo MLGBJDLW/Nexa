@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.18.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.0...nexa-monorepo-v0.18.1) (2026-11-04)
+
+
+### Features
+
+* **desktop:** add theme-aware workspace radial menu ([fbeab43](https://github.com/MLGBJDLW/Nexa/commit/fbeab43be2c5f5a156282edb63ad5a5981adadcc))
+* **mobile:** add QR onboarding and actionable phone access recovery ([00903fe](https://github.com/MLGBJDLW/Nexa/commit/00903fe1bce7c655bc2a31c127ef6ff8905f53d8))
+* **mobile:** share assistant capabilities and native phone interaction ([6f022ba](https://github.com/MLGBJDLW/Nexa/commit/6f022bafac12c66da4b9a2acb23ea56d36701c42))
+* **mobile:** upgrade Android assistant capabilities and desktop interaction ([2382e30](https://github.com/MLGBJDLW/Nexa/commit/2382e30e5ac147baa964a41062dafd711355ad1b))
+* **mobile:** upgrade the Android assistant and shared provider experience ([#521](https://github.com/MLGBJDLW/Nexa/issues/521)) ([2382e30](https://github.com/MLGBJDLW/Nexa/commit/2382e30e5ac147baa964a41062dafd711355ad1b))
+
+
+### Bug Fixes
+
+* **android:** hide the assistant overlay during coordinate taps ([9b581e9](https://github.com/MLGBJDLW/Nexa/commit/9b581e9325eaedab0e5e9c313af01a9740bf00d4))
+* **android:** retain verified targets across notification approvals ([b8a40dc](https://github.com/MLGBJDLW/Nexa/commit/b8a40dc57147ea1e61b855e957a928a3bd645e0b))
+* **mobile:** preserve resumed task policy and quiet routine notifications ([74369ca](https://github.com/MLGBJDLW/Nexa/commit/74369ca6e5cfc70d504b190cf561921fd9b7fa69))
+* **providers:** integrate Bailian Kimi K3.1 Pro and retire unavailable routes ([35221e0](https://github.com/MLGBJDLW/Nexa/commit/35221e09ee31c51c43f4f73df8ef71587d30fd98))
+* **providers:** refresh hosted reasoning contracts and catalog aliases ([4d97b5c](https://github.com/MLGBJDLW/Nexa/commit/4d97b5c91589ba7757f6f099b50d39538746c895))
+
 ## [0.18.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.17.14...nexa-monorepo-v0.18.0) (2026-11-03)
 
 ### Image editing in chat
