@@ -202,24 +202,46 @@ class PhoneAccessibilityService : AccessibilityService() {
         if (args.getString("action") != "open_app") require(args.getString("packageName") == observedPackage) { "The target package must match the observation." }
     }
     private fun tap(invoke: Invoke, args: JSObject) {
-        validateTarget(args)
-        require(screenshotRevision >= 0 && screenshotRevision == revision && rotation() == observedRotation) { "Take a fresh screenshot before tapping coordinates; the screen changed." }
-        require(nodes.values.all { it.node.refresh() && signature(it.node) == it.signature }) { "The observed controls changed during approval; capture again." }
-        require(android.os.SystemClock.elapsedRealtime() - observedAt < 10_000) { "The screenshot expired; capture again before tapping." }
-        val x = args.getDouble("x"); val y = args.getDouble("y")
-        require(x.isFinite() && y.isFinite() && x >= 0 && y >= 0 && x < screenshotWidth && y < screenshotHeight) { "Tap coordinates must be inside the returned screenshot." }
-        val pointX = (x * displayWidth / screenshotWidth).toFloat(); val pointY = (y * displayHeight / screenshotHeight).toFloat()
-        val path = Path().apply { moveTo(pointX, pointY) }
-        val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 80)).build()
-        invalidate()
+        // Capture omits our touchable assistant. Keep it out of the input path
+        // too, and revalidate after WindowManager has applied that change.
+        overlay.suspend()
         var answered = false
-        fun done(accepted: Boolean) { if (!answered) { answered = true; lastActionAt = android.os.SystemClock.elapsedRealtime(); invoke.resolve(JSObject().apply { put("actionAccepted", accepted); put("verified", false); put("next", "Observe again and verify the outcome. Never repeat an uncertain send action.") }) } }
-        val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) { done(true) }
-            override fun onCancelled(gestureDescription: GestureDescription?) { done(false) }
-        }, main)
-        if (!dispatched) done(false)
-        main.postDelayed({ if (!answered) { answered = true; invoke.reject("The gesture outcome is unknown. Observe before deciding what to do; do not repeat a possible send.") } }, 5000)
+        val timeout = Runnable {
+            if (!answered) {
+                answered = true; overlay.restore()
+                invoke.reject("The gesture outcome is unknown. Observe before deciding what to do; do not repeat a possible send.")
+            }
+        }
+        fun done(accepted: Boolean = false, error: Exception? = null) {
+            if (answered) return
+            answered = true; main.removeCallbacks(timeout); overlay.restore()
+            if (error != null) finishError(invoke, error)
+            else {
+                lastActionAt = android.os.SystemClock.elapsedRealtime()
+                invoke.resolve(JSObject().apply { put("actionAccepted", accepted); put("verified", false); put("next", "Observe again and verify the outcome. Never repeat an uncertain send action.") })
+            }
+        }
+        main.postDelayed({
+            try {
+                check(instance === this) { "The accessibility service disconnected. Check phone control access." }
+                validateTarget(args)
+                require(screenshotRevision >= 0 && screenshotRevision == revision && rotation() == observedRotation) { "Take a fresh screenshot before tapping coordinates; the screen changed." }
+                require(nodes.values.all { it.node.refresh() && signature(it.node) == it.signature }) { "The observed controls changed during approval; capture again." }
+                require(android.os.SystemClock.elapsedRealtime() - observedAt < 10_000) { "The screenshot expired; capture again before tapping." }
+                val x = args.getDouble("x"); val y = args.getDouble("y")
+                require(x.isFinite() && y.isFinite() && x >= 0 && y >= 0 && x < screenshotWidth && y < screenshotHeight) { "Tap coordinates must be inside the returned screenshot." }
+                val pointX = (x * displayWidth / screenshotWidth).toFloat(); val pointY = (y * displayHeight / screenshotHeight).toFloat()
+                val path = Path().apply { moveTo(pointX, pointY) }
+                val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 80)).build()
+                invalidate()
+                main.postDelayed(timeout, 5000)
+                val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) { done(true) }
+                    override fun onCancelled(gestureDescription: GestureDescription?) { done(false) }
+                }, main)
+                if (!dispatched) done(false)
+            } catch (error: Exception) { done(error = error) }
+        }, 120)
     }
     @Synchronized fun action(args: JSObject): JSObject {
         check(!TaskService.stopRequested.get()) { "The task was stopped." }
