@@ -33,6 +33,7 @@ import { UpdateActivity } from './ui/UpdateActivity';
 import { openCommandPalette } from '../lib/appCommands';
 import { NexaPopover, NexaPopoverTrigger, NexaPopoverContent } from './ui/overlay/Popover';
 import { AttentionInboxButton } from './chat/AttentionInboxButton';
+import { WorkspaceRadialMenu } from './WorkspaceRadialMenu';
 
 function useAppVersion() {
   const [version, setVersion] = useState('');
@@ -236,6 +237,7 @@ export function Layout() {
       <div
       className="relative flex h-full min-h-0 overflow-hidden bg-surface-0 text-text-primary"
       data-theme-surface="workspace"
+      data-workspace-context="true"
     >
       {/* Sidebar */}
       <aside
@@ -354,6 +356,7 @@ export function Layout() {
       )}
       </div>
       <Notifications />
+      <WorkspaceRadialMenu />
     </>
   );
 }
