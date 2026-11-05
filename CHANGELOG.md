@@ -7,6 +7,16 @@
 
 * **mobile:** repair Android control, voice and responsive rendering ([#526](https://github.com/MLGBJDLW/Nexa/issues/526)) ([e0b0d99](https://github.com/MLGBJDLW/Nexa/commit/e0b0d999e46277bd93ede9aaf223da83c48e9ef1))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 43eb18e9988a284c065e070f4b5de0f7b166413b -->
+
+### What's Changed
+* fix(mobile): repair Android control, voice and responsive rendering by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/526
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.0...nexa-monorepo-v0.19.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.1...nexa-monorepo-v0.19.0) (2026-11-05)
 
 ### Mobile and desktop continuity
