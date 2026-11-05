@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+- Repair narrow-screen and landscape layouts for conversation actions, search providers, storage sheets, Markdown tables, charts and HTML previews. Add left-swipe archive confirmation and original-size Mermaid viewing.
+- Let dictation and read-aloud independently use phone engines or configured providers. Keep recording and playback native, protect saved credentials, support cancellation, and honor the saved speech language. Recorded-file dictation supports up to 60 seconds per recording.
+- Fix first-use microphone permission recovery, empty recognition results, locale changes during voice tests and incompatible preset voices after TTS model changes.
+- Expose DeepSeek Search & Fetch in a phone-oriented form, with explicit reuse of an official saved DeepSeek connection.
+- Recover from temporarily unreadable accessibility UI with Home or an explicit app launch, refresh observations, and retain fresh-target checks for text, clicks and coordinate input.
+- Publish only this version's mobile release notes, independently of the desktop release.
+
+Validation includes full source CI, responsive browser regressions, Android instrumentation and a complete Android application voice smoke test against a local provider fixture. Physical Samsung/QQ behavior, microphone recognition quality and paid-provider access remain device/account acceptance checks.
+
 ## 0.3.0
 
 - Stream canonical answer/thinking blocks during execution with durable UTF-8 offsets for reconnect replay.
