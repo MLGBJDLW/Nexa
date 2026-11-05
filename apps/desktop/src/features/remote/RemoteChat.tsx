@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen, Volume2 } from "lucide-react";
+import { Archive, ArchiveRestore, Trash2, ArrowDown, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen, Volume2 } from "lucide-react";
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from './MobileChatShell';
 import { useTranslation } from "../../i18n";
 import type { RemoteChatClient } from "./remoteClient";
@@ -168,6 +168,12 @@ export function RemoteChat({
   useEffect(() => { if (client.approvalModeAvailable) localStorage.setItem(`nexa.approval.${client.paired.manifest.serverId}`, composerSettings.toolApprovalMode ?? 'ask'); }, [client, composerSettings.toolApprovalMode]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [sending, setSending] = useState(false);
+  const sendLock = useRef(false);
+  const [archived, setArchived] = useState<Conversation[]>([]);
+  const [archivedCursor, setArchivedCursor] = useState<string | null>(null);
+  const [archivesOpen, setArchivesOpen] = useState(false);
+  const [manageTarget, setManageTarget] = useState<{ item: Conversation; action: "archive" | "delete" } | null>(null);
+  const [managing, setManaging] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [timeline, setTimeline] = useState<RemoteTimelineItem[]>([]);
@@ -469,35 +475,43 @@ export function RemoteChat({
     };
   }, [client, conversationId, list]);
   async function create() {
-    if (sending || !connectionId) return;
-    const generation = scope.current;
-    setSending(true);
-    setError("");
+    if (sendLock.current) return;
+    // A draft is persisted only on its first send. Repeated New taps reuse it.
+    if (!conversationId && !draftRef.current.trim() && !attachments.length) { setDrawerOpen(false); composerInput.current?.focus(); return; }
+    selectConversation(""); pendingSend.current = null;
+    setDraft(""); draftRef.current = ""; setAttachments([]);
+    localStorage.removeItem(`nexa.remote.chat.${client.paired.manifest.serverId}`);
+    setDrawerOpen(false); composerInput.current?.focus();
+  }
+  async function listArchived(before: string | null = null) {
+    const page = await client.rpc<{ items: Conversation[]; nextCursor: string | null }>('chat.archived', { before });
+    setArchived(current => before ? [...current, ...page.items.filter(item => !current.some(old => old.id === item.id))] : page.items);
+    setArchivedCursor(page.nextCursor);
+  }
+  async function restoreConversation(id: string) {
+    if (managing) return;
+    setManaging(true); setError('');
+    try { await client.rpc('chat.restore', { conversationId: id }); await Promise.all([list(), listArchived()]); }
+    catch (error) { errorText(error); }
+    finally { setManaging(false); }
+  }
+  async function manageConversation() {
+    if (!manageTarget || managing) return;
+    setManaging(true); setError("");
     try {
-      const conversation = await client.rpc<Conversation>("chat.create", {
-        connectionId,
-        modelSelection,
-      });
-      if (
-        scope.current === generation &&
-        selectedConversation.current === conversationId
-      ) {
-        selectConversation(conversation.id);
-        pendingSend.current = null;
+      await client.rpc(`chat.${manageTarget.action}`, { conversationId: manageTarget.item.id });
+      if (selectedConversation.current === manageTarget.item.id) {
+        selectConversation(""); pendingSend.current = null;
+        localStorage.removeItem(`nexa.remote.chat.${client.paired.manifest.serverId}`);
       }
-      setConversations((current) => [
-        conversation,
-        ...current.filter((item) => item.id !== conversation.id),
-      ]);
-    } catch (error) {
-      errorText(error);
-    } finally {
-      setSending(false);
-    }
+      setManageTarget(null); await list(); if (archivesOpen) await listArchived();
+    } catch (error) { errorText(error); }
+    finally { setManaging(false); }
   }
   async function send(message = draft) {
-    if (sending || dictating || loadingAttachments || (!message.trim() && !attachments.length) || !connectionId) return;
+    if (sendLock.current || running || dictating || loadingAttachments || (!message.trim() && !attachments.length) || !connectionId) return;
     const generation = scope.current;
+    sendLock.current = true;
     setSending(true);
     setError("");
     try {
@@ -556,6 +570,7 @@ export function RemoteChat({
     } catch (error) {
       errorText(error);
     } finally {
+      sendLock.current = false;
       setSending(false);
     }
   }
@@ -631,7 +646,7 @@ export function RemoteChat({
       >
         {connections.map((item) => (
           <option key={item.id} value={item.id}>
-            {item.name} · {item.model}
+            {item.name} 路 {item.model}
           </option>
         ))}
       </select>)}
@@ -680,7 +695,8 @@ export function RemoteChat({
       data-testid="remote-chat"
     >
       {mobile ? <><MobileChatHeader center={mobile.heading} onMenu={() => setDrawerOpen(true)} onNew={() => void create()} disabled={sending || !connectionId}/>
-        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connectionId} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><nav className="mobile-history">{conversations.map(item => <button key={item.id} className={item.id === conversationId ? 'selected' : ''} onClick={() => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}>{item.title || t('remote.newChat')}</button>)}</nav>{cursor && <button onClick={() => void list(cursor).catch(errorText)}>{t('remote.moreChats')}</button>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
+        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connectionId} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><nav className="mobile-history">{conversations.map(item => <div key={item.id} className="mobile-conversation-row"><button className={item.id === conversationId ? 'selected' : ''} onClick={() => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}>{item.title || t('remote.newChat')}</button>{client.conversationManagementAvailable && <><button className="mobile-icon-button" aria-label={`${t('chat.archive')}: ${item.title || t('remote.newChat')}`} onClick={() => setManageTarget({ item, action: 'archive' })}><Archive size={16}/></button><button className="mobile-icon-button" aria-label={`${t('common.delete')}: ${item.title || t('remote.newChat')}`} onClick={() => setManageTarget({ item, action: 'delete' })}><Trash2 size={16}/></button></>}</div>)}</nav>{cursor && <button onClick={() => void list(cursor).catch(errorText)}>{t('remote.moreChats')}</button>}{client.conversationManagementAvailable && <details open={archivesOpen} onToggle={event => { const open = event.currentTarget.open; setArchivesOpen(open); if (open) void listArchived().catch(errorText); }}><summary className="mobile-add-connection">{t('chat.archivedConversations')}</summary>{error && <p role="alert" className="mobile-error">{error}</p>}<nav className="mobile-history">{archived.map(item => <div key={item.id} className="mobile-conversation-row"><span className="min-w-0 flex-1 truncate">{item.title || t('remote.newChat')}</span><button disabled={managing} className="mobile-icon-button" aria-label={`${t('chat.unarchive')}: ${item.title}`} onClick={() => void restoreConversation(item.id)}><ArchiveRestore size={16}/></button><button disabled={managing} className="mobile-icon-button" aria-label={`${t('common.delete')}: ${item.title}`} onClick={() => setManageTarget({ item, action: 'delete' })}><Trash2 size={16}/></button></div>)}</nav>{archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}</details>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
+        <MobileDialog open={!!manageTarget} title={t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')} onClose={() => { if (!managing) setManageTarget(null); }}>{error && <p role="alert" className="mobile-error">{error}</p>}<p>{manageTarget?.item.title || t('remote.newChat')}</p><p className="mobile-section-hint">{t(manageTarget?.action === 'archive' ? 'remote.archiveChatHint' : 'remote.deleteChatHint')}</p><div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setManageTarget(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing} onClick={() => void manageConversation()}>{t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')}</button></div></MobileDialog>
         <MobileDialog open={modelOpen} title={t('remote.model')} onClose={() => setModelOpen(false)}><div className="mobile-model-controls">{providerControls}</div></MobileDialog>
       </> : <>{conversationControls}{providerControls}</>}
       <div ref={contentScroll} className={mobile ? 'native-chat-content' : 'contents'} onScroll={mobile ? event => { const view = event.currentTarget; followOutput.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; } : undefined}>
@@ -719,7 +735,7 @@ export function RemoteChat({
                       : runStatus === 'waiting_approval' ? t('remote.runWaitingApproval')
                         : t('remote.runRunning')
           }</span>
-          {running && progress && <span className="min-w-0 flex-1 truncate text-text-tertiary">{progress}</span>}
+          {running && progress && progress !== t('remote.runRunning') && <span className="min-w-0 flex-1 truncate text-text-tertiary">{progress}</span>}
           {runStatus === 'paused' && client.resumeAvailable && <button className={remoteButton} onClick={() => void act('chat.continue', { conversationId, connectionId, modelSelection, ...composerSettings })}>{t('chat.resumeTask')}</button>}
         </div>
       )}
@@ -923,28 +939,15 @@ export function RemoteChat({
             const projected = applyVoiceDictationEvent(draftRef.current, voiceDraft.current, event);
             voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
           }} />}
-          {running && (
-            <button
-              type="button"
-              className={mobile ? "native-stop" : `${remoteButton} text-danger`}
-              onClick={() => void act("chat.stop", { conversationId })}
-            >
-              <CircleStop size={16} />
-              <span className={mobile ? "sr-only" : undefined}>{t("remote.stop")}</span>
-            </button>
-          )}
           <button
-            type="submit"
-            className={mobile ? "native-send" : `${remoteButton} !border-accent !bg-accent text-white`}
-            aria-label={t("remote.send")}
-            disabled={sending || dictating || loadingAttachments || !connectionId || (!draft.trim() && !attachments.length)}
+            type={running ? "button" : "submit"}
+            className={mobile ? `native-send composer-submit ${running ? 'is-stopping' : ''}` : `${remoteButton} composer-submit !border-accent !bg-accent text-white`}
+            aria-label={t(running ? "remote.stop" : "remote.send")}
+            onClick={running ? () => void act("chat.stop", { conversationId }) : undefined}
+            disabled={!running && (sending || dictating || loadingAttachments || !connectionId || (!draft.trim() && !attachments.length))}
           >
-            {sending ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              mobile ? <ArrowUp size={20}/> : <Send size={16} />
-            )}
-            <span className={mobile ? "sr-only" : undefined}>{t("remote.send")}</span>
+            <span className="composer-submit-icon" key={running ? 'stop' : sending ? 'sending' : 'send'}>{running ? <CircleStop size={20}/> : sending ? <Loader2 size={18} className="animate-spin"/> : mobile ? <ArrowUp size={20}/> : <Send size={16}/>}</span>
+            <span className={mobile ? "sr-only" : undefined}>{t(running ? "remote.stop" : "remote.send")}</span>
           </button>
         </div>
       </form>

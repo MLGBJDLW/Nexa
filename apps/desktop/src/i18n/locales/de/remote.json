@@ -213,5 +213,7 @@
   "speechTimeout": "Die Sprach-Engine antwortet nicht. Versuche es erneut oder prüfe die Android-Spracheinstellungen.",
   "speechLanguage": "Installiere Sprachdaten für diese Sprache in den Android-Einstellungen zur Sprachausgabe.",
   "speechBusy": "Sprache wird bereits verwendet. Stoppe sie oder schließe andere Mikrofon-Apps und versuche es erneut.",
-  "speechFailed": "Der Sprachvorgang konnte nicht abgeschlossen werden. Prüfe die Android-Spracheinstellungen und versuche es erneut."
+  "speechFailed": "Der Sprachvorgang konnte nicht abgeschlossen werden. Prüfe die Android-Spracheinstellungen und versuche es erneut.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

@@ -46,7 +46,7 @@ pub(crate) fn plan_compaction(
     expected_checkpoint_generation: u64,
     mode: crate::context_history::ContextManagementMode,
 ) -> PlanOutcome {
-    if mode == crate::context_history::ContextManagementMode::History {
+    if mode.uses_history() {
         return plan_history_handoff(messages, model, expected_checkpoint_generation);
     }
     let messages_before = messages.len();

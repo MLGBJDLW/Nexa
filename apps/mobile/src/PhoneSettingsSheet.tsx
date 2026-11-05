@@ -7,6 +7,7 @@ import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell'
 import { NexaCombobox } from '../../desktop/src/components/ui/overlay/Combobox';
 import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
 import { hostLabel, type NativeHost } from './nativeClient';
+import { PhoneWebSettings } from './PhoneWebSettings';
 import { PhoneSpeechSettings } from './PhoneSpeechSettings';
 import { StorageUsageCard } from '../../desktop/src/components/settings/StorageUsageCard';
 import type { StorageService } from '../../desktop/src/lib/api';
@@ -92,6 +93,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         <button disabled={busy} onClick={() => void action(onChanged)}>{t('remote.mobileRefreshPermissions')}<RefreshCw size={17}/></button>
       </section>
       <PhoneSpeechSettings open={open}/>
+      {open && <PhoneWebSettings/>}
       {open && <StorageUsageCard service={phoneStorage}/>}
       <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
       {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}

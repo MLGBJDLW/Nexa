@@ -1184,5 +1184,7 @@
   "executionLimitsCustom": "Свои ограничения",
   "glmCodingPlanKey": "API-ключ GLM Coding Plan",
   "glmCodingPlanHelp": "Адаптер использует API-ключ Coding Plan; вход ZCode выполняется отдельно. Оставьте поле пустым для Z_AI_API_KEY или данных glm-acp-agent --setup. Проверка соединения обнаруживает модели, но не подтверждает права тарифа.",
-  "externalAgentAutomaticDirectory": "Использовать автоматическую рабочую папку"
+  "externalAgentAutomaticDirectory": "Использовать автоматическую рабочую папку",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

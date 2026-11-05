@@ -122,11 +122,15 @@ impl AgentExecutor {
         };
         loop_recorder.record(started.clone());
         append_persisted_trace_loop_event(persisted_trace_items, started);
-        append_persisted_trace_status(
-            persisted_trace_items,
-            "Proactively compacting context before the next model step.",
-            "info",
-        );
+        if self.config.context_management_mode
+            != crate::context_history::ContextManagementMode::Seamless
+        {
+            append_persisted_trace_status(
+                persisted_trace_items,
+                "Proactively compacting context before the next model step.",
+                "info",
+            );
+        }
 
         let actual_tokens_remaining = self
             .config

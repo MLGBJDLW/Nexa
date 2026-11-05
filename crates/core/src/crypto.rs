@@ -20,6 +20,34 @@ use crate::error::CoreError;
 
 /// Prefix that marks an already-encrypted value.
 const ENCRYPTED_PREFIX: &str = "enc:v1:";
+const HOST_KEY_PREFIX: &str = "enc:v2:";
+static HOST_KEY: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+
+/// Mobile hosts keep this random key in their OS credential store and install
+/// it before opening settings. Existing desktop v1 ciphertext stays readable.
+pub fn generate_host_key() -> String {
+    B64.encode(Aes256Gcm::generate_key(&mut OsRng))
+}
+
+pub fn install_host_key(encoded: &str) -> Result<(), CoreError> {
+    let bytes = B64
+        .decode(encoded)
+        .map_err(|_| CoreError::Internal("Invalid host secret key".into()))?;
+    let key: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| CoreError::Internal("Invalid host secret key length".into()))?;
+    if let Some(existing) = HOST_KEY.get() {
+        if existing != &key {
+            return Err(CoreError::Internal(
+                "Host secret key already installed".into(),
+            ));
+        }
+        return Ok(());
+    }
+    HOST_KEY
+        .set(key)
+        .map_err(|_| CoreError::Internal("Host secret key initialization raced".into()))
+}
 
 /// Derive a 256-bit key unique to this OS user + machine.
 ///
@@ -51,11 +79,16 @@ fn derive_machine_key() -> [u8; 32] {
 ///
 /// Returns the original string unchanged if it is empty or already encrypted.
 pub fn encrypt_api_key(plaintext: &str) -> Result<String, CoreError> {
-    if plaintext.is_empty() || plaintext.starts_with(ENCRYPTED_PREFIX) {
+    if plaintext.is_empty() || is_encrypted(plaintext) {
         return Ok(plaintext.to_string());
     }
 
-    let key_bytes = derive_machine_key();
+    let key_bytes = HOST_KEY.get().copied().unwrap_or_else(derive_machine_key);
+    let prefix = if HOST_KEY.get().is_some() {
+        HOST_KEY_PREFIX
+    } else {
+        ENCRYPTED_PREFIX
+    };
     let cipher = Aes256Gcm::new_from_slice(&key_bytes)
         .map_err(|e| CoreError::Internal(format!("crypto key init: {e}")))?;
 
@@ -68,7 +101,7 @@ pub fn encrypt_api_key(plaintext: &str) -> Result<String, CoreError> {
     let mut combined = nonce.to_vec();
     combined.extend_from_slice(&ciphertext);
 
-    Ok(format!("{ENCRYPTED_PREFIX}{}", B64.encode(&combined)))
+    Ok(format!("{prefix}{}", B64.encode(&combined)))
 }
 
 /// Decrypt a stored API key.
@@ -76,10 +109,11 @@ pub fn encrypt_api_key(plaintext: &str) -> Result<String, CoreError> {
 /// If the value does not carry the encrypted prefix it is assumed to be
 /// legacy plaintext and is returned as-is (the caller should re-encrypt it).
 pub fn decrypt_api_key(stored: &str) -> Result<String, CoreError> {
-    if stored.is_empty() || !stored.starts_with(ENCRYPTED_PREFIX) {
+    if stored.is_empty() || !is_encrypted(stored) {
         return Ok(stored.to_string());
     }
 
+    let host_encrypted = stored.starts_with(HOST_KEY_PREFIX);
     let encoded = &stored[ENCRYPTED_PREFIX.len()..];
     let combined = B64
         .decode(encoded)
@@ -94,7 +128,13 @@ pub fn decrypt_api_key(stored: &str) -> Result<String, CoreError> {
     let (nonce_bytes, ciphertext) = combined.split_at(12);
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    let key_bytes = derive_machine_key();
+    let key_bytes = if host_encrypted {
+        *HOST_KEY
+            .get()
+            .ok_or_else(|| CoreError::Internal("Host credential store is not ready".into()))?
+    } else {
+        derive_machine_key()
+    };
     let cipher = Aes256Gcm::new_from_slice(&key_bytes)
         .map_err(|e| CoreError::Internal(format!("crypto key init: {e}")))?;
 
@@ -107,7 +147,7 @@ pub fn decrypt_api_key(stored: &str) -> Result<String, CoreError> {
 
 /// Returns `true` when the value is already encrypted.
 pub fn is_encrypted(value: &str) -> bool {
-    value.starts_with(ENCRYPTED_PREFIX)
+    value.starts_with(ENCRYPTED_PREFIX) || value.starts_with(HOST_KEY_PREFIX)
 }
 
 #[cfg(test)]

@@ -1018,9 +1018,9 @@ export function ChatPage() {
     },
     [chat, t],
   );
-  const sessionControls = (chat.agentConfig && agentConfigs.length > 0) || personas.length > 0 ? (
+  const sessionControls = agentConfigs.length > 0 || personas.length > 0 ? (
     <div className="flex min-w-0 flex-wrap items-center gap-1">
-      {chat.agentConfig && agentConfigs.length > 0 && selectedAgentConfig && (
+      {agentConfigs.length > 0 && (
         <AgentModelPicker
           conversationId={chat.activeId}
           projectId={chat.activeConversation?.projectId ?? initialProjectId}

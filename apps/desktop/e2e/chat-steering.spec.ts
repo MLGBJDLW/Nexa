@@ -679,7 +679,8 @@ test('keeps pasted images in the draft while the current reply is streaming', as
   await expect(page.getByTestId('chat-attachment-thumbnail')).toHaveCount(1);
   await expect(input).toHaveValue('Use this screenshot next');
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Steering message', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Steering message', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('chat-stop')).toBeEnabled();
 });
 
 test('retries a persisted user message after reopening a conversation', async ({ page }) => {

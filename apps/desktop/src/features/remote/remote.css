@@ -44,3 +44,9 @@ html[data-remote='true'] textarea {
     font-size: 16px;
   }
 }
+
+.mobile-conversation-row { display: flex; align-items: center; gap: 4px; }
+.mobile-conversation-row > button:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mobile-conversation-row > .mobile-icon-button { flex: 0 0 36px; width: 36px; padding: 8px; }
+.composer-submit { transition: background-color 180ms ease, border-radius 180ms ease; }
+.composer-submit.is-stopping { border-radius: 14px; }

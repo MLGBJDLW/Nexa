@@ -2,6 +2,11 @@
 
 ## 0.3.0
 
+- Stream canonical answer/thinking blocks during execution with durable UTF-8 offsets for reconnect replay.
+- Reuse blank drafts until the first send, combine Send and Stop, and add confirmed chat archiving and deletion in the drawer.
+- Expose shared web search settings including DeepSeek Search & Fetch, with keys protected by an Android-keystore-wrapped settings key.
+- Enable continuous context by default: verified history checkpoints retain recent progress without a separate summarization request or routine compaction chatter.
+
 - Let an explicitly enabled paired computer use phone control over the existing authenticated connection; stop pending actions on cancellation or disconnect without replaying input.
 - Revalidate screen pixels before coordinate taps and return fresh observations after actions or stale targets, without a fixed model-delay expiry.
 - Verify Unicode text after accessibility input and support Android 13+ native editor fallback for whole-field replacement.

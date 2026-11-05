@@ -1184,5 +1184,7 @@
   "executionLimitsCustom": "カスタム制限",
   "glmCodingPlanKey": "GLM Coding Plan API キー",
   "glmCodingPlanHelp": "このアダプターは Coding Plan の API キーを使います。ZCode のアカウント認証とは別です。空欄の場合は Z_AI_API_KEY または glm-acp-agent --setup の保存済み認証情報を使います。接続確認はモデルを検出するもので、プランの利用権限の確認ではありません。",
-  "externalAgentAutomaticDirectory": "自動ワークスペースを使用"
+  "externalAgentAutomaticDirectory": "自動ワークスペースを使用",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

@@ -2710,3 +2710,28 @@ fn windows_host_window_observation_smoke_test() {
     let _ = child.wait();
     result.expect("host observation contract");
 }
+
+#[test]
+fn delayed_target_survives_other_conversation_churn_but_still_enforces_single_use() {
+    let conversation = format!("delayed-{}", uuid::Uuid::new_v4());
+    let noisy = format!("busy-{}", uuid::Uuid::new_v4());
+    let mut fixture = wait_observed_fixture();
+    fixture.snapshot.id = 0x98765;
+    fixture.snapshot.input_epoch = super::super::computer_input::window_epoch(fixture.snapshot.id);
+    let token = remember_observation(Some(&conversation), vec![fixture.clone()]).unwrap();
+    observation_store()
+        .lock()
+        .unwrap()
+        .iter_mut()
+        .find(|record| record.id == token)
+        .unwrap()
+        .created_at = Instant::now() - Duration::from_secs(600);
+    for _ in 0..MAX_OBSERVATIONS + 1 {
+        remember_observation(Some(&noisy), vec![fixture.clone()]).unwrap();
+    }
+    assert!(observed_window(Some(&conversation), &token, fixture.snapshot.id).is_ok());
+    assert!(observed_window_for_approval(Some(&conversation), &token, fixture.snapshot.id).is_ok());
+    assert!(claim_observed_window(Some(&noisy), &token, fixture.snapshot.id).is_err());
+    assert!(claim_observed_window(Some(&conversation), &token, fixture.snapshot.id).is_ok());
+    assert!(claim_observed_window(Some(&conversation), &token, fixture.snapshot.id).is_err());
+}

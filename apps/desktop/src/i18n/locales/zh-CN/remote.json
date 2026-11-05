@@ -213,5 +213,7 @@
   "speechTimeout": "语音引擎未响应，请重试或检查 Android 语音设置。",
   "speechLanguage": "请在 Android 文字转语音设置中安装该语言的语音数据。",
   "speechBusy": "语音正在使用中，请停止当前语音或关闭其他麦克风应用后重试。",
-  "speechFailed": "语音操作未完成，请检查 Android 语音设置后重试。"
+  "speechFailed": "语音操作未完成，请检查 Android 语音设置后重试。",
+  "archiveChatHint": "将此对话移出活跃列表，保留其中的消息。",
+  "deleteChatHint": "永久删除此对话及其中的消息，此操作无法撤销。"
 }

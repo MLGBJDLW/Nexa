@@ -213,5 +213,7 @@
   "speechTimeout": "음성 엔진이 응답하지 않습니다. 다시 시도하거나 Android 음성 설정을 확인하세요.",
   "speechLanguage": "Android 텍스트 음성 변환 설정에서 해당 언어의 음성 데이터를 설치하세요.",
   "speechBusy": "음성 기능이 사용 중입니다. 중지하거나 다른 마이크 앱을 닫고 다시 시도하세요.",
-  "speechFailed": "음성 작업을 완료하지 못했습니다. Android 음성 설정을 확인하고 다시 시도하세요."
+  "speechFailed": "음성 작업을 완료하지 못했습니다. Android 음성 설정을 확인하고 다시 시도하세요.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

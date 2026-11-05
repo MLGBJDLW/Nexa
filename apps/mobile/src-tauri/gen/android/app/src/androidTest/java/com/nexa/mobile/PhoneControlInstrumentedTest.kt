@@ -19,6 +19,16 @@ import java.util.concurrent.TimeUnit
 class PhoneControlInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private lateinit var service: PhoneAccessibilityService
+    @Test fun settingsEncryptionKeySurvivesStoreReopen() {
+        val store = SecretStore(instrumentation.targetContext)
+        val previous = store.read("settings-key")
+        try {
+            store.write("settings-key", "native-settings-key-fixture")
+            assertEquals("native-settings-key-fixture", SecretStore(instrumentation.targetContext).read("settings-key"))
+            val raw = instrumentation.targetContext.getSharedPreferences("nexa_secrets", android.content.Context.MODE_PRIVATE).getString("settings-key", "")
+            assertFalse(raw.orEmpty().contains("native-settings-key-fixture"))
+        } finally { store.write("settings-key", previous) }
+    }
     @Before fun openFixture() {
         val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         for (command in listOf("settings put secure enabled_accessibility_services com.nexa.mobile/.PhoneAccessibilityService", "settings put secure accessibility_enabled 1")) {

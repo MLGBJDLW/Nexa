@@ -77,6 +77,14 @@ pub enum RemoteCommand {
         offset: u32,
         channel: Option<String>,
     },
+    #[serde(rename = "chat.archive")]
+    ArchiveConversation { conversation_id: String },
+    #[serde(rename = "chat.archived")]
+    ArchivedConversations { before: Option<String> },
+    #[serde(rename = "chat.restore")]
+    RestoreConversation { conversation_id: String },
+    #[serde(rename = "chat.delete")]
+    DeleteConversation { conversation_id: String },
     #[serde(rename = "chat.create")]
     CreateConversation {
         connection_id: String,

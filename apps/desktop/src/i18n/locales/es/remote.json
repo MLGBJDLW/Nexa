@@ -213,5 +213,7 @@
   "speechTimeout": "El motor de voz no responde. Reintenta o revisa los ajustes de voz de Android.",
   "speechLanguage": "Instala los datos de este idioma en los ajustes de texto a voz de Android.",
   "speechBusy": "La voz ya está en uso. Detenla o cierra otras aplicaciones de micrófono y reintenta.",
-  "speechFailed": "No se pudo completar la operación de voz. Revisa los ajustes de voz de Android y reintenta."
+  "speechFailed": "No se pudo completar la operación de voz. Revisa los ajustes de voz de Android y reintenta.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

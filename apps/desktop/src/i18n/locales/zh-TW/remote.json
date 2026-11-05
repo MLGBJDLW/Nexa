@@ -213,5 +213,7 @@
   "speechTimeout": "語音引擎未回應，請重試或檢查 Android 語音設定。",
   "speechLanguage": "請在 Android 文字轉語音設定中安裝此語言的語音資料。",
   "speechBusy": "語音正在使用中，請停止目前語音或關閉其他麥克風應用程式後重試。",
-  "speechFailed": "語音操作未完成，請檢查 Android 語音設定後重試。"
+  "speechFailed": "語音操作未完成，請檢查 Android 語音設定後重試。",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

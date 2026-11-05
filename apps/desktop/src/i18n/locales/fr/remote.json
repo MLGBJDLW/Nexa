@@ -213,5 +213,7 @@
   "speechTimeout": "Le moteur vocal ne répond pas. Réessayez ou vérifiez les paramètres vocaux Android.",
   "speechLanguage": "Installez les données de cette langue dans les paramètres de synthèse vocale Android.",
   "speechBusy": "La voix est déjà utilisée. Arrêtez-la ou fermez les autres applications utilisant le microphone, puis réessayez.",
-  "speechFailed": "L’opération vocale a échoué. Vérifiez les paramètres vocaux Android et réessayez."
+  "speechFailed": "L’opération vocale a échoué. Vérifiez les paramètres vocaux Android et réessayez.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

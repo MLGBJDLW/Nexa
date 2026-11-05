@@ -1646,7 +1646,7 @@ pub async fn start_context_compaction_cmd(
         provider_label,
         summarizer: provider,
     };
-    let live_target = if mode == nexa_core::context_history::ContextManagementMode::History {
+    let live_target = if mode.uses_history() {
         agent_state
             .sessions
             .context_fork_target(&job.request.conversation_id)

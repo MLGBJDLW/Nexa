@@ -236,14 +236,14 @@ impl LocalRuntime {
         if active.is_some() && previous.is_none() {
             return Err("Stop or finish the current phone task first.".into());
         }
-        let history = self
-            .db
-            .get_messages(&conversation.id)
-            .map_err(err)?
-            .iter()
-            .filter(|m| conversation_message_is_model_history(m))
-            .map(conversation_message_to_llm)
-            .collect();
+        let history =
+            nexa_core::context_maintenance::load_context_projection(&self.db, &conversation.id)
+                .map_err(err)?
+                .messages
+                .iter()
+                .filter(|m| conversation_message_is_model_history(m))
+                .map(conversation_message_to_llm)
+                .collect();
         let history = nexa_core::llm::message_validation::repair_persisted_message_history(
             history,
             Some(&conversation.id),
@@ -369,6 +369,9 @@ impl LocalRuntime {
                 app.clone(),
             ))),
         ));
+        tools.register(Box::new(
+            nexa_core::tools::context_history_tool::ContextHistoryTool,
+        ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
         let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(
@@ -377,7 +380,17 @@ impl LocalRuntime {
             &saved.model,
         );
         let context_window = saved.context_window.and_then(|value| value.try_into().ok());
+        let web = self.db.load_app_config().map_err(err)?.web_search;
         let mut config = AgentConfig {
+            native_search_plan:
+                nexa_core::llm::native_search::NativeSearchPlan::resolve_with_engine(
+                    web.execution_mode,
+                    provider_type,
+                    saved.base_url.as_deref(),
+                    &saved.model,
+                    web.provider_native_engine,
+                ),
+            context_management_mode: nexa_core::context_history::ContextManagementMode::Seamless,
             model: Some(settings.model.clone()),
             provider_type: Some(provider_type),
             temperature: saved.temperature.map(|value| value as f32),

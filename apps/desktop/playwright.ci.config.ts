@@ -55,6 +55,7 @@ export default defineConfig({
         "reasoning slider",
         "models with thinking but no effort",
         "another window cannot",
+        "missing saved connection keeps",
         "thinking stays enabled",
         "storage management measures",
         "ACP reasoning",

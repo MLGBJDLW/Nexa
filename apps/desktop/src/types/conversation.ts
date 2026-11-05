@@ -637,7 +637,7 @@ export interface AppConfig {
   maxVideoFileSize: number;
   maxAudioFileSize: number;
   dynamicToolVisibility?: boolean;
-  contextManagementMode?: 'summary' | 'history';
+  contextManagementMode?: 'summary' | 'history' | 'seamless';
   toolVisibilityDefaultsVersion?: number;
   dictationDefaultsVersion?: number;
   traceEnabled?: boolean;

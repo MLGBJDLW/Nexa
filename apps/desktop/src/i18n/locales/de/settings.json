@@ -1184,5 +1184,7 @@
   "executionLimitsCustom": "Eigene Limits",
   "glmCodingPlanKey": "GLM Coding Plan API-Schlüssel",
   "glmCodingPlanHelp": "Dieser Adapter nutzt einen Coding-Plan-API-Schlüssel; die ZCode-Anmeldung ist getrennt. Leer lassen für Z_AI_API_KEY oder mit glm-acp-agent --setup gespeicherte Zugangsdaten. Die Verbindungsprüfung erkennt Modelle, prüft aber keine Tarifberechtigung.",
-  "externalAgentAutomaticDirectory": "Automatischen Arbeitsbereich verwenden"
+  "externalAgentAutomaticDirectory": "Automatischen Arbeitsbereich verwenden",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

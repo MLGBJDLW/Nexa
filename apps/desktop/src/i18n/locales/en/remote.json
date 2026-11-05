@@ -213,5 +213,7 @@
   "speechTimeout": "The speech engine stopped responding. Try again or check Android voice settings.",
   "speechLanguage": "Install voice data for this language in Android text-to-speech settings.",
   "speechBusy": "Speech is already active. Stop it or close other microphone apps and try again.",
-  "speechFailed": "Speech could not complete. Check Android voice settings and try again."
+  "speechFailed": "Speech could not complete. Check Android voice settings and try again.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

@@ -7,6 +7,7 @@ import { cachedModelChoices, type ModelChoices } from '../../desktop/src/feature
 export interface PhoneSettings { connectionId?: string | null; providerType: string; baseUrl: string | null; model: string }
 interface Run { id: string; status: string; phase: string; errorMessage?: string }
 export class LocalClient implements RemoteChatClient {
+  readonly conversationManagementAvailable = true;
   readonly nativeSpeech = phoneSpeech;
   readonly voiceAvailable = false;
   readonly extendedModesAvailable = false;
@@ -40,6 +41,10 @@ export class LocalClient implements RemoteChatClient {
       case 'connections.list': return local('connections');
       case 'models.list': return this.models(params.connectionId);
       case 'chat.list': return local('list',{before:params.before});
+      case 'chat.archive': return local('archive', { conversationId: params.conversationId });
+      case 'chat.archived': return local('archived', { before: params.before });
+      case 'chat.restore': return local('restore', { conversationId: params.conversationId });
+      case 'chat.delete': return local('delete', { conversationId: params.conversationId });
       case 'chat.create': return local('create', { connectionId:params.connectionId, modelSelection:params.modelSelection });
       case 'chat.read':
         this.selected = params.conversationId;

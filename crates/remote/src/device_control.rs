@@ -41,119 +41,6 @@ impl Drop for RequestGuard {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn responses_are_bound_to_device_and_connection() {
-        let broker = Arc::new(DeviceControl::default());
-        let mut socket = broker.attach("phone", "first");
-        assert!(broker.enable("phone", "first", true));
-        let task = tokio::spawn({
-            let broker = broker.clone();
-            async move {
-                broker
-                    .request(
-                        "phone",
-                        json!({"action":"observe"}),
-                        CancellationToken::new(),
-                    )
-                    .await
-            }
-        });
-        let event = socket.recv().await.unwrap();
-        let id = event["payload"]["id"].as_str().unwrap();
-        assert!(broker.complete("other", "first", id, json!({})).is_err());
-        assert!(broker.complete("phone", "old", id, json!({})).is_err());
-        broker
-            .complete("phone", "first", id, json!({"observationId":"new"}))
-            .unwrap();
-        assert_eq!(task.await.unwrap().unwrap()["observationId"], "new");
-        assert!(broker.complete("phone", "first", id, json!({})).is_err());
-    }
-
-    #[tokio::test]
-    async fn reconnect_cancels_outstanding_input_without_replay() {
-        let broker = Arc::new(DeviceControl::default());
-        let mut old_socket = broker.attach("phone", "old");
-        broker.enable("phone", "old", true);
-        let task = tokio::spawn({
-            let broker = broker.clone();
-            async move {
-                broker
-                    .request(
-                        "phone",
-                        json!({"action":"set_text","text":"once"}),
-                        CancellationToken::new(),
-                    )
-                    .await
-            }
-        });
-        let event = old_socket.recv().await.unwrap();
-        let mut new_socket = broker.attach("phone", "new");
-        assert!(task
-            .await
-            .unwrap()
-            .unwrap_err()
-            .contains("outcome may be unknown"));
-        assert_eq!(
-            old_socket.recv().await.unwrap()["event"],
-            "device:control-cancel"
-        );
-        assert!(new_socket.try_recv().is_err());
-        assert!(!broker.enabled("phone"));
-        assert!(!broker.enable("phone", "old", true));
-        broker.enable("phone", "new", true);
-        broker.detach("phone", "old");
-        assert!(broker.enabled("phone"));
-        assert!(broker
-            .complete(
-                "phone",
-                "old",
-                event["payload"]["id"].as_str().unwrap(),
-                json!({})
-            )
-            .is_err());
-    }
-
-    #[tokio::test]
-    async fn cancellation_releases_the_single_operation_slot() {
-        let broker = Arc::new(DeviceControl::default());
-        let mut socket = broker.attach("phone", "session");
-        broker.enable("phone", "session", true);
-        let cancel = CancellationToken::new();
-        let task = tokio::spawn({
-            let broker = broker.clone();
-            let cancel = cancel.clone();
-            async move {
-                broker
-                    .request("phone", json!({"action":"tap"}), cancel)
-                    .await
-            }
-        });
-        socket.recv().await.unwrap();
-        assert!(broker
-            .request("phone", json!({"action":"tap"}), CancellationToken::new())
-            .await
-            .unwrap_err()
-            .contains("busy"));
-        cancel.cancel();
-        assert!(task.await.unwrap().unwrap_err().contains("cancelled"));
-        assert_eq!(
-            socket.recv().await.unwrap()["event"],
-            "device:control-cancel"
-        );
-        assert!(broker.state.lock().unwrap().pending.is_empty());
-        broker.enable("phone", "session", false);
-        assert!(broker
-            .request("phone", json!({"action":"tap"}), CancellationToken::new())
-            .await
-            .is_err());
-        assert!(socket.try_recv().is_err());
-    }
-}
-
 impl DeviceControl {
     pub fn attach(&self, owner: &str, session: &str) -> mpsc::Receiver<Value> {
         let (sender, receiver) = mpsc::channel(4);
@@ -304,5 +191,118 @@ impl DeviceControl {
             _ = cancel.cancelled() => Err("Phone request cancelled. Observe before deciding whether another action is needed; never repeat an uncertain send.".into()),
             _ = tokio::time::sleep(Duration::from_secs(30)) => Err("The phone did not return an outcome. Observe before deciding whether another action is needed; never repeat an uncertain send.".into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn responses_are_bound_to_device_and_connection() {
+        let broker = Arc::new(DeviceControl::default());
+        let mut socket = broker.attach("phone", "first");
+        assert!(broker.enable("phone", "first", true));
+        let task = tokio::spawn({
+            let broker = broker.clone();
+            async move {
+                broker
+                    .request(
+                        "phone",
+                        json!({"action":"observe"}),
+                        CancellationToken::new(),
+                    )
+                    .await
+            }
+        });
+        let event = socket.recv().await.unwrap();
+        let id = event["payload"]["id"].as_str().unwrap();
+        assert!(broker.complete("other", "first", id, json!({})).is_err());
+        assert!(broker.complete("phone", "old", id, json!({})).is_err());
+        broker
+            .complete("phone", "first", id, json!({"observationId":"new"}))
+            .unwrap();
+        assert_eq!(task.await.unwrap().unwrap()["observationId"], "new");
+        assert!(broker.complete("phone", "first", id, json!({})).is_err());
+    }
+
+    #[tokio::test]
+    async fn reconnect_cancels_outstanding_input_without_replay() {
+        let broker = Arc::new(DeviceControl::default());
+        let mut old_socket = broker.attach("phone", "old");
+        broker.enable("phone", "old", true);
+        let task = tokio::spawn({
+            let broker = broker.clone();
+            async move {
+                broker
+                    .request(
+                        "phone",
+                        json!({"action":"set_text","text":"once"}),
+                        CancellationToken::new(),
+                    )
+                    .await
+            }
+        });
+        let event = old_socket.recv().await.unwrap();
+        let mut new_socket = broker.attach("phone", "new");
+        assert!(task
+            .await
+            .unwrap()
+            .unwrap_err()
+            .contains("outcome may be unknown"));
+        assert_eq!(
+            old_socket.recv().await.unwrap()["event"],
+            "device:control-cancel"
+        );
+        assert!(new_socket.try_recv().is_err());
+        assert!(!broker.enabled("phone"));
+        assert!(!broker.enable("phone", "old", true));
+        broker.enable("phone", "new", true);
+        broker.detach("phone", "old");
+        assert!(broker.enabled("phone"));
+        assert!(broker
+            .complete(
+                "phone",
+                "old",
+                event["payload"]["id"].as_str().unwrap(),
+                json!({})
+            )
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn cancellation_releases_the_single_operation_slot() {
+        let broker = Arc::new(DeviceControl::default());
+        let mut socket = broker.attach("phone", "session");
+        broker.enable("phone", "session", true);
+        let cancel = CancellationToken::new();
+        let task = tokio::spawn({
+            let broker = broker.clone();
+            let cancel = cancel.clone();
+            async move {
+                broker
+                    .request("phone", json!({"action":"tap"}), cancel)
+                    .await
+            }
+        });
+        socket.recv().await.unwrap();
+        assert!(broker
+            .request("phone", json!({"action":"tap"}), CancellationToken::new())
+            .await
+            .unwrap_err()
+            .contains("busy"));
+        cancel.cancel();
+        assert!(task.await.unwrap().unwrap_err().contains("cancelled"));
+        assert_eq!(
+            socket.recv().await.unwrap()["event"],
+            "device:control-cancel"
+        );
+        assert!(broker.state.lock().unwrap().pending.is_empty());
+        broker.enable("phone", "session", false);
+        assert!(broker
+            .request("phone", json!({"action":"tap"}), CancellationToken::new())
+            .await
+            .is_err());
+        assert!(socket.try_recv().is_err());
     }
 }

@@ -23,14 +23,14 @@ class SecretStore(context: Context) {
         }.generateKey()
     }
     @Synchronized fun write(name: String, value: String?) {
-        require(name == "local-provider" || name == "remote-hosts")
+        require(name == "local-provider" || name == "remote-hosts" || name == "settings-key")
         if (value == null) { check(preferences.edit().remove(name).commit()); return }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()); updateAAD(name.toByteArray()) }
         val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
         check(preferences.edit().putString(name, Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)).commit())
     }
     @Synchronized fun read(name: String): String? {
-        require(name == "local-provider" || name == "remote-hosts")
+        require(name == "local-provider" || name == "remote-hosts" || name == "settings-key")
         val encoded = preferences.getString(name, null) ?: return null
         val bytes = Base64.decode(encoded, Base64.NO_WRAP)
         require(bytes.size >= 28)

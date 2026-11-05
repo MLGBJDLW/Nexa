@@ -5,9 +5,12 @@ use nexa_core::agent_run::{
 };
 use nexa_core::llm::{ContentPart, Message};
 use nexa_core::runtime::AgentRunEventOutbox;
+pub(crate) use nexa_core::stream_projection::agent_event_rotates_stream_blocks;
+#[cfg(test)]
+pub(crate) use nexa_core::stream_projection::split_text_by_utf8_bytes;
+use nexa_core::stream_projection::StreamBlockProjector;
 use serde::Serialize;
 use tauri::AppHandle;
-use uuid::Uuid;
 
 use crate::app_events::emit_main_window_event;
 
@@ -68,7 +71,6 @@ pub(crate) enum PendingStreamDelta {
     Thinking(String),
 }
 
-const MAX_STREAM_BLOCK_DELTA_BYTES: usize = 8 * 1024;
 pub(crate) const MAX_FRONTEND_TOOL_CONTENT_CHARS: usize = 128 * 1024;
 const MAX_FRONTEND_TOOL_ARGUMENT_CHARS: usize = 128 * 1024;
 const MAX_FRONTEND_MESSAGE_TEXT_CHARS: usize = 64 * 1024;
@@ -76,36 +78,6 @@ pub(crate) const MAX_FRONTEND_ARTIFACT_STRING_CHARS: usize = 32 * 1024;
 const MAX_FRONTEND_ARTIFACT_ITEMS: usize = 512;
 const MAX_FRONTEND_ARTIFACT_DEPTH: usize = 8;
 pub(crate) const MAX_TASK_EVENT_TEXT_CHARS: usize = 4_000;
-
-pub(crate) fn split_text_by_utf8_bytes(text: &str, max_bytes: usize) -> Vec<&str> {
-    if text.is_empty() {
-        return Vec::new();
-    }
-    let max_bytes = max_bytes.max(1);
-    if text.len() <= max_bytes {
-        return vec![text];
-    }
-
-    let mut chunks = Vec::new();
-    let mut start = 0usize;
-    while start < text.len() {
-        let mut end = (start + max_bytes).min(text.len());
-        while end > start && !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        if end == start {
-            end = start
-                + text[start..]
-                    .chars()
-                    .next()
-                    .map(char::len_utf8)
-                    .unwrap_or(1);
-        }
-        chunks.push(&text[start..end]);
-        start = end;
-    }
-    chunks
-}
 
 fn compact_json_value_for_frontend(value: &serde_json::Value, depth: usize) -> serde_json::Value {
     if depth >= MAX_FRONTEND_ARTIFACT_DEPTH {
@@ -335,28 +307,19 @@ pub(crate) fn compact_agent_event_for_frontend(event: AgentEvent) -> AgentEvent 
 
 pub(crate) struct StreamBlockEmitter {
     event_outbox: AgentRunEventOutbox,
-    answer_block_id: String,
-    thinking_block_id: String,
-    answer_offset: usize,
-    thinking_offset: usize,
+    projector: StreamBlockProjector,
 }
 
 impl StreamBlockEmitter {
     pub(crate) fn new(event_outbox: AgentRunEventOutbox) -> Self {
         Self {
             event_outbox,
-            answer_block_id: new_stream_block_id(StreamBlockChannel::Answer),
-            thinking_block_id: new_stream_block_id(StreamBlockChannel::Thinking),
-            answer_offset: 0,
-            thinking_offset: 0,
+            projector: StreamBlockProjector::default(),
         }
     }
 
     pub(crate) fn rotate_blocks(&mut self) {
-        self.answer_block_id = new_stream_block_id(StreamBlockChannel::Answer);
-        self.thinking_block_id = new_stream_block_id(StreamBlockChannel::Thinking);
-        self.answer_offset = 0;
-        self.thinking_offset = 0;
+        self.projector.rotate();
     }
 
     pub(crate) fn emit_event(&self, conversation_id: &str, run_event: AgentRunEvent) {
@@ -402,30 +365,11 @@ impl StreamBlockEmitter {
         channel: StreamBlockChannel,
         delta: String,
     ) {
-        let (block_id, mut current_offset) = match channel {
-            StreamBlockChannel::Answer => (self.answer_block_id.clone(), self.answer_offset),
-            StreamBlockChannel::Thinking => (self.thinking_block_id.clone(), self.thinking_offset),
-        };
-        for chunk in split_text_by_utf8_bytes(&delta, MAX_STREAM_BLOCK_DELTA_BYTES) {
-            let run_event = AgentRunEvent::output_delta(
-                task_run_id,
-                turn_id,
-                0,
-                &block_id,
-                channel,
-                current_offset,
-                chunk,
-            );
-            if let Err(error) = self.event_outbox.submit(run_event) {
-                warn!("Failed to submit stream block for {conversation_id}: {error}");
-                break;
-            }
-            current_offset += chunk.len();
-        }
-
-        match channel {
-            StreamBlockChannel::Answer => self.answer_offset = current_offset,
-            StreamBlockChannel::Thinking => self.thinking_offset = current_offset,
+        if let Err(error) =
+            self.projector
+                .submit(&self.event_outbox, task_run_id, turn_id, channel, &delta)
+        {
+            warn!("Failed to submit stream block for {conversation_id}: {error}");
         }
     }
 }
@@ -439,30 +383,6 @@ fn publish_run_event(
     } else {
         event_outbox.publish_ephemeral(run_event)
     }
-}
-
-fn new_stream_block_id(channel: StreamBlockChannel) -> String {
-    format!(
-        "stream-{}-{}",
-        stream_block_channel_label(channel),
-        Uuid::new_v4()
-    )
-}
-
-fn stream_block_channel_label(channel: StreamBlockChannel) -> &'static str {
-    match channel {
-        StreamBlockChannel::Answer => "answer",
-        StreamBlockChannel::Thinking => "thinking",
-    }
-}
-
-pub(crate) fn agent_event_rotates_stream_blocks(event: &AgentEvent) -> bool {
-    matches!(
-        event,
-        AgentEvent::StreamReset { .. }
-            | AgentEvent::ToolRunStarted { .. }
-            | AgentEvent::ToolRunCompleted { .. }
-    )
 }
 
 pub(crate) fn truncate_task_event_text(value: &str, max_chars: usize) -> String {

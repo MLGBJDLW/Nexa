@@ -516,7 +516,9 @@ export function AgentModelPicker({
     });
   }, [activeModelRow?.reasoning, applyReasoningSelection, budgetDraft]);
 
-  const selected = selectedConfig;
+  // A missing/deleted saved connection must still leave a way to choose a
+  // replacement. This preview never changes the active connection by itself.
+  const selected = selectedConfig ?? agentConfigs[0] ?? null;
   const intensityCapability = activeModelRow?.reasoning;
   const intensityOptions: Array<{ key: string; label: string; selection: Pick<AgentModelSelection, 'reasoningEnabled' | 'reasoningEffort' | 'thinkingBudget'> }> = [];
   if (intensityCapability) {

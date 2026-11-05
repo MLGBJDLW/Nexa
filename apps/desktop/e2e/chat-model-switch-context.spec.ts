@@ -101,6 +101,9 @@ test.beforeEach(async ({ page }) => {
 
     const callbackMap = new Map<number, (event: unknown) => void>();
     const listeners = new Map<number, { event: string; handlerId: number }>();
+    (window as any).__removeSavedConnection = () => {
+      Object.assign(conversations['conv-model-switch'], { agentConfigId: 'deleted-connection' });
+    };
     (window as any).__changeModelInOtherWindow = () => {
       configs = configs.map(config => config.id === 'cfg-tiny' ? { ...config, model: 'gpt-5.5' } : config);
       for (const [id, listener] of listeners) {
@@ -309,6 +312,25 @@ test.beforeEach(async ({ page }) => {
       },
     };
   });
+});
+
+test('missing saved connection keeps an explicit replacement picker without switching silently', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  await expect(page.getByTestId('agent-model-picker-trigger')).toContainText('tiny-context');
+  await page.evaluate(() => (window as any).__removeSavedConnection());
+  // Simulate reopening the same persisted conversation after its owner disappeared.
+  await page.locator('a[href="/settings"]').first().click();
+  await expect(page.getByTestId('settings-page')).toBeVisible();
+  await page.goBack();
+  const picker = page.getByTestId('agent-model-picker-trigger');
+  await expect(picker).toBeVisible();
+  await expect(picker).not.toContainText('tiny-context');
+  await page.getByTestId('agent-provider-picker-trigger').click();
+  await page.getByTestId('agent-model-provider-cfg-tiny').click();
+  await expect(picker).toContainText('tiny-context');
+  await page.getByTestId('chat-input-textarea').fill('Continue after choosing the replacement.');
+  await page.getByTestId('chat-send').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs?.agentConfigId)).toBe('cfg-tiny');
 });
 
 test('another window cannot change the current conversation model after a background task', async ({ page }) => {

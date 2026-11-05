@@ -1137,3 +1137,38 @@ test("an old chat launch cannot clear the new conversation draft", async ({
     page.getByRole("button", { name: "Stop", exact: true }),
   ).toHaveCount(0);
 });
+
+
+test('native phone reuses blank drafts, streams before completion, and manages conversations', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.evaluate(async () => { const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity(); });
+  const phone = page.locator('.mobile-app');
+  const fresh = phone.getByRole('button', {name:'New conversation',exact:true});
+  await fresh.dblclick(); await fresh.click();
+  expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method==='chat.create').length)).toBe(0);
+  await phone.getByLabel('Message',{exact:true}).fill('Continue the work');
+  await phone.getByRole('button',{name:'Send',exact:true}).click();
+  await expect(phone.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+  await expect(phone.getByRole('button',{name:'Send',exact:true})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method==='chat.create').length)).toBe(1);
+  await page.evaluate(()=>{(window as any).__MOBILE_CONTINUITY__.emit('outputDelta',{blockId:'answer',channel:'answer',offset:0,delta:'你好🌏'});});
+  await expect(phone.getByText('你好🌏',{exact:true})).toBeVisible();
+  await page.evaluate(()=>{(window as any).__MOBILE_CONTINUITY__.emit('outputDelta',{blockId:'answer',channel:'answer',offset:10,delta:' streaming'});});
+  await expect(phone.getByText('你好🌏 streaming',{exact:true})).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('mobile-streaming-control.png')});
+  await phone.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect(phone.getByRole('button',{name:'Send',exact:true})).toBeVisible();
+  await phone.getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByRole('button',{name:'Archive: Previous work',exact:true}).click();
+  const archive=page.getByRole('dialog',{name:'Archive',exact:true});
+  await archive.getByRole('button',{name:'Archive',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Archive: Previous work',exact:true})).toHaveCount(0);
+  await page.getByText('Archived conversations',{exact:true}).click();
+  await page.getByRole('button',{name:'Unarchive: Previous work',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Archive: Previous work',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Delete: New work',exact:true}).click();
+  const remove=page.getByRole('dialog',{name:'Delete',exact:true});
+  await remove.getByRole('button',{name:'Delete',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Delete: New work',exact:true})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method==='chat.delete').length)).toBe(1);
+});

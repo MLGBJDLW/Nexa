@@ -168,6 +168,39 @@ Stop remains available while the task is active.
 Continuation restores the original connection, selected model and execution
 policy; a renderer restart cannot change a Plan task into a write-capable task.
 
+## Chat and web settings
+
+A new phone chat stays a local draft until its first send. Repeated New taps do
+not create empty database rows. The composer uses one Send/Stop control; the
+conversation drawer provides confirmed Archive and Delete actions plus an archived
+list with Restore, guarded by
+the same running-task checks as desktop storage management. Remote desktop chat
+management requires the advertised `chat-management-v1` capability.
+
+Phone settings reuse the desktop web search panel, including provider-native
+search, provider ordering and DeepSeek Search & Fetch. Native requests share the
+core search/fetch adapters. Saved keys are masked in the WebView and encrypted
+with a random settings key wrapped by Android Keystore; existing desktop
+ciphertext remains compatible. Connection sync still covers model connections
+only, so web-search credentials remain local to the phone.
+
+## Continuous context
+
+Mobile defaults to continuous context; desktop offers it as an experimental
+context-management choice. The existing history checkpoint path archives and
+verifies the complete window before replacing it, preserves current user
+instructions and adds bounded excerpts of recent progress. It makes no extra
+summary model request, starts at no more than 80% of the usable context budget,
+and keeps the same conversation, run and device-control session. Exact older
+constraints/results remain accessible through `context_history`. Mobile reloads
+the durable projection rather than resurrecting the archived context.
+
+Routine automatic checkpoints do not emit compaction UI messages. Approvals,
+actions, cancellation and actionable failures remain visible. This mode uses
+extractive evidence, not a background LLM summary; excerpts can omit details, so
+exact evidence must be retrieved when needed. Explicit manual maintenance and
+hard-overflow safety retain their existing guarded paths.
+
 ## Build and release
 
 Use the commands and prerequisites in the [application README](../../apps/mobile/README.md).

@@ -830,6 +830,10 @@ impl AgentExecutor {
         // Agent thinking is always requested; provider adapters still decide
         // which wire fields the selected model actually supports.
         config.reasoning_enabled = Some(true);
+        if config.context_management_mode == crate::context_history::ContextManagementMode::Seamless
+        {
+            config.auto_compact_percent = Some(config.auto_compact_percent.unwrap_or(80).min(80));
+        }
         if config.reasoning_effort == Some(ReasoningEffort::None) {
             config.reasoning_effort = None;
         }

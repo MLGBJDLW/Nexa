@@ -213,5 +213,7 @@
   "speechTimeout": "音声エンジンが応答しません。再試行するか、Android の音声設定を確認してください。",
   "speechLanguage": "Android の読み上げ設定で、この言語の音声データをインストールしてください。",
   "speechBusy": "音声機能が使用中です。停止するか、他のマイクアプリを閉じて再試行してください。",
-  "speechFailed": "音声処理を完了できませんでした。Android の音声設定を確認して再試行してください。"
+  "speechFailed": "音声処理を完了できませんでした。Android の音声設定を確認して再試行してください。",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

@@ -12,6 +12,15 @@ impl RuntimeSlot {
     async fn get(&self, app: &AppHandle) -> Result<&Arc<LocalRuntime>, String> {
         self.0
             .get_or_try_init(|| async {
+                let key = match platform::read_secret(app, "settings-key").await? {
+                    Some(value) => value.as_str().ok_or("Invalid settings key")?.to_string(),
+                    None => {
+                        let key = nexa_core::crypto::generate_host_key();
+                        platform::save_secret(app, "settings-key", Some(&json!(key))).await?;
+                        key
+                    }
+                };
+                nexa_core::crypto::install_host_key(&key).map_err(|e| e.to_string())?;
                 LocalRuntime::open(app, app.path().app_data_dir().map_err(|e| e.to_string())?).await
             })
             .await
@@ -104,6 +113,22 @@ async fn mobile_local(
             .db
             .remote_conversations(input["before"].as_str())
             .map_err(|e| e.to_string()),
+        "archived" => state
+            .db
+            .remote_archived_conversations(input["before"].as_str())
+            .map_err(|e| e.to_string()),
+        "restore" => {
+            let id = string("conversationId")?;
+            state
+                .db
+                .require_remote_conversation(&id)
+                .map_err(|e| e.to_string())?;
+            state
+                .db
+                .unarchive_conversation(&id)
+                .map(|_| Value::Null)
+                .map_err(|e| e.to_string())
+        }
         "messages" => state
             .db
             .remote_messages(&string("conversationId")?, input["beforeOrder"].as_i64())
@@ -151,6 +176,19 @@ async fn mobile_local(
             )
         }
         "approvals" => state.approvals(&string("conversationId")?).await,
+        "archive" | "delete" => {
+            let ids = [string("conversationId")?];
+            state
+                .db
+                .require_remote_conversation(&ids[0])
+                .map_err(|e| e.to_string())?;
+            let result = if action == "archive" {
+                state.db.archive_conversations_batch(&ids)
+            } else {
+                state.db.delete_conversations_batch(&ids)
+            };
+            result.map(|count| json!(count)).map_err(|e| e.to_string())
+        }
         "create" => {
             let mut saved = connections::get(&app, input["connectionId"].as_str()).await?;
             if !input["modelSelection"].is_null() {
@@ -245,6 +283,62 @@ async fn mobile_phone_control(
     enabled: bool,
 ) -> Result<(), String> {
     remote::configure_phone_control(&app, &host_id, enabled).await
+}
+
+#[tauri::command]
+async fn mobile_web_settings(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    action: String,
+    web_search: Option<nexa_core::app_settings::WebSearchConfig>,
+) -> Result<Value, String> {
+    let db = runtime.get(&app).await?.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut saved = db.load_app_config().map_err(|e| e.to_string())?;
+        let mut config = web_search.unwrap_or_else(|| saved.web_search.clone());
+        for provider in &mut config.custom_providers {
+            if provider.api_key == "__NEXA_SAVED_KEY__" {
+                provider.api_key = saved
+                    .web_search
+                    .custom_providers
+                    .iter()
+                    .find(|old| old.id == provider.id && old.preset == provider.preset)
+                    .map(|old| old.api_key.clone())
+                    .unwrap_or_default();
+            }
+            if let Some(url) = provider
+                .base_url
+                .as_deref()
+                .filter(|url| !url.trim().is_empty())
+            {
+                validate_provider_url(url)?;
+            }
+        }
+        match action.as_str() {
+            "status" => Ok(json!(
+                nexa_core::tools::web_search_tool::provider_status_snapshot(&config)
+            )),
+            "read" | "save" => {
+                if action == "save" {
+                    saved.web_search = config.clone();
+                    db.save_app_config(&saved).map_err(|e| e.to_string())?;
+                }
+                for provider in &mut config.custom_providers {
+                    if !provider.api_key.is_empty() {
+                        provider.api_key = "__NEXA_SAVED_KEY__".into();
+                    }
+                }
+                let public = nexa_core::app_settings::AppConfig {
+                    web_search: config,
+                    ..Default::default()
+                };
+                Ok(json!(public))
+            }
+            _ => Err("Unsupported web settings operation".into()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -471,6 +565,7 @@ pub fn run() {
             mobile_overlay,
             mobile_phone_control,
             mobile_storage,
+            mobile_web_settings,
             mobile_pair,
             mobile_remote,
             mobile_files

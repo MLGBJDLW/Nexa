@@ -131,6 +131,7 @@ pub mod source_tree;
 pub mod sources;
 pub mod speech_to_text;
 pub mod storage_usage;
+pub mod stream_projection;
 pub mod system_one;
 pub mod task_orchestrator;
 pub mod task_run;

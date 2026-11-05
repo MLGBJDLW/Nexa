@@ -202,9 +202,7 @@ pub fn build_desktop_agent_turn_config(
     let learned_section = nexa_core::learning::retrieve_similar_successes(db, message, 3)
         .map(|hits| nexa_core::learning::build_learned_successes_section(&hits))
         .unwrap_or_default();
-    let scratchpad_section = if app_cfg.context_management_mode
-        == nexa_core::context_history::ContextManagementMode::History
-    {
+    let scratchpad_section = if app_cfg.context_management_mode.uses_history() {
         // History handoffs must not reinject the old reasoning through notes.
         // The same scratchpad is archived and remains readable on demand.
         String::new()

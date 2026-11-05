@@ -213,5 +213,7 @@
   "speechTimeout": "Речевой движок не отвечает. Повторите попытку или проверьте настройки речи Android.",
   "speechLanguage": "Установите голосовые данные этого языка в настройках синтеза речи Android.",
   "speechBusy": "Речь уже используется. Остановите её или закройте другие приложения с микрофоном и повторите попытку.",
-  "speechFailed": "Не удалось завершить речевую операцию. Проверьте настройки речи Android и повторите попытку."
+  "speechFailed": "Не удалось завершить речевую операцию. Проверьте настройки речи Android и повторите попытку.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }
