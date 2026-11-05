@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - 'apps/mobile/**'
-      - 'apps/desktop/src/features/remote/**'
-      - 'apps/desktop/src/lib/streaming/**'
-      - 'apps/desktop/src/features/models/**'
-      - 'apps/desktop/src/i18n/**'
-      - 'crates/core/**'
-      - 'crates/model-catalog/**'
+      - 'apps/desktop/src/**'
+      - 'apps/desktop/public/**'
+      - 'apps/desktop/package*.json'
+      - 'apps/desktop/tsconfig*.json'
+      - 'crates/**'
+      - '.cargo/**'
+      - 'Cargo.*'
+      - 'rust-toolchain.toml'
+      - 'package*.json'
       - 'shared/**'
       - 'scripts/ci-scope.mjs'
+      - 'scripts/ci-scope.test.mjs'
       - 'scripts/release-workflow-contract.test.mjs'
       - '.github/workflows/mobile.yml'
   push:
@@ -53,7 +57,7 @@ jobs:
         run: |
           git diff --name-only origin/master...HEAD | node scripts/ci-scope.mjs --github-output >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v6
-        if: steps.scope.outputs.release_metadata_only != 'true'
+        if: steps.scope.outputs.release_metadata_only != 'true' && (github.event_name != 'pull_request' || steps.scope.outputs.mobile_required == 'true')
         with:
           node-version: 24
           cache: npm
@@ -61,7 +65,7 @@ jobs:
             apps/desktop/package-lock.json
             apps/mobile/package-lock.json
       - name: Validate source and mobile metadata
-        if: steps.scope.outputs.release_metadata_only != 'true'
+        if: steps.scope.outputs.release_metadata_only != 'true' && (github.event_name != 'pull_request' || steps.scope.outputs.mobile_required == 'true')
         run: |
           npm ci --prefix apps/desktop
           npm ci --prefix apps/mobile
