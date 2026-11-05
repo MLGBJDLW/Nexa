@@ -19526,7 +19526,7 @@
       {
         "id": "thinkingmachines/inkling-small:free",
         "name": "Thinking Machines: Inkling Small (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19554,8 +19554,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/thinkingmachines/inkling-small:free",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling-small:free/endpoints",
         "maxOutputTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -19982,7 +19982,7 @@
       {
         "id": "thinkingmachines/inkling:free",
         "name": "Thinking Machines: Inkling (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -20010,8 +20010,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/thinkingmachines/inkling:free",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling:free/endpoints",
         "maxOutputTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -22101,6 +22101,94 @@
         "source": "official",
         "lastVerifiedAt": "2026-11-04",
         "documentationRef": "https://openrouter.ai/stealth/crouton-alpha"
+      },
+      {
+        "id": "tencent/hy4",
+        "name": "Tencent: Hy4",
+        "status": "active",
+        "access": "public",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/tencent/hy4/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
+      },
+      {
+        "id": "ricursiveai/ripple-65b-preview",
+        "name": "RicursiveAI: Ripple 65B Preview",
+        "status": "preview",
+        "access": "public",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/ricursiveai/ripple-65b-preview/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "logprobs",
+          "max_tokens",
+          "response_format",
+          "seed",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": null
+        }
       }
     ]
   },

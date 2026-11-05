@@ -8,6 +8,8 @@
     "requiresApiKey": true,
     "description": "GPT Image models through the OpenAI Image API.",
     "models": [
+      { "id": "gpt-image-2.6-flare", "name": "GPT Image 2.6 Flare", "source": "official", "status": "active", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-11-05", "documentationRef": "https://developers.openai.com/api/docs/models/gpt-image-2.6-flare", "qualityOptions": ["auto", "low", "medium", "high", "xhigh", "max"] },
+      { "id": "gpt-image-2.6-sunburst", "name": "GPT Image 2.6 Sunburst", "source": "official", "status": "active", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-11-05", "documentationRef": "https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst", "qualityOptions": ["auto", "low", "medium", "high", "xhigh", "max"] },
       { "id": "gpt-image-2.5-flare", "name": "GPT Image 2.5 Flare", "source": "official", "productReadiness": "product_ready", "recommended": true, "lastVerifiedAt": "2026-09-09", "qualityOptions": ["auto", "low", "medium", "high", "xhigh", "max"] },
       { "id": "gpt-image-2.5-sunburst", "name": "GPT Image 2.5 Sunburst", "source": "official", "productReadiness": "product_ready", "lastVerifiedAt": "2026-09-09", "qualityOptions": ["auto", "low", "medium", "high", "xhigh", "max"] },
       { "id": "gpt-image-2", "name": "GPT Image 2", "source": "curated", "productReadiness": "known" },

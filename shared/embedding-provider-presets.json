@@ -501,6 +501,32 @@
           1024,
           2048
         ]
+      },
+      {
+        "id": "voyage-finance-2",
+        "name": "voyage-finance-2",
+        "dimensions": 1024,
+        "supportsDimensionOverride": false,
+        "contextTokens": 32000,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+      },
+      {
+        "id": "voyage-law-2",
+        "name": "voyage-law-2",
+        "dimensions": 1024,
+        "supportsDimensionOverride": false,
+        "contextTokens": 16000,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
       }
     ],
     "documentationUrl": "https://docs.voyageai.com/docs/embeddings"

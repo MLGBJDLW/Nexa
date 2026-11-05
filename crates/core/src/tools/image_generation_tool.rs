@@ -740,13 +740,15 @@ fn is_meta_image_endpoint(config: &ResolvedImageConfig) -> bool {
         })
 }
 
-fn is_gpt_image_25(model: &str) -> bool {
+fn supports_gpt_image_extended_quality(model: &str) -> bool {
     matches!(
         model,
         "gpt-image-2.5-flare"
             | "gpt-image-2.5-sunburst"
             | "gpt-image-2.5-flare-2026-09-08"
             | "gpt-image-2.5-sunburst-2026-09-08"
+            | "gpt-image-2.6-flare"
+            | "gpt-image-2.6-sunburst"
     )
 }
 
@@ -844,10 +846,10 @@ fn validate_image_options(
     }
     if let Some(quality) = selected_image_quality(config, args, model) {
         let supported = matches!(quality, "auto" | "low" | "medium" | "high")
-            || (is_gpt_image_25(model) && matches!(quality, "xhigh" | "max"));
+            || (supports_gpt_image_extended_quality(model) && matches!(quality, "xhigh" | "max"));
         if !supported {
             return Err(invalid(
-                "Unsupported GPT Image quality. xhigh and max require GPT Image 2.5.",
+                "Unsupported GPT Image quality. xhigh and max require GPT Image 2.5 or 2.6.",
             ));
         }
     }
@@ -874,7 +876,7 @@ fn validate_image_options(
             "This GPT Image model supports only auto, 1024x1024, 1024x1536 or 1536x1024.",
         ));
     }
-    if (is_gpt_image_25(model) || model == "gpt-image-2") && size != "auto" {
+    if (supports_gpt_image_extended_quality(model) || model == "gpt-image-2") && size != "auto" {
         let valid = size
             .split_once('x')
             .and_then(|(width, height)| {
@@ -1653,14 +1655,19 @@ mod tests {
     }
 
     #[test]
-    fn image_25_transmits_extended_quality_and_transparent_output() {
+    fn image_25_and_26_transmit_extended_quality_and_transparent_output() {
         let config = test_config("open_ai", Some("https://api.openai.com/v1"));
         let mut args = test_args();
         args.size = Some("3840x2160".to_string());
         args.quality = Some("max".to_string());
         args.background = Some("transparent".to_string());
         args.output_compression = Some(85);
-        for model in ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] {
+        for model in [
+            "gpt-image-2.5-flare",
+            "gpt-image-2.5-sunburst",
+            "gpt-image-2.6-flare",
+            "gpt-image-2.6-sunburst",
+        ] {
             validate_image_options(&config, &args, model, ImageProvider::OpenAi, "webp").unwrap();
             let body = build_openai_images_body(&config, &args, model, "webp");
             assert_eq!(body["model"], model);
@@ -1686,6 +1693,12 @@ mod tests {
         )
         .is_err());
         args.size = Some("3840x3840".to_string());
+        for model in ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst"] {
+            assert!(
+                validate_image_options(&config, &args, model, ImageProvider::OpenAi, "webp")
+                    .is_err()
+            );
+        }
         assert!(validate_image_options(
             &config,
             &args,
@@ -1781,6 +1794,8 @@ mod tests {
         for (provider, model, quality) in [
             (ImageProvider::OpenAi, "gpt-image-2.5-flare", "xhigh"),
             (ImageProvider::OpenAi, "gpt-image-2.5-sunburst", "max"),
+            (ImageProvider::OpenAi, "gpt-image-2.6-flare", "xhigh"),
+            (ImageProvider::OpenAi, "gpt-image-2.6-sunburst", "max"),
             (ImageProvider::Xai, "grok-imagine-image-2.0", "medium"),
         ] {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
