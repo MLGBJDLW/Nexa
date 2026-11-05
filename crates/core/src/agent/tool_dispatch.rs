@@ -547,6 +547,7 @@ pub(super) struct ToolDispatchContext<'a> {
     pub(super) tx: &'a mpsc::Sender<AgentEvent>,
     pub(super) conversation_id: Option<&'a str>,
     pub(super) turn_id: Option<&'a str>,
+    pub(super) execution_batch_id: &'a str,
     pub(super) source_scope: &'a [String],
     pub(super) model: &'a str,
     pub(super) privacy_cfg: &'a privacy::PrivacyConfig,
@@ -812,6 +813,7 @@ impl ToolDispatchRuntime<'_> {
             tx,
             conversation_id,
             turn_id,
+            execution_batch_id,
             source_scope,
             model,
             privacy_cfg,
@@ -1018,6 +1020,7 @@ impl ToolDispatchRuntime<'_> {
                 let run_tx = tx.clone();
                 let progress_call_id = tc.id.clone();
                 let progress_tool_name = tc.name.clone();
+                let execution_id = format!("{execution_batch_id}:{index}");
                 let tool_dispatch_block = tool_dispatch_block.clone();
                 tool_futures.push(
                     async move {
@@ -1485,6 +1488,7 @@ impl ToolDispatchRuntime<'_> {
                                     source_scope,
                                     conversation_id: execution_conversation_id,
                                     turn_id: execution_turn_id,
+                                    execution_id: Some(&execution_id),
                                     tool_registry: Some(discovery_tools),
                                     cancel_token: Some(self.cancel_token),
                                     activity_runtime: Some(&scoped_activity_runtime),

@@ -295,6 +295,7 @@ mod tests {
                 activity_runtime: None,
                 conversation_id: None,
                 turn_id: None,
+                execution_id: None,
                 tool_registry: Some(&registry),
                 cancel_token: None,
                 event_tx: None,

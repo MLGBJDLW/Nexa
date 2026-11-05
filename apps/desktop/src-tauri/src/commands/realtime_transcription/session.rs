@@ -58,17 +58,10 @@ pub(super) async fn connect(
     } else if dialect == RealtimeDialect::DashScopeTask {
         nexa_core::dashscope_speech::task_endpoint(config.base_url.as_deref().unwrap_or_default())?
     } else if dialect == RealtimeDialect::Mistral {
-        let base = config
-            .base_url
-            .as_deref()
-            .unwrap_or_default()
-            .trim_end_matches('/');
-        if base != "https://api.mistral.ai/v1" && base != "wss://api.mistral.ai/v1/realtime" {
-            return Err(
-                "Voxtral realtime transcription requires the official Mistral endpoint.".into(),
-            );
-        }
-        build_realtime_endpoint(base, &config.model)?
+        build_mistral_realtime_endpoint(
+            config.base_url.as_deref().unwrap_or_default(),
+            &config.model,
+        )?
     } else {
         build_realtime_endpoint(
             config.base_url.as_deref().unwrap_or_default(),

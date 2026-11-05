@@ -1542,6 +1542,7 @@ impl AgentExecutor {
                     None,
                     "Nexus runtime scheduled the first Workflow IR reconnaissance wave.",
                 )?;
+                let execution_batch_id = synthetic_envelope.turn_item_id.clone();
                 if let Some(message) = messages.last_mut() {
                     message.set_provider_turn(synthetic_envelope);
                 }
@@ -1575,6 +1576,7 @@ impl AgentExecutor {
                             privacy_cfg: &privacy_cfg,
                             route_kind: route_plan.kind,
                             tool_round_index: turn_budget.tool_rounds_used(),
+                            execution_batch_id: &execution_batch_id,
                             tool_defs: &mut tool_defs,
                             messages: &mut messages,
                             persisted_trace_items: &mut persisted_trace_items,
@@ -3226,6 +3228,7 @@ impl AgentExecutor {
                 &display_iteration_thinking,
             )?;
             assistant_msg.set_provider_turn(provider_turn_envelope.clone());
+            let execution_batch_id = provider_turn_envelope.turn_item_id.clone();
             if let Some(message) = messages.last_mut() {
                 message.set_provider_turn(provider_turn_envelope);
             }
@@ -3324,6 +3327,7 @@ impl AgentExecutor {
                         privacy_cfg: &privacy_cfg,
                         route_kind: route_plan.kind,
                         tool_round_index: turn_budget.tool_rounds_used(),
+                        execution_batch_id: &execution_batch_id,
                         tool_defs: &mut tool_defs,
                         messages: &mut messages,
                         persisted_trace_items: &mut persisted_trace_items,

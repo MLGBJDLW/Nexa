@@ -1624,8 +1624,9 @@ impl ExternalToolSession {
             ));
         }
         let model = self.input.config.model.as_deref().unwrap_or("subscription");
+        let execution_batch_id = Uuid::new_v4().to_string();
         self.input.db.add_message(&ConversationMessage {
-            id: Uuid::new_v4().to_string(),
+            id: execution_batch_id.clone(),
             conversation_id: self.input.conversation_id.clone(),
             role: Role::Assistant,
             content: String::new(),
@@ -1694,6 +1695,7 @@ impl ExternalToolSession {
                 privacy_cfg: &self.privacy,
                 route_kind: AgentRouteKind::InteractionOperation,
                 tool_round_index: *rounds,
+                execution_batch_id: &execution_batch_id,
                 tool_defs: &mut definitions,
                 messages: &mut messages,
                 persisted_trace_items: trace_items,

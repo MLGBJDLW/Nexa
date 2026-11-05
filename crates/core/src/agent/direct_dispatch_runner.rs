@@ -84,6 +84,7 @@ impl AgentExecutor {
                     source_scope,
                     conversation_id,
                     turn_id,
+                    execution_id: Some(&call_id),
                     tool_registry: Some(&self.tools),
                     cancel_token: Some(&self.cancel_token),
                     activity_runtime: Some(&self.activity_runtime),

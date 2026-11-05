@@ -353,6 +353,9 @@ pub struct ToolExecutionContext<'a> {
     pub source_scope: &'a [String],
     pub conversation_id: Option<&'a str>,
     pub turn_id: Option<&'a str>,
+    /// Host-owned identity of this admitted execution, distinct from provider
+    /// call IDs that may be reused in another response or resumed session.
+    pub execution_id: Option<&'a str>,
     pub tool_registry: Option<&'a ToolRegistry>,
     pub cancel_token: Option<&'a tokio_util::sync::CancellationToken>,
     pub activity_runtime: Option<&'a ActivityRuntime>,
@@ -378,6 +381,7 @@ impl<'a> ToolExecutionContext<'a> {
             conversation_id: None,
             file_change_owner: None,
             turn_id: None,
+            execution_id: None,
             tool_registry: None,
             cancel_token: None,
             activity_runtime: None,
@@ -392,6 +396,11 @@ impl<'a> ToolExecutionContext<'a> {
 
     pub fn with_turn_id(mut self, turn_id: Option<&'a str>) -> Self {
         self.turn_id = turn_id;
+        self
+    }
+
+    pub fn with_execution_id(mut self, execution_id: &'a str) -> Self {
+        self.execution_id = Some(execution_id);
         self
     }
 
@@ -1402,6 +1411,7 @@ impl ToolRegistry {
                 source_scope: ctx.source_scope,
                 conversation_id: ctx.conversation_id,
                 turn_id: ctx.turn_id,
+                execution_id: ctx.execution_id,
                 tool_registry: ctx.tool_registry.or(Some(self)),
                 cancel_token: ctx.cancel_token,
                 activity_runtime: ctx.activity_runtime,

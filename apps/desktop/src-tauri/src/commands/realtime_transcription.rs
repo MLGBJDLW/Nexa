@@ -155,6 +155,24 @@ struct RealtimeEventSink {
     live: Option<LiveTranscriptCallback>,
 }
 
+fn build_mistral_realtime_endpoint(base_url: &str, model: &str) -> Result<String, String> {
+    let base = base_url.trim().trim_end_matches('/');
+    if !matches!(
+        base,
+        "https://api.mistral.ai/v1"
+            | "https://api.mistral.ai/v1/audio/transcriptions/realtime"
+            | "wss://api.mistral.ai/v1/audio/transcriptions/realtime"
+    ) {
+        return Err(
+            "Voxtral realtime transcription requires the official Mistral endpoint.".into(),
+        );
+    }
+    let mut url = Url::parse("wss://api.mistral.ai/v1/audio/transcriptions/realtime")
+        .expect("official Mistral transcription URL");
+    url.query_pairs_mut().append_pair("model", model.trim());
+    Ok(url.to_string())
+}
+
 fn build_realtime_endpoint(base_url: &str, model: &str) -> Result<String, String> {
     let mut url = Url::parse(base_url.trim())
         .map_err(|error| format!("Invalid Realtime base URL: {error}"))?;
@@ -813,9 +831,10 @@ pub(super) async fn append_live_transcription_audio(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_realtime_endpoint, build_session_update, finish_messages, parse_server_event,
-        raw_realtime_audio, replay_wav_data_bytes, transcribe_realtime_spool,
-        ParsedRealtimeServerEvent, RealtimeDialect, TranscriptUpdate, MAX_AUDIO_CHUNK_BYTES,
+        build_mistral_realtime_endpoint, build_realtime_endpoint, build_session_update,
+        finish_messages, parse_server_event, raw_realtime_audio, replay_wav_data_bytes,
+        transcribe_realtime_spool, ParsedRealtimeServerEvent, RealtimeDialect, TranscriptUpdate,
+        MAX_AUDIO_CHUNK_BYTES,
     };
     use futures::{SinkExt, StreamExt};
     use serde_json::Value;
@@ -1117,6 +1136,29 @@ mod tests {
         assert!(
             matches!(parse_server_event(dialect, &done), ParsedRealtimeServerEvent::Final { text, .. } if text == "Hello.")
         );
+    }
+
+    #[test]
+    fn mistral_realtime_endpoint_uses_the_audio_transcription_route() {
+        for base in [
+            "https://api.mistral.ai/v1/",
+            "https://api.mistral.ai/v1/audio/transcriptions/realtime",
+            "wss://api.mistral.ai/v1/audio/transcriptions/realtime/",
+        ] {
+            assert_eq!(
+                build_mistral_realtime_endpoint(base, "voxtral-mini-transcribe-realtime-3-0").unwrap(),
+                "wss://api.mistral.ai/v1/audio/transcriptions/realtime?model=voxtral-mini-transcribe-realtime-3-0"
+            );
+        }
+        for base in [
+            "https://proxy.example/v1",
+            "wss://api.mistral.ai/v1/realtime",
+        ] {
+            assert!(
+                build_mistral_realtime_endpoint(base, "voxtral-mini-transcribe-realtime-3-0")
+                    .is_err()
+            );
+        }
     }
 
     #[test]

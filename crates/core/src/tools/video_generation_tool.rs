@@ -147,10 +147,20 @@ impl GenerateVideoTool {
         conversation_id: &str,
         input: VideoRequest,
     ) -> Result<Value, CoreError> {
+        let turn_id = context
+            .turn_id
+            .ok_or_else(|| missing("trusted turn identity"))?;
+        let execution_id = context
+            .execution_id
+            .ok_or_else(|| missing("trusted execution identity"))?;
+        let identity = json!([conversation_id, turn_id, execution_id]).to_string();
         let cancellation = context.cancel_token.cloned().unwrap_or_default();
         let privacy = context.db.privacy_lease(&cancellation)?;
         let request = NormalizedVideoRequest {
-            idempotency_key: format!("generate_video:{conversation_id}:{}", context.call_id),
+            idempotency_key: format!(
+                "generate_video:{}",
+                blake3::hash(identity.as_bytes()).to_hex()
+            ),
             model_id: input.model_id,
             operation: input.operation,
             prompt: privacy.policy.redact_text(&input.prompt),
@@ -566,6 +576,18 @@ mod tests {
                     "video/mp4",
                     b"\0\0\0\x18ftypmp42\0\0\0\0".as_slice(),
                 ),
+                (
+                    "POST /api/v1/videos",
+                    "202 Accepted",
+                    "application/json",
+                    br#"{"id":"next-sample","status":"pending"}"#.as_slice(),
+                ),
+                (
+                    "POST /api/v1/videos",
+                    "202 Accepted",
+                    "application/json",
+                    br#"{"id":"next-turn","status":"pending"}"#.as_slice(),
+                ),
             ] {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let mut header = Vec::new();
@@ -606,7 +628,9 @@ mod tests {
         assert!(tool.requires_confirmation(&json!({"action":"submit"})));
         assert!(!tool.requires_confirmation(&json!({"action":"status"})));
         let adapter = OpenRouterVideoAdapter::build("local-key".into(), "scope", base).unwrap();
-        let context = ToolExecutionContext::new("call-1", "{}", &db, &[]);
+        let context = ToolExecutionContext::new("call_0", "{}", &db, &[])
+            .with_turn_id(Some("turn-1"))
+            .with_execution_id("sample-1:0");
         let input = || {
             serde_json::from_value(json!({
                 "modelId": "google/veo-3.1", "operation": "text_to_video",
@@ -635,6 +659,28 @@ mod tests {
             tool.status(&adapter, "chat-1", id).await.unwrap()["state"],
             "completed"
         );
+        let next_sample = ToolExecutionContext::new("call_0", "{}", &db, &[])
+            .with_turn_id(Some("turn-1"))
+            .with_execution_id("sample-2:0");
+        let regenerated = tool
+            .submit(&adapter, &next_sample, "chat-1", input())
+            .await
+            .unwrap();
+        assert_ne!(regenerated["jobId"], submitted["jobId"]);
+        let next_turn = ToolExecutionContext::new("call_0", "{}", &db, &[])
+            .with_turn_id(Some("turn-2"))
+            .with_execution_id("sample-3:0");
+        let later = tool
+            .submit(&adapter, &next_turn, "chat-1", input())
+            .await
+            .unwrap();
+        assert_ne!(later["jobId"], regenerated["jobId"]);
+        assert_ne!(later["jobId"], submitted["jobId"]);
+        let unscoped = ToolExecutionContext::new("call_0", "{}", &db, &[]);
+        assert!(tool
+            .submit(&adapter, &unscoped, "chat-1", input())
+            .await
+            .is_err());
         server.await.unwrap();
     }
 }
