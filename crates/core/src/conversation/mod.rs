@@ -1630,7 +1630,17 @@ impl Database {
         &self,
         input: &CreateConversationInput,
     ) -> Result<Conversation, CoreError> {
+        self.create_conversation_with_selection(input, None, None)
+    }
+
+    fn create_conversation_with_selection(
+        &self,
+        input: &CreateConversationInput,
+        agent_config_id: Option<&str>,
+        model_selection: Option<&TurnModelSelection>,
+    ) -> Result<Conversation, CoreError> {
         let id = new_id();
+        let model_selection_json = model_selection.map(serde_json::to_string).transpose()?;
         let system_prompt = input.system_prompt.as_deref().unwrap_or("");
         let system_prompt_origin = if system_prompt.trim().is_empty() {
             "none"
@@ -1647,8 +1657,8 @@ impl Database {
             .map(str::to_string);
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO conversations (id, provider, model, system_prompt, system_prompt_origin, collection_context_json, project_id, persona_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO conversations (id, provider, model, system_prompt, system_prompt_origin, collection_context_json, project_id, persona_id, agent_config_id, model_selection_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 &id,
                 &input.provider,
@@ -1657,7 +1667,9 @@ impl Database {
                 system_prompt_origin,
                 &collection_context_json,
                 &input.project_id,
-                &persona_id
+                &persona_id,
+                agent_config_id,
+                model_selection_json
             ],
         )?;
         drop(conn);
@@ -4907,14 +4919,18 @@ impl Database {
         let source = self.get_conversation(&checkpoint.conversation_id)?;
         let branch_messages = self.recover_checkpoint_messages(&checkpoint)?;
 
-        let conversation = self.create_conversation(&CreateConversationInput {
-            provider: source.provider.clone(),
-            model: source.model.clone(),
-            system_prompt: Some(source.system_prompt.clone()),
-            collection_context: source.collection_context.clone(),
-            project_id: source.project_id.clone(),
-            persona_id: source.persona_id.clone(),
-        })?;
+        let conversation = self.create_conversation_with_selection(
+            &CreateConversationInput {
+                provider: source.provider.clone(),
+                model: source.model.clone(),
+                system_prompt: Some(source.system_prompt.clone()),
+                collection_context: source.collection_context.clone(),
+                project_id: source.project_id.clone(),
+                persona_id: source.persona_id.clone(),
+            },
+            source.agent_config_id.as_deref(),
+            source.model_selection.as_ref(),
+        )?;
         self.copy_conversation_system_prompt_origin(&source.id, &conversation.id)?;
         self.rename_conversation_by_user(
             &conversation.id,

@@ -251,9 +251,30 @@ mod tests {
             .unwrap();
         assert_eq!(explicitly_switched.id, "connection-b");
         assert_eq!(explicitly_switched.model, "default-model");
+        let checkpoint = db
+            .create_checkpoint(&conversation.id, "manual", 0, 0)
+            .unwrap();
+        let branch = db.branch_checkpoint(&checkpoint).unwrap();
+        assert_eq!(
+            branch.conversation.agent_config_id,
+            reloaded.agent_config_id
+        );
+        assert_eq!(
+            branch.conversation.model_selection,
+            reloaded.model_selection
+        );
+        let branch_config = db
+            .resolve_conversation_agent_config(&branch.conversation, None)
+            .unwrap();
+        assert_eq!(branch_config.id, "connection-a");
+        assert_eq!(branch_config.model, "chat-model");
+        assert_eq!(branch_config.reasoning_effort.as_deref(), Some("high"));
         db.delete_agent_config("connection-a").unwrap();
         assert!(db
             .resolve_conversation_agent_config(&reloaded, None)
+            .is_err());
+        assert!(db
+            .resolve_conversation_agent_config(&branch.conversation, None)
             .is_err());
     }
     #[test]
