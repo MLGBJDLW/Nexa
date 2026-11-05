@@ -1390,7 +1390,19 @@ fn build_responses_request_with_tools(
     tools: Vec<serde_json::Value>,
     include_encrypted_reasoning: bool,
 ) -> Result<serde_json::Value, CoreError> {
-    let input = responses_input_items(&request.messages)?;
+    let multi_agent = dialect == super::native_search::NativeSearchDialect::XaiResponses
+        && is_xai_multi_agent_model(&request.model);
+    let mut input = responses_input_items(&request.messages)?;
+    let mut tools = tools;
+    if multi_agent {
+        input.retain(|item| item.get("role").is_some() || item["type"] == "message");
+        tools.retain(|tool| {
+            matches!(
+                tool["type"].as_str(),
+                Some("web_search" | "x_search" | "mcp")
+            )
+        });
+    }
     let mut body = serde_json::json!({
         "model": request.model,
         "input": input,
@@ -1450,7 +1462,26 @@ fn build_responses_request_with_tools(
         // though its Chat Completions surface accepts `reasoning_effort`.
         // Preserve the already catalog-scoped effort when native search moves
         // the request onto /responses.
-        if let Some(effort) = request.reasoning_effort.as_ref() {
+        if multi_agent {
+            let object = body.as_object_mut().expect("Responses object");
+            object.remove("parallel_tool_calls");
+            if object
+                .get("tools")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(Vec::is_empty)
+            {
+                object.remove("tools");
+            }
+            let effort = match request.reasoning_effort {
+                Some(ReasoningEffort::XHigh | ReasoningEffort::Max | ReasoningEffort::Ultra) => {
+                    "xhigh"
+                }
+                Some(ReasoningEffort::High) => "high",
+                Some(ReasoningEffort::Medium) => "medium",
+                _ => "low",
+            };
+            body["reasoning"] = serde_json::json!({ "effort": effort });
+        } else if let Some(effort) = request.reasoning_effort.as_ref() {
             body["reasoning"] = serde_json::json!({ "effort": effort.to_string() });
         }
     } else if dialect == super::native_search::NativeSearchDialect::OpenRouterServerTool {
@@ -1542,6 +1573,26 @@ fn generic_responses_capability(
 fn is_deepseek_responses_model(model: &str) -> bool {
     let model = model.trim().to_ascii_lowercase();
     model == "deepseek-flash" || model.starts_with("deepseek-v4")
+}
+
+pub(super) fn is_xai_multi_agent_model(model: &str) -> bool {
+    matches!(
+        model.trim(),
+        "grok-4.20-multi-agent"
+            | "grok-4.20-multi-agent-0309"
+            | "grok-4.20-multi-agent-latest"
+            | "grok-4.20-multi-agent-beta-latest"
+            | "grok-4.20-multi-agent-experimental-beta-0304"
+            | "grok-4.20-multi-agent-experimental-beta-latest"
+            | "grok-4.20-multi-agent-beta-0309"
+    )
+}
+
+fn is_direct_xai_multi_agent(config: &ProviderConfig, model: &str) -> bool {
+    super::provider_boundary::is_xai_public_endpoint(
+        config.provider_type,
+        config.base_url.as_deref(),
+    ) && is_xai_multi_agent_model(model)
 }
 
 fn is_direct_gpt6_responses_model(config: &ProviderConfig, model: &str) -> bool {
@@ -3190,6 +3241,7 @@ impl LlmProvider for OpenAiProvider {
 
     fn reasoning_replay_policy(&self, model: &str) -> ReasoningReplayPolicy {
         let api_style = if is_direct_gpt6_responses_model(&self.config, model)
+            || is_direct_xai_multi_agent(&self.config, model)
             || (self.config.provider_type == ProviderType::DeepSeek
                 && super::provider_boundary::is_deepseek_public_endpoint(
                     self.config.provider_type,
@@ -3236,6 +3288,9 @@ impl LlmProvider for OpenAiProvider {
             return model.route(&self.config, request);
         }
         let api_style = match hosted_search_context(request) {
+            _ if is_direct_xai_multi_agent(&self.config, &request.model) => {
+                ReasoningApiStyle::OpenAiResponses
+            }
             Some((_dialect, mode, capability))
                 if !capability.can_mix_client_tools
                     && hosted_search_requires_client_tools(request, mode)
@@ -3309,6 +3364,17 @@ impl LlmProvider for OpenAiProvider {
         );
         let request = projected.as_ref();
         let transport = self.transport.for_request()?;
+        if is_direct_xai_multi_agent(&self.config, &request.model) {
+            let search =
+                hosted_search_context(request).map(|(_, mode, capability)| (mode, capability));
+            return self
+                .complete_responses(
+                    request,
+                    super::native_search::NativeSearchDialect::XaiResponses,
+                    search,
+                )
+                .await;
+        }
         let fallback_request;
         let request = if let Some((dialect, mode, capability)) = hosted_search_context(request) {
             if !capability.can_mix_client_tools
@@ -3567,6 +3633,17 @@ impl LlmProvider for OpenAiProvider {
         );
         let request = projected.as_ref();
         let transport = self.transport.for_request()?;
+        if is_direct_xai_multi_agent(&self.config, &request.model) {
+            let search =
+                hosted_search_context(request).map(|(_, mode, capability)| (mode, capability));
+            return self
+                .stream_responses_events(
+                    request,
+                    super::native_search::NativeSearchDialect::XaiResponses,
+                    search,
+                )
+                .await;
+        }
         if let Some((dialect, mode, capability)) = hosted_search_context(request) {
             if capability.supports_stream_events
                 && (capability.can_mix_client_tools
@@ -6300,7 +6377,7 @@ data: [DONE]
             .as_str()
             .is_some_and(|key| key.starts_with("nexa-")));
 
-        let mut multi_agent = endpoint_reasoning_request("grok-4.20-multi-agent-0309");
+        let mut multi_agent = endpoint_reasoning_request("grok-4.20-multi-agent-latest");
         multi_agent.reasoning_effort = Some(ReasoningEffort::High);
         let body = serde_json::to_value(build_request_body_with_config(
             &multi_agent,

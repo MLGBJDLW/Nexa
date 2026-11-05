@@ -124,7 +124,7 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
     }
 
     fn validate(&self, request: &NormalizedVideoRequest) -> ValidationResult {
-        let mut issues = common_validation(request);
+        let mut issues = common_validation(request, true);
         if request.prompt.chars().count() > 7000 {
             issues.push(issue(
                 "prompt",

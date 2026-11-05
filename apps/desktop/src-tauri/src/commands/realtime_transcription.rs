@@ -50,6 +50,7 @@ enum RealtimeCommand {
 enum RealtimeDialect {
     OpenAi,
     Gemini,
+    Mistral,
     DashScope,
     DashScopeTask,
 }
@@ -63,6 +64,7 @@ impl RealtimeDialect {
             "openai_realtime_transcription" if config.model.trim() == "gpt-live-transcribe" => {
                 Ok(Self::OpenAi)
             }
+            "mistral_realtime_asr" => Ok(Self::Mistral),
             "gemini_realtime_asr" if config.model.trim() == "gemini-3.5-transcribe-live" => {
                 Ok(Self::Gemini)
             }
@@ -93,7 +95,7 @@ impl RealtimeDialect {
     fn sample_rate(self) -> u32 {
         match self {
             Self::OpenAi => 24_000,
-            Self::Gemini | Self::DashScope | Self::DashScopeTask => 16_000,
+            Self::Gemini | Self::Mistral | Self::DashScope | Self::DashScopeTask => 16_000,
         }
     }
 
@@ -193,6 +195,21 @@ fn build_session_update(
     task_id: &str,
 ) -> Value {
     match dialect {
+        RealtimeDialect::Mistral => {
+            let mut session = serde_json::json!({
+                "audio_format": {"encoding": "pcm_s16le", "sample_rate": 16000},
+                "target_streaming_delay_ms": 480
+            });
+            if let Some(language) = language
+                .and_then(|value| value.split(['-', '_']).next())
+                .filter(|value| {
+                    value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
+                })
+            {
+                session["language"] = serde_json::json!(language.to_ascii_lowercase());
+            }
+            serde_json::json!({"type":"session.update", "session":session})
+        }
         RealtimeDialect::Gemini => serde_json::json!({
             "setup": {
                 "model": format!("models/{}", model.trim_start_matches("models/")),
@@ -264,6 +281,31 @@ fn build_session_update(
 }
 
 fn parse_server_event(dialect: RealtimeDialect, event: &Value) -> ParsedRealtimeServerEvent {
+    if dialect == RealtimeDialect::Mistral {
+        let text = event["text"].as_str();
+        return match (event["type"].as_str(), text) {
+            (Some("transcription.text.delta"), Some(text)) => ParsedRealtimeServerEvent::Interim {
+                utterance_id: None,
+                text: text.to_string(),
+                update: TranscriptUpdate::AppendDelta,
+            },
+            (Some("transcription.done"), Some(text)) => ParsedRealtimeServerEvent::Final {
+                utterance_id: None,
+                text: text.to_string(),
+            },
+            (Some("transcription.done"), None) => ParsedRealtimeServerEvent::Error(
+                "Mistral returned a terminal transcript without text".into(),
+            ),
+            (Some("error"), _) => ParsedRealtimeServerEvent::Error(
+                event
+                    .pointer("/error/message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Mistral realtime transcription failed")
+                    .to_string(),
+            ),
+            _ => ParsedRealtimeServerEvent::Other,
+        };
+    }
     if dialect == RealtimeDialect::Gemini {
         if let Some(message) = event.pointer("/error/message").and_then(Value::as_str) {
             return ParsedRealtimeServerEvent::Error(message.into());
@@ -452,6 +494,9 @@ fn emit_live_transcript(
 }
 
 fn finish_messages(dialect: RealtimeDialect, task_id: &str) -> Vec<Value> {
+    if dialect == RealtimeDialect::Mistral {
+        return vec![serde_json::json!({"type":"input_audio.end"})];
+    }
     if dialect == RealtimeDialect::Gemini {
         return vec![serde_json::json!({"realtimeInput":{"activityEnd":{}}})];
     }
@@ -471,6 +516,12 @@ fn finish_messages(dialect: RealtimeDialect, task_id: &str) -> Vec<Value> {
 fn audio_message(dialect: RealtimeDialect, audio_data: &[u8]) -> Message {
     if dialect == RealtimeDialect::Gemini {
         Message::Text(serde_json::json!({"realtimeInput":{"audio":{"data":BASE64.encode(audio_data),"mimeType":"audio/pcm;rate=16000"}}}).to_string().into())
+    } else if dialect == RealtimeDialect::Mistral {
+        Message::Text(
+            serde_json::json!({"type":"input_audio.append","audio":BASE64.encode(audio_data)})
+                .to_string()
+                .into(),
+        )
     } else if dialect == RealtimeDialect::DashScopeTask {
         Message::Binary(audio_data.to_vec().into())
     } else {
@@ -525,6 +576,7 @@ async fn wait_for_session_ready<S>(
     socket: &mut tokio_tungstenite::WebSocketStream<S>,
     dialect: RealtimeDialect,
     task_id: &str,
+    mistral_created: bool,
 ) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -544,7 +596,8 @@ where
                         }
                     }
                     match event.get("type").and_then(Value::as_str) {
-                        Some("session.updated" | "transcription_session.updated") => return Ok(()),
+                        Some("session.created") if mistral_created => return Ok(()),
+                        Some("session.updated" | "transcription_session.updated") if !mistral_created => return Ok(()),
                         Some("error") => return Err(event.pointer("/error/message").and_then(Value::as_str).unwrap_or("Realtime session configuration was rejected").to_string()),
                         _ => {}
                     }
@@ -1035,6 +1088,35 @@ mod tests {
         header[24..28].copy_from_slice(&16_000_u32.to_le_bytes());
         assert!(replay_wav_data_bytes(&header, 24_000).is_err());
         assert_eq!(replay_wav_data_bytes(&header, 16_000).unwrap(), 128);
+    }
+
+    #[test]
+    fn mistral_realtime_transcription_uses_pcm_deltas_and_authoritative_terminal_text() {
+        let dialect = RealtimeDialect::Mistral;
+        assert_eq!(dialect.sample_rate(), 16000);
+        let setup = build_session_update(
+            dialect,
+            "voxtral-mini-transcribe-realtime-3-0",
+            Some("en-US"),
+            "test",
+        );
+        assert_eq!(
+            setup["session"]["audio_format"],
+            serde_json::json!({"encoding":"pcm_s16le","sample_rate":16000})
+        );
+        assert_eq!(setup["session"]["language"], "en");
+        assert_eq!(
+            finish_messages(dialect, "test"),
+            vec![serde_json::json!({"type":"input_audio.end"})]
+        );
+        let delta = serde_json::json!({"type":"transcription.text.delta","text":" Hel"});
+        let done = serde_json::json!({"type":"transcription.done","text":"Hello."});
+        assert!(
+            matches!(parse_server_event(dialect, &delta), ParsedRealtimeServerEvent::Interim { text, update: TranscriptUpdate::AppendDelta, .. } if text == " Hel")
+        );
+        assert!(
+            matches!(parse_server_event(dialect, &done), ParsedRealtimeServerEvent::Final { text, .. } if text == "Hello.")
+        );
     }
 
     #[test]

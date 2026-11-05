@@ -991,6 +991,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
     let cancel_token_clone = cancel_token.clone();
     let (steering_tx, steering_rx) = tokio::sync::mpsc::unbounded_channel::<AgentSteeringMessage>();
     let db = state.db.clone();
+    let media_generation = state.media_generation.clone();
     let db_executor = state.db_executor.clone();
     let subagent_lifecycle = state.subagent_lifecycle.clone();
     let background_work = state.background_work.clone();
@@ -1370,6 +1371,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
             let session_dependencies =
                 build_desktop_agent_session_dependencies(DesktopAgentSessionDependencyRequest {
                     phone_host: Arc::new(crate::phone_control::PairedPhoneHost(handle.clone())),
+                    media_generation,
                     workspace: workspace.clone(),
                     preview_host: Arc::new(crate::preview_tool::NativeNexaPreviewHost::new(handle.clone())),
                     agent_runtime: runtime_kind,

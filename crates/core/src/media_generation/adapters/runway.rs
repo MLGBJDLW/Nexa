@@ -126,7 +126,7 @@ impl VideoGenerationAdapter for RunwayVideoAdapter {
     }
 
     fn validate(&self, request: &NormalizedVideoRequest) -> ValidationResult {
-        let mut issues = common_validation(request);
+        let mut issues = common_validation(request, true);
         contracts::validate(request, &mut issues);
         for (index, asset) in request.input_assets.iter().enumerate() {
             if !asset.uri.starts_with("https://") && !asset.uri.starts_with("runway://") {

@@ -399,6 +399,7 @@ pub async fn transcribe_voice_audio_spool_cmd(
                 .map_err(|e| e.to_string())
         }
         "openai_realtime_transcription"
+        | "mistral_realtime_asr"
         | "dashscope_realtime_asr"
         | "dashscope_streaming_asr"
         | "gemini_realtime_asr" => {

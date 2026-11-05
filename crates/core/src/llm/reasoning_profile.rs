@@ -416,6 +416,27 @@ pub fn resolve_reasoning_profile(
         return value;
     }
     if api_style == ReasoningApiStyle::OpenAiResponses {
+        if is_xai_public_endpoint(provider, base_url)
+            && super::openai::is_xai_multi_agent_model(model)
+        {
+            return profile(
+                key,
+                "xai-grok-multi-agent-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::NestedReasoning,
+                ReasoningEffortMapping::Exact,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::High,
+                        ReasoningEffort::XHigh,
+                    ],
+                    Some(ReasoningEffort::Low),
+                ),
+                ReasoningBudgetField::None,
+            );
+        }
         let mut value = ReasoningProfile::unsupported(key);
         let trusted_codec = match provider {
             ProviderType::DeepSeek => is_deepseek_public_endpoint(provider, base_url),
@@ -2104,6 +2125,17 @@ mod tests {
             "grok-4.20-multi-agent-0309",
         );
         assert_eq!(value.mode_control, ThinkingModeControl::Unsupported);
+        let responses = resolve_reasoning_profile(
+            ProviderType::OpenAi,
+            Some("https://api.x.ai/v1"),
+            ReasoningApiStyle::OpenAiResponses,
+            "grok-4.20-multi-agent-latest",
+        );
+        assert_eq!(responses.mode_control, ThinkingModeControl::AlwaysOn);
+        assert_eq!(
+            responses.effort_field,
+            ReasoningEffortField::NestedReasoning
+        );
     }
 
     #[test]

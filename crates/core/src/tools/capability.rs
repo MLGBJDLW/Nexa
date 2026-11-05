@@ -235,6 +235,7 @@ pub fn capability_input_streaming(name: &str) -> ToolInputStreamingMode {
     match name {
         "generate_image"
         | "synthesize_speech"
+        | "generate_video"
         | "download_asset"
         | "browser_evidence_capture"
         | "fetch_url"
@@ -588,6 +589,16 @@ pub fn infer_tool_access_profile(
             false,
             ApprovalRisk::Low,
             "Reads remote web content or search results and crosses the local trust boundary.",
+        ),
+        "generate_video" => (
+            "web",
+            true,
+            true,
+            false,
+            true,
+            false,
+            ApprovalRisk::Medium,
+            "Submits approved, billable video jobs and saves verified output from OpenRouter.",
         ),
         "synthesize_speech" => (
             "web",

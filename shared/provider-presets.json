@@ -24885,6 +24885,45 @@
         "deprecationDate": "2026-05-15",
         "documentationRef": "https://docs.x.ai/developers/migration/may-15-retirement",
         "replacementModelId": "grok-4.3"
+      },
+      {
+        "id": "grok-4.20-multi-agent",
+        "name": "Grok 4.20 Multi-Agent (Beta)",
+        "aliases": [
+          "grok-4.20-multi-agent-0309"
+        ],
+        "contextTokens": 1000000,
+        "source": "official",
+        "status": "preview",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": false,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "low",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.x.ai/developers/model-capabilities/text/multi-agent"
       }
     ]
   },

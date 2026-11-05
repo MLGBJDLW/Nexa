@@ -287,6 +287,7 @@ pub struct DesktopAgentSessionConfigInput<'a> {
 
 pub struct DesktopAgentSessionDependencyRequest<'a> {
     pub phone_host: Arc<dyn nexa_core::tools::phone_control_tool::PhoneControlHost>,
+    pub media_generation: nexa_core::media_generation::MediaGenerationRuntime,
     pub workspace: Option<nexa_core::workspace::Workspace>,
     pub preview_host: Arc<dyn nexa_core::tools::open_in_nexa_tool::NexaPreviewHost>,
     pub agent_runtime: Option<crate::agent_runtime::AgentRuntimeKind>,

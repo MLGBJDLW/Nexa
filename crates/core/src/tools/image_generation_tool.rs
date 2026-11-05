@@ -7,6 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
+mod generated_svg;
+
+/// Verifies a generated vector before a native preview or export.
+pub fn validate_generated_svg(bytes: &[u8]) -> Result<(), CoreError> {
+    generated_svg::validate(bytes)
+}
+
 use async_trait::async_trait;
 use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
@@ -305,7 +312,16 @@ impl Tool for GenerateImageTool {
             }
         };
 
-        let media_type = if generated.media_type.trim().is_empty() {
+        if runtime.output_format == "svg" {
+            validate_generated_svg(&generated.bytes)?;
+        } else if generated.media_type == "image/svg+xml" {
+            return Err(CoreError::Parse(
+                "Image provider returned unexpected SVG.".into(),
+            ));
+        }
+        let media_type = if runtime.output_format == "svg" {
+            "image/svg+xml".to_string()
+        } else if generated.media_type.trim().is_empty() {
             media_type_for_format(runtime.output_format).to_string()
         } else {
             generated.media_type.clone()
@@ -593,7 +609,7 @@ async fn generate_openai_image(
             .await
             .unwrap_or_else(|_| crate::openrouter_images::catalog_fallback());
         let descriptor = models.iter().find(|candidate| candidate.id == model)
-            .ok_or_else(|| CoreError::InvalidInput("This OpenRouter image model is unavailable or requires unsupported vector output. Refresh the image catalog in Settings.".into()))?;
+            .ok_or_else(|| CoreError::InvalidInput("This OpenRouter image model is unavailable. Refresh the image catalog in Settings.".into()))?;
         let mut body = crate::openrouter_images::generation_body(
             descriptor,
             &args.prompt,
@@ -674,6 +690,11 @@ async fn generate_openai_image(
 
     let value = parse_json_body(provider_label, &bytes)?;
     let parsed = parse_openai_image_response(&value, output_format)?;
+    if output_format == "svg" && !matches!(&parsed.payload, ImagePayload::Base64(_)) {
+        return Err(CoreError::Parse(
+            "Expected inline SVG from the image provider.".into(),
+        ));
+    }
     let materialized =
         materialize_image_payload(client, &parsed.payload, &parsed.media_type, provider_label)
             .await?;
@@ -1487,6 +1508,7 @@ fn media_type_for_format(format: &str) -> &'static str {
     match format {
         "jpeg" => "image/jpeg",
         "webp" => "image/webp",
+        "svg" => "image/svg+xml",
         _ => "image/png",
     }
 }
@@ -1495,6 +1517,7 @@ fn extension_for_format(format: &str) -> &'static str {
     match format {
         "jpeg" => "jpg",
         "webp" => "webp",
+        "svg" => "svg",
         _ => "png",
     }
 }
@@ -1504,6 +1527,7 @@ fn extension_for_media_type(media_type: &str) -> Option<String> {
         "image/jpeg" | "image/jpg" => Some("jpg".into()),
         "image/webp" => Some("webp".into()),
         "image/gif" => Some("gif".into()),
+        "image/svg+xml" => Some("svg".into()),
         "image/png" => Some("png".into()),
         _ => None,
     }

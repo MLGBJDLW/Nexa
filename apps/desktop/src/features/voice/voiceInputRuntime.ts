@@ -98,6 +98,7 @@ export function isSpeechToTextConfigured(config?: SpeechToTextConfig | null): bo
   if (!config || config.apiStyle === 'local_whisper') return true;
   if (config.apiStyle === 'openai_realtime_transcription'
     || config.apiStyle === 'gemini_realtime_asr'
+    || config.apiStyle === 'mistral_realtime_asr'
     || config.apiStyle === 'dashscope_realtime_asr'
     || config.apiStyle === 'dashscope_streaming_asr') {
     return isRealtimeTranscriptionConfig(config)

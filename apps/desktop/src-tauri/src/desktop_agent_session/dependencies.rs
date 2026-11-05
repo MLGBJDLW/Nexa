@@ -98,6 +98,7 @@ pub async fn build_desktop_agent_session_dependencies(
 ) -> DesktopAgentSessionDependencies {
     let DesktopAgentSessionDependencyRequest {
         phone_host,
+        media_generation,
         workspace,
         preview_host,
         agent_runtime,
@@ -314,6 +315,9 @@ pub async fn build_desktop_agent_session_dependencies(
     tools = tools.without_names(&["open_in_nexa"]);
     tools.register(Box::new(
         nexa_core::tools::open_in_nexa_tool::OpenInNexaTool::new(preview_host),
+    ));
+    tools.register(Box::new(
+        nexa_core::tools::video_generation_tool::GenerateVideoTool(media_generation),
     ));
     let before_package_filter_count = tools.tool_names().len();
     tools = crate::image_generation_tool::install_desktop_image_tool(

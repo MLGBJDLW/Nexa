@@ -12,6 +12,7 @@
       {"id":"jev-preview","name":"Jev Preview","status":"preview","access":"application","resolvedModel":"jev-1.14.0"}
     ]
   },
+  {"id":"openai","name":"OpenAI Decisions","baseUrl":"https://api.openai.com/v1","documentationRef":"https://developers.openai.com/api/docs/guides/decisions","models":[{"id":"gpt-6-luna","name":"GPT-6 Luna Decisions","status":"active","access":"public","source":"official","lastVerifiedAt":"2026-11-05","inputModalities":["text"],"outputModalities":["decisions"]}]},
   {
     "id": "openrouter",
     "name": "OpenRouter Decisions",

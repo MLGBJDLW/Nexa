@@ -174,6 +174,7 @@ pub mod tool_search_tool;
 pub mod unified_control;
 pub mod update_plan_tool;
 pub mod user_memory_tool;
+pub mod video_generation_tool;
 pub mod web_research_context_tool;
 pub mod web_search_tool;
 pub mod workspace_rules_tool;
@@ -2304,6 +2305,7 @@ fn plan_mode_allows_tool(name: &str, access: &ToolAccessProfile) -> bool {
             | "download_asset"
             | "generate_image"
             | "synthesize_speech"
+            | "generate_video"
             | "prepare_document_tools"
             | "update_plan"
             | "update_goal"

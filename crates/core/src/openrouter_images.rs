@@ -17,11 +17,9 @@ pub fn parse_models(value: &Value) -> Vec<ImageModelPreset> {
         if id.is_empty() { return None; }
         let parameters = &model["supported_parameters"];
         if !parameters.is_object() { return None; }
-        // Reference inputs share the existing raster generation endpoint.
-        // Vector-only outputs remain unsupported.
         let formats: Vec<String> = parameters.get("output_format").map(|format| {
             format["values"].as_array().into_iter().flatten().filter_map(Value::as_str)
-                .filter(|format| matches!(*format, "png" | "jpeg" | "webp")).map(str::to_string).collect()
+                .filter(|format| matches!(*format, "png" | "jpeg" | "webp" | "svg")).map(str::to_string).collect()
         }).unwrap_or_else(|| vec!["png".into()]);
         if formats.is_empty() { return None; }
         if !model.pointer("/architecture/output_modalities").and_then(Value::as_array)?.iter().any(|v| v == "image") { return None; }
@@ -226,6 +224,12 @@ mod tests {
         );
         assert!(generation_body(&models[0], "a cat", Some("4K"), None, "png").is_err());
         source["supported_parameters"]["output_format"] = json!({"type":"enum","values":["svg"]});
+        let models = parse_models(&json!({"data":[source]}));
+        assert_eq!(models[0].metadata["outputFormats"], json!(["svg"]));
+        let body = generation_body(&models[0], "a cat", None, None, "svg").unwrap();
+        assert_eq!(body["output_format"], "svg");
+        assert!(generation_body(&models[0], "a cat", None, None, "png").is_err());
+        source["supported_parameters"]["output_format"] = json!({"type":"enum","values":["tiff"]});
         assert!(parse_models(&json!({"data":[source]})).is_empty());
         source["supported_parameters"]["output_format"] = json!({"type":"enum","values":["png"]});
         source["supported_parameters"]["input_references"] =

@@ -1440,6 +1440,32 @@
         "outputModalities": [
           "embedding"
         ]
+      },
+      {
+        "id": "amazon/titan-embed-image-v1",
+        "name": "Amazon Titan Multimodal (Short Text)",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          1024,
+          384,
+          256
+        ],
+        "maxBatchSize": 1,
+        "effectiveInputTokens": 128,
+        "contextTokens": 128,
+        "source": "official",
+        "status": "active",
+        "recommended": false,
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-05",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "documentationRef": "https://openrouter.ai/amazon/titan-embed-image-v1"
       }
     ],
     "documentationUrl": "https://openrouter.ai/docs/guides/overview/multimodal/embeddings"

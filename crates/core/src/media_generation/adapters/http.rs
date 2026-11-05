@@ -224,6 +224,27 @@ pub(super) async fn download_outputs(
     max_total_bytes: u64,
     allow_insecure_http: bool,
 ) -> Result<Vec<DownloadedAsset>, NormalizedProviderError> {
+    download_outputs_with_auth(
+        provider_id,
+        client,
+        result,
+        destination_directory,
+        max_total_bytes,
+        allow_insecure_http,
+        None,
+    )
+    .await
+}
+
+pub(super) async fn download_outputs_with_auth(
+    provider_id: &str,
+    client: &reqwest::Client,
+    result: &ProviderJobResult,
+    destination_directory: &Path,
+    max_total_bytes: u64,
+    allow_insecure_http: bool,
+    first_request_bearer: Option<&str>,
+) -> Result<Vec<DownloadedAsset>, NormalizedProviderError> {
     if result.outputs.is_empty() {
         return Err(local_error(
             provider_id,
@@ -268,7 +289,14 @@ pub(super) async fn download_outputs(
                     "Provider output URL must use public HTTPS and contain no credentials",
                 ));
             }
-            let response = fetch_output(provider_id, client, url, allow_insecure_http).await?;
+            let response = fetch_output(
+                provider_id,
+                client,
+                url,
+                allow_insecure_http,
+                first_request_bearer,
+            )
+            .await?;
             if !response.status().is_success() {
                 let status = response.status();
                 return Err(NormalizedProviderError {
@@ -500,6 +528,7 @@ async fn fetch_output(
     fallback_client: &reqwest::Client,
     mut url: url::Url,
     allow_insecure_http: bool,
+    first_request_bearer: Option<&str>,
 ) -> Result<reqwest::Response, NormalizedProviderError> {
     for redirect_count in 0..=5 {
         let client = if allow_insecure_http {
@@ -507,11 +536,13 @@ async fn fetch_output(
         } else {
             pinned_public_client(provider_id, &url).await?
         };
-        let response = client
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(|error| transport_error(provider_id, "", error))?;
+        let mut request = client.get(url.clone());
+        if let Some(key) = first_request_bearer.filter(|_| redirect_count == 0) {
+            request = request.bearer_auth(key);
+        }
+        let response = request.send().await.map_err(|error| {
+            transport_error(provider_id, first_request_bearer.unwrap_or_default(), error)
+        })?;
         if !response.status().is_redirection() {
             return Ok(response);
         }
@@ -663,7 +694,7 @@ fn extension_for_media_type(media_type: &str) -> &'static str {
     }
 }
 
-fn local_error(provider_id: &str, code: &str, message: &str) -> NormalizedProviderError {
+pub(super) fn local_error(provider_id: &str, code: &str, message: &str) -> NormalizedProviderError {
     NormalizedProviderError {
         provider_id: provider_id.to_string(),
         code: code.to_string(),
