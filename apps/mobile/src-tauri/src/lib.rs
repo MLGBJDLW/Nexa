@@ -526,19 +526,11 @@ async fn mobile_speech(
         speech_runtime.cancel(true).await;
         let input = if native["mode"] == "cloud" {
             speech::validate_input(&config.speech_to_text)?;
-            if let Some(language) = args["language"]
-                .as_str()
-                .filter(|language| !language.is_empty())
-            {
-                if config
-                    .speech_to_text
-                    .language
-                    .as_deref()
-                    .is_none_or(str::is_empty)
-                {
-                    config.speech_to_text.language = Some(language.to_string());
-                }
-            }
+            speech::apply_input_language(
+                &mut config.speech_to_text,
+                native["language"].as_str(),
+                args["language"].as_str(),
+            );
             Some(config.speech_to_text)
         } else {
             None

@@ -28,13 +28,15 @@ export function PhoneSpeechSettings({ open }: { open: boolean }) {
   const [saving, setSaving] = useState(false);
   const generation = useRef(0);
   const dirty = useRef(false);
+  const translate = useRef(t); translate.current = t;
   useEffect(() => {
     if (!open) return;
+    setListening(false); setSpeaking(false); setFinishing(false);
     let active = true;
-    const refresh = () => { void invoke<SpeechState>('mobile_speech', { action: 'status' }).then(value => { if (active) setState(current => dirty.current && current ? { ...current, systemAvailable: value.systemAvailable, onDeviceAvailable: value.onDeviceAvailable, microphoneGranted: value.microphoneGranted } : editable(value)); }).catch(error => { if (active) setError(t(nativeSpeechErrorKey(error))); }); };
+    const refresh = () => { void invoke<SpeechState>('mobile_speech', { action: 'status' }).then(value => { if (active) setState(current => dirty.current && current ? { ...current, systemAvailable: value.systemAvailable, onDeviceAvailable: value.onDeviceAvailable, microphoneGranted: value.microphoneGranted } : editable(value)); }).catch(error => { if (active) setError(translate.current(nativeSpeechErrorKey(error))); }); };
     refresh(); window.addEventListener('focus', refresh);
     return () => { active = false; generation.current++; window.removeEventListener('focus', refresh); void invoke('mobile_speech', { action: 'cancel' }).catch(() => {}); void invoke('mobile_speech', { action: 'stop' }).catch(() => {}); };
-  }, [open, t]);
+  }, [open]);
   const change = (patch: Partial<SpeechState>) => { dirty.current = true; setState(current => current ? { ...current, ...patch } : current); };
   const save = async () => {
     if (!state || saving) return false;

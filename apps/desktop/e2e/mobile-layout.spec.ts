@@ -59,6 +59,22 @@ test('phone storage manager uses a reachable sheet and normal checkboxes',async(
   expect(await page.evaluate(()=>(window as any).__MOBILE_SETTINGS__.filter((call:any)=>call.action==='archive'))).toEqual([{action:'archive',ids:['chat']}]);
 });
 
+test('changing the UI language keeps an active speech test usable',async({page})=>{
+  await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=speech');
+  const section=page.getByTestId('phone-speech-settings');
+  await section.locator('select').first().selectOption('cloud');
+  await page.getByTestId('phone-cloud-input').locator('input[type=password]').fill('fixture-input-key');
+  await section.getByRole('button',{name:'Test microphone',exact:true}).click();
+  await expect(section.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+  const cancelled=await page.evaluate(()=>(window as any).__MOBILE_SETTINGS__.filter((call:any)=>call.args?.action==='cancel').length);
+  await page.getByRole('button',{name:'Switch UI language'}).click();
+  await expect(section.getByRole('button',{name:'停止',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>(window as any).__MOBILE_SETTINGS__.filter((call:any)=>call.args?.action==='cancel').length)).toBe(cancelled);
+  await section.getByRole('button',{name:'停止',exact:true}).click();
+  await expect(section.getByRole('button',{name:'保存',exact:true})).toBeEnabled();
+  await expect(section.getByText('你好，手机自配语音已转写',{exact:true})).toBeVisible();
+});
+
 test('left swipe offers archive without dismissing the history drawer',async({page})=>{
   await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
   await page.locator('.mobile-app').getByRole('button',{name:'Conversation',exact:true}).click();

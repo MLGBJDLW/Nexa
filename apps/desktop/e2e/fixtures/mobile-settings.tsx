@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { I18nProvider } from '../../src/i18n';
+import { I18nProvider, useTranslation } from '../../src/i18n';
 import { PhoneWebSettings } from '../../../mobile/src/PhoneWebSettings';
 import { PhoneSpeechSettings } from '../../../mobile/src/PhoneSpeechSettings';
 import { ConversationStorageManager } from '../../src/components/settings/ConversationStorageManager';
@@ -7,6 +7,8 @@ import { inputDefaults, outputDefaults } from '../../../mobile/src/PhoneCloudSpe
 import type { StorageService } from '../../src/lib/api';
 import { MobileDialog } from '../../src/features/remote/MobileChatShell';
 import '../../../mobile/src/mobile.css';
+
+function LocaleSwitch() { const {setLocale}=useTranslation();return <button onClick={()=>setLocale('zh-CN')}>Switch UI language</button>; }
 
 export function renderMobileSettings(kind = 'web') {
   localStorage.setItem('nexa-locale', 'en');
@@ -31,5 +33,5 @@ export function renderMobileSettings(kind = 'web') {
   const host = document.createElement('div'); host.className = 'mobile-app';
   document.body.appendChild(host);
   const storage = { page:async()=>({entries:[{id:'chat',title:'Saved phone conversation'}],next:null}), archive:async(ids:string[])=>calls.push({action:'archive',ids}),remove:async(ids:string[])=>calls.push({action:'remove',ids}) } as unknown as StorageService;
-  createRoot(host).render(<I18nProvider><MobileDialog title="Settings" onClose={() => {}}>{kind === 'speech' ? <PhoneSpeechSettings open/> : kind === 'storage' ? <ConversationStorageManager mobile service={storage} onClose={()=>{}} onChanged={()=>{}}/> : <PhoneWebSettings/>}</MobileDialog></I18nProvider>);
+  createRoot(host).render(<I18nProvider><MobileDialog title="Settings" onClose={() => {}}>{kind === 'speech' ? <><LocaleSwitch/><PhoneSpeechSettings open/></> : kind === 'storage' ? <ConversationStorageManager mobile service={storage} onClose={()=>{}} onChanged={()=>{}}/> : <PhoneWebSettings/>}</MobileDialog></I18nProvider>);
 }

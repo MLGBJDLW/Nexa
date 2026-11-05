@@ -8,6 +8,21 @@ use tokio_util::sync::CancellationToken;
 use crate::platform;
 
 pub const SAVED_KEY: &str = "__NEXA_SAVED_KEY__";
+pub fn apply_input_language(
+    config: &mut SpeechToTextConfig,
+    saved: Option<&str>,
+    requested: Option<&str>,
+) {
+    let explicit = saved.filter(|value| !value.trim().is_empty());
+    let existing = config
+        .language
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    config.language = explicit
+        .or(existing)
+        .or_else(|| requested.filter(|value| !value.trim().is_empty()))
+        .map(str::to_owned);
+}
 pub fn validate_input(config: &SpeechToTextConfig) -> Result<(), String> {
     if !matches!(
         config.api_style.as_str(),
@@ -136,6 +151,18 @@ impl SpeechRuntime {
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn saved_speech_language_precedes_the_chat_ui_locale() {
+        let mut config = SpeechToTextConfig::default();
+        apply_input_language(&mut config, Some("ja"), Some("zh-CN"));
+        assert_eq!(config.language.as_deref(), Some("ja"));
+        apply_input_language(&mut config, Some("en"), Some("zh-CN"));
+        assert_eq!(config.language.as_deref(), Some("en"));
+        config.language = None;
+        apply_input_language(&mut config, Some(""), Some("zh-CN"));
+        assert_eq!(config.language.as_deref(), Some("zh-CN"));
+    }
 
     #[tokio::test]
     async fn phone_cloud_services_use_the_saved_account_and_shared_http_adapters() {
