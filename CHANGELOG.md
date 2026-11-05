@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.19.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.1...nexa-monorepo-v0.19.0) (2026-11-05)
+
+### Mobile and desktop continuity
+
+An explicitly enabled paired computer can control the phone through the existing authenticated connection. Phone actions retain device and session ownership, validate the current app, screen pixels and geometry, and return fresh observations after actions or stale targets. Unicode input is checked after accessibility writes, with Android 13+ native-editor fallback for supported focused fields. Stop, disconnect and revocation cancel pending work without replaying uncertain input.
+
+Desktop computer control retains observations across longer model pauses and shares cache space fairly between conversations. Native window identity, pixels, geometry, user-input epochs and single-use action receipts remain checked before input.
+
+### Mobile 0.3.0 workflow
+
+- Stream answer and thinking blocks during execution with stable identities and UTF-8 offsets for durable reconnect replay.
+- Reuse an untouched blank draft until the first send. Combine Send and Stop with a short transition that respects reduced motion, and add archive, restore and confirmed deletion in the chat drawer.
+- Configure shared web search and DeepSeek Search & Fetch on the phone. Saved keys stay masked in forms and are protected by an Android-keystore-wrapped settings key; delayed saves preserve newer edits.
+- Choose system or on-device speech recognition, save language preferences, inspect service status, test dictation and open the relevant Android settings. The floating assistant docks to either edge and restores its position.
+- Show categorized storage usage and support paginated bulk archiving and confirmed deletion while guarding active work.
+
+### Context and conversation settings
+
+Continuous context is an experimental desktop option and the mobile default. It reuses durable history checkpoints, retains current instructions and recent progress, and keeps older evidence available through history tools without an extra summarization request or routine compaction notifications. Reopening a mobile chat restores the same durable context projection.
+
+Custom system prompts retain their complete policy text instead of fixed-size or fractional truncation. Requests that cannot fit the actual model capacity fail explicitly. Conversation-specific connection, model and reasoning choices survive schedules, other windows and checkpoint branches. A deleted connection leaves an explicit replacement picker available instead of silently switching accounts. Reasoning controls retain intensity selection without the obsolete on/off toggle.
+
+Interactive explanations prefer inline structured UI. Completed replies receive local follow-up choices when usable model-supplied suggestions are absent.
+
+### Provider protocols and lifecycle
+
+- Refresh endpoint-specific model catalogs, reasoning contracts, Decisions requests, image quality options and retirement metadata without silently replacing saved models or free routes with paid ones.
+- Add validated Recraft SVG generation, preview and saving for six vector-image models.
+- Add Voxtral realtime transcription and WebSocket speech synthesis. Synthesized audio is played after reception completes.
+- Add durable OpenRouter video jobs to desktop chat, including approval, status queries, output retrieval and account-bound recovery. Repeated execution retries reuse the same job; separately approved invocations create distinct jobs even when a provider repeats tool-call IDs.
+- Expose 27 executable OpenRouter video models. Four specialized editing, upscaling and avatar routes remain unavailable until their dedicated request parameters are verified.
+- Preserve historical tool evidence when switching an existing conversation to Grok Multi-Agent, while omitting unsupported executable client-tool envelopes.
+
+### Release and validation
+
+Desktop and mobile retain independent versions and release tags. Mobile frontend checks follow the shared import graph, and mobile-only changes do not independently bump the desktop release.
+
+Verification covers hosted CI, focused provider and durable-session contracts, browser regressions, Windows native compilation, Android ARM64/x86_64 builds, emulator cold start and eight Android instrumentation checks. Physical microphones, OEM background policies, paid-provider inference and account entitlements remain separate acceptance boundaries. Release verification checks public metadata, manifests and signing receipts without downloading installers or release APKs.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 285f1c30f4d5d756ac201ef513eb497f5d0d8830 -->
+
+### What's Changed
+* fix(catalog): complete OpenAI retirement metadata by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/524
+* feat(agent): strengthen mobile and desktop continuity by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/523
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.1...nexa-monorepo-v0.19.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.18.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.0...nexa-monorepo-v0.18.1) (2026-11-04)
 
 ### Android assistant and Mobile 0.2.0
