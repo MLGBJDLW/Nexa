@@ -251,8 +251,28 @@ mod tests {
             .unwrap();
         assert_eq!(explicitly_switched.id, "connection-b");
         assert_eq!(explicitly_switched.model, "default-model");
+        let message = super::super::ConversationMessage {
+            id: "branch-seed".into(),
+            conversation_id: conversation.id.clone(),
+            role: crate::llm::Role::User,
+            content: "Continue this saved task.".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 5,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&message).unwrap();
         let checkpoint = db
-            .create_checkpoint(&conversation.id, "manual", 0, 0)
+            .create_checkpoint_with_messages(
+                &conversation.id,
+                "manual",
+                5,
+                std::slice::from_ref(&message),
+            )
             .unwrap();
         let branch = db.branch_checkpoint(&checkpoint).unwrap();
         assert_eq!(

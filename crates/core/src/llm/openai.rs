@@ -6425,6 +6425,11 @@ data: [DONE]
             thought_signature: None,
         }]);
         let mut request = endpoint_reasoning_request("grok-4.20-multi-agent-latest");
+        request.tools = Some(vec![ToolDefinition {
+            name: "read_files".into(),
+            description: "Read local files".into(),
+            parameters: serde_json::json!({"type":"object"}),
+        }]);
         request.messages = vec![
             Message::text(Role::User, "Read sales.csv."),
             assistant,
@@ -6450,11 +6455,7 @@ data: [DONE]
             input.last().unwrap()["content"][0]["text"],
             "What is the total?"
         );
-        assert!(body["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|tool| tool["type"] != "function"));
+        assert!(body.get("tools").is_none());
     }
 
     #[test]
