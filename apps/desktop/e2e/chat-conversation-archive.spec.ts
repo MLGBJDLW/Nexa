@@ -913,7 +913,7 @@ test('a direct archived conversation link opens read-only without joining the ac
     'page',
   );
   await expect(page.getByTestId('conversation-item-conv-archived')).toHaveCount(0);
-  await expect(page.getByPlaceholder('Type a message...')).toHaveCount(0);
+  await expect(page.getByTestId('chat-input-textarea')).toHaveCount(0);
 
   await page.keyboard.press('Control+Shift+B');
   const dock = page.getByTestId('browser-dock');
@@ -925,7 +925,7 @@ test('a direct archived conversation link opens read-only without joining the ac
   await banner.getByRole('button', { name: 'Restore' }).click();
   await expect(banner).toBeHidden();
   await expect(page.getByTestId('conversation-item-conv-archived')).toBeVisible();
-  await expect(page.getByPlaceholder('Type a message...')).toBeVisible();
+  await expect(page.getByTestId('chat-input-textarea')).toBeVisible();
   await expect(dock.getByRole('button', { name: 'Point out' })).toBeVisible();
 });
 

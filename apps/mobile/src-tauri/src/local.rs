@@ -407,6 +407,33 @@ impl LocalRuntime {
         let confirmation_runtime = self.clone();
         let approve_app = app.clone();
         let confirm_app = app.clone();
+        // This bundle needs only the shared chat renderer. Keep desktop-only
+        // skill runtimes out of the phone host and honor persisted enablement.
+        let skills = self
+            .db
+            .list_builtin_skills()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|skill| skill.enabled && skill.canonical_name == "visual-explanations")
+            .collect::<Vec<_>>();
+        let mut loaded_skills =
+            nexa_core::skills::select_skills_from_pool(skills.clone(), &text, 1);
+        for skill in &mut loaded_skills {
+            // Mobile has no shell/skill-management runtime. Supply the same
+            // bundled format references directly when this skill is selected.
+            for reference in ["references/structured-ui.md", "references/html.md"] {
+                if let Some(resource) = skill
+                    .resource_bundle
+                    .iter()
+                    .find(|resource| resource.path == reference)
+                {
+                    skill.content.push_str(&format!(
+                        "\n\n## Included reference: {reference}\n{}",
+                        resource.content
+                    ));
+                }
+            }
+        }
         let mut session = ExecutorAgentSession::new(
             AgentSessionConfig {
                 session_id: conversation.id.clone(),
@@ -422,8 +449,8 @@ impl LocalRuntime {
             self.db.clone(),
         )
         .with_history(history, message.sort_order + 1)
-        .with_skills_override(Vec::new())
-        .with_auto_loaded_skills_override(Vec::new())
+        .with_skills_override(skills)
+        .with_auto_loaded_skills_override(loaded_skills)
         .with_event_outboxes(self.outboxes.clone())
         .with_cancel_token(token.clone())
         .with_approval_callback(Arc::new(move |request| {

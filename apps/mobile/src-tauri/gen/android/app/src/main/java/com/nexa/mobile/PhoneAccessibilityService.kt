@@ -24,7 +24,7 @@ private class PhoneStale(message: String) : IllegalStateException(message)
 
 class PhoneAccessibilityService : AccessibilityService() {
     companion object { @Volatile var instance: PhoneAccessibilityService? = null }
-    private data class Target(val node: AccessibilityNodeInfo, val signature: String)
+    private data class Target(val node: AccessibilityNodeInfo, val signature: String, val focused: Boolean)
     private val nodes = mutableMapOf<Int, Target>()
     private var observation = ""
     private var observedPackage = ""
@@ -40,6 +40,8 @@ class PhoneAccessibilityService : AccessibilityService() {
     private var displayHeight = 0
     private var observedRotation = 0
     private var sensitive = false
+    private var observedEditor: android.view.inputmethod.EditorInfo? = null
+    private var observedEditorSignature: String? = null
     private var lastActionAt = 0L
     private var lastUiEventAt = 0L
     private var approvalResolvedAt = 0L
@@ -109,7 +111,8 @@ class PhoneAccessibilityService : AccessibilityService() {
         @Suppress("DEPRECATION") root.recycle()
         if (shade) performGlobalAction(if (android.os.Build.VERSION.SDK_INT >= 31) GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE else GLOBAL_ACTION_BACK)
     }
-    @Suppress("DEPRECATION") private fun invalidate() { nodes.values.forEach { it.node.recycle() }; nodes.clear(); observation = ""; screenshotRevision = -1; screenshotFingerprint = null }
+    @Suppress("DEPRECATION") private fun invalidate() { nodes.values.forEach { it.node.recycle() }; nodes.clear(); observation = ""; screenshotRevision = -1; screenshotFingerprint = null; observedEditor = null; observedEditorSignature = null }
+    private fun isProtected(node: AccessibilityNodeInfo) = node.isPassword || (android.os.Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive)
     private fun signature(node: AccessibilityNodeInfo): String {
         val bounds = Rect(); node.getBoundsInScreen(bounds)
         val protected = android.os.Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive
@@ -131,7 +134,7 @@ class PhoneAccessibilityService : AccessibilityService() {
                 val id = nodes.size
                 val bounds = Rect(); node.getBoundsInScreen(bounds)
                 @Suppress("DEPRECATION") val copy = AccessibilityNodeInfo.obtain(node)
-                nodes[id] = Target(copy, signature(node))
+                nodes[id] = Target(copy, signature(node), node.isFocused)
                 result.put(JSONObject().put("nodeId",id).put("text",node.text?.toString()?.take(2000) ?: "")
                     .put("description",node.contentDescription?.toString()?.take(1000) ?: "").put("class",node.className)
                     .put("clickable",node.isClickable).put("editable",node.isEditable).put("focused",node.isFocused).put("scrollable",node.isScrollable)
@@ -146,11 +149,24 @@ class PhoneAccessibilityService : AccessibilityService() {
         }
         walk(root,0)
         @Suppress("DEPRECATION") root.recycle()
+        if (android.os.Build.VERSION.SDK_INT >= 33 && safeNativeEditor()) {
+            observedEditor = inputMethod?.currentInputEditorInfo
+            observedEditorSignature = observedEditor?.let { editorSignature(it) }
+        }
         return JSObject().apply { put("observationId",observation); put("packageName",observedPackage); put("nodes",result); put("truncated",truncated); put("sensitiveFieldsOmitted",true); put("containsSensitiveFields",sensitive); put("nativeTextInput", safeNativeEditor()) }
     }
     private fun reply(invoke: Invoke, value: JSObject) {
         if (activeRequest !== invoke) return
         activeRequest = null; activeRequestId = null; overlay.restore(); invoke.resolve(value)
+    }
+    fun cancelAllRequests() {
+        fun cancel() {
+            activeRequest?.let { request ->
+                reply(request, JSObject().apply { put("code", "phone_control_cancelled"); put("retryable", false); put("actionOutcomeUnknown", true); put("message", "Phone control stopped. Observe before continuing; never repeat an uncertain send.") })
+            }
+            invalidate(); capture.cancelPending()
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) cancel() else main.post { cancel() }
     }
     fun cancelRequest(id: String) = main.post {
         if (activeRequestId == id) activeRequest?.let { request ->
@@ -244,6 +260,7 @@ class PhoneAccessibilityService : AccessibilityService() {
     }
 
     private fun completeAction(invoke: Invoke, accepted: Boolean, pixels: Boolean = false, extra: JSObject = JSObject()) {
+        if (activeRequest !== invoke) return
         lastActionAt = android.os.SystemClock.elapsedRealtime()
         invalidate()
         val started = lastActionAt
@@ -309,8 +326,19 @@ class PhoneAccessibilityService : AccessibilityService() {
 
     private fun target(args: JSObject): Target {
         val target = nodes[args.getInteger("nodeId")] ?: throw PhoneStale("Select a node from the current observation.")
-        if (!target.node.refresh() || target.node.isPassword || !target.node.isVisibleToUser || !target.node.isEnabled || signature(target.node) != target.signature) throw PhoneStale("The target control changed.")
+        validateNode(target)
         return target
+    }
+    private fun validateNode(target: Target) {
+        if (!target.node.refresh() || isProtected(target.node) || !target.node.isVisibleToUser || !target.node.isEnabled || signature(target.node) != target.signature) throw PhoneStale("The target control changed.")
+    }
+    private fun editorSignature(editor: android.view.inputmethod.EditorInfo) = "${editor.packageName}|${editor.fieldId}|${editor.fieldName}|${editor.inputType}|${editor.imeOptions}"
+    private fun observedEditorMatches(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 33 || !safeNativeEditor()) return false
+        val current = inputMethod?.currentInputEditorInfo ?: return false
+        // Android returns a new InputConnection wrapper on every getter call,
+        // but retains this EditorInfo object until the editor starts/restarts.
+        return current === observedEditor && editorSignature(current) == observedEditorSignature
     }
     private fun safeNativeEditor(): Boolean {
         if (android.os.Build.VERSION.SDK_INT < 33 || sensitive) return false
@@ -329,27 +357,28 @@ class PhoneAccessibilityService : AccessibilityService() {
         require(args.has("text") && !args.isNull("text")) { "Provide the text to enter." }
         val text = args.getString("text"); require(text.length <= 64_000) { "Enter at most 64000 characters at a time." }
         val target = if (args.has("nodeId") && !args.isNull("nodeId")) target(args)
-            else nodes.values.firstOrNull { it.node.refresh() && it.node.isEditable && it.node.isFocused && !it.node.isPassword && it.node.isEnabled && it.node.isVisibleToUser }
+            else nodes.values.firstOrNull { it.focused && it.node.isEditable }?.also {
+                validateNode(it)
+                if (!it.node.isFocused) throw PhoneStale("The focused editor changed. Observe again before entering text.")
+            }
         if (target != null) {
-            require(target.node.isEditable && !target.node.isPassword) { "Choose a non-sensitive editable control." }
+            require(target.node.isEditable && !isProtected(target.node)) { "Choose a non-sensitive editable control." }
             if (target.node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) })) {
                 verifyText(invoke, target, text, false); return
             }
-            target.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            if (!target.focused || !target.node.isFocused) throw PhoneStale("Click the editor and inspect the new observation before using native text input.")
         }
-        val started = android.os.SystemClock.elapsedRealtime()
-        fun native() {
-            if (activeRequest !== invoke) return
-            if (!foregroundMatchesObservation() || TaskService.stopRequested.get()) { finishError(invoke, PhoneStale("The input target changed.")); return }
-            if (android.os.Build.VERSION.SDK_INT >= 33 && safeNativeEditor() && (target == null || target.node.refresh() && target.node.isFocused)) {
-                val connection = inputMethod?.currentInputConnection ?: return
-                connection.performContextMenuAction(android.R.id.selectAll)
-                connection.commitText(text, 1, null)
-                verifyText(invoke, target, text, true)
-            } else if (android.os.SystemClock.elapsedRealtime() - started < 800) main.postDelayed({ native() }, 80)
-            else finishError(invoke, IllegalStateException("The app rejected text input. Focus a non-sensitive editor and observe again. Native input fallback requires Android 13+."))
+        if (android.os.Build.VERSION.SDK_INT < 33) throw IllegalStateException("The app rejected accessibility text input. Native editor fallback requires Android 13+.")
+        if (!foregroundMatchesObservation() || TaskService.stopRequested.get()) throw PhoneStale("The input target changed.")
+        if (!observedEditorMatches()) throw PhoneStale("The native editor changed. Observe again before entering text.")
+        if (target != null) {
+            validateNode(target)
+            if (!target.node.isFocused) throw PhoneStale("The focused editor changed.")
         }
-        native()
+        val connection = inputMethod?.currentInputConnection ?: throw PhoneStale("The native editor disconnected.")
+        connection.performContextMenuAction(android.R.id.selectAll)
+        connection.commitText(text, 1, null)
+        verifyText(invoke, target, text, true)
     }
     private fun verifyText(invoke: Invoke, target: Target?, expected: String, native: Boolean) {
         val started = android.os.SystemClock.elapsedRealtime()
@@ -360,7 +389,7 @@ class PhoneAccessibilityService : AccessibilityService() {
         fun check() {
             if (activeRequest !== invoke) return
             if (!foregroundMatchesObservation() || TaskService.stopRequested.get()) { finish(false); return }
-            if (target != null && target.node.refresh() && target.node.text?.toString() == expected) { finish(true); return }
+            if (target != null && target.node.refresh() && !isProtected(target.node) && target.node.text?.toString() == expected) { finish(true); return }
             if (target != null && android.os.SystemClock.elapsedRealtime() - started < 1500) { main.postDelayed({ check() }, 80); return }
             if (native && android.os.Build.VERSION.SDK_INT >= 33 && safeNativeEditor()) {
                 val connection = inputMethod?.currentInputConnection

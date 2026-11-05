@@ -63,7 +63,7 @@ class TaskService : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            "stop" -> { stopRequested.set(true); remoteHost = null; localTaskActive = false; PhonePlugin.instance?.taskStopped(); denyAll(getSystemService(NotificationManager::class.java)); stopSelf(); return START_NOT_STICKY }
+            "stop" -> { stopRequested.set(true); remoteHost = null; localTaskActive = false; PhoneAccessibilityService.instance?.cancelAllRequests(); PhonePlugin.instance?.taskStopped(); denyAll(getSystemService(NotificationManager::class.java)); stopSelf(); return START_NOT_STICKY }
             "allow", "deny" -> {
                 val id = intent.getStringExtra("approvalId") ?: return START_NOT_STICKY
                 answer(id, intent.action == "allow")
@@ -84,6 +84,6 @@ class TaskService : Service() {
         }
         return START_NOT_STICKY
     }
-    override fun onDestroy() { activeService = null; remoteHost = null; localTaskActive = false; stopRequested.set(true); PhonePlugin.instance?.taskStopped(); controlWakeLock?.let { if (it.isHeld) it.release() }; controlWakeLock = null; wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
+    override fun onDestroy() { activeService = null; remoteHost = null; localTaskActive = false; stopRequested.set(true); PhoneAccessibilityService.instance?.cancelAllRequests(); PhonePlugin.instance?.taskStopped(); controlWakeLock?.let { if (it.isHeld) it.release() }; controlWakeLock = null; wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
     override fun onBind(intent: Intent?): IBinder? = null
 }

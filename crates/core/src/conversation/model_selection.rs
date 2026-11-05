@@ -120,7 +120,9 @@ impl crate::db::Database {
                 return selection.apply(config);
             }
         }
-        if requested_id.is_none() || config.provider == conversation.provider {
+        if requested_id.is_none()
+            || conversation.agent_config_id.as_deref() == Some(config.id.as_str())
+        {
             let mut selection = TurnModelSelection::from(config);
             selection.model = conversation.model.clone();
             return selection.apply(config);
@@ -244,6 +246,11 @@ mod tests {
             db.get_agent_config("connection-a").unwrap().model,
             "another-window-model"
         );
+        let explicitly_switched = db
+            .resolve_conversation_agent_config(&reloaded, Some("connection-b"))
+            .unwrap();
+        assert_eq!(explicitly_switched.id, "connection-b");
+        assert_eq!(explicitly_switched.model, "default-model");
         db.delete_agent_config("connection-a").unwrap();
         assert!(db
             .resolve_conversation_agent_config(&reloaded, None)

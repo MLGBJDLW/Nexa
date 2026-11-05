@@ -68,6 +68,8 @@ class PhoneControlInstrumentedTest {
             val enabled = remote("enable","computer-a")
             assertFalse(enabled.toString(), enabled.optBoolean("nativeError"))
             assertTrue(remote("status","computer-a").optBoolean("enabled"))
+            assertTrue(remote("enable","computer-b").optBoolean("nativeError"))
+            assertTrue(remote("status","computer-a").optBoolean("enabled"))
             assertTrue(remote("execute","computer-b").optBoolean("nativeError"))
             assertEquals("com.nexa.mobile",remote("execute","computer-a").optString("packageName"))
             assertFalse(remote("disable","computer-a").optBoolean("nativeError"))
@@ -135,6 +137,19 @@ class PhoneControlInstrumentedTest {
             assertTrue(state.toString(), state.optBoolean("textMatched"))
             assertEquals("native_input_connection", state.optString("inputMethod"))
             assertEquals(text, node(state, "Native message").getString("text"))
+        }
+    }
+
+    @Test fun focusChangeCannotRedirectNodeLessTextInput() {
+        val initial = call(JSONObject().put("action", "observe"))
+        val focused = call(args(initial,"click").put("nodeId",node(initial,"Semantic message").getInt("nodeId")))
+        instrumentation.runOnMainSync { PhoneControlFixtureActivity.current!!.findViewById<android.widget.EditText>(1002).requestFocus() }
+        val result = call(args(focused,"set_text").put("text","Must not reach another field"))
+        assertEquals(summary(result),"stale_observation",result.optString("code"))
+        assertFalse(result.optBoolean("actionPerformed"))
+        instrumentation.runOnMainSync {
+            assertEquals("",PhoneControlFixtureActivity.current!!.findViewById<android.widget.EditText>(1001).text.toString())
+            assertEquals("",PhoneControlFixtureActivity.current!!.findViewById<android.widget.EditText>(1002).text.toString())
         }
     }
 

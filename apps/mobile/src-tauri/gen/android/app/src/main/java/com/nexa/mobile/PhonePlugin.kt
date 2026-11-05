@@ -112,6 +112,7 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
                 "enable" -> {
                     require(host.isNotBlank() && host.length <= 128) { "Choose a paired computer." }
                     check(!TaskService.localTaskActive) { "Stop the local phone task before enabling computer control." }
+                      check(TaskService.remoteHost == null || TaskService.remoteHost == host) { "Turn off the current computer's phone control before enabling another computer." }
                     check(PhoneAccessibilityService.instance != null) { "Enable phone control access first." }
                     check(activity.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) { "Enable task notifications so Stop remains reachable." }
                     TaskService.remoteHost = host; TaskService.stopRequested.set(false)
