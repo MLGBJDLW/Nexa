@@ -224,7 +224,7 @@ mod tests {
             .iter()
             .find(|item| item["provider"] == "mistral")
             .expect("native Mistral speech must be selectable through the package manifest");
-        assert_eq!(mistral["apiStyle"], "mistral_speech");
+        assert_eq!(mistral["apiStyle"], "mistral_realtime_speech");
         assert!(catalog
             .items
             .iter()
