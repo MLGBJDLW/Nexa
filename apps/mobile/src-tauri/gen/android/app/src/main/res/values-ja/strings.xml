@@ -1,4 +1,5 @@
 <resources>
+    <string name="phone_remote_control">接続したコンピューターがこの端末を操作できます。停止をタップすると終了します。</string>
     <string name="app_name">Nexa Mobile</string>
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">端末操作は任意です。表示された操作項目を読み、パスワード欄を除外し、操作前に許可を求めます。通知から停止できます。</string>

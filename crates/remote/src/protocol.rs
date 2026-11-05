@@ -12,6 +12,12 @@ pub const MODEL_CONNECTION_SYNC_CAPABILITY: &str = "model-connection-sync-v1";
     deny_unknown_fields
 )]
 pub enum RemoteCommand {
+    #[serde(rename = "device.control.result")]
+    PhoneControlResult {
+        request_id: String,
+        session_id: String,
+        result: Value,
+    },
     #[serde(rename = "connection.certificate")]
     Certificate,
     #[serde(rename = "connection.preferences")]
@@ -140,6 +146,23 @@ pub enum RemoteCommand {
 
 impl RemoteCommand {
     pub fn validate(&self) -> Result<(), String> {
+        if let Self::PhoneControlResult {
+            request_id,
+            session_id,
+            result,
+        } = self
+        {
+            uuid::Uuid::parse_str(request_id).map_err(|_| "Invalid phone request identity")?;
+            uuid::Uuid::parse_str(session_id).map_err(|_| "Invalid phone connection identity")?;
+            if !result.is_object()
+                || serde_json::to_vec(result)
+                    .map_err(|_| "Invalid phone result")?
+                    .len()
+                    > 8 * 1024 * 1024
+            {
+                return Err("Phone result exceeds its transport envelope".into());
+            }
+        }
         if let Self::Message {
             channel: Some(channel),
             ..

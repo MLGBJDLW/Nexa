@@ -1,6 +1,6 @@
 mod connections;
 mod local;
-mod phone_tool;
+mod phone_host;
 mod platform;
 mod remote;
 
@@ -239,19 +239,85 @@ async fn mobile_overlay(app: AppHandle, enabled: bool) -> Result<Value, String> 
 }
 
 #[tauri::command]
+async fn mobile_phone_control(
+    app: AppHandle,
+    host_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    remote::configure_phone_control(&app, &host_id, enabled).await
+}
+
+#[tauri::command]
+async fn mobile_storage(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    action: String,
+    scope: Option<String>,
+    cursor: Option<nexa_core::conversation::ConversationStorageCursor>,
+    ids: Option<Vec<String>>,
+) -> Result<Value, String> {
+    let db = runtime.get(&app).await?.db.clone();
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?;
+    tokio::task::spawn_blocking(move || match action.as_str() {
+        "usage" => {
+            let mut usage = db.storage_usage().map_err(|error| error.to_string())?;
+            nexa_core::storage_usage::add_files(
+                &mut usage,
+                &[(directory, "files"), (cache, "runtime")],
+                db.db_path(),
+            );
+            Ok(json!(usage))
+        }
+        "page" => db
+            .conversation_storage_page(scope.as_deref().unwrap_or("active"), cursor.as_ref())
+            .map(|page| json!(page))
+            .map_err(|error| error.to_string()),
+        "archive" => db
+            .archive_conversations_batch(&ids.unwrap_or_default())
+            .map(|count| json!(count))
+            .map_err(|error| error.to_string()),
+        "remove" => db
+            .delete_conversations_batch(&ids.unwrap_or_default())
+            .map(|count| json!(count))
+            .map_err(|error| error.to_string()),
+        _ => Err("Unsupported storage operation".into()),
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn mobile_speech(
     app: AppHandle,
     action: String,
     text: Option<String>,
     language: Option<String>,
+    mode: Option<String>,
 ) -> Result<Value, String> {
-    if !matches!(action.as_str(), "listen" | "cancel" | "speak" | "stop") {
+    if !matches!(
+        action.as_str(),
+        "listen" | "cancel" | "speak" | "stop" | "status" | "configure" | "settings"
+    ) {
         return Err("Unsupported speech action.".into());
     }
     if text.as_ref().is_some_and(|text| text.len() > 512_000) {
         return Err("Load and read a smaller message section.".into());
     }
-    platform::call(&app, "speech", json!({"action":action,"text":text.unwrap_or_default(),"language":language.unwrap_or_else(|| "en".into())})).await
+    let mut args = json!({"action":action,"text":text.unwrap_or_default()});
+    if let Some(language) = language {
+        args["language"] = json!(language);
+    }
+    if let Some(mode) = mode {
+        args["mode"] = json!(mode);
+    }
+    platform::call(&app, "speech", args).await
 }
 
 #[tauri::command]
@@ -403,6 +469,8 @@ pub fn run() {
             mobile_scan_pairing,
             mobile_speech,
             mobile_overlay,
+            mobile_phone_control,
+            mobile_storage,
             mobile_pair,
             mobile_remote,
             mobile_files

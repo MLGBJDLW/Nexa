@@ -1,7 +1,7 @@
 # Nexa Mobile
 
 Native Android application, independently versioned from Nexa Desktop. The current
-release is `0.2.0`; its tag prefix is `nexa-mobile-v`.
+release is `0.3.0`; its tag prefix is `nexa-mobile-v`.
 
 See the [mobile application guide](../../docs/guides/MOBILE_APP.md) for setup,
 execution targets, permissions, acceptance boundaries and release instructions.
@@ -11,6 +11,11 @@ The existing browser companion remains available through
 Pair with Desktop 0.18 or later to share saved cloud model connections and API
 keys in both directions. Phone settings can also add independent connections.
 Each device keeps its own selected model, tools, history and workspace.
+
+Desktop 0.19 or later can also operate the phone after **Allow this computer to
+control this phone** is enabled in phone settings. The existing foreground-task
+notification provides Stop. Reconnection retains an enabled session but never
+replays uncertain input; restarting the phone app requires enabling control again.
 
 ```sh
 npm ci --prefix apps/desktop

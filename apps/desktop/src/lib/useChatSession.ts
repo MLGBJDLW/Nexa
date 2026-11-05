@@ -38,6 +38,7 @@ import type {
 import { appTimeMs } from './dateTime';
 import { formatUserError } from './userError';
 import { ConversationTimeline, type TimelineEntry } from './conversationTimeline';
+import { findConfigForConversation, modelSelectionForConfig, refreshSelectedConfig } from './conversationModelSelection';
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -204,27 +205,6 @@ async function resolveContextWindowForConfig(
     .catch(() => ({ contextWindow: 0, authority: 'provider_managed' }));
 }
 
-function findConfigForConversation(
-  configs: AgentConfig[],
-  conversation: Conversation,
-  fallback: AgentConfig | null,
-): AgentConfig | null {
-  return (
-    configs.find(
-      (config) =>
-        config.provider === conversation.provider &&
-        config.model === conversation.model &&
-        config.isDefault,
-    ) ??
-    configs.find(
-      (config) =>
-        config.provider === conversation.provider &&
-        config.model === conversation.model,
-    ) ??
-    fallback
-  );
-}
-
 function buildRuntimeProfile(
   config: AgentConfig | null,
   conversation: Conversation | null,
@@ -236,9 +216,7 @@ function buildRuntimeProfile(
   const model = conversation?.model ?? config?.model ?? '';
   if (!provider || !model) return null;
 
-  const reasoningEnabled = Boolean(
-    config?.reasoningEnabled || config?.thinkingBudget || config?.reasoningEffort,
-  );
+  const reasoningEnabled = true;
   const reasoningDetail = !reasoningEnabled
     ? t('chat.contextReasoningOff')
     : config?.reasoningEffort
@@ -578,19 +556,12 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
 
   /* ── Switch agent config (called from UI model selector) ─────── */
   const switchAgentConfig = useCallback(async (config: AgentConfig) => {
-    activeAgentConfigRef.current = config;
-    setAgentConfig(config);
-    defaultAgentConfigRef.current = config;
-    agentConfigsRef.current = agentConfigsRef.current.map((candidate) => ({
-      ...candidate,
-      isDefault: candidate.id === config.id,
-    }));
-
-    await api.setDefaultAgentConfig(config.id);
+    const selectedId = activeId;
     let updatedSystemPrompt = customSystemPrompt;
     if (activeId) {
-      const updatedConversation = await api.updateConversationModel(activeId, config.provider, config.model);
+      const updatedConversation = await api.updateConversationModel(activeId, config.provider, config.model, config.id, modelSelectionForConfig(config));
       updatedSystemPrompt = updatedConversation.systemPrompt ?? '';
+      if (activeIdRef.current === selectedId) setOpenedConversation(updatedConversation);
       setConversations((prev) =>
         prev.map((conversation) =>
           conversation.id === activeId
@@ -599,9 +570,11 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         ),
       );
     }
+    if (activeIdRef.current !== selectedId) return;
+    activeAgentConfigRef.current = config;
+    setAgentConfig(config);
     const resolution = await resolveContextWindowForConfig(config);
-    setDefaultContextWindow(resolution.contextWindow);
-    setDefaultContextAuthority(resolution.authority);
+    if (activeIdRef.current !== selectedId || activeAgentConfigRef.current !== config) return;
     setContextWindow(resolution.contextWindow);
     setContextAuthority(resolution.authority);
     if (activeId) {
@@ -667,7 +640,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         const configs = await api.listAgentConfigs();
         if (!active || request !== generation) return;
         const fallback = configs.find(config => config.isDefault) ?? configs[0] ?? null;
-        const selected = configs.find(config => config.id === activeAgentConfigRef.current?.id) ?? fallback;
+        const selected = refreshSelectedConfig(configs, activeAgentConfigRef.current);
         agentConfigsRef.current = configs;
         defaultAgentConfigRef.current = fallback;
         activeAgentConfigRef.current = selected;
@@ -774,9 +747,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         );
         const resolution = await resolveContextWindowForConfig(selectedConfig);
         if (!cancelled && generation === conversationHydrationGenerationRef.current) {
-          if (selectedConfig) {
-            setAgentConfig(selectedConfig);
-          }
+          setAgentConfig(selectedConfig);
           contextWindowCacheRef.current = {
             ...contextWindowCacheRef.current,
             [activeId]: resolution.contextWindow,
@@ -1248,6 +1219,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
           message: content,
           attachments,
           agentConfigId: configForSend.id,
+          modelSelection: modelSelectionForConfig(configForSend),
           personaId: personaForSend,
           skillIds: options?.skillIds,
           executionMode: options?.executionMode,
@@ -1461,6 +1433,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         message: content,
         attachments,
         agentConfigId: activeAgentConfigRef.current?.id ?? null,
+        modelSelection: modelSelectionForConfig(activeAgentConfigRef.current),
         personaId: personaId ?? activePersonaId,
         skillIds: retryOptions.skillIds,
         executionMode: retryOptions.executionMode,
@@ -1538,6 +1511,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
         message: newContent,
         attachments,
         agentConfigId: activeAgentConfigRef.current?.id ?? null,
+        modelSelection: modelSelectionForConfig(activeAgentConfigRef.current),
         personaId: activePersonaId,
         visionTurnOverride: editOptions.visionTurnOverride,
         userArtifacts: editOptions.userArtifacts,

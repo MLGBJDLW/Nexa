@@ -13,16 +13,15 @@ const compiled = await build({
   },
   bundle: true, platform: 'node', format: 'esm', write: false,
 });
-const { PROVIDER_PRESETS, getReasoningCapability, reasoningOffLabelKey,
+const { PROVIDER_PRESETS, getReasoningCapability,
   defaultReasoningEffort, catalogModelsForSnapshot } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`
 );
 
-test('October optional reasoning keeps provider defaults separate from explicit enable', () => {
+test('agent reasoning intensity enables optional models without exposing an off mode', () => {
   const router = getReasoningCapability({ provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'upstage/solar-mini4' });
   assert.equal(router.defaultEnabled, false);
-  assert.equal(defaultReasoningEffort(router), 'none');
-  assert.equal(defaultReasoningEffort(router, true), 'medium');
+  assert.equal(defaultReasoningEffort(router), 'medium');
   const haiku = getReasoningCapability({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-haiku-5-5' });
   assert.equal(haiku.mode, 'optional');
   assert.equal(haiku.defaultEnabled, true);
@@ -49,7 +48,6 @@ for (const [provider, id, offMode] of [
     assert.deepEqual(reasoning?.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.equal(reasoning?.thinkingBudget?.enabled, false);
     assert.equal(reasoning?.mode, provider === 'anthropic' ? 'optional' : 'always');
-    assert.equal(reasoningOffLabelKey(reasoning), offMode ? 'settings.reasoningBetweenTools' : 'settings.reasoningNone');
     const hydrated = catalogModelsForSnapshot({ provider, baseUrl: preset.baseUrl,
       refreshedAt: '2026-09-29', liveDiscoverySucceeded: false, models: [], descriptors: [model.descriptor] });
     assert.equal(hydrated[0].descriptor.capabilities.reasoning?.disabledMode, offMode);

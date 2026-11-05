@@ -1,4 +1,5 @@
 <resources>
+    <string name="phone_remote_control">Connected computer can control this phone. Tap Stop to end access.</string>
     <string name="app_name">Nexa Mobile</string>
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">Phone control is optional. Nexa reads visible controls, omits password fields, and asks before acting. Stop any task from its notification.</string>

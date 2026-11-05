@@ -1,5 +1,5 @@
 //! Phone host over the shared executor, run ledger, approvals and file tools.
-use crate::{connections, phone_tool::PhoneTool, platform};
+use crate::{connections, phone_host::PhoneHost, platform};
 use base64::Engine;
 use nexa_core::{
     agent::{AgentConfig, AgentExecutionMode, CancellationToken},
@@ -364,7 +364,11 @@ impl LocalRuntime {
         tools.register(Box::new(ListDirTool));
         tools.register(Box::new(CreateFileTool));
         tools.register(Box::new(EditFileTool));
-        tools.register(Box::new(PhoneTool(app.clone())));
+        tools.register(Box::new(
+            nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost(
+                app.clone(),
+            ))),
+        ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
         let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(

@@ -3,8 +3,12 @@
 mod cache_observation;
 pub mod goal;
 pub mod memory;
-mod model_selection;
+pub(crate) mod model_selection;
 mod remote_views;
+mod storage_management;
+pub use storage_management::{
+    ConversationStorageCursor, ConversationStorageEntry, ConversationStoragePage,
+};
 mod task_artifact_metadata;
 mod task_history;
 mod task_recovery;
@@ -46,6 +50,10 @@ pub struct Conversation {
     pub title: String,
     pub provider: String,
     pub model: String,
+    #[serde(default)]
+    pub agent_config_id: Option<String>,
+    #[serde(default)]
+    pub model_selection: Option<TurnModelSelection>,
     pub system_prompt: String,
     pub collection_context: Option<CollectionContext>,
     pub project_id: Option<String>,
@@ -1669,7 +1677,7 @@ impl Database {
     pub fn list_conversations(&self) -> Result<Vec<Conversation>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at, agent_config_id, model_selection_json
              FROM conversations WHERE archived_at IS NULL AND parent_conversation_id IS NULL ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1683,6 +1691,8 @@ impl Database {
                 project_id: row.get(6)?,
                 persona_id: row.get(7)?,
                 initial_auto_title_pending: row.get::<_, i64>(8)? != 0,
+                agent_config_id: row.get(12)?,
+                model_selection: model_selection::read_selection(row, 13)?,
                 archived_at: row.get(9)?,
                 created_at: row.get(10)?,
                 updated_at: row.get(11)?,
@@ -1699,7 +1709,7 @@ impl Database {
     pub fn list_archived_conversations(&self) -> Result<Vec<Conversation>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at, agent_config_id, model_selection_json
              FROM conversations WHERE archived_at IS NOT NULL AND parent_conversation_id IS NULL ORDER BY archived_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1713,6 +1723,8 @@ impl Database {
                 project_id: row.get(6)?,
                 persona_id: row.get(7)?,
                 initial_auto_title_pending: row.get::<_, i64>(8)? != 0,
+                agent_config_id: row.get(12)?,
+                model_selection: model_selection::read_selection(row, 13)?,
                 archived_at: row.get(9)?,
                 created_at: row.get(10)?,
                 updated_at: row.get(11)?,
@@ -1729,7 +1741,7 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Conversation, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at, agent_config_id, model_selection_json
              FROM conversations WHERE id = ?1",
             rusqlite::params![id],
             |row| {
@@ -1743,6 +1755,8 @@ impl Database {
                     project_id: row.get(6)?,
                     persona_id: row.get(7)?,
                     initial_auto_title_pending: row.get::<_, i64>(8)? != 0,
+                    agent_config_id: row.get(12)?,
+                    model_selection: model_selection::read_selection(row, 13)?,
                     archived_at: row.get(9)?,
                     created_at: row.get(10)?,
                     updated_at: row.get(11)?,
@@ -1850,6 +1864,7 @@ impl Database {
         let mut conn = self.conn();
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut affected = 0usize;
+        storage_management::ensure_idle(&transaction, &ids)?;
         for chunk in ids.chunks(CONVERSATION_DELETE_BIND_CHUNK) {
             let placeholders = vec!["?"; chunk.len()].join(", ");
             let sql = format!("DELETE FROM conversations WHERE id IN ({placeholders})");

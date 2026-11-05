@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0
+
+- Let an explicitly enabled paired computer use phone control over the existing authenticated connection; stop pending actions on cancellation or disconnect without replaying input.
+- Revalidate screen pixels before coordinate taps and return fresh observations after actions or stale targets, without a fixed model-delay expiry.
+- Verify Unicode text after accessibility input and support Android 13+ native editor fallback for whole-field replacement.
+- Add system/on-device speech mode, persisted language preferences, service diagnostics, a dictation test and Android speech settings links.
+- Dock the optional floating assistant to either edge, restore its position and respect disabled animations.
+- Add categorized storage usage with paginated bulk conversation archiving and confirmed deletion.
+- Preserve conversation model choices, prefer inline interactive visualizations and show local follow-up choices when model metadata is missing.
+- Refresh compatible provider models and scope shared frontend checks through the mobile import graph.
+
+Reverse phone control requires Desktop 0.19 or later and explicit per-session enablement on the phone. Process restart, Stop or pairing revocation requires enabling it again. Android permissions, an unlocked phone and a reachable paired computer remain necessary. Physical microphones, OEM background policies and authenticated provider inference are separate acceptance boundaries.
+
 ## 0.2.0
 
 - Add first-launch computer pairing, setup deferral and an offline QR scanner.

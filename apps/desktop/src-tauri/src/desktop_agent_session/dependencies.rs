@@ -97,6 +97,7 @@ pub async fn build_desktop_agent_session_dependencies(
     request: DesktopAgentSessionDependencyRequest<'_>,
 ) -> DesktopAgentSessionDependencies {
     let DesktopAgentSessionDependencyRequest {
+        phone_host,
         workspace,
         preview_host,
         agent_runtime,
@@ -305,6 +306,9 @@ pub async fn build_desktop_agent_session_dependencies(
     if let Some(terminal_state) = terminal_state {
         tools.register(Box::new(TerminalAgentTool::new(terminal_state)));
     }
+    tools.register(Box::new(
+        nexa_core::tools::phone_control_tool::PhoneControlTool(phone_host),
+    ));
     tools = tools.without_names(&["browser_session"]);
     tools.register(Box::new(NativeBrowserSessionTool::new(browser_state)));
     tools = tools.without_names(&["open_in_nexa"]);

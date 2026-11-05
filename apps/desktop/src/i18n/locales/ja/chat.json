@@ -1,4 +1,8 @@
 {
+  "followupExplainLabel": "詳しく説明",
+  "followupExplainPrompt": "上の結果を具体例とともに詳しく説明してください。",
+  "followupNextLabel": "次のステップ",
+  "followupNextPrompt": "この結果に基づいて、最も役立つ次のステップを提案してください。",
   "reasoningProviderManaged": "プロバイダー管理",
   "reasoningProviderManagedHint": "このモデルで選択できる推論レベルは公開されていません。モデル一覧を更新してください。",
   "followupSuggestions": "次のタスク候補",

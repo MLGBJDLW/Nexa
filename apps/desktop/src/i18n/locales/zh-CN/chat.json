@@ -1,4 +1,8 @@
 {
+  "followupExplainLabel": "展开解释",
+  "followupExplainPrompt": "请进一步解释上面的结果，并给出一个具体例子。",
+  "followupNextLabel": "下一步",
+  "followupNextPrompt": "请根据上面的结果，建议最值得做的下一步。",
   "reasoningProviderManaged": "供应商管理",
   "reasoningProviderManagedHint": "供应商尚未公布此模型的可选推理档位，可刷新模型列表检查更新。",
   "followupSuggestions": "接下来可以做",

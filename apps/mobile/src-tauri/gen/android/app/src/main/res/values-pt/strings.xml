@@ -1,4 +1,5 @@
 <resources>
+    <string name="phone_remote_control">O computador conectado pode controlar este telefone. Toque em Parar para encerrar o acesso.</string>
     <string name="app_name">Nexa Mobile</string>
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">O controle é opcional. O Nexa lê controles visíveis, omite senhas e pede aprovação antes de agir. Pare pela notificação.</string>

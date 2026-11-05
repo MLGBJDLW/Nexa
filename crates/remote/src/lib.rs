@@ -1,5 +1,7 @@
 //! Authenticated browser access to an explicitly exposed host surface.
 mod auth;
+mod device_control;
+pub use device_control::PHONE_CONTROL_CAPABILITY;
 pub mod html_preview;
 mod protocol;
 pub mod public_access;

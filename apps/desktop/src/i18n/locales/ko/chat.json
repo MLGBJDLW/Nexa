@@ -1,4 +1,8 @@
 {
+  "followupExplainLabel": "자세히 설명",
+  "followupExplainPrompt": "위 결과를 구체적인 예와 함께 자세히 설명해 주세요.",
+  "followupNextLabel": "다음 단계",
+  "followupNextPrompt": "이 결과를 바탕으로 가장 유용한 다음 단계를 제안해 주세요.",
   "reasoningProviderManaged": "공급자 관리",
   "reasoningProviderManagedHint": "이 모델의 선택 가능한 추론 수준이 공개되지 않았습니다. 모델 목록을 새로 고치세요.",
   "followupSuggestions": "추천 다음 작업",

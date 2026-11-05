@@ -2,7 +2,7 @@
 
 [Guide index](README.md) · [Documentation home](../README.md)
 
-Nexa Mobile `0.2.0` is a native Android application in
+Nexa Mobile `0.3.0` is a native Android application in
 [`apps/mobile`](../../apps/mobile/README.md). It has two explicit execution targets.
 
 | Target | Runtime and credentials | Files and history |
@@ -72,9 +72,22 @@ later also support screenshots and coordinate taps using the captured image's
 pixel coordinates. Captures are resized before entering the shared vision/tool
 pipeline; use a model that accepts images. Each action requires
 the current observation ID and checks the foreground package and target again.
-A successful dispatch is not reported as verified completion: the agent must
-observe and verify the result. Changed targets, expired observations, permission
-loss and locked/unavailable screens stop the action.
+Each action returns a new observation. Text input is read back and reported as
+verified only when it matches. Android 13+ also supports native editor input when
+an app rejects accessibility text replacement. Coordinate taps revalidate app
+pixels, target controls, rotation and foreground identity; model latency alone
+does not expire an unchanged screen. Changed targets return fresh evidence
+without performing the old action. Permission loss and locked/unavailable screens
+stop input.
+
+With Desktop 0.19 or later, open phone settings and explicitly enable **Allow this
+computer to control this phone** beside the paired computer. The desktop's
+`phone_control` tool can then list devices and use the same native adapter.
+Only one computer or local phone task owns input at a time. Existing Phone access
+routes, including public HTTPS, carry this traffic; no inbound phone port is
+required. Stop, revocation and process restart disable control. A temporary
+reconnect retains the enabled session, cancels outstanding requests and never
+automatically repeats a click, text entry or send whose outcome is uncertain.
 
 Phone settings distinguish a disabled service, an enabled service that has not
 connected, notification access, battery restrictions and a locked/asleep screen.
@@ -111,16 +124,32 @@ Phone tasks share desktop model discovery and searchable provider/model choices,
 web search and URL fetching, image attachments, follow-up suggestions and saved
 thinking history. Long thinking blocks load on demand. Choose **Ask** or
 **Allow all** beside the composer; Plan mode still excludes mutating tools even
-when Allow all is selected. Model selection is independent for each device.
+when Allow all is selected. Each conversation retains its own model and reasoning
+intensity while connection credentials can continue to synchronize. Supported
+models reason by default; the picker offers intensity controls.
+
+Interactive chart requests prefer inline `nexa-ui` components. Completed answers
+have local follow-up choices when the model omits valid suggestions. These choices
+are inert until the user selects them.
 
 The microphone uses Android's installed speech recognizer and requests microphone
 permission only when needed. Read aloud uses Android text-to-speech, reading the
 answer without tool output, thinking or suggestion metadata. Availability,
 supported languages and network requirements depend on the installed system
-engines. Stop/cancel and activity teardown release speech sessions. Live voice
+engines. Phone settings exposes system/on-device recognition, language, current
+availability, a dictation test and system recognition/TTS configuration links.
+Language preferences survive restart; the default follows the system locale.
+Stop/cancel and activity teardown release speech sessions. Live voice
 conversation and desktop-only terminal/browser automation are not local phone tools.
 Opening another app and interacting with its visible controls is supported;
 completion, such as sending a message, must be verified from a fresh observation.
+
+The optional floating assistant snaps to either edge after dragging and restores
+its position. Its brief arrival/docking animations honor Android's animation setting.
+Storage settings show measured database, chat, knowledge, file, model and cache
+categories. The conversation manager selects across pages for batch archive or
+confirmed deletion. Running tasks must be stopped first. Archiving changes
+visibility; reclaiming SQLite's reusable pages is a separate compaction action.
 
 ## Runtime and recovery
 

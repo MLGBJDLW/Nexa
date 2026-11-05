@@ -1,4 +1,5 @@
 <resources>
+    <string name="phone_remote_control">L’ordinateur connecté peut contrôler ce téléphone. Touchez Arrêter pour terminer.</string>
     <string name="app_name">Nexa Mobile</string>
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">Le contrôle est facultatif. Nexa lit les contrôles visibles, exclut les mots de passe et demande votre accord avant d’agir. Arrêtez depuis la notification.</string>

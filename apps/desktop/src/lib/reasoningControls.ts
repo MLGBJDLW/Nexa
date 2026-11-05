@@ -3,36 +3,25 @@ import type {
   ReasoningEffortLevel,
 } from './providerPresets';
 
-export function reasoningOffLabelKey(capability: Pick<ReasoningCapability, 'disabledMode'> | null | undefined) {
-  return capability?.disabledMode === 'between_tools' ? 'settings.reasoningBetweenTools' : 'settings.reasoningNone';
-}
-
-export function reasoningOnLabelKey(capability: Pick<ReasoningCapability, 'disabledMode'> | null | undefined) {
-  return capability?.disabledMode === 'between_tools' ? 'settings.enableUpfrontThinking' : 'settings.enableReasoning';
-}
-
 export function defaultReasoningEffort(
   capability: ReasoningCapability | null,
-  enabled = false,
 ): ReasoningEffortLevel | null {
-  const levels = capability?.effortLevels ?? [];
+  const levels: ReasoningEffortLevel[] = capability?.effortLevels?.filter(level => level !== 'none') ?? [];
   if (levels.length === 0) return null;
-  if (!enabled && capability?.defaultEnabled === false && levels.includes('none')) return 'none';
   return capability?.defaultEffort && levels.includes(capability.defaultEffort)
-    && (!enabled || capability.defaultEffort !== 'none')
     ? capability.defaultEffort
-    : levels.find((level) => level !== 'none') ?? levels[0];
+    : levels.includes('medium') ? 'medium' : levels[0];
 }
 
 export function normalizeReasoningEffort(
   value: string | null,
   capability: ReasoningCapability | null,
 ): ReasoningEffortLevel | null {
-  const levels = capability?.effortLevels ?? [];
+  const levels: ReasoningEffortLevel[] = capability?.effortLevels?.filter(level => level !== 'none') ?? [];
   if (levels.length === 0) return null;
   return levels.includes(value as ReasoningEffortLevel)
     ? value as ReasoningEffortLevel
-    : defaultReasoningEffort(capability, true);
+    : defaultReasoningEffort(capability);
 }
 
 export function defaultThinkingBudget(
@@ -51,8 +40,7 @@ export function normalizeThinkingBudget(
   const fallback = defaultThinkingBudget(capability);
   if ((!Number.isFinite(value) || value === null) && fallback === null) return null;
   let next = Number.isFinite(value) && value !== null ? value : fallback!;
-  if (budget.allowZero && next === 0) return 0;
-  if (budget.minTokens != null) next = Math.max(next, budget.minTokens);
+  next = Math.max(next, budget.minTokens ?? 1, 1);
   if (budget.maxTokens != null) next = Math.min(next, budget.maxTokens);
   return Math.round(next);
 }
@@ -62,7 +50,6 @@ export function thinkingBudgetOptions(capability: ReasoningCapability | null): n
   if (!budget?.enabled) return [];
   const fallback = defaultThinkingBudget(capability);
   const candidates = [
-    budget.allowZero ? 0 : undefined,
     budget.minTokens,
     fallback == null ? undefined : Math.round(fallback / 2),
     fallback,

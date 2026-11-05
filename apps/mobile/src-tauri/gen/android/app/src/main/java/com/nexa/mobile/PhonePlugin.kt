@@ -38,6 +38,9 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
             "cancel" -> { speech.cancelListening(); invoke.resolve(JSObject()) }
             "speak" -> speech.speak(invoke)
             "stop" -> { speech.stopSpeech(); invoke.resolve(JSObject()) }
+            "status" -> guarded(invoke) { speech.status() }
+            "configure" -> guarded(invoke) { speech.configure(invoke.getArgs()) }
+            "settings" -> guarded(invoke) { PhoneAccess.open(activity, if (invoke.getArgs().getString("mode", "system") == "tts") "tts" else "speech"); JSObject() }
             else -> invoke.reject("Unsupported speech operation.")
         }
     }
@@ -81,8 +84,10 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
         guarded(invoke) {
         val intent = Intent(activity,TaskService::class.java)
         if(invoke.getArgs().getBoolean("active")) {
+            check(TaskService.remoteHost == null) { "Turn off computer phone control before starting a local phone task." }
             check(activity.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) { "Enable task notifications first so Stop remains reachable." }
-            TaskService.stopRequested.set(false); ContextCompat.startForegroundService(activity,intent)
+            TaskService.stopRequested.set(false); TaskService.localTaskActive = true
+            try { ContextCompat.startForegroundService(activity,intent) } catch (error: Exception) { TaskService.localTaskActive = false; throw error }
         }
         JSObject()
         }
@@ -95,6 +100,40 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
                 if (service == null) invoke.resolve(PhoneAccess.recovery(activity)) else service.execute(invoke)
             }
         } catch (error: Exception) { invoke.reject(error.message ?: "Phone control is unavailable.") }
+    }
+    @Command fun cancelPhoneControl(invoke: Invoke) {
+        PhoneAccessibilityService.instance?.cancelRequest(invoke.getArgs().getString("requestId")); invoke.resolve(JSObject())
+    }
+    @Command fun remoteControl(invoke: Invoke) = activity.runOnUiThread {
+        try {
+            val args = invoke.getArgs(); val host = args.getString("hostId", "").orEmpty()
+            when (args.getString("action")) {
+                "status" -> invoke.resolve(JSObject().apply { put("enabled", TaskService.remoteHost == host && !TaskService.stopRequested.get()) })
+                "enable" -> {
+                    require(host.isNotBlank() && host.length <= 128) { "Choose a paired computer." }
+                    check(!TaskService.localTaskActive) { "Stop the local phone task before enabling computer control." }
+                    check(PhoneAccessibilityService.instance != null) { "Enable phone control access first." }
+                    check(activity.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) { "Enable task notifications so Stop remains reachable." }
+                    TaskService.remoteHost = host; TaskService.stopRequested.set(false)
+                    try { ContextCompat.startForegroundService(activity, Intent(activity, TaskService::class.java)) }
+                    catch (error: Exception) { TaskService.remoteHost = null; throw error }
+                    invoke.resolve(JSObject())
+                }
+                "disable" -> {
+                    if (TaskService.remoteHost == host) { TaskService.remoteHost = null; TaskService.stopRequested.set(true); TaskService.stopAndWait(activity, invoke) }
+                    else invoke.resolve(JSObject())
+                }
+                "cancel" -> { PhoneAccessibilityService.instance?.cancelRequest(args.getString("requestId")); invoke.resolve(JSObject()) }
+                "execute" -> {
+                    check(TaskService.remoteHost == host && !TaskService.stopRequested.get()) { "Phone control was stopped or is not enabled for this computer." }
+                    val service = PhoneAccessibilityService.instance ?: error("Phone control access disconnected.")
+                    val operation = JSObject(args.getJSONObject("arguments").toString())
+                    if (operation.getString("action") == "status") invoke.resolve(PhoneAccess.status(activity))
+                    else service.execute(invoke, operation, args.getString("requestId"))
+                }
+                else -> error("Unsupported remote control operation.")
+            }
+        } catch (error: Exception) { invoke.reject(error.message ?: "Remote phone control is unavailable.") }
     }
     @Command fun assistantOverlay(invoke: Invoke) = activity.runOnUiThread {
         guarded(invoke) {

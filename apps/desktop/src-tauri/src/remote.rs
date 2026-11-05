@@ -117,7 +117,7 @@ impl RemoteState {
             runtime.take();
         }
     }
-    fn server(&self) -> Result<Arc<RemoteServer>, String> {
+    pub(crate) fn server(&self) -> Result<Arc<RemoteServer>, String> {
         self.runtime
             .lock()
             .map_err(|_| "Remote state is unavailable")?
@@ -437,7 +437,10 @@ fn project_run_event(mut event: Value) -> Value {
 #[async_trait::async_trait]
 impl RemoteHost for DesktopHost {
     fn capabilities(&self) -> Vec<String> {
-        vec!["model-connection-sync-v1".into()]
+        vec![
+            MODEL_CONNECTION_SYNC_CAPABILITY.into(),
+            PHONE_CONTROL_CAPABILITY.into(),
+        ]
     }
     async fn execute(&self, owner: &str, command: RemoteCommand) -> Result<Value, String> {
         let app = &self.app;
@@ -456,6 +459,7 @@ impl RemoteHost for DesktopHost {
                 .map_err(|e| e.to_string())?;
         }
         match command {
+            PhoneControlResult { .. } => Err("Phone results are owned by the authenticated transport.".into()),
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
             ReleasePreview { id } => { app.state::<RemoteState>().server()?.release_html_preview(owner, &id); value(()) },
             FilePreview { path, verify_content_hash } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None, verify_content_hash).await?),

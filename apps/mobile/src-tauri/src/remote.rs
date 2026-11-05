@@ -83,6 +83,64 @@ fn public_host(saved: &Value) -> Value {
     json!({"id":saved["manifest"]["serverId"],"token":"","device":saved["device"],"manifest":saved["manifest"],"endpoint":saved["endpoint"]})
 }
 
+pub async fn configure_phone_control(
+    app: &AppHandle,
+    id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    let saved = host(app, id).await?;
+    if enabled
+        && !saved["manifest"]["capabilities"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "phone-control-v1"))
+    {
+        return Err("Update the paired computer to a version supporting phone control.".into());
+    }
+    platform::call(
+        app,
+        "remoteControl",
+        json!({"action":if enabled {"enable"} else {"disable"},"hostId":id}),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn phone_control_enabled(app: &AppHandle, id: &str) -> bool {
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        platform::call(app, "remoteControl", json!({"action":"status","hostId":id})),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .is_some_and(|value| value["enabled"] == true)
+}
+
+struct PhoneRequestGuard {
+    app: AppHandle,
+    host: String,
+    id: String,
+    active: bool,
+}
+impl Drop for PhoneRequestGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let app = self.app.clone();
+        let host = self.host.clone();
+        let id = self.id.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = platform::call(
+                &app,
+                "remoteControl",
+                json!({"action":"cancel","hostId":host,"requestId":id}),
+            )
+            .await;
+        });
+    }
+}
+
 pub async fn hosts(app: &AppHandle) -> Result<Vec<Value>, String> {
     let saved = platform::read_secret(app, "remote-hosts")
         .await?
@@ -199,6 +257,12 @@ pub async fn pair(
 }
 
 pub async fn forget(app: &AppHandle, id: &str) -> Result<(), String> {
+    let _ = platform::call(
+        app,
+        "remoteControl",
+        json!({"action":"disable","hostId":id}),
+    )
+    .await;
     let _guard = HOST_STORE.lock().await;
     let mut saved = platform::read_secret(app, "remote-hosts")
         .await?
@@ -302,7 +366,9 @@ pub async fn rpc(
                 .ok_or("Pairing token unavailable.")?,
         )
         .json(&json!({"method":method,"params":params}))
-        .timeout(Duration::from_secs(if method == "sync.connections" {
+        .timeout(Duration::from_secs(if method == "device.control.result" {
+            15
+        } else if method == "sync.connections" {
             30
         } else {
             145
@@ -318,6 +384,16 @@ pub async fn rpc(
 }
 
 fn emit_revoked(app: &AppHandle, id: &str) {
+    let control_app = app.clone();
+    let control_id = id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let _ = platform::call(
+            &control_app,
+            "remoteControl",
+            json!({"action":"disable","hostId":control_id}),
+        )
+        .await;
+    });
     let _ = app.emit("mobile:remote", json!({"hostId":id,"event":"connection:state","payload":{"phase":"revoked","endpoint":null}}));
 }
 
@@ -377,13 +453,25 @@ impl RemoteHosts {
                         .map_err(|e| e.to_string())?;
                     let mut heartbeat = tokio::time::interval(Duration::from_secs(5));
                     let mut last_message = tokio::time::Instant::now();
+                    let mut control_session = String::new();
+                    let mut control_advertised = None;
+                    let mut control_calls = tokio::task::JoinSet::new();
+                    let mut seen_control_ids = std::collections::VecDeque::<String>::new();
                     loop {
                         tokio::select! {
                             _ = cancel.cancelled() => { let _ = socket.close(None).await; return Ok::<bool,String>(false); },
                             _ = heartbeat.tick() => {
                                 if last_message.elapsed() > Duration::from_secs(20) { return Err("Connection heartbeat expired.".into()); }
                                 socket.send(Message::Text("ping".into())).await.map_err(|e| e.to_string())?;
+                                if !control_session.is_empty() {
+                                    let enabled=phone_control_enabled(&app,&id).await;
+                                    if control_advertised != Some(enabled) {
+                                        socket.send(Message::Text(json!({"type":"phoneControl","version":1,"enabled":enabled}).to_string().into())).await.map_err(|e|e.to_string())?;
+                                        control_advertised=Some(enabled);
+                                    }
+                                }
                             },
+                            _ = control_calls.join_next(), if !control_calls.is_empty() => {},
                             message = socket.next() => {
                                 let message = message.ok_or("Connection closed.")?.map_err(|e| e.to_string())?;
                                 last_message = tokio::time::Instant::now();
@@ -405,12 +493,50 @@ impl RemoteHosts {
                                         if reconnect && !ready { return Err("The computer routes changed.".into()); }
                                     }
                                     if ready {
+                                        if saved["manifest"]["capabilities"].as_array().is_some_and(|items|items.iter().any(|item|item == "phone-control-v1")) {
+                                            control_session=event["payload"]["controlSessionId"].as_str().unwrap_or_default().to_owned();
+                                            let enabled=phone_control_enabled(&app,&id).await;
+                                            socket.send(Message::Text(json!({"type":"phoneControl","version":1,"enabled":enabled}).to_string().into())).await.map_err(|e|e.to_string())?;
+                                            control_advertised=Some(enabled);
+                                        }
                                         failures = 0;
                                         let _ = app.emit("mobile:remote", json!({"hostId":id,"event":"connection:state","payload":{"phase":"connected","endpoint":{"url":endpoint,"kind":"tunnel"}}}));
                                     }
                                     if event["event"] == "connection:revoked" {
                                         emit_revoked(&app, &id);
                                         return Ok(false);
+                                    }
+                                    if event["event"] == "device:control-cancel" {
+                                        if let Some(request_id)=event["payload"]["id"].as_str() {
+                                            let _=platform::call(&app,"remoteControl",json!({"action":"cancel","hostId":id,"requestId":request_id})).await;
+                                        }
+                                        continue;
+                                    }
+                                    if event["event"] == "device:control" && !control_session.is_empty() {
+                                        // The broker admits one operation per phone. Do not let
+                                        // a malformed peer accumulate native work or result tasks.
+                                        // A completed native call can still be delivering its
+                                        // HTTP acknowledgement when the next request arrives.
+                                        // Permit that overlap; native execution remains serialized.
+                                        if control_calls.len() >= 2 { return Err("The phone control channel is overloaded.".into()); }
+                                        let Some(request_id)=event["payload"]["id"].as_str().filter(|value|uuid::Uuid::parse_str(value).is_ok()) else {continue};
+                                        if seen_control_ids.iter().any(|id|id == request_id) { continue; }
+                                        seen_control_ids.push_back(request_id.to_owned()); if seen_control_ids.len()>256 {seen_control_ids.pop_front();}
+                                        let arguments=event["payload"]["arguments"].clone();
+                                        if !arguments.is_object() {continue;}
+                                        let control_app=app.clone(); let host=id.clone(); let request_id=request_id.to_owned(); let session_id=control_session.clone();
+                                        control_calls.spawn(async move {
+                                            let mut guard=PhoneRequestGuard{app:control_app.clone(),host:host.clone(),id:request_id.clone(),active:true};
+                                            let reply=tokio::time::timeout(Duration::from_secs(25),platform::call(&control_app,"remoteControl",json!({"action":"execute","hostId":host,"requestId":request_id,"arguments":arguments}))).await;
+                                            let result=match reply {
+                                                Ok(Ok(value))=>{guard.active=false;value},
+                                                Ok(Err(error))=>{guard.active=false;json!({"code":"phone_control_unavailable","retryable":false,"message":error})},
+                                                Err(_)=>json!({"code":"phone_control_outcome_unknown","retryable":false,"message":"The native phone operation did not return. Observe before continuing; never repeat an uncertain send."}),
+                                            };
+                                            drop(guard);
+                                            let _=rpc(&control_app,&host,"device.control.result".into(),Some(json!({"requestId":request_id,"sessionId":session_id,"result":result}))).await;
+                                        });
+                                        continue;
                                     }
                                     let _ = app.emit("mobile:remote", json!({"hostId":id,"event":event["event"],"payload":event["payload"]}));
                                 }

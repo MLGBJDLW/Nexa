@@ -11,7 +11,7 @@ import { NativeDictationInput } from './NativeDictationInput';
 import { nativeSpeechErrorKey } from './nativeSpeechErrors';
 import { NexaCombobox } from '../../components/ui/overlay/Combobox';
 import { finalAnswerToSpeechText } from '../../lib/autoSpeech';
-import { latestFollowupSuggestions, stripFollowupBlocks } from '../../lib/followupSuggestions';
+import { defaultFollowupSuggestions, latestFollowupSuggestions, stripFollowupBlocks } from '../../lib/followupSuggestions';
 import { applyVoiceDictationEvent, type VoiceDraftSession } from '../voice/voiceDraftProjection';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { RemoteComposerOptions, defaultComposerSettings, type RemoteComposerSettings } from './RemoteComposerOptions';
@@ -621,7 +621,7 @@ export function RemoteChat({
     }
   }
   const lastMessage = messages[messages.length - 1];
-  const followups = !running && !sending && !draft && !attachments.length && lastMessage && [...lastMessage.content].length >= lastMessage.totalChars ? latestFollowupSuggestions(messages) : null;
+  const followups = !running && !sending && (!runStatus || runStatus === 'completed') && !draft && !attachments.length && lastMessage && [...lastMessage.content].length >= lastMessage.totalChars ? latestFollowupSuggestions(messages, defaultFollowupSuggestions(t)) : null;
   const providerControls = <>
       {connections.length > 0 && (mobile ? <NexaCombobox ariaLabel={t('remote.providerConnection')} className={remoteField} value={connectionId} onValueChange={id=>{setConnectionId(id);setModelSelection(null);}} options={connections.map(item=>({value:item.id,label:item.name,description:item.model}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}/> : <select
         aria-label={t("remote.providerConnection")}

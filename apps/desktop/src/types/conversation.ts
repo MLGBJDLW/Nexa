@@ -3,6 +3,8 @@ export interface Conversation {
   title: string;
   provider: string;
   model: string;
+  agentConfigId?: string | null;
+  modelSelection?: import('../features/models/modelChoices').TurnModelSelection | null;
   systemPrompt: string;
   collectionContext?: {
     title: string;

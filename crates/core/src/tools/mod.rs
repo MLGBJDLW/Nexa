@@ -146,6 +146,7 @@ pub mod office_artifact_tool;
 pub mod open_in_nexa_tool;
 pub mod path_utils;
 pub mod persona_tool;
+pub mod phone_control_tool;
 pub mod playbook_tool;
 pub mod prepare_document_tools_tool;
 pub mod project_memory_tool;

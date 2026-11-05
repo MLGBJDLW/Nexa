@@ -521,14 +521,16 @@ pub(super) async fn launch_desktop_agent_chat_turn(
     } else {
         select_agent_config_for_conversation(&state.db, &conv, agent_config_id.as_deref())?
     };
-    if conv.provider != db_config.provider || conv.model != db_config.model {
-        state
-            .db
-            .update_conversation_model(&conversation_id, &db_config.provider, &db_config.model)
-            .map_err(|e| e.to_string())?;
-        conv.provider = db_config.provider.clone();
-        conv.model = db_config.model.clone();
-    }
+    // Scheduled and interactive launches snapshot their resolved choice. A
+    // connection edit in another window cannot rewrite a resumed conversation.
+    state
+        .db
+        .persist_conversation_model(&conversation_id, &db_config)
+        .map_err(|error| error.to_string())?;
+    conv.provider = db_config.provider.clone();
+    conv.model = db_config.model.clone();
+    conv.agent_config_id = Some(db_config.id.clone());
+    conv.model_selection = Some((&db_config).into());
     let vision_attachment_hashes = attachments
         .as_deref()
         .unwrap_or_default()
@@ -1350,6 +1352,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
 
             let session_dependencies =
                 build_desktop_agent_session_dependencies(DesktopAgentSessionDependencyRequest {
+                    phone_host: Arc::new(crate::phone_control::PairedPhoneHost(handle.clone())),
                     workspace: workspace.clone(),
                     preview_host: Arc::new(crate::preview_tool::NativeNexaPreviewHost::new(handle.clone())),
                     agent_runtime: runtime_kind,

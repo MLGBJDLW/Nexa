@@ -36,6 +36,7 @@ object PhoneAccess {
             put("screenLocked", context.getSystemService(KeyguardManager::class.java).isKeyguardLocked)
             put("assistantOverlay", context.getSharedPreferences("phone-assistant", Context.MODE_PRIVATE).getBoolean("overlay", false))
             put("phoneFiles", true)
+            put("remoteControlHost", TaskService.remoteHost ?: "")
             put("localAgent", true)
         }
     }
@@ -71,6 +72,8 @@ object PhoneAccess {
             "app_info" -> appInfo
             "battery" -> Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
             "accessibility" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            "speech" -> Intent(Settings.ACTION_VOICE_INPUT_SETTINGS)
+            "tts" -> Intent("com.android.settings.TTS_SETTINGS")
             "notifications" -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
             else -> error("Unsupported settings destination.")
         }

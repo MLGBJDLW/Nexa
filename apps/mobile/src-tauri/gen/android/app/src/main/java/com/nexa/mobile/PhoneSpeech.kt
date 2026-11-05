@@ -2,6 +2,8 @@ package com.nexa.mobile
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -26,6 +28,25 @@ class PhoneSpeech(private val activity: Activity) {
     private var speechId = ""
     private var engineGeneration = 0L
     private var initTimeout: Runnable? = null
+    private val preferences = activity.getSharedPreferences("phone-speech", Activity.MODE_PRIVATE)
+    fun status() = JSObject().apply {
+        put("mode", preferences.getString("mode", "system"))
+        put("language", preferences.getString("language", ""))
+        put("systemAvailable", SpeechRecognizer.isRecognitionAvailable(activity))
+        put("onDeviceAvailable", Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(activity))
+        put("microphoneGranted", androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+    }
+    fun configure(args: JSObject): JSObject {
+        val mode = args.getString("mode", "system").orEmpty()
+        val language = args.getString("language", "").orEmpty()
+        require(mode in listOf("system", "on_device")) { "Unsupported speech mode." }
+        require(language.isEmpty() || language.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*"))) { "Choose a valid speech language." }
+        preferences.edit().putString("mode", mode).putString("language", language).apply()
+        return status()
+    }
+    private fun language(args: JSObject): String = preferences.getString("language", "").orEmpty().ifBlank {
+        args.getString("language", "").orEmpty().ifBlank { Locale.getDefault().toLanguageTag() }
+    }
     private val recognitionTimeout = Runnable { finishRecognition(error = "speech_timeout") }
     private fun resetEngine() {
         engineGeneration++
@@ -35,16 +56,18 @@ class PhoneSpeech(private val activity: Activity) {
 
     fun listen(invoke: Invoke) = activity.runOnUiThread {
         if (listening != null) { invoke.reject("speech_busy"); return@runOnUiThread }
-        if (!SpeechRecognizer.isRecognitionAvailable(activity)) { invoke.reject("speech_unavailable"); return@runOnUiThread }
+        val onDevice = preferences.getString("mode", "system") == "on_device"
+        if (onDevice && (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(activity))) { invoke.reject("speech_on_device_unavailable"); return@runOnUiThread }
+        if (!onDevice && !SpeechRecognizer.isRecognitionAvailable(activity)) { invoke.reject("speech_unavailable"); return@runOnUiThread }
         try {
             stopSpeech()
             listening = invoke
-            val session = SpeechRecognizer.createSpeechRecognizer(activity)
+            val session = if (onDevice && Build.VERSION.SDK_INT >= 31) SpeechRecognizer.createOnDeviceSpeechRecognizer(activity) else SpeechRecognizer.createSpeechRecognizer(activity)
             recognizer = session
             session.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) { if (listening === invoke) armRecognitionTimeout() }
                 override fun onBeginningOfSpeech() { if (listening === invoke) armRecognitionTimeout() }
-                override fun onRmsChanged(rmsdB: Float) { if (listening === invoke) armRecognitionTimeout() }
+                override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() { if (listening === invoke) armRecognitionTimeout() }
                 override fun onError(error: Int) {
@@ -54,6 +77,7 @@ class PhoneSpeech(private val activity: Activity) {
                         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "speech_permission"
                         SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "speech_network"
                         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "speech_busy"
+                        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "speech_language"
                         else -> "speech_failed"
                     }
                     finishRecognition(error = message)
@@ -64,10 +88,9 @@ class PhoneSpeech(private val activity: Activity) {
                 override fun onPartialResults(partialResults: Bundle?) { if (listening === invoke) armRecognitionTimeout() }
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
-            val language = invoke.getArgs().getString("language", Locale.getDefault().toLanguageTag())
             session.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language(invoke.getArgs()))
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true))
             armRecognitionTimeout()
         } catch (error: Exception) { finishRecognition(error = "speech_failed") }
@@ -105,7 +128,7 @@ class PhoneSpeech(private val activity: Activity) {
     private fun play(invoke: Invoke, requestId: String) {
         val engine = tts ?: run { ready = false; finishSpeech("speech_unavailable"); return }
         val text = invoke.getArgs().getString("text", "").orEmpty()
-        val locale = Locale.forLanguageTag(invoke.getArgs().getString("language", Locale.getDefault().toLanguageTag()))
+        val locale = Locale.forLanguageTag(language(invoke.getArgs()))
         if (engine.setLanguage(locale) < TextToSpeech.LANG_AVAILABLE) { finishSpeech("speech_language"); return }
         val size = minOf(3000, TextToSpeech.getMaxSpeechInputLength() - 1)
         // Android's limit counts UTF-16 units; keep surrogate pairs together.

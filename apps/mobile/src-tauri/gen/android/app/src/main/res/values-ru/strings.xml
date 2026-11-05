@@ -1,4 +1,5 @@
 <resources>
+    <string name="phone_remote_control">Подключённый компьютер может управлять телефоном. Нажмите «Стоп», чтобы завершить доступ.</string>
     <string name="app_name">Nexa Mobile</string>
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">Управление телефоном необязательно. Nexa читает видимые элементы, исключает поля паролей и запрашивает одобрение. Остановить задачу можно из уведомления.</string>

@@ -96,11 +96,17 @@ test.beforeEach(async ({ page }) => {
     configs.push({ ...configs[0], id: 'cfg-glm', name: 'GLM gateway', model: 'glm-4.7', isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-sonnet', name: 'Anthropic', provider: 'anthropic', model: 'claude-sonnet-5-5', contextWindow: 1000000, isDefault: false });
     configs.push({ ...configs[0], id: 'cfg-toggle', name: 'Kimi toggle', provider: 'moonshot', model: 'kimi-k2.6', isDefault: false });
-    const savedAgentConfigInputs: Array<Record<string, unknown>> = [];
-    (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> }).__savedAgentConfigInputs = savedAgentConfigInputs;
+    const savedConversationModelInputs: Array<Record<string, unknown>> = [];
+    (window as unknown as { __savedConversationModelInputs?: Array<Record<string, unknown>> }).__savedConversationModelInputs = savedConversationModelInputs;
 
     const callbackMap = new Map<number, (event: unknown) => void>();
     const listeners = new Map<number, { event: string; handlerId: number }>();
+    (window as any).__changeModelInOtherWindow = () => {
+      configs = configs.map(config => config.id === 'cfg-tiny' ? { ...config, model: 'gpt-5.5' } : config);
+      for (const [id, listener] of listeners) {
+        if (listener.event === 'agent-configs-changed') callbackMap.get(listener.handlerId)?.({ event: listener.event, id, payload: null });
+      }
+    };
     let callbackSeq = 1;
     let listenerSeq = 1;
     (window as unknown as { __lastAgentChatArgs?: Record<string, unknown> | null }).__lastAgentChatArgs = null;
@@ -202,7 +208,7 @@ test.beforeEach(async ({ page }) => {
         }
         case 'save_agent_config_cmd': {
           const input = clone((args.config ?? {}) as Record<string, unknown>);
-          savedAgentConfigInputs.push(input);
+          throw new Error("Chat must not edit shared agent configurations");
           const id = String(input.id ?? '');
           const existing = configs.find((config) => config.id === id) ?? configs[0];
           const next = {
@@ -220,11 +226,13 @@ test.beforeEach(async ({ page }) => {
           return clone(next);
         }
         case 'update_conversation_model_cmd': {
+          savedConversationModelInputs.push({ id: args.agentConfigId, provider: args.provider, ...(args.modelSelection as Record<string,unknown>) });
           const id = String(args.id ?? '');
           const conversation = conversations[id];
           if (!conversation) return null;
           conversation.provider = String(args.provider ?? conversation.provider);
           conversation.model = String(args.model ?? conversation.model);
+          Object.assign(conversation, { agentConfigId: args.agentConfigId, modelSelection: args.modelSelection });
           conversation.updatedAt = new Date().toISOString();
           return clone(conversation);
         }
@@ -301,6 +309,17 @@ test.beforeEach(async ({ page }) => {
       },
     };
   });
+});
+
+test('another window cannot change the current conversation model after a background task', async ({ page }) => {
+  await page.goto('/chat/conv-model-switch');
+  const model = page.getByTestId('agent-model-picker-trigger');
+  await expect(model).toContainText('tiny-context');
+  await page.evaluate(() => (window as any).__changeModelInOtherWindow());
+  await expect(model).toContainText('tiny-context');
+  await page.getByTestId('chat-input-textarea').fill('Continue this conversation with its selected model.');
+  await page.getByTestId('chat-send').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__lastAgentChatArgs?.modelSelection?.model)).toBe('tiny-context');
 });
 
 test('a remounted completed turn fetches fresh changes after an older query settles', async ({ page }) => {
@@ -586,28 +605,16 @@ test('model selector and context usage follow the active chat model', async ({ p
   ).toBe('cfg-large');
 });
 
-test('Claude Sonnet 5.5 model selector distinguishes default and between-tool thinking', async ({ page }, testInfo) => {
+test('thinking stays enabled while the model selector exposes effort levels', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
-  const model = page.getByTestId('agent-model-picker-trigger');
-  const reasoning = page.getByTestId('agent-reasoning-picker-trigger');
   await openProviderModels(page, 'cfg-sonnet');
   await page.getByTestId('agent-model-option-cfg-sonnet-claude-sonnet-5-5').click();
-  await expect(reasoning).not.toContainText('Between-tool thinking only');
+  const reasoning = page.getByTestId('agent-reasoning-picker-trigger');
   await reasoning.click();
-  const betweenTools = page.getByTestId('agent-model-reasoning-none');
-  await expect(betweenTools).toContainText('Between-tool thinking only');
-  await expect(betweenTools).not.toHaveClass(/bg-accent-subtle/);
-  await expect(page.getByTestId('agent-model-reasoning-max')).toBeVisible();
-  await page.getByTestId('agent-model-picker-menu').screenshot({ path: testInfo.outputPath('sonnet55-reasoning-modes.png') });
-  await betweenTools.click();
-  await expect(reasoning).toContainText('Between-tool thinking only');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({
-    model: 'claude-sonnet-5-5', reasoningEnabled: false, reasoningEffort: null, thinkingBudget: null,
-  });
-  await reasoning.click();
+  await expect(page.getByTestId('agent-model-reasoning-none')).toHaveCount(0);
   await page.getByTestId('agent-model-reasoning-max').click();
   await expect(reasoning).toContainText('Max');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({
+  await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1))).toMatchObject({
     model: 'claude-sonnet-5-5', reasoningEnabled: true, reasoningEffort: 'max', thinkingBudget: null,
   });
 });
@@ -632,7 +639,7 @@ test('reasoning slider shares provider semantics with the list and persists its 
   const initialColor = await page.locator('.nexa-intensity').evaluate(element => getComputedStyle(element).getPropertyValue('--intensity-color'));
   await slider.focus();
   await slider.press('End');
-  await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:'max',thinkingBudget:null});
+  await expect.poll(()=>page.evaluate(()=>(window as any).__savedConversationModelInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:'max',thinkingBudget:null});
   await expect(slider).toBeVisible();
   await expect(slider).toHaveAttribute('aria-valuetext','Max');
   await expect(slider).toBeEnabled();
@@ -646,13 +653,13 @@ test('reasoning slider shares provider semantics with the list and persists its 
   await page.getByTestId('agent-model-picker-menu').screenshot({path:testInfo.outputPath('reasoning-intensity-slider.png')});
   await slider.focus();
   await slider.press('Home');
-  await expect.poll(()=>page.evaluate(()=>(window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:false,reasoningEffort:null,thinkingBudget:null});
+  await expect.poll(()=>page.evaluate(()=>(window as any).__savedConversationModelInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:'low',thinkingBudget:null});
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('nexa-display-preferences')!).reasoningControl)).toBe('slider');
   await page.getByRole('button',{name:'List',exact:true}).click();
   await expect(page.getByTestId('agent-model-reasoning-max')).toBeVisible();
 });
 
-test('model selector saves model and reasoning changes to the agent config', async ({ page }) => {
+test('model selector saves model and reasoning to the conversation without editing the connection', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
 
   const modelSelect = page.getByTestId('agent-model-picker-trigger');
@@ -666,8 +673,8 @@ test('model selector saves model and reasoning changes to the agent config', asy
 
   await expect(modelSelect).toHaveAttribute('title', /open_ai \/ gpt-5\.5$/);
   const savedInput = await page.evaluate(() =>
-    (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> })
-      .__savedAgentConfigInputs?.at(-1),
+    (window as unknown as { __savedConversationModelInputs?: Array<Record<string, unknown>> })
+      .__savedConversationModelInputs?.at(-1),
   );
   expect(savedInput).toMatchObject({
     id: 'cfg-tiny',
@@ -692,7 +699,7 @@ test('provider-managed reasoning lets a stale native effort return to default', 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('native-reasoning-reset')).toBeVisible();
   await page.getByTestId('native-reasoning-reset').click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs: Array<Record<string, unknown>> }).__savedAgentConfigInputs.at(-1))).toMatchObject({
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedConversationModelInputs: Array<Record<string, unknown>> }).__savedConversationModelInputs.at(-1))).toMatchObject({
     model: 'gpt-native', reasoningEffort: null, thinkingBudget: null, reasoningEnabled: null,
   });
   await expect(page.getByTestId('native-reasoning-reset')).toHaveCount(0);
@@ -712,7 +719,7 @@ test(`${provider} model and native reasoning selection reach the chat request`, 
   await page.locator('textarea').fill('Please inspect the current page');
   await page.locator('textarea').press('Enter');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string,unknown> }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: configId });
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs?: Array<Record<string,unknown>> }).__savedAgentConfigInputs?.at(-1))).toMatchObject({ provider, model: 'gpt-native', reasoningEffort: 'ultra' });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedConversationModelInputs?: Array<Record<string,unknown>> }).__savedConversationModelInputs?.at(-1))).toMatchObject({ provider, model: 'gpt-native', reasoningEffort: 'ultra' });
 });
 }
 
@@ -727,7 +734,7 @@ test('provider-managed reasoning sends Gemini Argon with its advertised Copilot 
   await page.locator('textarea').fill('Hello Gemini');
   await page.locator('textarea').press('Enter');
   await expect.poll(() => page.evaluate(() => (window as unknown as { __lastAgentChatArgs?: Record<string, unknown> }).__lastAgentChatArgs)).toMatchObject({ agentConfigId: 'cfg-subscription' });
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs?: Array<Record<string, unknown>> }).__savedAgentConfigInputs?.at(-1))).toMatchObject({ provider: 'github_copilot', model: 'gemini-4-argon', reasoningEffort: 'low' });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedConversationModelInputs?: Array<Record<string, unknown>> }).__savedConversationModelInputs?.at(-1))).toMatchObject({ provider: 'github_copilot', model: 'gemini-4-argon', reasoningEffort: 'low' });
 });
 
 
@@ -759,7 +766,7 @@ test('ACP advertised reasoning and native context capacity are available in chat
   await expect(page.getByRole('button', { name: /5% context used/ })).toBeVisible();
   await page.getByTestId('agent-reasoning-picker-trigger').click();
   await page.getByTestId('agent-model-reasoning-ultra').click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfigInputs?: Array<Record<string,unknown>> }).__savedAgentConfigInputs?.at(-1))).toMatchObject({ provider: 'opencode', reasoningEffort: 'ultra' });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedConversationModelInputs?: Array<Record<string,unknown>> }).__savedConversationModelInputs?.at(-1))).toMatchObject({ provider: 'opencode', reasoningEffort: 'ultra' });
   await page.screenshot({ path: testInfo.outputPath('native-context-and-reasoning.png') });
 });
 
@@ -775,30 +782,23 @@ test('ACP reasoning preserves opaque choices and shows Default until explicitly 
   const slider = page.getByRole('slider', {name:'Reasoning Effort'});
   await expect(slider).toHaveAttribute('aria-valuetext','Default');
   await slider.focus(); await slider.press('End');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEffort:'deep'});
+  await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1))).toMatchObject({reasoningEffort:'deep'});
   await expect(trigger).toContainText('deep');
   // Slider selection keeps the menu open. Toggling it here targets a range
   // input that is already leaving the DOM and races its keyup commit.
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   await slider.focus(); await slider.press('Home');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEffort:null,reasoningEnabled:null});
+  await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1))).toMatchObject({reasoningEffort:null,reasoningEnabled:null});
 });
 
-test('reasoning toggle-only models retain On and Off in list and slider modes', async ({ page }) => {
+test('models with thinking but no effort control keep thinking enabled', async ({ page }) => {
   await page.goto('/chat/conv-model-switch');
   await openProviderModels(page, 'cfg-toggle');
   await page.getByTestId('agent-model-option-cfg-toggle-kimi-k2.6').click();
-  const trigger = page.getByTestId('agent-reasoning-picker-trigger');
-  await trigger.click();
-  await page.getByTestId('agent-model-reasoning-on').click();
-  await expect(trigger).toContainText('On');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:null,thinkingBudget:null});
-  await trigger.click();
-  await page.getByRole('button', {name:'Intensity slider',exact:true}).click();
-  const slider = page.getByRole('slider', {name:'Reasoning Effort'});
-  await expect(slider).toHaveAttribute('aria-valuetext','On');
-  await slider.focus(); await slider.press('Home');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({reasoningEnabled:false,reasoningEffort:null,thinkingBudget:null});
+  await page.getByTestId('agent-reasoning-picker-trigger').click();
+  await expect(page.getByTestId('agent-model-reasoning-none')).toHaveCount(0);
+  await expect(page.getByTestId('agent-model-reasoning-on')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1))).toMatchObject({reasoningEnabled:true,reasoningEffort:null,thinkingBudget:null});
 });
 
 test('ACP external agent model selector hides unsupported runtime controls and uses its native route', async ({ page }, testInfo) => {
@@ -887,7 +887,7 @@ test('closing or changing providers cancels a pending native catalog selection',
     await expect.poll(() => page.evaluate(() => (window as any).__catalogResults ?? [])).toContain('openai_codex');
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(provider).toHaveAttribute('title', action === 'close' ? originalTitle! : 'Anthropic');
-    expect(await page.evaluate(() => (window as any).__savedAgentConfigInputs.some((config: any) => config.id === 'cfg-codex'))).toBe(false);
+    expect(await page.evaluate(() => (window as any).__savedConversationModelInputs.some((config: any) => config.id === 'cfg-codex'))).toBe(false);
   }
 });
 
@@ -1041,7 +1041,7 @@ test('reasoning slider supports pointer drag and reduced motion in the dark them
   await page.mouse.move(box.x + box.width - 5, box.y + box.height / 2, { steps: 8 });
   await page.mouse.move(box.x + box.width + 12, box.y + box.height + 15);
   await page.mouse.up();
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1))).toMatchObject({ reasoningEffort: 'max' });
+  await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1))).toMatchObject({ reasoningEffort: 'max' });
   const panel = page.getByTestId('agent-model-picker-menu');
   await expect(panel).toBeVisible();
   await expect(panel.locator('.nexa-intensity-bond path').first()).toHaveCSS('animation-name', 'none');
@@ -1081,7 +1081,7 @@ test.describe('reasoning slider motion', () => {
     expect((dragged.x + dragged.width / 2 - box.x - 19) / (box.width - 38)).toBeCloseTo(0.35, 2);
     await page.mouse.up();
     await expect(slider).toBeEnabled();
-    await expect(slider).toHaveValue('2');
+    await expect(slider).toHaveValue('1');
 
     const positions = await page.evaluate(async () => {
       const thumb = document.querySelector('.nexa-intensity-thumb')!;
@@ -1114,7 +1114,7 @@ test('reasoning slider restores the saved selection when persistence fails', asy
   await page.evaluate(() => {
     const host = (window as any).__TAURI_INTERNALS__;
     const original = host.invoke;
-    host.invoke = (command: string, args: unknown) => command === 'save_agent_config_cmd'
+    host.invoke = (command: string, args: unknown) => command === 'update_conversation_model_cmd'
       ? Promise.reject(new Error('Theme test save failed')) : original(command, args);
   });
   await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Max', exact: true }).click();
@@ -1138,8 +1138,8 @@ async function holdNextReasoningSave(page: Page) {
     state.__reasoningSaveStarts = [];
     let hold = true;
     state.__TAURI_INTERNALS__.invoke = async (command: string, args: any) => {
-      if (command === 'save_agent_config_cmd') {
-        state.__reasoningSaveStarts.push(args.config.reasoningEffort);
+      if (command === 'update_conversation_model_cmd') {
+        state.__reasoningSaveStarts.push(args.modelSelection.reasoningEffort);
         if (hold) {
           hold = false;
           await new Promise(resolve => state.__releaseReasoningSave = resolve);
@@ -1167,7 +1167,7 @@ test('reasoning slider retains keyboard focus and serializes rapid reverse selec
   await expect(page.locator('.nexa-intensity')).toHaveAttribute('aria-busy', 'false');
   await expect(slider).toBeFocused();
   await expect(slider).toHaveAttribute('aria-valuetext', 'High');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1)?.reasoningEffort)).toBe('high');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1)?.reasoningEffort)).toBe('high');
 });
 
 test('reasoning slider and list share one save queue across a view switch', async ({ page }) => {
@@ -1181,25 +1181,15 @@ test('reasoning slider and list share one save queue across a view switch', asyn
   await page.evaluate(() => (window as any).__releaseReasoningSave());
   await expect.poll(() => page.evaluate(() => (window as any).__reasoningSaveStarts)).toEqual(['low', 'medium']);
   await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Medium');
-  await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfigInputs.at(-1)?.reasoningEffort)).toBe('medium');
+  await expect.poll(() => page.evaluate(() => (window as any).__savedConversationModelInputs.at(-1)?.reasoningEffort)).toBe('medium');
 });
 
-for (const failedCommand of ['set_default_agent_config_cmd', 'update_conversation_model_cmd']) {
-  test(`reasoning slider preserves the persisted effort when ${failedCommand} fails later`, async ({ page }) => {
-    await openSonnetReasoningSlider(page);
-    await page.evaluate(command => {
-      const host = (window as any).__TAURI_INTERNALS__;
-      const original = host.invoke;
-      host.invoke = (name: string, args: unknown) => name === command
-        ? Promise.reject(new Error('Session projection failed after persistence')) : original(name, args);
-    }, failedCommand);
-    await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Max', exact: true }).click();
-    await expect(page.locator('.nexa-intensity')).toHaveAttribute('aria-busy', 'false');
-    await expect(page.getByRole('slider', { name: 'Reasoning Effort' })).toHaveAttribute('aria-valuetext', 'Max');
-    await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Max');
-    expect(await page.evaluate(async () => {
-      const configs = await (window as any).__TAURI_INTERNALS__.invoke('list_agent_configs_cmd');
-      return configs.find((config: any) => config.id === 'cfg-sonnet').reasoningEffort;
-    })).toBe('max');
-  });
-}
+test('model and effort changes never update another conversation or the global default', async ({ page }) => {
+  await openSonnetReasoningSlider(page);
+  await page.locator('.nexa-intensity-options').getByRole('button', { name: 'Max', exact: true }).click();
+  await expect(page.getByTestId('agent-reasoning-picker-trigger')).toContainText('Max');
+  expect(await page.evaluate(async () => {
+    const configs = await (window as any).__TAURI_INTERNALS__.invoke('list_agent_configs_cmd');
+    return { effort: configs.find((config: any) => config.id === 'cfg-sonnet').reasoningEffort, defaultId: configs.find((config: any) => config.isDefault).id };
+  })).toEqual({ effort: null, defaultId: 'cfg-tiny' });
+});

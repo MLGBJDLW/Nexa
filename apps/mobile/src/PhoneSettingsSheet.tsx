@@ -7,6 +7,16 @@ import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell'
 import { NexaCombobox } from '../../desktop/src/components/ui/overlay/Combobox';
 import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
 import { hostLabel, type NativeHost } from './nativeClient';
+import { PhoneSpeechSettings } from './PhoneSpeechSettings';
+import { StorageUsageCard } from '../../desktop/src/components/settings/StorageUsageCard';
+import type { StorageService } from '../../desktop/src/lib/api';
+
+const phoneStorage: StorageService = {
+  usage: () => invoke('mobile_storage', { action: 'usage' }),
+  page: (scope, cursor) => invoke('mobile_storage', { action: 'page', scope, cursor }),
+  archive: ids => invoke('mobile_storage', { action: 'archive', ids }),
+  remove: ids => invoke('mobile_storage', { action: 'remove', ids }),
+};
 
 const presets = PROVIDER_PRESETS.filter(preset => !preset.runtime && preset.requiresApiKey && !['bedrock','vertex','github_copilot_api'].includes(preset.provider));
 const presetFor = (record?: PhoneConnection) => presets.find(preset => preset.provider === record?.provider && preset.baseUrl === record.baseUrl)
@@ -61,6 +71,9 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         {state.hosts.map(computer => {
           const summary = state.connectionSync?.[computer.id];
           return <div className="mobile-sync-host" key={computer.id}><strong>{hostLabel(computer)}</strong>
+            <label className="mobile-overlay-toggle"><span>{t('remote.mobileAllowComputerControl')}</span><input type="checkbox" checked={state.capabilities.remoteControlHost === computer.id}
+              disabled={busy || !computer.manifest.capabilities?.includes('phone-control-v1')} onChange={event => { const enabled=event.target.checked; void action(async () => { await invoke('mobile_phone_control',{hostId:computer.id,enabled}); }); }}/></label>
+            <p className="mobile-section-hint">{t('remote.mobileComputerControlHint')}</p>
             {summary && <p className="mobile-section-hint">{summary.supported ? t('remote.mobileSyncSummary', { count: summary.connections }) : t('remote.mobileSyncUnsupported')}</p>}
             {!!summary?.conflicts && <p className="mobile-section-hint">{t('remote.mobileSyncConflicts', { count: summary.conflicts })}</p>}
             {!!summary?.deviceOnly && <p className="mobile-section-hint">{t('remote.mobileSyncDeviceOnly', { count: summary.deviceOnly })}</p>}
@@ -78,6 +91,8 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         <details className="mobile-permission-help"><summary>{t('remote.mobileBackgroundHelp')}</summary><p>{t('remote.mobileBackgroundHint')}</p>{/samsung/i.test(state.capabilities.manufacturer ?? '') && <p>{t('remote.mobileSamsungBatteryHint')}</p>}{/xiaomi|redmi|poco|oppo|vivo|oneplus|huawei|honor/i.test(state.capabilities.manufacturer ?? '') && <p>{t('remote.mobileVendorBatteryHint')}</p>}{state.capabilities.backgroundRestricted && <p>{t('remote.mobileBackgroundRestricted')}</p>}<button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'battery' }); })}>{t('remote.mobileBatterySettings')}<ChevronRight size={17}/></button></details>
         <button disabled={busy} onClick={() => void action(onChanged)}>{t('remote.mobileRefreshPermissions')}<RefreshCw size={17}/></button>
       </section>
+      <PhoneSpeechSettings open={open}/>
+      {open && <StorageUsageCard service={phoneStorage}/>}
       <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
       {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}
       <p className="mobile-version">Nexa Mobile {state.version}</p>

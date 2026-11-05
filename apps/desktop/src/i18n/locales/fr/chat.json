@@ -1,4 +1,8 @@
 {
+  "followupExplainLabel": "Approfondir",
+  "followupExplainPrompt": "Expliquez ce résultat plus en détail, avec un exemple concret.",
+  "followupNextLabel": "Prochaines étapes",
+  "followupNextPrompt": "Proposez les prochaines étapes les plus utiles à partir de ce résultat.",
   "reasoningProviderManaged": "Géré par le fournisseur",
   "reasoningProviderManagedHint": "Aucun niveau de raisonnement sélectionnable n’est annoncé pour ce modèle. Actualisez la liste.",
   "followupSuggestions": "Tâches suivantes suggérées",

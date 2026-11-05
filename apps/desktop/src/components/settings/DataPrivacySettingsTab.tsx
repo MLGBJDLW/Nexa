@@ -7,7 +7,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Section, StatCard } from './SettingsSection';
-import { DatabaseStorageCard } from './DatabaseStorageCard';
+import { StorageUsageCard } from './StorageUsageCard';
 
 interface FtsProgress {
   operation?: string | null;
@@ -131,7 +131,7 @@ export function DataPrivacySettingsTab({
 
   return (
     <>
-      <DatabaseStorageCard />
+      <StorageUsageCard />
 
       <Section
         icon={<Database size={20} />}
