@@ -1,6 +1,9 @@
 import type { TranslationKey } from '../../i18n';
 
 const messages = {
+  speech_configuration: 'remote.speechConfiguration',
+  speech_cloud_failed: 'remote.speechCloudFailed',
+  speech_interrupted: 'remote.speechInterrupted',
   speech_on_device_unavailable: 'remote.speechOnDeviceUnavailable',
   speech_permission: 'remote.speechPermission', speech_unavailable: 'remote.speechUnavailable',
   speech_network: 'remote.speechNetwork', speech_no_match: 'remote.speechNoMatch',

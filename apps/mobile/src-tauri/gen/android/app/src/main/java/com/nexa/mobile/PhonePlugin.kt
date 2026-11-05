@@ -28,15 +28,28 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     private val secrets = SecretStore(activity)
     private val speech = PhoneSpeech(activity)
     private var foreground = true
-    override fun onResume(activity: androidx.appcompat.app.AppCompatActivity) { foreground = true }
+    private var pendingListen: Invoke? = null
+    private var permissionListen: Invoke? = null
+    override fun onResume(activity: androidx.appcompat.app.AppCompatActivity) {
+        foreground = true
+        pendingListen?.let { pendingListen = null; speech.listen(it) }
+    }
     override fun onPause(activity: androidx.appcompat.app.AppCompatActivity) { foreground = false; speech.stop() }
-    override fun onDestroy(activity: androidx.appcompat.app.AppCompatActivity) { speech.destroy(); if (instance === this) instance = null }
+    override fun onDestroy(activity: androidx.appcompat.app.AppCompatActivity) { cancelPendingSpeech("speech_interrupted"); speech.destroy(); if (instance === this) instance = null }
+    private fun cancelPendingSpeech(reason: String) {
+        pendingListen?.reject(reason); pendingListen = null
+        permissionListen?.reject(reason); permissionListen = null
+    }
     @Command fun speech(invoke: Invoke) = activity.runOnUiThread {
         when (invoke.getArgs().getString("action")) {
-            "listen" -> if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) speech.listen(invoke)
-                else requestPermissionForAlias("microphone", invoke, "microphoneGranted")
-            "cancel" -> { speech.cancelListening(); invoke.resolve(JSObject()) }
+            "listen" -> if (pendingListen != null || permissionListen != null) invoke.reject("speech_busy")
+                else if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    if (foreground) speech.listen(invoke) else invoke.reject("speech_interrupted")
+                } else { permissionListen = invoke; requestPermissionForAlias("microphone", invoke, "microphoneGranted") }
+            "cancel" -> { cancelPendingSpeech("speech_cancelled"); speech.cancelListening(); invoke.resolve(JSObject()) }
+            "finish" -> { if (pendingListen != null || permissionListen != null) cancelPendingSpeech("speech_cancelled") else speech.finishListening(); invoke.resolve(JSObject()) }
             "speak" -> speech.speak(invoke)
+            "play" -> if (foreground) speech.play(invoke) else invoke.reject("speech_interrupted")
             "stop" -> { speech.stopSpeech(); invoke.resolve(JSObject()) }
             "status" -> guarded(invoke) { speech.status() }
             "configure" -> guarded(invoke) { speech.configure(invoke.getArgs()) }
@@ -45,7 +58,14 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
         }
     }
     @PermissionCallback private fun microphoneGranted(invoke: Invoke) {
-        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) speech.listen(invoke)
+        if (permissionListen !== invoke) return
+        permissionListen = null
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            // OEM permission activities can deliver the result before onResume.
+            // Starting then immediately cancels recognition in onPause.
+            if (foreground) speech.listen(invoke)
+            else { pendingListen?.reject("speech_cancelled"); pendingListen = invoke }
+        }
         else invoke.reject("speech_permission")
     }
     private fun guarded(invoke: Invoke, action: () -> JSObject) { try { invoke.resolve(action()) } catch (error: Exception) { invoke.reject(error.message ?: "Native service unavailable.") } }

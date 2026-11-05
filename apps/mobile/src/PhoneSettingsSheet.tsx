@@ -93,8 +93,8 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         <button disabled={busy} onClick={() => void action(onChanged)}>{t('remote.mobileRefreshPermissions')}<RefreshCw size={17}/></button>
       </section>
       <PhoneSpeechSettings open={open}/>
-      {open && <PhoneWebSettings/>}
-      {open && <StorageUsageCard service={phoneStorage}/>}
+      {open && <PhoneWebSettings connections={state.connections}/>}
+      {open && <StorageUsageCard mobile service={phoneStorage}/>}
       <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
       {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}
       <p className="mobile-version">Nexa Mobile {state.version}</p>

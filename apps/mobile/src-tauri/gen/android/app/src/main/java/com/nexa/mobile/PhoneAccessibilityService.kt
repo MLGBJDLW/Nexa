@@ -80,15 +80,18 @@ class PhoneAccessibilityService : AccessibilityService() {
     }
     fun setOverlay(enabled: Boolean) { if (enabled) overlay.show() else overlay.hide() }
     @Suppress("DEPRECATION") private fun rotation() = getSystemService(WindowManager::class.java).defaultDisplay.rotation
+    // Some OEMs transiently omit rootInActiveWindow while still publishing the
+    // active application window. Never fall through to a background app.
+    private fun activeRoot(): AccessibilityNodeInfo? = rootInActiveWindow ?: windows.firstOrNull { it.isActive }?.root
     @Suppress("DEPRECATION") private fun foregroundMatchesObservation(): Boolean {
         if (PhoneAccess.screenRecovery(this) != null) return false
-        val root = rootInActiveWindow ?: return false
+        val root = activeRoot() ?: return false
         return try { root.packageName?.toString() == observedPackage && root.windowId == observedWindow }
         finally { root.recycle() }
     }
     @Suppress("DEPRECATION") private fun approvalShadeVisible(): Boolean {
         if (approvalWait == null || PhoneAccess.screenRecovery(this) != null) return false
-        val root = rootInActiveWindow ?: return false
+        val root = activeRoot() ?: return false
         return try { root.packageName?.toString() == "com.android.systemui" } finally { root.recycle() }
     }
     fun beginApproval(id: String) { approvalWait = ApprovalWait(id, observation, revision, android.os.SystemClock.elapsedRealtime()) }
@@ -106,7 +109,7 @@ class PhoneAccessibilityService : AccessibilityService() {
     // Approval is an explicit user action. Dismiss its shade before the already
     // approved target is checked; never relax the foreground identity check.
     fun dismissApprovalShade() {
-        val root = rootInActiveWindow ?: return
+        val root = activeRoot() ?: return
         val shade = root.packageName?.toString() == "com.android.systemui"
         @Suppress("DEPRECATION") root.recycle()
         if (shade) performGlobalAction(if (android.os.Build.VERSION.SDK_INT >= 31) GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE else GLOBAL_ACTION_BACK)
@@ -121,7 +124,10 @@ class PhoneAccessibilityService : AccessibilityService() {
     @Synchronized fun observe(): JSObject {
         checkUnlocked()
         invalidate()
-        val root = rootInActiveWindow ?: throw PhoneUiUnavailable()
+        // Explicit observations must not replay Android's cached subtree from
+        // the previous activity instance or a just-completed text mutation.
+        if (android.os.Build.VERSION.SDK_INT >= 33) clearCache()
+        val root = activeRoot() ?: throw PhoneUiUnavailable()
         observedPackage = root.packageName?.toString() ?: error("The active app cannot be identified.")
         observedWindow = root.windowId; observedRotation = rotation(); sensitive = false
         root.getBoundsInScreen(observedBounds)
@@ -185,7 +191,15 @@ class PhoneAccessibilityService : AccessibilityService() {
             val approvalSettling = now - approvalResolvedAt < 1000 || (approvalWait?.resolved == true && !foregroundMatchesObservation())
             if (now-started < 2000 && (approvalSettling || (read && now-started < 1200 && (now-lastActionAt < 350 || now-lastUiEventAt < 200)))) {
                 main.postDelayed({ ready() }, 60)
-            } else if (activeRequest === invoke) executeNow(invoke, arguments)
+            } else if (activeRequest === invoke) {
+                if (read && now - started < 1800) {
+                    val root = activeRoot()
+                    val pending = root == null || (root.childCount == 0 && root.text.isNullOrBlank() && root.contentDescription.isNullOrBlank() && !root.isClickable && !root.isEditable)
+                    @Suppress("DEPRECATION") root?.recycle()
+                    if (pending) { main.postDelayed({ ready() }, 120); return }
+                }
+                executeNow(invoke, arguments)
+            }
         }
         main.post {
             if (activeRequest != null) invoke.resolve(JSObject().apply { put("code", "control_busy"); put("retryable", true); put("actionPerformed", false); put("message", "Another phone operation is still finishing. Wait for its result before acting.") })
@@ -222,14 +236,14 @@ class PhoneAccessibilityService : AccessibilityService() {
         state.put("code", if (stale) "stale_observation" else if (error is PhoneUiUnavailable) "ui_unavailable" else "phone_action_unavailable")
         state.put("retryable", stale || error is PhoneUiUnavailable); state.put("requiresUserAction", false); state.put("actionPerformed", false)
         state.put("message", error.message ?: "Phone action is unavailable.")
-        state.put("recovery", if (stale) "Inspect this new observation and use its observationId and nodes. For coordinates, capture a new screenshot. No input was sent." else "Inspect phone status and the current screen before deciding what to do; never repeat an uncertain send.")
+        state.put("recovery", if (state.has("observationId")) "Inspect this new observation and use its observationId and nodes. For coordinates, capture a new screenshot. No input was sent." else "The accessible UI is unavailable. You may use home or open_app without observationId to recover, then observe. Do not repeat click, text or send actions without fresh evidence. If the screen remains unreadable, ask the user to continue manually.")
         reply(invoke, state)
     }
     private fun validateTarget(args: JSObject) {
         checkUnlocked()
         check(!TaskService.stopRequested.get()) { "The task was stopped." }
         if (args.getString("observationId") != observation || observation.isEmpty()) throw PhoneStale("Inspect the current observation before acting.")
-        val currentRoot = rootInActiveWindow ?: throw PhoneUiUnavailable()
+        val currentRoot = activeRoot() ?: throw PhoneUiUnavailable()
         val currentPackage = currentRoot.packageName?.toString(); val currentWindow = currentRoot.windowId
         @Suppress("DEPRECATION") currentRoot.recycle()
         if (currentPackage != observedPackage || currentWindow != observedWindow || rotation() != observedRotation) throw PhoneStale("The foreground app or display changed.")
@@ -406,7 +420,10 @@ class PhoneAccessibilityService : AccessibilityService() {
     private fun action(args: JSObject): Boolean {
         check(!TaskService.stopRequested.get()) { "The task was stopped." }
         val operation = args.getString("action")
-        validateTarget(args)
+        // Home and an explicit app launch do not target any observed control.
+        // They also recover when observe invalidated an unavailable UI tree.
+        if (operation !in listOf("home", "open_app")) validateTarget(args)
+        else checkUnlocked()
         return when (operation) {
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)

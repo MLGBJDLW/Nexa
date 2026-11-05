@@ -23,29 +23,39 @@ export function MobileDialog({ title, side = false, open = true, children, onClo
     const node = dialog.current;
     if (!node || !present) return;
     const outside = side ? 'translateX(-100%)' : 'translateY(100%)';
-    const current = node.open ? getComputedStyle(node).transform : outside;
-    motion.current?.cancel();
-    if (!node.open) node.showModal();
-    node.dataset.state = open ? 'open' : 'closing';
-    const animation = node.animate([{ transform: current }, { transform: open ? 'translate(0,0)' : outside }], {
-      duration: reduced() ? 0 : open ? 280 : 200, easing: open ? 'cubic-bezier(.22,1,.36,1)' : 'cubic-bezier(.4,0,1,1)', fill: 'both',
-    });
-    motion.current = animation;
-    void animation.finished.then(() => {
-      node.style.removeProperty('transform'); node.style.removeProperty('--mobile-backdrop-opacity');
-      animation.cancel();
-      if (!open) { node.close(); setPresent(false); }
-    }).catch(() => {});
+    let frame = 0;
+    let animation: Animation | null = null;
+    const enter = () => {
+      // Child layout effects run first. Wait for an enclosing dialog to enter
+      // the top layer so the child cannot end up underneath its inert parent.
+      const parent = node.parentElement?.closest('dialog');
+      if (open && parent && !parent.open) { frame = requestAnimationFrame(enter); return; }
+      const current = node.open ? getComputedStyle(node).transform : outside;
+      motion.current?.cancel();
+      if (!node.open) node.showModal();
+      node.dataset.state = open ? 'open' : 'closing';
+      animation = node.animate([{ transform: current }, { transform: open ? 'translate(0,0)' : outside }], {
+        duration: reduced() ? 0 : open ? 280 : 200, easing: open ? 'cubic-bezier(.22,1,.36,1)' : 'cubic-bezier(.4,0,1,1)', fill: 'both',
+      });
+      motion.current = animation;
+      void animation.finished.then(() => {
+        node.style.removeProperty('transform'); node.style.removeProperty('--mobile-backdrop-opacity');
+        animation?.cancel();
+        if (!open) { node.close(); setPresent(false); }
+      }).catch(() => {});
+    };
+    enter();
     return () => {
+      cancelAnimationFrame(frame);
       if (node.open) node.style.transform = getComputedStyle(node).transform;
-      animation.cancel();
+      animation?.cancel();
     };
   }, [open, present, side]);
   useLayoutEffect(() => () => { dialog.current?.close(); }, []);
   const start = (event: PointerEvent<HTMLDialogElement>) => {
     suppressClick.current = false;
     const target = event.target as HTMLElement;
-    if (!open || event.button !== 0 || (!side && !target.closest('[data-mobile-drag-handle]')) || target.closest('input,textarea,select,button[aria-label]')) return;
+    if (!open || event.button !== 0 || (!side && !target.closest('[data-mobile-drag-handle]')) || target.closest('input,textarea,select,button[aria-label],[data-mobile-swipe-row]')) return;
     drag.current = { id:event.pointerId,x:event.clientX,y:event.clientY,at:performance.now(),distance:0,active:false };
   };
   const move = (event: PointerEvent<HTMLDialogElement>) => {

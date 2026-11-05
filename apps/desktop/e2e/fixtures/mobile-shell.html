@@ -1,0 +1,5 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><script type="module">
+const kind = new URLSearchParams(location.search).get('kind');
+if (kind === 'chat') { const module = await import('./mobile-continuity.tsx'); module.renderMobileContinuity(); }
+else { const module = await import('./mobile-settings.tsx'); module.renderMobileSettings(kind || 'web'); }
+</script></body></html>

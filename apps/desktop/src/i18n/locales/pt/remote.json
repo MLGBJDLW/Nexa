@@ -215,5 +215,15 @@
   "speechBusy": "A voz já está em uso. Pare-a ou feche outras aplicações de microfone e tente novamente.",
   "speechFailed": "Não foi possível concluir a operação de voz. Verifique as definições de voz do Android e tente novamente.",
   "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
-  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone.",
+  "mobileDeepseekConnection": "Usar {name} para Search & Fetch",
+  "mobileDeepseekConnectionHint": "Ative a pesquisa e leitura de páginas do DeepSeek com esta conexão salva e use-a como preferencial.",
+  "speechInterrupted": "A entrada de voz foi interrompida. Volte ao Nexa e toque no microfone novamente.",
+  "mobileSpeechChoiceHint": "Escolha os mecanismos do telefone ou seus próprios provedores para ditado e leitura.",
+  "mobileSpeechCloud": "Meu provedor configurado",
+  "mobileSpeechRecordHint": "Toque para gravar e depois em Parar para transcrever com seu provedor. Máximo de 60 segundos.",
+  "mobileSpeechOutput": "Serviço de leitura",
+  "mobileSpeechSample": "Olá, aqui é o Nexa. Seu serviço de voz está pronto.",
+  "speechConfiguration": "Configure um provedor de voz compatível, endereço, modelo e chave API.",
+  "speechCloudFailed": "O serviço de voz falhou. Verifique a conta, modelo, endereço e rede."
 }

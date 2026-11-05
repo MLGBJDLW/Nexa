@@ -28,6 +28,7 @@ import { PROVIDER_PRESETS } from '../../lib/providerPresets';
 import type { NativeWebSearchCapability } from '../../lib/modelCatalog';
 
 interface WebSearchSettingsPanelProps {
+  mobile?: boolean;
   appConfig: AppConfig;
   loading: boolean;
   onChange: (config: AppConfig) => void;
@@ -290,7 +291,8 @@ function isCustomProviderConfigured(provider: WebSearchCustomProviderConfig): bo
 
 const SELECT_CLASS = settingsSelectClass;
 
-function SearchProviderRow({ provider, status, expanded, onExpand, onChange }: {
+function SearchProviderRow({ provider, status, expanded, onExpand, onChange, mobile = false }: {
+  mobile?: boolean;
   provider: WebSearchCustomProviderConfig;
   status?: WebSearchProviderStatus;
   expanded: boolean;
@@ -299,6 +301,7 @@ function SearchProviderRow({ provider, status, expanded, onExpand, onChange }: {
 }) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: provider.id });
+  const Select = mobile ? 'select' : NexaSelect;
   const label = t(CUSTOM_PROVIDER_LABEL_KEYS[provider.preset]);
   const health = !provider.enabled ? 'disabled' : status?.health;
   return <div
@@ -307,7 +310,7 @@ function SearchProviderRow({ provider, status, expanded, onExpand, onChange }: {
     className={`relative min-w-0 bg-surface-1 ${isDragging ? 'rounded-lg shadow-lg ring-1 ring-accent/40' : ''}`}
     data-testid={`web-search-source-${provider.preset}`}
   >
-    <div className="flex min-h-12 min-w-0 items-center gap-2 px-2 py-1.5">
+    <div className={mobile ? "mobile-search-provider-header" : "flex min-h-12 min-w-0 items-center gap-2 px-2 py-1.5"}>
       <button
         ref={setActivatorNodeRef}
         type="button"
@@ -324,10 +327,10 @@ function SearchProviderRow({ provider, status, expanded, onExpand, onChange }: {
             : health ? t(HEALTH_LABEL_KEYS[health]) : t('settings.webSearchCredentials')}
         </span>
       </button>
-      <NexaSelect aria-label={`${label}: ${t('settings.webSearchSourceState')}`} value={provider.enabled ? 'enabled' : 'disabled'} onChange={event => onChange({ enabled: event.target.value === 'enabled' })} className={`${SELECT_CLASS} !w-28`}>
+      <Select aria-label={`${label}: ${t('settings.webSearchSourceState')}`} value={provider.enabled ? 'enabled' : 'disabled'} onChange={event => onChange({ enabled: event.target.value === 'enabled' })} className={`${SELECT_CLASS} ${mobile ? '' : '!w-28'}`}>
         <option value="enabled">{t('settings.packageHost.state.enabled')}</option>
         <option value="disabled">{t('settings.packageHost.state.disabled')}</option>
-      </NexaSelect>
+      </Select>
       <button type="button" onClick={onExpand} aria-expanded={expanded} aria-controls={`web-search-config-${provider.preset}`} aria-label={`${expanded ? t('common.collapse') : t('common.expand')}: ${label}`} className="flex h-8 w-7 shrink-0 items-center justify-center rounded text-text-tertiary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         <ChevronDown size={15} className={expanded ? 'rotate-180' : ''} />
       </button>
@@ -348,6 +351,7 @@ function SearchProviderRow({ provider, status, expanded, onExpand, onChange }: {
 }
 
 export function WebSearchSettingsPanel({
+  mobile = false,
   appConfig,
   loading,
   onChange,
@@ -356,6 +360,7 @@ export function WebSearchSettingsPanel({
   getStatus = api.getWebSearchStatus,
 }: WebSearchSettingsPanelProps) {
   const { t } = useTranslation();
+  const Select = mobile ? 'select' : NexaSelect;
   const [status, setStatus] = useState<WebSearchProviderStatus[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
@@ -416,15 +421,15 @@ export function WebSearchSettingsPanel({
       icon={<SearchCheck size={20} />}
       title={t('settings.webSearchTitle')}
       description={t('settings.webSearchDesc')}
-      collapsible
-      defaultOpen={false}
+      collapsible={!mobile}
+      defaultOpen={mobile}
       summary={<span className="rounded-full border border-border/60 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary">{configuredProviderCount}/{config.customProviders.length}</span>}
     >
       <div className="min-w-0 space-y-3" data-testid="web-search-settings">
         <SettingsRow label={t('settings.webSearchExecutionMode')} description={t(EXECUTION_MODE_DESC_KEYS[config.executionMode])}>
-          <NexaSelect aria-label={t('settings.webSearchExecutionMode')} value={config.executionMode} onChange={event => updateConfig({ ...config, executionMode: event.target.value as WebSearchExecutionMode })} className={SELECT_CLASS}>
+          <Select aria-label={t('settings.webSearchExecutionMode')} value={config.executionMode} onChange={event => updateConfig({ ...config, executionMode: event.target.value as WebSearchExecutionMode })} className={SELECT_CLASS}>
             {EXECUTION_MODE_OPTIONS.map(mode => <option key={mode} value={mode}>{t(EXECUTION_MODE_LABEL_KEYS[mode])}</option>)}
-          </NexaSelect>
+          </Select>
         </SettingsRow>
 
         <div className="space-y-2" data-testid="provider-native-search-support">
@@ -445,9 +450,9 @@ export function WebSearchSettingsPanel({
                 </div>
                 {capability.dialect === 'openRouterServerTool' && <label className="w-36 max-w-[42%] shrink-0">
                   <span className="sr-only">{t('settings.webSearchProviderNativeEngine')}</span>
-                  <NexaSelect aria-label={t('settings.webSearchProviderNativeEngine')} title={t('settings.webSearchProviderNativeEngine.desc')} value={config.providerNativeEngine} onChange={event => updateConfig({ ...config, providerNativeEngine: event.target.value as ProviderNativeSearchEngine })} className={SELECT_CLASS}>
+                  <Select aria-label={t('settings.webSearchProviderNativeEngine')} title={t('settings.webSearchProviderNativeEngine.desc')} value={config.providerNativeEngine} onChange={event => updateConfig({ ...config, providerNativeEngine: event.target.value as ProviderNativeSearchEngine })} className={SELECT_CLASS}>
                     {PROVIDER_NATIVE_ENGINE_OPTIONS.map(engine => <option key={engine} value={engine}>{PROVIDER_NATIVE_ENGINE_LABELS[engine]}</option>)}
-                  </NexaSelect>
+                  </Select>
                 </label>}
               </div>
             ))}
@@ -460,9 +465,9 @@ export function WebSearchSettingsPanel({
             <Button type="button" variant="ghost" size="sm" icon={<RefreshCw size={14} />} loading={refreshing} onClick={() => void refreshStatus()}>{t('settings.webSearchRefresh')}</Button>
           </div>
           <SettingsRow label={t('settings.webSearchProviderMode')} description={t(PROVIDER_MODE_DESC_KEYS[config.providerMode])}>
-            <NexaSelect aria-label={t('settings.webSearchProviderMode')} value={config.providerMode} onChange={event => updateConfig({ ...config, providerMode: event.target.value as WebSearchProviderMode })} className={SELECT_CLASS}>
+            <Select aria-label={t('settings.webSearchProviderMode')} value={config.providerMode} onChange={event => updateConfig({ ...config, providerMode: event.target.value as WebSearchProviderMode })} className={SELECT_CLASS}>
               {PROVIDER_MODE_OPTIONS.map(mode => <option key={mode} value={mode}>{t(PROVIDER_MODE_LABEL_KEYS[mode])}</option>)}
-            </NexaSelect>
+            </Select>
           </SettingsRow>
           <p className="text-xs leading-relaxed text-text-tertiary">{t('settings.webSearchCustomProvidersDesc')}</p>
           <p className="text-[11px] leading-relaxed text-text-tertiary">{t('settings.webSearchReorderHint')}</p>
@@ -471,6 +476,7 @@ export function WebSearchSettingsPanel({
               <div className="divide-y divide-border/50 rounded-lg border border-border/60" data-testid="web-search-sources">
                 {orderedProviders.map(provider => <SearchProviderRow
                   key={provider.id}
+                  mobile={mobile}
                   provider={provider}
                   status={statusById.get(provider.id)}
                   expanded={expandedProvider === provider.id}
@@ -486,14 +492,14 @@ export function WebSearchSettingsPanel({
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-sm font-medium text-text-secondary">{t('settings.advancedSettings')}<ChevronDown size={15} className="group-open:rotate-180" /></summary>
           <div className="divide-y divide-border/50 px-3 pb-2">
             <SettingsRow label={t('settings.webSearchProfile')} description={t(PROFILE_DESC_KEYS[config.providerProfile])}>
-              <NexaSelect aria-label={t('settings.webSearchProfile')} value={config.providerProfile} onChange={event => updateConfig({ ...config, providerProfile: event.target.value as WebSearchProviderProfile })} className={SELECT_CLASS}>
+              <Select aria-label={t('settings.webSearchProfile')} value={config.providerProfile} onChange={event => updateConfig({ ...config, providerProfile: event.target.value as WebSearchProviderProfile })} className={SELECT_CLASS}>
                 {PROFILE_OPTIONS.map(profile => <option key={profile} value={profile}>{t(PROFILE_LABEL_KEYS[profile])}</option>)}
-              </NexaSelect>
+              </Select>
             </SettingsRow>
             <SettingsRow label={t('settings.webSearchReranker')} description={t(RERANKER_DESC_KEYS[config.reranker])}>
-              <NexaSelect aria-label={t('settings.webSearchReranker')} value={config.reranker} onChange={event => updateConfig({ ...config, reranker: event.target.value as WebSearchReranker })} className={SELECT_CLASS}>
+              <Select aria-label={t('settings.webSearchReranker')} value={config.reranker} onChange={event => updateConfig({ ...config, reranker: event.target.value as WebSearchReranker })} className={SELECT_CLASS}>
                 {RERANKER_OPTIONS.map(reranker => <option key={reranker} value={reranker}>{t(RERANKER_LABEL_KEYS[reranker])}</option>)}
-              </NexaSelect>
+              </Select>
             </SettingsRow>
           </div>
         </details>

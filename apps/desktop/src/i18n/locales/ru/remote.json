@@ -215,5 +215,15 @@
   "speechBusy": "Речь уже используется. Остановите её или закройте другие приложения с микрофоном и повторите попытку.",
   "speechFailed": "Не удалось завершить речевую операцию. Проверьте настройки речи Android и повторите попытку.",
   "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
-  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone.",
+  "mobileDeepseekConnection": "Использовать {name} для Search & Fetch",
+  "mobileDeepseekConnectionHint": "Включите поиск и загрузку страниц DeepSeek через сохранённое подключение и используйте его в первую очередь.",
+  "speechInterrupted": "Голосовой ввод прерван. Вернитесь в Nexa и снова нажмите на микрофон.",
+  "mobileSpeechChoiceHint": "Выберите движки телефона или собственных провайдеров для диктовки и чтения вслух.",
+  "mobileSpeechCloud": "Мой настроенный провайдер",
+  "mobileSpeechRecordHint": "Нажмите для записи, затем «Стоп» для распознавания выбранным провайдером. Максимум 60 секунд.",
+  "mobileSpeechOutput": "Сервис чтения вслух",
+  "mobileSpeechSample": "Здравствуйте, это Nexa. Ваш голосовой сервис готов.",
+  "speechConfiguration": "Настройте поддерживаемого голосового провайдера, адрес, модель и API-ключ.",
+  "speechCloudFailed": "Ошибка голосового сервиса. Проверьте аккаунт, модель, адрес и сеть."
 }

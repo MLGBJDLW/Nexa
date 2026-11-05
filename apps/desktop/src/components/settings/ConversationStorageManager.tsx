@@ -5,9 +5,11 @@ import { useTranslation } from '../../i18n';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { MobileDialog } from '../../features/remote/MobileChatShell';
 
-export function ConversationStorageManager({ service, onClose, onChanged }: { service: StorageService; onClose: () => void; onChanged: () => void }) {
+export function ConversationStorageManager({ service, onClose, onChanged, mobile = false }: { service: StorageService; onClose: () => void; onChanged: () => void; mobile?: boolean }) {
   const { t } = useTranslation();
+  const Dialog = mobile ? MobileDialog : Modal;
   const [scope, setScope] = useState('active');
   const [page, setPage] = useState<ConversationStoragePage | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -47,7 +49,7 @@ export function ConversationStorageManager({ service, onClose, onChanged }: { se
     try { await service[operation](ids); setConfirm(null); onChanged(); setRevision(value => value + 1); }
     catch (error) { setError(String(error)); } finally { setBusy(false); setWriting(false); }
   };
-  return <><Modal open onClose={() => { if (!writing) onClose(); }} title={t('settings.storageManageChats')}>
+  return <><Dialog open onClose={() => { if (!writing) onClose(); }} title={t('settings.storageManageChats')}>
     <div className="space-y-3" data-testid="conversation-storage-manager">
       <select aria-label={t('settings.storageChatScope')} value={scope} disabled={busy} onChange={event => setScope(event.target.value)} className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
         <option value="active">{t('settings.storageActiveChats')}</option><option value="archived">{t('chat.archivedConversations')}</option><option value="all">{t('settings.storageAllChats')}</option>
@@ -59,5 +61,9 @@ export function ConversationStorageManager({ service, onClose, onChanged }: { se
       {page?.next && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void next()}>{t('settings.storageNextPage')}</Button>}
       <div className="flex flex-wrap gap-2"><Button size="sm" disabled={busy || !selected.size || scope === 'archived'} icon={<Archive size={14}/>} onClick={() => void mutate('archive',[...selected])}>{t('chat.archive')}</Button><Button size="sm" variant="danger" disabled={busy || !selected.size} icon={<Trash2 size={14}/>} onClick={() => setConfirm([...selected])}>{t('chat.deleteSelected')}</Button></div>
     </div>
-  </Modal><ConfirmDialog open={!!confirm} onClose={() => { if (!busy) setConfirm(null); }} onConfirm={() => { if (confirm) void mutate('remove',confirm); }} title={t('chat.deleteBatchConfirm')} message={t('chat.deleteBatchConfirmDesc',{count:confirm?.length ?? 0})} loading={busy}/></>;
+  </Dialog>{mobile ? <MobileDialog open={!!confirm} onClose={() => { if (!busy) setConfirm(null); }} title={t('chat.deleteBatchConfirm')}>
+    <p>{t('chat.deleteBatchConfirmDesc',{count:confirm?.length ?? 0})}</p>
+    {error && <p role="alert" className="mobile-error">{error}</p>}
+    <div className="mobile-confirm-actions"><button disabled={busy} onClick={() => setConfirm(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={busy} onClick={() => { if (confirm) void mutate('remove',confirm); }}>{t('common.delete')}</button></div>
+  </MobileDialog> : <ConfirmDialog open={!!confirm} onClose={() => { if (!busy) setConfirm(null); }} onConfirm={() => { if (confirm) void mutate('remove',confirm); }} title={t('chat.deleteBatchConfirm')} message={t('chat.deleteBatchConfirmDesc',{count:confirm?.length ?? 0})} loading={busy}/>}</>;
 }
