@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.19.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.0...nexa-monorepo-v0.19.1) (2026-11-05)
+
+### Desktop and paired-device fixes
+
+- Improve narrow-panel Markdown, structured charts, tables and HTML previews. Mermaid diagrams can be viewed at their original size without expanding the surrounding conversation.
+- Keep nested dialogs and shared touch controls usable across compact layouts.
+- Recover paired phone control with Home or an explicit app launch when Android temporarily exposes no accessible UI. Targeted clicks, text, scrolling and coordinate input continue to require fresh evidence.
+- Refresh accessibility observations and handle transient screen changes without replaying uncertain actions.
+
+### Release notes
+
+Desktop release notes and updater history omit dedicated mobile-only sections, and generated desktop notes exclude mobile-only pull requests. Mobile releases publish only their own current changelog entry.
+
+This is a patch release from Desktop 0.19.0. Source validation includes full hosted CI, Windows/Linux native checks, browser regressions and Android control acceptance; physical Samsung/QQ behavior remains a separate device check.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 43eb18e9988a284c065e070f4b5de0f7b166413b -->
+
+### What's Changed
+* fix(mobile): repair Android control, voice and responsive rendering by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/526
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.0...nexa-monorepo-v0.19.1
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.1...nexa-monorepo-v0.19.0) (2026-11-05)
 
 ### Mobile and desktop continuity
