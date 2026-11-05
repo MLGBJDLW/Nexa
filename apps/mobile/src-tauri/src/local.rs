@@ -229,6 +229,9 @@ impl LocalRuntime {
             // transport retry always addresses the same idempotency scope.
             return Err("Create a conversation before sending.".into());
         };
+        if conversation.archived_at.is_some() {
+            return Err("Restore this archived conversation before sending a message.".into());
+        }
         let previous = self
             .db
             .find_agent_turn_by_idempotency_key(&conversation.id, &request_id)
@@ -381,7 +384,12 @@ impl LocalRuntime {
         );
         let context_window = saved.context_window.and_then(|value| value.try_into().ok());
         let web = self.db.load_app_config().map_err(err)?.web_search;
+        let conversation_prompt = self
+            .db
+            .get_effective_conversation_system_prompt(&conversation)
+            .map_err(err)?;
         let mut config = AgentConfig {
+            system_prompt: nexa_core::agent::build_system_prompt(Some(&conversation_prompt), &[]),
             native_search_plan:
                 nexa_core::llm::native_search::NativeSearchPlan::resolve_with_engine(
                     web.execution_mode,

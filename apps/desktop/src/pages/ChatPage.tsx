@@ -1702,7 +1702,7 @@ export function ChatPage() {
   ]);
 
   /* ── No provider configured ─────────────────────────────────────── */
-  if (!chat.loadingConfig && !chat.agentConfig) {
+  if (!chat.loadingConfig && !chat.agentConfig && agentConfigs.length === 0) {
     return (
       <div
         className="flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto"

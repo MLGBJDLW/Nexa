@@ -27,6 +27,7 @@ export class LocalClient implements RemoteChatClient {
   async start() {
     const subscriptions = await Promise.all([
       listen<{ conversationId: string; event: AgentRunEvent }>('mobile:run', ({ payload }) => this.emit({ event:'agent://run-event',payload:{ conversationId:payload.conversationId,runEvent:payload.event } })),
+      listen('mobile:conversations', ({ payload }) => this.emit({ event:'conversations:changed',payload })),
       listen('mobile:refresh', () => this.emit({ event:'connection:resync',payload:{} })),
       listen('mobile:connections', () => { this.models.invalidate(); this.emit({event:'connections:changed',payload:{}}); }),
     ]);

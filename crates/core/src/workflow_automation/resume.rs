@@ -43,6 +43,7 @@ impl Database {
             .transpose()?;
         let mut conn = self.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        crate::conversation::ensure_conversation_writable(&tx, &message.conversation_id)?;
         let checkpoint = tx
             .query_row(
                 "SELECT checkpoint.run_id, checkpoint.resume_prompt,

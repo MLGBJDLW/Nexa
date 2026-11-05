@@ -28,7 +28,7 @@ impl RuntimeSlot {
 }
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result<Value, String> {
@@ -359,7 +359,9 @@ async fn mobile_storage(
         .path()
         .app_cache_dir()
         .map_err(|error| error.to_string())?;
-    tokio::task::spawn_blocking(move || match action.as_str() {
+    let changed_ids = ids.clone().unwrap_or_default();
+    let operation = action.clone();
+    let result = tokio::task::spawn_blocking(move || match action.as_str() {
         "usage" => {
             let mut usage = db.storage_usage().map_err(|error| error.to_string())?;
             nexa_core::storage_usage::add_files(
@@ -384,7 +386,14 @@ async fn mobile_storage(
         _ => Err("Unsupported storage operation".into()),
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())??;
+    if matches!(operation.as_str(), "archive" | "remove") {
+        let _ = app.emit(
+            "mobile:conversations",
+            json!({"ids":changed_ids,"action":operation}),
+        );
+    }
+    Ok(result)
 }
 
 #[tauri::command]

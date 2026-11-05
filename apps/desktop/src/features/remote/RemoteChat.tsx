@@ -138,6 +138,8 @@ export function RemoteChat({
   const [modelSelection, setModelSelection] = useState<TurnModelSelection | null>(null);
   const [catalogRevision, setCatalogRevision] = useState(0);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const listGeneration = useRef(0);
+  const archiveGeneration = useRef(0);
   const [cursor, setCursor] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState(
     () =>
@@ -210,10 +212,12 @@ export function RemoteChat({
     setError(error instanceof Error ? error.message : String(error));
   const list = useCallback(
     async (before: string | null = null) => {
+      const generation = ++listGeneration.current;
       const result = await client.rpc<{
         items: Conversation[];
         nextCursor: string | null;
       }>("chat.list", { before });
+      if (generation !== listGeneration.current) return;
       setConversations((current) =>
         before
           ? [
@@ -248,7 +252,17 @@ export function RemoteChat({
         if (active) setLoading(false);
       });
     void refresh();
-    const unsubscribe = client.subscribe(event => { if (event.event === 'connections:changed') { setCatalogRevision(value=>value+1); void refresh(); } });
+    const unsubscribe = client.subscribe(event => {
+      if (event.event === 'connections:changed') { setCatalogRevision(value=>value+1); void refresh(); }
+      if (event.event === 'conversations:changed') {
+        listGeneration.current++; archiveGeneration.current++; setArchived([]); setArchivedCursor(null);
+        if (event.payload?.ids?.includes(selectedConversation.current) && event.payload?.action !== 'restore') {
+          selectConversation(''); pendingSend.current = null;
+          localStorage.removeItem(`nexa.remote.chat.${client.paired.manifest.serverId}`);
+        }
+        void list().catch(errorText);
+      }
+    });
     return () => {
       active = false;
       unsubscribe();
@@ -484,12 +498,15 @@ export function RemoteChat({
     setDrawerOpen(false); composerInput.current?.focus();
   }
   async function listArchived(before: string | null = null) {
+    const generation = ++archiveGeneration.current;
     const page = await client.rpc<{ items: Conversation[]; nextCursor: string | null }>('chat.archived', { before });
+    if (generation !== archiveGeneration.current) return;
     setArchived(current => before ? [...current, ...page.items.filter(item => !current.some(old => old.id === item.id))] : page.items);
     setArchivedCursor(page.nextCursor);
   }
   async function restoreConversation(id: string) {
     if (managing) return;
+    listGeneration.current++; archiveGeneration.current++;
     setManaging(true); setError('');
     try { await client.rpc('chat.restore', { conversationId: id }); await Promise.all([list(), listArchived()]); }
     catch (error) { errorText(error); }
@@ -497,6 +514,7 @@ export function RemoteChat({
   }
   async function manageConversation() {
     if (!manageTarget || managing) return;
+    listGeneration.current++; archiveGeneration.current++;
     setManaging(true); setError("");
     try {
       await client.rpc(`chat.${manageTarget.action}`, { conversationId: manageTarget.item.id });

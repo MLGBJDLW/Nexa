@@ -1164,11 +1164,51 @@ test('native phone reuses blank drafts, streams before completion, and manages c
   await archive.getByRole('button',{name:'Archive',exact:true}).click();
   await expect(page.getByRole('button',{name:'Archive: Previous work',exact:true})).toHaveCount(0);
   await page.getByText('Archived conversations',{exact:true}).click();
+  await expect(page.getByRole('button',{name:'Unarchive: Previous work',exact:true})).toBeVisible();
+  await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.holdArchive());
+  await page.getByText('Archived conversations',{exact:true}).click();
+  await page.getByText('Archived conversations',{exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.archivePending())).toBe(true);
   await page.getByRole('button',{name:'Unarchive: Previous work',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Unarchive: Previous work',exact:true})).toHaveCount(0);
+  await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.releaseArchive());
+  await expect(page.getByRole('button',{name:'Unarchive: Previous work',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Archive: Previous work',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Delete: New work',exact:true}).click();
   const remove=page.getByRole('dialog',{name:'Delete',exact:true});
   await remove.getByRole('button',{name:'Delete',exact:true}).click();
   await expect(page.getByRole('button',{name:'Delete: New work',exact:true})).toHaveCount(0);
   expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method==='chat.delete').length)).toBe(1);
+});
+
+
+test('native client refreshes negotiated chat capabilities after reconnect', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    // Import through the same source-root route as the existing native fixture.
+    const { NativeClient } = await import(/* @vite-ignore */ '/e2e/fixtures/native-client-export.ts');
+    const previous = (window as any).__TAURI_INTERNALS__;
+    const previousEvents = (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__;
+    let callback: (value:any)=>void = () => {};
+    (window as any).__TAURI_INTERNALS__ = {
+      transformCallback: (fn:any) => { callback=fn; return 1; }, unregisterCallback:()=>{},
+      invoke: async () => 1,
+    };
+    (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = {unregisterListener:()=>{}};
+    const client = new NativeClient({id:'pc',endpoint:'https://pc.test',token:'',device:{id:'phone',name:'Phone'},manifest:{serverId:'pc',endpoints:[],reconnectGraceSeconds:0}});
+    let refreshes = 0;
+    client.subscribe((event:any)=>{if(event.event==='connections:changed') refreshes++;});
+    await client.start();
+    const before = client.conversationManagementAvailable;
+    callback({payload:{hostId:'pc',event:'connection:ready',payload:{manifest:{serverId:'pc',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-management-v1']}}}});
+    const after = client.conversationManagementAvailable;
+    callback({payload:{hostId:'pc',event:'connection:manifest',payload:{serverId:'other',capabilities:[]}}});
+    const wrongIdentity = client.conversationManagementAvailable;
+    callback({payload:{hostId:'pc',event:'connection:manifest',payload:{serverId:'pc',endpoints:[],reconnectGraceSeconds:0,capabilities:[]}}});
+    const removed = client.conversationManagementAvailable;
+    client.close();
+    (window as any).__TAURI_INTERNALS__=previous;(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__=previousEvents;
+    return {before,after,wrongIdentity,removed,refreshes};
+  });
+  expect(result).toEqual({before:false,after:true,wrongIdentity:true,removed:false,refreshes:2});
 });

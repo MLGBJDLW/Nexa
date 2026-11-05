@@ -1607,6 +1607,23 @@ fn checkpoint_branch_title(source_title: &str, checkpoint_label: &str) -> String
 // Conversation CRUD
 // ---------------------------------------------------------------------------
 
+pub(crate) fn ensure_conversation_writable(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<(), CoreError> {
+    let archived: bool = conn.query_row(
+        "SELECT archived_at IS NOT NULL FROM conversations WHERE id=?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    if archived {
+        return Err(CoreError::InvalidInput(
+            "Restore this archived conversation before sending a message.".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl Database {
     /// Create a new conversation. Returns the persisted row.
     pub fn create_conversation(
@@ -2754,6 +2771,7 @@ impl Database {
         let run_id = new_id();
         let mut conn = self.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_conversation_writable(&tx, &message.conversation_id)?;
 
         let existing = tx
             .query_row(

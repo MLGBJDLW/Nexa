@@ -10,6 +10,8 @@ export function renderMobileContinuity() {
   const listeners = new Set<(event:RemoteEnvelope)=>void>();
   let chats = [{id:'old',title:'Previous work',model:'model'}];
   let archived: typeof chats = [];
+  let holdArchive = false;
+  let releaseArchive: (()=>void) | null = null;
   let run: any = null;
   const events: any[] = [];
   const emit = (kind: string, payload: unknown) => {
@@ -25,7 +27,7 @@ export function renderMobileContinuity() {
       actions.push({method,params});
       if (method==='connections.list') return [{id:'connection',name:'Provider',model:'model',isDefault:true}];
       if (method==='chat.list') return {items:chats,nextCursor:null};
-      if (method==='chat.archived') return {items:archived,nextCursor:null};
+      if (method==='chat.archived') { const page={items:[...archived],nextCursor:null}; if(holdArchive) {holdArchive=false;return new Promise(resolve=>{releaseArchive=()=>{releaseArchive=null;resolve(page);};});} return page; }
       if (method==='chat.restore') {chats.push(...archived.filter(item=>item.id===params.conversationId));archived=archived.filter(item=>item.id!==params.conversationId);return null;}
       if (method==='chat.create') { const item={id:'created',title:'New work',model:'model'};chats=[item,...chats];return item; }
       if (method==='chat.start') { run={id:'run',status:'running'};return {}; }
@@ -37,7 +39,7 @@ export function renderMobileContinuity() {
       throw new Error(method);
     },
   } as unknown as RemoteChatClient;
-  (window as any).__MOBILE_CONTINUITY__={actions,emit};
+  (window as any).__MOBILE_CONTINUITY__={actions,emit,holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
   const host=document.createElement('div');host.className='mobile-app';host.style.cssText='position:fixed;inset:0;z-index:1000;background:var(--color-surface-0)';document.body.appendChild(host);
   createRoot(host).render(<I18nProvider><RemoteChat client={client} initialDraft="" onDraftConsumed={()=>{}} mobile={{heading:'Phone',drawerFooter:null,caption:'',onConfigure:()=>{},onFiles:()=>{}}}/></I18nProvider>);
 }

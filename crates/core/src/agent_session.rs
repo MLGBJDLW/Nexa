@@ -558,6 +558,47 @@ mod tests {
 
     struct StaticProvider;
 
+    #[test]
+    fn archived_conversation_rejects_atomic_turn_launch_until_restored() {
+        let db = Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&CreateConversationInput {
+                provider: "static".into(),
+                model: "static-model".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let message = ConversationMessage {
+            id: "archived-launch".into(),
+            conversation_id: conversation.id.clone(),
+            role: Role::User,
+            content: "Only send after restoring".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 0,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.archive_conversations_batch(&[conversation.id.clone()])
+            .unwrap();
+        assert!(db
+            .create_agent_turn_and_run(&message, "task", None, None, "archive-launch")
+            .unwrap_err()
+            .to_string()
+            .contains("Restore"));
+        assert!(db.get_messages(&conversation.id).unwrap().is_empty());
+        db.unarchive_conversation(&conversation.id).unwrap();
+        assert!(db
+            .create_agent_turn_and_run(&message, "task", None, None, "archive-launch")
+            .is_ok());
+    }
+
     struct StreamingDelivery(tokio::sync::mpsc::UnboundedSender<AgentRunEvent>);
     impl AgentRunEventDelivery for StreamingDelivery {
         fn deliver_run_event(&self, _: &str, event: &AgentRunEvent) {

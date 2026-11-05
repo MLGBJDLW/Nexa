@@ -29,6 +29,14 @@ export class NativeClient implements RemoteChatClient {
   async start() {
     const unlisten = await listen<RemoteEnvelope & { hostId: string }>('mobile:remote', ({ payload }) => {
       if (this.closed || payload.hostId !== this.paired.id) return;
+      if (payload.event === 'connection:ready' || payload.event === 'connection:manifest') {
+        const manifest = payload.event === 'connection:ready' ? payload.payload?.manifest : payload.payload;
+        if (manifest?.serverId === this.paired.manifest.serverId) {
+          this.paired.manifest = manifest;
+          this.models.invalidate();
+          this.listeners.forEach(listener => listener({ event: 'connections:changed', payload: {} }));
+        }
+      }
       if (payload.event === 'connection:state') {
         this.state = payload.payload;
         this.connections.forEach(listener => listener(this.state));

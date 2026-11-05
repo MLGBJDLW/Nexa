@@ -10,8 +10,12 @@ export function PhoneWebSettings() {
   useEffect(() => { let active = true; void invoke<AppConfig>('mobile_web_settings', { action: 'read' }).then(value => { if (active) setConfig(value); }).catch(error => { if (active) setError(String(error)); }); return () => { active = false; }; }, []);
   async function save() {
     if (!config || busy) return;
+    const submitted = config;
     setBusy(true); setError('');
-    try { setConfig(await invoke<AppConfig>('mobile_web_settings', { action: 'save', webSearch: config.webSearch })); }
+    try {
+      const saved = await invoke<AppConfig>('mobile_web_settings', { action: 'save', webSearch: submitted.webSearch });
+      setConfig(current => current === submitted ? saved : current);
+    }
     catch (error) { setError(String(error)); }
     finally { setBusy(false); }
   }
