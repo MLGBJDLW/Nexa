@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 for (const width of [320, 360, 412, 720]) test(`mobile markdown and charts fit ${width}px`, async ({page}, info) => {
-  await page.setViewportSize({width,height:820});
+  await page.setViewportSize({width,height:width >= 700 ? 360 : 820});
   await page.goto('/e2e/fixtures/mobile-rendering.html');
   await expect(page.getByTestId('generative-ui')).toBeVisible();
   await expect(page.getByTestId('mermaid-surface').locator('svg')).toBeVisible();

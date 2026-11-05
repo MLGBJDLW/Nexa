@@ -75,6 +75,22 @@ test('changing the UI language keeps an active speech test usable',async({page})
   await expect(section.getByText('你好，手机自配语音已转写',{exact:true})).toBeVisible();
 });
 
+test('phone TTS model changes replace incompatible preset voices and retain private voices',async({page})=>{
+  await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=speech');
+  const section=page.getByTestId('phone-speech-settings');
+  await section.getByLabel('Read-aloud service',{exact:true}).selectOption('cloud');
+  const output=page.getByTestId('phone-cloud-output');
+  await output.locator('select').selectOption('dashscope-cosyvoice');
+  const model=output.locator('input[list$="-models"]'),voice=output.locator('input[list$="-voices"]');
+  await expect(voice).toHaveValue('longanhuan_v3.6');
+  await model.fill('qwen-audio-3.0-tts-plus');
+  await expect(voice).not.toHaveValue('longanhuan_v3.6');
+  await expect(voice).not.toHaveValue('');
+  await voice.fill('private-user-voice');
+  await model.fill('qwen-audio-3.0-tts-flash');
+  await expect(voice).toHaveValue('private-user-voice');
+});
+
 test('left swipe offers archive without dismissing the history drawer',async({page})=>{
   await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
   await page.locator('.mobile-app').getByRole('button',{name:'Conversation',exact:true}).click();
