@@ -16,9 +16,8 @@ use crate::llm::{ContentPart, Message, Role, ToolDefinition};
 use crate::skills::Skill;
 
 const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
-const SYSTEM_PROMPT_CONTEXT_FRACTION: usize = 4;
-const MIN_SYSTEM_PROMPT_CHARS: usize = 16_000;
-const MAX_SYSTEM_PROMPT_CHARS: usize = 256_000;
+const GENERATED_PROMPT_CONTEXT_FRACTION: usize = 4;
+const MIN_GENERATED_PROMPT_CHARS: usize = 16_000;
 const MIN_SKILL_PROMPT_CHARS: usize = 8_000;
 const MAX_SKILL_PROMPT_CHARS: usize = 64_000;
 
@@ -119,43 +118,35 @@ pub fn prepare_messages_with_options(
         .collect::<Vec<_>>()
         .join(" ");
 
-    // Budget prompt layers from the model context instead of using a small
-    // fixed cap. This preserves mandatory prompt and skill-index layers on
-    // modern long-context models while still protecting small-context models.
+    // User/system policy is preserved verbatim. Only generated skill scaffolding
+    // uses a layout budget; the model's real context validation is the capacity
+    // boundary. Loading a skill must never rewrite/truncate the stable prefix.
     let resolved_context = options
         .endpoint_context_resolution
         .unwrap_or_else(|| resolve_context_window(model, context_window_override));
-    // Unknown/custom endpoints remain provider-managed. A moderate layout
-    // budget still bounds generated system/skill scaffolding, but it is not a
-    // claimed model capacity and must not evict conversation history.
     let max_context = resolved_context.capacity_tokens.unwrap_or(128_000);
     let tool_overhead = estimate_tool_tokens_for_model(model, tool_definitions);
     let effective_context = max_context
         .saturating_sub(tool_overhead)
         .saturating_sub(context_safety_buffer(max_context));
-    let system_prompt_budget = system_prompt_char_budget(effective_context, max_tokens_response);
-    let skill_index_budget = skill_prompt_char_budget(max_context, system_prompt_budget);
-    // Reserve a route-sized skill lane before rendering any query-dependent
-    // skills. Their current length must not move the policy truncation point,
-    // otherwise loading a skill rewrites the cached prefix of every request.
-    let reserved_skill_budget = if options.include_skill_system_prompt {
-        skill_index_budget.max(system_prompt_budget / 4)
-    } else {
-        0
-    };
-    let stable_system_prompt = cap_text_to_chars(
-        system_prompt.to_string(),
-        stable_system_prompt_char_budget(system_prompt_budget, reserved_skill_budget),
-        "\n...[truncated]",
-    );
-    // Loaded skills are executable workflow instructions, not catalog metadata.
-    // Prefer their complete bodies and spend only the remaining prompt budget on
-    // the available-skill index. This mirrors progressive disclosure: the index
-    // stays compact, while an activated skill is normally loaded in full.
-    // A short policy lends unused capacity to loaded workflows; this flow is
-    // one-way so the current workflow can never shorten the stable policy.
-    let loaded_skills_budget =
-        system_prompt_budget.saturating_sub(stable_system_prompt.chars().count());
+    let current_user = Message::from(crate::llm::MessageData {
+        role: Role::User,
+        parts: user_parts.to_vec(),
+        name: None,
+        tool_calls: None,
+        reasoning_content: None,
+        prompt_cache_hint: None,
+    });
+    let remaining_tokens = effective_context
+        .saturating_sub(max_tokens_response)
+        .saturating_sub(estimate_tokens_for_model(model, system_prompt))
+        .saturating_sub(estimate_message_tokens_for_model(model, &current_user));
+    let generated_prompt_budget =
+        generated_prompt_char_budget(effective_context, max_tokens_response);
+    let loaded_skills_budget = generated_prompt_budget
+        .min((remaining_tokens as usize).saturating_mul(CHARS_PER_TOKEN_ESTIMATE));
+    let skill_index_budget = skill_prompt_char_budget(max_context, loaded_skills_budget);
+    let stable_system_prompt = system_prompt.to_string();
     let loaded_skills_section = if options.include_skill_system_prompt {
         crate::skills::build_loaded_skills_section_with_budget(loaded_skills, loaded_skills_budget)
     } else {
@@ -184,14 +175,6 @@ pub fn prepare_messages_with_options(
             .chain(options.volatile_system_sections.iter().copied())
             .chain(std::iter::once(volatile_skills_section.as_str())),
     );
-    let current_user = Message::from(crate::llm::MessageData {
-        role: Role::User,
-        parts: user_parts.to_vec(),
-        name: None,
-        tool_calls: None,
-        reasoning_content: None,
-        prompt_cache_hint: None,
-    });
     let prompt = AgentPrompt {
         policy: PromptBlock::new(PromptLayer::Policy, stable_system_prompt)
             .into_iter()
@@ -247,15 +230,13 @@ pub fn prepare_messages_with_options(
 
         let recap = build_evicted_recap(&evicted);
         if !recap.is_empty() {
-            if let Some(sys) = trimmed.iter_mut().rev().find(|m| m.role == Role::System) {
-                if let Some(ContentPart::Text { text }) = sys.parts.first_mut() {
-                    *text = cap_text_to_chars(
-                        format!("{}\n\n{}", text, recap),
-                        system_prompt_budget,
-                        "\n...[truncated]",
-                    );
-                }
-            }
+            // A recap has its own evidence block: appending it must never
+            // retruncate policy or an existing runtime/controller section.
+            let position = trimmed
+                .iter()
+                .position(|message| message.role != Role::System)
+                .unwrap_or(trimmed.len());
+            trimmed.insert(position, Message::text(Role::System, recap));
         }
     }
 
@@ -697,15 +678,18 @@ fn scale_segments_to_total(
     }
 }
 
-fn system_prompt_char_budget(effective_context_tokens: u32, reserved_for_response: u32) -> usize {
+fn generated_prompt_char_budget(
+    effective_context_tokens: u32,
+    reserved_for_response: u32,
+) -> usize {
     let available_tokens = effective_context_tokens.saturating_sub(reserved_for_response) as usize;
     if available_tokens == 0 {
-        return MIN_SYSTEM_PROMPT_CHARS
+        return MIN_GENERATED_PROMPT_CHARS
             .min((effective_context_tokens as usize).saturating_mul(CHARS_PER_TOKEN_ESTIMATE));
     }
     let available_chars = available_tokens.saturating_mul(CHARS_PER_TOKEN_ESTIMATE);
-    let target = (available_chars / SYSTEM_PROMPT_CONTEXT_FRACTION)
-        .clamp(MIN_SYSTEM_PROMPT_CHARS, MAX_SYSTEM_PROMPT_CHARS);
+    let target =
+        (available_chars / GENERATED_PROMPT_CONTEXT_FRACTION).max(MIN_GENERATED_PROMPT_CHARS);
     target.min(available_chars)
 }
 
@@ -715,10 +699,6 @@ fn skill_prompt_char_budget(context_window_tokens: u32, system_prompt_budget: us
     one_percent_context_chars
         .clamp(MIN_SKILL_PROMPT_CHARS, MAX_SKILL_PROMPT_CHARS)
         .min(system_prompt_budget / 2)
-}
-
-fn stable_system_prompt_char_budget(system_prompt_budget: usize, skill_budget: usize) -> usize {
-    system_prompt_budget.saturating_sub(skill_budget)
 }
 
 fn combine_prompt_sections(first: String, second: String) -> String {
@@ -743,41 +723,6 @@ fn combine_prompt_section_parts<'a>(sections: impl IntoIterator<Item = &'a str>)
         combined.push_str(section);
     }
     combined
-}
-
-/// Enforce `MAX_SYSTEM_PROMPT_CHARS` on the system prompt.
-///
-/// If the prompt exceeds the limit it is truncated on a word boundary and
-/// a `...[truncated]` marker is appended so the LLM can see signalling.
-#[cfg(test)]
-fn cap_system_prompt(text: String) -> String {
-    cap_text_to_chars(text, MAX_SYSTEM_PROMPT_CHARS, "\n...[truncated]")
-}
-
-fn cap_text_to_chars(text: String, max_chars: usize, marker: &str) -> String {
-    if text.len() <= max_chars {
-        return text;
-    }
-    if max_chars == 0 {
-        return String::new();
-    }
-    let marker_budget = marker.len().min(max_chars);
-    let content_limit = max_chars.saturating_sub(marker_budget);
-    if content_limit == 0 {
-        return marker.chars().take(max_chars).collect();
-    }
-    let safe_limit = text
-        .char_indices()
-        .map(|(index, _)| index)
-        .take_while(|index| *index <= content_limit)
-        .last()
-        .unwrap_or(0);
-    let truncated = &text[..safe_limit];
-    let cut = truncated
-        .rfind('\n')
-        .or_else(|| truncated.rfind(' '))
-        .unwrap_or(safe_limit);
-    format!("{}{}", &text[..cut], marker)
 }
 
 /// Truncate text to `max_chars` on a word boundary, appending "..." if truncated.
@@ -1420,14 +1365,13 @@ mod tests {
             }],
             "gpt-4o",
             4096,
-            None,
+            Some(1_000_000),
             &skills,
             &[],
             &[],
         );
         let stable_sys_text = result[0].text_content();
-        assert!(stable_sys_text.len() <= MAX_SYSTEM_PROMPT_CHARS);
-        assert!(stable_sys_text.contains("...[truncated]"));
+        assert_eq!(stable_sys_text, long_prompt);
         assert!(!stable_sys_text.contains("Available Skills"));
         let sys_text = result
             .iter()
@@ -1475,7 +1419,7 @@ mod tests {
             &[],
         );
         let stable_sys_text = result[0].text_content();
-        assert!(stable_sys_text.len() <= MAX_SYSTEM_PROMPT_CHARS);
+        assert_eq!(stable_sys_text, super::super::default_system_prompt());
         assert!(!stable_sys_text.contains("Available Skills"));
         let sys_text = result
             .iter()
@@ -1585,11 +1529,42 @@ mod tests {
     }
 
     #[test]
-    fn cap_system_prompt_is_utf8_safe() {
-        let text = format!("{}中文", "a".repeat(MAX_SYSTEM_PROMPT_CHARS - 1));
-        let capped = cap_system_prompt(text);
-
-        assert!(capped.ends_with("...[truncated]"));
+    fn user_policy_is_never_cut_at_a_fixed_size_or_model_fraction() {
+        let policy = format!(
+            "{}\n最后规则：保留所有细节🌏",
+            "System instruction. ".repeat(30_000)
+        );
+        for (model, context) in [
+            ("gpt-4o", Some(1_000_000)),
+            ("private-provider-model", None),
+            ("gpt-4o", Some(8192)),
+        ] {
+            let messages = prepare_messages(
+                &policy,
+                &[],
+                &[ContentPart::Text {
+                    text: "Continue".into(),
+                }],
+                model,
+                1024,
+                context,
+                &[],
+                &[],
+                &[],
+            );
+            assert_eq!(messages[0].text_content(), policy);
+            assert!(!messages[0].text_content().contains("...[truncated]"));
+            if context == Some(8192) {
+                let window = super::super::context_window::ContextWindow::new(model, context, 1024);
+                let tokens =
+                    estimate_context_usage_breakdown_for_model(model, &messages, &[], None)
+                        .total_tokens;
+                assert!(
+                    window.validate_request(&messages, None, tokens).is_err(),
+                    "real model capacity must still reject an oversized request"
+                );
+            }
+        }
     }
 
     #[test]

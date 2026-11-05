@@ -5,6 +5,7 @@
 - Stream canonical answer/thinking blocks during execution with durable UTF-8 offsets for reconnect replay.
 - Reuse blank drafts until the first send, combine Send and Stop, and add confirmed chat archiving and deletion in the drawer.
 - Expose shared web search settings including DeepSeek Search & Fetch, with keys protected by an Android-keystore-wrapped settings key.
+- Keep custom system prompts intact and validate requests against actual model context capacity instead of truncating policy at a fixed size.
 - Enable continuous context by default: verified history checkpoints retain recent progress without a separate summarization request or routine compaction chatter.
 
 - Let an explicitly enabled paired computer use phone control over the existing authenticated connection; stop pending actions on cancellation or disconnect without replaying input.

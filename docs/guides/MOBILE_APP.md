@@ -195,6 +195,11 @@ and keeps the same conversation, run and device-control session. Exact older
 constraints/results remain accessible through `context_history`. Mobile reloads
 the durable projection rather than resurrecting the archived context.
 
+Custom system prompts are retained in full, without the previous fixed 256 KB
+ceiling or fractional policy truncation. Generated skill scaffolding still uses
+remaining context capacity; a request beyond the selected model's real window
+is rejected explicitly rather than silently cutting instructions.
+
 Routine automatic checkpoints do not emit compaction UI messages. Approvals,
 actions, cancellation and actionable failures remain visible. This mode uses
 extractive evidence, not a background LLM summary; excerpts can omit details, so

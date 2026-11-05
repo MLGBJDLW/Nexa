@@ -105,6 +105,14 @@ impl ContextWindow {
         active_request: Option<&Message>,
         prompt_tokens: u32,
     ) -> Result<(), CoreError> {
+        if self
+            .context_budget()
+            .is_some_and(|budget| prompt_tokens > budget)
+        {
+            return Err(CoreError::InvalidInput(
+                "The system prompt, active request and latest complete tool exchanges exceed this model's context capacity after safe compaction. Choose a model with a larger context window or shorten the supplied content; instructions and retained evidence were not silently truncated.".into(),
+            ));
+        }
         if active_request.is_some_and(|active| {
             !messages
                 .iter()
@@ -112,14 +120,6 @@ impl ContextWindow {
         }) {
             return Err(CoreError::InvalidInput(
                 "The active user request could not be retained in the model context. The request was stopped without discarding its evidence.".into(),
-            ));
-        }
-        if self
-            .context_budget()
-            .is_some_and(|budget| prompt_tokens > budget)
-        {
-            return Err(CoreError::InvalidInput(
-                "The active request and its latest complete tool exchanges cannot fit in the model context after safe compaction. Use a larger context window or reduce the next tool result; the retained evidence was not silently truncated.".into(),
             ));
         }
         Ok(())
