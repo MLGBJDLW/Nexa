@@ -12,6 +12,17 @@
 
 * **catalog:** complete OpenAI retirement metadata ([#524](https://github.com/MLGBJDLW/Nexa/issues/524)) ([345a8fd](https://github.com/MLGBJDLW/Nexa/commit/345a8fdc2bc7a29689e51eb37543cc838f9f035c))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 285f1c30f4d5d756ac201ef513eb497f5d0d8830 -->
+
+### What's Changed
+* fix(catalog): complete OpenAI retirement metadata by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/524
+* feat(agent): strengthen mobile and desktop continuity by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/523
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.1...nexa-monorepo-v0.19.0
+<!-- nexa:merged-prs:end -->
+
 ## [0.18.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.0...nexa-monorepo-v0.18.1) (2026-11-04)
 
 ### Android assistant and Mobile 0.2.0
