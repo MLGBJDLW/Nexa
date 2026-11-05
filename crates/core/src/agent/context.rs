@@ -1371,7 +1371,10 @@ mod tests {
             &[],
         );
         let stable_sys_text = result[0].text_content();
-        assert_eq!(stable_sys_text, long_prompt);
+        assert!(
+            stable_sys_text == long_prompt.trim(),
+            "all long-policy instructions must survive prompt compilation"
+        );
         assert!(!stable_sys_text.contains("Available Skills"));
         let sys_text = result
             .iter()

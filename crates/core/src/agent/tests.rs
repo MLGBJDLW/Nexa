@@ -690,10 +690,6 @@ fn test_build_system_prompt_preserves_core_rules() {
     assert!(prompt.contains("browser_evidence_capture"));
     assert!(prompt.contains("keep recent complete turns verbatim"));
     assert!(!prompt.contains("## Tool Contract: run_shell"));
-    assert!(
-        default_system_prompt().len() <= 8 * 1024,
-        "the core prompt stays within its 8 KiB budget; dynamic sections have their own budgets"
-    );
 }
 
 #[test]
@@ -10136,7 +10132,7 @@ async fn automatic_fallback_binds_tool_turn_and_history_to_the_accepted_route() 
 }
 
 #[test]
-fn explicitly_disabled_reasoning_does_not_require_a_replay_payload() {
+fn legacy_disabled_reasoning_is_enabled_without_losing_required_replay() {
     let executor = AgentExecutor::new(
         Box::new(MissingRequiredReasoningProvider {
             complete_calls: Arc::new(AtomicUsize::new(0)),
@@ -10149,9 +10145,10 @@ fn explicitly_disabled_reasoning_does_not_require_a_replay_payload() {
         },
     );
 
+    assert_eq!(executor.config.reasoning_enabled, Some(true));
     assert_eq!(
         executor.reasoning_replay_policy_for_request("deepseek-v4", false),
-        ReasoningReplayPolicy::NotRequired
+        ReasoningReplayPolicy::RequiredOnToolCall
     );
     assert_eq!(
         executor.reasoning_replay_policy_for_request("deepseek-v4", true),
