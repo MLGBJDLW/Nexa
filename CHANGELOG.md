@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.0...nexa-monorepo-v0.19.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **mobile:** repair Android control, voice and responsive rendering ([#526](https://github.com/MLGBJDLW/Nexa/issues/526)) ([e0b0d99](https://github.com/MLGBJDLW/Nexa/commit/e0b0d999e46277bd93ede9aaf223da83c48e9ef1))
+
 ## [0.19.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.1...nexa-monorepo-v0.19.0) (2026-11-05)
 
 ### Mobile and desktop continuity
