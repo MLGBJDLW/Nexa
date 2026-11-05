@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.0](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.1...nexa-monorepo-v0.19.0) (2026-11-05)
+
+
+### Features
+
+* **agent:** strengthen mobile and desktop continuity ([#523](https://github.com/MLGBJDLW/Nexa/issues/523)) ([285f1c3](https://github.com/MLGBJDLW/Nexa/commit/285f1c30f4d5d756ac201ef513eb497f5d0d8830))
+
+
+### Bug Fixes
+
+* **catalog:** complete OpenAI retirement metadata ([#524](https://github.com/MLGBJDLW/Nexa/issues/524)) ([345a8fd](https://github.com/MLGBJDLW/Nexa/commit/345a8fdc2bc7a29689e51eb37543cc838f9f035c))
+
 ## [0.18.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.18.0...nexa-monorepo-v0.18.1) (2026-11-04)
 
 ### Android assistant and Mobile 0.2.0
