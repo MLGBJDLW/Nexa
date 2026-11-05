@@ -32,6 +32,8 @@ pub struct SynthesizeSpeechTool;
 mod elevenlabs;
 #[path = "text_to_speech_google.rs"]
 mod google;
+#[path = "voxtral.rs"]
+mod voxtral;
 
 #[derive(Debug, Deserialize)]
 struct SynthesizeSpeechArgs {
@@ -104,6 +106,7 @@ pub async fn synthesize_speech_preview(
         "elevenlabs_speech" => {
             synthesize_elevenlabs(&client, config, text, &model, &voice, speed).await?
         }
+        "mistral_realtime_speech" => voxtral::synthesize(config, text, &model, &voice).await?,
         "mistral_speech" => synthesize_mistral(&client, config, text, &model, &voice).await?,
         "minimax_speech" => {
             synthesize_minimax(&client, config, text, &model, &voice, speed).await?

@@ -130,8 +130,21 @@ pub(crate) fn resolve_runtime(
         .unwrap_or_else(|| default_model(provider).to_string());
     let output_format =
         normalize_output_format(request.output_format.or(config.output_format.as_deref()));
+    let openrouter = config.api_style.as_deref() == Some("openrouter_images");
+    let svg_only = openrouter
+        && crate::openrouter_images::catalog_fallback()
+            .iter()
+            .any(|candidate| {
+                candidate.id == model && candidate.metadata["outputFormats"] == json!(["svg"])
+            });
     let output_format = if provider == ImageProvider::Xai {
         "jpeg"
+    } else if svg_only && request.output_format.is_none() {
+        "svg"
+    } else if output_format == "svg" && !openrouter {
+        return Err(CoreError::InvalidInput(
+            "SVG output requires a vector-capable OpenRouter model.".into(),
+        ));
     } else {
         output_format
     };
@@ -500,6 +513,7 @@ fn normalize_output_format(value: Option<&str>) -> &'static str {
     match value.unwrap_or("png").trim().to_lowercase().as_str() {
         "jpg" | "jpeg" => "jpeg",
         "webp" => "webp",
+        "svg" => "svg",
         _ => "png",
     }
 }

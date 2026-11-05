@@ -16,6 +16,122 @@ struct Host {
 }
 
 #[tokio::test]
+async fn reverse_phone_control_requires_opt_in_and_authenticates_results() {
+    let directory = tempfile::tempdir().unwrap();
+    let host = Arc::new(Host::default());
+    let server = RemoteServer::new(AuthStore::open(directory.path()).unwrap(), host.clone());
+    let listener = server
+        .listen(([127, 0, 0, 1], 0).into(), None)
+        .await
+        .unwrap();
+    let origin = format!("http://{}", listener.address);
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let paired: Value = client.post(format!("{origin}/api/pair")).header("Origin", &origin)
+        .json(&json!({"code":server.pairing().code,"name":"Phone","clientNonce":uuid::Uuid::new_v4().to_string()}))
+        .send().await.unwrap().json().await.unwrap();
+    let owner = paired["device"]["id"].as_str().unwrap().to_owned();
+    let token = paired["token"].as_str().unwrap();
+    let mut request = format!("ws://{}/api/events", listener.address)
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert("Origin", origin.parse().unwrap());
+    let (mut socket, _) = connect_async(request).await.unwrap();
+    socket
+        .send(Message::Text(json!({"token":token}).to_string().into()))
+        .await
+        .unwrap();
+    let ready: Value =
+        serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    let session = ready["payload"]["controlSessionId"].as_str().unwrap();
+    assert!(ready["payload"]["manifest"]["capabilities"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("phone-control-v1")));
+    assert!(server
+        .control_phone(
+            &owner,
+            json!({"action":"observe"}),
+            tokio_util::sync::CancellationToken::new()
+        )
+        .await
+        .is_err());
+    socket
+        .send(Message::Text(
+            json!({"type":"phoneControl","version":1,"enabled":true})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    loop {
+        let event: Value =
+            serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+        if event["event"] == "connection:control" {
+            assert_eq!(event["payload"]["enabled"], true);
+            break;
+        }
+    }
+    let waiting = tokio::spawn({
+        let server = server.clone();
+        let owner = owner.clone();
+        async move {
+            server
+                .control_phone(
+                    &owner,
+                    json!({"action":"observe"}),
+                    tokio_util::sync::CancellationToken::new(),
+                )
+                .await
+        }
+    });
+    let event = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let event: Value =
+                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
+                    .unwrap();
+            if event["event"] == "device:control" {
+                break event;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(event["payload"]["arguments"]["action"], "observe");
+    let result = json!({"observationId":"native-result","nodes":[]});
+    for (result_session, expected) in [
+        (uuid::Uuid::new_v4().to_string(), 400),
+        (session.to_owned(), 200),
+    ] {
+        let response = client.post(format!("{origin}/api/rpc")).header("Origin", &origin).bearer_auth(token)
+            .json(&json!({"method":"device.control.result","params":{"requestId":event["payload"]["id"],"sessionId":result_session,"result":result}}))
+            .send().await.unwrap();
+        assert_eq!(response.status().as_u16(), expected);
+    }
+    assert_eq!(waiting.await.unwrap().unwrap(), result);
+    assert_eq!(
+        host.calls.load(Ordering::SeqCst),
+        0,
+        "control replies never enter the generic desktop command host"
+    );
+    server.revoke(&owner).await.unwrap();
+    assert!(server
+        .control_phone(
+            &owner,
+            json!({"action":"tap"}),
+            tokio_util::sync::CancellationToken::new()
+        )
+        .await
+        .is_err());
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn html_preview_is_opaque_bounded_and_revoked_with_its_owner() {
     let directory = tempfile::tempdir().unwrap();
     let server = RemoteServer::new(
@@ -229,7 +345,10 @@ async fn fixed_https_origins_accept_browser_normalization_for_pairing_and_websoc
 #[async_trait::async_trait]
 impl RemoteHost for Host {
     fn capabilities(&self) -> Vec<String> {
-        vec![MODEL_CONNECTION_SYNC_CAPABILITY.into()]
+        vec![
+            MODEL_CONNECTION_SYNC_CAPABILITY.into(),
+            PHONE_CONTROL_CAPABILITY.into(),
+        ]
     }
     async fn execute(&self, owner: &str, _command: RemoteCommand) -> Result<Value, String> {
         self.calls.fetch_add(1, Ordering::SeqCst);
@@ -266,7 +385,7 @@ async fn model_connection_export_requires_an_explicit_pairing_grant() {
         .unwrap();
     assert_eq!(
         health["capabilities"],
-        json!([MODEL_CONNECTION_SYNC_CAPABILITY])
+        json!([MODEL_CONNECTION_SYNC_CAPABILITY, PHONE_CONTROL_CAPABILITY])
     );
     let request = || {
         client

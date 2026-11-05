@@ -355,7 +355,10 @@ impl AgentExecutor {
         let (usage, changed) = self
             .reduce_context_to_target(messages, model, target, run, actual_tokens_remaining)
             .await?;
-        if changed {
+        if changed
+            && self.config.context_management_mode
+                != crate::context_history::ContextManagementMode::Seamless
+        {
             let _ = tx
                 .send(AgentEvent::AutoCompacted {
                     evicted_count: before.saturating_sub(messages.len()),

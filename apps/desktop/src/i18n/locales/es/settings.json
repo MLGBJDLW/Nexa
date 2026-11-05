@@ -1,4 +1,20 @@
 {
+  "storageChats": "Chats e historial de tareas",
+  "storageKnowledge": "Conocimiento e índices",
+  "storageModels": "Modelos locales",
+  "storageFiles": "Archivos generados y gestionados",
+  "storageRuntime": "Ejecución y caché",
+  "storageExtensions": "Skills y extensiones",
+  "storageDatabaseOther": "Ajustes y otros datos",
+  "storageUsageHint": "Espacio usado por esta instalación de Nexa. No incluye archivos de proyectos externos.",
+  "storageDistribution": "Almacenamiento por categoría",
+  "storagePartial": "El análisis es parcial. Puede excluir carpetas grandes, enlaces o archivos ilegibles. Actualiza para volver a medir.",
+  "storageActiveChats": "Chats activos",
+  "storageManageChats": "Gestionar conversaciones",
+  "storageChatScope": "Ámbito de conversaciones",
+  "storageAllChats": "Todas las conversaciones",
+  "storageArchiveHint": "Archivar oculta los chats y conserva sus datos. Eliminar borra las conversaciones seleccionadas y sus mensajes. Detén primero las tareas activas.",
+  "storageNextPage": "Página siguiente",
   "copilotApiAccountToken": "Token de cuenta de GitHub",
   "providerGithubCopilotApi": "GitHub Copilot API",
   "copilotApiImportAccount": "Usar cuenta de GitHub CLI",
@@ -1168,5 +1184,7 @@
   "executionLimitsCustom": "Límites personalizados",
   "glmCodingPlanKey": "Clave API de GLM Coding Plan",
   "glmCodingPlanHelp": "Este adaptador usa una clave API de Coding Plan; el acceso con cuenta ZCode es independiente. Déjalo vacío para usar Z_AI_API_KEY o las credenciales de glm-acp-agent --setup. La comprobación descubre modelos, pero no verifica los derechos del plan.",
-  "externalAgentAutomaticDirectory": "Usar espacio de trabajo automático"
+  "externalAgentAutomaticDirectory": "Usar espacio de trabajo automático",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

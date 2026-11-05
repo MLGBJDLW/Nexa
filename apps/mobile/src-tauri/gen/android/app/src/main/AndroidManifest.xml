@@ -39,7 +39,7 @@
             </intent-filter>
         </activity>
         <service android:name=".TaskService" android:exported="false" android:foregroundServiceType="specialUse">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-started local AI task with persistent progress, approval, and stop notification" />
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-started local AI task or paired computer phone control with persistent progress, approval, and stop notification" />
         </service>
         <service android:name=".PhoneAccessibilityService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>

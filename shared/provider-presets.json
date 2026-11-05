@@ -19526,7 +19526,7 @@
       {
         "id": "thinkingmachines/inkling-small:free",
         "name": "Thinking Machines: Inkling Small (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19554,8 +19554,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/thinkingmachines/inkling-small:free",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling-small:free/endpoints",
         "maxOutputTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -19982,7 +19982,7 @@
       {
         "id": "thinkingmachines/inkling:free",
         "name": "Thinking Machines: Inkling (free)",
-        "status": "active",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -20010,8 +20010,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/thinkingmachines/inkling:free",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling:free/endpoints",
         "maxOutputTokens": 262144,
         "capabilities": {
           "vision": true,
@@ -22101,6 +22101,94 @@
         "source": "official",
         "lastVerifiedAt": "2026-11-04",
         "documentationRef": "https://openrouter.ai/stealth/crouton-alpha"
+      },
+      {
+        "id": "tencent/hy4",
+        "name": "Tencent: Hy4",
+        "status": "active",
+        "access": "public",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/tencent/hy4/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
+      },
+      {
+        "id": "ricursiveai/ripple-65b-preview",
+        "name": "RicursiveAI: Ripple 65B Preview",
+        "status": "preview",
+        "access": "public",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/api/v1/models/ricursiveai/ripple-65b-preview/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "supportedParameters": [
+          "logprobs",
+          "max_tokens",
+          "response_format",
+          "seed",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": false,
+          "reasoning": null
+        }
       }
     ]
   },
@@ -23073,12 +23161,11 @@
           "supportsStreamEvents": true,
           "canMixClientTools": false
         },
-        "tagKey": "providers.tagBestBalance",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
         "source": "official",
-        "status": "active",
-        "lastVerifiedAt": "2026-10-20",
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-11-05",
         "modalities": [
           "text",
           "image",
@@ -23104,7 +23191,7 @@
             "mode": "always"
           }
         },
-        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-7-flash",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
         "access": "account_enablement",
         "inputModalities": [
           "text",
@@ -23115,7 +23202,8 @@
         "outputModalities": [
           "text"
         ],
-        "deprecationDate": "2027-01-28"
+        "deprecationDate": "2027-01-28",
+        "replacementModelId": "gemini-3.8-flash"
       },
       {
         "id": "gemini-3.6-flash",
@@ -23130,12 +23218,11 @@
           "supportsStreamEvents": true,
           "canMixClientTools": false
         },
-        "tagKey": "providers.tagFast",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
         "source": "official",
-        "status": "active",
-        "lastVerifiedAt": "2026-10-20",
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-11-05",
         "modalities": [
           "text",
           "image",
@@ -23163,7 +23250,7 @@
           }
         },
         "access": "account_enablement",
-        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-6-flash",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
         "inputModalities": [
           "text",
           "image",
@@ -23173,7 +23260,159 @@
         "outputModalities": [
           "text"
         ],
-        "deprecationDate": "2026-11-19"
+        "deprecationDate": "2026-11-19",
+        "replacementModelId": "gemini-3.8-flash"
+      },
+      {
+        "id": "gemini-2.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "source": "official",
+        "productReadiness": "known",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
+        "replacementModelId": "gemini-3.8-flash",
+        "deprecationDate": "2026-10-20"
+      },
+      {
+        "id": "gemini-2.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "source": "official",
+        "productReadiness": "known",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
+        "replacementModelId": "gemini-3.8-flash",
+        "deprecationDate": "2026-10-20"
+      },
+      {
+        "id": "gemini-2.5-flash-lite",
+        "name": "Gemini 2.5 Flash-Lite",
+        "source": "official",
+        "productReadiness": "known",
+        "status": "removed",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions",
+        "replacementModelId": "gemini-3.5-flash-lite",
+        "deprecationDate": "2026-10-20"
+      },
+      {
+        "id": "gemini-3.1-pro-preview",
+        "name": "Gemini 3.1 Pro Preview",
+        "status": "preview",
+        "access": "account_enablement",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-pro",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gemini-3.1-pro-preview-customtools",
+        "name": "Gemini 3.1 Pro Preview (Custom Tools)",
+        "status": "preview",
+        "access": "account_enablement",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-pro",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gemini-3-flash-preview",
+        "name": "Gemini 3 Flash Preview",
+        "status": "preview",
+        "access": "account_enablement",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-flash",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       }
     ],
     "nativeWebSearch": {
@@ -23466,6 +23705,128 @@
         ],
         "supportsTools": true,
         "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k3.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "global.anthropic.claude-sonnet-5-5",
+        "name": "Claude Sonnet 5.5 (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "global.xai.grok-4.7",
+        "name": "Grok 4.7 (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "contextTokens": 524288,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-xai-grok-4-7.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "global.zai.glm-5.3",
+        "name": "GLM 5.3 (Global)",
+        "source": "official",
+        "status": "gated",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-zai-glm-5-3.html",
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "global.amazon.nova-2-lite-v1:0",
+        "name": "Amazon Nova 2 Lite (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 64000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-2-lite.html",
         "capabilities": {
           "vision": true
         }
@@ -24524,6 +24885,45 @@
         "deprecationDate": "2026-05-15",
         "documentationRef": "https://docs.x.ai/developers/migration/may-15-retirement",
         "replacementModelId": "grok-4.3"
+      },
+      {
+        "id": "grok-4.20-multi-agent",
+        "name": "Grok 4.20 Multi-Agent (Beta)",
+        "aliases": [
+          "grok-4.20-multi-agent-0309"
+        ],
+        "contextTokens": 1000000,
+        "source": "official",
+        "status": "preview",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": false,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "low",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.x.ai/developers/model-capabilities/text/multi-agent"
       }
     ]
   },
@@ -24952,16 +25352,17 @@
             }
           }
         },
-        "status": "legacy",
-        "lastVerifiedAt": "2026-09-30",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "status": "removed",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
-        "maxOutputTokens": 204800
+        "maxOutputTokens": 204800,
+        "recommended": false,
+        "replacementModelId": "MiniMax-M3"
       },
       {
         "id": "MiniMax-M2.1-highspeed",
         "name": "MiniMax M2.1 Highspeed",
-        "tagKey": "providers.tagFast",
         "capabilities": {
           "reasoning": {
             "effortLevels": [],
@@ -24970,11 +25371,13 @@
             }
           }
         },
-        "status": "legacy",
-        "lastVerifiedAt": "2026-09-30",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "status": "removed",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
-        "maxOutputTokens": 204800
+        "maxOutputTokens": 204800,
+        "recommended": false,
+        "replacementModelId": "MiniMax-M3"
       },
       {
         "id": "MiniMax-M2",
@@ -24987,11 +25390,13 @@
             }
           }
         },
-        "status": "legacy",
-        "lastVerifiedAt": "2026-09-30",
-        "documentationRef": "https://platform.minimax.io/docs/guides/models-intro",
+        "status": "removed",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.minimax.io/docs/faq/models",
         "contextTokens": 204800,
-        "maxOutputTokens": 204800
+        "maxOutputTokens": 204800,
+        "recommended": false,
+        "replacementModelId": "MiniMax-M3"
       }
     ]
   },
@@ -25043,7 +25448,6 @@
       {
         "id": "mistral-medium-3-5",
         "name": "Mistral Medium 3.5",
-        "tagKey": "providers.tagLatest",
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -25060,7 +25464,13 @@
               "enabled": false
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.mistral.ai/models/mistral-medium-3-5-26-04",
+        "replacementModelId": "mistral-large-4",
+        "deprecationDate": "2026-10-31"
       },
       {
         "id": "zai-glm-5-2",
@@ -25126,13 +25536,17 @@
       {
         "id": "mistral-large-2512",
         "name": "Mistral Large 3",
-        "tagKey": "providers.tagFlagship",
         "source": "curated",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "capabilities": {
           "vision": true
-        }
+        },
+        "status": "deprecated",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.mistral.ai/models/mistral-large-3-25-12",
+        "replacementModelId": "mistral-large-4",
+        "deprecationDate": "2026-10-31"
       },
       {
         "id": "mistral-medium-2508",
@@ -25857,6 +26271,78 @@
         "regions": [
           "international"
         ]
+      },
+      {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "status": "active",
+        "access": "public",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.z.ai/guides/overview/overview"
+      },
+      {
+        "id": "glm-5.1",
+        "name": "GLM-5.1",
+        "tagKey": "providers.tagBest",
+        "status": "active",
+        "source": "official",
+        "access": "public",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.z.ai/guides/overview/overview"
+      },
+      {
+        "id": "glm-5",
+        "name": "GLM-5",
+        "tagKey": "providers.tagBest",
+        "status": "active",
+        "source": "official",
+        "access": "public",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.z.ai/guides/overview/overview"
+      },
+      {
+        "id": "glm-4.7",
+        "name": "GLM-4.7",
+        "tagKey": "providers.tagBest",
+        "status": "active",
+        "source": "official",
+        "access": "public",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.z.ai/guides/overview/overview"
+      },
+      {
+        "id": "glm-4.6",
+        "name": "GLM-4.6",
+        "status": "active",
+        "source": "official",
+        "access": "public",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.z.ai/guides/overview/overview"
       }
     ]
   },
@@ -28156,6 +28642,152 @@
         "regions": [
           "ap-southeast-1"
         ]
+      },
+      {
+        "id": "kimi-k3.1-pro",
+        "name": "Kimi K3.1 Pro (Alibaba-hosted)",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k3-1-pro",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true,
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "max"
+          }
+        }
+      },
+      {
+        "id": "kimi-k3",
+        "name": "Kimi K3 (Alibaba-hosted)",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k3",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true,
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "max"
+          }
+        }
+      },
+      {
+        "id": "glm-5.3",
+        "name": "GLM 5.3 (Alibaba-hosted)",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/glm-5-3",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "kimi-k2.7-code",
+        "name": "Kimi K2.7 Code",
+        "tagKey": "providers.tagCode",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "contextTokens": 262144,
+        "maxOutputTokens": 16384,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k2-7-code",
+        "recommended": false,
+        "status": "active"
       }
     ]
   },
@@ -29550,6 +30182,157 @@
             "defaultEnabled": true
           }
         }
+      },
+      {
+        "id": "kimi-k3.1-pro",
+        "name": "Kimi K3.1 Pro (Alibaba-hosted)",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k3-1-pro",
+        "regions": [
+          "cn-beijing"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true,
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "max"
+          }
+        }
+      },
+      {
+        "id": "kimi-k3",
+        "name": "Kimi K3 (Alibaba-hosted)",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k3",
+        "regions": [
+          "cn-beijing"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "optional",
+            "defaultEnabled": true,
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "max"
+          }
+        }
+      },
+      {
+        "id": "glm-5.3",
+        "name": "GLM 5.3 (Alibaba-hosted)",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/glm-5-3",
+        "regions": [
+          "cn-beijing"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "stepfun/step-3.7-flash",
+        "name": "Step 3.7 Flash",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/step-3-7-flash",
+        "regions": [
+          "cn-beijing"
+        ],
+        "contextTokens": 262144,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true
+        }
       }
     ]
   },
@@ -29734,7 +30517,12 @@
       {
         "id": "doubao-seed-1-6-thinking",
         "name": "Doubao-Seed 1.6 Thinking",
-        "tagKey": "providers.tagReasoning"
+        "status": "removed",
+        "recommended": false,
+        "deprecationDate": "2026-03-31",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://ark.volcengine.com/region:cn-beijing/docs/model-deprecation-notice.md",
+        "replacementModelId": "doubao-seed-2-0-lite-260428"
       },
       {
         "id": "doubao-seed-code-preview-251028",
@@ -30205,6 +30993,29 @@
         "regions": [
           "cn-beijing"
         ]
+      },
+      {
+        "id": "doubao-seed-character-251128",
+        "name": "Doubao Seed Character",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://console.volcengine.com/ark/region:cn-beijing/docs/model-list",
+        "contextTokens": 131072,
+        "maxOutputTokens": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": null
+        }
       }
     ]
   },
@@ -30291,6 +31102,120 @@
         "id": "Baichuan-M2",
         "name": "Baichuan M2",
         "tagKey": "providers.tagFast"
+      },
+      {
+        "id": "Baichuan4-Turbo",
+        "name": "Baichuan4-Turbo",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.baichuan-ai.com/docs-v2/api",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        }
+      },
+      {
+        "id": "Baichuan4-Air",
+        "name": "Baichuan4-Air",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.baichuan-ai.com/docs-v2/api",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        }
+      },
+      {
+        "id": "Baichuan4",
+        "name": "Baichuan4",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.baichuan-ai.com/docs-v2/api",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        }
+      },
+      {
+        "id": "Baichuan3-Turbo",
+        "name": "Baichuan3-Turbo",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.baichuan-ai.com/docs-v2/api",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        }
+      },
+      {
+        "id": "Baichuan3-Turbo-128k",
+        "name": "Baichuan3-Turbo-128k",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.baichuan-ai.com/docs-v2/api",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        }
+      },
+      {
+        "id": "Baichuan2-Turbo",
+        "name": "Baichuan2-Turbo",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://platform.baichuan-ai.com/docs-v2/api",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "capabilities": {
+          "vision": false
+        }
       }
     ]
   }

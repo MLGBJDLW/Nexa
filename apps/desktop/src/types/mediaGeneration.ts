@@ -2,6 +2,7 @@ export type MediaOperation =
   | 'text_to_video'
   | 'image_to_video'
   | 'video_to_video'
+  | 'reference_to_video'
   | 'extend'
   | 'edit'
   | 'first_last_frame'

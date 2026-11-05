@@ -437,13 +437,70 @@ async fn collect_run_events(
     turn_id: String,
 ) -> Result<CollectedRunEvents, CoreError> {
     let mut collected = CollectedRunEvents::default();
-    while let Some(event) = rx.recv().await {
+    let mut projector = crate::stream_projection::StreamBlockProjector::default();
+    let mut pending: Option<(crate::agent::StreamBlockChannel, String)> = None;
+    let mut seen_answer = false;
+    let mut seen_thinking = false;
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(50));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let flush = |projector: &mut crate::stream_projection::StreamBlockProjector,
+                 pending: &mut Option<(crate::agent::StreamBlockChannel, String)>|
+     -> Result<(), CoreError> {
+        if let Some((channel, text)) = pending.take() {
+            projector
+                .submit(&outbox, &run_id, Some(&turn_id), channel, &text)
+                .map_err(|e| CoreError::Agent(format!("Could not submit output: {e}")))?;
+        }
+        Ok(())
+    };
+    loop {
+        let event = tokio::select! {
+            event = rx.recv() => event,
+            _ = tick.tick() => { flush(&mut projector, &mut pending)?; continue; }
+        };
+        let Some(event) = event else {
+            break;
+        };
+        let delta = match &event {
+            AgentEvent::TextDelta { delta } => Some((
+                crate::agent::StreamBlockChannel::Answer,
+                delta,
+                &mut seen_answer,
+            )),
+            AgentEvent::Thinking { content } => Some((
+                crate::agent::StreamBlockChannel::Thinking,
+                content,
+                &mut seen_thinking,
+            )),
+            _ => None,
+        };
+        if let Some((channel, text, seen)) = delta {
+            if text.is_empty() {
+                continue;
+            }
+            if pending.as_ref().is_some_and(|(c, _)| *c != channel) {
+                flush(&mut projector, &mut pending)?;
+            }
+            pending
+                .get_or_insert_with(|| (channel, String::new()))
+                .1
+                .push_str(text);
+            if !*seen || pending.as_ref().is_some_and(|(_, text)| text.len() >= 8192) {
+                flush(&mut projector, &mut pending)?;
+            }
+            *seen = true;
+            continue;
+        }
+        flush(&mut projector, &mut pending)?;
         // A provider emits its legacy display error before returning the typed
         // outcome. Let that outcome distinguish cancellation from failure;
         // publishing a failed terminal here would close the durable run early.
         if let AgentEvent::Error { message } = event {
             collected.error_message = Some(message);
             continue;
+        }
+        if crate::stream_projection::agent_event_rotates_stream_blocks(&event) {
+            projector.rotate();
         }
         let run_event = AgentRunEvent::from_agent_event(&event).with_context(
             Some(&run_id),
@@ -456,6 +513,7 @@ async fn collect_run_events(
         })?;
         collected.terminal_submitted |= terminal;
     }
+    flush(&mut projector, &mut pending)?;
     Ok(collected)
 }
 
@@ -499,6 +557,117 @@ mod tests {
     use crate::task_run::{AgentTaskRuntime, CreateTaskRunInput};
 
     struct StaticProvider;
+
+    #[test]
+    fn archived_conversation_rejects_atomic_turn_launch_until_restored() {
+        let db = Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&CreateConversationInput {
+                provider: "static".into(),
+                model: "static-model".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let message = ConversationMessage {
+            id: "archived-launch".into(),
+            conversation_id: conversation.id.clone(),
+            role: Role::User,
+            content: "Only send after restoring".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 0,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.archive_conversations_batch(&[conversation.id.clone()])
+            .unwrap();
+        assert!(db
+            .create_agent_turn_and_run(&message, "task", None, None, "archive-launch")
+            .unwrap_err()
+            .to_string()
+            .contains("Restore"));
+        assert!(db.get_messages(&conversation.id).unwrap().is_empty());
+        db.unarchive_conversation(&conversation.id).unwrap();
+        assert!(db
+            .create_agent_turn_and_run(&message, "task", None, None, "archive-launch")
+            .is_ok());
+    }
+
+    struct StreamingDelivery(tokio::sync::mpsc::UnboundedSender<AgentRunEvent>);
+    impl AgentRunEventDelivery for StreamingDelivery {
+        fn deliver_run_event(&self, _: &str, event: &AgentRunEvent) {
+            let _ = self.0.send(event.clone());
+        }
+        fn deliver_task_run_snapshot(&self, _: &str, _: AgentTaskRun) {}
+    }
+
+    #[tokio::test]
+    async fn live_collector_delivers_utf8_blocks_before_completion_and_replays_exactly() {
+        let db = Database::open_memory().unwrap();
+        let (conversation, turn, run) = create_started_run(&db, "stream-blocks");
+        let (delivery, mut received) = mpsc::unbounded_channel();
+        let outboxes = AgentRunEventOutboxes::new(
+            DatabaseExecutor::new(db.clone(), 64).unwrap(),
+            Arc::new(StreamingDelivery(delivery)),
+        );
+        let outbox = outboxes.open(&conversation, &run).await.unwrap();
+        let (tx, rx) = mpsc::channel(64);
+        let collector = tokio::spawn(collect_run_events(rx, outbox.clone(), run.clone(), turn));
+        tx.send(AgentEvent::TextDelta {
+            delta: "你好🌏".into(),
+        })
+        .await
+        .unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let event = received.recv().await.unwrap();
+                if event.payload["channel"] == "answer" {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("first text must arrive while the provider channel is still open");
+        assert!(!collector.is_finished());
+        assert_eq!(first.payload["offset"], 0);
+        assert_eq!(first.payload["delta"], "你好🌏");
+        tx.send(AgentEvent::TextDelta {
+            delta: "继续".into(),
+        })
+        .await
+        .unwrap();
+        tx.send(AgentEvent::StreamReset {
+            reason: "tool boundary".into(),
+            discard_sample: false,
+        })
+        .await
+        .unwrap();
+        tx.send(AgentEvent::TextDelta {
+            delta: "next round".into(),
+        })
+        .await
+        .unwrap();
+        drop(tx);
+        collector.await.unwrap().unwrap();
+        outbox.flush().await.unwrap();
+        let events = db.list_agent_run_events(&run).unwrap();
+        let deltas: Vec<_> = events
+            .iter()
+            .filter(|event| event.payload["channel"] == "answer")
+            .collect();
+        assert_eq!(deltas.len(), 3);
+        assert_eq!(deltas[1].payload["blockId"], first.payload["blockId"]);
+        assert_eq!(deltas[1].payload["offset"], "你好🌏".len());
+        assert_ne!(deltas[2].payload["blockId"], first.payload["blockId"]);
+        assert_eq!(deltas[2].payload["offset"], 0);
+        assert_eq!(deltas[0].payload, first.payload);
+    }
 
     struct InputProbeProvider {
         seen: Arc<std::sync::Mutex<Vec<ContentPart>>>,

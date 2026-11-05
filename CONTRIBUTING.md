@@ -144,6 +144,13 @@ services. Release candidates always receive
 full CI for their immutable tag. The final gate rejects failed or unexpectedly
 skipped required jobs.
 
+Mobile keeps its own version and `nexa-mobile-v*` release workflow. Mobile-only
+commits are excluded from desktop Release Please version bumps. Mobile PR source
+checks follow the frontend import graph: shared components are checked for both
+clients, while desktop-only pages skip the mobile build. Shared Rust/protocol,
+catalog and dependency changes retain mobile validation. Release checks always
+run for their own versioned candidate.
+
 The pinned `cargo-audit` executable has a separate versioned cache; shared
 registry caches do not include build tools. The frontend job audits the root
 lockfile without installing its unrelated Office and image build tools.

@@ -1443,6 +1443,22 @@ export const getAgentTaskRunPlan = (runId: string) =>
 
 export interface DatabaseStorageStats { allocatedBytes: number; reusableBytes: number; mainFileBytes: number | null; walBytes: number | null }
 export const getDatabaseStorageStats = () => invoke<DatabaseStorageStats>('get_database_storage_stats_cmd');
+export interface StorageUsage { totalBytes: number; categories: { id: string; bytes: number }[]; partial: boolean; activeConversations: number; archivedConversations: number; database: DatabaseStorageStats }
+export interface ConversationStorageCursor { id: string; updatedAt: string }
+export interface ConversationStorageEntry extends ConversationStorageCursor { title: string; archivedAt: string | null }
+export interface ConversationStoragePage { entries: ConversationStorageEntry[]; next: ConversationStorageCursor | null }
+export interface StorageService {
+  usage: () => Promise<StorageUsage>;
+  page: (scope: string, cursor?: ConversationStorageCursor | null) => Promise<ConversationStoragePage>;
+  archive: (ids: string[]) => Promise<number>;
+  remove: (ids: string[]) => Promise<number>;
+}
+export const storageService: StorageService = {
+  usage: () => invoke('get_storage_usage_cmd'),
+  page: (scope, cursor) => invoke('get_conversation_storage_page_cmd', { scope, cursor }),
+  archive: ids => invoke('archive_conversations_batch_cmd', { ids }),
+  remove: ids => invoke('delete_conversations_batch_cmd', { ids }),
+};
 
 export const getAgentTaskHistory = (runId: string, includeDeveloper = false) =>
   invoke<import('./streaming/taskCenterHistory').TaskCenterHistoryItem[]>(
@@ -1750,8 +1766,8 @@ export const updateConversationCollectionContext = (
 export const updateConversationPersona = (id: string, personaId?: string | null) =>
   invoke<Conversation>('update_conversation_persona_cmd', { id, personaId: personaId ?? null });
 
-export const updateConversationModel = (id: string, provider: string, model: string) =>
-  invoke<Conversation>('update_conversation_model_cmd', { id, provider, model });
+export const updateConversationModel = (id: string, provider: string, model: string, agentConfigId?: string, modelSelection?: import('../features/models/modelChoices').TurnModelSelection | null) =>
+  invoke<Conversation>('update_conversation_model_cmd', { id, provider, model, agentConfigId, modelSelection });
 
 // ── Projects ────────────────────────────────────────────────────────────
 

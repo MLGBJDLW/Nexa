@@ -24,6 +24,7 @@ string_enum!(MediaOperation {
     TextToVideo => "text_to_video",
     ImageToVideo => "image_to_video",
     VideoToVideo => "video_to_video",
+    ReferenceToVideo => "reference_to_video",
     Extend => "extend",
     Edit => "edit",
     FirstLastFrame => "first_last_frame",

@@ -16,6 +16,7 @@ mod delegation_scheduler;
 mod desktop_agent_session;
 mod desktop_control_status;
 mod image_generation_tool;
+mod phone_control;
 mod preview_tool;
 mod remote;
 mod subagent_lifecycle;
@@ -849,6 +850,9 @@ fn main() {
             // Index
             commands::get_index_stats,
             commands::get_database_storage_stats_cmd,
+            commands::get_storage_usage_cmd,
+            commands::get_conversation_storage_page_cmd,
+            commands::archive_conversations_batch_cmd,
             commands::rebuild_index,
             // Playbooks
             commands::create_playbook,

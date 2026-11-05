@@ -20,6 +20,7 @@ fn gateway_task_profile(base_url: &str, model: &str) -> &'static str {
             "gemini-2-retrieval-v1"
         }
         "nvidia/llama-nemotron-embed-vl-1b-v2:free" => "nvidia-query-passage-v1",
+        "cohere/embed-5-fast" | "cohere/embed-5-pro" => "cohere-search-input-type-v1",
         _ => "plain",
     }
 }
@@ -274,6 +275,13 @@ impl ApiEmbedder {
                 "nvidia-query-passage-v1" => {
                     body["input_type"] = json!(if query { "query" } else { "passage" });
                 }
+                "cohere-search-input-type-v1" => {
+                    body["input_type"] = json!(if query {
+                        "search_query"
+                    } else {
+                        "search_document"
+                    });
+                }
                 _ => {}
             }
         }
@@ -512,6 +520,17 @@ mod tests {
             nvidia.request(&["document"], false).1["input_type"],
             "passage"
         );
+        for model in ["cohere/embed-5-fast", "cohere/embed-5-pro"] {
+            let cohere = client(router, model, 2048);
+            assert_eq!(
+                cohere.request(&["question"], true).1["input_type"],
+                "search_query"
+            );
+            assert_eq!(
+                cohere.request(&["document"], false).1["input_type"],
+                "search_document"
+            );
+        }
         let private = client(
             "https://private.example/v1",
             "google/gemini-embedding-2",

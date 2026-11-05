@@ -78,7 +78,7 @@
       },
       "output_format": {
         "type": "string",
-        "description": "Optional image format preference: png, jpeg, or webp."
+        "description": "Optional image format preference: png, jpeg, webp, or svg for a supported vector model."
       },
       "negative_prompt": {
         "type": "string",

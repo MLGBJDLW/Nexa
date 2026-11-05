@@ -592,3 +592,22 @@ Implementation: [editor](../../apps/desktop/src/components/chat/ImageEditorDialo
 The wire contract follows [OpenAI image edits](https://developers.openai.com/api/reference/resources/images/methods/edit),
 [Gemini image generation/editing](https://aistudio.google.com/docs/image-generation),
 and [xAI multi-image editing](https://docs.x.ai/developers/model-capabilities/images/multi-image-editing).
+
+### OpenRouter video and Recraft vector output
+
+Use an official OpenRouter model connection in desktop chat to generate video.
+The agent can list model-specific options, submit after approval, and check the
+same local job ID in a later turn. A completed job saves verified video files
+locally. Reference inputs use public HTTPS URLs. The catalog lists video editing,
+upscaling, and avatar routes separately while their request contracts are pending.
+[OpenRouter video API](https://openrouter.ai/docs/api/api-reference/video-generation/create-videos)
+
+Recraft vector models use the OpenRouter Image API and save validated SVG output.
+Choose an SVG model in image settings to preview and save an editable vector.
+[OpenRouter vector output](https://openrouter.ai/blog/tutorials/image-generation-models/)
+
+Mistral Voxtral realtime transcription sends microphone audio over the official
+WebSocket and displays text as it arrives. The realtime speech synthesis preset
+uses the Voxtral WebSocket and saves the assembled audio when synthesis finishes.
+[Mistral realtime transcription](https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime)
+[Mistral realtime synthesis](https://docs.mistral.ai/studio/audio/text-to-speech/speak-in-realtime)

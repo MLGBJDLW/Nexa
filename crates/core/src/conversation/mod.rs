@@ -3,8 +3,12 @@
 mod cache_observation;
 pub mod goal;
 pub mod memory;
-mod model_selection;
+pub(crate) mod model_selection;
 mod remote_views;
+mod storage_management;
+pub use storage_management::{
+    ConversationStorageCursor, ConversationStorageEntry, ConversationStoragePage,
+};
 mod task_artifact_metadata;
 mod task_history;
 mod task_recovery;
@@ -46,6 +50,10 @@ pub struct Conversation {
     pub title: String,
     pub provider: String,
     pub model: String,
+    #[serde(default)]
+    pub agent_config_id: Option<String>,
+    #[serde(default)]
+    pub model_selection: Option<TurnModelSelection>,
     pub system_prompt: String,
     pub collection_context: Option<CollectionContext>,
     pub project_id: Option<String>,
@@ -1599,13 +1607,40 @@ fn checkpoint_branch_title(source_title: &str, checkpoint_label: &str) -> String
 // Conversation CRUD
 // ---------------------------------------------------------------------------
 
+pub(crate) fn ensure_conversation_writable(
+    conn: &rusqlite::Connection,
+    id: &str,
+) -> Result<(), CoreError> {
+    let archived: bool = conn.query_row(
+        "SELECT archived_at IS NOT NULL FROM conversations WHERE id=?1",
+        [id],
+        |row| row.get(0),
+    )?;
+    if archived {
+        return Err(CoreError::InvalidInput(
+            "Restore this archived conversation before sending a message.".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl Database {
     /// Create a new conversation. Returns the persisted row.
     pub fn create_conversation(
         &self,
         input: &CreateConversationInput,
     ) -> Result<Conversation, CoreError> {
+        self.create_conversation_with_selection(input, None, None)
+    }
+
+    fn create_conversation_with_selection(
+        &self,
+        input: &CreateConversationInput,
+        agent_config_id: Option<&str>,
+        model_selection: Option<&TurnModelSelection>,
+    ) -> Result<Conversation, CoreError> {
         let id = new_id();
+        let model_selection_json = model_selection.map(serde_json::to_string).transpose()?;
         let system_prompt = input.system_prompt.as_deref().unwrap_or("");
         let system_prompt_origin = if system_prompt.trim().is_empty() {
             "none"
@@ -1622,8 +1657,8 @@ impl Database {
             .map(str::to_string);
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO conversations (id, provider, model, system_prompt, system_prompt_origin, collection_context_json, project_id, persona_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO conversations (id, provider, model, system_prompt, system_prompt_origin, collection_context_json, project_id, persona_id, agent_config_id, model_selection_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 &id,
                 &input.provider,
@@ -1632,7 +1667,9 @@ impl Database {
                 system_prompt_origin,
                 &collection_context_json,
                 &input.project_id,
-                &persona_id
+                &persona_id,
+                agent_config_id,
+                model_selection_json
             ],
         )?;
         drop(conn);
@@ -1669,7 +1706,7 @@ impl Database {
     pub fn list_conversations(&self) -> Result<Vec<Conversation>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at, agent_config_id, model_selection_json
              FROM conversations WHERE archived_at IS NULL AND parent_conversation_id IS NULL ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1683,6 +1720,8 @@ impl Database {
                 project_id: row.get(6)?,
                 persona_id: row.get(7)?,
                 initial_auto_title_pending: row.get::<_, i64>(8)? != 0,
+                agent_config_id: row.get(12)?,
+                model_selection: model_selection::read_selection(row, 13)?,
                 archived_at: row.get(9)?,
                 created_at: row.get(10)?,
                 updated_at: row.get(11)?,
@@ -1699,7 +1738,7 @@ impl Database {
     pub fn list_archived_conversations(&self) -> Result<Vec<Conversation>, CoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at, agent_config_id, model_selection_json
              FROM conversations WHERE archived_at IS NOT NULL AND parent_conversation_id IS NULL ORDER BY archived_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1713,6 +1752,8 @@ impl Database {
                 project_id: row.get(6)?,
                 persona_id: row.get(7)?,
                 initial_auto_title_pending: row.get::<_, i64>(8)? != 0,
+                agent_config_id: row.get(12)?,
+                model_selection: model_selection::read_selection(row, 13)?,
                 archived_at: row.get(9)?,
                 created_at: row.get(10)?,
                 updated_at: row.get(11)?,
@@ -1729,7 +1770,7 @@ impl Database {
     pub fn get_conversation(&self, id: &str) -> Result<Conversation, CoreError> {
         let conn = self.conn();
         conn.query_row(
-            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
+            "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at, agent_config_id, model_selection_json
              FROM conversations WHERE id = ?1",
             rusqlite::params![id],
             |row| {
@@ -1743,6 +1784,8 @@ impl Database {
                     project_id: row.get(6)?,
                     persona_id: row.get(7)?,
                     initial_auto_title_pending: row.get::<_, i64>(8)? != 0,
+                    agent_config_id: row.get(12)?,
+                    model_selection: model_selection::read_selection(row, 13)?,
                     archived_at: row.get(9)?,
                     created_at: row.get(10)?,
                     updated_at: row.get(11)?,
@@ -1850,6 +1893,7 @@ impl Database {
         let mut conn = self.conn();
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut affected = 0usize;
+        storage_management::ensure_idle(&transaction, &ids)?;
         for chunk in ids.chunks(CONVERSATION_DELETE_BIND_CHUNK) {
             let placeholders = vec!["?"; chunk.len()].join(", ");
             let sql = format!("DELETE FROM conversations WHERE id IN ({placeholders})");
@@ -2739,6 +2783,7 @@ impl Database {
         let run_id = new_id();
         let mut conn = self.conn();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_conversation_writable(&tx, &message.conversation_id)?;
 
         let existing = tx
             .query_row(
@@ -4874,14 +4919,18 @@ impl Database {
         let source = self.get_conversation(&checkpoint.conversation_id)?;
         let branch_messages = self.recover_checkpoint_messages(&checkpoint)?;
 
-        let conversation = self.create_conversation(&CreateConversationInput {
-            provider: source.provider.clone(),
-            model: source.model.clone(),
-            system_prompt: Some(source.system_prompt.clone()),
-            collection_context: source.collection_context.clone(),
-            project_id: source.project_id.clone(),
-            persona_id: source.persona_id.clone(),
-        })?;
+        let conversation = self.create_conversation_with_selection(
+            &CreateConversationInput {
+                provider: source.provider.clone(),
+                model: source.model.clone(),
+                system_prompt: Some(source.system_prompt.clone()),
+                collection_context: source.collection_context.clone(),
+                project_id: source.project_id.clone(),
+                persona_id: source.persona_id.clone(),
+            },
+            source.agent_config_id.as_deref(),
+            source.model_selection.as_ref(),
+        )?;
         self.copy_conversation_system_prompt_origin(&source.id, &conversation.id)?;
         self.rename_conversation_by_user(
             &conversation.id,

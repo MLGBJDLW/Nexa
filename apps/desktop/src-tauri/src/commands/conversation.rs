@@ -1224,7 +1224,16 @@ pub fn update_conversation_model_cmd(
     id: String,
     provider: String,
     model: String,
+    agent_config_id: Option<String>,
+    model_selection: Option<nexa_core::conversation::TurnModelSelection>,
 ) -> Result<Conversation, String> {
+    if let Some(selection) = model_selection {
+        let config_id = agent_config_id.ok_or("A model choice requires a configured connection")?;
+        return state
+            .db
+            .select_conversation_model(&id, &config_id, &selection)
+            .map_err(|error| error.to_string());
+    }
     state
         .db
         .update_conversation_model(&id, &provider, &model)
@@ -1284,6 +1293,33 @@ pub async fn delete_conversations_batch_cmd(
         .await
         .map(|execution| execution.value)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_conversation_storage_page_cmd(
+    state: tauri::State<'_, AppState>,
+    scope: String,
+    cursor: Option<nexa_core::conversation::ConversationStorageCursor>,
+) -> Result<nexa_core::conversation::ConversationStoragePage, String> {
+    state
+        .db_executor
+        .read(move |db| db.conversation_storage_page(&scope, cursor.as_ref()))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn archive_conversations_batch_cmd(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<usize, String> {
+    state
+        .db_executor
+        .write(move |db| db.archive_conversations_batch(&ids))
+        .await
+        .map(|result| result.value)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1610,7 +1646,7 @@ pub async fn start_context_compaction_cmd(
         provider_label,
         summarizer: provider,
     };
-    let live_target = if mode == nexa_core::context_history::ContextManagementMode::History {
+    let live_target = if mode.uses_history() {
         agent_state
             .sessions
             .context_fork_target(&job.request.conversation_id)

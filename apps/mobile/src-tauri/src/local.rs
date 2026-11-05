@@ -1,5 +1,5 @@
 //! Phone host over the shared executor, run ledger, approvals and file tools.
-use crate::{connections, phone_tool::PhoneTool, platform};
+use crate::{connections, phone_host::PhoneHost, platform};
 use base64::Engine;
 use nexa_core::{
     agent::{AgentConfig, AgentExecutionMode, CancellationToken},
@@ -229,6 +229,9 @@ impl LocalRuntime {
             // transport retry always addresses the same idempotency scope.
             return Err("Create a conversation before sending.".into());
         };
+        if conversation.archived_at.is_some() {
+            return Err("Restore this archived conversation before sending a message.".into());
+        }
         let previous = self
             .db
             .find_agent_turn_by_idempotency_key(&conversation.id, &request_id)
@@ -236,14 +239,14 @@ impl LocalRuntime {
         if active.is_some() && previous.is_none() {
             return Err("Stop or finish the current phone task first.".into());
         }
-        let history = self
-            .db
-            .get_messages(&conversation.id)
-            .map_err(err)?
-            .iter()
-            .filter(|m| conversation_message_is_model_history(m))
-            .map(conversation_message_to_llm)
-            .collect();
+        let history =
+            nexa_core::context_maintenance::load_context_projection(&self.db, &conversation.id)
+                .map_err(err)?
+                .messages
+                .iter()
+                .filter(|m| conversation_message_is_model_history(m))
+                .map(conversation_message_to_llm)
+                .collect();
         let history = nexa_core::llm::message_validation::repair_persisted_message_history(
             history,
             Some(&conversation.id),
@@ -364,7 +367,14 @@ impl LocalRuntime {
         tools.register(Box::new(ListDirTool));
         tools.register(Box::new(CreateFileTool));
         tools.register(Box::new(EditFileTool));
-        tools.register(Box::new(PhoneTool(app.clone())));
+        tools.register(Box::new(
+            nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost(
+                app.clone(),
+            ))),
+        ));
+        tools.register(Box::new(
+            nexa_core::tools::context_history_tool::ContextHistoryTool,
+        ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
         let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(
@@ -373,7 +383,22 @@ impl LocalRuntime {
             &saved.model,
         );
         let context_window = saved.context_window.and_then(|value| value.try_into().ok());
+        let web = self.db.load_app_config().map_err(err)?.web_search;
+        let conversation_prompt = self
+            .db
+            .get_effective_conversation_system_prompt(&conversation)
+            .map_err(err)?;
         let mut config = AgentConfig {
+            system_prompt: nexa_core::agent::build_system_prompt(Some(&conversation_prompt), &[]),
+            native_search_plan:
+                nexa_core::llm::native_search::NativeSearchPlan::resolve_with_engine(
+                    web.execution_mode,
+                    provider_type,
+                    saved.base_url.as_deref(),
+                    &saved.model,
+                    web.provider_native_engine,
+                ),
+            context_management_mode: nexa_core::context_history::ContextManagementMode::Seamless,
             model: Some(settings.model.clone()),
             provider_type: Some(provider_type),
             temperature: saved.temperature.map(|value| value as f32),
@@ -403,6 +428,33 @@ impl LocalRuntime {
         let confirmation_runtime = self.clone();
         let approve_app = app.clone();
         let confirm_app = app.clone();
+        // This bundle needs only the shared chat renderer. Keep desktop-only
+        // skill runtimes out of the phone host and honor persisted enablement.
+        let skills = self
+            .db
+            .list_builtin_skills()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|skill| skill.enabled && skill.canonical_name == "visual-explanations")
+            .collect::<Vec<_>>();
+        let mut loaded_skills =
+            nexa_core::skills::select_skills_from_pool(skills.clone(), &text, 1);
+        for skill in &mut loaded_skills {
+            // Mobile has no shell/skill-management runtime. Supply the same
+            // bundled format references directly when this skill is selected.
+            for reference in ["references/structured-ui.md", "references/html.md"] {
+                if let Some(resource) = skill
+                    .resource_bundle
+                    .iter()
+                    .find(|resource| resource.path == reference)
+                {
+                    skill.content.push_str(&format!(
+                        "\n\n## Included reference: {reference}\n{}",
+                        resource.content
+                    ));
+                }
+            }
+        }
         let mut session = ExecutorAgentSession::new(
             AgentSessionConfig {
                 session_id: conversation.id.clone(),
@@ -418,8 +470,8 @@ impl LocalRuntime {
             self.db.clone(),
         )
         .with_history(history, message.sort_order + 1)
-        .with_skills_override(Vec::new())
-        .with_auto_loaded_skills_override(Vec::new())
+        .with_skills_override(skills)
+        .with_auto_loaded_skills_override(loaded_skills)
         .with_event_outboxes(self.outboxes.clone())
         .with_cancel_token(token.clone())
         .with_approval_callback(Arc::new(move |request| {

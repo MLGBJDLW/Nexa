@@ -308,6 +308,16 @@ impl SpeechToTextConfig {
                         .as_deref()
                         .is_some_and(|value| !value.trim().is_empty())
             }
+            "mistral_realtime_asr" => {
+                matches!(
+                    self.model.trim(),
+                    "voxtral-mini-transcribe-realtime-3" | "voxtral-mini-transcribe-realtime-3-0"
+                ) && !self.api_key.trim().is_empty()
+                    && self
+                        .base_url
+                        .as_deref()
+                        .is_some_and(|url| !url.trim().is_empty())
+            }
             "gemini_realtime_asr" => {
                 self.model.trim() == "gemini-3.5-transcribe-live"
                     && !self.api_key.trim().is_empty()

@@ -13,6 +13,7 @@ export const phoneSpeech: NativeSpeech = {
 export interface NativeHost extends PairedRemote { id: string; endpoint: string }
 export const hostLabel = (host: NativeHost) => { try { return new URL(host.endpoint).hostname; } catch { return host.device.name; } };
 export class NativeClient implements RemoteChatClient {
+  get conversationManagementAvailable() { return this.paired.manifest.capabilities?.includes("chat-management-v1") ?? false; }
   readonly nativeSpeech = phoneSpeech;
   readonly voiceAvailable = false;
   readonly models = cachedModelChoices(id => this.rpc<ModelChoices>('models.list', { connectionId: id }));
@@ -28,6 +29,14 @@ export class NativeClient implements RemoteChatClient {
   async start() {
     const unlisten = await listen<RemoteEnvelope & { hostId: string }>('mobile:remote', ({ payload }) => {
       if (this.closed || payload.hostId !== this.paired.id) return;
+      if (payload.event === 'connection:ready' || payload.event === 'connection:manifest') {
+        const manifest = payload.event === 'connection:ready' ? payload.payload?.manifest : payload.payload;
+        if (manifest?.serverId === this.paired.manifest.serverId) {
+          this.paired.manifest = manifest;
+          this.models.invalidate();
+          this.listeners.forEach(listener => listener({ event: 'connections:changed', payload: {} }));
+        }
+      }
       if (payload.event === 'connection:state') {
         this.state = payload.payload;
         this.connections.forEach(listener => listener(this.state));

@@ -21,7 +21,10 @@ static OBSERVE_DEF: OnceLock<ToolDef> = OnceLock::new();
 static CONTROL_DEF: OnceLock<ToolDef> = OnceLock::new();
 const OBSERVE_DEF_JSON: &str = include_str!("../../prompts/tools/computer_observe.json");
 const CONTROL_DEF_JSON: &str = include_str!("../../prompts/tools/computer_control.json");
-const OBSERVATION_TTL: Duration = Duration::from_secs(120);
+// Retention is a cache policy, not permission to dispatch input. Native input
+// always revalidates target identity, pixels, focus, geometry and user takeover.
+const OBSERVATION_TTL: Duration = Duration::from_secs(30 * 60);
+const MAX_OBSERVATIONS_PER_CONVERSATION: usize = 8;
 const MAX_OBSERVATIONS: usize = 64;
 const SCREENSHOT_SIGNATURE_EDGE: u32 = 32;
 const SCREENSHOT_PIXEL_DIFF_THRESHOLD: u8 = 24;
@@ -534,14 +537,27 @@ fn remember_observation(
     let mut store = observation_store()
         .lock()
         .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
+    // A busy conversation must not evict every other conversation's current target.
+    store.retain(|record| now.duration_since(record.created_at) <= OBSERVATION_TTL);
     while store
-        .front()
-        .is_some_and(|record| now.duration_since(record.created_at) > OBSERVATION_TTL)
+        .iter()
+        .filter(|record| record.conversation_id.as_deref() == conversation_id)
+        .count()
+        >= MAX_OBSERVATIONS_PER_CONVERSATION
     {
-        store.pop_front();
+        if let Some(index) = store
+            .iter()
+            .position(|record| record.conversation_id.as_deref() == conversation_id)
+        {
+            store.remove(index);
+        }
     }
     while store.len() >= MAX_OBSERVATIONS {
-        store.pop_front();
+        let index = store
+            .iter()
+            .position(|record| record.claimed_for_control)
+            .unwrap_or(0);
+        store.remove(index);
     }
     store.push_back(ObservationRecord {
         id: id.clone(),
@@ -558,7 +574,6 @@ fn observed_window(
     observation_id: &str,
     window_id: u64,
 ) -> Result<ObservedWindow, CoreError> {
-    let now = Instant::now();
     let store = observation_store()
         .lock()
         .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
@@ -571,11 +586,7 @@ fn observed_window(
                     .to_string(),
             )
         })?;
-    if now.duration_since(record.created_at) > OBSERVATION_TTL {
-        return Err(CoreError::InvalidInput(
-            "Computer observation expired. Run computer_observe again before acting.".to_string(),
-        ));
-    }
+
     if record.conversation_id.as_deref() != conversation_id {
         return Err(CoreError::InvalidInput(
             "Computer observation belongs to a different conversation. Observe the window again before acting."
@@ -599,7 +610,6 @@ fn claim_observed_window(
     observation_id: &str,
     window_id: u64,
 ) -> Result<ObservedWindow, CoreError> {
-    let now = Instant::now();
     let mut store = observation_store()
         .lock()
         .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
@@ -611,11 +621,7 @@ fn claim_observed_window(
                 "Unknown computer observation. Capture the window again before acting.".to_string(),
             )
         })?;
-    if now.duration_since(record.created_at) > OBSERVATION_TTL {
-        return Err(CoreError::InvalidInput(
-            "Computer observation expired. Capture the window again before acting.".to_string(),
-        ));
-    }
+
     if record.conversation_id.as_deref() != conversation_id {
         return Err(CoreError::InvalidInput(
             "Computer observation belongs to a different conversation. Observe the window again before acting."
@@ -650,7 +656,6 @@ fn observed_window_for_approval(
     observation_id: &str,
     window_id: u64,
 ) -> Result<ObservedWindow, CoreError> {
-    let now = Instant::now();
     let store = observation_store()
         .lock()
         .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
@@ -663,11 +668,7 @@ fn observed_window_for_approval(
                     .to_string(),
             )
         })?;
-    if now.duration_since(record.created_at) > OBSERVATION_TTL {
-        return Err(CoreError::InvalidInput(
-            "Computer observation expired before approval. Capture the target again.".to_string(),
-        ));
-    }
+
     if record.conversation_id.as_deref() != conversation_id {
         return Err(CoreError::InvalidInput(
             "Computer observation belongs to a different conversation. Capture the target again in this conversation."
@@ -1917,7 +1918,8 @@ fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::V
             "elementIdsAreObservationScoped": true
         },
         "singleUseForControl": !capture.snapshot.observation_only,
-        "expiresInSeconds": OBSERVATION_TTL.as_secs()
+        "expiresInSeconds": OBSERVATION_TTL.as_secs(),
+            "inputValidity": "live_target_revalidation"
     })
 }
 
@@ -1962,6 +1964,7 @@ fn semantic_observation_for_llm(observation_id: &str, capture: &CapturedWindow) 
         "semanticError": capture.semantic_error,
         "singleUseForControl": !capture.snapshot.observation_only,
         "expiresInSeconds": OBSERVATION_TTL.as_secs(),
+            "inputValidity": "live_target_revalidation",
         "trust": "untrusted_observation_data"
     }))
     .unwrap_or_else(|_| {
@@ -2831,15 +2834,16 @@ impl Tool for ComputerObserveTool {
                             .collect(),
                     )?;
                     let data = serde_json::json!({
-                        "schemaVersion": 2,
-                        "observationId": observation_id,
-                        "windows": windows,
-                        "windowCoverage": coverage,
-                        "matched": matched,
-                        "timedOut": wait && !matched,
-                        "elapsedMs": started.elapsed().as_millis() as u64,
-                        "expiresInSeconds": OBSERVATION_TTL.as_secs()
-                    });
+                                "schemaVersion": 2,
+                                "observationId": observation_id,
+                                "windows": windows,
+                                "windowCoverage": coverage,
+                                "matched": matched,
+                                "timedOut": wait && !matched,
+                                "elapsedMs": started.elapsed().as_millis() as u64,
+                                "expiresInSeconds": OBSERVATION_TTL.as_secs(),
+                    "inputValidity": "live_target_revalidation"
+                            });
                     let llm_windows = windows
                         .iter()
                         .map(|window| {
@@ -2857,16 +2861,17 @@ impl Tool for ComputerObserveTool {
                         })
                         .collect::<Vec<_>>();
                     let llm_data = serde_json::json!({
-                        "schemaVersion": 2,
-                        "observationId": observation_id,
-                        "windows": llm_windows,
-                        "windowCoverage": coverage,
-                        "matched": matched,
-                        "timedOut": wait && !matched,
-                        "titlesWithheldUntilCaptureConsent": true,
-                        "observationPending": true,
-                        "expiresInSeconds": OBSERVATION_TTL.as_secs()
-                    });
+                                "schemaVersion": 2,
+                                "observationId": observation_id,
+                                "windows": llm_windows,
+                                "windowCoverage": coverage,
+                                "matched": matched,
+                                "timedOut": wait && !matched,
+                                "titlesWithheldUntilCaptureConsent": true,
+                                "observationPending": true,
+                                "expiresInSeconds": OBSERVATION_TTL.as_secs(),
+                    "inputValidity": "live_target_revalidation"
+                            });
                     let content = format!(
                     "Selected {} matching Windows windows; no screenshot has been captured yet. An empty result means no matching window appeared in this interval. Call computer_use with action=observe, target.kind=window, the exact target.window_id, and observation_id={} to obtain pixels before input.\n{}",
                     windows.len(),

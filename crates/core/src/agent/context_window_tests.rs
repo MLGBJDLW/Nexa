@@ -837,7 +837,10 @@ async fn long_single_turn_keeps_active_request_and_latest_tool_evidence() {
 async fn oversized_active_exchange_stops_before_another_provider_request() {
     let (answer, requests, _, occupied) = run_context_fixture(1, 1, 2_000, false, false).await;
     let error = answer.expect_err("an indivisible oversized exchange must not be silently dropped");
-    assert!(error.to_string().contains("cannot fit"), "{error}");
+    assert!(
+        matches!(&error, CoreError::InvalidInput(message) if message.contains("context capacity")),
+        "{error}"
+    );
     assert!(
         occupied > 8_192,
         "the rejected oversized request must replace the previous small occupancy: {occupied}"

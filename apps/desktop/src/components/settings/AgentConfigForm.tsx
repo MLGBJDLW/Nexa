@@ -181,9 +181,6 @@ export function AgentConfigForm({
       ?? null,
   );
   const [isDefault, setIsDefault] = useState(config?.isDefault ?? false);
-  const [reasoningEnabled, setReasoningEnabled] = useState<boolean | null>(
-    config?.reasoningEnabled ?? null,
-  );
   const [thinkingBudget, setThinkingBudget] = useState<number | null>(
     config?.thinkingBudget ?? null,
   );
@@ -381,7 +378,6 @@ export function AgentConfigForm({
   const reasoningEffortOptions = reasoningCapability?.effortLevels ?? [];
   const thinkingBudgetCapability = reasoningCapability?.thinkingBudget;
   const supportsReasoning = reasoningCapability !== null;
-  const reasoningAlwaysOn = reasoningCapability?.mode === "always";
   const reasoningControlsExclusive = reasoningCapability?.effortBudgetExclusive === true;
   const supportsThinkingBudget = thinkingBudgetCapability?.enabled === true;
   const supportsReasoningEffort = reasoningEffortOptions.length > 0;
@@ -601,34 +597,6 @@ export function AgentConfigForm({
 
   useEffect(() => {
     if (!supportsReasoning) {
-      if (reasoningEnabled !== null) {
-        setReasoningEnabled(null);
-      }
-      if (thinkingBudget !== null) {
-        setThinkingBudget(null);
-      }
-      if (reasoningEffort !== null) {
-        setReasoningEffort(null);
-      }
-      return;
-    }
-
-    if (reasoningAlwaysOn && reasoningEnabled !== true) {
-      setReasoningEnabled(true);
-      return;
-    }
-
-    // Sonnet 5.5 defaults to adaptive thinking even when no override was saved.
-    if (reasoningEnabled === null && reasoningCapability?.defaultEnabled != null) {
-      setReasoningEnabled(reasoningCapability.defaultEnabled);
-      return;
-    }
-    if (reasoningCapability?.disabledMode === 'between_tools' && reasoningEnabled === null) {
-      setReasoningEnabled(true);
-      return;
-    }
-
-    if (reasoningEnabled !== true) {
       if (thinkingBudget !== null) {
         setThinkingBudget(null);
       }
@@ -655,22 +623,15 @@ export function AgentConfigForm({
     }
   }, [
     reasoningCapability,
-    reasoningAlwaysOn,
     reasoningControlsExclusive,
     reasoningEffort,
-    reasoningEnabled,
     supportsReasoning,
     thinkingBudget,
   ]);
 
   const buildInput = useCallback(
     (): SaveAgentConfigInput => {
-      const normalizedReasoningEnabled =
-        supportsReasoning
-          ? reasoningAlwaysOn
-            ? true
-            : reasoningEnabled
-          : null;
+      const normalizedReasoningEnabled = supportsReasoning ? true : null;
       const preferEffort = reasoningControlsExclusive &&
         (reasoningEffort !== null || thinkingBudget === null);
       const normalizedThinkingBudget =
@@ -758,8 +719,6 @@ export function AgentConfigForm({
       connectTimeoutMs,
       streamMaxRetries,
       isDefault,
-      reasoningEnabled,
-      reasoningAlwaysOn,
       reasoningControlsExclusive,
       thinkingBudget,
       reasoningEffort,

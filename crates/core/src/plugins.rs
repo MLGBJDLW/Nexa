@@ -358,6 +358,7 @@ const DESKTOP_AUTOMATION_PACKAGE: CapabilityPackageDeclaration = CapabilityPacka
         "desktop_automation",
         "computer_observe",
         "computer_control",
+        "phone_control",
         "terminal_session",
     ],
     settings_surfaces: &["tool-approvals"],

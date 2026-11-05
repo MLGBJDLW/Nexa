@@ -1,4 +1,16 @@
 {
+  "mobileAllowComputerControl": "Autoriser le contrôle du téléphone",
+  "mobileComputerControlHint": "Autorisez cet ordinateur associé pendant la connexion. Gardez le téléphone déverrouillé. Arrêter dans la notification termine l’accès. Les tâches locales et le contrôle distant s’exécutent séparément.",
+  "mobileSpeechSettings": "Voix",
+  "mobileSpeechHint": "Choisissez le service et la langue de reconnaissance du téléphone. Le service système peut utiliser le réseau. Par défaut, la langue suit celle de l’application.",
+  "mobileSpeechEngine": "Reconnaissance",
+  "mobileSpeechSystem": "Service système",
+  "mobileSpeechOnDevice": "Sur l’appareil",
+  "mobileSpeechLanguage": "Langue vocale",
+  "mobileSpeechTest": "Tester le microphone",
+  "mobileSpeechSystemSettings": "Paramètres de saisie vocale",
+  "mobileSpeechOutputSettings": "Paramètres de lecture",
+  "speechOnDeviceUnavailable": "La reconnaissance sur l’appareil est indisponible. Choisissez le service système ou installez une langue prise en charge dans Android.",
   "title": "Connexion mobile",
   "subtitle": "Associez votre téléphone pour discuter avec l’agent de cet ordinateur et transmettre des données Live. Le réseau local est prioritaire ; la connexion publique prend le relais en déplacement.",
   "companion": "Accès à distance",
@@ -201,5 +213,7 @@
   "speechTimeout": "Le moteur vocal ne répond pas. Réessayez ou vérifiez les paramètres vocaux Android.",
   "speechLanguage": "Installez les données de cette langue dans les paramètres de synthèse vocale Android.",
   "speechBusy": "La voix est déjà utilisée. Arrêtez-la ou fermez les autres applications utilisant le microphone, puis réessayez.",
-  "speechFailed": "L’opération vocale a échoué. Vérifiez les paramètres vocaux Android et réessayez."
+  "speechFailed": "L’opération vocale a échoué. Vérifiez les paramètres vocaux Android et réessayez.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

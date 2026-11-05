@@ -1,12 +1,14 @@
 ---
 name: visual-explanations
-description: Visualize explanations, comparisons, data, processes, or simulations in chat. Use for diagrams, interactive tables, charts, timelines, what-if tools, and self-contained HTML demos; 可视化、交互图表、动态演示、流程图. Choose a visual only when it makes the answer easier to understand.
+description: "Interactive charts and visual explanations inside the conversation: sortable tables, comparisons, diagrams, what-if calculators, and simulations. Use for 可互动图表、交互图表、可视化、动态演示、流程图. Deliver inline nexa-ui or nexa-html components by default."
 ---
 
 # Visual explanations
 
-Choose the smallest surface that helps the reader. Keep the useful conclusion
-and evidence in the surrounding answer so the result also works as plain text.
+Deliver the requested visual inside the assistant reply. The final answer must
+contain a closed `nexa-ui`, `nexa-html`, or `mermaid` fence with the actual visual
+payload. A file path or a description of a chart does not deliver an inline chart.
+Choose the smallest surface below; keep its takeaway and evidence nearby.
 
 - **Mermaid:** static flows, relationships, sequences, and state machines. Use
   the existing `mermaid` fence and keep labels readable.
@@ -20,13 +22,26 @@ and evidence in the surrounding answer so the result also works as plain text.
   fence. Static HTML/CSS appears during generation; the user can enable scripts
   with Run after generation finishes. Ordinary `html` fences remain code with
   an optional Preview button.
-- **A deliverable with files/assets:** use existing file tools and `open_in_nexa`
+- **An explicitly requested file, website, or project with external assets:** use existing file tools and `open_in_nexa`
   with the exact supporting assets. This opens Browser Workspace and retains the
   established observe/act/verify workflow. Inline UI is not a hosted website.
 
-For `nexa-ui`, validate the JSON with
+For a small interactive comparison, start directly with this data-only pattern
+(replace the illustrative data and labels with the user's data):
+
+```nexa-ui
+{"version":1,"title":"Illustrative comparison","summary":"Example values, not measured results.","blocks":[{"type":"tabs","tabs":[{"label":"Chart","blocks":[{"type":"bars","unit":"units","items":[{"label":"A","value":12},{"label":"B","value":8}]}]},{"label":"Explore data","blocks":[{"type":"table","columns":["Option","Value"],"rows":[["A",12],["B",8]]}]}]}]}
+```
+
+The table already supports filtering and sorting, and the tabs are interactive.
+For sliders or a custom interactive plot, use the `nexa-html` example in
+[HTML authoring](references/html.md). These inline components run in the chat on
+desktop and phone; they do not need a saved HTML file or a local server.
+
+For larger `nexa-ui` payloads, validate the JSON with
 `node "<SKILL_DIR>/scripts/validate.mjs" <path>` when a Node 24 runtime is
-available, or pass the JSON on stdin. This is the same validator used by the
+available, or pass the JSON on stdin. A temporary validation file is optional;
+the final delivery remains an inline fence. This is the same validator used by the
 frontend. Fix its field-specific errors before delivering. Templates are in
 [examples](resources/examples.json). Put version and title before blocks so
 complete blocks can appear while the rest is streaming. Close the fence.

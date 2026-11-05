@@ -1,4 +1,16 @@
 {
+  "mobileAllowComputerControl": "允許電腦操作此手機",
+  "mobileComputerControlHint": "為這台已配對電腦開啟控制，連線期間保持手機解鎖。任務通知中的停止按鈕可結束授權；本機任務和遠端控制分別執行。",
+  "mobileSpeechSettings": "語音",
+  "mobileSpeechHint": "選擇手機的辨識服務與語言。系統辨識可能使用網路；預設語言跟隨應用程式。",
+  "mobileSpeechEngine": "辨識方式",
+  "mobileSpeechSystem": "系統服務",
+  "mobileSpeechOnDevice": "裝置本機",
+  "mobileSpeechLanguage": "語音語言",
+  "mobileSpeechTest": "測試麥克風",
+  "mobileSpeechSystemSettings": "語音輸入設定",
+  "mobileSpeechOutputSettings": "朗讀設定",
+  "speechOnDeviceUnavailable": "裝置本機語音辨識無法使用。請選擇系統服務，或在 Android 設定中安裝支援的語言。",
   "title": "手機連線",
   "subtitle": "手機配對後即可與這台電腦上的 Agent 對話、擷取 Live 輸入。優先使用可連線的區域網路，離開後切換至公網通道。",
   "companion": "隨身連線",
@@ -201,5 +213,7 @@
   "speechTimeout": "語音引擎未回應，請重試或檢查 Android 語音設定。",
   "speechLanguage": "請在 Android 文字轉語音設定中安裝此語言的語音資料。",
   "speechBusy": "語音正在使用中，請停止目前語音或關閉其他麥克風應用程式後重試。",
-  "speechFailed": "語音操作未完成，請檢查 Android 語音設定後重試。"
+  "speechFailed": "語音操作未完成，請檢查 Android 語音設定後重試。",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

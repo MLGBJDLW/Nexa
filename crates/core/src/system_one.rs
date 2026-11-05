@@ -9,6 +9,9 @@ use serde_json::{json, Value};
 
 use crate::error::CoreError;
 
+#[path = "system_one_openai.rs"]
+mod openai;
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemOneConfig {
@@ -338,7 +341,12 @@ fn endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
     {
         return Err(CoreError::InvalidInput("System One base URL must match the selected provider and region, without credentials, query or fragment.".into()));
     }
-    url.set_path(&format!("{expected_path}/systemone"));
+    let operation = if config.provider == "openai" {
+        "decisions"
+    } else {
+        "systemone"
+    };
+    url.set_path(&format!("{expected_path}/{operation}"));
     Ok(url)
 }
 
@@ -510,10 +518,17 @@ async fn send(
     request: &DecisionRequest,
 ) -> Result<DecisionResponse, CoreError> {
     crate::privacy::runtime::ensure_invocation_current()?;
+    let native_openai = url.path() == "/v1/decisions";
+    let wire = if native_openai {
+        openai::encode(request)?
+    } else {
+        serde_json::to_value(request)
+            .map_err(|_| CoreError::Internal("Could not serialize the decision request.".into()))?
+    };
     let mut response = client
         .post(url)
         .bearer_auth(api_key)
-        .json(request)
+        .json(&wire)
         .send()
         .await
         .map_err(|error| {
@@ -573,9 +588,13 @@ async fn send(
         }
         body.extend_from_slice(&chunk);
     }
-    let result: DecisionResponse = serde_json::from_slice(&body).map_err(|_| {
-        CoreError::InvalidInput("System One returned an invalid structured response.".into())
-    })?;
+    let result: DecisionResponse = if native_openai {
+        openai::decode(&body, request)?
+    } else {
+        serde_json::from_slice(&body).map_err(|_| {
+            CoreError::InvalidInput("System One returned an invalid structured response.".into())
+        })?
+    };
     result.validate(request)?;
     crate::privacy::runtime::ensure_invocation_current()?;
     Ok(result)

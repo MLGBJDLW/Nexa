@@ -24,6 +24,8 @@ class TaskService : Service() {
             manager.createNotificationChannel(NotificationChannel(STATUS_CHANNEL, context.getString(R.string.task_channel), NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false); setShowBadge(false) })
         }
         val stopRequested = AtomicBoolean(false)
+        @Volatile var remoteHost: String? = null
+        @Volatile var localTaskActive = false
         @Volatile private var activeService: TaskService? = null
         fun keepControlScreenOn() { activeService?.holdControlScreen() }
         private val approvals = mutableMapOf<String, Invoke>()
@@ -61,7 +63,7 @@ class TaskService : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            "stop" -> { stopRequested.set(true); PhonePlugin.instance?.taskStopped(); denyAll(getSystemService(NotificationManager::class.java)); stopSelf(); return START_NOT_STICKY }
+            "stop" -> { stopRequested.set(true); remoteHost = null; localTaskActive = false; PhoneAccessibilityService.instance?.cancelAllRequests(); PhonePlugin.instance?.taskStopped(); denyAll(getSystemService(NotificationManager::class.java)); stopSelf(); return START_NOT_STICKY }
             "allow", "deny" -> {
                 val id = intent.getStringExtra("approvalId") ?: return START_NOT_STICKY
                 answer(id, intent.action == "allow")
@@ -73,7 +75,7 @@ class TaskService : Service() {
         val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         getSystemService(NotificationManager::class.java).cancel(REPLY_NOTIFICATION)
         val notification = NotificationCompat.Builder(this, STATUS_CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
-            .setContentTitle(getString(R.string.task_running)).setContentText(getString(R.string.task_progress))
+            .setContentTitle(getString(R.string.task_running)).setContentText(getString(if (remoteHost != null) R.string.phone_remote_control else R.string.task_progress))
             .setSilent(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(open).setOngoing(true).addAction(0,getString(R.string.task_stop),stop).build()
         startForeground(NOTIFICATION, notification)
@@ -82,6 +84,6 @@ class TaskService : Service() {
         }
         return START_NOT_STICKY
     }
-    override fun onDestroy() { activeService = null; stopRequested.set(true); PhonePlugin.instance?.taskStopped(); controlWakeLock?.let { if (it.isHeld) it.release() }; controlWakeLock = null; wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
+    override fun onDestroy() { activeService = null; remoteHost = null; localTaskActive = false; stopRequested.set(true); PhoneAccessibilityService.instance?.cancelAllRequests(); PhonePlugin.instance?.taskStopped(); controlWakeLock?.let { if (it.isHeld) it.release() }; controlWakeLock = null; wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null; denyAll(getSystemService(NotificationManager::class.java)); super.onDestroy(); stopped() }
     override fun onBind(intent: Intent?): IBinder? = null
 }

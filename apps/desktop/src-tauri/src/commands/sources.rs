@@ -440,6 +440,49 @@ pub async fn get_database_storage_stats_cmd(
 }
 
 #[tauri::command]
+pub async fn get_storage_usage_cmd(
+    state: tauri::State<'_, AppState>,
+) -> Result<nexa_core::storage_usage::StorageUsage, String> {
+    let (mut usage, database_path, model_paths) = state
+        .db_executor
+        .read(|db| {
+            let config = db.load_app_config()?;
+            Ok((
+                db.storage_usage()?,
+                db.db_path().map(Path::to_path_buf),
+                nexa_core::local_storage::ManagedModelPaths::new(
+                    Some(&config.local_model_root),
+                    &nexa_core::embed::LocalEmbeddingModel::default(),
+                )?,
+            ))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+        .value;
+    let extension_root = state.user_extensions.root().to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let mut roots = vec![
+            (extension_root, "extensions"),
+            (PathBuf::from(model_paths.root), "models"),
+            (PathBuf::from(model_paths.embedding), "models"),
+            (PathBuf::from(model_paths.ocr), "models"),
+            (PathBuf::from(model_paths.whisper), "models"),
+        ];
+        if let Some(root) = database_path.as_ref().and_then(|path| path.parent()) {
+            roots.push((root.to_path_buf(), "files"));
+            for folder in ["cache", "logs", "browser-profiles", "runtime"] {
+                roots.push((root.join(folder), "runtime"));
+            }
+            roots.push((root.join("models"), "models"));
+        }
+        nexa_core::storage_usage::add_files(&mut usage, &roots, database_path.as_deref());
+        usage
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn rebuild_index(
     state: tauri::State<'_, AppState>,
     app_handle: AppHandle,

@@ -19,6 +19,8 @@ const PROVIDER_ID: &str = "minimax";
 const OFFICIAL_BASE_URL: &str = "https://api.minimax.io";
 const MODEL_ID: &str = "MiniMax-H3";
 const MAX_MODEL_ID: &str = "MiniMax-H3-Max";
+const HIGHSPEED_MODEL_ID: &str = "MiniMax-H3-Highspeed";
+const LITE_MODEL_ID: &str = "MiniMax-H3-Lite";
 
 #[derive(Clone)]
 pub struct MiniMaxVideoAdapter {
@@ -122,7 +124,7 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
     }
 
     fn validate(&self, request: &NormalizedVideoRequest) -> ValidationResult {
-        let mut issues = common_validation(request);
+        let mut issues = common_validation(request, true);
         if request.prompt.chars().count() > 7000 {
             issues.push(issue(
                 "prompt",
@@ -130,12 +132,16 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
                 "MiniMax H3 prompts are limited to 7000 characters",
             ));
         }
-        let max_model = request.model_id == MAX_MODEL_ID;
-        if !matches!(request.model_id.as_str(), MODEL_ID | MAX_MODEL_ID) {
+        let model = request.model_id.as_str();
+        let max_model = model == MAX_MODEL_ID;
+        if !matches!(
+            model,
+            MODEL_ID | MAX_MODEL_ID | HIGHSPEED_MODEL_ID | LITE_MODEL_ID
+        ) {
             issues.push(issue(
                 "modelId",
                 "unsupported_model",
-                "MiniMax V2 supports MiniMax-H3 and MiniMax-H3-Max",
+                "MiniMax V2 supports MiniMax-H3, MiniMax-H3-Max, MiniMax-H3-Highspeed, and MiniMax-H3-Lite",
             ));
         }
         if !(if max_model { 5 } else { 4 }..=15).contains(&request.duration_seconds) {
@@ -149,7 +155,8 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
                 },
             ));
         }
-        if !(if max_model {
+        let supports_480p = matches!(model, MAX_MODEL_ID | HIGHSPEED_MODEL_ID | LITE_MODEL_ID);
+        if !(if supports_480p {
             matches!(request.resolution.as_str(), "480P" | "768P")
         } else {
             matches!(request.resolution.as_str(), "768P" | "2K")
@@ -157,8 +164,8 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
             issues.push(issue(
                 "resolution",
                 "unsupported_resolution",
-                if max_model {
-                    "MiniMax H3 Max resolution must be 480P or 768P"
+                if supports_480p {
+                    "The selected MiniMax H3 model requires 480P or 768P"
                 } else {
                     "MiniMax H3 resolution must be 768P or 2K"
                 },
@@ -204,6 +211,13 @@ impl VideoGenerationAdapter for MiniMaxVideoAdapter {
         let reference_audio = count_role(request, VideoInputRole::ReferenceAudio);
         let keyframe_mode = first_frames + last_frames > 0;
         let reference_mode = reference_images + reference_videos + reference_audio > 0;
+        if model == LITE_MODEL_ID && reference_mode && request.aspect_ratio == "adaptive" {
+            issues.push(issue(
+                "aspectRatio",
+                "concrete_ratio_required",
+                "MiniMax H3 Lite reference-to-video requires a concrete aspect ratio",
+            ));
+        }
         if first_frames > 1
             || last_frames > 1
             || reference_images > 9
@@ -984,6 +998,47 @@ mod tests {
         input.duration_seconds = 5;
         input.resolution = "2K".into();
         assert!(!adapter.validate(&input).valid);
+    }
+
+    #[tokio::test]
+    async fn h3_highspeed_and_lite_use_v2_with_variant_limits_and_pricing() {
+        for (model, per_second) in [(HIGHSPEED_MODEL_ID, 60_000), (LITE_MODEL_ID, 40_000)] {
+            let (base_url, captured) = serve_once(r#"{"task_id":"h3-123"}"#).await;
+            let adapter = MiniMaxVideoAdapter::for_test(&base_url);
+            let mut input = request();
+            input.model_id = model.into();
+            input.duration_seconds = 4;
+            input.resolution = "768P".into();
+            input.operation = MediaOperation::VideoToVideo;
+            input.input_assets.push(VideoInputAsset {
+                role: VideoInputRole::ReferenceVideo,
+                uri: "https://cdn.example.com/reference.mp4".into(),
+                media_type: "video/mp4".into(),
+                metadata_verified: true,
+                byte_length: Some(1024),
+                width: Some(1280),
+                height: Some(768),
+                duration_ms: Some(2_000),
+                frame_rate: Some(24.0),
+                video_codec: Some("h264".into()),
+            });
+            input.aspect_ratio = "adaptive".into();
+            assert_eq!(adapter.validate(&input).valid, model == HIGHSPEED_MODEL_ID);
+            input.aspect_ratio = "16:9".into();
+
+            let submitted = adapter.submit(&input).await.unwrap();
+            assert_eq!(submitted.estimated_cost.amount_micros, Some(6 * per_second));
+            let raw = captured.lock().unwrap().clone();
+            assert!(raw.starts_with("POST /v2/video_generation HTTP/1.1"));
+            let body: Value = serde_json::from_str(raw.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+            assert_eq!(body["model"], model);
+            assert_eq!(body["duration"], 4);
+            assert_eq!(body["resolution"], "768P");
+            assert_eq!(body["content"][1]["role"], "reference_video");
+
+            input.resolution = "2K".into();
+            assert!(!adapter.validate(&input).valid);
+        }
     }
 
     #[tokio::test]

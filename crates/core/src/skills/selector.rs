@@ -471,7 +471,24 @@ pub fn select_skills_from_pool(skills: Vec<Skill>, query: &str, max_skills: usiz
         .into_iter()
         .map(|skill| {
             let explicit = is_skill_explicitly_requested(&skill, query)
-                || has_explicit_office_artifact_signal(&skill, query);
+                || has_explicit_office_artifact_signal(&skill, query)
+                || (skill.id == "builtin-visual-explanations"
+                    && [
+                        "interactive chart",
+                        "interactive visualization",
+                        "interactive table",
+                        "what-if",
+                        "data visualization",
+                        "in-chat",
+                        "可互动",
+                        "交互图",
+                        "交互表",
+                        "可视化",
+                        "动态图",
+                        "动态演示",
+                    ]
+                    .iter()
+                    .any(|term| query_normalized.contains(term)));
             let score = if explicit {
                 f32::MAX
             } else if query_tokens.len() >= 2 {

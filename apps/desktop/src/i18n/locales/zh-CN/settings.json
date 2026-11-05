@@ -1,4 +1,20 @@
 {
+  "storageChats": "聊天与任务记录",
+  "storageKnowledge": "知识库与索引",
+  "storageModels": "本地模型",
+  "storageFiles": "生成与托管文件",
+  "storageRuntime": "运行时与缓存",
+  "storageExtensions": "技能与扩展",
+  "storageDatabaseOther": "设置及其他数据库数据",
+  "storageUsageHint": "此 Nexa 安装使用的储存空间，不包含外部项目文件。",
+  "storageDistribution": "储存占用分类",
+  "storagePartial": "本次扫描不完整，大文件夹、链接或无法读取的文件可能未计入；可刷新重新统计。",
+  "storageActiveChats": "活跃聊天",
+  "storageManageChats": "管理对话",
+  "storageChatScope": "对话范围",
+  "storageAllChats": "全部对话",
+  "storageArchiveHint": "归档会隐藏对话并保留数据；删除会移除选中的对话及消息。请先停止正在运行的任务。",
+  "storageNextPage": "下一页",
   "copilotApiAccountToken": "GitHub 账户令牌",
   "providerGithubCopilotApi": "GitHub Copilot API",
   "copilotApiImportAccount": "使用 GitHub CLI 账户",
@@ -1168,5 +1184,7 @@
   "executionLimitsCustom": "已设自定义限制",
   "glmCodingPlanKey": "GLM Coding Plan API Key",
   "glmCodingPlanHelp": "此适配器使用编程套餐的 API Key，ZCode 账号登录属于另一条通道。留空可使用 Z_AI_API_KEY 或 glm-acp-agent --setup 保存的凭据。连接检查用于发现模型，不代表已验证套餐权益。",
-  "externalAgentAutomaticDirectory": "使用自动工作区"
+  "externalAgentAutomaticDirectory": "使用自动工作区",
+  "contextModeSeamless": "连续上下文（实验性）",
+  "contextSeamlessHelp": "保留近期进展及可检索的完整历史，无需等待摘要模型。常规整理不打断界面，操作、审批和错误仍正常显示。"
 }

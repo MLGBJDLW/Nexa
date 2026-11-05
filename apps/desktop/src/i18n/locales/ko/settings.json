@@ -1,4 +1,20 @@
 {
+  "storageChats": "채팅 및 작업 기록",
+  "storageKnowledge": "지식 및 색인",
+  "storageModels": "로컬 모델",
+  "storageFiles": "생성 및 관리 파일",
+  "storageRuntime": "런타임 및 캐시",
+  "storageExtensions": "스킬 및 확장",
+  "storageDatabaseOther": "설정 및 기타 데이터베이스",
+  "storageUsageHint": "현재 Nexa가 사용하는 저장 공간입니다. 외부 프로젝트 파일은 포함되지 않습니다.",
+  "storageDistribution": "저장 공간 분류",
+  "storagePartial": "일부만 집계되었습니다. 큰 폴더, 링크 또는 읽을 수 없는 파일은 제외될 수 있습니다. 새로고침하여 다시 확인하세요.",
+  "storageActiveChats": "활성 채팅",
+  "storageManageChats": "대화 관리",
+  "storageChatScope": "대화 범위",
+  "storageAllChats": "모든 대화",
+  "storageArchiveHint": "보관하면 대화를 숨기고 데이터를 유지합니다. 삭제하면 선택한 대화와 메시지가 제거됩니다. 실행 중인 작업을 먼저 중지하세요.",
+  "storageNextPage": "다음 페이지",
   "copilotApiAccountToken": "GitHub 계정 토큰",
   "providerGithubCopilotApi": "GitHub Copilot API",
   "copilotApiImportAccount": "GitHub CLI 계정 사용",
@@ -1168,5 +1184,7 @@
   "executionLimitsCustom": "사용자 지정 제한",
   "glmCodingPlanKey": "GLM Coding Plan API 키",
   "glmCodingPlanHelp": "이 어댑터는 Coding Plan API 키를 사용하며 ZCode 계정 로그인과는 별개입니다. 비워 두면 Z_AI_API_KEY 또는 glm-acp-agent --setup으로 저장한 자격 증명을 사용합니다. 연결 확인은 모델을 검색하며 요금제 권한을 검증하지 않습니다.",
-  "externalAgentAutomaticDirectory": "자동 작업 공간 사용"
+  "externalAgentAutomaticDirectory": "자동 작업 공간 사용",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

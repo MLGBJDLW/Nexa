@@ -1,4 +1,5 @@
 <resources>
+    <string name="phone_remote_control">已连接的电脑可以操作此手机。点击停止以结束授权。</string>
     <string name="app_name">Nexa Mobile</string>
     <string name="main_activity_title">Nexa Mobile</string>
     <string name="accessibility_description">手机控制为可选功能。Nexa 读取可见控件、忽略密码字段，并在操作前请求批准。可随时通过通知停止任务。</string>

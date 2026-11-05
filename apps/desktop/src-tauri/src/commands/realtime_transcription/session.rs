@@ -57,6 +57,11 @@ pub(super) async fn connect(
         gemini_endpoint(config)?
     } else if dialect == RealtimeDialect::DashScopeTask {
         nexa_core::dashscope_speech::task_endpoint(config.base_url.as_deref().unwrap_or_default())?
+    } else if dialect == RealtimeDialect::Mistral {
+        build_mistral_realtime_endpoint(
+            config.base_url.as_deref().unwrap_or_default(),
+            &config.model,
+        )?
     } else {
         build_realtime_endpoint(
             config.base_url.as_deref().unwrap_or_default(),
@@ -92,6 +97,11 @@ pub(super) async fn connect(
             format!("Unable to connect to realtime transcription: {error}"),
         )
     })?;
+    if dialect == RealtimeDialect::Mistral {
+        wait_for_session_ready(&mut socket, dialect, task_id, true)
+            .await
+            .map_err(|error| provider_diagnostic(config, error))?;
+    }
     // gpt-live-transcribe requires client commits; server/semantic VAD is not
     // supported even when this session belongs to a Live meeting.
     socket
@@ -102,7 +112,7 @@ pub(super) async fn connect(
         ))
         .await
         .map_err(|error| format!("Unable to configure realtime transcription: {error}"))?;
-    wait_for_session_ready(&mut socket, dialect, task_id)
+    wait_for_session_ready(&mut socket, dialect, task_id, false)
         .await
         .map_err(|error| provider_diagnostic(config, error))?;
     Ok(socket)
@@ -438,7 +448,7 @@ async fn run_with_audio(
                             ParsedRealtimeServerEvent::Final { utterance_id, text } => {
                                 if utterance_id.as_ref().is_some_and(|id| acknowledged_items.contains(id)) { continue; }
                                 transcript.update(utterance_id.as_deref(), &text, false, true);
-                                if matches!(dialect, RealtimeDialect::OpenAi | RealtimeDialect::Gemini) {
+                                if matches!(dialect, RealtimeDialect::OpenAi | RealtimeDialect::Gemini | RealtimeDialect::Mistral) {
                                     checkpoint = pending_commit.is_some() && expected_item.as_deref().is_none_or(|id| id.is_empty() || Some(id) == utterance_id.as_deref());
                                     if checkpoint { if let Some(id) = utterance_id { acknowledged_items.insert(id); } }
                                 } else if pending_commit.is_none() && audio.sent - audio.confirmed >= JOURNAL_CHECKPOINT_BYTES {

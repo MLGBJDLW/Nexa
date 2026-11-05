@@ -274,6 +274,18 @@ impl MediaGenerationRuntime {
         }
     }
 
+    pub(crate) fn resolve_local_asset_path(
+        &self,
+        asset: &MediaAssetRecord,
+    ) -> Result<std::path::PathBuf, CoreError> {
+        self.asset_store
+            .as_ref()
+            .ok_or_else(|| {
+                CoreError::Internal("Media generation asset store is not configured".into())
+            })?
+            .resolve_storage_key(&asset.storage_key)
+    }
+
     pub async fn delete_asset(
         &self,
         request: RequestMediaAssetDeletion,

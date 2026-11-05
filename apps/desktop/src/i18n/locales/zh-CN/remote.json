@@ -1,4 +1,16 @@
 {
+  "mobileAllowComputerControl": "允许电脑操作此手机",
+  "mobileComputerControlHint": "为这台已配对电脑开启控制，连接期间保持手机解锁。任务通知中的停止按钮可结束授权；本机任务和远程控制分别运行。",
+  "mobileSpeechSettings": "语音",
+  "mobileSpeechHint": "选择手机的识别服务与语言。系统识别可能使用网络；默认语言跟随应用。",
+  "mobileSpeechEngine": "识别方式",
+  "mobileSpeechSystem": "系统服务",
+  "mobileSpeechOnDevice": "设备本地",
+  "mobileSpeechLanguage": "语音语言",
+  "mobileSpeechTest": "测试麦克风",
+  "mobileSpeechSystemSettings": "语音输入设置",
+  "mobileSpeechOutputSettings": "朗读设置",
+  "speechOnDeviceUnavailable": "设备本地语音识别不可用。请选择系统服务，或在 Android 设置中安装支持的语言。",
   "title": "手机连接",
   "subtitle": "手机配对后即可与这台电脑上的 Agent 对话、采集 Live 输入。优先使用可达的局域网连接，离开局域网时切换到公网通道。",
   "companion": "随身连接",
@@ -201,5 +213,7 @@
   "speechTimeout": "语音引擎未响应，请重试或检查 Android 语音设置。",
   "speechLanguage": "请在 Android 文字转语音设置中安装该语言的语音数据。",
   "speechBusy": "语音正在使用中，请停止当前语音或关闭其他麦克风应用后重试。",
-  "speechFailed": "语音操作未完成，请检查 Android 语音设置后重试。"
+  "speechFailed": "语音操作未完成，请检查 Android 语音设置后重试。",
+  "archiveChatHint": "将此对话移出活跃列表，保留其中的消息。",
+  "deleteChatHint": "永久删除此对话及其中的消息，此操作无法撤销。"
 }

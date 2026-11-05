@@ -72,6 +72,7 @@
     "description": "Expressive speech with Eleven v4 through Text to Dialogue, and Flash v2.5 for low latency. Nexa returns completed MP3 audio.",
     "models": [
       {"id": "eleven_flash_v2_5", "name": "Eleven Flash v2.5 (Fast)", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-10-08", "maxInputCharacters": 40000},
+      {"id":"eleven_flash_v2","name":"Eleven Flash v2 (English)","source":"official","status":"active","productReadiness":"known","recommended":false,"lastVerifiedAt":"2026-11-05","maxInputCharacters":40000,"documentationRef":"https://elevenlabs.io/docs/overview/capabilities/text-to-speech"},
       {"id": "eleven_v4", "name": "Eleven v4", "maxInputCharacters": 10000, "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known"},
       {"id": "eleven_v3", "name": "Eleven v3", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 5000},
       {"id": "eleven_multilingual_v2", "name": "Eleven Multilingual v2", "lastVerifiedAt": "2026-10-08", "source": "official", "productReadiness": "known", "maxInputCharacters": 10000},
@@ -294,6 +295,87 @@
     ],
     "requiresApiKey": true,
     "lastVerifiedAt": "2026-10-15"
+  },
+  {
+    "id": "mistral-realtime",
+    "name": "Mistral Voxtral Realtime",
+    "provider": "mistral",
+    "apiStyle": "mistral_realtime_speech",
+    "requiresApiKey": true,
+    "baseUrl": "https://api.mistral.ai/v1",
+    "description": "Voxtral 3 speech through its realtime WebSocket. Audio chunks are assembled into the generated audio file.",
+    "models": [
+      {
+        "id": "voxtral-mini-tts-3-0",
+        "access": "public",
+        "name": "Voxtral Mini TTS 3",
+        "recommended": true,
+        "source": "official",
+        "productReadiness": "known",
+        "status": "preview",
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.mistral.ai/studio/audio/text-to-speech/speak-in-realtime"
+      }
+    ],
+    "voices": [
+      {
+        "id": "voice_478",
+        "name": "Sheila",
+        "languages": [
+          "en-US"
+        ],
+        "recommended": true
+      },
+      {
+        "id": "voice_447",
+        "name": "Margaret",
+        "languages": [
+          "en-US"
+        ]
+      },
+      {
+        "id": "voice_485",
+        "name": "Rob",
+        "languages": [
+          "en-US"
+        ]
+      },
+      {
+        "id": "voice_592",
+        "name": "Marie",
+        "languages": [
+          "fr"
+        ]
+      },
+      {
+        "id": "voice_3142",
+        "name": "Mei",
+        "languages": [
+          "zh"
+        ]
+      },
+      {
+        "id": "gb_jane_neutral",
+        "name": "Jane",
+        "languages": [
+          "en-GB"
+        ]
+      }
+    ],
+    "speedRange": [
+      1,
+      1
+    ],
+    "outputFormats": [
+      "mp3",
+      "wav",
+      "flac",
+      "opus"
+    ],
+    "lastVerifiedAt": "2026-11-05",
+    "documentationUrls": [
+      "https://docs.mistral.ai/studio/audio/text-to-speech/speak-in-realtime"
+    ]
   },
   {
     "id": "mistral",

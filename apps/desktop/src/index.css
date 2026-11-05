@@ -1954,3 +1954,7 @@ html[data-theme-backdrop='true'] [data-theme-component='card'] {
 .browser-action-chip:disabled {
   opacity: 0.4;
 }
+
+.composer-submit-icon { display: inline-flex; animation: composer-action-in 160ms ease-out; }
+@keyframes composer-action-in { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .composer-submit { transition: none; } .composer-submit-icon { animation: none; } }

@@ -1,4 +1,16 @@
 {
+  "mobileAllowComputerControl": "Allow computer to control this phone",
+  "mobileComputerControlHint": "Enable for this paired computer while connected. Keep the phone unlocked; Stop in the task notification ends access. Local phone tasks and remote control run separately.",
+  "mobileSpeechSettings": "Voice",
+  "mobileSpeechHint": "Choose the phone's recognition service and language. System recognition may use the network. Default language follows the app.",
+  "mobileSpeechEngine": "Recognition",
+  "mobileSpeechSystem": "System service",
+  "mobileSpeechOnDevice": "On device",
+  "mobileSpeechLanguage": "Voice language",
+  "mobileSpeechTest": "Test microphone",
+  "mobileSpeechSystemSettings": "Voice input settings",
+  "mobileSpeechOutputSettings": "Speech output settings",
+  "speechOnDeviceUnavailable": "On-device recognition is unavailable. Choose System service or install a supported language in Android settings.",
   "title": "Phone access",
   "subtitle": "Pair your phone once to chat with the agent on this computer and capture Live input. Reachable LAN connections are preferred; public access keeps you connected away from home.",
   "companion": "Remote companion",
@@ -201,5 +213,7 @@
   "speechTimeout": "The speech engine stopped responding. Try again or check Android voice settings.",
   "speechLanguage": "Install voice data for this language in Android text-to-speech settings.",
   "speechBusy": "Speech is already active. Stop it or close other microphone apps and try again.",
-  "speechFailed": "Speech could not complete. Check Android voice settings and try again."
+  "speechFailed": "Speech could not complete. Check Android voice settings and try again.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

@@ -1,7 +1,7 @@
 import { ImageEditProvider } from '../components/chat/ImageEditContext';
 import { useConversationSchedules } from "../lib/useConversationSchedules";
 import { isTextToSpeechConfigured } from '../lib/autoSpeech';
-import { latestFollowupSuggestions } from '../lib/followupSuggestions';
+import { defaultFollowupSuggestions, latestFollowupSuggestions } from '../lib/followupSuggestions';
 import type { ArtifactPayload } from '../types/conversation';
 import { useCallback, useState, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -37,7 +37,7 @@ import { useResizablePanel } from '../lib/useResizablePanel';
 import { undoableAction } from '../lib/undoToast';
 import * as api from '../lib/api';
 import { findProviderPreset } from '../lib/providerPresets';
-import type { AgentConfig, AppConfig, Conversation, ImageAttachment, SaveAgentConfigInput } from '../types/conversation';
+import type { AgentConfig, AppConfig, Conversation, ImageAttachment } from '../types/conversation';
 import { formatUserError } from '../lib/userError';
 import { useSpeechPlayback } from '../features/voice/SpeechPlaybackProvider';
 import { isGoalMessage, isSteeringMessage } from '../lib/chatMessageGuards';
@@ -273,43 +273,6 @@ function buildBrowserArtifactPrompt(artifact: BrowserAgentArtifact): string {
   ].join('\n');
 }
 
-
-function agentConfigToSaveInput(
-  config: AgentConfig,
-  patch: Pick<AgentModelSelection, 'model' | 'reasoningEnabled' | 'thinkingBudget' | 'reasoningEffort'>,
-): SaveAgentConfigInput {
-  return {
-    id: config.id,
-    name: config.name,
-    provider: config.provider,
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl,
-    model: patch.model,
-    providerEndpointId: config.providerEndpointId ?? null,
-    modelId: patch.model,
-    temperature: config.temperature,
-    maxTokens: config.maxTokens,
-    contextWindow: config.contextWindow,
-    isDefault: true,
-    reasoningEnabled: patch.reasoningEnabled,
-    thinkingBudget: patch.thinkingBudget,
-    reasoningEffort: patch.reasoningEffort,
-    maxIterations: config.maxIterations,
-    summarizationModel: config.summarizationModel,
-    summarizationProvider: config.summarizationProvider,
-    imageGenerationModel: config.imageGenerationModel,
-    subagentAllowedTools: config.subagentAllowedTools,
-    subagentAllowedSkillIds: config.subagentAllowedSkillIds,
-    subagentMaxParallel: config.subagentMaxParallel,
-    subagentMaxCallsPerTurn: config.subagentMaxCallsPerTurn,
-    subagentTokenBudget: config.subagentTokenBudget,
-    delegationLimitsV2: config.delegationLimitsV2 ?? null,
-    providerStreaming: config.providerStreaming ?? {},
-    dynamicToolVisibility: config.dynamicToolVisibility,
-    traceEnabled: config.traceEnabled,
-    requireToolConfirmation: config.requireToolConfirmation,
-  };
-}
 
 const CHAT_SIDEBAR_WIDTH_KEY = 'chat-sidebar-width';
 const CHAT_SIDEBAR_COLLAPSED_KEY = 'chat-sidebar-collapsed';
@@ -1028,8 +991,7 @@ export function ChatPage() {
     const stop = api.onAgentConfigsChanged(() => void refresh());
     return () => { active = false; stop(); };
   }, []);
-  const selectedAgentConfig =
-    agentConfigs.find((config) => config.id === chat.agentConfig?.id) ?? chat.agentConfig;
+  const selectedAgentConfig = chat.agentConfig;
   const manualCompactionAvailable = !selectedAgentConfig || !findProviderPreset(selectedAgentConfig)?.runtime;
   const selectedPersona = personas.find((persona) => persona.id === activePersonaId);
   const selectedPersonaLabel = selectedPersona?.name || activePersonaId;
@@ -1037,23 +999,17 @@ export function ChatPage() {
   const modelSelectionQueue = useRef<Promise<void>>(Promise.resolve());
   const handleAgentModelSelection = useCallback(
     (selection: AgentModelSelection) => {
-      // List, slider, and reopened menus all share the same persistence order.
-      // Always write the requested values: queued selections can carry an older
-      // config snapshot, even when that snapshot appears unchanged.
       const apply = async () => {
-        let persisted = false;
         try {
-          const nextConfig = await api.saveAgentConfig(agentConfigToSaveInput(selection.config, selection));
-          persisted = true;
-          setAgentConfigs(current => current.map(candidate => candidate.id === nextConfig.id ? nextConfig : candidate));
+          const nextConfig = { ...selection.config, model: selection.model, modelId: selection.model,
+            reasoningEnabled: selection.reasoningEnabled, reasoningEffort: selection.reasoningEffort,
+            thinkingBudget: selection.thinkingBudget };
           await chat.switchAgentConfig(nextConfig);
-          setAgentConfigs(current => current.map(candidate => ({ ...candidate, isDefault: candidate.id === nextConfig.id })));
+          setAgentConfigs(current => current.map(config => config.id === nextConfig.id ? nextConfig : config));
           return true;
         } catch (error) {
           toast.error(formatUserError(t('settings.defaultModel'), error));
-          // A later default/conversation update cannot undo an already saved
-          // config. Keep that authoritative value visible instead of a false rollback.
-          return persisted;
+          return false;
         }
       };
       const result = modelSelectionQueue.current.then(apply);
@@ -1062,9 +1018,9 @@ export function ChatPage() {
     },
     [chat, t],
   );
-  const sessionControls = (chat.agentConfig && agentConfigs.length > 0) || personas.length > 0 ? (
+  const sessionControls = agentConfigs.length > 0 || personas.length > 0 ? (
     <div className="flex min-w-0 flex-wrap items-center gap-1">
-      {chat.agentConfig && agentConfigs.length > 0 && selectedAgentConfig && (
+      {agentConfigs.length > 0 && (
         <AgentModelPicker
           conversationId={chat.activeId}
           projectId={chat.activeConversation?.projectId ?? initialProjectId}
@@ -1480,8 +1436,9 @@ export function ChatPage() {
     });
   }, [chat.conversations, chat.runningConversationIds, chat.setConversations, chat.activeId, navigate, t]);
 
-  const followupSuggestions = useMemo(() => chat.isStreaming || chat.loadingMsgs
-    ? null : latestFollowupSuggestions(chat.messages), [chat.isStreaming, chat.loadingMsgs, chat.messages]);
+  const followupSuggestions = useMemo(() => chat.isStreaming || chat.loadingMsgs || chat.error
+    || (chat.taskRun && chat.taskRun.status !== 'completed')
+    ? null : latestFollowupSuggestions(chat.messages, defaultFollowupSuggestions(t)), [chat.isStreaming, chat.loadingMsgs, chat.messages, chat.error, chat.taskRun, t]);
 
   /* ── Suggestion prefill ─────────────────────────────────────────── */
 
@@ -1745,7 +1702,7 @@ export function ChatPage() {
   ]);
 
   /* ── No provider configured ─────────────────────────────────────── */
-  if (!chat.loadingConfig && !chat.agentConfig) {
+  if (!chat.loadingConfig && !chat.agentConfig && agentConfigs.length === 0) {
     return (
       <div
         className="flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto"

@@ -1,4 +1,8 @@
 {
+  "followupExplainLabel": "Explain further",
+  "followupExplainPrompt": "Explain the result in more detail, with a concrete example.",
+  "followupNextLabel": "Next steps",
+  "followupNextPrompt": "Suggest the most useful next steps based on this result.",
   "reasoningProviderManaged": "Provider managed",
   "reasoningProviderManagedHint": "The provider has not advertised selectable reasoning levels for this model. Refresh the model list to check for updates.",
   "followupSuggestions": "Suggested next tasks",

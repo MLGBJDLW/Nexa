@@ -25,6 +25,7 @@ export interface AgentChatRequestInput {
   message: string;
   attachments?: ImageAttachment[];
   agentConfigId?: string | null;
+  modelSelection?: import('../features/models/modelChoices').TurnModelSelection | null;
   personaId?: string | null;
   skillIds?: string[];
   executionMode?: AgentExecutionMode | null;
@@ -47,6 +48,7 @@ export interface AgentChatRequest {
   message: string;
   attachments: ImageAttachment[];
   agentConfigId: string | null;
+  modelSelection?: import('../features/models/modelChoices').TurnModelSelection | null;
   personaId: string | null;
   skillIds: string[];
   executionMode: AgentExecutionMode;
@@ -94,6 +96,7 @@ export function buildAgentChatRequest(
     message: input.message,
     attachments: input.attachments ?? [],
     agentConfigId: input.agentConfigId ?? null,
+    ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
     personaId: input.personaId ?? null,
     skillIds: input.skillIds ?? [],
     executionMode: input.executionMode ?? 'normal',

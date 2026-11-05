@@ -5,7 +5,7 @@ use crate::context_history::{ContextHistoryArchive, ContextManagementMode, Histo
 
 impl AgentExecutor {
     pub(super) fn history_handoff_enabled(&self, conversation_id: Option<&str>) -> bool {
-        self.config.context_management_mode == ContextManagementMode::History
+        self.config.context_management_mode.uses_history()
             && conversation_id.is_some()
             && self
                 .tools
@@ -43,8 +43,13 @@ impl AgentExecutor {
             .get_agent_scratchpad(conversation_id)?
             .map(|notes| notes.content)
             .unwrap_or_default();
-        let archive =
+        let mut archive =
             ContextHistoryArchive::prepare(conversation_id, run.turn_id, messages, &notes)?;
+        if self.config.context_management_mode == ContextManagementMode::Seamless {
+            archive = archive.with_continuity(
+                (self.config.context_window.unwrap_or(8192) as usize / 4).clamp(512, 6000),
+            );
+        }
         let next = plan.replacement(
             messages,
             Message::text(Role::System, archive.checkpoint_text()),
@@ -249,6 +254,80 @@ mod tests {
             messages.extend([assistant, tool]);
         }
         messages
+    }
+
+    #[tokio::test]
+    async fn seamless_checkpoint_keeps_recent_progress_and_restores_the_same_durable_window() {
+        let (mut executor, db, id) = setup();
+        executor.config.context_management_mode = ContextManagementMode::Seamless;
+        let mut messages = history();
+        messages.push(Message::text(
+            Role::User,
+            "Keep the corrected total: 123.45; do not send twice.",
+        ));
+        for (index, message) in messages.iter().enumerate() {
+            db.add_message(&crate::conversation::ConversationMessage {
+                id: format!("continuous-{index}"),
+                conversation_id: id.clone(),
+                role: message.role.clone(),
+                content: message.text_content(),
+                tool_call_id: message.name.clone(),
+                tool_calls: message.tool_calls.clone().unwrap_or_default(),
+                artifacts: (index == messages.len() - 1)
+                    .then(|| serde_json::json!({"kind":"steering"})),
+                token_count: 1,
+                created_at: String::new(),
+                sort_order: index as i64,
+                thinking: None,
+                image_attachments: None,
+            })
+            .unwrap();
+        }
+        let request = messages[1].clone();
+        let (tx, mut rx) = mpsc::channel(8);
+        let usage = executor
+            .aggressive_compact(
+                &mut messages,
+                "gpt-4o",
+                &tx,
+                context_compaction::CompactionRunContext {
+                    db: &db,
+                    conversation_id: Some(&id),
+                    turn_id: None,
+                    active_request: Some(&request),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            usage.total_tokens, 0,
+            "the no-model provider panics if called"
+        );
+        assert!(
+            rx.try_recv().is_err(),
+            "routine checkpoint must not publish compression chatter"
+        );
+        let checkpoint = messages
+            .iter()
+            .find(|m| m.text_content().contains("Recent progress:"))
+            .unwrap()
+            .text_content();
+        assert!(checkpoint.contains("Exact historical evidence"));
+        assert!(messages
+            .iter()
+            .any(|m| m.role == Role::User && m.text_content().contains("123.45")));
+        let reopened = crate::context_maintenance::load_context_projection(&db, &id).unwrap();
+        assert!(reopened.projected);
+        assert!(reopened.messages.iter().any(|m| m.content == checkpoint));
+        assert!(reopened
+            .messages
+            .iter()
+            .any(|m| m.role == Role::User && m.content.contains("123.45")));
+        assert!(reopened
+            .messages
+            .iter()
+            .all(|m| !matches!(m.role, Role::Tool | Role::Assistant)));
     }
 
     #[test]

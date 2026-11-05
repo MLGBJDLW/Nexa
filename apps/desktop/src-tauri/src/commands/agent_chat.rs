@@ -201,6 +201,22 @@ fn capability_registry_may_select_text_route(agent_config_override_is_authoritat
     !agent_config_override_is_authoritative
 }
 
+fn remember_interactive_launch_model(
+    db: &nexa_core::db::Database,
+    conversation_id: &str,
+    config: &DbAgentConfig,
+    workflow_run_id: Option<&str>,
+    resumes_existing_run: bool,
+) -> Result<(), String> {
+    // Background and continued runs own their immutable run policy. Delivery
+    // into a chat must not change that chat's next interactive model choice.
+    if workflow_run_id.is_none() && !resumes_existing_run {
+        db.persist_conversation_model(conversation_id, config)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 struct InteractionSubmissionArtifact {
     interaction_id: String,
     answers: InteractionAnswers,
@@ -521,14 +537,10 @@ pub(super) async fn launch_desktop_agent_chat_turn(
     } else {
         select_agent_config_for_conversation(&state.db, &conv, agent_config_id.as_deref())?
     };
-    if conv.provider != db_config.provider || conv.model != db_config.model {
-        state
-            .db
-            .update_conversation_model(&conversation_id, &db_config.provider, &db_config.model)
-            .map_err(|e| e.to_string())?;
-        conv.provider = db_config.provider.clone();
-        conv.model = db_config.model.clone();
-    }
+    conv.provider = db_config.provider.clone();
+    conv.model = db_config.model.clone();
+    conv.agent_config_id = Some(db_config.id.clone());
+    conv.model_selection = Some((&db_config).into());
     let vision_attachment_hashes = attachments
         .as_deref()
         .unwrap_or_default()
@@ -636,6 +648,13 @@ pub(super) async fn launch_desktop_agent_chat_turn(
         None
     };
     let resumes_existing_run = resumed_run_id.is_some();
+    remember_interactive_launch_model(
+        &state.db,
+        &conversation_id,
+        &db_config,
+        task_orchestrator_run_id.as_deref(),
+        resumes_existing_run,
+    )?;
     let run_lifecycle_guard = if let Some(resumed_run_id) = resumed_run_id.as_deref() {
         Some(
             agent_state
@@ -972,6 +991,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
     let cancel_token_clone = cancel_token.clone();
     let (steering_tx, steering_rx) = tokio::sync::mpsc::unbounded_channel::<AgentSteeringMessage>();
     let db = state.db.clone();
+    let media_generation = state.media_generation.clone();
     let db_executor = state.db_executor.clone();
     let subagent_lifecycle = state.subagent_lifecycle.clone();
     let background_work = state.background_work.clone();
@@ -1350,6 +1370,8 @@ pub(super) async fn launch_desktop_agent_chat_turn(
 
             let session_dependencies =
                 build_desktop_agent_session_dependencies(DesktopAgentSessionDependencyRequest {
+                    phone_host: Arc::new(crate::phone_control::PairedPhoneHost(handle.clone())),
+                    media_generation,
                     workspace: workspace.clone(),
                     preview_host: Arc::new(crate::preview_tool::NativeNexaPreviewHost::new(handle.clone())),
                     agent_runtime: runtime_kind,
@@ -1825,6 +1847,56 @@ mod initialization_error_tests {
     fn authoritative_scheduled_config_cannot_be_replaced_by_registry_resolution() {
         assert!(!capability_registry_may_select_text_route(true));
         assert!(capability_registry_may_select_text_route(false));
+    }
+
+    #[test]
+    fn scheduled_and_continued_runs_leave_the_interactive_chat_model_unchanged() {
+        let db = Database::open_memory().unwrap();
+        let config = |id: &str, model: &str| {
+            db.save_agent_config(
+                &serde_json::from_value(serde_json::json!({
+                    "id":id,"name":id,"provider":"open_ai","apiKey":"fixture","model":model,
+                "reasoningEnabled":true,"reasoningEffort":"high","isDefault":false
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let chat = config("chat", "chat-model");
+        let scheduled = config("schedule", "scheduled-model");
+        let conversation = db
+            .create_conversation(&CreateConversationInput {
+                provider: chat.provider.clone(),
+                model: chat.model.clone(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        super::remember_interactive_launch_model(&db, &conversation.id, &chat, None, false)
+            .unwrap();
+        let before = db.get_conversation(&conversation.id).unwrap();
+        super::remember_interactive_launch_model(
+            &db,
+            &conversation.id,
+            &scheduled,
+            Some("scheduled-run"),
+            false,
+        )
+        .unwrap();
+        super::remember_interactive_launch_model(&db, &conversation.id, &scheduled, None, true)
+            .unwrap();
+        let after = db.get_conversation(&conversation.id).unwrap();
+        assert_eq!(after.agent_config_id, before.agent_config_id);
+        assert_eq!(after.model_selection, before.model_selection);
+        assert_eq!(after.model, "chat-model");
+        super::remember_interactive_launch_model(&db, &conversation.id, &scheduled, None, false)
+            .unwrap();
+        assert_eq!(
+            db.get_conversation(&conversation.id).unwrap().model,
+            "scheduled-model"
+        );
     }
 
     #[tokio::test]

@@ -35,6 +35,15 @@ pub(super) fn uses_moonshot_schema(
             return crate::provider_catalog::find_provider_preset("alibaba_model_studio", base_url)
                 .is_some_and(|preset| preset.id == "alibaba-model-studio");
         }
+        if model == "kimi-k3.1-pro" {
+            return crate::provider_catalog::find_provider_preset("alibaba_model_studio", base_url)
+                .is_some_and(|preset| {
+                    matches!(
+                        preset.id.as_str(),
+                        "alibaba-model-studio" | "qwen-cloud-intl"
+                    )
+                });
+        }
         return matches!(
             model.strip_prefix("kimi/").unwrap_or(&model),
             "kimi-k3"

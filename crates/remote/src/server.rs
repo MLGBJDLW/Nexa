@@ -44,6 +44,7 @@ pub struct RemoteServer {
     requests: Arc<Semaphore>,
     uploads: Arc<Semaphore>,
     previews: Mutex<crate::html_preview::HtmlPreviewStore>,
+    device_control: Arc<crate::device_control::DeviceControl>,
 }
 pub struct RunningListener {
     pub address: SocketAddr,
@@ -78,6 +79,7 @@ impl RemoteServer {
             requests: Arc::new(Semaphore::new(32)),
             uploads: Arc::new(Semaphore::new(8)),
             previews: Mutex::new(crate::html_preview::HtmlPreviewStore::default()),
+            device_control: Arc::default(),
         })
     }
     pub fn server_id(&self) -> String {
@@ -92,6 +94,31 @@ impl RemoteServer {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .devices()
+    }
+    pub fn phone_control_devices(&self) -> Value {
+        let connected = self.connected_device_ids();
+        json!({"devices":self.devices().into_iter().map(|device| json!({"id":device.id,"name":device.name,
+            "connected":connected.contains(&device.id),"controlEnabled":self.device_control.enabled(&device.id)})).collect::<Vec<_>>()})
+    }
+    pub async fn control_phone(
+        &self,
+        owner: &str,
+        arguments: Value,
+        cancel: CancellationToken,
+    ) -> Result<Value, String> {
+        if !self
+            .auth
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .has_device(owner)
+        {
+            return Err("The phone is not paired or its access was revoked.".into());
+        }
+        tokio::select! {
+            result = self.device_control.request(owner,arguments,cancel) => result,
+            _ = self.revoked(owner) => Err("Phone pairing was revoked. Observe after pairing again; never repeat an uncertain action.".into()),
+            _ = self.shutdown.cancelled() => Err("Remote access stopped. The phone action outcome may be unknown.".into()),
+        }
     }
     pub fn pairing(&self) -> PairingCode {
         self.auth
@@ -662,6 +689,22 @@ async fn rpc(
     if let Err(error) = input.command.validate() {
         return failure(StatusCode::BAD_REQUEST, error);
     }
+    if let crate::RemoteCommand::PhoneControlResult {
+        request_id,
+        session_id,
+        result,
+    } = &input.command
+    {
+        return match server.device_control.complete(
+            &device.id,
+            session_id,
+            request_id,
+            result.clone(),
+        ) {
+            Ok(()) => Json(json!({"id":input.id,"result":{}})).into_response(),
+            Err(error) => failure(StatusCode::BAD_REQUEST, error),
+        };
+    }
     if matches!(&input.command, crate::RemoteCommand::SyncConnections { .. })
         && !device
             .capabilities
@@ -715,6 +758,13 @@ async fn events(
 struct Authenticate {
     token: String,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PhoneControlHello {
+    r#type: String,
+    version: u32,
+    enabled: bool,
+}
 async fn socket_session(server: Arc<RemoteServer>, mut socket: WebSocket) {
     let first = tokio::time::timeout(Duration::from_secs(5), socket.recv()).await;
     let device = match first {
@@ -751,7 +801,9 @@ async fn socket_session(server: Arc<RemoteServer>, mut socket: WebSocket) {
     }
     let (mut sink, mut source) = socket.split();
     let mut events = server.events.subscribe();
-    if sink.send(Message::Text(json!({"event":"connection:ready","payload":{"device":device,"manifest":server.manifest()}}).to_string().into())).await.is_ok() {
+    let control_session = uuid::Uuid::new_v4().to_string();
+    let mut control_messages = server.device_control.attach(&device.id, &control_session);
+    if sink.send(Message::Text(json!({"event":"connection:ready","payload":{"device":device,"manifest":server.manifest(),"controlSessionId":control_session}}).to_string().into())).await.is_ok() {
         let work=async {
             let mut heartbeat=tokio::time::interval(Duration::from_secs(5));
             loop {
@@ -760,6 +812,12 @@ async fn socket_session(server: Arc<RemoteServer>, mut socket: WebSocket) {
                         Some(Ok(Message::Text(text)))=>{
                             if !server.auth.lock().unwrap_or_else(|e|e.into_inner()).has_device(&device.id){break;}
                             if text=="ping" {Some(json!({"event":"connection:pong","payload":{}}))}
+                            else if let Ok(hello) = serde_json::from_str::<PhoneControlHello>(&text) {
+                                if hello.r#type == "phoneControl" && hello.version == 1 {
+                                    server.device_control.enable(&device.id,&control_session,hello.enabled);
+                                    Some(json!({"event":"connection:control","payload":{"enabled":server.device_control.enabled(&device.id)}}))
+                                } else {None}
+                            }
                             else {
                                 match serde_json::from_str::<RpcRequest>(&text) {
                                     Ok(input) if input.command.is_audio()=>{
@@ -780,6 +838,7 @@ async fn socket_session(server: Arc<RemoteServer>, mut socket: WebSocket) {
                         Err(broadcast::error::RecvError::Lagged(_))=>Some(json!({"event":"connection:resync","payload":{}})),
                         Err(_)=>break,
                     },
+                    control=control_messages.recv()=>match control { Some(message)=>Some(message),None=>break },
                     _=server.devices_changed.notified()=>{if !server.auth.lock().unwrap_or_else(|e|e.into_inner()).has_device(&device.id){break;}None},
                     _=heartbeat.tick()=>{if !server.auth.lock().unwrap_or_else(|e|e.into_inner()).has_device(&device.id){break;}Some(json!({"event":"connection:heartbeat","payload":{}}))},
                 };
@@ -788,6 +847,7 @@ async fn socket_session(server: Arc<RemoteServer>, mut socket: WebSocket) {
         };
         tokio::select!{biased;_=server.shutdown.cancelled()=>{},_=server.revoked(&device.id)=>{},_=work=>{}}
     }
+    server.device_control.detach(&device.id, &control_session);
     if !server
         .auth
         .lock()

@@ -212,7 +212,7 @@ pub(crate) fn tool_timeout_for_call(
         "download_asset" | "desktop_automation" | "computer_observe" | "computer_control"
         | "extract_image_text" | "reindex_document" | "run_health_check" => 120,
         "compile_document" | "prepare_document_tools" => 180,
-        "generate_image" | "synthesize_speech" => 240,
+        "generate_image" | "synthesize_speech" | "generate_video" => 240,
         _ => 0,
     };
     timeout_secs = timeout_secs.max(minimum);

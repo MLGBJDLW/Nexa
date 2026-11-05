@@ -1,4 +1,20 @@
 {
+  "storageChats": "Discussions et historique",
+  "storageKnowledge": "Connaissances et index",
+  "storageModels": "Modèles locaux",
+  "storageFiles": "Fichiers générés et gérés",
+  "storageRuntime": "Exécution et cache",
+  "storageExtensions": "Compétences et extensions",
+  "storageDatabaseOther": "Paramètres et autres données",
+  "storageUsageHint": "Espace utilisé par cette installation de Nexa. Les fichiers de projets externes sont exclus.",
+  "storageDistribution": "Répartition du stockage",
+  "storagePartial": "Analyse partielle : certains dossiers volumineux, liens ou fichiers illisibles peuvent être exclus. Actualisez pour recommencer.",
+  "storageActiveChats": "Discussions actives",
+  "storageManageChats": "Gérer les conversations",
+  "storageChatScope": "Périmètre des conversations",
+  "storageAllChats": "Toutes les conversations",
+  "storageArchiveHint": "L’archivage masque les discussions et conserve leurs données. La suppression efface les conversations sélectionnées et leurs messages. Arrêtez d’abord les tâches actives.",
+  "storageNextPage": "Page suivante",
   "copilotApiAccountToken": "Jeton du compte GitHub",
   "providerGithubCopilotApi": "GitHub Copilot API",
   "copilotApiImportAccount": "Utiliser le compte GitHub CLI",
@@ -1168,5 +1184,7 @@
   "executionLimitsCustom": "Limites personnalisées",
   "glmCodingPlanKey": "Clé API GLM Coding Plan",
   "glmCodingPlanHelp": "Cet adaptateur utilise une clé API Coding Plan ; la connexion ZCode est distincte. Laissez vide pour utiliser Z_AI_API_KEY ou les identifiants de glm-acp-agent --setup. Le contrôle détecte les modèles sans vérifier les droits du forfait.",
-  "externalAgentAutomaticDirectory": "Utiliser un espace de travail automatique"
+  "externalAgentAutomaticDirectory": "Utiliser un espace de travail automatique",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

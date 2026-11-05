@@ -155,6 +155,43 @@ const DOCUMENTATION_PATH = /^(?:docs\/|README(?:\.[A-Za-z-]+)?\.md$|(?:CONTRIBUT
 const FRONTEND_PATH = /^apps\/desktop\/(?:src\/|public\/|e2e\/|tests\/)/u;
 const NATIVE_SOURCE_PATH = /^(?:crates\/(?:core|remote|agent-eval|model-catalog)\/src\/|apps\/desktop\/src-tauri\/src\/).+\.rs$/u;
 
+// Mobile imports selected desktop modules. Follow the actual source graph so
+// an unrelated desktop page does not rebuild Android, while shared UI does.
+export function mobileSourceDependencies(root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')) {
+  const visited = new Set();
+  const pending = ['apps/mobile/src/main.tsx'];
+  const resolve = (base) => ['', '.ts', '.tsx', '.js', '.jsx', '.json', '.css', '/index.ts', '/index.tsx']
+    .map(extension => `${base}${extension}`).find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+  while (pending.length) {
+    const relative = pending.pop();
+    if (visited.has(relative)) continue;
+    visited.add(relative);
+    const file = path.join(root, relative);
+    const source = fs.readFileSync(file, 'utf8');
+    // Unknown computed imports/globs must not silently skip mobile checks.
+    if (/import\.meta\.glob|\bimport\s*\(\s*[^'"\s]/u.test(source)) return null;
+    for (const match of source.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*|@import\s*)['"]([^'"]+)['"]/gu)) {
+      const specifier = match[1].split('?')[0];
+      const base = specifier.startsWith('@/') ? path.join(root, 'apps/desktop/src', specifier.slice(2))
+        : specifier.startsWith('.') ? path.resolve(path.dirname(file), specifier) : null;
+      if (!base) continue;
+      const resolved = resolve(base);
+      if (!resolved) return null;
+      pending.push(path.relative(root, resolved).split(path.sep).join('/'));
+    }
+  }
+  return visited;
+}
+
+export function mobileCiRequired(changedPaths, dependencies = mobileSourceDependencies()) {
+  if (changedPaths.length === 0 || dependencies === null) return true;
+  return changedPaths.some(changedPath => dependencies.has(changedPath)
+    || /^(?:apps\/mobile\/|shared\/|crates\/|\.cargo\/)/u.test(changedPath)
+    || /^(?:Cargo\.(?:toml|lock)|rust-toolchain\.toml|package(?:-lock)?\.json)$/u.test(changedPath)
+    || /^apps\/desktop\/(?:package(?:-lock)?\.json|tsconfig[^/]*\.json|public\/)/u.test(changedPath)
+    || ['scripts/ci-scope.mjs', 'scripts/ci-scope.test.mjs', 'scripts/release-workflow-contract.test.mjs', '.github/workflows/mobile.yml'].includes(changedPath));
+}
+
 export function classifyCiScope(changedPaths, releaseMetadataOnly = false) {
   if (releaseMetadataOnly) return 'lightweight';
   if (changedPaths.length === 0) return 'full';
@@ -220,6 +257,6 @@ if (isCli && process.argv.includes('--check-results')) {
     readHeadFile: (changedPath) => readGitFile(headRef, changedPath),
   });
   process.stdout.write(process.argv.includes('--github-output')
-    ? `release_metadata_only=${result}\nscope=${classifyCiScope(changedPaths, result)}\n`
+    ? `release_metadata_only=${result}\nscope=${classifyCiScope(changedPaths, result)}\nmobile_required=${mobileCiRequired(changedPaths)}\n`
     : result ? 'true' : 'false');
 }

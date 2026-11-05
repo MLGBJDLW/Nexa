@@ -1,4 +1,20 @@
 {
+  "storageChats": "Chats and task history",
+  "storageKnowledge": "Knowledge and indexes",
+  "storageModels": "Local models",
+  "storageFiles": "Generated and managed files",
+  "storageRuntime": "Runtime and cache",
+  "storageExtensions": "Skills and extensions",
+  "storageDatabaseOther": "Settings and other database data",
+  "storageUsageHint": "Storage used by this Nexa installation. External project files are not included.",
+  "storageDistribution": "Storage by category",
+  "storagePartial": "This scan is partial. Large folders, links or unreadable files may be excluded; refresh to measure again.",
+  "storageActiveChats": "Active chats",
+  "storageManageChats": "Manage conversations",
+  "storageChatScope": "Conversation scope",
+  "storageAllChats": "All conversations",
+  "storageArchiveHint": "Archiving hides chats and keeps their data. Deletion removes selected chats and their messages. Stop active tasks first.",
+  "storageNextPage": "Next page",
   "copilotApiAccountToken": "GitHub account token",
   "providerGithubCopilotApi": "GitHub Copilot API",
   "copilotApiImportAccount": "Use GitHub CLI account",
@@ -1168,5 +1184,7 @@
   "executionLimitsCustom": "Custom limits",
   "glmCodingPlanKey": "GLM Coding Plan API key",
   "glmCodingPlanHelp": "This adapter uses a Coding Plan API key; ZCode account sign-in is separate. Leave blank to use Z_AI_API_KEY or credentials saved by glm-acp-agent --setup. Connection checks discover models; they do not verify plan entitlement.",
-  "externalAgentAutomaticDirectory": "Use automatic workspace"
+  "externalAgentAutomaticDirectory": "Use automatic workspace",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

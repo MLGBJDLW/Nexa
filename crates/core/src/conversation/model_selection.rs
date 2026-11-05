@@ -1,7 +1,135 @@
-//! A caller's model choice changes one run, without editing shared credentials.
+//! Conversation and turn model choices never edit shared connection credentials.
 use super::AgentConfig;
 use crate::error::CoreError;
 use serde::{Deserialize, Serialize};
+
+pub(crate) fn read_selection(
+    row: &rusqlite::Row<'_>,
+    column: usize,
+) -> rusqlite::Result<Option<TurnModelSelection>> {
+    row.get::<_, Option<String>>(column)?
+        .map(|json| {
+            serde_json::from_str(&json).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    column,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })
+        })
+        .transpose()
+}
+
+impl From<&AgentConfig> for TurnModelSelection {
+    fn from(config: &AgentConfig) -> Self {
+        Self {
+            model: config.model.clone(),
+            reasoning_enabled: config.reasoning_enabled,
+            reasoning_effort: config.reasoning_effort.clone(),
+            thinking_budget: config.thinking_budget,
+        }
+    }
+}
+
+impl crate::db::Database {
+    pub fn select_conversation_model(
+        &self,
+        id: &str,
+        config_id: &str,
+        selection: &TurnModelSelection,
+    ) -> Result<super::Conversation, CoreError> {
+        let config = self.get_agent_config(config_id)?;
+        let selected = selection.apply(&config)?;
+        self.persist_conversation_model(id, &selected)?;
+        self.get_conversation(id)
+    }
+
+    /// The resolved route is captured before a run; no secret is stored here.
+    pub fn persist_conversation_model(
+        &self,
+        id: &str,
+        config: &AgentConfig,
+    ) -> Result<(), CoreError> {
+        let json = serde_json::to_string(&TurnModelSelection::from(config))?;
+        let affected = self.conn().execute(
+            "UPDATE conversations SET provider=?2, model=?3, agent_config_id=?4, model_selection_json=?5, updated_at=datetime('now') WHERE id=?1",
+            rusqlite::params![id, config.provider, config.model, config.id, json])?;
+        if affected == 0 {
+            return Err(CoreError::NotFound(format!("Conversation {id}")));
+        }
+        Ok(())
+    }
+
+    pub fn resolve_conversation_agent_config(
+        &self,
+        conversation: &super::Conversation,
+        requested_id: Option<&str>,
+    ) -> Result<AgentConfig, CoreError> {
+        let id = requested_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .or(conversation.agent_config_id.as_deref());
+        let configs = self.list_agent_configs()?;
+        let config = if let Some(id) = id {
+            configs.iter().find(|config| config.id == id).ok_or_else(|| CoreError::InvalidInput(
+                "This conversation's model connection was removed. Select an available connection before continuing.".into()))?
+        } else {
+            // Legacy chats have no connection identity. Match their provider;
+            // never silently switch providers because another window did.
+            configs
+                .iter()
+                .find(|config| {
+                    config.provider == conversation.provider
+                        && config.model == conversation.model
+                        && config.is_default
+                })
+                .or_else(|| {
+                    configs.iter().find(|config| {
+                        config.provider == conversation.provider
+                            && config.model == conversation.model
+                    })
+                })
+                .or_else(|| {
+                    configs.iter().find(|config| {
+                        config.provider == conversation.provider && config.is_default
+                    })
+                })
+                .or_else(|| {
+                    configs
+                        .iter()
+                        .find(|config| config.provider == conversation.provider)
+                })
+                .ok_or_else(|| {
+                    CoreError::InvalidInput(
+                        "Select a model connection for this conversation.".into(),
+                    )
+                })?
+        };
+        if conversation
+            .agent_config_id
+            .as_deref()
+            .is_some_and(|saved| saved == config.id)
+        {
+            if config.provider != conversation.provider {
+                return Err(CoreError::InvalidInput(
+                    "The connection provider changed. Select a connection again before continuing."
+                        .into(),
+                ));
+            }
+            if let Some(selection) = &conversation.model_selection {
+                return selection.apply(config);
+            }
+        }
+        if requested_id.is_none()
+            || conversation.agent_config_id.as_deref() == Some(config.id.as_str())
+        {
+            let mut selection = TurnModelSelection::from(config);
+            selection.model = conversation.model.clone();
+            return selection.apply(config);
+        }
+        Ok(config.clone())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -19,9 +147,12 @@ impl TurnModelSelection {
         selected.model = self.model.trim().into();
         selected.model_id = Some(selected.model.clone());
         selected.model_selection_resolution = None;
-        selected.reasoning_enabled = self.reasoning_enabled;
-        selected.reasoning_effort = self.reasoning_effort.clone();
-        selected.thinking_budget = self.thinking_budget;
+        selected.reasoning_enabled = Some(true);
+        selected.reasoning_effort = self
+            .reasoning_effort
+            .clone()
+            .filter(|effort| effort != "none");
+        selected.thinking_budget = self.thinking_budget.filter(|budget| *budget > 0);
         Ok(selected)
     }
 
@@ -31,9 +162,12 @@ impl TurnModelSelection {
     ) -> Result<(), CoreError> {
         self.validate_for_provider(&saved.provider)?;
         saved.model = self.model.trim().into();
-        saved.reasoning_enabled = self.reasoning_enabled;
-        saved.reasoning_effort = self.reasoning_effort.clone();
-        saved.thinking_budget = self.thinking_budget;
+        saved.reasoning_enabled = Some(true);
+        saved.reasoning_effort = self
+            .reasoning_effort
+            .clone()
+            .filter(|effort| effort != "none");
+        saved.thinking_budget = self.thinking_budget.filter(|budget| *budget > 0);
         Ok(())
     }
 
@@ -68,6 +202,101 @@ impl TurnModelSelection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn conversation_choice_survives_connection_edits_and_default_changes() {
+        let db = crate::db::Database::open_memory().unwrap();
+        let save = |id: &str, model: &str, default: bool| -> AgentConfig {
+            let input = serde_json::from_value(serde_json::json!({
+                "id":id,"name":id,"provider":"open_ai","apiKey":"test-key","model":model,"isDefault":default
+            })).unwrap();
+            db.save_agent_config(&input).unwrap()
+        };
+        let config = save("connection-a", "model-a", true);
+        let conversation = db
+            .create_conversation(&super::super::CreateConversationInput {
+                provider: config.provider.clone(),
+                model: config.model.clone(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        let selection = TurnModelSelection {
+            model: "chat-model".into(),
+            reasoning_enabled: Some(true),
+            reasoning_effort: Some("high".into()),
+            thinking_budget: None,
+        };
+        db.select_conversation_model(&conversation.id, &config.id, &selection)
+            .unwrap();
+        save("connection-a", "another-window-model", false);
+        save("connection-b", "default-model", true);
+        let reloaded = db.get_conversation(&conversation.id).unwrap();
+        assert_eq!(reloaded.model_selection, Some(selection));
+        for requested in [None, Some("connection-a")] {
+            let resolved = db
+                .resolve_conversation_agent_config(&reloaded, requested)
+                .unwrap();
+            assert_eq!(resolved.model, "chat-model");
+            assert_eq!(resolved.reasoning_effort.as_deref(), Some("high"));
+            assert_eq!(resolved.api_key, "test-key");
+        }
+        assert_eq!(
+            db.get_agent_config("connection-a").unwrap().model,
+            "another-window-model"
+        );
+        let explicitly_switched = db
+            .resolve_conversation_agent_config(&reloaded, Some("connection-b"))
+            .unwrap();
+        assert_eq!(explicitly_switched.id, "connection-b");
+        assert_eq!(explicitly_switched.model, "default-model");
+        let message = super::super::ConversationMessage {
+            id: "branch-seed".into(),
+            conversation_id: conversation.id.clone(),
+            role: crate::llm::Role::User,
+            content: "Continue this saved task.".into(),
+            tool_call_id: None,
+            tool_calls: vec![],
+            artifacts: None,
+            token_count: 5,
+            created_at: String::new(),
+            sort_order: 0,
+            thinking: None,
+            image_attachments: None,
+        };
+        db.add_message(&message).unwrap();
+        let checkpoint = db
+            .create_checkpoint_with_messages(
+                &conversation.id,
+                "manual",
+                5,
+                std::slice::from_ref(&message),
+            )
+            .unwrap();
+        let branch = db.branch_checkpoint(&checkpoint).unwrap();
+        assert_eq!(
+            branch.conversation.agent_config_id,
+            reloaded.agent_config_id
+        );
+        assert_eq!(
+            branch.conversation.model_selection,
+            reloaded.model_selection
+        );
+        let branch_config = db
+            .resolve_conversation_agent_config(&branch.conversation, None)
+            .unwrap();
+        assert_eq!(branch_config.id, "connection-a");
+        assert_eq!(branch_config.model, "chat-model");
+        assert_eq!(branch_config.reasoning_effort.as_deref(), Some("high"));
+        db.delete_agent_config("connection-a").unwrap();
+        assert!(db
+            .resolve_conversation_agent_config(&reloaded, None)
+            .is_err());
+        assert!(db
+            .resolve_conversation_agent_config(&branch.conversation, None)
+            .is_err());
+    }
     #[test]
     fn selection_keeps_endpoint_credentials_limits_and_saved_config_owned_by_host() {
         let saved: AgentConfig = serde_json::from_value(serde_json::json!({

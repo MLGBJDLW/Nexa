@@ -1,4 +1,8 @@
 {
+  "followupExplainLabel": "Подробнее",
+  "followupExplainPrompt": "Объясните результат подробнее и приведите конкретный пример.",
+  "followupNextLabel": "Следующие шаги",
+  "followupNextPrompt": "Предложите наиболее полезные следующие шаги на основе этого результата.",
   "reasoningProviderManaged": "Управляет провайдер",
   "reasoningProviderManagedHint": "Провайдер не объявил доступные уровни рассуждения для этой модели. Обновите список моделей.",
   "followupSuggestions": "Предлагаемые следующие задачи",

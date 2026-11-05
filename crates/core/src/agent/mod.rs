@@ -528,7 +528,7 @@ impl Default for AgentConfig {
             context_window_resolution: None,
             catalog_limits_authoritative: None,
             resolved_catalog_limits: None,
-            reasoning_enabled: None,
+            reasoning_enabled: Some(true),
             thinking_budget: None,
             reasoning_effort: None,
             provider_type: None,
@@ -822,7 +822,24 @@ impl AgentExecutor {
     }
 
     /// Create a new executor from a provider, tool registry, and config.
-    pub fn new(provider: Box<dyn LlmProvider>, tools: ToolRegistry, config: AgentConfig) -> Self {
+    pub fn new(
+        provider: Box<dyn LlmProvider>,
+        tools: ToolRegistry,
+        mut config: AgentConfig,
+    ) -> Self {
+        // Agent thinking is always requested; provider adapters still decide
+        // which wire fields the selected model actually supports.
+        config.reasoning_enabled = Some(true);
+        if config.context_management_mode == crate::context_history::ContextManagementMode::Seamless
+        {
+            config.auto_compact_percent = Some(config.auto_compact_percent.unwrap_or(80).min(80));
+        }
+        if config.reasoning_effort == Some(ReasoningEffort::None) {
+            config.reasoning_effort = None;
+        }
+        if config.thinking_budget == Some(0) {
+            config.thinking_budget = None;
+        }
         Self {
             provider,
             summarization_provider: None,

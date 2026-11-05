@@ -290,7 +290,7 @@ impl Database {
             Some(pid) => {
                 let conn = self.conn();
                 let mut stmt = conn.prepare(
-                    "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at
+                    "SELECT id, title, provider, model, system_prompt, collection_context_json, project_id, persona_id, title_is_auto, archived_at, created_at, updated_at, agent_config_id, model_selection_json
                      FROM conversations WHERE project_id = ?1 AND archived_at IS NULL AND parent_conversation_id IS NULL ORDER BY updated_at DESC",
                 )?;
                 let rows = stmt.query_map(rusqlite::params![pid], |row| {
@@ -306,6 +306,10 @@ impl Database {
                         project_id: row.get(6)?,
                         persona_id: row.get(7)?,
                         initial_auto_title_pending: row.get::<_, i64>(8)? != 0,
+                        agent_config_id: row.get(12)?,
+                        model_selection: crate::conversation::model_selection::read_selection(
+                            row, 13,
+                        )?,
                         archived_at: row.get(9)?,
                         created_at: row.get(10)?,
                         updated_at: row.get(11)?,

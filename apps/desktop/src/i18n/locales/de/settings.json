@@ -1,4 +1,20 @@
 {
+  "storageChats": "Chats und Aufgabenverlauf",
+  "storageKnowledge": "Wissen und Indizes",
+  "storageModels": "Lokale Modelle",
+  "storageFiles": "Erzeugte und verwaltete Dateien",
+  "storageRuntime": "Laufzeit und Cache",
+  "storageExtensions": "Skills und Erweiterungen",
+  "storageDatabaseOther": "Einstellungen und weitere Daten",
+  "storageUsageHint": "Speicher dieser Nexa-Installation. Externe Projektdateien sind nicht enthalten.",
+  "storageDistribution": "Speicher nach Kategorie",
+  "storagePartial": "Die Messung ist unvollständig. Große Ordner, Links oder nicht lesbare Dateien können fehlen. Aktualisiere für eine neue Messung.",
+  "storageActiveChats": "Aktive Chats",
+  "storageManageChats": "Unterhaltungen verwalten",
+  "storageChatScope": "Unterhaltungsbereich",
+  "storageAllChats": "Alle Unterhaltungen",
+  "storageArchiveHint": "Archivieren blendet Chats aus und behält ihre Daten. Löschen entfernt ausgewählte Unterhaltungen und Nachrichten. Beende zuerst laufende Aufgaben.",
+  "storageNextPage": "Nächste Seite",
   "copilotApiAccountToken": "GitHub-Kontotoken",
   "providerGithubCopilotApi": "GitHub Copilot API",
   "copilotApiImportAccount": "GitHub-CLI-Konto verwenden",
@@ -1168,5 +1184,7 @@
   "executionLimitsCustom": "Eigene Limits",
   "glmCodingPlanKey": "GLM Coding Plan API-Schlüssel",
   "glmCodingPlanHelp": "Dieser Adapter nutzt einen Coding-Plan-API-Schlüssel; die ZCode-Anmeldung ist getrennt. Leer lassen für Z_AI_API_KEY oder mit glm-acp-agent --setup gespeicherte Zugangsdaten. Die Verbindungsprüfung erkennt Modelle, prüft aber keine Tarifberechtigung.",
-  "externalAgentAutomaticDirectory": "Automatischen Arbeitsbereich verwenden"
+  "externalAgentAutomaticDirectory": "Automatischen Arbeitsbereich verwenden",
+  "contextModeSeamless": "Continuous context (experimental)",
+  "contextSeamlessHelp": "Keep recent progress and searchable full history without waiting for a summary model. Routine checkpoints stay quiet; actions, approvals and errors remain visible."
 }

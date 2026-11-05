@@ -769,6 +769,8 @@ mod tests {
         let db = Database::open_memory().unwrap();
         for query in [
             "interactive visualization comparison",
+            "做几个可互动的图表",
+            "make several interactive charts",
             "请做一个交互图表",
             "用可视化解释这个流程",
             "做一个动态演示和说明文档",
@@ -780,6 +782,12 @@ mod tests {
                     .iter()
                     .any(|skill| skill.id == "builtin-visual-explanations"),
                 "missing visual skill for {query}"
+            );
+            let loaded = select_skills_from_pool(skills, query, 1);
+            assert_eq!(
+                loaded.first().map(|skill| skill.id.as_str()),
+                Some("builtin-visual-explanations"),
+                "inline visual workflow must load for {query}"
             );
         }
         let skill = load_builtin_skills()

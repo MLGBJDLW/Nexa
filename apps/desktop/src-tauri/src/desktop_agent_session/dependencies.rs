@@ -97,6 +97,8 @@ pub async fn build_desktop_agent_session_dependencies(
     request: DesktopAgentSessionDependencyRequest<'_>,
 ) -> DesktopAgentSessionDependencies {
     let DesktopAgentSessionDependencyRequest {
+        phone_host,
+        media_generation,
         workspace,
         preview_host,
         agent_runtime,
@@ -305,11 +307,17 @@ pub async fn build_desktop_agent_session_dependencies(
     if let Some(terminal_state) = terminal_state {
         tools.register(Box::new(TerminalAgentTool::new(terminal_state)));
     }
+    tools.register(Box::new(
+        nexa_core::tools::phone_control_tool::PhoneControlTool(phone_host),
+    ));
     tools = tools.without_names(&["browser_session"]);
     tools.register(Box::new(NativeBrowserSessionTool::new(browser_state)));
     tools = tools.without_names(&["open_in_nexa"]);
     tools.register(Box::new(
         nexa_core::tools::open_in_nexa_tool::OpenInNexaTool::new(preview_host),
+    ));
+    tools.register(Box::new(
+        nexa_core::tools::video_generation_tool::GenerateVideoTool(media_generation),
     ));
     let before_package_filter_count = tools.tool_names().len();
     tools = crate::image_generation_tool::install_desktop_image_tool(

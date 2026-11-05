@@ -7,6 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
+mod generated_svg;
+
+/// Verifies a generated vector before a native preview or export.
+pub fn validate_generated_svg(bytes: &[u8]) -> Result<(), CoreError> {
+    generated_svg::validate(bytes)
+}
+
 use async_trait::async_trait;
 use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD},
@@ -268,7 +275,8 @@ impl Tool for GenerateImageTool {
         }
         let prompt_mode = args.effective_prompt_mode();
         let provider_enhancement_requested = prompt_mode.provider_enhancement_enabled();
-        let provider_enhancement_supported = supports_explicit_prompt_enhancement(runtime.provider);
+        let provider_enhancement_supported = supports_explicit_prompt_enhancement(runtime.provider)
+            && !is_wan27_image(&runtime.model);
         let provider_enhancement_applied =
             provider_enhancement_requested && provider_enhancement_supported;
         if runtime.config.api_key.trim().is_empty() {
@@ -304,7 +312,16 @@ impl Tool for GenerateImageTool {
             }
         };
 
-        let media_type = if generated.media_type.trim().is_empty() {
+        if runtime.output_format == "svg" {
+            validate_generated_svg(&generated.bytes)?;
+        } else if generated.media_type == "image/svg+xml" {
+            return Err(CoreError::Parse(
+                "Image provider returned unexpected SVG.".into(),
+            ));
+        }
+        let media_type = if runtime.output_format == "svg" {
+            "image/svg+xml".to_string()
+        } else if generated.media_type.trim().is_empty() {
             media_type_for_format(runtime.output_format).to_string()
         } else {
             generated.media_type.clone()
@@ -429,6 +446,10 @@ fn selected_image_size(
 
 fn supports_explicit_prompt_enhancement(provider: ImageProvider) -> bool {
     matches!(provider, ImageProvider::Qwen)
+}
+
+fn is_wan27_image(model: &str) -> bool {
+    matches!(model, "wan2.7-image" | "wan2.7-image-pro")
 }
 
 fn google_image_config(size: Option<&str>) -> Option<Value> {
@@ -588,7 +609,7 @@ async fn generate_openai_image(
             .await
             .unwrap_or_else(|_| crate::openrouter_images::catalog_fallback());
         let descriptor = models.iter().find(|candidate| candidate.id == model)
-            .ok_or_else(|| CoreError::InvalidInput("This OpenRouter image model is unavailable or requires unsupported vector output. Refresh the image catalog in Settings.".into()))?;
+            .ok_or_else(|| CoreError::InvalidInput("This OpenRouter image model is unavailable. Refresh the image catalog in Settings.".into()))?;
         let mut body = crate::openrouter_images::generation_body(
             descriptor,
             &args.prompt,
@@ -669,6 +690,11 @@ async fn generate_openai_image(
 
     let value = parse_json_body(provider_label, &bytes)?;
     let parsed = parse_openai_image_response(&value, output_format)?;
+    if output_format == "svg" && !matches!(&parsed.payload, ImagePayload::Base64(_)) {
+        return Err(CoreError::Parse(
+            "Expected inline SVG from the image provider.".into(),
+        ));
+    }
     let materialized =
         materialize_image_payload(client, &parsed.payload, &parsed.media_type, provider_label)
             .await?;
@@ -740,13 +766,15 @@ fn is_meta_image_endpoint(config: &ResolvedImageConfig) -> bool {
         })
 }
 
-fn is_gpt_image_25(model: &str) -> bool {
+fn supports_gpt_image_extended_quality(model: &str) -> bool {
     matches!(
         model,
         "gpt-image-2.5-flare"
             | "gpt-image-2.5-sunburst"
             | "gpt-image-2.5-flare-2026-09-08"
             | "gpt-image-2.5-sunburst-2026-09-08"
+            | "gpt-image-2.6-flare"
+            | "gpt-image-2.6-sunburst"
     )
 }
 
@@ -778,20 +806,19 @@ fn validate_image_options(
         }
         return Ok(());
     }
+    let wan27 = is_wan27_image(model);
+    let qwen21 = matches!(model, "qwen-image-2.1-pro" | "qwen-image-2.1-turbo");
     if provider == ImageProvider::Qwen
-        && matches!(
-            model,
-            "qwen-image-2.1-pro" | "qwen-image-3.0" | "qwen-image-3.0-pro"
-        )
+        && (wan27 || qwen21 || matches!(model, "qwen-image-3.0" | "qwen-image-3.0-pro"))
     {
-        if model == "qwen-image-2.1-pro"
+        if (wan27 || qwen21)
             && args
                 .negative_prompt
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty())
         {
             return Err(invalid(
-                "Qwen Image 2.1 Pro does not support negative_prompt.",
+                "This DashScope model does not support negative_prompt.",
             ));
         }
         if args
@@ -808,6 +835,12 @@ fn validate_image_options(
         if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref())
             .filter(|size| *size != "auto")
         {
+            let wan_pro = model == "wan2.7-image-pro";
+            if wan27 && (matches!(size, "1K" | "2K") || (wan_pro && size == "4K")) {
+                return Ok(());
+            }
+            let min_pixels = if wan27 { 768 * 768 } else { 512 * 512 };
+            let max_pixels = if wan_pro { 4096 * 4096 } else { 2048 * 2048 };
             let valid = size
                 .split_once(['x', '*'])
                 .and_then(|(w, h)| Some((w.parse::<u64>().ok()?, h.parse::<u64>().ok()?)))
@@ -815,12 +848,12 @@ fn validate_image_options(
                     w > 0
                         && h > 0
                         && w.checked_mul(h)
-                            .is_some_and(|area| (262_144..=4_194_304).contains(&area))
+                            .is_some_and(|area| (min_pixels..=max_pixels).contains(&area))
                         && w <= h.saturating_mul(8)
                         && h <= w.saturating_mul(8)
                 });
             if !valid {
-                return Err(invalid("This Qwen Image model requires 262144-4194304 pixels and an aspect ratio between 1:8 and 8:1."));
+                return Err(invalid(&format!("This DashScope model requires {min_pixels}-{max_pixels} pixels and an aspect ratio between 1:8 and 8:1.")));
             }
         }
         return Ok(());
@@ -844,10 +877,10 @@ fn validate_image_options(
     }
     if let Some(quality) = selected_image_quality(config, args, model) {
         let supported = matches!(quality, "auto" | "low" | "medium" | "high")
-            || (is_gpt_image_25(model) && matches!(quality, "xhigh" | "max"));
+            || (supports_gpt_image_extended_quality(model) && matches!(quality, "xhigh" | "max"));
         if !supported {
             return Err(invalid(
-                "Unsupported GPT Image quality. xhigh and max require GPT Image 2.5.",
+                "Unsupported GPT Image quality. xhigh and max require GPT Image 2.5 or 2.6.",
             ));
         }
     }
@@ -874,7 +907,7 @@ fn validate_image_options(
             "This GPT Image model supports only auto, 1024x1024, 1024x1536 or 1536x1024.",
         ));
     }
-    if (is_gpt_image_25(model) || model == "gpt-image-2") && size != "auto" {
+    if (supports_gpt_image_extended_quality(model) || model == "gpt-image-2") && size != "auto" {
         let valid = size
             .split_once('x')
             .and_then(|(width, height)| {
@@ -1284,10 +1317,11 @@ fn build_qwen_image_body(
     args: &GenerateImageArgs,
     model: &str,
 ) -> Value {
-    let mut parameters = json!({
-        "prompt_extend": args.effective_prompt_mode().provider_enhancement_enabled(),
-        "watermark": args.watermark.unwrap_or(false),
-    });
+    let mut parameters = json!({ "watermark": args.watermark.unwrap_or(false) });
+    if !is_wan27_image(model) {
+        parameters["prompt_extend"] =
+            json!(args.effective_prompt_mode().provider_enhancement_enabled());
+    }
     if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref())
         .filter(|size| *size != "auto")
     {
@@ -1474,6 +1508,7 @@ fn media_type_for_format(format: &str) -> &'static str {
     match format {
         "jpeg" => "image/jpeg",
         "webp" => "image/webp",
+        "svg" => "image/svg+xml",
         _ => "image/png",
     }
 }
@@ -1482,6 +1517,7 @@ fn extension_for_format(format: &str) -> &'static str {
     match format {
         "jpeg" => "jpg",
         "webp" => "webp",
+        "svg" => "svg",
         _ => "png",
     }
 }
@@ -1491,6 +1527,7 @@ fn extension_for_media_type(media_type: &str) -> Option<String> {
         "image/jpeg" | "image/jpg" => Some("jpg".into()),
         "image/webp" => Some("webp".into()),
         "image/gif" => Some("gif".into()),
+        "image/svg+xml" => Some("svg".into()),
         "image/png" => Some("png".into()),
         _ => None,
     }
@@ -1653,14 +1690,19 @@ mod tests {
     }
 
     #[test]
-    fn image_25_transmits_extended_quality_and_transparent_output() {
+    fn image_25_and_26_transmit_extended_quality_and_transparent_output() {
         let config = test_config("open_ai", Some("https://api.openai.com/v1"));
         let mut args = test_args();
         args.size = Some("3840x2160".to_string());
         args.quality = Some("max".to_string());
         args.background = Some("transparent".to_string());
         args.output_compression = Some(85);
-        for model in ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] {
+        for model in [
+            "gpt-image-2.5-flare",
+            "gpt-image-2.5-sunburst",
+            "gpt-image-2.6-flare",
+            "gpt-image-2.6-sunburst",
+        ] {
             validate_image_options(&config, &args, model, ImageProvider::OpenAi, "webp").unwrap();
             let body = build_openai_images_body(&config, &args, model, "webp");
             assert_eq!(body["model"], model);
@@ -1686,6 +1728,12 @@ mod tests {
         )
         .is_err());
         args.size = Some("3840x3840".to_string());
+        for model in ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst"] {
+            assert!(
+                validate_image_options(&config, &args, model, ImageProvider::OpenAi, "webp")
+                    .is_err()
+            );
+        }
         assert!(validate_image_options(
             &config,
             &args,
@@ -1781,6 +1829,8 @@ mod tests {
         for (provider, model, quality) in [
             (ImageProvider::OpenAi, "gpt-image-2.5-flare", "xhigh"),
             (ImageProvider::OpenAi, "gpt-image-2.5-sunburst", "max"),
+            (ImageProvider::OpenAi, "gpt-image-2.6-flare", "xhigh"),
+            (ImageProvider::OpenAi, "gpt-image-2.6-sunburst", "max"),
             (ImageProvider::Xai, "grok-imagine-image-2.0", "medium"),
         ] {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2008,6 +2058,23 @@ mod tests {
             "png",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn wan_27_text_to_image_uses_its_native_sizes_without_prompt_extend() {
+        let config = test_config("qwen", None);
+        let mut args = test_args();
+        args.size = Some("4K".into());
+        let pro = "wan2.7-image-pro";
+        let standard = "wan2.7-image";
+        validate_image_options(&config, &args, pro, ImageProvider::Qwen, "png").unwrap();
+        assert!(
+            validate_image_options(&config, &args, standard, ImageProvider::Qwen, "png").is_err()
+        );
+        let wire = build_qwen_image_body(&config, &args, pro);
+        assert_eq!(wire["parameters"], json!({"size":"4K","watermark":false}));
+        args.size = Some("512x512".into());
+        assert!(validate_image_options(&config, &args, pro, ImageProvider::Qwen, "png").is_err());
     }
 
     #[test]

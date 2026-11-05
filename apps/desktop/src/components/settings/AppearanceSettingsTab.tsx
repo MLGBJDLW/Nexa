@@ -220,12 +220,13 @@ export function AppearanceSettingsTab({
 
         {appConfig && (
           <div className="space-y-2" data-testid="context-management-settings">
-            <SettingsRow label={t('settings.contextManagementMode')} description={appConfig.contextManagementMode === 'history' ? t('settings.contextHistoryHelp') : t('settings.contextSummaryHelp')} htmlFor="context-management-mode">
+            <SettingsRow label={t('settings.contextManagementMode')} description={appConfig.contextManagementMode === 'seamless' ? t('settings.contextSeamlessHelp') : appConfig.contextManagementMode === 'history' ? t('settings.contextHistoryHelp') : t('settings.contextSummaryHelp')} htmlFor="context-management-mode">
             <NexaSelect id="context-management-mode"
               className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary"
               value={appConfig.contextManagementMode ?? 'summary'}
-              onChange={event => onAppConfigChange({ ...appConfig, contextManagementMode: event.target.value as 'summary' | 'history' })}>
+              onChange={event => onAppConfigChange({ ...appConfig, contextManagementMode: event.target.value as 'summary' | 'history' | 'seamless' })}>
               <option value="summary">{t('settings.contextModeSummary')}</option>
+              <option value="seamless">{t('settings.contextModeSeamless')}</option>
               <option value="history">{t('settings.contextModeHistory')}</option>
             </NexaSelect>
             </SettingsRow>

@@ -2331,32 +2331,22 @@ export function ChatInput({
           />
 
           <div className="flex shrink-0 items-center gap-1.5">
-            {isStreaming && (
-              <button
-                onClick={onStop}
-                data-testid="chat-stop"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-danger/10 text-danger transition-colors duration-fast ease-out cursor-pointer hover:bg-danger/20"
-                aria-label={t("chat.stop")}
-              >
-                <Square className="h-3.5 w-3.5" />
-              </button>
-            )}
             <button
-              onClick={() => void handleSend()}
-              disabled={
+              onClick={isStreaming && (!value.trim() || attachments.length > 0) ? onStop : () => void handleSend()}
+              disabled={!(isStreaming && (!value.trim() || attachments.length > 0)) && (
                 sendLocked ||
                 (isStreaming
                   ? !value.trim() || attachments.length > 0
-                  : !onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand)
+                  : !onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand))
               }
-              data-testid="chat-send"
+              data-testid={isStreaming && (!value.trim() || attachments.length > 0) ? "chat-stop" : "chat-send"}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-text-primary/10 bg-text-primary text-surface-0 shadow-[0_8px_20px_rgba(0,0,0,0.22)] transition-[background-color,border-color,color,box-shadow,transform] duration-fast ease-out cursor-pointer hover:-translate-y-0.5 hover:bg-text-secondary hover:shadow-[0_10px_24px_rgba(0,0,0,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 disabled:pointer-events-none disabled:translate-y-0 disabled:border-border disabled:bg-surface-2 disabled:text-text-tertiary disabled:shadow-none"
               title={!isStreaming && onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand ? t('chat.resumeTask') : undefined}
-              aria-label={isStreaming ? t("chat.steeringMessage") : onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand ? t('chat.resumeTask') : t("chat.send")}
+              aria-label={isStreaming ? t(!value.trim() || attachments.length > 0 ? "chat.stop" : "chat.steeringMessage") : onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand ? t('chat.resumeTask') : t("chat.send")}
             >
-              {sendPending ? <Loader2 className="h-4 w-4 animate-spin" /> : !isStreaming && onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand
+              <span className="composer-submit-icon" key={isStreaming && (!value.trim() || attachments.length > 0) ? "stop" : "send"}>{isStreaming && (!value.trim() || attachments.length > 0) ? <Square className="h-3.5 w-3.5"/> : sendPending ? <Loader2 className="h-4 w-4 animate-spin" /> : !isStreaming && onResume && !value.trim() && attachments.length === 0 && !activeSlashCommand
                 ? <Play className="h-3.5 w-3.5" fill="currentColor" strokeWidth={1.8} />
-                : <ArrowUp className="h-4 w-4" strokeWidth={2.4} />}
+                : <ArrowUp className="h-4 w-4" strokeWidth={2.4} />}</span>
             </button>
           </div>
         </div>

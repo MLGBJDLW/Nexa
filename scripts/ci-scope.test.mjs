@@ -8,6 +8,8 @@ import {
   releaseMetadataContentsMatch,
   classifyCiScope,
   ciResultFailures,
+  mobileCiRequired,
+  mobileSourceDependencies,
 } from './ci-scope.mjs';
 
 const repository = 'MLGBJDLW/Nexa';
@@ -190,6 +192,21 @@ test('small changes omit unrelated runtime jobs while shared or unknown changes 
   }
   assert.equal(classifyCiScope([]), 'full');
   assert.equal(classifyCiScope(['package.json'], true), 'lightweight');
+});
+
+test('mobile CI follows shared frontend imports and independent native boundaries', () => {
+  const dependencies = mobileSourceDependencies();
+  assert.ok(dependencies, 'all mobile imports must resolve without an unknown computed import');
+  assert.equal(mobileCiRequired(['apps/desktop/src/lib/followupSuggestions.ts'], dependencies), true);
+  assert.equal(mobileCiRequired(['apps/desktop/src/features/remote/RemoteChat.tsx'], dependencies), true);
+  assert.equal(mobileCiRequired(['apps/desktop/src/pages/ChatPage.tsx'], dependencies), false);
+  assert.equal(mobileCiRequired(['apps/desktop/src/components/settings/ConversationStorageManager.tsx'], dependencies), true);
+  assert.equal(mobileCiRequired(['apps/desktop/src/components/settings/DataPrivacySettingsTab.tsx'], dependencies), false);
+  assert.equal(mobileCiRequired(['apps/mobile/src/MobileApp.tsx'], dependencies), true);
+  assert.equal(mobileCiRequired(['crates/remote/src/protocol.rs'], dependencies), true);
+  assert.equal(mobileCiRequired(['apps/desktop/tsconfig.json'], dependencies), true);
+  assert.equal(mobileCiRequired(['docs/README.md'], dependencies), false);
+  assert.equal(mobileCiRequired(['apps/desktop/src/pages/ChatPage.tsx'], null), true);
 });
 
 test('native-only CI retains every runtime gate and permits only unrelated suites to skip', () => {

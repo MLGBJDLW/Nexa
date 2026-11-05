@@ -28,12 +28,16 @@ test('Android packaging runs only for a versioned release, while PRs validate mo
   assert.match(checks, /npm run build --prefix apps\/mobile/);
   assert.match(checks, /node scripts\/ci-scope.mjs/);
   assert.match(checks, /release_metadata_only != 'true'/);
+  assert.match(checks, /mobile_required == 'true'/);
   assert.doesNotMatch(checks, /setup-java|setup-android|android build|sdkmanager/);
   assert.doesNotMatch(android, /name: android-arm64-unsigned/);
 });
 const releaseConfig = JSON.parse(fs.readFileSync(
   path.join(repositoryRoot, 'release-please-config.json'), 'utf8',
 ));
+test('mobile-only commits do not bump the desktop release', () => {
+  assert.ok(releaseConfig.packages['.']['exclude-paths'].includes('apps/mobile'));
+});
 const nativeAcceptanceWorkflowPath = path.join(
   repositoryRoot,
   '.github',

@@ -38,6 +38,13 @@ impl Database {
         let cursor = more.then(|| rows.last().unwrap()["id"].clone());
         Ok(json!({"items":rows,"nextCursor":cursor}))
     }
+    pub fn remote_archived_conversations(&self, before: Option<&str>) -> Result<Value, CoreError> {
+        let cursor = before.map(serde_json::from_str).transpose()?;
+        let page = self.conversation_storage_page("archived", cursor.as_ref())?;
+        Ok(
+            json!({"items":page.entries,"nextCursor":page.next.map(|cursor| serde_json::to_string(&cursor)).transpose()?}),
+        )
+    }
     pub fn remote_messages(
         &self,
         conversation_id: &str,

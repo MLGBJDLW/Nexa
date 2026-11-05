@@ -977,6 +977,7 @@ function extensionForMediaType(mediaType?: string): string {
   if (lower.includes('jpeg') || lower.includes('jpg')) return 'jpg';
   if (lower.includes('webp')) return 'webp';
   if (lower.includes('gif')) return 'gif';
+  if (lower.split(';', 1)[0].trim() === 'image/svg+xml') return 'svg';
   return 'png';
 }
 
@@ -1083,7 +1084,12 @@ function GeneratedImagePreview({
         if (!cancelled) setPreviewSrc(dataUrl);
       })
       .catch(() => {
-        if (!cancelled) setPreviewSrc(convertFileSrc(previewPath));
+        if (cancelled) return;
+        if (/\.svg$/i.test(previewPath) || image.mediaType?.split(';', 1)[0].trim().toLowerCase() === 'image/svg+xml') {
+          setImageError(t('chat.generatedImageLoadFailed'));
+        } else {
+          setPreviewSrc(convertFileSrc(previewPath));
+        }
       });
 
     return () => {

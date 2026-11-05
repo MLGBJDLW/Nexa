@@ -11,6 +11,30 @@ fn config(base: String) -> ProviderConfig {
     }
 }
 
+#[test]
+fn glm_53_converse_uses_its_own_effort_field() {
+    let provider = BedrockProvider::new(config(
+        "https://bedrock-runtime.us-east-1.amazonaws.com".into(),
+    ))
+    .unwrap();
+    let mut request = CompletionRequest {
+        model: "global.zai.glm-5.3".into(),
+        messages: vec![Message::text(Role::User, "Hello")],
+        reasoning_effort: Some(ReasoningEffort::XHigh),
+        ..Default::default()
+    };
+    let wire = body(&request, &provider.route_snapshot(&request)).unwrap();
+    assert_eq!(
+        wire["additionalModelRequestFields"],
+        json!({"reasoning_effort": "xhigh"})
+    );
+    for effort in [ReasoningEffort::None, ReasoningEffort::Minimal] {
+        request.reasoning_effort = Some(effort);
+        let wire = body(&request, &provider.route_snapshot(&request)).unwrap();
+        assert!(wire.get("additionalModelRequestFields").is_none());
+    }
+}
+
 #[tokio::test]
 async fn revoked_privacy_lease_never_opens_a_bedrock_stream_connection() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

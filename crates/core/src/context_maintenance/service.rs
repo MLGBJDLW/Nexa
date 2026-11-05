@@ -69,7 +69,7 @@ impl ContextCompactionService {
         mut job: ContextCompactionJob,
         live_target: Option<tokio::sync::mpsc::UnboundedSender<crate::agent::AgentSteeringMessage>>,
     ) -> Result<ContextCompactionHandle, CoreError> {
-        if live_target.is_some() && job.mode != ContextManagementMode::History {
+        if live_target.is_some() && !job.mode.uses_history() {
             return Err(CoreError::InvalidInput(
                 "Live Fork requires history mode".into(),
             ));
@@ -323,19 +323,18 @@ impl ContextCompactionService {
         let context_window = job.context_window;
         let max_response_tokens = job.max_response_tokens;
         let mode = job.mode;
-        let current_handoff =
-            if mode == ContextManagementMode::History && loaded.value.fresh_handoff_is_current {
-                let conversation_id = job.request.conversation_id.clone();
-                let projection = self
-                    .inner
-                    .database
-                    .read(move |db| super::store::load_context_projection(db, &conversation_id))
-                    .await?
-                    .value;
-                projection.projected.then_some(projection.messages)
-            } else {
-                None
-            };
+        let current_handoff = if mode.uses_history() && loaded.value.fresh_handoff_is_current {
+            let conversation_id = job.request.conversation_id.clone();
+            let projection = self
+                .inner
+                .database
+                .read(move |db| super::store::load_context_projection(db, &conversation_id))
+                .await?
+                .value;
+            projection.projected.then_some(projection.messages)
+        } else {
+            None
+        };
         let plan_started = Instant::now();
         let plan = tokio::task::spawn_blocking(move || {
             if let Some(messages) = current_handoff {
@@ -396,8 +395,9 @@ impl ContextCompactionService {
             });
         };
 
-        let (checkpoint_text, usage, summary_kind, fallback_reason, history_archive) = if job.mode
-            == ContextManagementMode::History
+        let (checkpoint_text, usage, summary_kind, fallback_reason, history_archive) = if job
+            .mode
+            .uses_history()
         {
             let conversation_id = job.request.conversation_id.clone();
             let notes = self
@@ -415,6 +415,11 @@ impl ContextCompactionService {
                     .map(|notes| notes.content.as_str())
                     .unwrap_or_default(),
             )?;
+            let archive = if job.mode == ContextManagementMode::Seamless {
+                archive.with_continuity(2048)
+            } else {
+                archive
+            };
             (
                 archive.checkpoint_text(),
                 None,

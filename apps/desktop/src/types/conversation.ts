@@ -3,6 +3,8 @@ export interface Conversation {
   title: string;
   provider: string;
   model: string;
+  agentConfigId?: string | null;
+  modelSelection?: import('../features/models/modelChoices').TurnModelSelection | null;
   systemPrompt: string;
   collectionContext?: {
     title: string;
@@ -635,7 +637,7 @@ export interface AppConfig {
   maxVideoFileSize: number;
   maxAudioFileSize: number;
   dynamicToolVisibility?: boolean;
-  contextManagementMode?: 'summary' | 'history';
+  contextManagementMode?: 'summary' | 'history' | 'seamless';
   toolVisibilityDefaultsVersion?: number;
   dictationDefaultsVersion?: number;
   traceEnabled?: boolean;

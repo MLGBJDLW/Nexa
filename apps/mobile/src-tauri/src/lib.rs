@@ -1,6 +1,6 @@
 mod connections;
 mod local;
-mod phone_tool;
+mod phone_host;
 mod platform;
 mod remote;
 
@@ -12,6 +12,15 @@ impl RuntimeSlot {
     async fn get(&self, app: &AppHandle) -> Result<&Arc<LocalRuntime>, String> {
         self.0
             .get_or_try_init(|| async {
+                let key = match platform::read_secret(app, "settings-key").await? {
+                    Some(value) => value.as_str().ok_or("Invalid settings key")?.to_string(),
+                    None => {
+                        let key = nexa_core::crypto::generate_host_key();
+                        platform::save_secret(app, "settings-key", Some(&json!(key))).await?;
+                        key
+                    }
+                };
+                nexa_core::crypto::install_host_key(&key).map_err(|e| e.to_string())?;
                 LocalRuntime::open(app, app.path().app_data_dir().map_err(|e| e.to_string())?).await
             })
             .await
@@ -19,7 +28,7 @@ impl RuntimeSlot {
 }
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result<Value, String> {
@@ -104,6 +113,22 @@ async fn mobile_local(
             .db
             .remote_conversations(input["before"].as_str())
             .map_err(|e| e.to_string()),
+        "archived" => state
+            .db
+            .remote_archived_conversations(input["before"].as_str())
+            .map_err(|e| e.to_string()),
+        "restore" => {
+            let id = string("conversationId")?;
+            state
+                .db
+                .require_remote_conversation(&id)
+                .map_err(|e| e.to_string())?;
+            state
+                .db
+                .unarchive_conversation(&id)
+                .map(|_| Value::Null)
+                .map_err(|e| e.to_string())
+        }
         "messages" => state
             .db
             .remote_messages(&string("conversationId")?, input["beforeOrder"].as_i64())
@@ -151,6 +176,19 @@ async fn mobile_local(
             )
         }
         "approvals" => state.approvals(&string("conversationId")?).await,
+        "archive" | "delete" => {
+            let ids = [string("conversationId")?];
+            state
+                .db
+                .require_remote_conversation(&ids[0])
+                .map_err(|e| e.to_string())?;
+            let result = if action == "archive" {
+                state.db.archive_conversations_batch(&ids)
+            } else {
+                state.db.delete_conversations_batch(&ids)
+            };
+            result.map(|count| json!(count)).map_err(|e| e.to_string())
+        }
         "create" => {
             let mut saved = connections::get(&app, input["connectionId"].as_str()).await?;
             if !input["modelSelection"].is_null() {
@@ -239,19 +277,150 @@ async fn mobile_overlay(app: AppHandle, enabled: bool) -> Result<Value, String> 
 }
 
 #[tauri::command]
+async fn mobile_phone_control(
+    app: AppHandle,
+    host_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    remote::configure_phone_control(&app, &host_id, enabled).await
+}
+
+#[tauri::command]
+async fn mobile_web_settings(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    action: String,
+    web_search: Option<nexa_core::app_settings::WebSearchConfig>,
+) -> Result<Value, String> {
+    let db = runtime.get(&app).await?.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut saved = db.load_app_config().map_err(|e| e.to_string())?;
+        let mut config = web_search.unwrap_or_else(|| saved.web_search.clone());
+        for provider in &mut config.custom_providers {
+            if provider.api_key == "__NEXA_SAVED_KEY__" {
+                provider.api_key = saved
+                    .web_search
+                    .custom_providers
+                    .iter()
+                    .find(|old| old.id == provider.id && old.preset == provider.preset)
+                    .map(|old| old.api_key.clone())
+                    .unwrap_or_default();
+            }
+            if let Some(url) = provider
+                .base_url
+                .as_deref()
+                .filter(|url| !url.trim().is_empty())
+            {
+                validate_provider_url(url)?;
+            }
+        }
+        match action.as_str() {
+            "status" => Ok(json!(
+                nexa_core::tools::web_search_tool::provider_status_snapshot(&config)
+            )),
+            "read" | "save" => {
+                if action == "save" {
+                    saved.web_search = config.clone();
+                    db.save_app_config(&saved).map_err(|e| e.to_string())?;
+                }
+                for provider in &mut config.custom_providers {
+                    if !provider.api_key.is_empty() {
+                        provider.api_key = "__NEXA_SAVED_KEY__".into();
+                    }
+                }
+                let public = nexa_core::app_settings::AppConfig {
+                    web_search: config,
+                    ..Default::default()
+                };
+                Ok(json!(public))
+            }
+            _ => Err("Unsupported web settings operation".into()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn mobile_storage(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    action: String,
+    scope: Option<String>,
+    cursor: Option<nexa_core::conversation::ConversationStorageCursor>,
+    ids: Option<Vec<String>>,
+) -> Result<Value, String> {
+    let db = runtime.get(&app).await?.db.clone();
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?;
+    let changed_ids = ids.clone().unwrap_or_default();
+    let operation = action.clone();
+    let result = tokio::task::spawn_blocking(move || match action.as_str() {
+        "usage" => {
+            let mut usage = db.storage_usage().map_err(|error| error.to_string())?;
+            nexa_core::storage_usage::add_files(
+                &mut usage,
+                &[(directory, "files"), (cache, "runtime")],
+                db.db_path(),
+            );
+            Ok(json!(usage))
+        }
+        "page" => db
+            .conversation_storage_page(scope.as_deref().unwrap_or("active"), cursor.as_ref())
+            .map(|page| json!(page))
+            .map_err(|error| error.to_string()),
+        "archive" => db
+            .archive_conversations_batch(&ids.unwrap_or_default())
+            .map(|count| json!(count))
+            .map_err(|error| error.to_string()),
+        "remove" => db
+            .delete_conversations_batch(&ids.unwrap_or_default())
+            .map(|count| json!(count))
+            .map_err(|error| error.to_string()),
+        _ => Err("Unsupported storage operation".into()),
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    if matches!(operation.as_str(), "archive" | "remove") {
+        let _ = app.emit(
+            "mobile:conversations",
+            json!({"ids":changed_ids,"action":operation}),
+        );
+    }
+    Ok(result)
+}
+
+#[tauri::command]
 async fn mobile_speech(
     app: AppHandle,
     action: String,
     text: Option<String>,
     language: Option<String>,
+    mode: Option<String>,
 ) -> Result<Value, String> {
-    if !matches!(action.as_str(), "listen" | "cancel" | "speak" | "stop") {
+    if !matches!(
+        action.as_str(),
+        "listen" | "cancel" | "speak" | "stop" | "status" | "configure" | "settings"
+    ) {
         return Err("Unsupported speech action.".into());
     }
     if text.as_ref().is_some_and(|text| text.len() > 512_000) {
         return Err("Load and read a smaller message section.".into());
     }
-    platform::call(&app, "speech", json!({"action":action,"text":text.unwrap_or_default(),"language":language.unwrap_or_else(|| "en".into())})).await
+    let mut args = json!({"action":action,"text":text.unwrap_or_default()});
+    if let Some(language) = language {
+        args["language"] = json!(language);
+    }
+    if let Some(mode) = mode {
+        args["mode"] = json!(mode);
+    }
+    platform::call(&app, "speech", args).await
 }
 
 #[tauri::command]
@@ -403,6 +572,9 @@ pub fn run() {
             mobile_scan_pairing,
             mobile_speech,
             mobile_overlay,
+            mobile_phone_control,
+            mobile_storage,
+            mobile_web_settings,
             mobile_pair,
             mobile_remote,
             mobile_files

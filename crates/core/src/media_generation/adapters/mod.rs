@@ -7,6 +7,7 @@
 mod http;
 mod minimax;
 mod minimax_hailuo;
+mod openrouter;
 mod runway;
 
 use std::fmt;
@@ -21,6 +22,7 @@ use crate::video_provider_catalog::VideoModelManifest;
 
 pub use minimax::MiniMaxVideoAdapter;
 pub use minimax_hailuo::MiniMaxHailuoVideoAdapter;
+pub use openrouter::OpenRouterVideoAdapter;
 pub use runway::RunwayVideoAdapter;
 
 const MAX_PROMPT_CHARS: usize = 15_000;
@@ -255,7 +257,10 @@ pub trait VideoGenerationAdapter: Send + Sync {
     ) -> NormalizedProviderError;
 }
 
-fn common_validation(request: &NormalizedVideoRequest) -> Vec<ValidationIssue> {
+fn common_validation(
+    request: &NormalizedVideoRequest,
+    requires_verified_metadata: bool,
+) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
     if request.idempotency_key.trim().is_empty()
         || request.idempotency_key.len() > MAX_IDEMPOTENCY_KEY_BYTES
@@ -282,7 +287,7 @@ fn common_validation(request: &NormalizedVideoRequest) -> Vec<ValidationIssue> {
         ));
     }
     for (index, asset) in request.input_assets.iter().enumerate() {
-        if !asset.metadata_verified {
+        if requires_verified_metadata && !asset.metadata_verified {
             issues.push(issue(
                 &format!("inputAssets[{index}]"),
                 "unverified_input_metadata",

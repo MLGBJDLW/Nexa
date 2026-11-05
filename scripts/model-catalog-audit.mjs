@@ -56,6 +56,7 @@ const publicCatalogPaths = new Map([
   ['image:openrouter-images', '/images/models'],
   ['decision:openrouter', '/models?output_modalities=decisions'],
   ['embedding:openrouter', '/embeddings/models'],
+  ['video:openrouter-video', '/videos/models'],
 ]);
 
 const readJson = async (relativePath) => JSON.parse(

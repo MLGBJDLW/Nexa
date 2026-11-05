@@ -81,8 +81,10 @@ test('Titan embeddings expose only supported text dimensions and canonical decis
     assert.deepEqual(row.allowedDimensions ?? [], allowed);
   }
   const decisions = read('system-one-provider-presets').find(row => row.id === 'openrouter').models;
-  assert.equal(embeddings.some(row => row.id === 'amazon/titan-embed-image-v1'), false,
-    'the 128-token multimodal model needs a dedicated input budget, not tiny general-index chunks');
+  const titanMultimodal = embeddings.find(row => row.id === 'amazon/titan-embed-image-v1');
+  assert.equal(titanMultimodal.effectiveInputTokens, 128);
+  assert.deepEqual(titanMultimodal.inputModalities, ['text']);
+  assert.deepEqual(titanMultimodal.allowedDimensions, [1024, 384, 256]);
   assert.equal(decisions.find(row => row.id === 'liquid/d1.1').contextTokens, 65_536);
   assert.equal(decisions.find(row => row.id === '~liquid/d1-latest').contextTokens, 65_536);
 });

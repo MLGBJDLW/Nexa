@@ -215,10 +215,6 @@ pub async fn save_generated_image_cmd(
             return Err("No generated image payload was available to save.".to_string());
         };
 
-        if !nexa_core::media::is_supported_image(&media_type) {
-            return Err(format!("Unsupported generated image type: {media_type}"));
-        }
-
         let output_path = PathBuf::from(input.output_path.trim());
         if output_path.as_os_str().is_empty() {
             return Err("Choose a file path before saving the image.".to_string());
@@ -228,10 +224,12 @@ pub async fn save_generated_image_cmd(
             .and_then(|ext| ext.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        if !matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif") {
-            return Err(
-                "Generated images can only be saved as PNG, JPEG, WEBP, or GIF.".to_string(),
-            );
+        if media_type == "image/svg+xml" {
+            if extension != "svg" {
+                return Err("Use the SVG extension for a generated vector image.".into());
+            }
+        } else if !matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif") {
+            return Err("Choose a PNG, JPEG, WEBP, or GIF extension for the raster image.".into());
         }
 
         if let Some(parent) = output_path.parent() {
@@ -262,14 +260,24 @@ fn read_supported_image_bytes(
     }
 
     let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
-    let media_type = media_type_hint
-        .map(str::trim)
-        .filter(|value| nexa_core::media::is_supported_image(value))
-        .map(str::to_string)
-        .unwrap_or_else(|| nexa_core::parse::detect_mime_type(file_path));
-    if !nexa_core::media::is_supported_image(&media_type) {
-        return Err(format!("Unsupported generated image type: {media_type}"));
-    }
+    let is_svg = file_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+        || media_type_hint.is_some_and(|hint| {
+            hint.split(';')
+                .next()
+                .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("image/svg+xml"))
+        });
+    let media_type = if is_svg {
+        "image/svg+xml".into()
+    } else {
+        media_type_hint
+            .map(str::trim)
+            .filter(|value| nexa_core::media::is_supported_image(value))
+            .map(str::to_string)
+            .unwrap_or_else(|| nexa_core::parse::detect_mime_type(file_path))
+    };
+    validate_generated_image_type(&bytes, &media_type)?;
     Ok((bytes, media_type))
 }
 
@@ -289,16 +297,25 @@ fn decode_image_data_url(data_url: &str) -> Result<(Vec<u8>, String), String> {
         .next()
         .unwrap_or("image/png")
         .to_string();
-    if !nexa_core::media::is_supported_image(&media_type) {
-        return Err(format!("Unsupported generated image type: {media_type}"));
-    }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload)
         .map_err(|e| format!("Generated image data URL is not valid base64: {e}"))?;
     if bytes.len() as u64 > GENERATED_IMAGE_MAX_BYTES {
         return Err("Generated image is too large to preview or save.".to_string());
     }
+    validate_generated_image_type(&bytes, &media_type)?;
     Ok((bytes, media_type))
+}
+
+fn validate_generated_image_type(bytes: &[u8], media_type: &str) -> Result<(), String> {
+    if media_type == "image/svg+xml" {
+        return nexa_core::tools::image_generation_tool::validate_generated_svg(bytes)
+            .map_err(|error| error.to_string());
+    }
+    if nexa_core::media::is_supported_image(media_type) {
+        return Ok(());
+    }
+    Err(format!("Unsupported generated image type: {media_type}"))
 }
 
 const PREVIEW_TEXT_BYTES_LIMIT: u64 = 2 * 1024 * 1024;
@@ -1087,4 +1104,26 @@ pub(super) fn save_text_file(
         reindex_status,
         reindex_detail,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_svg_is_validated_even_with_a_raster_hint() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("generated.SVG");
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L10 10"/></svg>"#;
+        std::fs::write(&path, svg).unwrap();
+        let path = path.to_str().unwrap();
+
+        let (bytes, mime) = read_supported_image_bytes(path, Some("image/png")).unwrap();
+        assert_eq!(bytes, svg);
+        assert_eq!(mime, "image/svg+xml");
+
+        std::fs::write(path, b"<svg><script>alert(1)</script></svg>").unwrap();
+        assert!(read_supported_image_bytes(path, Some("image/png")).is_err());
+        assert!(read_supported_image_bytes(path, None).is_err());
+    }
 }

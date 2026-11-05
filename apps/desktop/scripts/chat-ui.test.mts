@@ -5,6 +5,14 @@ import { parseChatUi, MAX_UI_BYTES } from '../../../crates/core/assets/skills/vi
 import { transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
 import { parseFollowupSuggestions, latestFollowupSuggestions } from '../src/lib/followupSuggestions.ts';
 
+test('completed replies have local suggestions when the provider omits optional metadata', () => {
+  const items = [{label:'Explain',prompt:'Explain the result in more detail.'},{label:'Next steps',prompt:'Suggest useful next steps.'}];
+  const message = {id:'completed',role:'assistant',content:'The requested analysis is complete and the output is ready to inspect.'};
+  assert.deepEqual(latestFollowupSuggestions([message] as any, items), {key:'completed',items});
+  assert.deepEqual(latestFollowupSuggestions([{...message,content:'Done.\n\n```nexa-followups\n['}] as any, items), {key:'completed',items});
+  assert.equal(latestFollowupSuggestions([{...message,artifacts:{phase:'commentary'}}] as any, items), null);
+});
+
 test('followups emitted as newline-delimited objects remain actionable', () => {
   const items = [{label:'项目体检',prompt:'检查 D:\\coder\\Nexa 的项目结构。'}, {label:'继续工作',prompt:'继续处理剩余问题。'}];
   const jsonl = items.map(item => JSON.stringify(item)).join('\n');
@@ -24,7 +32,9 @@ test('followups require a complete final assistant block and never activate quot
   }
   assert.equal(latestFollowupSuggestions([message,{...message,id:'user',role:'user'}]), null);
   assert.equal(latestFollowupSuggestions([{...message,artifacts:{phase:'commentary'}}]), null);
-  for (const input of ['{}',JSON.stringify([items[0]]),JSON.stringify([items[0],items[0]]),JSON.stringify([{label:'Run',prompt:'/compact'},items[1]])]) assert.deepEqual(parseFollowupSuggestions(input), []);
+  assert.deepEqual(parseFollowupSuggestions(JSON.stringify([items[0]])), [items[0]]);
+  for (const fence of ['~~~', '````']) assert.deepEqual(latestFollowupSuggestions([{...message,content:`Done.\n\n${fence}NEXA-FOLLOWUPS\n${json}\n${fence}`}]), {key:'final',items});
+  for (const input of ['{}',JSON.stringify([items[0],items[0]]),JSON.stringify([{label:'Run',prompt:'/compact'},items[1]])]) assert.deepEqual(parseFollowupSuggestions(input), []);
 });
 
 const sample = JSON.parse(readFileSync(new URL('../../../crates/core/assets/skills/visual-explanations/resources/examples.json', import.meta.url), 'utf8'));

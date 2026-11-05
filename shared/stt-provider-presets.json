@@ -294,6 +294,41 @@
     ]
   },
   {
+    "id": "mistral-realtime",
+    "name": "Mistral Voxtral Realtime",
+    "provider": "mistral",
+    "apiStyle": "mistral_realtime_asr",
+    "requiresApiKey": true,
+    "baseUrl": "https://api.mistral.ai/v1/audio/transcriptions/realtime",
+    "description": "Voxtral 3 streams 16 kHz PCM and returns incremental and final transcripts.",
+    "transcription": {
+      "audioInput": "chunkStream",
+      "transcriptDelivery": "interimAndFinal",
+      "interimSemantics": "appendDelta",
+      "finalization": "clientCommit",
+      "transport": "websocket",
+      "sampleRateHz": 16000,
+      "engineStreamingCapable": true
+    },
+    "models": [
+      {
+        "id": "voxtral-mini-transcribe-realtime-3-0",
+        "name": "Voxtral Mini Realtime 3",
+        "access": "public",
+        "source": "official",
+        "status": "preview",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime"
+      }
+    ],
+    "documentationUrls": [
+      "https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime"
+    ],
+    "lastVerifiedAt": "2026-11-05"
+  },
+  {
     "id": "mistral",
     "name": "Mistral Voxtral",
     "provider": "mistral",

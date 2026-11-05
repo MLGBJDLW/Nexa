@@ -33,6 +33,7 @@ interface WebSearchSettingsPanelProps {
   onChange: (config: AppConfig) => void;
   onMarkDirty: () => void;
   onSave: () => void;
+  getStatus?: (config: WebSearchConfig) => Promise<WebSearchProviderStatus[]>;
 }
 
 const DEFAULT_WEB_SEARCH_CONFIG: WebSearchConfig = {
@@ -352,6 +353,7 @@ export function WebSearchSettingsPanel({
   onChange,
   onMarkDirty,
   onSave,
+  getStatus = api.getWebSearchStatus,
 }: WebSearchSettingsPanelProps) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<WebSearchProviderStatus[]>([]);
@@ -367,7 +369,7 @@ export function WebSearchSettingsPanel({
   const refreshStatus = async () => {
     setRefreshing(true);
     try {
-      setStatus(await api.getWebSearchStatus(config));
+      setStatus(await getStatus(config));
     } catch {
       setStatus([]);
     } finally {

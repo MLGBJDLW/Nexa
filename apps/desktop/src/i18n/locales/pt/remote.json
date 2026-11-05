@@ -1,4 +1,16 @@
 {
+  "mobileAllowComputerControl": "Permitir controle do telefone",
+  "mobileComputerControlHint": "Permita o controle por este computador pareado durante a conexão. Mantenha o telefone desbloqueado. Parar na notificação encerra o acesso. Tarefas locais e controle remoto são executados separadamente.",
+  "mobileSpeechSettings": "Voz",
+  "mobileSpeechHint": "Escolha o serviço e o idioma de reconhecimento do telefone. O serviço do sistema pode usar a rede. O idioma padrão segue o aplicativo.",
+  "mobileSpeechEngine": "Reconhecimento",
+  "mobileSpeechSystem": "Serviço do sistema",
+  "mobileSpeechOnDevice": "No dispositivo",
+  "mobileSpeechLanguage": "Idioma de voz",
+  "mobileSpeechTest": "Testar microfone",
+  "mobileSpeechSystemSettings": "Configurações de entrada de voz",
+  "mobileSpeechOutputSettings": "Configurações de leitura",
+  "speechOnDeviceUnavailable": "O reconhecimento no dispositivo não está disponível. Escolha o serviço do sistema ou instale um idioma compatível no Android.",
   "title": "Conectar celular",
   "subtitle": "Pareie seu celular para conversar com o agente deste computador e enviar entradas Live. A rede local disponível tem prioridade; a conexão pública mantém o acesso fora de casa.",
   "companion": "Acesso remoto",
@@ -201,5 +213,7 @@
   "speechTimeout": "O motor de voz não responde. Tente novamente ou verifique as definições de voz do Android.",
   "speechLanguage": "Instale os dados deste idioma nas definições de síntese de voz do Android.",
   "speechBusy": "A voz já está em uso. Pare-a ou feche outras aplicações de microfone e tente novamente.",
-  "speechFailed": "Não foi possível concluir a operação de voz. Verifique as definições de voz do Android e tente novamente."
+  "speechFailed": "Não foi possível concluir a operação de voz. Verifique as definições de voz do Android e tente novamente.",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

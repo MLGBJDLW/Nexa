@@ -639,35 +639,8 @@ fn select_agent_config_for_conversation(
     conv: &Conversation,
     requested_config_id: Option<&str>,
 ) -> Result<DbAgentConfig, String> {
-    let configs = db.list_agent_configs().map_err(|e| e.to_string())?;
-    if let Some(id) = requested_config_id
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
-        if let Some(config) = configs.iter().find(|cfg| cfg.id == id).cloned() {
-            return Ok(config);
-        }
-        warn!(
-            "Requested agent config id '{}' was not found; falling back to conversation provider/model",
-            id
-        );
-    }
-    let default_config = configs.iter().find(|cfg| cfg.is_default).cloned();
-    let matching_config = configs
-        .iter()
-        .filter(|cfg| cfg.provider == conv.provider && cfg.model == conv.model)
-        .find(|cfg| cfg.is_default)
-        .cloned()
-        .or_else(|| {
-            configs
-                .iter()
-                .find(|cfg| cfg.provider == conv.provider && cfg.model == conv.model)
-                .cloned()
-        });
-
-    matching_config
-        .or(default_config)
-        .ok_or_else(|| "No agent config set. Please configure an LLM provider first.".to_string())
+    db.resolve_conversation_agent_config(conv, requested_config_id)
+        .map_err(|error| error.to_string())
 }
 
 fn build_connection_probe_request(config: &SaveAgentConfigInput) -> CompletionRequest {

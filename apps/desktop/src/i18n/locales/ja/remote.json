@@ -1,4 +1,16 @@
 {
+  "mobileAllowComputerControl": "コンピューターによる端末操作を許可",
+  "mobileComputerControlHint": "ペアリングしたコンピューターに接続中の操作を許可します。端末のロックを解除してください。通知の停止ボタンで終了できます。端末のタスクとリモート操作は別々に実行します。",
+  "mobileSpeechSettings": "音声",
+  "mobileSpeechHint": "端末の音声認識サービスと言語を選びます。システム認識はネットワークを使用する場合があります。既定はアプリの言語です。",
+  "mobileSpeechEngine": "音声認識",
+  "mobileSpeechSystem": "システムサービス",
+  "mobileSpeechOnDevice": "端末内",
+  "mobileSpeechLanguage": "音声の言語",
+  "mobileSpeechTest": "マイクをテスト",
+  "mobileSpeechSystemSettings": "音声入力の設定",
+  "mobileSpeechOutputSettings": "読み上げの設定",
+  "speechOnDeviceUnavailable": "端末内の音声認識を利用できません。システムサービスを選ぶか、Android の設定で対応言語をインストールしてください。",
   "title": "スマートフォン接続",
   "subtitle": "スマートフォンをペアリングして、このPCのエージェントと会話したり、Live入力を送ったりできます。利用可能なLANを優先し、外出時は公開接続へ切り替えます。",
   "companion": "リモート接続",
@@ -201,5 +213,7 @@
   "speechTimeout": "音声エンジンが応答しません。再試行するか、Android の音声設定を確認してください。",
   "speechLanguage": "Android の読み上げ設定で、この言語の音声データをインストールしてください。",
   "speechBusy": "音声機能が使用中です。停止するか、他のマイクアプリを閉じて再試行してください。",
-  "speechFailed": "音声処理を完了できませんでした。Android の音声設定を確認して再試行してください。"
+  "speechFailed": "音声処理を完了できませんでした。Android の音声設定を確認して再試行してください。",
+  "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
 }

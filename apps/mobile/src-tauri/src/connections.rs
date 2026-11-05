@@ -112,10 +112,6 @@ pub async fn public_state(app: &AppHandle) -> Result<Value, String> {
     )
 }
 
-pub async fn active(app: &AppHandle) -> Result<SharedModelConnection, String> {
-    get(app, None).await
-}
-
 pub async fn get(app: &AppHandle, id: Option<&str>) -> Result<SharedModelConnection, String> {
     let _guard = STORE.lock().await;
     let store = load(app).await?;

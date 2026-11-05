@@ -31,7 +31,7 @@ export interface NativeSpeech {
   speak: (text: string, language: string) => Promise<unknown>;
   stop: () => Promise<unknown>;
 }
-export type RemoteChatClient = Pick<RemoteClient, 'models' | 'paired' | 'state' | 'rpc' | 'subscribe' | 'subscribeConnection' | 'audio' | 'recoverAudio'> & { voiceAvailable?: boolean; composerOptionsAvailable?: boolean; resumeAvailable?: boolean; modelPickerAvailable?: boolean; extendedModesAvailable?: boolean; imagesOnly?: boolean; approvalModeAvailable?: boolean; nativeSpeech?: NativeSpeech };
+export type RemoteChatClient = Pick<RemoteClient, 'models' | 'paired' | 'state' | 'rpc' | 'subscribe' | 'subscribeConnection' | 'audio' | 'recoverAudio'> & { conversationManagementAvailable?: boolean; voiceAvailable?: boolean; composerOptionsAvailable?: boolean; resumeAvailable?: boolean; modelPickerAvailable?: boolean; extendedModesAvailable?: boolean; imagesOnly?: boolean; approvalModeAvailable?: boolean; nativeSpeech?: NativeSpeech };
 export function remoteRouteHeaders(origin: string): Record<string, string> {
   const host = new URL(origin).hostname;
   return ['.free.pinggy.net', '.pinggy.link', '.pinggy.online', '.run.pinggy-free.link'].some(suffix => host.endsWith(suffix))
@@ -42,6 +42,7 @@ const timeoutSignal = (ms: number) => AbortSignal.timeout(ms);
 
 /** A page stays on its trusted origin while the transport chooses a reachable route. */
 export class RemoteClient {
+  get conversationManagementAvailable() { return this.paired.manifest.capabilities?.includes("chat-management-v1") ?? false; }
   readonly models = cachedModelChoices(id => this.rpc<ModelChoices>('models.list', { connectionId:id }));
   private socket: WebSocket | null = null;
   private disposed = false;
