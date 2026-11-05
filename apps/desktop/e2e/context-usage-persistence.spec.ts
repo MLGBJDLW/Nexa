@@ -808,7 +808,7 @@ test('manual compact is rejected while the target conversation is streaming', as
   await page.goto('/chat/conv-e2e');
   await page.getByTestId('chat-input-textarea').fill('Keep streaming, multi step, while I inspect the controls.');
   await page.getByTestId('chat-send').click();
-  await expect(page.getByTestId('chat-send')).toHaveAttribute('aria-label', 'Steering message');
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
   await expect(page.getByTestId('chat-compact')).toBeDisabled();
 
   await page.getByTestId('chat-input-textarea').fill('/compact');
@@ -901,7 +901,7 @@ test('history Fork remains available during streaming and keeps the existing com
   await page.goto('/chat/conv-e2e');
   await page.getByTestId('chat-input-textarea').fill('Keep streaming, multi step, while I fork.');
   await page.getByTestId('chat-send').click();
-  await expect(page.getByTestId('chat-send')).toHaveAttribute('aria-label', 'Steering message');
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
   const fork = page.getByTestId('chat-compact');
   await page.getByTestId('chat-input-toolbar').getByRole('button', { name: 'More options', exact: true }).click();
   await expect(fork).toHaveAttribute('aria-label', 'Fork to new window');
