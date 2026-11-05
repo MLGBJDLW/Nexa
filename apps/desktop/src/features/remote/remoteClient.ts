@@ -28,6 +28,7 @@ export interface RemoteConnection {
 export interface NativeSpeech {
   listen: (language: string) => Promise<string>;
   cancel: () => Promise<unknown>;
+  finish?: () => Promise<unknown>;
   speak: (text: string, language: string) => Promise<unknown>;
   stop: () => Promise<unknown>;
 }

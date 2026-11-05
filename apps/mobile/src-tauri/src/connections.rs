@@ -131,7 +131,7 @@ pub fn provider_config(
         api_key: Some(saved.api_key.clone()),
         org_id: None,
         timeout_secs: None,
-        streaming: saved.provider_streaming.clone(),
+        streaming: saved.provider_streaming,
     })
 }
 

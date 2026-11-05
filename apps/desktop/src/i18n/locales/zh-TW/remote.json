@@ -215,5 +215,15 @@
   "speechBusy": "語音正在使用中，請停止目前語音或關閉其他麥克風應用程式後重試。",
   "speechFailed": "語音操作未完成，請檢查 Android 語音設定後重試。",
   "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
-  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone.",
+  "mobileDeepseekConnection": "使用 {name} 進行搜尋與擷取",
+  "mobileDeepseekConnectionHint": "使用此已儲存連線的金鑰啟用 DeepSeek 搜尋與網頁擷取，並優先使用此來源。",
+  "speechInterrupted": "語音輸入已中斷。請返回 Nexa 後再次點選麥克風。",
+  "mobileSpeechChoiceHint": "語音輸入和朗讀可分別使用手機引擎，或選擇自行設定的供應商。",
+  "mobileSpeechCloud": "自訂語音供應商",
+  "mobileSpeechRecordHint": "點選開始錄音，再點停止後交由所選供應商轉寫。錄音最長 60 秒。",
+  "mobileSpeechOutput": "朗讀服務",
+  "mobileSpeechSample": "你好，我是 Nexa。你的語音服務已準備就緒。",
+  "speechConfiguration": "請先設定支援的語音供應商、端點、模型和 API 金鑰。",
+  "speechCloudFailed": "自訂語音服務呼叫失敗，請檢查帳號、模型、端點和網路。"
 }

@@ -215,5 +215,15 @@
   "speechBusy": "语音正在使用中，请停止当前语音或关闭其他麦克风应用后重试。",
   "speechFailed": "语音操作未完成，请检查 Android 语音设置后重试。",
   "archiveChatHint": "将此对话移出活跃列表，保留其中的消息。",
-  "deleteChatHint": "永久删除此对话及其中的消息，此操作无法撤销。"
+  "deleteChatHint": "永久删除此对话及其中的消息，此操作无法撤销。",
+  "mobileDeepseekConnection": "使用 {name} 进行搜索与抓取",
+  "mobileDeepseekConnectionHint": "使用此已保存连接的密钥启用 DeepSeek 搜索与网页抓取，并优先使用该来源。",
+  "speechInterrupted": "语音输入已中断。请返回 Nexa 后再次点击麦克风。",
+  "mobileSpeechChoiceHint": "语音输入和朗读可分别使用手机引擎，或选择你自己配置的供应商。",
+  "mobileSpeechCloud": "自配语音供应商",
+  "mobileSpeechRecordHint": "点击开始录音，再点停止后交给所选供应商转写。录音最长 60 秒。",
+  "mobileSpeechOutput": "朗读服务",
+  "mobileSpeechSample": "你好，我是 Nexa。你的语音服务已准备就绪。",
+  "speechConfiguration": "请先配置受支持的语音供应商、接口地址、模型和 API 密钥。",
+  "speechCloudFailed": "自配语音服务调用失败，请检查账号、模型、接口地址和网络。"
 }

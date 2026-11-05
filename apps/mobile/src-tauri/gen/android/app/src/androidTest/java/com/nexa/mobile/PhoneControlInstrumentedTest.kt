@@ -31,7 +31,7 @@ class PhoneControlInstrumentedTest {
     }
     @Before fun openFixture() {
         val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
-        for (command in listOf("settings put secure enabled_accessibility_services com.nexa.mobile/.PhoneAccessibilityService", "settings put secure accessibility_enabled 1")) {
+        for (command in listOf("settings put global window_animation_scale 0", "settings put global transition_animation_scale 0", "settings put global animator_duration_scale 0", "settings put secure enabled_accessibility_services com.nexa.mobile/.PhoneAccessibilityService", "settings put secure accessibility_enabled 1")) {
             android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
         }
         val previous = PhoneControlFixtureActivity.current
@@ -61,6 +61,75 @@ class PhoneControlInstrumentedTest {
     }
     private fun args(state: JSONObject, action: String) = JSONObject().put("action", action).put("observationId", state.getString("observationId")).put("packageName", state.getString("packageName"))
     private fun summary(state: JSONObject) = JSONObject(state.toString()).apply { optJSONObject("image")?.remove("base64") }.toString()
+
+    @Test fun cloudDictationCapturesBoundedWavAndCancellationDiscardsAudio() {
+        val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("pm grant com.nexa.mobile android.permission.RECORD_AUDIO")).use { it.readBytes() }
+        lateinit var speech: PhoneSpeech
+        val done = CountDownLatch(1); var result = JSONObject(); var rejected = false
+        val invoke = Invoke(1, "speech", 1, 2, { callback, data -> rejected = callback == 2L; result = JSONObject(data); done.countDown() }, "{}", ObjectMapper())
+        instrumentation.runOnMainSync {
+            speech = PhoneSpeech(requireNotNull(PhoneControlFixtureActivity.current))
+            speech.configure(JSObject().apply { put("mode", "cloud") })
+            speech.listen(invoke)
+        }
+        try {
+            SystemClock.sleep(650)
+            instrumentation.runOnMainSync { speech.finishListening() }
+            assertTrue(done.await(8, TimeUnit.SECONDS)); assertFalse(result.toString(), rejected)
+            val wav = android.util.Base64.decode(result.getString("audioBase64"), android.util.Base64.DEFAULT)
+            assertEquals("RIFF", String(wav.copyOfRange(0, 4)))
+            assertEquals("WAVE", String(wav.copyOfRange(8, 12)))
+            assertTrue(wav.size > 44 && wav.size <= PhoneAudioRecorder.MAX_BYTES + 44)
+            assertEquals(wav.size - 44, java.nio.ByteBuffer.wrap(wav, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int)
+            val cancelled = CountDownLatch(1); var cancelledResult = ""
+            val second = Invoke(2, "speech", 3, 4, { callback, data -> assertEquals(4L, callback); cancelledResult = data; cancelled.countDown() }, "{}", ObjectMapper())
+            instrumentation.runOnMainSync { speech.listen(second); speech.cancelListening() }
+            assertTrue(cancelled.await(8, TimeUnit.SECONDS)); assertTrue(cancelledResult.contains("speech_cancelled")); assertFalse(cancelledResult.contains("audioBase64"))
+        } finally { instrumentation.runOnMainSync { speech.configure(JSObject().apply { put("mode", "system"); put("outputMode", "system") }); speech.destroy() } }
+    }
+
+    @Test fun cloudReadAloudPlaysProviderWavWithoutAWebViewOrDiskFile() {
+        val complete = CountDownLatch(1); var rejected = false; var result = ""
+        val args = JSONObject().put("audioBase64", android.util.Base64.encodeToString(PhoneAudioRecorder.wav(ByteArray(8000)), android.util.Base64.NO_WRAP))
+        val invoke = Invoke(1, "speech", 1, 2, { callback, data -> rejected = callback == 2L; result = data; complete.countDown() }, args.toString(), ObjectMapper())
+        val player = PhoneAudioPlayer()
+        try {
+            instrumentation.runOnMainSync { player.play(invoke) }
+            assertTrue("Native playback did not finish", complete.await(10, TimeUnit.SECONDS))
+            assertFalse(result, rejected)
+        } finally { instrumentation.runOnMainSync { player.stop() } }
+    }
+
+    @Test fun emptyRecognitionIsNotReportedAsSuccessfulDictation() {
+        var callbackId = 0L
+        var payload = ""
+        instrumentation.runOnMainSync {
+            val speech = PhoneSpeech(requireNotNull(PhoneControlFixtureActivity.current))
+            try {
+                val invoke = Invoke(1, "speech", 1, 2, { id, data -> callbackId = id; payload = data }, "{}", ObjectMapper())
+                PhoneSpeech::class.java.getDeclaredField("listening").apply { isAccessible = true }.set(speech, invoke)
+                PhoneSpeech::class.java.getDeclaredMethod("finishRecognition", String::class.java, String::class.java).apply { isAccessible = true }.invoke(speech, "", null)
+                assertEquals("Empty recognition must explain why the microphone stopped: $payload", 2L, callbackId)
+                assertTrue(payload, payload.contains("speech_no_match"))
+            } finally { speech.destroy() }
+        }
+    }
+
+    @Test fun recoveryNavigationDoesNotRequireAnUnreadableObservation() {
+        // A null root invalidates the previous observation. Recovery navigation
+        // must remain possible without authorizing a stale click or send.
+        instrumentation.runOnMainSync {
+            PhoneAccessibilityService::class.java.getDeclaredMethod("invalidate").apply { isAccessible = true }.invoke(service)
+        }
+        val home = call(JSONObject().put("action", "home"))
+        assertTrue(summary(home), home.optBoolean("actionAccepted"))
+        val opened = call(JSONObject().put("action", "open_app").put("packageName", "com.android.settings"))
+        assertTrue(summary(opened), opened.optBoolean("actionAccepted"))
+        val click = call(JSONObject().put("action", "click").put("nodeId", 0).put("packageName", "com.android.settings"))
+        assertEquals(summary(click), "stale_observation", click.optString("code"))
+        assertFalse(click.optBoolean("actionPerformed"))
+    }
 
     @Test fun reverseControlStopsAndRejectsAnotherComputer() {
         val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)

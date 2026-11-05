@@ -49,9 +49,9 @@ struct SynthesizeSpeechArgs {
 }
 
 #[derive(Debug)]
-struct GeneratedSpeech {
-    bytes: Vec<u8>,
-    media_type: String,
+pub struct GeneratedSpeech {
+    pub bytes: Vec<u8>,
+    pub media_type: String,
 }
 
 #[derive(Debug)]
@@ -64,14 +64,14 @@ pub struct SpeechSynthesisPreview {
     pub suggested_filename: String,
 }
 
-pub async fn synthesize_speech_preview(
+/// Provider audio without assuming a desktop filesystem or playback backend.
+pub async fn synthesize_speech_audio(
     config: &TextToSpeechConfig,
     text: &str,
     model_override: Option<&str>,
     voice_override: Option<&str>,
     speed_override: Option<f32>,
-    filename: Option<&str>,
-) -> Result<SpeechSynthesisPreview, CoreError> {
+) -> Result<GeneratedSpeech, CoreError> {
     let text = text.trim();
     if text.is_empty() {
         return Err(CoreError::InvalidInput(
@@ -122,6 +122,22 @@ pub async fn synthesize_speech_preview(
         _ => synthesize_openai(&client, config, text, &model, &voice, speed).await?,
     };
 
+    Ok(generated)
+}
+
+pub async fn synthesize_speech_preview(
+    config: &TextToSpeechConfig,
+    text: &str,
+    model_override: Option<&str>,
+    voice_override: Option<&str>,
+    speed_override: Option<f32>,
+    filename: Option<&str>,
+) -> Result<SpeechSynthesisPreview, CoreError> {
+    let generated =
+        synthesize_speech_audio(config, text, model_override, voice_override, speed_override)
+            .await?;
+    let model = selected(model_override, &config.model);
+    let voice = selected(voice_override, &config.voice);
     let extension = extension_for_media_type(&generated.media_type);
     let suggested_filename = safe_filename(filename, extension);
     let path = std::env::temp_dir()

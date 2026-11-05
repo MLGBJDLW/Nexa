@@ -36,14 +36,52 @@ export function withMergedPullRequests(body, generated) {
 export function updateVersionNotes(changelog, version, generated) {
   const entry = changelogEntries(changelog).find(entry => entry.version === version);
   if (!entry) throw new Error(`Missing changelog entry for ${version}`);
-  return changelog.slice(0, entry.start) + withMergedPullRequests(entry.body, generated)
+  return changelog.slice(0, entry.start) + withMergedPullRequests(desktopReleaseNotes(entry.body), generated)
     + '\n' + changelog.slice(entry.end);
+}
+
+// Older monorepo notes included dedicated Android/mobile sections. Keep those
+// in the mobile changelog, including when resuming an existing desktop draft.
+export function desktopReleaseNotes(markdown) {
+  const lines = markdown.split('\n');
+  let excludedLevel = null;
+  return lines.filter(line => {
+    if (line.trim() === BEGIN) { excludedLevel = null; return true; }
+    if (line.trim() === END) return true;
+    const heading = /^(#{2,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      if (excludedLevel !== null && level <= excludedLevel) excludedLevel = null;
+      if (excludedLevel === null && /^(?:Mobile(?:\s|$)|Android\s+assistant\b)/i.test(heading[2]) && !/\bdesktop\b/i.test(heading[2])) excludedLevel = level;
+    }
+    return excludedLevel === null;
+  }).join('\n').trim();
+}
+
+export function currentVersionNotes(changelog, version) {
+  const entries = changelogEntries(changelog);
+  if (entries[0]?.version !== version) throw new Error(`Changelog head does not match release ${version}`);
+  if (!entries[0].content) throw new Error(`Empty release notes for ${version}`);
+  return entries[0].content + '\n';
+}
+
+function desktopPullRequests(generated, repository, execute) {
+  const mobileOnly = new Set();
+  const inspected = new Set();
+  for (const match of generated.matchAll(/https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/g)) {
+    if (match[1] !== repository || inspected.has(match[2])) continue;
+    inspected.add(match[2]);
+    const files = execute('gh', ['api', `repos/${repository}/pulls/${match[2]}/files`, '--paginate', '--jq', '.[].filename']).split(/\r?\n/).filter(Boolean);
+    if (!files.length) throw new Error(`Unresolved files for PR ${match[2]}`);
+    if (files.every(file => file.startsWith('apps/mobile/') || file === '.github/workflows/mobile.yml' || file === 'docs/guides/MOBILE_APP.md')) mobileOnly.add(match[2]);
+  }
+  return generated.split('\n').filter(line => ![...mobileOnly].some(id => line.includes(`https://github.com/${repository}/pull/${id}`) && !new RegExp(`/pull/${id}\\d`).test(line))).join('\n');
 }
 
 export function releaseHistory(changelog, version, currentBody) {
   const entries = changelogEntries(changelog);
   if (entries[0]?.version !== version) throw new Error(`Changelog head does not match release ${version}`);
-  return entries.map((entry, index) => ({ version: entry.version, body: index === 0 ? currentBody : entry.content }));
+  return entries.map((entry, index) => ({ version: entry.version, body: desktopReleaseNotes(index === 0 ? currentBody : entry.content) }));
 }
 
 function command(program, args, input) {
@@ -54,6 +92,12 @@ export function run(mode, env = process.env, dependencies = {}) {
   const execute = dependencies.command ?? command;
   const read = dependencies.readFile ?? readFileSync;
   const write = dependencies.writeFile ?? writeFileSync;
+  if (mode === 'mobile') {
+    const version = JSON.parse(read('apps/mobile/package.json', 'utf8')).version;
+    if (env.RELEASE_TAG !== `nexa-mobile-v${version}`) throw new Error('Mobile tag and package version must match');
+    write('mobile-release-notes.md', currentVersionNotes(read('apps/mobile/CHANGELOG.md', 'utf8'), version));
+    return;
+  }
   const repository = env.GITHUB_REPOSITORY;
   if (!repository || !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('GITHUB_REPOSITORY is required');
   const changelog = read('CHANGELOG.md', 'utf8');
@@ -77,11 +121,12 @@ export function run(mode, env = process.env, dependencies = {}) {
   }
   // This endpoint generates text without creating/publishing a release:
   // https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release
-  const generated = JSON.parse(execute('gh', ['api', '--method', 'POST',
+  const generatedBody = JSON.parse(execute('gh', ['api', '--method', 'POST',
     `repos/${repository}/releases/generate-notes`, '--input', '-'], JSON.stringify({
     tag_name: tag, previous_tag_name: previousTag, target_commitish: targetSha,
   }))).body;
-  if (typeof generated !== 'string') throw new Error('Missing generated release-note body');
+  if (typeof generatedBody !== 'string') throw new Error('Missing generated release-note body');
+  const generated = desktopPullRequests(generatedBody, repository, execute);
   if (mode === 'maintain') {
     if (!/^\d+$/.test(env.RELEASE_PR_NUMBER ?? '')) throw new Error('Release PR number is required');
     const pr = JSON.parse(execute('gh', ['pr', 'view', env.RELEASE_PR_NUMBER, '--repo', repository, '--json', 'body']));
@@ -90,7 +135,7 @@ export function run(mode, env = process.env, dependencies = {}) {
   } else {
     const release = JSON.parse(execute('gh', ['release', 'view', tag, '--repo', repository, '--json', 'body,isDraft']));
     if (!release.isDraft) throw new Error('Release notes can only be prepared for a draft');
-    const body = withMergedPullRequests(release.body, generated);
+    const body = withMergedPullRequests(desktopReleaseNotes(release.body), generated);
     write('release-notes.md', body);
     write('release-history.json', JSON.stringify(releaseHistory(changelog, version, body), null, 2) + '\n');
   }

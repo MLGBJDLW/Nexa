@@ -215,5 +215,15 @@
   "speechBusy": "音声機能が使用中です。停止するか、他のマイクアプリを閉じて再試行してください。",
   "speechFailed": "音声処理を完了できませんでした。Android の音声設定を確認して再試行してください。",
   "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
-  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone.",
+  "mobileDeepseekConnection": "{name} を検索と取得に使用",
+  "mobileDeepseekConnectionHint": "保存した接続で DeepSeek の検索とページ取得を有効にし、ウェブ検索で優先します。",
+  "speechInterrupted": "音声入力が中断されました。Nexa に戻り、マイクをもう一度タップしてください。",
+  "mobileSpeechChoiceHint": "音声入力と読み上げに、端末のエンジンまたは独自のプロバイダーを選べます。",
+  "mobileSpeechCloud": "設定したプロバイダー",
+  "mobileSpeechRecordHint": "タップして録音し、停止をタップすると選択したプロバイダーで文字起こしします。最大60秒です。",
+  "mobileSpeechOutput": "読み上げサービス",
+  "mobileSpeechSample": "こんにちは、Nexa です。音声サービスの準備ができました。",
+  "speechConfiguration": "対応する音声プロバイダー、接続先、モデル、API キーを設定してください。",
+  "speechCloudFailed": "音声サービスに接続できません。アカウント、モデル、接続先、ネットワークを確認してください。"
 }

@@ -29,19 +29,25 @@ class PhoneSpeech(private val activity: Activity) {
     private var engineGeneration = 0L
     private var initTimeout: Runnable? = null
     private val preferences = activity.getSharedPreferences("phone-speech", Activity.MODE_PRIVATE)
+    private val recorder = PhoneAudioRecorder()
+    private val audioPlayer = PhoneAudioPlayer()
+    private fun onDeviceAvailable() = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(activity)
     fun status() = JSObject().apply {
         put("mode", preferences.getString("mode", "system"))
+        put("outputMode", preferences.getString("outputMode", "system"))
         put("language", preferences.getString("language", ""))
         put("systemAvailable", SpeechRecognizer.isRecognitionAvailable(activity))
-        put("onDeviceAvailable", Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(activity))
+        put("onDeviceAvailable", onDeviceAvailable())
         put("microphoneGranted", androidx.core.content.ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
     fun configure(args: JSObject): JSObject {
         val mode = args.getString("mode", "system").orEmpty()
         val language = args.getString("language", "").orEmpty()
-        require(mode in listOf("system", "on_device")) { "Unsupported speech mode." }
+        val outputMode = args.getString("outputMode", preferences.getString("outputMode", "system")).orEmpty()
+        require(outputMode in listOf("system", "cloud")) { "Unsupported speech output mode." }
+        require(mode in listOf("system", "on_device", "cloud")) { "Unsupported speech mode." }
         require(language.isEmpty() || language.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*"))) { "Choose a valid speech language." }
-        preferences.edit().putString("mode", mode).putString("language", language).apply()
+        preferences.edit().putString("mode", mode).putString("outputMode", outputMode).putString("language", language).apply()
         return status()
     }
     private fun language(args: JSObject): String = preferences.getString("language", "").orEmpty().ifBlank {
@@ -55,23 +61,37 @@ class PhoneSpeech(private val activity: Activity) {
     }
 
     fun listen(invoke: Invoke) = activity.runOnUiThread {
-        if (listening != null) { invoke.reject("speech_busy"); return@runOnUiThread }
-        val onDevice = preferences.getString("mode", "system") == "on_device"
-        if (onDevice && (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(activity))) { invoke.reject("speech_on_device_unavailable"); return@runOnUiThread }
+        if (listening != null || recorder.active) { invoke.reject("speech_busy"); return@runOnUiThread }
+        if (preferences.getString("mode", "system") == "cloud") { stopSpeech(); recorder.start(invoke); return@runOnUiThread }
+        val requestedOnDevice = preferences.getString("mode", "system") == "on_device"
+        if (requestedOnDevice && !onDeviceAvailable()) { invoke.reject("speech_on_device_unavailable"); return@runOnUiThread }
+        val onDevice = requestedOnDevice || (!SpeechRecognizer.isRecognitionAvailable(activity) && onDeviceAvailable())
         if (!onDevice && !SpeechRecognizer.isRecognitionAvailable(activity)) { invoke.reject("speech_unavailable"); return@runOnUiThread }
+        stopSpeech()
+        listening = invoke
+        startRecognition(invoke, onDevice)
+    }
+    private fun startRecognition(invoke: Invoke, onDevice: Boolean) {
         try {
-            stopSpeech()
-            listening = invoke
             val session = if (onDevice && Build.VERSION.SDK_INT >= 31) SpeechRecognizer.createOnDeviceSpeechRecognizer(activity) else SpeechRecognizer.createSpeechRecognizer(activity)
             recognizer = session
+            var partialText = ""
+            fun current() = listening === invoke && recognizer === session
             session.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) { if (listening === invoke) armRecognitionTimeout() }
-                override fun onBeginningOfSpeech() { if (listening === invoke) armRecognitionTimeout() }
+                override fun onReadyForSpeech(params: Bundle?) { if (current()) armRecognitionTimeout() }
+                override fun onBeginningOfSpeech() { if (current()) armRecognitionTimeout() }
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() { if (listening === invoke) armRecognitionTimeout() }
+                override fun onEndOfSpeech() { if (current()) armRecognitionTimeout() }
                 override fun onError(error: Int) {
-                    if (listening !== invoke) return
+                    if (!current()) return
+                    // A broken/default network service must not make an
+                    // available Android on-device engine unreachable. Retry
+                    // once locally, never loop or silently enable a cloud API.
+                    if (!onDevice && partialText.isBlank() && onDeviceAvailable() && error in listOf(SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT)) {
+                        recognizer = null; session.cancel(); session.destroy()
+                        startRecognition(invoke, true); return
+                    }
                     val message = when (error) {
                         SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "speech_no_match"
                         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "speech_permission"
@@ -83,9 +103,12 @@ class PhoneSpeech(private val activity: Activity) {
                     finishRecognition(error = message)
                 }
                 override fun onResults(results: Bundle?) {
-                    if (listening === invoke) finishRecognition(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
+                    if (current()) finishRecognition(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull { it.isNotBlank() } ?: partialText)
                 }
-                override fun onPartialResults(partialResults: Bundle?) { if (listening === invoke) armRecognitionTimeout() }
+                override fun onPartialResults(partialResults: Bundle?) { if (current()) {
+                    partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull { it.isNotBlank() }?.let { partialText = it }
+                    armRecognitionTimeout()
+                } }
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
             session.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
@@ -100,12 +123,15 @@ class PhoneSpeech(private val activity: Activity) {
         val pending = listening; listening = null
         main.removeCallbacks(recognitionTimeout)
         recognizer?.cancel(); recognizer?.destroy(); recognizer = null
-        if (error == null) pending?.resolve(JSObject().apply { put("text", text) }) else pending?.reject(error)
+        val failure = error ?: if (text.isBlank()) "speech_no_match" else null
+        if (failure == null) pending?.resolve(JSObject().apply { put("text", text) }) else pending?.reject(failure)
     }
-    fun cancelListening() = activity.runOnUiThread { finishRecognition() }
+    fun finishListening() = activity.runOnUiThread { if (recorder.active) recorder.finish() else recognizer?.stopListening() }
+    fun cancelListening() = activity.runOnUiThread { recorder.cancel(); finishRecognition(error = "speech_cancelled") }
 
     fun speak(invoke: Invoke) = activity.runOnUiThread {
-        finishRecognition()
+        recorder.cancel()
+        finishRecognition(error = "speech_cancelled")
         stopSpeech()
         speaking = invoke
         val requestId = UUID.randomUUID().toString(); speechId = requestId
@@ -152,7 +178,8 @@ class PhoneSpeech(private val activity: Activity) {
         val pending = speaking; speaking = null; speechId = ""
         if (error == null) pending?.resolve(JSObject()) else pending?.reject(error)
     }
-    fun stopSpeech() { tts?.stop(); finishSpeech() }
-    fun stop() = activity.runOnUiThread { finishRecognition(); stopSpeech() }
-    fun destroy() = activity.runOnUiThread { stop(); resetEngine(); main.removeCallbacksAndMessages(null) }
+    fun play(invoke: Invoke) = activity.runOnUiThread { cancelListening(); stopSpeech(); audioPlayer.play(invoke) }
+    fun stopSpeech() { audioPlayer.stop(); tts?.stop(); finishSpeech() }
+    fun stop() = activity.runOnUiThread { recorder.cancel("speech_interrupted"); audioPlayer.stop("speech_interrupted"); finishRecognition(error = "speech_interrupted"); stopSpeech() }
+    fun destroy() = activity.runOnUiThread { stop(); recorder.close(); resetEngine(); main.removeCallbacksAndMessages(null) }
 }

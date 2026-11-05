@@ -215,5 +215,15 @@
   "speechBusy": "Sprache wird bereits verwendet. Stoppe sie oder schließe andere Mikrofon-Apps und versuche es erneut.",
   "speechFailed": "Der Sprachvorgang konnte nicht abgeschlossen werden. Prüfe die Android-Spracheinstellungen und versuche es erneut.",
   "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
-  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone.",
+  "mobileDeepseekConnection": "{name} für Search & Fetch verwenden",
+  "mobileDeepseekConnectionHint": "DeepSeek-Suche und Seitenabruf mit dieser gespeicherten Verbindung aktivieren und bevorzugen.",
+  "speechInterrupted": "Die Spracheingabe wurde unterbrochen. Kehren Sie zu Nexa zurück und tippen Sie erneut auf das Mikrofon.",
+  "mobileSpeechChoiceHint": "Wählen Sie Telefon-Engines oder eigene Anbieter für Diktat und Vorlesen.",
+  "mobileSpeechCloud": "Mein konfigurierter Anbieter",
+  "mobileSpeechRecordHint": "Tippen Sie zum Aufnehmen und danach auf Stopp, um zu transkribieren. Maximal 60 Sekunden.",
+  "mobileSpeechOutput": "Vorlesedienst",
+  "mobileSpeechSample": "Hallo, hier ist Nexa. Ihr Sprachdienst ist bereit.",
+  "speechConfiguration": "Konfigurieren Sie einen unterstützten Sprachanbieter, Endpunkt, Modell und API-Schlüssel.",
+  "speechCloudFailed": "Der Sprachdienst ist fehlgeschlagen. Prüfen Sie Konto, Modell, Endpunkt und Netzwerk."
 }

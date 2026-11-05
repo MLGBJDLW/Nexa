@@ -70,8 +70,11 @@ reads visible controls on demand, omits password fields, and exposes observation
 click, text, scrolling, back/home and installed-app search/launch. Android 11 and
 later also support screenshots and coordinate taps using the captured image's
 pixel coordinates. Captures are resized before entering the shared vision/tool
-pipeline; use a model that accepts images. Each action requires
-the current observation ID and checks the foreground package and target again.
+pipeline; use a model that accepts images. Targeted input and Back require
+the current observation ID and check the foreground package and target again.
+Home and explicit app launches remain available without an observation ID when
+an app temporarily exposes no accessible UI. Read operations wait briefly for
+transitions and refresh Android's accessibility cache; recovery never replays a send.
 Each action returns a new observation. Text input is read back and reported as
 verified only when it matches. Android 13+ also supports native editor input when
 an app rejects accessibility text replacement. Coordinate taps revalidate app
@@ -132,13 +135,26 @@ Interactive chart requests prefer inline `nexa-ui` components. Completed answers
 have local follow-up choices when the model omits valid suggestions. These choices
 are inert until the user selects them.
 
-The microphone uses Android's installed speech recognizer and requests microphone
-permission only when needed. Read aloud uses Android text-to-speech, reading the
-answer without tool output, thinking or suggestion metadata. Availability,
-supported languages and network requirements depend on the installed system
-engines. Phone settings exposes system/on-device recognition, language, current
-availability, a dictation test and system recognition/TTS configuration links.
-Language preferences survive restart; the default follows the system locale.
+Phone settings independently select the dictation and read-aloud service. System
+dictation uses an installed Android recognizer or an on-device engine. Empty
+recognition results and activity interruptions are explicit errors, and first-use
+permission results wait until the activity resumes. A failed system service can
+fall back once to an available on-device engine. System read-aloud uses Android TTS.
+
+Alternatively configure a provider, model, API key and endpoint for each direction.
+Custom dictation records mono PCM16 at 16 kHz in the foreground, then calls the
+same complete-file transcription adapters as desktop. Tap Stop to submit, or
+Cancel while transcribing to discard the pending result. Recordings are bounded
+to 60 seconds and are not saved as chat files. Supported presets include OpenAI,
+Groq, Qwen file transcription, SiliconFlow, Mistral, Google, Meta and compatible
+custom endpoints; desktop-only executable and realtime-only input adapters are
+not offered. Custom read-aloud uses shared provider synthesis with native Android
+playback, without putting audio or credentials in the WebView. Saved speech keys
+use the Android-keystore-wrapped settings key and remain local to this phone.
+
+Both modes request microphone permission only when needed. Tests and system
+configuration links are available in phone settings. Language preferences survive
+restart. Read-aloud excludes tool output, thinking and suggestion metadata.
 Stop/cancel and activity teardown release speech sessions. Live voice
 conversation and desktop-only terminal/browser automation are not local phone tools.
 Opening another app and interacting with its visible controls is supported;
@@ -172,17 +188,26 @@ policy; a renderer restart cannot change a Plan task into a write-capable task.
 
 A new phone chat stays a local draft until its first send. Repeated New taps do
 not create empty database rows. The composer uses one Send/Stop control; the
-conversation drawer provides confirmed Archive and Delete actions plus an archived
+conversation drawer provides compact Archive and Delete actions, left-swipe
+archiving with confirmation, plus an archived
 list with Restore, guarded by
 the same running-task checks as desktop storage management. Remote desktop chat
 management requires the advertised `chat-management-v1` capability.
 
-Phone settings reuse the desktop web search panel, including provider-native
+Phone settings use a touch layout of the shared web search panel, including provider-native
 search, provider ordering and DeepSeek Search & Fetch. Native requests share the
 core search/fetch adapters. Saved keys are masked in the WebView and encrypted
 with a random settings key wrapped by Android Keystore; existing desktop
 ciphertext remains compatible. Connection sync still covers model connections
-only, so web-search credentials remain local to the phone.
+only, so web-search credentials remain local to the phone. An explicit **Use this
+connection for Search & Fetch** action can reuse an official DeepSeek connection's
+key and prioritize its Search/Fetch API; hosted DeepSeek models do not qualify.
+
+Markdown tables, code and math scroll inside their own containers. Narrow-screen
+charts place labels and values above the bars; tabs and table filters remain
+touchable. Mermaid can switch between fit and scrollable original size. Static
+HTML previews constrain fixed-width layouts to the frame's viewport while keeping
+the existing script/network sandbox. Storage management uses phone bottom sheets.
 
 ## Continuous context
 
@@ -226,6 +251,9 @@ signature against the committed public certificate fingerprint, and publishes
 the APK, SHA-256 manifest and certificate receipt. Mobile releases use
 `latest=false` so desktop updater discovery keeps its existing release identity.
 A failed draft can be resumed through the workflow's `release_tag` input.
+Its release body contains only the exact current mobile changelog entry, including
+on a draft retry. Desktop publication removes dedicated mobile sections and omits
+mobile-only pull requests from its generated release notes.
 
 Signing requires repository secrets `NEXA_MOBILE_KEYSTORE_B64`,
 `NEXA_MOBILE_KEY_PASSWORD` and `NEXA_MOBILE_KEY_ALIAS`. Keep the private keystore

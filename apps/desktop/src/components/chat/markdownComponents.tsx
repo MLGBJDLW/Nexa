@@ -4,7 +4,7 @@ import { localFileReference } from '../../features/preview/localFileReference';
 import { MAX_HIGHLIGHT_CODE_CHARS } from '../../lib/streaming/markdownPresentation';
 import { memo, useMemo, createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
-import { Copy, Check, FileText, Paperclip, ExternalLink } from 'lucide-react';
+import { Copy, Check, FileText, Paperclip, ExternalLink, Maximize2, Minimize2 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-shell';
 import DOMPurify from 'dompurify';
 import remarkGfm from 'remark-gfm';
@@ -891,6 +891,11 @@ export function MermaidBlock({ chart }: { chart: string }) {
   const { isStreaming } = useContext(MarkdownRenderStateContext);
   const [copied, setCopied] = useState(false);
   const [svg, setSvg] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  const naturalWidth = useMemo(() => {
+    const match = /viewBox="[^"]*?([\d.]+)\s+([\d.]+)"/.exec(svg);
+    return match ? Math.min(5000, Math.max(280, Number(match[1]))) : 800;
+  }, [svg]);
   const [renderState, setRenderState] = useState<'rendering' | 'ready' | 'deferred' | 'invalid'>(
     'rendering',
   );
@@ -1007,10 +1012,13 @@ export function MermaidBlock({ chart }: { chart: string }) {
 
   return (
     <div className="group/code relative my-2 overflow-hidden rounded-lg border border-border bg-surface-1/70">
-      <div className="flex items-center justify-between border-b border-border/60 bg-surface-2/80 px-3 py-2">
+      <div className="mermaid-toolbar flex flex-wrap items-center justify-between gap-2 border-b border-border/60 bg-surface-2/80 px-3 py-2">
         <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">
           {t('chat.mermaidDiagram')}
         </span>
+        <button type="button" disabled={!svg} onClick={() => setExpanded(value => !value)} aria-label={t(expanded ? 'chat.visualCollapse' : 'chat.visualExpand')} aria-pressed={expanded} className="ml-auto rounded p-1 text-text-secondary">
+          {expanded ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}
+        </button>
         <button
           type="button"
           onClick={handleCopy}
@@ -1040,11 +1048,14 @@ export function MermaidBlock({ chart }: { chart: string }) {
           fontSize: '16px',
           lineHeight: 'normal',
           letterSpacing: 'normal',
+          maxHeight: expanded ? 'min(70dvh, 800px)' : undefined,
+          overflow: 'auto',
         }}
       >
         {svg && renderState === 'ready' ? (
           <div
             className="[&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"
+            style={expanded ? { width: naturalWidth, maxWidth: 'none' } : undefined}
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         ) : renderState === 'rendering' ? (

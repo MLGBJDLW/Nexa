@@ -215,5 +215,15 @@
   "speechBusy": "Speech is already active. Stop it or close other microphone apps and try again.",
   "speechFailed": "Speech could not complete. Check Android voice settings and try again.",
   "archiveChatHint": "Move this chat out of the active list. Its messages will be kept.",
-  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone."
+  "deleteChatHint": "Permanently delete this chat and its messages. This cannot be undone.",
+  "mobileDeepseekConnection": "Use {name} for Search & Fetch",
+  "mobileDeepseekConnectionHint": "Enable DeepSeek Search & Fetch with this saved connection and prefer it for web requests.",
+  "speechInterrupted": "Voice input was interrupted. Return to Nexa and tap the microphone again.",
+  "mobileSpeechChoiceHint": "Choose phone speech engines or configure your own providers for dictation and read-aloud.",
+  "mobileSpeechCloud": "My configured provider",
+  "mobileSpeechRecordHint": "Tap to record, then tap Stop to transcribe with your provider. Recording stops after 60 seconds.",
+  "mobileSpeechOutput": "Read-aloud service",
+  "mobileSpeechSample": "Hello, this is Nexa. Your voice service is ready.",
+  "speechConfiguration": "Configure a supported speech provider, endpoint, model and API key first.",
+  "speechCloudFailed": "The configured voice service failed. Check the account, model, endpoint and network."
 }

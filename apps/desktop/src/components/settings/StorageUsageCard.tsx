@@ -18,7 +18,7 @@ const categories: Record<string, { label: TranslationKey; color: string }> = {
   wal: { label: 'settings.storageWal', color: '#fb923c' },
 };
 
-export function StorageUsageCard({ service = storageService }: { service?: StorageService }) {
+export function StorageUsageCard({ service = storageService, mobile = false }: { service?: StorageService; mobile?: boolean }) {
   const { t } = useTranslation();
   const [stats, setStats] = useState<StorageUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export function StorageUsageCard({ service = storageService }: { service?: Stora
       </>}
       <p className="text-xs leading-5 text-text-tertiary">{t('settings.storageReuseHint')}</p>
       <Button size="sm" variant="secondary" onClick={() => setManage(true)}>{t('settings.storageManageChats')}</Button>
-      {manage && <ConversationStorageManager service={service} onClose={() => setManage(false)} onChanged={() => setRevision(value => value + 1)}/>}
+      {manage && <ConversationStorageManager mobile={mobile} service={service} onClose={() => setManage(false)} onChanged={() => setRevision(value => value + 1)}/>}
     </div>
   </Section>;
 }

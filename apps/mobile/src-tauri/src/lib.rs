@@ -3,6 +3,8 @@ mod local;
 mod phone_host;
 mod platform;
 mod remote;
+mod speech;
+mod web_settings;
 
 use local::{LocalRuntime, LocalSettings};
 
@@ -291,11 +293,23 @@ async fn mobile_web_settings(
     runtime: State<'_, RuntimeSlot>,
     action: String,
     web_search: Option<nexa_core::app_settings::WebSearchConfig>,
+    connection_id: Option<String>,
 ) -> Result<Value, String> {
     let db = runtime.get(&app).await?.db.clone();
+    let connection = if action == "use_deepseek" {
+        let id = connection_id
+            .as_deref()
+            .ok_or("Choose a DeepSeek connection.")?;
+        Some(connections::get(&app, Some(id)).await?)
+    } else {
+        None
+    };
     tokio::task::spawn_blocking(move || {
         let mut saved = db.load_app_config().map_err(|e| e.to_string())?;
         let mut config = web_search.unwrap_or_else(|| saved.web_search.clone());
+        if let Some(connection) = connection {
+            web_settings::use_deepseek_connection(&mut config, &connection)?;
+        }
         for provider in &mut config.custom_providers {
             if provider.api_key == "__NEXA_SAVED_KEY__" {
                 provider.api_key = saved
@@ -318,8 +332,8 @@ async fn mobile_web_settings(
             "status" => Ok(json!(
                 nexa_core::tools::web_search_tool::provider_status_snapshot(&config)
             )),
-            "read" | "save" => {
-                if action == "save" {
+            "read" | "save" | "use_deepseek" => {
+                if action != "read" {
                     saved.web_search = config.clone();
                     db.save_app_config(&saved).map_err(|e| e.to_string())?;
                 }
@@ -397,16 +411,23 @@ async fn mobile_storage(
 }
 
 #[tauri::command]
+// Keep the existing flat IPC arguments compatible with native chat clients.
+#[allow(clippy::too_many_arguments)]
 async fn mobile_speech(
     app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    speech_runtime: State<'_, speech::SpeechRuntime>,
     action: String,
     text: Option<String>,
     language: Option<String>,
     mode: Option<String>,
+    output_mode: Option<String>,
+    speech_to_text: Option<nexa_core::app_settings::SpeechToTextConfig>,
+    text_to_speech: Option<nexa_core::app_settings::TextToSpeechConfig>,
 ) -> Result<Value, String> {
     if !matches!(
         action.as_str(),
-        "listen" | "cancel" | "speak" | "stop" | "status" | "configure" | "settings"
+        "listen" | "finish" | "cancel" | "speak" | "stop" | "status" | "configure" | "settings"
     ) {
         return Err("Unsupported speech action.".into());
     }
@@ -420,7 +441,110 @@ async fn mobile_speech(
     if let Some(mode) = mode {
         args["mode"] = json!(mode);
     }
-    platform::call(&app, "speech", args).await
+    if let Some(mode) = output_mode {
+        args["outputMode"] = json!(mode);
+    }
+    if action == "cancel" {
+        speech_runtime.cancel(false).await;
+    }
+    if action == "stop" {
+        speech_runtime.cancel(true).await;
+    }
+    if matches!(action.as_str(), "cancel" | "stop" | "finish" | "settings") {
+        return platform::call(&app, "speech", args).await;
+    }
+    let db = runtime.get(&app).await?.db.clone();
+    let mut config = db.load_app_config().map_err(|_| "speech_configuration")?;
+    let mut native = platform::call(&app, "speech", json!({"action":"status"})).await?;
+    if action == "configure" {
+        if speech_runtime.busy().await {
+            return Err("speech_busy".into());
+        }
+        if let Some(mut input) = speech_to_text {
+            if input.api_key == speech::SAVED_KEY {
+                if (
+                    input.provider.as_str(),
+                    input.api_style.as_str(),
+                    &input.base_url,
+                ) != (
+                    config.speech_to_text.provider.as_str(),
+                    config.speech_to_text.api_style.as_str(),
+                    &config.speech_to_text.base_url,
+                ) {
+                    return Err("speech_configuration".into());
+                }
+                input.api_key = config.speech_to_text.api_key.clone();
+            }
+            config.speech_to_text = input;
+        }
+        if let Some(mut output) = text_to_speech {
+            if output.api_key == speech::SAVED_KEY {
+                if (
+                    output.provider.as_str(),
+                    output.api_style.as_str(),
+                    &output.base_url,
+                ) != (
+                    config.text_to_speech.provider.as_str(),
+                    config.text_to_speech.api_style.as_str(),
+                    &config.text_to_speech.base_url,
+                ) {
+                    return Err("speech_configuration".into());
+                }
+                output.api_key = config.text_to_speech.api_key.clone();
+            }
+            config.text_to_speech = output;
+        }
+        let input_mode = args["mode"].as_str().unwrap_or("system");
+        let output_mode = args["outputMode"].as_str().unwrap_or("system");
+        if !matches!(input_mode, "system" | "on_device" | "cloud")
+            || !matches!(output_mode, "system" | "cloud")
+        {
+            return Err("speech_configuration".into());
+        }
+        if input_mode == "cloud" {
+            speech::validate_input(&config.speech_to_text)?;
+        }
+        if output_mode == "cloud" {
+            speech::validate_output(&config.text_to_speech)?;
+        }
+        db.save_app_config(&config)
+            .map_err(|_| "speech_configuration")?;
+        native = platform::call(&app, "speech", args.clone()).await?;
+    }
+    if matches!(action.as_str(), "status" | "configure") {
+        if !config.speech_to_text.api_key.is_empty() {
+            config.speech_to_text.api_key = speech::SAVED_KEY.into();
+        }
+        if !config.text_to_speech.api_key.is_empty() {
+            config.text_to_speech.api_key = speech::SAVED_KEY.into();
+        }
+        native["speechToText"] = json!(config.speech_to_text);
+        native["textToSpeech"] = json!(config.text_to_speech);
+        return Ok(native);
+    }
+    if action == "listen" {
+        speech_runtime.cancel(true).await;
+        let input = if native["mode"] == "cloud" {
+            speech::validate_input(&config.speech_to_text)?;
+            speech::apply_input_language(
+                &mut config.speech_to_text,
+                native["language"].as_str(),
+                args["language"].as_str(),
+            );
+            Some(config.speech_to_text)
+        } else {
+            None
+        };
+        return speech_runtime.listen(&app, args, input).await;
+    }
+    let output = if native["outputMode"] == "cloud" {
+        speech::validate_output(&config.text_to_speech)?;
+        Some(config.text_to_speech)
+    } else {
+        None
+    };
+    speech_runtime.cancel(false).await;
+    speech_runtime.speak(&app, args, output).await
 }
 
 #[tauri::command]
@@ -560,6 +684,7 @@ async fn mobile_remote(
 pub fn run() {
     tauri::Builder::default()
         .manage(RuntimeSlot::default())
+        .manage(speech::SpeechRuntime::default())
         .manage(Arc::new(remote::RemoteHosts::default()))
         .plugin(platform::plugin())
         .invoke_handler(tauri::generate_handler![

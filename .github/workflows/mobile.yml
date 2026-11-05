@@ -17,6 +17,8 @@ on:
       - 'scripts/ci-scope.mjs'
       - 'scripts/ci-scope.test.mjs'
       - 'scripts/release-workflow-contract.test.mjs'
+      - 'scripts/release-notes.mjs'
+      - 'scripts/release-notes.test.mjs'
       - '.github/workflows/mobile.yml'
   push:
     tags: ['nexa-mobile-v*']
@@ -167,10 +169,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
+          RELEASE_TAG="$MOBILE_RELEASE_TAG" node scripts/release-notes.mjs mobile
           if gh release view "$MOBILE_RELEASE_TAG" >/dev/null 2>&1; then
             test "$(gh release view "$MOBILE_RELEASE_TAG" --json isDraft --jq .isDraft)" = true
           else
-            gh release create "$MOBILE_RELEASE_TAG" --verify-tag --draft --latest=false --title "Nexa Mobile v$VERSION" --notes-file apps/mobile/CHANGELOG.md
+            gh release create "$MOBILE_RELEASE_TAG" --verify-tag --draft --latest=false --title "Nexa Mobile v$VERSION" --notes-file mobile-release-notes.md
           fi
           gh release upload "$MOBILE_RELEASE_TAG" mobile-release/* --clobber
-          gh release edit "$MOBILE_RELEASE_TAG" --draft=false --latest=false
+          gh release edit "$MOBILE_RELEASE_TAG" --notes-file mobile-release-notes.md --draft=false --latest=false
