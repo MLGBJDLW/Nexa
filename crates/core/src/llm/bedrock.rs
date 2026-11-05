@@ -221,6 +221,23 @@ fn body(request: &CompletionRequest, route: &RouteSnapshot) -> Result<Value, Cor
         if let Some(config) = body["inferenceConfig"].as_object_mut() {
             config.remove("temperature");
         }
+    } else if matches!(
+        request.model.as_str(),
+        "zai.glm-5.3" | "global.zai.glm-5.3" | "us.zai.glm-5.3"
+    ) {
+        if let Some(effort) = request.reasoning_effort.as_ref().filter(|effort| {
+            matches!(
+                effort,
+                ReasoningEffort::Low
+                    | ReasoningEffort::Medium
+                    | ReasoningEffort::High
+                    | ReasoningEffort::XHigh
+                    | ReasoningEffort::Max
+            )
+        }) {
+            body["additionalModelRequestFields"]["reasoning_effort"] =
+                serde_json::to_value(effort)?;
+        }
     }
     Ok(body)
 }

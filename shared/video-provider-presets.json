@@ -358,6 +358,351 @@
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
         "lastVerifiedAt": "2026-09-30"
+      },
+      {
+        "providerId": "minimax",
+        "modelId": "MiniMax-H3-Highspeed",
+        "displayName": "MiniMax H3 Highspeed",
+        "apiVersion": "v2",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive",
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "queued_only",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "MiniMax content safety policy; rejected sensitive content is reported as a normalized provider failure.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "tiered_per_second",
+          "creditsPerSecond": null,
+          "microsPerSecond": null,
+          "minimumAmountMicros": null,
+          "freeReferenceImages": 5,
+          "additionalReferenceImageMicros": 30000,
+          "tiers": [
+            {
+              "resolution": "480P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 40000
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 60000
+            }
+          ],
+          "inputVideoTiers": [
+            {
+              "resolution": "480P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 40000
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 60000
+            }
+          ],
+          "note": "Output and reference-video seconds are billed by resolution. The first five input images are free, then USD 0.03 each."
+        },
+        "outputUrlTtl": "time_limited",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-05"
+      },
+      {
+        "providerId": "minimax",
+        "modelId": "MiniMax-H3-Lite",
+        "displayName": "MiniMax H3 Lite",
+        "apiVersion": "v2",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false
+          },
+          {
+            "operation": "image_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false
+          },
+          {
+            "operation": "first_last_frame",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive"
+            ],
+            "inputRoles": [
+              "first_frame",
+              "last_frame"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false
+          },
+          {
+            "operation": "video_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [
+              "reference_image",
+              "reference_video",
+              "reference_audio"
+            ],
+            "supportsAudio": false,
+            "supportsSeed": false
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "queued_only",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "MiniMax content safety policy; rejected sensitive content is reported as a normalized provider failure.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "tiered_per_second",
+          "creditsPerSecond": null,
+          "microsPerSecond": null,
+          "minimumAmountMicros": null,
+          "freeReferenceImages": 5,
+          "additionalReferenceImageMicros": 20000,
+          "tiers": [
+            {
+              "resolution": "480P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 25000
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 40000
+            }
+          ],
+          "inputVideoTiers": [
+            {
+              "resolution": "480P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 25000
+            },
+            {
+              "resolution": "768P",
+              "durationSeconds": null,
+              "amountMicros": null,
+              "microsPerSecond": 40000
+            }
+          ],
+          "note": "Output and reference-video seconds are billed by resolution. The first five input images are free, then USD 0.02 each."
+        },
+        "outputUrlTtl": "time_limited",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-05"
       }
     ]
   },

@@ -1101,6 +1101,345 @@
           512,
           256
         ]
+      },
+      {
+        "id": "cohere/embed-5-fast",
+        "name": "Cohere Embed 5 Fast",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/cohere/embed-5-fast",
+        "dimensions": 2048,
+        "effectiveInputTokens": 128000,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "cohere/embed-5-pro",
+        "name": "Cohere Embed 5 Pro",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/cohere/embed-5-pro",
+        "dimensions": 2048,
+        "effectiveInputTokens": 128000,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          768,
+          1024,
+          1536,
+          2048
+        ],
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "thenlper/gte-base",
+        "name": "GTE Base",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/thenlper/gte-base",
+        "dimensions": 768,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "thenlper/gte-large",
+        "name": "GTE Large",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/thenlper/gte-large",
+        "dimensions": 1024,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "intfloat/e5-large-v2",
+        "name": "E5 Large v2",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/intfloat/e5-large-v2",
+        "dimensions": 1024,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "intfloat/e5-base-v2",
+        "name": "E5 Base v2",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/intfloat/e5-base-v2",
+        "dimensions": 768,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "intfloat/multilingual-e5-large",
+        "name": "Multilingual E5 Large",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/intfloat/multilingual-e5-large",
+        "dimensions": 1024,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "sentence-transformers/paraphrase-minilm-l6-v2",
+        "name": "Paraphrase MiniLM L6 v2",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/sentence-transformers/paraphrase-minilm-l6-v2",
+        "dimensions": 384,
+        "effectiveInputTokens": 128,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "sentence-transformers/all-minilm-l12-v2",
+        "name": "All MiniLM L12 v2",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/sentence-transformers/all-minilm-l12-v2",
+        "dimensions": 384,
+        "effectiveInputTokens": 256,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "baai/bge-base-en-v1.5",
+        "name": "BGE Base EN v1.5",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/baai/bge-base-en-v1.5",
+        "dimensions": 768,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+        "name": "Multi QA MPNet Base Dot v1",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/sentence-transformers/multi-qa-mpnet-base-dot-v1",
+        "dimensions": 768,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "baai/bge-large-en-v1.5",
+        "name": "BGE Large EN v1.5",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/baai/bge-large-en-v1.5",
+        "dimensions": 1024,
+        "effectiveInputTokens": 512,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "baai/bge-m3",
+        "name": "BGE M3",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/baai/bge-m3",
+        "dimensions": 1024,
+        "effectiveInputTokens": 8192,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "sentence-transformers/all-mpnet-base-v2",
+        "name": "All MPNet Base v2",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/sentence-transformers/all-mpnet-base-v2",
+        "dimensions": 768,
+        "effectiveInputTokens": 384,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "sentence-transformers/all-minilm-l6-v2",
+        "name": "All MiniLM L6 v2",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/sentence-transformers/all-minilm-l6-v2",
+        "dimensions": 384,
+        "effectiveInputTokens": 256,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "google/gemini-embedding-001",
+        "name": "Gemini Embedding 001",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/google/gemini-embedding-001",
+        "dimensions": 3072,
+        "effectiveInputTokens": 2048,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "openai/text-embedding-ada-002",
+        "name": "OpenAI Ada Embedding 002",
+        "status": "active",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-05",
+        "documentationRef": "https://openrouter.ai/openai/text-embedding-ada-002",
+        "dimensions": 1536,
+        "effectiveInputTokens": 8191,
+        "supportsDimensionOverride": false,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
       }
     ],
     "documentationUrl": "https://openrouter.ai/docs/guides/overview/multimodal/embeddings"

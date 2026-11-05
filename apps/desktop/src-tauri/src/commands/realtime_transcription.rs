@@ -178,7 +178,11 @@ fn build_realtime_endpoint(base_url: &str, model: &str) -> Result<String, String
         url.set_path(&path);
     }
     url.set_query(None);
-    url.query_pairs_mut().append_pair("model", model.trim());
+    if url.host_str() == Some("api.openai.com") && url.path() == "/v1/realtime" {
+        url.query_pairs_mut().append_pair("intent", "transcription");
+    } else {
+        url.query_pairs_mut().append_pair("model", model.trim());
+    }
     Ok(url.to_string())
 }
 
@@ -1034,11 +1038,11 @@ mod tests {
     }
 
     #[test]
-    fn realtime_endpoint_upgrades_https_and_selects_the_model() {
+    fn realtime_endpoint_uses_transcription_intent_on_openai() {
         assert_eq!(
             build_realtime_endpoint("https://api.openai.com/v1", "gpt-live-transcribe")
                 .expect("valid OpenAI endpoint"),
-            "wss://api.openai.com/v1/realtime?model=gpt-live-transcribe"
+            "wss://api.openai.com/v1/realtime?intent=transcription"
         );
         assert_eq!(
             build_realtime_endpoint("https://proxy.example/v1/realtime/", "gpt-live-transcribe")

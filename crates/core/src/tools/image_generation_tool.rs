@@ -268,7 +268,8 @@ impl Tool for GenerateImageTool {
         }
         let prompt_mode = args.effective_prompt_mode();
         let provider_enhancement_requested = prompt_mode.provider_enhancement_enabled();
-        let provider_enhancement_supported = supports_explicit_prompt_enhancement(runtime.provider);
+        let provider_enhancement_supported = supports_explicit_prompt_enhancement(runtime.provider)
+            && !is_wan27_image(&runtime.model);
         let provider_enhancement_applied =
             provider_enhancement_requested && provider_enhancement_supported;
         if runtime.config.api_key.trim().is_empty() {
@@ -429,6 +430,10 @@ fn selected_image_size(
 
 fn supports_explicit_prompt_enhancement(provider: ImageProvider) -> bool {
     matches!(provider, ImageProvider::Qwen)
+}
+
+fn is_wan27_image(model: &str) -> bool {
+    matches!(model, "wan2.7-image" | "wan2.7-image-pro")
 }
 
 fn google_image_config(size: Option<&str>) -> Option<Value> {
@@ -780,20 +785,19 @@ fn validate_image_options(
         }
         return Ok(());
     }
+    let wan27 = is_wan27_image(model);
+    let qwen21 = matches!(model, "qwen-image-2.1-pro" | "qwen-image-2.1-turbo");
     if provider == ImageProvider::Qwen
-        && matches!(
-            model,
-            "qwen-image-2.1-pro" | "qwen-image-3.0" | "qwen-image-3.0-pro"
-        )
+        && (wan27 || qwen21 || matches!(model, "qwen-image-3.0" | "qwen-image-3.0-pro"))
     {
-        if model == "qwen-image-2.1-pro"
+        if (wan27 || qwen21)
             && args
                 .negative_prompt
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty())
         {
             return Err(invalid(
-                "Qwen Image 2.1 Pro does not support negative_prompt.",
+                "This DashScope model does not support negative_prompt.",
             ));
         }
         if args
@@ -810,6 +814,12 @@ fn validate_image_options(
         if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref())
             .filter(|size| *size != "auto")
         {
+            let wan_pro = model == "wan2.7-image-pro";
+            if wan27 && (matches!(size, "1K" | "2K") || (wan_pro && size == "4K")) {
+                return Ok(());
+            }
+            let min_pixels = if wan27 { 768 * 768 } else { 512 * 512 };
+            let max_pixels = if wan_pro { 4096 * 4096 } else { 2048 * 2048 };
             let valid = size
                 .split_once(['x', '*'])
                 .and_then(|(w, h)| Some((w.parse::<u64>().ok()?, h.parse::<u64>().ok()?)))
@@ -817,12 +827,12 @@ fn validate_image_options(
                     w > 0
                         && h > 0
                         && w.checked_mul(h)
-                            .is_some_and(|area| (262_144..=4_194_304).contains(&area))
+                            .is_some_and(|area| (min_pixels..=max_pixels).contains(&area))
                         && w <= h.saturating_mul(8)
                         && h <= w.saturating_mul(8)
                 });
             if !valid {
-                return Err(invalid("This Qwen Image model requires 262144-4194304 pixels and an aspect ratio between 1:8 and 8:1."));
+                return Err(invalid(&format!("This DashScope model requires {min_pixels}-{max_pixels} pixels and an aspect ratio between 1:8 and 8:1.")));
             }
         }
         return Ok(());
@@ -1286,10 +1296,11 @@ fn build_qwen_image_body(
     args: &GenerateImageArgs,
     model: &str,
 ) -> Value {
-    let mut parameters = json!({
-        "prompt_extend": args.effective_prompt_mode().provider_enhancement_enabled(),
-        "watermark": args.watermark.unwrap_or(false),
-    });
+    let mut parameters = json!({ "watermark": args.watermark.unwrap_or(false) });
+    if !is_wan27_image(model) {
+        parameters["prompt_extend"] =
+            json!(args.effective_prompt_mode().provider_enhancement_enabled());
+    }
     if let Some(size) = selected_optional(args.size.as_deref(), config.size.as_deref())
         .filter(|size| *size != "auto")
     {
@@ -2023,6 +2034,23 @@ mod tests {
             "png",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn wan_27_text_to_image_uses_its_native_sizes_without_prompt_extend() {
+        let config = test_config("qwen", None);
+        let mut args = test_args();
+        args.size = Some("4K".into());
+        let pro = "wan2.7-image-pro";
+        let standard = "wan2.7-image";
+        validate_image_options(&config, &args, pro, ImageProvider::Qwen, "png").unwrap();
+        assert!(
+            validate_image_options(&config, &args, standard, ImageProvider::Qwen, "png").is_err()
+        );
+        let wire = build_qwen_image_body(&config, &args, pro);
+        assert_eq!(wire["parameters"], json!({"size":"4K","watermark":false}));
+        args.size = Some("512x512".into());
+        assert!(validate_image_options(&config, &args, pro, ImageProvider::Qwen, "png").is_err());
     }
 
     #[test]

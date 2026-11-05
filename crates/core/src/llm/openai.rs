@@ -5444,13 +5444,13 @@ mod tests {
     }
 
     #[test]
-    fn kimi_tool_replay_hosted_k3_keeps_mandatory_thinking_with_the_alibaba_encoding() {
+    fn kimi_tool_replay_hosted_k3_uses_alibaba_thinking_controls() {
         let config = endpoint_config(
             ProviderType::AlibabaModelStudio,
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
         );
         let mut request = endpoint_reasoning_request("kimi-k3");
-        request.reasoning_enabled = Some(false);
+        request.reasoning_enabled = Some(true);
         request.reasoning_effort = Some(ReasoningEffort::Low);
         request.thinking_budget = Some(4096);
         let mut assistant = Message::text(Role::Assistant, "Checking");
@@ -5469,9 +5469,21 @@ mod tests {
             "Retained thinking"
         );
         assert!(body.get("thinking_budget").is_none());
-        assert!(body.get("reasoning_effort").is_none());
+        assert_eq!(body["reasoning_effort"], "low");
         assert!(body.get("thinking").is_none());
         assert!(body.get("temperature").is_none());
+
+        request.model = "kimi-k3.1-pro".into();
+        request.reasoning_enabled = Some(false);
+        let disabled = serde_json::to_value(build_request_body_with_config(
+            &request,
+            true,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(disabled["enable_thinking"], false);
+        assert!(disabled.get("reasoning_effort").is_none());
+        assert!(disabled.get("thinking_budget").is_none());
     }
 
     #[test]

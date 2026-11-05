@@ -1397,11 +1397,20 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
-        if model == "zhipu/glm-5.3" && is_alibaba_model_studio_payg_endpoint(provider, base_url) {
+        if (model == "zhipu/glm-5.3" && beijing_payg) || (model == "glm-5.3" && qwen_payg) {
+            let hosted = model == "glm-5.3";
             let mut value = profile(
                 key,
-                "alibaba-zhipu-glm53-v1",
-                ThinkingModeControl::AlwaysOnThinkingType,
+                if hosted {
+                    "alibaba-hosted-glm53-v1"
+                } else {
+                    "alibaba-zhipu-glm53-v1"
+                },
+                if hosted {
+                    ThinkingModeControl::AlwaysOnEnableThinking
+                } else {
+                    ThinkingModeControl::AlwaysOnThinkingType
+                },
                 ReasoningEffortField::TopLevel,
                 ReasoningEffortMapping::Exact,
                 (
@@ -1496,14 +1505,28 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
-        if model == "kimi-k3" {
+        if qwen_payg && matches!(model.as_str(), "kimi-k3" | "kimi-k3.1-pro") {
+            let efforts: &[_] = if model == "kimi-k3.1-pro" {
+                &[
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                    ReasoningEffort::Max,
+                ]
+            } else {
+                &[
+                    ReasoningEffort::Low,
+                    ReasoningEffort::High,
+                    ReasoningEffort::Max,
+                ]
+            };
             let mut value = profile(
                 key,
-                "alibaba-hosted-kimi-k3-v1",
-                ThinkingModeControl::AlwaysOnEnableThinking,
-                ReasoningEffortField::None,
+                "alibaba-hosted-kimi-k3-v2",
+                ThinkingModeControl::EnableThinking,
+                ReasoningEffortField::TopLevel,
                 ReasoningEffortMapping::Exact,
-                (&[], None),
+                (efforts, Some(ReasoningEffort::Max)),
                 ReasoningBudgetField::None,
             );
             value.preserve_reasoning_history = true;
