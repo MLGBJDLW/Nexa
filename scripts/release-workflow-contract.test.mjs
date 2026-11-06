@@ -44,6 +44,10 @@ test('mobile-only commits do not bump the desktop release', () => {
     assert.ok(releaseWorkflow.includes(`- '${excluded}/**'`), `${excluded} must not start desktop delivery`);
   }
   const mobileConfig = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'apps/mobile/release-please-config.json'), 'utf8'));
+  // release-please checks merged pending labels before filtering by component.
+  // A pending mobile PR must not prevent maintenance of desktop releases.
+  assert.ok(mobileConfig.label && mobileConfig.label !== (releaseConfig.label ?? 'autorelease: pending'));
+  assert.ok(mobileConfig['release-label'] && mobileConfig['release-label'] !== (releaseConfig['release-label'] ?? 'autorelease: tagged'));
   assert.deepEqual(Object.keys(mobileConfig.packages), ['apps/mobile']);
   assert.equal(mobileConfig.packages['apps/mobile'].component, 'nexa-mobile');
   assert.equal(mobileConfig.packages['apps/mobile'].draft, true);
