@@ -121,7 +121,7 @@ impl Tool for AutomationTool {
     }
     fn confirmation_message(&self, args: &Value) -> Option<String> {
         Some(format!(
-            "{} scheduled task '{}'. Saved tool grants apply to future runs while Nexa is running.",
+            "{} scheduled task '{}'. Saved tool grants apply to future runs on this device.",
             args["action"].as_str().unwrap_or("Change"),
             args["name"]
                 .as_str()
@@ -557,7 +557,7 @@ fn execute_scoped(
         Err(error) => return Err(error),
     };
     Ok(
-        json!({"task":task,"preview":preview,"created":created,"runtime":"Runs while Nexa is open; missed runs catch up on startup in the same conversation"}),
+        json!({"task":task,"preview":preview,"created":created,"runtime":"Desktop runs while Nexa is open. Android can wake for background execution. Results return to the same conversation."}),
     )
 }
 
