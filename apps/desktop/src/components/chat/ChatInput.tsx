@@ -655,7 +655,8 @@ export function ChatInput({
     const nextOwnerDraft = { ...ownerDraft, value: projected.draft };
     draftsRef.current[ownerKey] = cloneDraftState(nextOwnerDraft);
     persistChatInputDraft(ownerKey, nextOwnerDraft);
-    if (ownerKey === draftKey) setValue(projected.draft);
+    // A final transcript can outlive the render that started the recording.
+    if (ownerKey === currentDraftKeyRef.current) setValue(projected.draft);
   }, [draftKey]);
 
   useEffect(() => {
