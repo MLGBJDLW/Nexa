@@ -2,6 +2,11 @@
 
 ## [0.19.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.3...nexa-monorepo-v0.19.4) (2026-11-06)
 
+### Paired phones and model support
+
+- Paired phones can steer the active desktop run and manage conversation schedules through the existing desktop workflow scheduler. Run identity, approval requirements and saved tool grants are checked by the execution host.
+- Add Jina dense embedding models with model-specific task and dimension settings, Gemini Omni chat routes, and Together Tev1 decision routing. Record announced OpenRouter shutdown dates, hide the unserved NVIDIA free route, and remove the closed Yi service from new connection choices.
+
 
 ### Features
 
