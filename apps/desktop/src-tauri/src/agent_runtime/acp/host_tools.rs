@@ -17,6 +17,7 @@ use std::sync::{Arc, RwLock};
 
 #[derive(Clone)]
 struct BridgeState {
+    call_namespace: uuid::Uuid,
     token: String,
     definitions: Arc<Vec<ToolDefinition>>,
     active: Arc<RwLock<Option<Arc<ExternalToolSession>>>>,
@@ -47,6 +48,7 @@ impl Bridge {
             .map_err(error)?;
         let url = format!("http://{}/mcp", listener.local_addr().map_err(error)?);
         let state = BridgeState {
+            call_namespace: uuid::Uuid::new_v4(),
             token: uuid::Uuid::new_v4().to_string(),
             definitions: Arc::new(definitions),
             active: Arc::new(RwLock::new(None)),
@@ -139,9 +141,14 @@ async fn handle(
         .read()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
+    let supported = nexa_core::mcp::client::SUPPORTED_PROTOCOL_VERSIONS;
+    let version = message["params"]["protocolVersion"]
+        .as_str()
+        .filter(|v| supported.contains(v))
+        .unwrap_or(supported[0]);
     let result = match (method, tools) {
         ("initialize", _) => Ok(
-            json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"nexa-host","version":env!("CARGO_PKG_VERSION")}}),
+            json!({"protocolVersion":version,"capabilities":{"tools":{}},"serverInfo":{"name":"nexa-host","version":env!("CARGO_PKG_VERSION")}}),
         ),
         ("ping", _) => Ok(json!({})),
         ("tools/list", _) if !state.cancellation.is_cancelled() => Ok(
@@ -150,11 +157,11 @@ async fn handle(
         ("tools/call", Some(tools)) => {
             let params = &message["params"];
             let name = params["name"].as_str().unwrap_or_default();
-            if !tools.definitions().iter().any(|tool| tool.name == name) {
+            if !state.definitions.iter().any(|tool| tool.name == name) {
                 Err("Unknown Nexa tool".to_string())
             } else {
                 let call = ToolCallRequest {
-                    id: format!("acp-host:{}", id),
+                    id: format!("acp-host:{}:{}", state.call_namespace, id),
                     name: name.into(),
                     arguments: params
                         .get("arguments")
