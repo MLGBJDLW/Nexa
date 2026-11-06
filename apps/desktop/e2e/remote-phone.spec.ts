@@ -673,6 +673,7 @@ test('phone keeps replies and tools in order and the composer opaque with a cust
   app.emit('toolCompleted', { run: { callId:'read-1', toolName:'read_file', status:'completed', content:'The report contains 3 sections.' } });
   app.emit('outputSnapshot', { blockId:'after', channel:'answer', text:'## Review result\n\nThe three sections are consistent.\n\n'+ 'Details for the completed review.\n\n'.repeat(12) });
   const timeline = page.getByTestId('remote-run-timeline');
+  await timeline.getByTestId('remote-turn-activity').locator(':scope > summary').click();
   await expect(timeline.locator('[data-timeline-kind]')).toHaveCount(3);
   expect(await timeline.locator('[data-timeline-kind]').evaluateAll(items => items.map(item => item.getAttribute('data-timeline-kind')))).toEqual(['answer','tool','answer']);
   await page.evaluate(async () => {
@@ -1174,11 +1175,15 @@ test('native phone reuses blank drafts, streams before completion, and manages c
   await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.releaseArchive());
   await expect(page.getByRole('button',{name:'Unarchive: Previous work',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Archive: Previous work',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Delete: New work',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Archive: New work',exact:true}).click();
+  await archive.getByRole('button',{name:'Archive',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Unarchive: New work',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Delete: New work',exact:true}).click();
   const remove=page.getByRole('dialog',{name:'Delete',exact:true});
   await remove.getByRole('button',{name:'Delete',exact:true}).click();
   await expect(page.getByRole('button',{name:'Delete: New work',exact:true})).toHaveCount(0);
-  expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method==='chat.delete').length)).toBe(1);
+  expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method==='chat.deleteArchived').length)).toBe(1);
 });
 
 

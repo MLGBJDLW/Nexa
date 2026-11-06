@@ -42,7 +42,7 @@ export function stripFollowupBlocks(content: string): string {
   return content;
 }
 
-type FollowupMessage = Pick<ConversationMessage, 'id' | 'content'> & { role: string; toolCalls?: ConversationMessage['toolCalls']; artifacts?: ConversationMessage['artifacts'] };
+type FollowupMessage = Pick<ConversationMessage, 'id' | 'content'> & { role: string; toolCalls?: readonly unknown[]; artifacts?: ConversationMessage['artifacts'] };
 export function latestFollowupSuggestions(messages: FollowupMessage[], fallback: FollowupSuggestion[] = []): { key: string; items: FollowupSuggestion[] } | null {
   const message = [...messages].reverse().find(item => item.role === 'user' || item.role === 'assistant');
   if (!message || message.role !== 'assistant' || message.toolCalls?.length) return null;

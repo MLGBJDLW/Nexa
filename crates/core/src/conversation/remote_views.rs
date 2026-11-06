@@ -53,8 +53,53 @@ impl Database {
         self.require_remote_conversation(conversation_id)?;
         let conversation = self.get_conversation(conversation_id)?;
         let conn = self.conn();
-        let mut query=conn.prepare("SELECT id,role,substr(content,1,8000),length(content),sort_order,created_at,substr(COALESCE(thinking,''),1,4000),length(COALESCE(thinking,'')),CASE WHEN role='assistant' AND (COALESCE(tool_calls_json,'[]') NOT IN ('','[]','null') OR CASE WHEN json_valid(artifacts_json) THEN json_extract(artifacts_json,'$.phase')='commentary' ELSE 0 END) THEN 1 ELSE 0 END FROM messages WHERE conversation_id=?1 AND role IN ('user','assistant') AND (content <> '' OR COALESCE(thinking,'') <> '' OR image_attachments_json IS NOT NULL) AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext') AND (?2 IS NULL OR sort_order<?2) ORDER BY sort_order DESC LIMIT 31")?;
-        let mut rows=query.query_map(params![conversation_id,before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"role":row.get::<_,String>(1)?,"content":row.get::<_,String>(2)?,"totalChars":row.get::<_,u64>(3)?,"sortOrder":row.get::<_,i64>(4)?,"createdAt":row.get::<_,String>(5)?,"thinking":row.get::<_,String>(6)?,"thinkingTotalChars":row.get::<_,u64>(7)?,"intermediate":row.get::<_,bool>(8)?})))?.collect::<Result<Vec<_>,_>>()?;
+        // Only project call IDs and names. Raw arguments, results, and private
+        // provider envelopes should never enter the historical phone page.
+        let mut query = conn.prepare(
+            "WITH page AS (
+                SELECT id, role, substr(content,1,8000) AS content, length(content) AS total,
+                    sort_order, created_at, substr(COALESCE(thinking,''),1,4000) AS thinking,
+                    length(COALESCE(thinking,'')) AS thinking_total,
+                    (role='user' AND COALESCE(display_artifact_kind,'') IN ('steering','questionResponse')) AS continues_turn,
+                    CASE WHEN role='assistant' AND json_valid(tool_calls_json) THEN tool_calls_json ELSE '[]' END AS calls,
+                    CASE WHEN role='assistant' AND json_valid(artifacts_json) THEN json_extract(artifacts_json,'$.phase')='commentary' ELSE 0 END AS commentary
+                FROM messages
+                WHERE conversation_id=?1 AND role IN ('user','assistant')
+                  AND (content <> '' OR COALESCE(thinking,'') <> '' OR image_attachments_json IS NOT NULL
+                       OR (role='assistant' AND COALESCE(tool_calls_json,'[]') NOT IN ('','[]','null')))
+                  AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext')
+                  AND (?2 IS NULL OR sort_order<?2)
+                ORDER BY sort_order DESC LIMIT 31
+             )
+             SELECT id,role,content,total,sort_order,created_at,thinking,thinking_total,
+                    (COALESCE(commentary,0) OR json_array_length(calls)>0) AS intermediate,
+                    (SELECT json_group_array(json_object('id',call_id,'name',name)) FROM (
+                        SELECT substr(json_extract(value,'$.id'),1,256) AS call_id,
+                               substr(json_extract(value,'$.name'),1,256) AS name
+                        FROM json_each(page.calls) WHERE type='object' AND json_type(value,'$.name')='text'
+                        LIMIT 32
+                    )) AS tool_summaries, continues_turn
+             FROM page ORDER BY sort_order DESC",
+        )?;
+        let mut rows = query
+            .query_map(params![conversation_id, before], |row| {
+                let calls: String = row.get(9)?;
+                let tools: Value = serde_json::from_str(&calls).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        9,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(
+                    json!({"id":row.get::<_,String>(0)?, "role":row.get::<_,String>(1)?,
+                "content":row.get::<_,String>(2)?, "totalChars":row.get::<_,u64>(3)?,
+                "sortOrder":row.get::<_,i64>(4)?, "createdAt":row.get::<_,String>(5)?,
+                "thinking":row.get::<_,String>(6)?, "thinkingTotalChars":row.get::<_,u64>(7)?,
+                "intermediate":row.get::<_,bool>(8)?, "toolCalls":tools, "continuesTurn":row.get::<_,bool>(10)?}),
+                )
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         let more = rows.len() > 30;
         rows.truncate(30);
         let cursor = more.then(|| rows.last().unwrap()["sortOrder"].clone());
@@ -128,7 +173,7 @@ impl Database {
         ).optional()?.flatten();
         Ok(json!({
             "run":{"id":run.id,"status":run.status,"phase":run.phase,"turnId":run.turn_id,
-                "finalMessageId":final_message_id,"errorMessage":run.error_message},
+                "userMessageId":run.user_message_id,"finalMessageId":final_message_id,"errorMessage":run.error_message},
             "events":page.events,"hasMore":page.has_more,"nextSequence":page.next_after_event_seq,
             "durableHighWater":page.durable_high_water,
         }))
@@ -170,7 +215,9 @@ mod tests {
         for index in 0..35 {
             let mut artifacts = json!({"providerTurnEnvelope":{"secret":"never return"}, "huge":"x".repeat(100_000)});
             let mut tool_calls = Vec::new();
-            if index == 32 {
+            if index == 31 {
+                artifacts["kind"] = json!("steering");
+            } else if index == 32 {
                 artifacts["phase"] = json!("commentary");
             } else if index == 33 {
                 tool_calls.push(crate::llm::ToolCallRequest {
@@ -190,6 +237,8 @@ mod tests {
                 },
                 content: if index == 34 {
                     "你好🙂".repeat(3000)
+                } else if index == 33 {
+                    String::new()
                 } else {
                     "message".into()
                 },
@@ -226,8 +275,14 @@ mod tests {
         assert!(!page.to_string().contains("Private checkpoint"));
         assert_eq!(page["messages"].as_array().unwrap().len(), 30);
         assert_eq!(page["messages"][0]["sortOrder"], 5);
+        assert_eq!(page["messages"][26]["continuesTurn"], true);
         assert_eq!(page["messages"][27]["intermediate"], true);
         assert_eq!(page["messages"][28]["intermediate"], true);
+        assert_eq!(
+            page["messages"][28]["toolCalls"],
+            json!([{"id":"inspect","name":"read_file"}])
+        );
+        assert!(!page.to_string().contains("report.md"));
         assert_eq!(page["messages"][29]["intermediate"], false);
         assert_eq!(page["beforeOrder"], 5);
         assert!(!page.to_string().contains("never return"));

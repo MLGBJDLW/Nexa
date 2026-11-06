@@ -1,20 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { ChevronRight, Mic, Square, Volume2 } from 'lucide-react';
 import { useTranslation } from '../../desktop/src/i18n';
 import { nativeSpeechErrorKey } from '../../desktop/src/features/remote/nativeSpeechErrors';
-import type { SpeechToTextConfig, TextToSpeechConfig } from '../../desktop/src/types/conversation';
-import { PhoneCloudSpeechFields, inputDefaults, outputDefaults, phoneInputPresets, phoneOutputPresets } from './PhoneCloudSpeechFields';
+import { PhoneCloudSpeechFields, bindSpeechConnection, inputDefaults, outputDefaults, phoneInputPresets, phoneOutputPresets,
+  type PhoneSpeechConnection, type PhoneSpeechInput, type PhoneSpeechOutput } from './PhoneCloudSpeechFields';
 
 interface SpeechState {
   mode: 'system' | 'on_device' | 'cloud'; outputMode: 'system' | 'cloud'; language: string;
   systemAvailable: boolean; onDeviceAvailable: boolean; microphoneGranted: boolean;
-  speechToText: SpeechToTextConfig; textToSpeech: TextToSpeechConfig;
+  speechToText: PhoneSpeechInput; textToSpeech: PhoneSpeechOutput;
+  speechConnections: PhoneSpeechConnection[];
 }
 function editable(value: SpeechState): SpeechState {
-  return { ...value, outputMode: value.outputMode ?? 'system',
-    speechToText: phoneInputPresets.some(preset => preset.apiStyle === value.speechToText?.apiStyle) ? value.speechToText : inputDefaults(),
-    textToSpeech: phoneOutputPresets.some(preset => preset.apiStyle === value.textToSpeech?.apiStyle) ? value.textToSpeech : outputDefaults() };
+  const connections = value.speechConnections ?? [];
+  function prepare(config: PhoneSpeechInput | PhoneSpeechOutput, direction: 'input' | 'output', mode: string) {
+    if (config.connectionId || config.apiKey) return config;
+    const presets = direction === 'input' ? phoneInputPresets : phoneOutputPresets;
+    const preset = presets.find(item => item.provider === config.provider && item.apiStyle === config.apiStyle);
+    // A legacy cloud configuration may already inherit a credential. Only bind
+    // it to an account offering its saved service and endpoint.
+    const account = mode === 'cloud'
+      ? connections.find(item => item[direction].some(route => route.presetId === preset?.id && route.baseUrl === config.baseUrl))
+      : connections.find(item => item[direction].length > 0);
+    return account ? bindSpeechConnection(config, account) : config;
+  }
+  const input = phoneInputPresets.some(preset => preset.apiStyle === value.speechToText?.apiStyle) ? value.speechToText : inputDefaults();
+  const output = phoneOutputPresets.some(preset => preset.apiStyle === value.textToSpeech?.apiStyle) ? value.textToSpeech : outputDefaults();
+  return { ...value, outputMode: value.outputMode ?? 'system', speechConnections: connections,
+    speechToText: prepare(input, 'input', value.mode) as PhoneSpeechInput,
+    textToSpeech: prepare(output, 'output', value.outputMode) as PhoneSpeechOutput };
 }
 
 export function PhoneSpeechSettings({ open }: { open: boolean }) {
@@ -33,9 +49,19 @@ export function PhoneSpeechSettings({ open }: { open: boolean }) {
     if (!open) return;
     setListening(false); setSpeaking(false); setFinishing(false);
     let active = true;
-    const refresh = () => { void invoke<SpeechState>('mobile_speech', { action: 'status' }).then(value => { if (active) setState(current => dirty.current && current ? { ...current, systemAvailable: value.systemAvailable, onDeviceAvailable: value.onDeviceAvailable, microphoneGranted: value.microphoneGranted } : editable(value)); }).catch(error => { if (active) setError(translate.current(nativeSpeechErrorKey(error))); }); };
+    let sequence = 0;
+    const refresh = () => {
+      const request = ++sequence;
+      void invoke<SpeechState>('mobile_speech', { action: 'status' }).then(value => {
+        if (!active || request !== sequence) return;
+        setState(current => dirty.current && current ? { ...current, speechConnections: value.speechConnections ?? [],
+          systemAvailable: value.systemAvailable, onDeviceAvailable: value.onDeviceAvailable, microphoneGranted: value.microphoneGranted } : editable(value));
+      }).catch(error => { if (active && request === sequence) setError(translate.current(nativeSpeechErrorKey(error))); });
+    };
+    let stop: (() => void) | undefined;
+    void listen('mobile:connections', refresh).then(off => { if (active) stop = off; else off(); }).catch(() => {});
     refresh(); window.addEventListener('focus', refresh);
-    return () => { active = false; generation.current++; window.removeEventListener('focus', refresh); void invoke('mobile_speech', { action: 'cancel' }).catch(() => {}); void invoke('mobile_speech', { action: 'stop' }).catch(() => {}); };
+    return () => { active = false; generation.current++; stop?.(); window.removeEventListener('focus', refresh); void invoke('mobile_speech', { action: 'cancel' }).catch(() => {}); void invoke('mobile_speech', { action: 'stop' }).catch(() => {}); };
   }, [open]);
   const change = (patch: Partial<SpeechState>) => { dirty.current = true; setState(current => current ? { ...current, ...patch } : current); };
   const save = async () => {
@@ -79,9 +105,9 @@ export function PhoneSpeechSettings({ open }: { open: boolean }) {
       <label>{t('remote.mobileSpeechEngine')}<select disabled={busy} value={state.mode} onChange={event => change({ mode: event.target.value as SpeechState['mode'] })}>
         <option value="system">{t('remote.mobileSpeechSystem')}</option><option value="on_device">{t('remote.mobileSpeechOnDevice')}</option><option value="cloud">{t('remote.mobileSpeechCloud')}</option>
       </select></label>
-      {state.mode === 'cloud' && <><PhoneCloudSpeechFields config={state.speechToText} disabled={busy} onChange={value => change({ speechToText: value as SpeechToTextConfig })}/><p className="mobile-section-hint">{t('remote.mobileSpeechRecordHint')}</p></>}
+      {state.mode === 'cloud' && <><PhoneCloudSpeechFields config={state.speechToText} connections={state.speechConnections} disabled={busy} onChange={value => change({ speechToText: value as PhoneSpeechInput })}/><p className="mobile-section-hint">{t('remote.mobileSpeechRecordHint')}</p></>}
       <label>{t('remote.mobileSpeechOutput')}<select aria-label={t('remote.mobileSpeechOutput')} disabled={busy} value={state.outputMode} onChange={event => change({ outputMode: event.target.value as SpeechState['outputMode'] })}><option value="system">{t('remote.mobileSpeechSystem')}</option><option value="cloud">{t('remote.mobileSpeechCloud')}</option></select></label>
-      {state.outputMode === 'cloud' && <PhoneCloudSpeechFields output config={state.textToSpeech} disabled={busy} onChange={value => change({ textToSpeech: value as TextToSpeechConfig })}/>}
+      {state.outputMode === 'cloud' && <PhoneCloudSpeechFields output config={state.textToSpeech} connections={state.speechConnections} disabled={busy} onChange={value => change({ textToSpeech: value as PhoneSpeechOutput })}/>}
       <label>{t('remote.language')}<select aria-label={t('remote.mobileSpeechLanguage')} disabled={busy} value={state.language} onChange={event => change({ language: event.target.value })}>
         <option value="">{t('settings.isDefault')}</option>{availableLocales.map(locale => <option key={locale.code} value={locale.code}>{locale.name}</option>)}
       </select></label>

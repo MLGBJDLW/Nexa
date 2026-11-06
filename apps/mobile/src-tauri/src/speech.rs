@@ -23,23 +23,25 @@ pub fn apply_input_language(
         .or_else(|| requested.filter(|value| !value.trim().is_empty()))
         .map(str::to_owned);
 }
-pub fn validate_input(config: &SpeechToTextConfig) -> Result<(), String> {
-    if !matches!(
-        config.api_style.as_str(),
+pub fn supports_input(api_style: &str) -> bool {
+    matches!(
+        api_style,
         "openai_transcription"
             | "dashscope_asr"
             | "dashscope_audio_asr"
             | "gemini_interactions_asr"
             | "meta_asr"
-    ) || !config.is_configured()
-    {
+    )
+}
+pub fn validate_input(config: &SpeechToTextConfig) -> Result<(), String> {
+    if !supports_input(&config.api_style) || !config.is_configured() {
         return Err("speech_configuration".into());
     }
     crate::validate_provider_url(config.base_url.as_deref().ok_or("speech_configuration")?)
 }
-pub fn validate_output(config: &TextToSpeechConfig) -> Result<(), String> {
-    if !matches!(
-        config.api_style.as_str(),
+pub fn supports_output(api_style: &str) -> bool {
+    matches!(
+        api_style,
         "openai_speech"
             | "elevenlabs_speech"
             | "mistral_speech"
@@ -49,8 +51,10 @@ pub fn validate_output(config: &TextToSpeechConfig) -> Result<(), String> {
             | "dashscope_speech"
             | "dashscope_audio_generation"
             | "gemini_interactions_speech"
-    ) || !config.is_configured()
-    {
+    )
+}
+pub fn validate_output(config: &TextToSpeechConfig) -> Result<(), String> {
+    if !supports_output(&config.api_style) || !config.is_configured() {
         return Err("speech_configuration".into());
     }
     crate::validate_provider_url(config.base_url.as_deref().ok_or("speech_configuration")?)
@@ -232,31 +236,48 @@ mod tests {
                 }
             }
         });
-        let input = SpeechToTextConfig {
-            provider: "custom".into(),
-            api_style: "openai_transcription".into(),
-            api_key: "fixture-mobile-key".into(),
-            base_url: Some(base.clone()),
-            model: "fixture-input-model".into(),
-            ..Default::default()
-        };
-        validate_input(&input).unwrap();
-        let text = nexa_core::speech_to_text::transcribe_cloud_wav(b"RIFFfixture".to_vec(), &input)
-            .await
+        let account: nexa_core::connection_sync::SharedModelConnection =
+            serde_json::from_value(json!({
+                "id":"saved", "name":"Saved server", "provider":"custom", "baseUrl":base,
+                "model":"chat", "apiKey":"fixture-mobile-key"
+            }))
             .unwrap();
-        assert_eq!(text, "你好，手机自配语音");
-        let output = TextToSpeechConfig {
-            provider: "custom".into(),
-            api_style: "openai_speech".into(),
-            api_key: input.api_key,
-            base_url: Some(base),
-            model: "fixture-output-model".into(),
-            voice: "fixture-voice".into(),
+        let mut config = nexa_core::app_settings::AppConfig {
+            speech_to_text: SpeechToTextConfig {
+                connection_id: Some(account.id.clone()),
+                provider: "custom".into(),
+                api_style: "openai_transcription".into(),
+                base_url: Some(base.clone()),
+                model: "fixture-input-model".into(),
+                ..Default::default()
+            },
+            text_to_speech: TextToSpeechConfig {
+                connection_id: Some(account.id.clone()),
+                provider: "open_ai".into(),
+                api_style: "openai_speech".into(),
+                base_url: Some(base),
+                model: "fixture-output-model".into(),
+                voice: "fixture-voice".into(),
+                ..Default::default()
+            },
             ..Default::default()
         };
-        validate_output(&output).unwrap();
+        crate::speech_connections::resolve(&mut config, &[&account], false);
+        validate_input(&config.speech_to_text).unwrap();
+        let text = nexa_core::speech_to_text::transcribe_cloud_wav(
+            b"RIFFfixture".to_vec(),
+            &config.speech_to_text,
+        )
+        .await
+        .unwrap();
+        assert_eq!(text, "你好，手机自配语音");
+        validate_output(&config.text_to_speech).unwrap();
         let audio = nexa_core::tools::text_to_speech_tool::synthesize_speech_audio(
-            &output, &text, None, None, None,
+            &config.text_to_speech,
+            &text,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();

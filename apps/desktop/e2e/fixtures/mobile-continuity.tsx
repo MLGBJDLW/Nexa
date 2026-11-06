@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { applyTheme, getInitialTheme } from '../../src/lib/theme';
 import { I18nProvider } from '../../src/i18n';
 import { RemoteChat } from '../../src/features/remote/RemoteChat';
 import type { RemoteChatClient, RemoteEnvelope } from '../../src/features/remote/remoteClient';
@@ -16,9 +17,36 @@ export function renderMobileContinuity() {
   let messages: any[] = [];
   const events: any[] = [];
   const emit = (kind: string, payload: unknown) => {
-    const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:'Working',payload};
+    const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:activityFixture?'处理中':'Working',payload};
     events.push(event); listeners.forEach(listener=>listener({event:'agent://run-event',payload:{conversationId:'created',runEvent:event}}));
   };
+  const activityFixture = new URLSearchParams(location.search).has('activity');
+  let pendingApproval = false;
+  if (activityFixture) {
+    applyTheme(getInitialTheme());
+    document.documentElement.dataset.remote = 'true';
+    localStorage.setItem('nexa-locale', 'zh-CN');
+    chats = [{id:'created',title:'Report review',model:'model'}];
+    localStorage.setItem('nexa.remote.chat.mobile-fixture', 'created');
+    messages = [
+      { id:'user1', role:'user', content:'核对第一份报表。', sortOrder:1 },
+      { id:'old-step', role:'assistant', content:'', thinking:'读取第一份报表。', intermediate:true, toolCalls:[{id:'old-file',name:'read_file'}], sortOrder:2 },
+      { id:'steering', role:'user', content:'请重点核对合计金额。', continuesTurn:true, sortOrder:3 },
+      { id:'old-check', role:'assistant', content:'', thinking:'核对表格里的金额。', intermediate:true, toolCalls:[{id:'old-search',name:'search_table'}], sortOrder:4 },
+      { id:'old-final', role:'assistant', content:'第一份报表的合计金额一致。', sortOrder:5 },
+      { id:'user2', role:'user', content:'第二份报表有几个部分？', sortOrder:6 },
+    ].map(row => ({...row,totalChars:row.content.length}));
+    const persisted = sessionStorage.getItem('fixture-completed-turn');
+    if (persisted) messages.push(...JSON.parse(persisted));
+    else {
+      run = {id:'run',status:'running',userMessageId:'user2'};
+      pendingApproval = true;
+      emit('outputSnapshot',{channel:'thinking',blockId:'think',text:'读取第二份报表的目录。'});
+      emit('toolStarted',{run:{callId:'current-file',toolName:'read_section',status:'running'}});
+      emit('toolCompleted',{run:{callId:'current-file',toolName:'read_section',status:'completed',content:'已找到三个部分。'}});
+      emit('outputSnapshot',{channel:'answer',blockId:'answer',text:'第二份报表有三个部分。'});
+    }
+  }
   const composerFixture = new URLSearchParams(location.search).has('composer');
   let speechRequest: { id?: string; resolve: (value: string) => void; reject: (error: Error) => void } | undefined;
   const nativeSpeech = {
@@ -45,11 +73,24 @@ export function renderMobileContinuity() {
       if (method==='chat.read') return {messages,beforeOrder:null};
       if (method==='chat.deleteArchived') {const previous=archived.length;archived=archived.filter(item=>item.id!==params.conversationId);return previous-archived.length;}
       if (method==='chat.archive'||method==='chat.delete') {if(method==='chat.archive') archived.push(...chats.filter(item=>item.id===params.conversationId)); chats=chats.filter(item=>item.id!==params.conversationId);if(method==='chat.delete') archived=archived.filter(item=>item.id!==params.conversationId);return 1;}
-      if (method==='approvals.list'||method==='interactions.list') return [];
+      if (method==='approvals.list') return pendingApproval ? [{runId:'run',request:{id:'check',toolName:'verify_report',reason:'允许核对第二份报表吗？',targetValue:'report',argumentsPreview:'{}'}}] : [];
+      if (method==='approvals.respond' && activityFixture) {
+        pendingApproval = false;
+        const current = [
+          {id:'step2',role:'assistant',content:'',totalChars:0,sortOrder:7,intermediate:true,thinking:'读取第二份报表的目录。',toolCalls:[{id:'current-file',name:'read_section'}]},
+          {id:'final2',role:'assistant',content:'第二份报表有三个部分。',totalChars:'第二份报表有三个部分。'.length,sortOrder:8},
+        ];
+        messages.push(...current);
+        sessionStorage.setItem('fixture-completed-turn', JSON.stringify(current));
+        run = {id:'run',status:'completed',userMessageId:'user2',finalMessageId:'final2'};
+        emit('done',{assistantMessageId:'final2',status:'completed'});
+        return {};
+      }
+      if (method==='interactions.list') return [];
       throw new Error(method);
     },
   } as unknown as RemoteChatClient;
   (window as any).__MOBILE_CONTINUITY__={actions,emit,removeArchived:(id:string)=>{archived=archived.filter(item=>item.id!==id);},restoreArchived:(id:string)=>{chats.push(...archived.filter(item=>item.id===id));archived=archived.filter(item=>item.id!==id);},seedArchives:()=>{archived=['a','b','c','d','e'].map(id=>({id,title:'Archived '+id,model:'model'}));},finish:()=>{messages=[{id:'intro',role:'assistant',content:'I will inspect the report.',totalChars:26,sortOrder:1,intermediate:true},{id:'final',role:'assistant',content:'Final report: all three sections are consistent.',totalChars:46,sortOrder:2}];run={...run,status:'completed',finalMessageId:'final'};emit('done',{status:'completed'});},holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
   const host=document.createElement('div');host.className='mobile-app';host.style.cssText='position:fixed;inset:0;z-index:1000;background:var(--color-surface-0)';document.body.appendChild(host);
-  createRoot(host).render(<I18nProvider><RemoteChat client={client} initialDraft="" onDraftConsumed={()=>{}} mobile={{heading:'Phone',drawerFooter:null,caption:'',onConfigure:()=>{},onFiles:()=>{}}}/></I18nProvider>);
+  createRoot(host).render(<I18nProvider><RemoteChat client={client} initialDraft="" onDraftConsumed={()=>{}} mobile={{heading:activityFixture ? 'Nexa' : 'Phone',drawerFooter:null,caption:'',onConfigure:()=>{},onFiles:()=>{}}}/></I18nProvider>);
 }

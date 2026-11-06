@@ -4,6 +4,7 @@ mod phone_host;
 mod platform;
 mod remote;
 mod speech;
+mod speech_connections;
 mod web_settings;
 
 use local::{LocalRuntime, LocalSettings};
@@ -476,11 +477,16 @@ async fn mobile_speech(
     let db = runtime.get(&app).await?.db.clone();
     let mut config = db.load_app_config().map_err(|_| "speech_configuration")?;
     let mut native = platform::call(&app, "speech", json!({"action":"status"})).await?;
+    let input_mode = args["mode"].as_str().unwrap_or("system");
+    let output_mode = args["outputMode"].as_str().unwrap_or("system");
     if action == "configure" {
         if speech_runtime.busy().await {
             return Err("speech_busy".into());
         }
         if let Some(mut input) = speech_to_text {
+            if input.connection_id.is_some() && !input.api_key.is_empty() {
+                return Err("speech_configuration".into());
+            }
             if input.api_key == speech::SAVED_KEY {
                 if (
                     input.provider.as_str(),
@@ -498,6 +504,9 @@ async fn mobile_speech(
             config.speech_to_text = input;
         }
         if let Some(mut output) = text_to_speech {
+            if output.connection_id.is_some() && !output.api_key.is_empty() {
+                return Err("speech_configuration".into());
+            }
             if output.api_key == speech::SAVED_KEY {
                 if (
                     output.provider.as_str(),
@@ -514,17 +523,18 @@ async fn mobile_speech(
             }
             config.text_to_speech = output;
         }
-        let input_mode = args["mode"].as_str().unwrap_or("system");
-        let output_mode = args["outputMode"].as_str().unwrap_or("system");
         if !matches!(input_mode, "system" | "on_device" | "cloud")
             || !matches!(output_mode, "system" | "cloud")
         {
             return Err("speech_configuration".into());
         }
-        let mut resolved = config.clone();
-        connections::resolve_speech_credentials(&app, &mut resolved)
-            .await
-            .map_err(|_| "speech_configuration")?;
+    }
+    let editing = matches!(action.as_str(), "status" | "configure");
+    let mut resolved = config.clone();
+    let speech_connections = connections::resolve_speech_credentials(&app, &mut resolved, editing)
+        .await
+        .map_err(|_| "speech_configuration")?;
+    if action == "configure" {
         if input_mode == "cloud" {
             speech::validate_input(&resolved.speech_to_text)?;
         }
@@ -533,14 +543,9 @@ async fn mobile_speech(
         }
         db.save_app_config(&config)
             .map_err(|_| "speech_configuration")?;
-        config = resolved;
         native = platform::call(&app, "speech", args.clone()).await?;
-    } else {
-        connections::resolve_speech_credentials(&app, &mut config)
-            .await
-            .map_err(|_| "speech_configuration")?;
     }
-    if matches!(action.as_str(), "status" | "configure") {
+    if editing {
         if !config.speech_to_text.api_key.is_empty() {
             config.speech_to_text.api_key = speech::SAVED_KEY.into();
         }
@@ -549,8 +554,10 @@ async fn mobile_speech(
         }
         native["speechToText"] = json!(config.speech_to_text);
         native["textToSpeech"] = json!(config.text_to_speech);
+        native["speechConnections"] = json!(speech_connections);
         return Ok(native);
     }
+    let mut config = resolved;
     if action == "listen" {
         speech_runtime.cancel(true).await;
         let input = if native["mode"] == "cloud" {

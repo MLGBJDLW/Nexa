@@ -67,6 +67,9 @@ impl ImageGenerationConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextToSpeechConfig {
+    /// Optional saved model connection selected for this speech account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     #[serde(default = "default_tts_provider")]
     pub provider: String,
     #[serde(default = "default_tts_api_style")]
@@ -112,6 +115,7 @@ pub struct TextToSpeechConfig {
 impl Default for TextToSpeechConfig {
     fn default() -> Self {
         Self {
+            connection_id: None,
             provider: default_tts_provider(),
             api_style: default_tts_api_style(),
             api_key: String::new(),
@@ -177,6 +181,9 @@ impl TextToSpeechConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpeechToTextConfig {
+    /// Optional saved model connection selected for this speech account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
     #[serde(default = "default_stt_provider")]
     pub provider: String,
     #[serde(default = "default_stt_api_style")]
@@ -213,6 +220,7 @@ pub struct SpeechToTextConfig {
 impl Default for SpeechToTextConfig {
     fn default() -> Self {
         Self {
+            connection_id: None,
             provider: default_stt_provider(),
             api_style: default_stt_api_style(),
             api_key: String::new(),

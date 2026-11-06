@@ -50,6 +50,42 @@ test('phone allows custom dictation and read-aloud without an Android recognitio
   await page.screenshot({path:info.outputPath('phone-cloud-speech.png')});
 });
 
+test('phone cloud dictation and read-aloud reuse synced Bailian accounts', async ({page}) => {
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=speech&synced');
+  const section = page.getByTestId('phone-speech-settings');
+  await section.locator('select').first().selectOption('cloud');
+  await section.getByLabel('Read-aloud service', {exact:true}).selectOption('cloud');
+  const input = section.getByTestId('phone-cloud-input');
+  const output = section.getByTestId('phone-cloud-output');
+  for (const fields of [input, output]) {
+    const account = fields.getByRole('combobox', {name:'Model connection', exact:true});
+    await expect(account).toHaveValue('synced-0');
+    await expect(account.locator('option:checked')).toHaveText('Personal Bailian');
+    await expect(fields.locator('input[type=password]')).toHaveCount(0);
+    await expect(fields.getByLabel('Model', {exact:true})).not.toHaveValue('');
+  }
+  await output.getByLabel('Model connection', {exact:true}).selectOption('synced-1');
+  await section.getByRole('button', {name:'Save', exact:true}).click();
+  const saved = await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.findLast((call:any) => call.args.action === 'configure').args);
+  expect(saved).toMatchObject({speechToText:{connectionId:'synced-0',apiKey:'',apiStyle:'dashscope_asr'},textToSpeech:{connectionId:'synced-1',apiKey:'',apiStyle:'dashscope_speech'}});
+  await expect(output.getByLabel('Model connection', {exact:true})).toHaveValue('synced-1');
+  await input.getByLabel('Model connection', {exact:true}).selectOption('');
+  await expect(input.locator('input[type=password]')).toBeVisible();
+  await expect(output.locator('input[type=password]')).toHaveCount(0);
+});
+
+test('existing speech settings retain manual keys and recognize inherited accounts', async ({page}) => {
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=speech&synced&legacy');
+  const input = page.getByTestId('phone-cloud-input');
+  const output = page.getByTestId('phone-cloud-output');
+  await expect(input.getByLabel('Model connection', {exact:true})).toHaveValue('');
+  await expect(input.locator('input[type=password]')).toHaveValue('__NEXA_SAVED_KEY__');
+  await expect(output.getByLabel('Model connection', {exact:true})).toHaveValue('synced-0');
+  await expect(output.locator('input[type=password]')).toHaveCount(0);
+  await expect(output.getByLabel('Model', {exact:true})).toHaveValue('private-tts');
+  await expect(output.locator('input[list$="-voices"]')).toHaveValue('private-voice');
+});
+
 test('phone storage manager uses a reachable sheet and normal checkboxes',async({page})=>{
   await page.setViewportSize({width:320,height:700});await page.goto('/e2e/fixtures/mobile-shell.html?kind=storage');
   const manager=page.getByTestId('conversation-storage-manager');
@@ -103,9 +139,24 @@ test('left swipe offers archive without dismissing the history drawer',async({pa
   expect(full.width).toBeGreaterThan(initial.width);expect(full.color).not.toBe(initial.color);expect(full.scale).not.toBe(initial.scale);
   await page.mouse.up();
   await expect(page.getByRole('dialog',{name:'Archive',exact:true})).toBeVisible();
+  await expect(reveal).toHaveCSS('width', '104px');
+  // Capture rendered frames so an instant unmount cannot pass as a transition.
+  const collapse = row.evaluate(element => new Promise<boolean>(resolve => {
+    const wrapper = element.closest('.mobile-swipe-row')!;
+    const start = wrapper.getBoundingClientRect().height;
+    let shrank = false;
+    const frame = () => {
+      if (!wrapper.isConnected) { resolve(shrank); return; }
+      const height = wrapper.getBoundingClientRect().height;
+      if (height > 0 && height < start - 1) shrank = true;
+      requestAnimationFrame(frame);
+    };
+    frame();
+  }));
   await page.getByRole('dialog',{name:'Archive',exact:true}).getByRole('button',{name:'Archive',exact:true}).click();
   await expect(page.getByRole('dialog',{name:'Conversation',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Archive: Previous work',exact:true})).toHaveCount(0);
+  expect(await collapse).toBe(true);
 });
 
 
