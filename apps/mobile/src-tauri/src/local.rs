@@ -284,6 +284,10 @@ impl LocalRuntime {
         if active.is_some() && previous.is_none() {
             return Err("Stop or finish the current phone task first.".into());
         }
+        let app_config = self.db.load_app_config().map_err(err)?;
+        if scheduled_tools.is_some() && app_config.tool_approval_mode == ToolApprovalMode::DenyAll {
+            options.tool_approval_mode = ToolApprovalMode::DenyAll;
+        }
         let history =
             nexa_core::context_maintenance::load_context_projection(&self.db, &conversation.id)
                 .map_err(err)?
@@ -333,7 +337,7 @@ impl LocalRuntime {
             )
             .map_err(err);
         }
-        let web = self.db.load_app_config().map_err(err)?.web_search;
+        let web = app_config.web_search;
         let conversation_prompt = self
             .db
             .get_effective_conversation_system_prompt(&conversation)
