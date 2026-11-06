@@ -1,4 +1,6 @@
 {
+  "chatProjects": "Projetos",
+  "ungroupedChats": "Conversas sem projeto",
   "mobileAllowComputerControl": "Permitir controle do telefone",
   "mobileComputerControlHint": "Permita o controle por este computador pareado durante a conexão. Mantenha o telefone desbloqueado. Parar na notificação encerra o acesso. Tarefas locais e controle remoto são executados separadamente.",
   "mobileSpeechSettings": "Voz",

@@ -108,6 +108,7 @@ pub mod plugins;
 pub mod policy_engine;
 pub mod preview;
 pub mod privacy;
+pub mod phone_chat_projects;
 pub mod project;
 pub mod project_hooks;
 pub mod project_memory;

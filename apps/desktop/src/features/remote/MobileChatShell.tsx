@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } 
 import { Menu, SquarePen, X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { OverlayProvider } from '../../components/ui/overlay/OverlayProvider';
+import type { ChatProjectStore } from './useMobileChatProjects';
 
 export function MobileChatHeader({ center, onMenu, onNew, disabled }: { center: ReactNode; onMenu: () => void; onNew?: () => void; disabled?: boolean }) {
   const { t } = useTranslation();
@@ -93,6 +94,7 @@ export function MobileDialog({ title, side = false, open = true, children, onClo
 }
 
 export interface MobileChatPresentation {
+  projectStore?: ChatProjectStore;
   heading: ReactNode;
   drawerFooter: ReactNode;
   caption: string;

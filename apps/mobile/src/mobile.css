@@ -104,6 +104,31 @@
 .mobile-drawer { width: min(86vw,340px); max-height: var(--mobile-viewport-height,100dvh); height: var(--mobile-viewport-height,100dvh); margin: 0 auto 0 0; border-radius: 0; border-width: 0 1px 0 0; }
 .mobile-drawer .mobile-dialog-body { height: 100%; display: flex; flex-direction: column; padding: max(12px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom)); }
 .mobile-drawer-new { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 10px 12px; border-radius: 12px; background: var(--color-surface-1); font-size: 14px; }
+.mobile-projects { flex: none; margin-top: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--color-border); }
+.mobile-projects-heading, .mobile-project-entry { display: flex; align-items: center; gap: 2px; }
+.mobile-projects-heading { justify-content: space-between; padding-left: 12px; }
+.mobile-projects-heading h3 { font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
+.mobile-project-list { max-height: min(24dvh, 194px); overflow-y: auto; overscroll-behavior: contain; }
+.mobile-project-entry > .mobile-icon-button, .mobile-projects-heading > .mobile-icon-button { flex: none; width: 44px; height: 44px; }
+.mobile-project-destination, .mobile-project-options button, .mobile-project-drag-preview {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px; padding: 8px 12px; text-align: left; font-size: 13px;
+}
+.mobile-project-destination { width: 100%; border-radius: 10px; }
+.mobile-project-destination > span, .mobile-project-drag-preview > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-project-destination > svg, .mobile-project-options button > svg, .mobile-project-drag-preview > svg { flex: none; }
+.mobile-project-destination[aria-pressed=true] { background: var(--color-surface-1); font-weight: 600; }
+.mobile-project-destination[data-over=true] { background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface-0)); outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.mobile-project-options { display: grid; gap: 4px; }
+.mobile-project-options button { border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.mobile-project-empty { padding: 8px 12px; color: var(--color-text-tertiary); font-size: 13px; }
+.mobile-project-grip { touch-action: none; cursor: grab; color: var(--color-text-tertiary); }
+.mobile-swipe-row:has(.mobile-project-grip) { user-select: none; -webkit-touch-callout: none; }
+.mobile-swipe-row[data-project-dragging=true] { opacity: .4; }
+.mobile-project-drag-preview { background: var(--color-surface-0); color: var(--color-text-primary); border: 1px solid var(--color-accent); border-radius: 12px; box-shadow: 0 4px 16px rgb(0 0 0 / .12); cursor: grabbing; }
+@media (max-height: 580px) {
+  .mobile-drawer .mobile-dialog-body:has(.mobile-projects) { min-height: 100%; height: auto; }
+  .mobile-drawer .mobile-projects ~ .mobile-history { min-height: 100px; max-height: 48dvh; }
+}
 .mobile-history { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; padding: 18px 0; display: flex; flex-direction: column; gap: 3px; }
 .mobile-history button { text-align: left; padding: 12px; border-radius: 10px; min-height: 44px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-conversation-row { display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 48px; touch-action: pan-y; }

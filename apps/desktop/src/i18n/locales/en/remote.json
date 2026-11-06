@@ -1,4 +1,6 @@
 {
+  "chatProjects": "Projects",
+  "ungroupedChats": "Ungrouped chats",
   "mobileAllowComputerControl": "Allow computer to control this phone",
   "mobileComputerControlHint": "Enable for this paired computer while connected. Keep the phone unlocked; Stop in the task notification ends access. Local phone tasks and remote control run separately.",
   "mobileSpeechSettings": "Voice",
