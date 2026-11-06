@@ -533,6 +533,7 @@ impl RemoteHost for DesktopHost {
             ArchivedConversations { before } => state.db_executor.read(move |db| db.remote_archived_conversations(before.as_deref())).await.map(|r| r.value).map_err(|e| e.to_string()),
             RestoreConversation { conversation_id } => state.db_executor.write(move |db| { db.require_remote_conversation(&conversation_id)?; db.unarchive_conversation(&conversation_id).map(|_| Value::Null) }).await.map(|r| r.value).map_err(|e| e.to_string()),
             ArchiveConversation { conversation_id } => state.db_executor.write(move |db| { db.require_remote_conversation(&conversation_id)?; db.archive_conversations_batch(&[conversation_id]).map(|count| json!(count)) }).await.map(|r| r.value).map_err(|e| e.to_string()),
+            DeleteArchivedConversation { conversation_id } => state.db_executor.write(move |db| { db.require_remote_conversation(&conversation_id)?; db.delete_archived_conversations_batch(&[conversation_id]).map(|count| json!(count)) }).await.map(|r| r.value).map_err(|e| e.to_string()),
             DeleteConversation { conversation_id } => state.db_executor.write(move |db| { db.require_remote_conversation(&conversation_id)?; db.delete_conversations_batch(&[conversation_id]).map(|count| json!(count)) }).await.map(|r| r.value).map_err(|e| e.to_string()),
             CreateConversation { connection_id, model_selection } => state.db_executor.write(move |db| {
                 let saved = db.get_agent_config(&connection_id)?;

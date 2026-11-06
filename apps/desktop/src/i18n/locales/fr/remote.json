@@ -225,5 +225,7 @@
   "mobileSpeechOutput": "Service de lecture",
   "mobileSpeechSample": "Bonjour, ici Nexa. Votre service vocal est prêt.",
   "speechConfiguration": "Configurez un fournisseur vocal pris en charge, son adresse, son modèle et sa clé API.",
-  "speechCloudFailed": "Le service vocal a échoué. Vérifiez le compte, le modèle, l’adresse et le réseau."
+  "speechCloudFailed": "Le service vocal a échoué. Vérifiez le compte, le modèle, l’adresse et le réseau.",
+  "mobileSettingsSearch": "Rechercher dans les paramètres",
+  "mobileSettingsNoResults": "Aucun paramètre correspondant."
 }

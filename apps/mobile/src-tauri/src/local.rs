@@ -355,12 +355,6 @@ impl LocalRuntime {
             .await;
             return serde_json::to_value(launch).map_err(err);
         }
-        if message.sort_order == 0 {
-            let _ = self.db.update_conversation_title(
-                &conversation.id,
-                &nexa_core::conversation::fallback_title(&text),
-            );
-        }
         *active = Some((conversation.id.clone(), token.clone()));
         let mut tools = ToolRegistry::new().with_workspace(Some(self.workspace.clone()));
         tools.register(Box::new(FileTool));
@@ -461,7 +455,7 @@ impl LocalRuntime {
                 conversation_id: Some(conversation.id.clone()),
                 task_run_id: Some(launch.run_id.clone()),
                 host_surface: RuntimeHostSurface::Mobile,
-                model: Some(settings.model),
+                model: Some(settings.model.clone()),
                 ..Default::default()
             },
             provider,
@@ -541,7 +535,99 @@ impl LocalRuntime {
             )
             .await;
             active.take();
+            drop(active);
             let _ = app.emit("mobile:refresh", ());
+            // Title work must not hold task admission or delay the final answer.
+            // The guarded DB update preserves manual titles and prevents a late
+            // completion from renaming an already titled conversation.
+            if conversation.initial_auto_title_pending && conversation.title.trim().is_empty() {
+                if let Ok(messages) = runtime.db.get_messages(&conversation.id) {
+                    if let Some(context) =
+                        nexa_core::conversation::build_title_generation_context(&messages)
+                    {
+                        let generated = match connections::provider_config(&saved)
+                            .and_then(|config| create_provider(config).map_err(err))
+                        {
+                            Ok(provider) => {
+                                nexa_core::conversation::generate_title_with_usage(
+                                    provider.as_ref(),
+                                    &settings.model,
+                                    Some(provider_type),
+                                    &context,
+                                )
+                                .await
+                            }
+                            Err(_) => nexa_core::conversation::TitleGenerationResult {
+                                title: nexa_core::conversation::fallback_title(
+                                    &context.fallback_message,
+                                ),
+                                usage: None,
+                            },
+                        };
+                        if let Some(usage) = generated.usage.as_ref() {
+                            let provider_id =
+                                nexa_core::usage_analytics::provider_type_id(Some(provider_type));
+                            let (estimated_cost_micros, currency, pricing_version) =
+                                nexa_core::usage_analytics::usage_cost_metadata(Some(
+                                    provider_type,
+                                ));
+                            let raw = serde_json::to_value(usage).unwrap_or_else(|_| json!({}));
+                            let _ = runtime.db.record_ai_usage(
+                                &nexa_core::usage_analytics::AiUsageRecordInput {
+                                    invocation_id: &format!(
+                                        "title:{}:{}",
+                                        conversation.id, launch.run_id
+                                    ),
+                                    occurred_at: None,
+                                    provider_id,
+                                    provider_type: provider_id,
+                                    model_id: &settings.model,
+                                    raw_model_id: Some(&settings.model),
+                                    modality: "language_model",
+                                    operation_kind: "conversation_title",
+                                    conversation_id: Some(&conversation.id),
+                                    turn_id: None,
+                                    run_id: None,
+                                    subtask_run_id: None,
+                                    project_id: None,
+                                    prompt_tokens: u64::from(usage.prompt_tokens),
+                                    completion_tokens: u64::from(usage.completion_tokens),
+                                    thinking_tokens: u64::from(usage.thinking_tokens.unwrap_or(0)),
+                                    total_tokens: u64::from(usage.total_tokens.max(
+                                        usage.prompt_tokens.saturating_add(usage.completion_tokens),
+                                    )),
+                                    cache_read_tokens: u64::from(
+                                        usage.cache_read_tokens.unwrap_or(0),
+                                    ),
+                                    cache_miss_tokens: u64::from(
+                                        usage.cache_miss_tokens.unwrap_or(0),
+                                    ),
+                                    cache_creation_tokens: u64::from(
+                                        usage.cache_creation_tokens.unwrap_or(0),
+                                    ),
+                                    usage_source: "provider",
+                                    request_status: "success",
+                                    latency_ms: None,
+                                    time_to_first_token_ms: None,
+                                    upstream_provider_id: None,
+                                    cache_outcome_reason: None,
+                                    estimated_cost_micros,
+                                    currency,
+                                    pricing_version,
+                                    provider_raw: &raw,
+                                },
+                            );
+                        }
+                        if runtime
+                            .db
+                            .update_conversation_title(&conversation.id, &generated.title)
+                            .is_ok()
+                        {
+                            let _ = app.emit("mobile:conversations", ());
+                        }
+                    }
+                }
+            }
         });
         Ok(launch_result)
     }

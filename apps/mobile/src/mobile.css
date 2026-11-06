@@ -196,3 +196,22 @@
 @media (prefers-reduced-motion: reduce) {
   .mobile-app button, .mobile-dialog::backdrop { animation-duration: 0s !important; transition-duration: 0s !important; }
 }
+
+/* Reveal archive intent with distance, without moving the scroll/touch owner. */
+.mobile-swipe-row { position: relative; overflow: hidden; border-radius: 14px; touch-action: pan-y; --swipe-distance: 0px; --swipe-progress: 0; }
+.mobile-swipe-content { position: relative; background: var(--color-surface-0); transform: translateX(calc(-1 * var(--swipe-distance))); transition: transform 220ms cubic-bezier(.22,1,.36,1); }
+.mobile-swipe-row[data-swiping="true"] .mobile-swipe-content { transition: none; }
+.mobile-swipe-action { position: absolute; inset: 0 0 0 auto; width: var(--swipe-distance); display: flex; align-items: center; justify-content: center; gap: 8px; color: #78350f; background: color-mix(in srgb, #facc15 calc(var(--swipe-progress) * 100%), #fef9c3); font-size: 12px; font-weight: 600; overflow: hidden; }
+.mobile-swipe-action svg { flex-shrink: 0; transform: scale(calc(.65 + var(--swipe-progress) * .65)); }
+.mobile-swipe-action span { opacity: var(--swipe-progress); white-space: nowrap; }
+.mobile-settings-search { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-0); margin-bottom: 16px; }
+.mobile-settings-search input { flex: 1; min-width: 0; background: transparent; outline: none; font-size: 14px; }
+.mobile-settings-group { border-bottom: 1px solid var(--color-border); }
+.mobile-settings-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
+.mobile-settings-group > summary::-webkit-details-marker { display: none; }
+.mobile-settings-group > summary svg { transition: transform 180ms ease; }
+.mobile-settings-group[open] > summary svg { transform: rotate(90deg); }
+.mobile-settings-group > .mobile-settings-group-body { padding-bottom: 20px; }
+.mobile-settings-group-body > .mobile-settings-section { margin-top: 0; padding-top: 0; border-top: 0; }
+.mobile-settings-group-body > .mobile-settings-section > h3 { display: none; }
+@media (prefers-reduced-motion: reduce) { .mobile-swipe-content, .mobile-settings-group > summary svg { transition: none; } }

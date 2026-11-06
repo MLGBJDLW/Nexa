@@ -225,5 +225,7 @@
   "mobileSpeechOutput": "Read-aloud service",
   "mobileSpeechSample": "Hello, this is Nexa. Your voice service is ready.",
   "speechConfiguration": "Configure a supported speech provider, endpoint, model and API key first.",
-  "speechCloudFailed": "The configured voice service failed. Check the account, model, endpoint and network."
+  "speechCloudFailed": "The configured voice service failed. Check the account, model, endpoint and network.",
+  "mobileSettingsSearch": "Search settings",
+  "mobileSettingsNoResults": "No matching settings."
 }

@@ -225,5 +225,7 @@
   "mobileSpeechOutput": "Vorlesedienst",
   "mobileSpeechSample": "Hallo, hier ist Nexa. Ihr Sprachdienst ist bereit.",
   "speechConfiguration": "Konfigurieren Sie einen unterstützten Sprachanbieter, Endpunkt, Modell und API-Schlüssel.",
-  "speechCloudFailed": "Der Sprachdienst ist fehlgeschlagen. Prüfen Sie Konto, Modell, Endpunkt und Netzwerk."
+  "speechCloudFailed": "Der Sprachdienst ist fehlgeschlagen. Prüfen Sie Konto, Modell, Endpunkt und Netzwerk.",
+  "mobileSettingsSearch": "Einstellungen durchsuchen",
+  "mobileSettingsNoResults": "Keine passenden Einstellungen."
 }

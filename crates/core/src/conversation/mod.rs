@@ -1880,6 +1880,19 @@ impl Database {
     /// Delete multiple conversations by ID (messages are CASCADE-deleted).
     /// Returns the number of deleted rows. Empty `ids` is a no-op.
     pub fn delete_conversations_batch(&self, ids: &[String]) -> Result<usize, CoreError> {
+        self.delete_conversations_in_scope(ids, false)
+    }
+
+    /// A pending archive cleanup must never delete a concurrently restored chat.
+    pub fn delete_archived_conversations_batch(&self, ids: &[String]) -> Result<usize, CoreError> {
+        self.delete_conversations_in_scope(ids, true)
+    }
+
+    fn delete_conversations_in_scope(
+        &self,
+        ids: &[String],
+        archived_only: bool,
+    ) -> Result<usize, CoreError> {
         let ids = ids
             .iter()
             .map(|id| id.trim())
@@ -1892,6 +1905,14 @@ impl Database {
         }
         let mut conn = self.conn();
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut eligible = Vec::with_capacity(ids.len());
+        for id in ids {
+            if !archived_only || transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM conversations WHERE id=?1 AND archived_at IS NOT NULL)",
+                [id], |row| row.get::<_, bool>(0),
+            )? { eligible.push(id); }
+        }
+        let ids = eligible;
         let mut affected = 0usize;
         storage_management::ensure_idle(&transaction, &ids)?;
         for chunk in ids.chunks(CONVERSATION_DELETE_BIND_CHUNK) {
@@ -6426,6 +6447,31 @@ mod tests {
         assert!(db.get_conversation(&active.id).is_err());
         assert!(db.get_conversation(&archived.id).is_ok());
         assert_eq!(db.list_archived_conversations().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn archived_cleanup_preserves_chats_restored_after_confirmation() {
+        let db = Database::open_memory().unwrap();
+        let input = CreateConversationInput {
+            provider: "custom".into(),
+            model: "test".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        };
+        let removed = db.create_conversation(&input).unwrap();
+        let restored = db.create_conversation(&input).unwrap();
+        let ids = vec![removed.id.clone(), restored.id.clone()];
+        db.archive_conversations_batch(&ids).unwrap();
+        db.unarchive_conversation(&restored.id).unwrap();
+        assert_eq!(db.delete_archived_conversations_batch(&ids).unwrap(), 1);
+        assert!(db.get_conversation(&removed.id).is_err());
+        assert!(db
+            .get_conversation(&restored.id)
+            .unwrap()
+            .archived_at
+            .is_none());
     }
 
     #[test]

@@ -45,6 +45,7 @@ export class LocalClient implements RemoteChatClient {
       case 'chat.archive': return local('archive', { conversationId: params.conversationId });
       case 'chat.archived': return local('archived', { before: params.before });
       case 'chat.restore': return local('restore', { conversationId: params.conversationId });
+      case 'chat.deleteArchived': return local('deleteArchived', { conversationId: params.conversationId });
       case 'chat.delete': return local('delete', { conversationId: params.conversationId });
       case 'chat.create': return local('create', { connectionId:params.connectionId, modelSelection:params.modelSelection });
       case 'chat.read':

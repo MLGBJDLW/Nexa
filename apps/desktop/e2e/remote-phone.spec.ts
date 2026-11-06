@@ -1212,3 +1212,17 @@ test('native client refreshes negotiated chat capabilities after reconnect', asy
   });
   expect(result).toEqual({before:false,after:true,wrongIdentity:true,removed:false,refreshes:2});
 });
+
+
+test('native phone settles intermediate replies behind activity and keeps its final answer visible', async ({page}) => {
+  await page.goto('/');
+  await page.evaluate(async () => { const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity(); });
+  const phone=page.locator('.mobile-app');
+  await phone.getByLabel('Message',{exact:true}).fill('Review report');
+  await phone.getByRole('button',{name:'Send',exact:true}).click();
+  await expect(phone.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+  await page.evaluate(()=>{const f=(window as any).__MOBILE_CONTINUITY__;f.emit('outputSnapshot',{blockId:'intro',channel:'answer',text:'I will inspect the report.'});f.finish();});
+  await expect(phone.getByText('Final report: all three sections are consistent.',{exact:true})).toBeVisible();
+  await expect(phone.getByText('I will inspect the report.',{exact:true}).first()).not.toBeVisible();
+  await expect(phone.getByRole('button',{name:'Send',exact:true})).toBeVisible();
+});

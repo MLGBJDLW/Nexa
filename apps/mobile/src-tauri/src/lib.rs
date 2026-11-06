@@ -178,7 +178,7 @@ async fn mobile_local(
             )
         }
         "approvals" => state.approvals(&string("conversationId")?).await,
-        "archive" | "delete" => {
+        "archive" | "delete" | "deleteArchived" => {
             let ids = [string("conversationId")?];
             state
                 .db
@@ -186,6 +186,8 @@ async fn mobile_local(
                 .map_err(|e| e.to_string())?;
             let result = if action == "archive" {
                 state.db.archive_conversations_batch(&ids)
+            } else if action == "deleteArchived" {
+                state.db.delete_archived_conversations_batch(&ids)
             } else {
                 state.db.delete_conversations_batch(&ids)
             };

@@ -225,5 +225,7 @@
   "mobileSpeechOutput": "읽어주기 서비스",
   "mobileSpeechSample": "안녕하세요, Nexa입니다. 음성 서비스가 준비되었습니다.",
   "speechConfiguration": "지원되는 음성 공급자, 엔드포인트, 모델과 API 키를 설정하세요.",
-  "speechCloudFailed": "음성 서비스 호출에 실패했습니다. 계정, 모델, 엔드포인트와 네트워크를 확인하세요."
+  "speechCloudFailed": "음성 서비스 호출에 실패했습니다. 계정, 모델, 엔드포인트와 네트워크를 확인하세요.",
+  "mobileSettingsSearch": "설정 검색",
+  "mobileSettingsNoResults": "일치하는 설정이 없습니다."
 }

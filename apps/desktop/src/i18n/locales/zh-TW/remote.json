@@ -225,5 +225,7 @@
   "mobileSpeechOutput": "朗讀服務",
   "mobileSpeechSample": "你好，我是 Nexa。你的語音服務已準備就緒。",
   "speechConfiguration": "請先設定支援的語音供應商、端點、模型和 API 金鑰。",
-  "speechCloudFailed": "自訂語音服務呼叫失敗，請檢查帳號、模型、端點和網路。"
+  "speechCloudFailed": "自訂語音服務呼叫失敗，請檢查帳號、模型、端點和網路。",
+  "mobileSettingsSearch": "搜尋設定",
+  "mobileSettingsNoResults": "沒有符合的設定。"
 }

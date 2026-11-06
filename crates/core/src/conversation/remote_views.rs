@@ -53,8 +53,8 @@ impl Database {
         self.require_remote_conversation(conversation_id)?;
         let conversation = self.get_conversation(conversation_id)?;
         let conn = self.conn();
-        let mut query=conn.prepare("SELECT id,role,substr(content,1,8000),length(content),sort_order,created_at,substr(COALESCE(thinking,''),1,4000),length(COALESCE(thinking,'')) FROM messages WHERE conversation_id=?1 AND role IN ('user','assistant') AND (content <> '' OR COALESCE(thinking,'') <> '' OR image_attachments_json IS NOT NULL) AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext') AND (?2 IS NULL OR sort_order<?2) ORDER BY sort_order DESC LIMIT 31")?;
-        let mut rows=query.query_map(params![conversation_id,before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"role":row.get::<_,String>(1)?,"content":row.get::<_,String>(2)?,"totalChars":row.get::<_,u64>(3)?,"sortOrder":row.get::<_,i64>(4)?,"createdAt":row.get::<_,String>(5)?,"thinking":row.get::<_,String>(6)?,"thinkingTotalChars":row.get::<_,u64>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
+        let mut query=conn.prepare("SELECT id,role,substr(content,1,8000),length(content),sort_order,created_at,substr(COALESCE(thinking,''),1,4000),length(COALESCE(thinking,'')),CASE WHEN role='assistant' AND (COALESCE(tool_calls_json,'[]') NOT IN ('','[]','null') OR CASE WHEN json_valid(artifacts_json) THEN json_extract(artifacts_json,'$.phase')='commentary' ELSE 0 END) THEN 1 ELSE 0 END FROM messages WHERE conversation_id=?1 AND role IN ('user','assistant') AND (content <> '' OR COALESCE(thinking,'') <> '' OR image_attachments_json IS NOT NULL) AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext') AND (?2 IS NULL OR sort_order<?2) ORDER BY sort_order DESC LIMIT 31")?;
+        let mut rows=query.query_map(params![conversation_id,before],|row|Ok(json!({"id":row.get::<_,String>(0)?,"role":row.get::<_,String>(1)?,"content":row.get::<_,String>(2)?,"totalChars":row.get::<_,u64>(3)?,"sortOrder":row.get::<_,i64>(4)?,"createdAt":row.get::<_,String>(5)?,"thinking":row.get::<_,String>(6)?,"thinkingTotalChars":row.get::<_,u64>(7)?,"intermediate":row.get::<_,bool>(8)?})))?.collect::<Result<Vec<_>,_>>()?;
         let more = rows.len() > 30;
         rows.truncate(30);
         let cursor = more.then(|| rows.last().unwrap()["sortOrder"].clone());
@@ -170,6 +170,7 @@ mod tests {
         for index in 0..35 {
             db.add_message(&ConversationMessage{id:format!("m{index}"),conversation_id:chat.id.clone(),role:Role::User,content:if index==34{"你好🙂".repeat(3000)}else{"message".into()},tool_call_id:None,tool_calls:vec![],artifacts:Some(json!({"providerTurnEnvelope":{"secret":"never return"},"huge":"x".repeat(100_000)})),token_count:1,created_at:String::new(),sort_order:index,thinking:None,image_attachments:None}).unwrap();
         }
+        db.conn().execute(r#"UPDATE messages SET role='assistant',tool_calls_json='[{"id":"inspect","name":"read_file","arguments":{}}]' WHERE id='m33'"#, []).unwrap();
         db.add_message(&ConversationMessage {
             id: "resume-control".into(),
             conversation_id: chat.id.clone(),
@@ -188,10 +189,14 @@ mod tests {
         assert!(db
             .remote_message_text(&chat.id, "resume-control", 0)
             .is_err());
+        db.conn().execute(r#"UPDATE messages SET role='assistant',artifacts_json='{"phase":"commentary"}' WHERE id='m32'"#, []).unwrap();
         let page = db.remote_messages(&chat.id, None).unwrap();
         assert!(!page.to_string().contains("Private checkpoint"));
         assert_eq!(page["messages"].as_array().unwrap().len(), 30);
         assert_eq!(page["messages"][0]["sortOrder"], 5);
+        assert_eq!(page["messages"][27]["intermediate"], true);
+        assert_eq!(page["messages"][28]["intermediate"], true);
+        assert_eq!(page["messages"][29]["intermediate"], false);
         assert_eq!(page["beforeOrder"], 5);
         assert!(!page.to_string().contains("never return"));
         let first = page["messages"][29]["content"].as_str().unwrap();
