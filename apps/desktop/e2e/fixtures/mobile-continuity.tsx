@@ -86,6 +86,17 @@ export function renderMobileContinuity() {
       emit('outputSnapshot',{channel:'answer',blockId:'answer',text:'第二份报表有三个部分。'});
     }
   }
+  const pagedActivity = params.get('pagedActivity');
+  if (pagedActivity) {
+    chats = [{id:'created',title:'Long task',model:'model'}];
+    localStorage.setItem('nexa.remote.chat.mobile-fixture', 'created');
+    messages = Array.from({length:30}, (_, index) => ({
+      id:'record-' + index, role:'assistant', content:'', totalChars:0, intermediate:true, sortOrder:10 + index,
+      toolCalls:[{id:'call-' + index, name:'saved_step'}], ...(index === 0 ? {precedingUserId:'original'} : {}),
+    }));
+    run = {id:'run',status:'running',userMessageId:pagedActivity === 'same' ? 'original' : 'newer'};
+    emit('toolStarted', {run:{callId:'live-file',toolName:'active_step',status:'running'}});
+  }
   const composerFixture = new URLSearchParams(location.search).has('composer');
   let speechRequest: { id?: string; resolve: (value: string) => void; reject: (error: Error) => void } | undefined;
   const nativeSpeech = {
@@ -113,7 +124,7 @@ export function renderMobileContinuity() {
       if (method==='chat.start') { run={id:'run',status:'running'};return {}; }
       if (method==='chat.stop') { run.status='cancelled';emit('done',{status:'cancelled'});return {}; }
       if (method==='chat.resume') return {run:params.conversationId==='created'?run:null,events:events.filter(event=>event.eventSeq>(params.afterSequence||0)),hasMore:false,nextSequence:events.length,durableHighWater:events.length};
-      if (method==='chat.read') return {messages,beforeOrder:null};
+      if (method==='chat.read') return {messages,beforeOrder:pagedActivity ? 10 : null};
       if (method==='chat.deleteArchived') {const previous=archived.length;archived=archived.filter(item=>item.id!==params.conversationId);return previous-archived.length;}
       if (method==='chat.archive'||method==='chat.delete') {if(method==='chat.archive') archived.push(...chats.filter(item=>item.id===params.conversationId)); chats=chats.filter(item=>item.id!==params.conversationId);if(method==='chat.delete') archived=archived.filter(item=>item.id!==params.conversationId);return 1;}
       if (method==='approvals.list') return pendingApproval ? [{runId:'run',request:{id:'check',toolName:'verify_report',reason:'允许核对第二份报表吗？',targetValue:'report',argumentsPreview:'{}'}}] : [];

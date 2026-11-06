@@ -55,6 +55,21 @@ test('native phone groups activity once per turn during the run and after reload
   await checkExpansion('stored');
 });
 
+test('paged tool activity joins live replay only for the same prompt', async ({page}) => {
+  for (const owner of ['same','different']) {
+    await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&pagedActivity=' + owner);
+    const groups = page.getByTestId('remote-turn-activity');
+    await expect(groups).toHaveCount(owner === 'same' ? 1 : 2);
+    await groups.first().locator(':scope > summary').click();
+    await expect(groups.first().getByText('saved_step', {exact:true})).toHaveCount(30);
+    if (owner === 'different') {
+      await expect(groups.first().getByText('active_step', {exact:true})).toHaveCount(0);
+      await groups.last().locator(':scope > summary').click();
+    }
+    await expect(groups.last().getByText('active_step', {exact:true})).toBeVisible();
+  }
+});
+
 for (const width of [320, 360, 412, 720]) test(`mobile markdown and charts fit ${width}px`, async ({page}, info) => {
   await page.setViewportSize({width,height:width >= 700 ? 360 : 820});
   await page.goto('/e2e/fixtures/mobile-rendering.html');

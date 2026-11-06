@@ -13,6 +13,7 @@ export interface ChatMessage {
   sortOrder: number;
   intermediate?: boolean;
   continuesTurn?: boolean;
+  precedingUserId?: string;
   toolCalls?: Array<{ id: string; name: string }>;
   thinking?: string;
   thinkingTotalChars?: number;
@@ -33,6 +34,7 @@ function RemoteChatMessage({ message, onMore, onSpeak, speaking }: { message: Ch
 
 interface PhoneTurn {
   key: string;
+  promptId?: string;
   visible: ChatMessage[];
   activityIndex?: number;
   activity: RemoteTimelineItem[];
@@ -49,8 +51,9 @@ export function RemoteTranscript({ messages, timeline, running, finalMessageId, 
     // A user prompt or a new response after a visible final starts a boundary,
     // including when an older history page starts part-way through a turn.
     if (!turn || (message.role === 'user' && !message.continuesTurn)
-      || (turn.visible[0]?.role === 'assistant' && !message.continuesTurn)) {
-      turn = { key: message.id, visible: [], activity: [] };
+      || (!turn.promptId && turn.visible[0]?.role === 'assistant' && !message.continuesTurn)) {
+      const promptId = message.role === 'user' && !message.continuesTurn ? message.id : message.precedingUserId;
+      turn = { key: promptId ?? message.id, promptId, visible: [], activity: [] };
       turns.push(turn);
     }
     if (message.role === 'user') {
@@ -77,7 +80,7 @@ export function RemoteTranscript({ messages, timeline, running, finalMessageId, 
   // Old peers do not send a user anchor. Attach their replay only to a
   // known final or the last open turn, never to an unrelated prior answer.
   let liveTurn = finalMessageId ? turns.find(item => item.visible.some(message => message.id === finalMessageId)) : undefined;
-  if (!liveTurn && runUserId) liveTurn = turns.find(item => item.visible.some(message => message.id === runUserId));
+  if (!liveTurn && runUserId) liveTurn = turns.find(item => item.promptId === runUserId || item.visible.some(message => message.id === runUserId));
   if (!liveTurn && !runUserId && !turn?.visible.some(message => message.role === 'assistant')) liveTurn = turn;
   if (!liveTurn && timeline.length) {
     liveTurn = { key: 'live', visible: [], activity: [] };

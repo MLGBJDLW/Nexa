@@ -104,6 +104,23 @@ impl Database {
         rows.truncate(30);
         let cursor = more.then(|| rows.last().unwrap()["sortOrder"].clone());
         rows.reverse();
+        // A page can begin inside a long turn. Include the owning prompt ID
+        // on that boundary row so a phone can attach live replay without
+        // loading an earlier page or guessing from tool names or text.
+        if let Some(first) = rows
+            .first_mut()
+            .filter(|row| more && (row["role"] != "user" || row["continuesTurn"] == true))
+        {
+            let anchor: Option<String> = conn.query_row(
+                "SELECT id FROM messages WHERE conversation_id=?1 AND role='user' AND sort_order<?2
+                 AND COALESCE(display_artifact_kind,'') NOT IN ('steering','questionResponse','checkpointContinuation','replayableRuntimeContext')
+                 ORDER BY sort_order DESC LIMIT 1",
+                params![conversation_id, first["sortOrder"].as_i64()], |row| row.get(0),
+            ).optional()?;
+            if let Some(id) = anchor {
+                first["precedingUserId"] = json!(id);
+            }
+        }
         Ok(
             json!({"conversation":{"id":conversation.id,"title":conversation.title,"model":conversation.model},"messages":rows,"beforeOrder":cursor}),
         )
@@ -215,8 +232,10 @@ mod tests {
         for index in 0..35 {
             let mut artifacts = json!({"providerTurnEnvelope":{"secret":"never return"}, "huge":"x".repeat(100_000)});
             let mut tool_calls = Vec::new();
-            if index == 31 {
+            if index == 3 || index == 31 {
                 artifacts["kind"] = json!("steering");
+            } else if index == 4 {
+                artifacts["kind"] = json!("questionResponse");
             } else if index == 32 {
                 artifacts["phase"] = json!("commentary");
             } else if index == 33 {
@@ -230,7 +249,7 @@ mod tests {
             db.add_message(&ConversationMessage {
                 id: format!("m{index}"),
                 conversation_id: chat.id.clone(),
-                role: if index >= 32 {
+                role: if index == 5 || index >= 32 {
                     Role::Assistant
                 } else {
                     Role::User
@@ -275,6 +294,7 @@ mod tests {
         assert!(!page.to_string().contains("Private checkpoint"));
         assert_eq!(page["messages"].as_array().unwrap().len(), 30);
         assert_eq!(page["messages"][0]["sortOrder"], 5);
+        assert_eq!(page["messages"][0]["precedingUserId"], "m2");
         assert_eq!(page["messages"][26]["continuesTurn"], true);
         assert_eq!(page["messages"][27]["intermediate"], true);
         assert_eq!(page["messages"][28]["intermediate"], true);

@@ -8,6 +8,7 @@ interface HistoryMessage {
   role?: string;
   intermediate?: boolean;
   continuesTurn?: boolean;
+  precedingUserId?: string;
   toolCalls?: readonly unknown[];
 }
 
@@ -24,7 +25,8 @@ export function mergeRemoteHistory<T extends HistoryMessage>(current: T[], incom
     if (content === expanded.content && thinking === expanded.thinking
       && message.totalChars === expanded.totalChars && message.thinkingTotalChars === expanded.thinkingTotalChars
       && message.intermediate === expanded.intermediate && message.toolCalls === expanded.toolCalls
-      && message.role === expanded.role && message.continuesTurn === expanded.continuesTurn) return expanded;
+      && message.role === expanded.role && message.continuesTurn === expanded.continuesTurn
+      && message.precedingUserId === expanded.precedingUserId) return expanded;
     if (content === message.content && thinking === message.thinking) return message;
     return { ...message, content, thinking };
   });
