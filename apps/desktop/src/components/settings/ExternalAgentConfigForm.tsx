@@ -30,15 +30,23 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
   const preset = registryEntry?.preset ?? initialPreset;
   const isGlmCodingPlan = preset.provider === 'acp_glm_acp_agent';
   const isCursor = preset.provider === 'acp_cursor';
-  const credentialEnvName = isCursor ? 'CURSOR_API_KEY' : 'Z_AI_API_KEY';
+  const credentialEnvName = isCursor ? 'CURSOR_API_KEY' : isGlmCodingPlan ? 'Z_AI_API_KEY' : '';
   useEffect(() => { void checkExternalAgentUpdates(false); }, []);
   const [name, setName] = useState(config?.name ?? preset.name);
   const [launch, setLaunch] = useState<ExternalAgentLaunch>({ executable: null, workingDirectory: '' });
   const [initialLaunch, setInitialLaunch] = useState<ExternalAgentLaunch | null>(null);
   const [argsText, setArgsText] = useState('');
   const [envText, setEnvText] = useState('');
+  const credential = Object.entries(launch.env ?? {}).find(([key]) => key.toUpperCase() === credentialEnvName)?.[1] ?? '';
+  function parseAdvancedFields(args: string, env: string) {
+    const fields = parseExternalLaunchFields(args, env);
+    if (credentialEnvName && Object.keys(fields.env ?? {}).some(key => key.toUpperCase() === credentialEnvName)) {
+      throw new Error('Use the dedicated credential field');
+    }
+    return credential ? { ...fields, env: { ...fields.env, [credentialEnvName]: credential } } : fields;
+  }
   let launchFieldsValid = true;
-  try { parseExternalLaunchFields(argsText, envText); } catch { launchFieldsValid = false; }
+  try { parseAdvancedFields(argsText, envText); } catch { launchFieldsValid = false; }
   const packageRunner = Boolean(preset.distribution) && !launch.executable;
   const packageDistribution = preset.distribution?.npx ?? preset.distribution?.uvx;
   const defaultArguments = packageRunner && packageDistribution
@@ -80,11 +88,12 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
       if (generation.current !== current) return;
       setLaunch(value); setInitialLaunch(value);
       setArgsText(value.args == null ? '' : JSON.stringify(value.args, null, 2));
-      setEnvText(Object.keys(value.env ?? {}).length ? JSON.stringify(value.env, null, 2) : '');
+      const advancedEnv = Object.fromEntries(Object.entries(value.env ?? {}).filter(([key]) => key.toUpperCase() !== credentialEnvName));
+      setEnvText(Object.keys(advancedEnv).length ? JSON.stringify(advancedEnv, null, 2) : '');
     }).catch(cause => { if (generation.current === current) setError(String(cause)); })
       .finally(() => { if (generation.current === current) setLoading(false); });
     return () => { generation.current += 1; };
-  }, [config?.id]);
+  }, [config?.id, credentialEnvName]);
   const changeLaunch = (next: ExternalAgentLaunch) => {
     cancelSetup(); setAuthTerminal(null); setAuthMethods([]); setRequiresAuthentication(false); setSetupError(null);
     generation.current += 1;
@@ -205,11 +214,10 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
     {(isGlmCodingPlan || isCursor) && <div className="space-y-2 rounded-lg border border-border bg-surface-2/40 p-3" data-testid={isCursor ? "cursor-credentials" : "glm-coding-plan-credentials"}>
       <label className="block text-xs font-medium text-text-secondary">{t(isCursor ? 'settings.cursorApiKey' : 'settings.glmCodingPlanKey')}
         <input type="password" autoComplete="off" spellCheck={false} className={inputClass} disabled={!initialLaunch}
-          value={Object.entries(launch.env ?? {}).find(([key]) => key.toUpperCase() === credentialEnvName)?.[1] ?? ''}
+          value={credential}
           onChange={event => {
             const env = Object.fromEntries(Object.entries(launch.env ?? {}).filter(([key]) => key.toUpperCase() !== credentialEnvName));
             if (event.target.value) env[credentialEnvName] = event.target.value;
-            setEnvText(Object.keys(env).length ? JSON.stringify(env, null, 2) : '');
             changeLaunch({ ...launch, env });
           }} />
       </label>
@@ -237,7 +245,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
       <textarea className={`${inputClass} font-mono text-xs`} rows={3} value={argsText} placeholder={JSON.stringify(defaultArguments)} disabled={!initialLaunch}
         onChange={event => {
           setArgsText(event.target.value);
-          try { changeLaunch({ ...launch, ...parseExternalLaunchFields(event.target.value, envText) }); }
+          try { changeLaunch({ ...launch, ...parseAdvancedFields(event.target.value, envText) }); }
           catch { changeLaunch(launch); }
         }} />
     </label>
@@ -245,7 +253,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
       <textarea className={`${inputClass} font-mono text-xs`} rows={3} value={envText} placeholder='{}' disabled={!initialLaunch} spellCheck={false}
         onChange={event => {
           setEnvText(event.target.value);
-          try { changeLaunch({ ...launch, ...parseExternalLaunchFields(argsText, event.target.value) }); }
+          try { changeLaunch({ ...launch, ...parseAdvancedFields(argsText, event.target.value) }); }
           catch { changeLaunch(launch); }
         }} />
     </label>

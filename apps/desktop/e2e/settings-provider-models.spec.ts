@@ -3496,6 +3496,10 @@ test('Cursor API key is forwarded to Cursor discovery without becoming an xAI ke
   const key = form.getByLabel('Cursor API Key (optional)', { exact: true });
   await expect(key).toHaveAttribute('type', 'password');
   await key.fill('cursor-fixture-key');
+  const environment = form.getByLabel('Environment (JSON object; stored encrypted)');
+  await expect(environment).toHaveValue('');
+  if (!await environment.isVisible()) await form.getByText('Advanced', { exact: true }).click();
+  await environment.fill('{"LOG_LEVEL":"error"}');
   await form.getByRole('button', { name: /check connection/i }).click();
   await expect.poll(() => page.evaluate(() => (window as any).cursorProbe?.launch.env.CURSOR_API_KEY)).toBe('cursor-fixture-key');
   expect(await page.evaluate(() => (window as any).cursorProbe?.launch.env.XAI_API_KEY)).toBeUndefined();
