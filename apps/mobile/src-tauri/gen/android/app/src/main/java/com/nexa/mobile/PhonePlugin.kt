@@ -217,18 +217,9 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
         guarded(invoke) {
             val args = invoke.getArgs()
             PhoneScheduleJobs.reconcile(activity, if (args.isNull("nextWakeAt")) null else args.getString("nextWakeAt"))
+            PhoneReplies.reconcileApprovals(activity, args)
             JSObject()
         }
-    }
-    @Command fun scheduleApproval(invoke: Invoke) = activity.runOnUiThread {
-        guarded(invoke) {
-            PhoneReplies.post(activity, invoke.getArgs().getString("conversationId"), invoke.getArgs().getString("runId"), approval = true)
-            JSObject()
-        }
-    }
-    @Command fun scheduleDecisionRead(invoke: Invoke) = guarded(invoke) {
-        PhoneReplies.clearApproval(activity, invoke.getArgs().getString("runId"))
-        JSObject()
     }
     @Command fun notificationTarget(invoke: Invoke) = activity.runOnUiThread {
         guarded(invoke) {

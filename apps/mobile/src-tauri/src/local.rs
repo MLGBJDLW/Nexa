@@ -122,7 +122,7 @@ mod schedules;
 
 pub struct LocalRuntime {
     scheduler: Mutex<()>,
-    arm_lock: Mutex<()>,
+    pub(crate) arm_lock: Mutex<()>,
     pub db: Database,
     workspace: Workspace,
     outboxes: AgentRunEventOutboxes,

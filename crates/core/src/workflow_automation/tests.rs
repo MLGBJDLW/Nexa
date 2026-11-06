@@ -376,6 +376,18 @@ fn invalid_cron_or_timezone_is_rejected_before_automation_is_saved() {
 #[test]
 fn approval_occurrence_is_durable_actionable_and_single_winner() {
     let db = Database::open_memory().unwrap();
+    let conversation = db
+        .create_conversation(&CreateConversationInput {
+            provider: "mock".into(),
+            model: "mock".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap();
+    let mut config = WorkflowAutomationScheduleConfig::default();
+    config.execution_policy.conversation_id = Some(conversation.id.clone());
     let automation = db
         .save_workflow_automation_with_schedule_config(
             &SaveWorkflowAutomationInput {
@@ -395,7 +407,7 @@ fn approval_occurrence_is_durable_actionable_and_single_winner() {
                 },
                 enabled: true,
             },
-            &WorkflowAutomationScheduleConfig::default(),
+            &config,
         )
         .unwrap();
     let expected_next = automation.next_run_at.clone().unwrap();
@@ -424,6 +436,17 @@ fn approval_occurrence_is_durable_actionable_and_single_winner() {
     let waiting = db.list_workflow_automation_runs_waiting_approval().unwrap();
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].id, run.id);
+    assert_eq!(
+        db.pending_phone_schedule_approvals().unwrap().get(&run.id),
+        Some(&conversation.id)
+    );
+    db.archive_conversation(&conversation.id).unwrap();
+    assert!(db.pending_phone_schedule_approvals().unwrap().is_empty());
+    db.unarchive_conversation(&conversation.id).unwrap();
+    assert_eq!(
+        db.pending_phone_schedule_approvals().unwrap().get(&run.id),
+        Some(&conversation.id)
+    );
     assert!(db
         .list_due_workflow_automations(&expected_next)
         .unwrap()
@@ -456,6 +479,7 @@ fn approval_occurrence_is_durable_actionable_and_single_winner() {
         .list_workflow_automation_runs_waiting_approval()
         .unwrap()
         .is_empty());
+    assert!(db.pending_phone_schedule_approvals().unwrap().is_empty());
 }
 
 #[test]

@@ -74,9 +74,10 @@ async fn tick(
         Ok(value) => value,
         Err(_) => retry(),
     };
-    match runtime.next_wake_at() {
-        Ok(next) => outcome["nextWakeAt"] = json!(next),
-        Err(_) => outcome["nextWakeAt"] = retry()["nextWakeAt"].clone(),
+    let _guard = runtime.arm_lock.lock().await;
+    match runtime.schedule_wake_snapshot() {
+        Ok(Value::Object(snapshot)) => outcome.as_object_mut().unwrap().extend(snapshot),
+        _ => outcome["nextWakeAt"] = retry()["nextWakeAt"].clone(),
     }
     outcome
 }

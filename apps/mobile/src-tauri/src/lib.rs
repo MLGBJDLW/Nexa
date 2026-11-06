@@ -157,14 +157,6 @@ async fn mobile_local(
                         .ok_or("Choose an approval decision.")?,
                 )
                 .await;
-            if result.is_ok() {
-                let _ = platform::call(
-                    &app,
-                    "scheduleDecisionRead",
-                    json!({"runId":string("runId")?}),
-                )
-                .await;
-            }
             state.arm_schedule(&app).await;
             result
         }
@@ -172,11 +164,6 @@ async fn mobile_local(
             let result = state
                 .tick_schedules(local::host::RunHost::Foreground(app.clone()))
                 .await;
-            if let Ok(notice) = &result {
-                if notice["status"] == "waiting_approval" {
-                    let _ = platform::call(&app, "scheduleApproval", notice.clone()).await;
-                }
-            }
             state.arm_schedule(&app).await;
             result
         }

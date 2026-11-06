@@ -30,9 +30,21 @@ impl LocalRuntime {
 
     pub(crate) async fn arm_schedule(&self, app: &AppHandle) {
         let _guard = self.arm_lock.lock().await;
-        if let Ok(next) = self.next_wake_at() {
-            let _ = platform::call(app, "scheduleWake", json!({"nextWakeAt":next})).await;
+        if let Ok(snapshot) = self.schedule_wake_snapshot() {
+            let _ = platform::call(app, "scheduleWake", snapshot).await;
         }
+    }
+
+    /// Read under arm_lock in both the Activity and JobService. Android can
+    /// receive their JNI callbacks in a different order after the read.
+    pub(crate) fn schedule_wake_snapshot(&self) -> Result<Value, String> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+        Ok(json!({
+            "nextWakeAt": self.next_wake_at()?,
+            "pendingApprovals": self.db.pending_phone_schedule_approvals().map_err(err)?,
+            "approvalSequence": SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        }))
     }
 
     pub async fn tick_schedules(self: &Arc<Self>, host: RunHost) -> Result<Value, String> {

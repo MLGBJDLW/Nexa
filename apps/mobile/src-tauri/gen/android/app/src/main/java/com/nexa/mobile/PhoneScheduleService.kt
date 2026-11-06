@@ -144,10 +144,11 @@ class PhoneScheduleService : JobService() {
                         val next = if (result.isNull("nextWakeAt")) null else result.getString("nextWakeAt")
                         if (next == null && result.optString("status") == "error") retry = true
                         else PhoneScheduleJobs.completed(this, next)
+                        PhoneReplies.reconcileApprovals(this, result)
                         val chat = result.optString("conversationId")
                         val run = result.optString("runId")
-                        if (chat.isNotEmpty() && run.isNotEmpty() && result.optString("status") in setOf("completed", "waiting_approval")) {
-                            PhoneReplies.post(this, chat, run, result.optString("status") == "waiting_approval")
+                        if (chat.isNotEmpty() && run.isNotEmpty() && result.optString("status") == "completed") {
+                            PhoneReplies.post(this, chat, run)
                         }
                     }
                 } catch (e: Exception) {

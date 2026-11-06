@@ -7,12 +7,14 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
 
 /** Chat-scoped delivery from either the visible executor or an Android job. */
 internal object PhoneReplies {
     private const val APPROVAL = 73
     private const val OPEN = "com.nexa.mobile.OPEN_REPLY"
     private var viewedRun: String? = null
+    private var approvalSequence = 0L
 
     fun post(context: Context, chat: String, run: String, approval: Boolean = false) {
         if (!approval && viewedRun == run) return
@@ -24,6 +26,7 @@ internal object PhoneReplies {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.notify(if (approval) run else chat, if (approval) APPROVAL else TaskService.REPLY_NOTIFICATION,
             NotificationCompat.Builder(context, TaskService.CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
+                .setOnlyAlertOnce(approval)
                 .addExtras(Bundle().apply { putString("nexa.run", run) })
                 .setContentTitle(context.getString(if (approval) R.string.approval_title else R.string.task_reply_ready))
                 .setContentText(context.getString(if (approval) R.string.task_schedule_open else R.string.task_reply_open))
@@ -38,8 +41,35 @@ internal object PhoneReplies {
         }
     }
 
-    fun clearApproval(context: Context, run: String) {
-        context.getSystemService(NotificationManager::class.java).cancel(run, APPROVAL)
+    // All callers run on the main looper. Keep receipts even after the user
+    // swipes an alert away, until SQLite says the occurrence is no longer pending.
+    fun reconcileApprovals(context: Context, snapshot: JSONObject) {
+        val pending = snapshot.optJSONObject("pendingApprovals") ?: return
+        val sequence = snapshot.getLong("approvalSequence")
+        if (sequence <= approvalSequence) return
+        val initial = approvalSequence == 0L
+        val prefs = context.getSharedPreferences("nexa-schedule-notifications", Context.MODE_PRIVATE)
+        val delivered = prefs.getStringSet("delivered", emptySet()).orEmpty()
+        val runs = pending.keys().asSequence().toSet()
+        if (!initial && runs == delivered) {
+            approvalSequence = sequence
+            return
+        }
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val active = manager.activeNotifications.filter { it.id == APPROVAL }.mapNotNull { it.tag }.toSet()
+        for (run in active - runs) manager.cancel(run, APPROVAL)
+        val receipts = (delivered + active).intersect(runs).toMutableSet()
+        if (runs.size > receipts.size && manager.areNotificationsEnabled()) {
+            TaskService.ensureChannels(context)
+            if (manager.getNotificationChannel(TaskService.CHANNEL).importance != NotificationManager.IMPORTANCE_NONE) {
+                for (run in runs - receipts) {
+                    post(context, pending.getString(run), run, approval = true)
+                    receipts.add(run)
+                }
+            }
+        }
+        if (receipts != delivered) prefs.edit().putStringSet("delivered", receipts).apply()
+        approvalSequence = sequence
     }
 
     fun consume(intent: Intent?): Pair<String, Boolean>? {

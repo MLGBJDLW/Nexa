@@ -133,6 +133,25 @@ impl Database {
         Ok(runs)
     }
 
+    /// Opaque run and delivery chat IDs for Android's notification reconciliation.
+    /// A saved revision owns the target until the occurrence is resolved.
+    pub fn pending_phone_schedule_approvals(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, String>, CoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT r.id, chat.id FROM workflow_automation_runs r
+             JOIN workflow_automation_occurrence_approvals p ON p.occurrence_id=r.occurrence_id
+             JOIN workflow_automation_definition_revisions d
+               ON d.automation_id=r.automation_id AND d.revision=r.definition_revision
+             JOIN conversations chat ON chat.id=json_extract(d.schedule_config_json,'$.executionPolicy.conversationId')
+             WHERE r.status='waiting_approval' AND p.state='pending'
+               AND chat.archived_at IS NULL",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn approve_workflow_automation_run_at(
         &self,
         run_id: &str,
