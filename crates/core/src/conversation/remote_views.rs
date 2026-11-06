@@ -168,9 +168,42 @@ mod tests {
             })
             .unwrap();
         for index in 0..35 {
-            db.add_message(&ConversationMessage{id:format!("m{index}"),conversation_id:chat.id.clone(),role:Role::User,content:if index==34{"你好🙂".repeat(3000)}else{"message".into()},tool_call_id:None,tool_calls:vec![],artifacts:Some(json!({"providerTurnEnvelope":{"secret":"never return"},"huge":"x".repeat(100_000)})),token_count:1,created_at:String::new(),sort_order:index,thinking:None,image_attachments:None}).unwrap();
+            let mut artifacts = json!({"providerTurnEnvelope":{"secret":"never return"}, "huge":"x".repeat(100_000)});
+            let mut tool_calls = Vec::new();
+            if index == 32 {
+                artifacts["phase"] = json!("commentary");
+            } else if index == 33 {
+                tool_calls.push(crate::llm::ToolCallRequest {
+                    id: "inspect".into(),
+                    name: "read_file".into(),
+                    arguments: json!({"path":"report.md"}).to_string(),
+                    thought_signature: None,
+                });
+            }
+            db.add_message(&ConversationMessage {
+                id: format!("m{index}"),
+                conversation_id: chat.id.clone(),
+                role: if index >= 32 {
+                    Role::Assistant
+                } else {
+                    Role::User
+                },
+                content: if index == 34 {
+                    "你好🙂".repeat(3000)
+                } else {
+                    "message".into()
+                },
+                tool_call_id: None,
+                tool_calls,
+                artifacts: Some(artifacts),
+                token_count: 1,
+                created_at: String::new(),
+                sort_order: index,
+                thinking: None,
+                image_attachments: None,
+            })
+            .unwrap();
         }
-        db.conn().execute(r#"UPDATE messages SET role='assistant',tool_calls_json='[{"id":"inspect","name":"read_file","arguments":{}}]' WHERE id='m33'"#, []).unwrap();
         db.add_message(&ConversationMessage {
             id: "resume-control".into(),
             conversation_id: chat.id.clone(),
@@ -189,7 +222,6 @@ mod tests {
         assert!(db
             .remote_message_text(&chat.id, "resume-control", 0)
             .is_err());
-        db.conn().execute(r#"UPDATE messages SET role='assistant',artifacts_json='{"phase":"commentary"}' WHERE id='m32'"#, []).unwrap();
         let page = db.remote_messages(&chat.id, None).unwrap();
         assert!(!page.to_string().contains("Private checkpoint"));
         assert_eq!(page["messages"].as_array().unwrap().len(), 30);
