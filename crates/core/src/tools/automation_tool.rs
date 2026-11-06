@@ -201,10 +201,17 @@ pub fn conversation_schedule_action(
     conversation_id: &str,
     input: Value,
 ) -> Result<Value, CoreError> {
-    db.require_remote_conversation(conversation_id)?;
     let arguments = serde_json::to_string(&input)?;
     validate_action_fields(&arguments)?;
     let args: Args = serde_json::from_value(input)?;
+    if args.action == "preview" {
+        // A new chat can preview a schedule before creating any durable row.
+        return execute(
+            &ToolExecutionContext::new("phone-schedules", &arguments, db, &[]),
+            args,
+        );
+    }
+    db.require_remote_conversation(conversation_id)?;
     let mut registry = super::ToolRegistry::new();
     registry.register(Box::new(super::web_search_tool::WebSearchTool));
     registry.register(Box::new(super::fetch_url_tool::FetchUrlTool));

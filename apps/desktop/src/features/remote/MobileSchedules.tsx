@@ -20,6 +20,7 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
   const [editor, setEditor] = useState<Editor | null>(null);
   const [removing, setRemoving] = useState<WorkflowAutomation | null>(null);
   const [history, setHistory] = useState<{ id: string; runs: Run[] } | null>(null);
+  const [preview, setPreview] = useState<{ cron: string; timezone: string; dates: string[]; error?: string } | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -37,6 +38,19 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
     void refresh(conversationId).catch(e => setError(String(e)));
     return () => { request.current++; };
   }, [conversationId, refresh]);
+  const cron = editor?.cron.trim();
+  const zone = editor?.timezone.trim();
+  useEffect(() => {
+    if (!cron || !zone) { setPreview(null); return; }
+    let active = true;
+    const timer = setTimeout(() => {
+      void rpc<{ occurrences: { scheduledFor: string }[] }>(conversationId, {action:'preview', cron, timezone:zone, limit:5})
+        .then(result => { if (active) setPreview({cron, timezone:zone, dates:result.occurrences.map(item=>item.scheduledFor)}); })
+        .catch(e => { if (active) setPreview({cron, timezone:zone, dates:[], error:String(e)}); });
+    }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [cron, zone, conversationId, rpc]);
+  const currentPreview = preview && preview.cron === cron && preview.timezone === zone ? preview : null;
   const act = async (run: () => Promise<void>) => {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError('');
@@ -44,7 +58,7 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
     finally { lock.current = false; setBusy(false); }
   };
   const save = async () => {
-    if (!editor) return;
+    if (!editor || !currentPreview?.dates.length) return;
     const id = conversationId || await ensureChat();
     await rpc(id, { action: editor.id ? 'update' : 'create', ...editor });
     setEditor(null); setHistory(null); await refresh(id);
@@ -76,6 +90,10 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
               : <input required value={editor[field]} onChange={e => setEditor({...editor,[field]:e.target.value})}/>}
           </label>)}
           <p className="mobile-section-hint">{t('workflows.cronHelp')}</p>
+          {currentPreview?.error && <p className="mobile-error" role="alert">{currentPreview.error}</p>}
+          {currentPreview && currentPreview.dates.length > 0 && <div aria-live="polite"><strong>{t('workflows.nextOccurrences')}</strong>
+            <ul>{currentPreview.dates.map(date=><li key={date}>{time(date,currentPreview.timezone)}</li>)}</ul>
+          </div>}
           <fieldset><legend>{t('workflows.allowedTools')}</legend>
             {['web_search','fetch_url'].map(tool => <label key={tool} className="mobile-schedule-check">
               <input type="checkbox" checked={editor.allowedTools.includes(tool)} onChange={e=>setEditor({...editor,
@@ -84,7 +102,7 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
           </fieldset>
           <label className="mobile-schedule-check"><input type="checkbox" checked={editor.requireApproval} onChange={e=>setEditor({...editor,requireApproval:e.target.checked})}/>{t('workflows.approvalRequired')}</label>
         </fieldset>
-        <div className="mobile-confirm-actions"><button type="button" disabled={busy} onClick={()=>setEditor(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={busy}>{t('workflows.saveAutomation')}</button></div>
+        <div className="mobile-confirm-actions"><button type="button" disabled={busy} onClick={()=>setEditor(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={busy || !currentPreview?.dates.length}>{t('workflows.saveAutomation')}</button></div>
       </form> : <>
         <button className="mobile-drawer-new" disabled={busy} onClick={()=>setEditor(blankEditor())}><Plus size={16}/>{t('workflows.createAutomation')}</button>
         {tasks.map(task => <section key={task.id}>

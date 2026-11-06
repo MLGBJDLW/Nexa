@@ -124,6 +124,7 @@ export function renderMobileContinuity() {
       }
       if (method==='chat.schedules') {
         const input=params.input;
+        if (input.action==='preview') return {occurrences:[{scheduledFor:'2026-11-07T01:00:00Z'}]};
         if (input.action==='list') return {tasks:schedules};
         if (input.action==='create') schedules.push({...input,id:'job',enabled:true,definitionRevision:1,
           trigger:{kind:'schedule',cron:input.cron},scheduleConfig:{timezone:input.timezone},approvalPolicy:{allowedTools:input.allowedTools,requireBeforeRun:input.requireApproval}});
