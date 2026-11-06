@@ -441,6 +441,7 @@ impl RemoteHost for DesktopHost {
             MODEL_CONNECTION_SYNC_CAPABILITY.into(),
             PHONE_CONTROL_CAPABILITY.into(),
             "chat-management-v1".into(),
+            "chat-delete-archived-v1".into(),
         ]
     }
     async fn execute(&self, owner: &str, command: RemoteCommand) -> Result<Value, String> {

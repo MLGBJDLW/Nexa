@@ -61,7 +61,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   };
   type GroupId = keyof typeof groups;
   const query = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  const matches = (id: GroupId) => query.every(word => groups[id].join(' ').toLocaleLowerCase().includes(word));
+  const matches = (id: GroupId) => (id !== 'sync' || state.hosts.length > 0) && query.every(word => groups[id].join(' ').toLocaleLowerCase().includes(word));
   const group = (id: GroupId, children: ReactNode) => <details className="mobile-settings-group" hidden={!matches(id)} open={query.length > 0 || !!expanded[id]} onToggle={event => { if (!query.length) { const next = event.currentTarget.open; setExpanded(current => current[id] === next ? current : { ...current, [id]: next }); } }}>
     <summary>{groups[id][0]}<ChevronRight size={17}/></summary><div className="mobile-settings-group-body">{children}</div>
   </details>;
@@ -115,7 +115,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
       </section>)}
       {group('speech', <PhoneSpeechSettings open={open && matches('speech') && (query.length > 0 || !!expanded.speech)}/>)}
       {group('web', open && <PhoneWebSettings connections={state.connections}/>)}
-      {group('storage', open && <StorageUsageCard mobile service={phoneStorage}/>)}
+      {group('storage', open && matches('storage') && (query.length > 0 || expanded.storage) && <StorageUsageCard mobile service={phoneStorage}/>)}
       {group('language', <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>)}
       {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}
       <p className="mobile-version">Nexa Mobile {state.version}</p>

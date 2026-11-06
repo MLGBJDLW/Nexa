@@ -21,7 +21,7 @@ export function renderMobileContinuity() {
   };
   const client = {
     paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0}},
-    state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:false,
+    state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:false,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
     async rpc(method:string,params:any={}) {

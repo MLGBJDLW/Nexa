@@ -14,6 +14,7 @@ export const phoneSpeech: NativeSpeech = {
 export interface NativeHost extends PairedRemote { id: string; endpoint: string }
 export const hostLabel = (host: NativeHost) => { try { return new URL(host.endpoint).hostname; } catch { return host.device.name; } };
 export class NativeClient implements RemoteChatClient {
+  get archivedDeletionAvailable() { return this.paired.manifest.capabilities?.includes("chat-delete-archived-v1") ?? false; }
   get conversationManagementAvailable() { return this.paired.manifest.capabilities?.includes("chat-management-v1") ?? false; }
   readonly nativeSpeech = phoneSpeech;
   readonly voiceAvailable = false;

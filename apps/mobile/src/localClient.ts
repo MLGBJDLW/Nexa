@@ -8,6 +8,7 @@ export interface PhoneSettings { connectionId?: string | null; providerType: str
 interface Run { id: string; status: string; phase: string; errorMessage?: string }
 export class LocalClient implements RemoteChatClient {
   readonly conversationManagementAvailable = true;
+  readonly archivedDeletionAvailable = true;
   readonly nativeSpeech = phoneSpeech;
   readonly voiceAvailable = false;
   readonly extendedModesAvailable = false;
