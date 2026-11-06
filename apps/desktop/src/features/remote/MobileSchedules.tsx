@@ -6,10 +6,10 @@ import type { RemoteChatClient } from './remoteClient';
 import type { WorkflowAutomation } from '../../types/workflows';
 
 type Run = { id: string; status: string; scheduledFor?: string; createdAt: string; summary?: string };
-type Editor = { id?: string; expectedRevision?: number; requestId?: string; name: string; prompt: string; cron: string; timezone: string; web: boolean; requireApproval: boolean };
+type Editor = { id?: string; expectedRevision?: number; requestId?: string; name: string; prompt: string; cron: string; timezone: string; allowedTools: string[]; requireApproval: boolean };
 const blankEditor = (): Editor => ({
   requestId: crypto.randomUUID(), name: '', prompt: '', cron: '0 9 * * *',
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', web: false, requireApproval: false,
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', allowedTools: [], requireApproval: false,
 });
 
 export function MobileSchedules({ client, conversationId, ensureChat, onClose }: {
@@ -46,8 +46,7 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
   const save = async () => {
     if (!editor) return;
     const id = conversationId || await ensureChat();
-    const { web, ...fields } = editor;
-    await rpc(id, { action: fields.id ? 'update' : 'create', ...fields, allowedTools: web ? ['web_search', 'fetch_url'] : [] });
+    await rpc(id, { action: editor.id ? 'update' : 'create', ...editor });
     setEditor(null); setHistory(null); await refresh(id);
   };
   const mutate = async (task: WorkflowAutomation, action: string) => {
@@ -65,7 +64,7 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
     if (task.trigger.kind !== 'schedule') return;
     setEditor({ id:task.id, expectedRevision:task.definitionRevision, name:task.name, prompt:task.prompt,
       cron:task.trigger.cron, timezone:task.scheduleConfig.timezone,
-      web:task.approvalPolicy.allowedTools.includes('web_search'), requireApproval:task.approvalPolicy.requireBeforeRun });
+      allowedTools:task.approvalPolicy.allowedTools, requireApproval:task.approvalPolicy.requireBeforeRun });
   };
   return <MobileDialog title={t('chat.scheduledTasks')} onClose={onClose}>
     <div className="mobile-schedules">
@@ -77,7 +76,12 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
               : <input required value={editor[field]} onChange={e => setEditor({...editor,[field]:e.target.value})}/>}
           </label>)}
           <p className="mobile-section-hint">{t('workflows.cronHelp')}</p>
-          <label className="mobile-schedule-check"><input type="checkbox" checked={editor.web} onChange={e=>setEditor({...editor,web:e.target.checked})}/>{t('workflows.allowedTools')} · web_search / fetch_url</label>
+          <fieldset><legend>{t('workflows.allowedTools')}</legend>
+            {['web_search','fetch_url'].map(tool => <label key={tool} className="mobile-schedule-check">
+              <input type="checkbox" checked={editor.allowedTools.includes(tool)} onChange={e=>setEditor({...editor,
+                allowedTools:e.target.checked ? [...editor.allowedTools,tool] : editor.allowedTools.filter(name=>name!==tool)})}/>{tool}
+            </label>)}
+          </fieldset>
           <label className="mobile-schedule-check"><input type="checkbox" checked={editor.requireApproval} onChange={e=>setEditor({...editor,requireApproval:e.target.checked})}/>{t('workflows.approvalRequired')}</label>
         </fieldset>
         <div className="mobile-confirm-actions"><button type="button" disabled={busy} onClick={()=>setEditor(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={busy}>{t('workflows.saveAutomation')}</button></div>
@@ -85,6 +89,8 @@ export function MobileSchedules({ client, conversationId, ensureChat, onClose }:
         <button className="mobile-drawer-new" disabled={busy} onClick={()=>setEditor(blankEditor())}><Plus size={16}/>{t('workflows.createAutomation')}</button>
         {tasks.map(task => <section key={task.id}>
           <strong><CalendarClock size={16}/>{task.name}</strong>
+          <p>{task.prompt}</p>
+          <p>{t('workflows.allowedTools')} · {task.approvalPolicy.allowedTools.join(', ') || t('common.none')}</p>
           <p>{task.trigger.kind === 'schedule' && task.trigger.cron} · {task.scheduleConfig.timezone}</p>
           <p>{task.enabled ? `${t('workflows.nextRun')} · ${time(task.nextRunAt, task.scheduleConfig.timezone)}` : t('chat.schedulePaused')}</p>
           <div className="mobile-schedule-controls">

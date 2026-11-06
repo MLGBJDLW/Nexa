@@ -235,6 +235,12 @@ extractive evidence, not a background LLM summary; excerpts can omit details, so
 exact evidence must be retrieved when needed. Explicit manual maintenance and
 hard-overflow safety retain their existing guarded paths.
 
+## Conversation controls and scheduled tasks
+
+Open **Scheduled tasks** in the conversation drawer to create a five-field cron job in an IANA timezone. The phone and each paired computer keep separate schedules. Jobs deliver replies to the chat where they were created. The editor supports previewing the saved next run, editing, pause/resume, deletion, occurrence history, and approval decisions. On the phone, local jobs are checked while Nexa is open and catch up on return. On a paired computer, the desktop scheduler continues while the phone is disconnected. Chat can also create jobs through the same automation tool. See [Scheduled tasks](SCHEDULED_TASKS.md) for occurrence, retry and overlap behavior.
+
+Type during a running turn to steer it, or leave the composer empty to stop it. On Android the microphone expands into a live input-level meter. The pairing scanner follows the system rotation preference. Swipe an active chat left to expand its archive button. In the archive, swipe right to restore or left to confirm deletion. The archive heading also has a confirmed bulk-delete action.
+
 ## Build and release
 
 Use the commands and prerequisites in the [application README](../../apps/mobile/README.md).

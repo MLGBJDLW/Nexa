@@ -187,17 +187,25 @@ export function RemoteChat({
   const markReplyRead = mobile?.onReplyRead;
   useEffect(() => {
     if (!markReplyRead || !conversationId || !timelineRunId || !finalMessageId || drawerOpen) return;
+    const root = contentScroll.current;
+    const reply = root?.querySelector(`[data-message-id="${CSS.escape(finalMessageId)}"]`);
+    if (!root || !reply) return;
+    let visible = false;
     const markVisible = () => {
-      if (document.visibilityState === 'visible' && !document.querySelector('dialog[open]')) {
+      if (visible && document.visibilityState === 'visible' && !document.querySelector('dialog[open]')) {
         void markReplyRead(conversationId, timelineRunId).catch(() => {});
       }
     };
-    // Acknowledge only after the canonical final message has been rendered.
-    markVisible();
+    const observer = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (visible) markVisible();
+    }, { root });
+    observer.observe(reply);
     window.addEventListener('focus', markVisible);
     document.addEventListener('visibilitychange', markVisible);
     document.addEventListener('close', markVisible, true);
     return () => {
+      observer.disconnect();
       window.removeEventListener('focus', markVisible);
       document.removeEventListener('visibilitychange', markVisible);
       document.removeEventListener('close', markVisible, true);
@@ -530,11 +538,19 @@ export function RemoteChat({
     document.addEventListener('visibilitychange', foreground);
     window.addEventListener('pageshow', foreground);
     void sync();
-    const timer = setInterval(() => {
-      if (client.state.phase === 'connected' && document.visibilityState !== 'hidden') void sync();
-    }, 3000);
+    // Live events remain immediate. A quiet or completed conversation needs
+    // only an occasional missed-event check, and an ongoing replay owns its cursor.
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = () => {
+      const activeRun = ['queued', 'running', 'waiting_approval', 'awaiting_user_input', 'cancelling'].includes(status);
+      timer = setTimeout(() => {
+        if (!syncing && client.state.phase === 'connected' && document.visibilityState !== 'hidden') void sync();
+        poll();
+      }, activeRun ? 3000 : 30_000);
+    };
+    poll();
     return () => {
-      stopped = true; off(); clearInterval(timer);
+      stopped = true; off(); clearTimeout(timer);
       document.removeEventListener('visibilitychange', foreground);
       window.removeEventListener('pageshow', foreground);
       if (paint) clearTimeout(paint);

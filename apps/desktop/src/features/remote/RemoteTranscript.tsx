@@ -22,7 +22,7 @@ export interface ChatMessage {
 
 function RemoteChatMessage({ message, onMore, onSpeak, speaking }: { message: ChatMessage; onMore: () => void; onSpeak?: () => void; speaking?: boolean }) {
   const { t } = useTranslation();
-  if (message.steering) return <article className="remote-steering flex items-start gap-2 rounded-lg border-l-2 border-accent bg-surface-1 px-3 py-2" aria-label={t('chat.steeringMessage')}>
+  if (message.steering) return <article data-message-id={message.id} className="remote-steering flex items-start gap-2 rounded-lg border-l-2 border-accent bg-surface-1 px-3 py-2" aria-label={t('chat.steeringMessage')}>
     <CornerDownRight size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden="true"/>
     <div className="min-w-0"><small className="text-accent">{t('chat.steeringLabel')}</small><p className="whitespace-pre-wrap break-words">{message.content}</p>
       {[...message.content].length < message.totalChars && <button className={remoteButton} onClick={onMore}>{t('remote.moreText')}</button>}
