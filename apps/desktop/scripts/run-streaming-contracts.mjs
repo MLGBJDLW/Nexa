@@ -28,6 +28,6 @@ run(process.execPath, [
   '-p',
   join(root, 'tsconfig.streaming-tests.json'),
 ]);
-for (const file of readdirSync(join(outDir, 'tests')).filter((name) => name.endsWith('.test.js')).sort()) {
-  run(process.execPath, [join(outDir, 'tests', file)]);
+for (const file of readdirSync(join(outDir, 'apps', 'desktop', 'tests')).filter((name) => name.endsWith('.test.js')).sort()) {
+  run(process.execPath, [join(outDir, 'apps', 'desktop', 'tests', file)]);
 }

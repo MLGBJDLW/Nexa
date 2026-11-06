@@ -7,7 +7,9 @@
     "ignoreDeprecations": "6.0",
     "strict": true,
     "skipLibCheck": true,
-    "rootDir": ".",
+    "rootDir": "../..",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
     "outDir": "target/streaming-contracts"
   },
   "include": [

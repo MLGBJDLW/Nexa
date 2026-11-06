@@ -121,6 +121,35 @@ pub async fn get(app: &AppHandle, id: Option<&str>) -> Result<SharedModelConnect
         .ok_or("Configure or synchronize a model connection first.".into())
 }
 
+pub async fn resolve_speech_credentials(
+    app: &AppHandle,
+    config: &mut nexa_core::app_settings::AppConfig,
+) -> Result<(), String> {
+    let _guard = STORE.lock().await;
+    let store = load(app).await?;
+    let mut sources = store.connections.values().collect::<Vec<_>>();
+    sources.sort_by(|a, b| {
+        (
+            Some(&a.id) != store.active_id.as_ref(),
+            !a.is_default,
+            &a.id,
+        )
+            .cmp(&(
+                Some(&b.id) != store.active_id.as_ref(),
+                !b.is_default,
+                &b.id,
+            ))
+    });
+    config.inherit_speech_credentials(sources.into_iter().map(|source| {
+        (
+            source.provider.as_str(),
+            source.base_url.as_deref(),
+            source.api_key.as_str(),
+        )
+    }));
+    Ok(())
+}
+
 pub fn provider_config(
     saved: &SharedModelConnection,
 ) -> Result<nexa_core::llm::ProviderConfig, String> {

@@ -503,15 +503,24 @@ async fn mobile_speech(
         {
             return Err("speech_configuration".into());
         }
+        let mut resolved = config.clone();
+        connections::resolve_speech_credentials(&app, &mut resolved)
+            .await
+            .map_err(|_| "speech_configuration")?;
         if input_mode == "cloud" {
-            speech::validate_input(&config.speech_to_text)?;
+            speech::validate_input(&resolved.speech_to_text)?;
         }
         if output_mode == "cloud" {
-            speech::validate_output(&config.text_to_speech)?;
+            speech::validate_output(&resolved.text_to_speech)?;
         }
         db.save_app_config(&config)
             .map_err(|_| "speech_configuration")?;
+        config = resolved;
         native = platform::call(&app, "speech", args.clone()).await?;
+    } else {
+        connections::resolve_speech_credentials(&app, &mut config)
+            .await
+            .map_err(|_| "speech_configuration")?;
     }
     if matches!(action.as_str(), "status" | "configure") {
         if !config.speech_to_text.api_key.is_empty() {

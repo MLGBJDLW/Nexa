@@ -102,7 +102,6 @@ export function SpeechToTextSettingsPanel({
     ? findSharedProviderCredential(agentConfigs, config.provider, config.baseUrl)
     : null;
   const resolvedApiKey = config.apiKey.trim() || sharedKeySource?.apiKey.trim() || '';
-  const materializedConfig = { ...config, apiKey: resolvedApiKey };
   const configured = scopeActive && (isWhisper || (isSherpa
     ? Boolean(
         config.executablePath?.trim()
@@ -342,7 +341,7 @@ export function SpeechToTextSettingsPanel({
             <MicrophoneTestPanel deviceId={micDeviceId} />
           </div>
           <div data-settings-actions className="mt-4 flex justify-end border-t border-border pt-3">
-            <Button type="button" variant="primary" size="sm" icon={<Save size={14} />} loading={loading} onClick={() => void onSave({ ...appConfig, speechToText: materializedConfig })} disabled={!configured}>
+            <Button type="button" variant="primary" size="sm" icon={<Save size={14} />} loading={loading} onClick={() => void onSave({ ...appConfig, speechToText: config })} disabled={!configured}>
               {t('common.save')}
             </Button>
           </div>

@@ -460,7 +460,7 @@ fn scan_source_inner(
     let services = db.knowledge_services_config()?;
 
     // Load file size limits from app config.
-    let app_cfg = db.load_app_config().unwrap_or_default();
+    let app_cfg = db.load_speech_app_config().unwrap_or_default();
     let file_limits = FileSizeLimits {
         max_text: app_cfg.max_text_file_size,
         max_video: app_cfg.max_video_file_size,
@@ -1554,7 +1554,7 @@ fn ingest_file(
     }
 
     // Load file size limits from app config.
-    let app_cfg = db.load_app_config().unwrap_or_default();
+    let app_cfg = db.load_speech_app_config().unwrap_or_default();
     let file_limits = FileSizeLimits {
         max_text: app_cfg.max_text_file_size,
         max_video: app_cfg.max_video_file_size,

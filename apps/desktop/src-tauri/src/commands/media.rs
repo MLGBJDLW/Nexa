@@ -123,7 +123,7 @@ pub async fn get_media_runtime_status_cmd(
     let ocr = state.db.load_ocr_config().map_err(|e| e.to_string())?;
     let speech = state
         .db
-        .load_app_config()
+        .load_speech_app_config()
         .map_err(|e| e.to_string())?
         .speech_to_text;
     tokio::task::spawn_blocking(move || {
@@ -277,7 +277,7 @@ pub async fn start_voice_audio_spool_cmd(
 ) -> Result<nexa_core::voice_audio_spool::VoiceSpoolStarted, String> {
     let speech_config = state
         .db
-        .load_app_config()
+        .load_speech_app_config()
         .map_err(|e| e.to_string())?
         .speech_to_text;
     let target = nexa_core::voice_audio_spool::VoiceSpoolTarget::from_speech_config(&speech_config)
@@ -374,7 +374,7 @@ pub async fn transcribe_voice_audio_spool_cmd(
         .await
         .map_err(|e| format!("spawn_blocking: {e}"))??
     };
-    let app_config = db.load_app_config().map_err(|e| e.to_string())?;
+    let app_config = db.load_speech_app_config().map_err(|e| e.to_string())?;
     let speech_config = app_config.speech_to_text;
     let current_target =
         nexa_core::voice_audio_spool::VoiceSpoolTarget::from_speech_config(&speech_config)
@@ -535,7 +535,7 @@ pub async fn analyze_video_cmd(
         let config = db.load_video_config().map_err(|e| e.to_string())?;
         let ocr_config = db.load_ocr_config().map_err(|e| e.to_string())?;
         let speech_config = db
-            .load_app_config()
+            .load_speech_app_config()
             .map_err(|e| e.to_string())?
             .speech_to_text;
         let file_path = std::path::Path::new(&path);

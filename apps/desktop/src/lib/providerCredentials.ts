@@ -1,3 +1,4 @@
+import credentialScopes from '../../../../shared/provider-credential-scopes.json';
 import { normalizeModelEndpointUrl } from './modelCatalog';
 
 export interface ProviderCredentialConfig {
@@ -22,32 +23,7 @@ function endpointUrl(value: string | null | undefined): URL | null {
   }
 }
 
-const TRUSTED_CREDENTIAL_ENDPOINTS: Readonly<Record<string, string>> = {
-  'https://dashscope.aliyuncs.com/compatible-mode/v1': 'alibaba-model-studio:beijing',
-  'https://dashscope.aliyuncs.com/api-ws/v1': 'alibaba-model-studio:beijing',
-  'https://dashscope.aliyuncs.com/api-ws/v1/inference': 'alibaba-model-studio:beijing',
-  'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation': 'alibaba-model-studio:beijing',
-  'https://dashscope.aliyuncs.com/api/v1/services/audio/tts': 'alibaba-model-studio:beijing',
-  'https://dashscope-intl.aliyuncs.com/compatible-mode/v1': 'alibaba-model-studio:singapore',
-  'https://dashscope-intl.aliyuncs.com/api-ws/v1': 'alibaba-model-studio:singapore',
-  'https://dashscope-intl.aliyuncs.com/api-ws/v1/inference': 'alibaba-model-studio:singapore',
-  'https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation': 'alibaba-model-studio:singapore',
-  'https://dashscope-us.aliyuncs.com/compatible-mode/v1': 'alibaba-model-studio:virginia',
-  'https://dashscope-us.aliyuncs.com/api-ws/v1': 'alibaba-model-studio:virginia',
-  'https://api.openai.com/v1': 'openai',
-  'https://openrouter.ai/api/v1': 'openrouter',
-  'https://api.anthropic.com': 'anthropic',
-  'https://api.anthropic.com/v1': 'anthropic',
-  'https://generativelanguage.googleapis.com/v1beta': 'google',
-  'https://api.groq.com/openai/v1': 'groq',
-  'https://api.mistral.ai/v1': 'mistral',
-  'https://api.minimax.io/v1': 'minimax',
-  'https://api.meta.ai/v1': 'meta-model-api',
-  'https://api.jina.ai/v1': 'jina',
-  'https://api.siliconflow.cn/v1': 'siliconflow',
-  'https://open.bigmodel.cn/api/paas/v4': 'zhipu:china',
-  'https://api.z.ai/api/paas/v4': 'zhipu:international',
-};
+const TRUSTED_CREDENTIAL_ENDPOINTS: Readonly<Record<string, string>> = credentialScopes.endpoints;
 
 /**
  * Resolve the credential boundary shared by chat and capability providers.
@@ -86,14 +62,7 @@ export function providerCredentialScope(
     return `endpoint:${normalizedBaseUrl}`;
   }
 
-  const providerAliases: Record<string, string> = {
-    alibaba_model_studio: 'alibaba-model-studio:beijing',
-    qwen: 'alibaba-model-studio:beijing',
-    open_ai: 'openai',
-    azure_open_ai: 'azure-openai',
-    deep_seek: 'deepseek',
-    zhipu: 'zhipu:china',
-  };
+  const providerAliases: Readonly<Record<string, string>> = credentialScopes.providerAliases;
   return providerAliases[normalizedProvider] ?? normalizedProvider;
 }
 

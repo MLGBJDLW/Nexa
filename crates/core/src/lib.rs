@@ -129,6 +129,7 @@ pub mod skills;
 mod snapshot_store;
 pub mod source_tree;
 pub mod sources;
+mod speech_credentials;
 pub mod speech_to_text;
 pub mod storage_usage;
 pub mod stream_projection;

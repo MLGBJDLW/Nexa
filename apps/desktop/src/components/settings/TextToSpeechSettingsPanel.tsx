@@ -548,7 +548,7 @@ export function TextToSpeechSettingsPanel({
               size="sm"
               icon={<Save size={14} />}
               loading={loading}
-              onClick={() => void onSave({ ...appConfig, textToSpeech: materializedConfig })}
+              onClick={() => void onSave({ ...appConfig, textToSpeech: config })}
               disabled={!configured}
             >
               {t('common.save')}

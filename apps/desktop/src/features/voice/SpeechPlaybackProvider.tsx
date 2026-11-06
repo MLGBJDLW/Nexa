@@ -58,7 +58,7 @@ export function SpeechPlaybackProvider({ children }: { children: ReactNode }) {
     setState({ status: 'synthesizing', messageId });
     try {
       const result = await requestSpeechPlayback(text, {
-        loadConfig: async () => (await api.getAppConfig()).textToSpeech,
+        loadConfig: async () => (await api.getAppConfig(true)).textToSpeech,
         synthesize: api.synthesizeSpeechPreview,
         isCurrent: () => generation === generationRef.current,
       });

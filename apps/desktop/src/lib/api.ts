@@ -2286,8 +2286,8 @@ export const consolidateModelStorage = (root?: string) =>
 
 // ── App Config ──────────────────────────────────────────────────────
 
-export const getAppConfig = () =>
-  invoke<AppConfig>('get_app_config_cmd');
+export const getAppConfig = (resolveSpeech = false) =>
+  invoke<AppConfig>('get_app_config_cmd', { resolveSpeech });
 
 export const saveAppConfig = (config: AppConfig) =>
   invoke<void>('save_app_config_cmd', { config });
