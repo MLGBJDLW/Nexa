@@ -25,19 +25,45 @@ internal object PhoneScheduleJobs {
     private const val DUE = "nexa.schedule.due"
     private var runningId: Int? = null
 
-    fun started(id: Int) { runningId = id }
-    fun stopped(id: Int) { if (runningId == id) runningId = null }
+    private var earlierWake: Instant? = null
+
+    fun started(id: Int): Boolean {
+        if (runningId != null) return false
+        runningId = id
+        earlierWake = null
+        return true
+    }
+    fun stopped(id: Int) {
+        if (runningId == id) { runningId = null; earlierWake = null }
+    }
 
     // All changes run on Android's main looper. Use the alternate slot when a
     // job is running: replacing its own JobInfo would interrupt a live turn.
     fun reconcile(context: Context, nextWakeAt: String?, timeChanged: Boolean = false) {
+        val due = nextWakeAt?.let(Instant::parse)
+        if (runningId != null) {
+            // The executor owns this wake until it finishes or Android retries.
+            // Remember a newly requested earlier wake while its result is in flight.
+            if (due != null) earlierWake = earlierWake?.let { minOf(it, due) } ?: due
+            return
+        }
+        arm(context, due, timeChanged)
+    }
+
+    fun completed(context: Context, nextWakeAt: String?) {
+        val next = nextWakeAt?.let(Instant::parse)
+        val due = earlierWake?.let { earlier -> next?.let { minOf(earlier, it) } ?: earlier } ?: next
+        arm(context, due, false)
+    }
+
+    private fun arm(context: Context, next: Instant?, timeChanged: Boolean) {
         val scheduler = context.getSystemService(JobScheduler::class.java)
         val waiting = listOf(FIRST, SECOND).filter { it != runningId }.mapNotNull(scheduler::getPendingJob)
-        if (nextWakeAt == null) {
+        if (next == null) {
             waiting.forEach { scheduler.cancel(it.id) }
             return
         }
-        val due = Instant.parse(nextWakeAt).toEpochMilli()
+        val due = next.toEpochMilli()
         if (!timeChanged && waiting.any { it.extras.getLong(DUE) == due }) return
         val id = if (runningId == FIRST) SECOND else FIRST
         val delay = (due - System.currentTimeMillis()).coerceAtLeast(10_000)
@@ -84,9 +110,9 @@ class PhoneScheduleService : JobService() {
     private val main = Handler(Looper.getMainLooper())
 
     override fun onStartJob(params: JobParameters): Boolean {
+        if (!PhoneScheduleJobs.started(params.jobId)) return false
         val attempt = Attempt()
         attempts[params.jobId] = attempt
-        PhoneScheduleJobs.started(params.jobId)
         executor.execute {
             val result = try {
                 val secrets = SecretStore(applicationContext)
@@ -117,7 +143,7 @@ class PhoneScheduleService : JobService() {
                     if (!retry && result != null) {
                         val next = if (result.isNull("nextWakeAt")) null else result.getString("nextWakeAt")
                         if (next == null && result.optString("status") == "error") retry = true
-                        else PhoneScheduleJobs.reconcile(this, next)
+                        else PhoneScheduleJobs.completed(this, next)
                         val chat = result.optString("conversationId")
                         val run = result.optString("runId")
                         if (chat.isNotEmpty() && run.isNotEmpty() && result.optString("status") in setOf("completed", "waiting_approval")) {
