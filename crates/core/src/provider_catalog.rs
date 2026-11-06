@@ -325,7 +325,7 @@ pub(crate) fn provider_for_preset_endpoint(base_url: Option<&str>) -> Option<&'s
         .as_deref()
 }
 
-fn alibaba_workspace_preset_id(base_url: &str) -> Option<&'static str> {
+pub(crate) fn alibaba_workspace_preset_id(base_url: &str) -> Option<&'static str> {
     let Ok(url) = reqwest::Url::parse(base_url) else {
         return None;
     };

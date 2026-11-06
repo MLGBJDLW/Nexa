@@ -1,4 +1,6 @@
 {
+  "chatProjects": "專案",
+  "ungroupedChats": "未分組對話",
   "mobileAllowComputerControl": "允許電腦操作此手機",
   "mobileComputerControlHint": "為這台已配對電腦開啟控制，連線期間保持手機解鎖。任務通知中的停止按鈕可結束授權；本機任務和遠端控制分別執行。",
   "mobileSpeechSettings": "語音",

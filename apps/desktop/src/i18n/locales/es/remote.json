@@ -1,4 +1,6 @@
 {
+  "chatProjects": "Proyectos",
+  "ungroupedChats": "Chats sin agrupar",
   "mobileAllowComputerControl": "Permitir el control del teléfono",
   "mobileComputerControlHint": "Permite el control a este equipo vinculado durante la conexión. Mantén el teléfono desbloqueado. Detener en la notificación termina el acceso. Las tareas locales y el control remoto se ejecutan por separado.",
   "mobileSpeechSettings": "Voz",

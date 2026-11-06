@@ -135,6 +135,7 @@ export default defineConfig({
       testMatch: [
         "**/e2e/chat-generative-ui.spec.ts",
         "**/e2e/mobile-layout.spec.ts",
+        "**/e2e/mobile-projects.spec.ts",
         "**/e2e/mobile-rendering.spec.ts",
       ],
     },

@@ -1,4 +1,6 @@
 {
+  "chatProjects": "プロジェクト",
+  "ungroupedChats": "未分類のチャット",
   "mobileAllowComputerControl": "コンピューターによる端末操作を許可",
   "mobileComputerControlHint": "ペアリングしたコンピューターに接続中の操作を許可します。端末のロックを解除してください。通知の停止ボタンで終了できます。端末のタスクとリモート操作は別々に実行します。",
   "mobileSpeechSettings": "音声",

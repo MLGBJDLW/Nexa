@@ -1,4 +1,6 @@
 {
+  "chatProjects": "Projets",
+  "ungroupedChats": "Discussions sans projet",
   "mobileAllowComputerControl": "Autoriser le contrôle du téléphone",
   "mobileComputerControlHint": "Autorisez cet ordinateur associé pendant la connexion. Gardez le téléphone déverrouillé. Arrêter dans la notification termine l’accès. Les tâches locales et le contrôle distant s’exécutent séparément.",
   "mobileSpeechSettings": "Voix",

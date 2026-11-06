@@ -1,4 +1,6 @@
 {
+  "chatProjects": "Projekte",
+  "ungroupedChats": "Nicht zugeordnete Chats",
   "mobileAllowComputerControl": "Telefonsteuerung durch Computer erlauben",
   "mobileComputerControlHint": "Erlaube diesem gekoppelten Computer die Steuerung während der Verbindung. Halte das Telefon entsperrt. Stopp in der Benachrichtigung beendet den Zugriff. Lokale Aufgaben und Fernsteuerung laufen getrennt.",
   "mobileSpeechSettings": "Sprache",

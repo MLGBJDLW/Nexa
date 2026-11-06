@@ -152,6 +152,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_host_callbacks_read_edit_and_verify_the_selected_workspace() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_str().unwrap();
+        let path = directory.path().join("sample.txt");
+        std::fs::write(&path, "before\n").unwrap();
+
+        let (fixture, _, _events) = session(6);
+        let mut input = fixture.input;
+        input.runtime_provider = "openai_codex".into();
+        input.tools = crate::tools::default_tool_registry().with_workspace(Some(
+            crate::workspace::Workspace::validate(&[root.to_string()]).unwrap(),
+        ));
+        let host = ExternalToolSession::new(input).unwrap();
+        let definitions = host.definitions();
+        for name in [
+            "list_dir",
+            "read_file",
+            "edit_file",
+            "run_shell",
+            #[cfg(all(target_os = "windows", feature = "desktop-control"))]
+            "computer_use",
+        ] {
+            assert!(definitions.iter().any(|tool| tool.name == name), "{name}");
+        }
+        let operations = [
+            ("list_dir", serde_json::json!({"path":"."}), "sample.txt"),
+            (
+                "read_file",
+                serde_json::json!({"path":"sample.txt"}),
+                "before",
+            ),
+            (
+                "edit_file",
+                serde_json::json!({"path":"sample.txt","old_str":"before","new_str":"after"}),
+                "",
+            ),
+            (
+                "run_shell",
+                serde_json::json!({"program":"pwd","cwd":root}),
+                directory.path().file_name().unwrap().to_str().unwrap(),
+            ),
+        ];
+        for (name, args, expected) in operations {
+            let result = host
+                .execute(ToolCallRequest {
+                    id: format!("test-{name}"),
+                    name: name.to_string(),
+                    arguments: args.to_string(),
+                    thought_signature: None,
+                })
+                .await
+                .unwrap()
+                .result;
+            assert!(!result.is_error, "{name}: {}", result.content);
+            assert!(
+                result.content.contains(expected),
+                "{name}: {}",
+                result.content
+            );
+        }
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "after\n");
+    }
+
+    #[tokio::test]
     async fn opaque_action_recovery_survives_completion_and_unrelated_screenshots() {
         let (session, _, _rx) = session(3);
         let action = ToolCallRequest { id:"navigate".into(), name:"browser_session".into(),

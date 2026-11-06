@@ -15,7 +15,20 @@ export function renderMobileSettings(kind = 'web') {
   localStorage.setItem('nexa-locale', 'en');
   const calls: unknown[] = [];
   (window as any).__MOBILE_SETTINGS__ = calls;
-  let speech = { mode: 'system', outputMode: 'system', language: '', systemAvailable: false, onDeviceAvailable: false, microphoneGranted: true, speechToText: inputDefaults(), textToSpeech: outputDefaults() };
+  const connections = ['Personal Bailian', 'Work Bailian'].map((name, index) => ({
+    id: 'synced-' + index, name,
+    input: [{ presetId: 'alibaba-qwen-asr', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' }],
+    output: [{ presetId: 'dashscope-cosyvoice', baseUrl: 'https://dashscope.aliyuncs.com/api-ws/v1/inference' }],
+  }));
+  let speech = { mode: 'system', outputMode: 'system', language: '', systemAvailable: false, onDeviceAvailable: false, microphoneGranted: true, speechToText: inputDefaults(), textToSpeech: outputDefaults(),
+    speechConnections: new URLSearchParams(location.search).has('synced') ? connections : [] };
+  if (new URLSearchParams(location.search).has('legacy')) {
+    speech.mode = 'cloud';
+    speech.outputMode = 'cloud';
+    speech.speechToText = { ...speech.speechToText, apiKey: '__NEXA_SAVED_KEY__', model: 'private-stt' };
+    speech.textToSpeech = { ...speech.textToSpeech, provider: 'qwen', apiStyle: 'dashscope_speech',
+      baseUrl: connections[0].output[0].baseUrl, model: 'private-tts', voice: 'private-voice' };
+  }
   let finish: ((value: {text:string})=>void) | null = null;
   (window as any).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args: any) => {

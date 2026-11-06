@@ -93,6 +93,20 @@ pub(crate) fn register_delegation_tools(tools: &mut ToolRegistry, runtime: &Dele
     }
 }
 
+fn native_only_workspace_registry(
+    runtime: Option<&crate::agent_runtime::AgentRuntimeKind>,
+    workspace: Option<&nexa_core::workspace::Workspace>,
+) -> Option<ToolRegistry> {
+    // Codex ACP needs the policy-filtered registry for its nexa-host MCP
+    // bridge. Other native-only profiles keep their existing launch path.
+    match runtime {
+        Some(crate::agent_runtime::AgentRuntimeKind::Acp(provider)) if provider != "codex_acp" => {
+            Some(ToolRegistry::new().with_workspace(workspace.cloned()))
+        }
+        _ => None,
+    }
+}
+
 pub async fn build_desktop_agent_session_dependencies(
     request: DesktopAgentSessionDependencyRequest<'_>,
 ) -> DesktopAgentSessionDependencies {
@@ -124,10 +138,6 @@ pub async fn build_desktop_agent_session_dependencies(
     } = request;
     let parent_runtime = agent_runtime.clone();
     let image_subscription = agent_runtime.clone();
-    let native_tools = matches!(
-        agent_runtime,
-        Some(crate::agent_runtime::AgentRuntimeKind::Acp(_))
-    );
     let image_model = executor_config.model.clone();
     let image_source = db
         .load_app_config()
@@ -162,12 +172,11 @@ pub async fn build_desktop_agent_session_dependencies(
     });
     let skill_select_ms = elapsed_ms(skill_select_started);
 
-    if native_tools {
-        // ACP processes own their tools. Building Nexa's MCP/delegation registry
-        // here would start unrelated services and advertise unusable tools.
+    if let Some(tools) = native_only_workspace_registry(agent_runtime.as_ref(), workspace.as_ref())
+    {
         return DesktopAgentSessionDependencies {
             delegation_runtime: None,
-            tools: ToolRegistry::new().with_workspace(workspace),
+            tools,
             selected_skills,
             auto_loaded_skills,
             metrics: DesktopAgentDependencyMetrics {
@@ -552,4 +561,18 @@ pub(crate) fn build_desktop_approval_callback(
             decision
         })
     })
+}
+
+#[cfg(test)]
+mod registry_route_tests {
+    use super::*;
+    use crate::agent_runtime::AgentRuntimeKind;
+
+    #[test]
+    fn codex_chat_routes_use_the_desktop_registry() {
+        for provider in ["openai_codex", "codex_acp"] {
+            let runtime = AgentRuntimeKind::from_provider(provider).unwrap();
+            assert!(native_only_workspace_registry(Some(&runtime), None).is_none());
+        }
+    }
 }

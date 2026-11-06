@@ -124,7 +124,8 @@ pub async fn get(app: &AppHandle, id: Option<&str>) -> Result<SharedModelConnect
 pub async fn resolve_speech_credentials(
     app: &AppHandle,
     config: &mut nexa_core::app_settings::AppConfig,
-) -> Result<(), String> {
+    list_connections: bool,
+) -> Result<Vec<crate::speech_connections::SpeechConnection>, String> {
     let _guard = STORE.lock().await;
     let store = load(app).await?;
     let mut sources = store.connections.values().collect::<Vec<_>>();
@@ -140,14 +141,11 @@ pub async fn resolve_speech_credentials(
                 &b.id,
             ))
     });
-    config.inherit_speech_credentials(sources.into_iter().map(|source| {
-        (
-            source.provider.as_str(),
-            source.base_url.as_deref(),
-            source.api_key.as_str(),
-        )
-    }));
-    Ok(())
+    Ok(crate::speech_connections::resolve(
+        config,
+        &sources,
+        list_connections,
+    ))
 }
 
 pub fn provider_config(

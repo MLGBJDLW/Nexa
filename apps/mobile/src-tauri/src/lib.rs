@@ -4,6 +4,7 @@ mod phone_host;
 mod platform;
 mod remote;
 mod speech;
+mod speech_connections;
 mod web_settings;
 
 use local::{LocalRuntime, LocalSettings};
@@ -361,6 +362,50 @@ async fn mobile_web_settings(
 }
 
 #[tauri::command]
+async fn mobile_chat_projects(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    host_id: Option<String>,
+    action: nexa_core::phone_chat_projects::PhoneProjectAction,
+    project_id: Option<String>,
+    name: Option<String>,
+    conversation_id: Option<String>,
+) -> Result<nexa_core::phone_chat_projects::PhoneChatProjects, String> {
+    let db = runtime.get(&app).await?.db.clone();
+    let _guard = match &host_id {
+        Some(id) => Some(remote::paired_guard(&app, id).await?),
+        None => None,
+    };
+    tokio::task::spawn_blocking(move || {
+        db.phone_chat_projects(
+            host_id.as_deref(),
+            action,
+            project_id.as_deref(),
+            name.as_deref(),
+            conversation_id.as_deref(),
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn mobile_project_chats(
+    app: AppHandle,
+    runtime: State<'_, RuntimeSlot>,
+    project_id: String,
+) -> Result<Vec<nexa_core::phone_chat_projects::PhoneProjectChat>, String> {
+    let db = runtime.get(&app).await?.db.clone();
+    tokio::task::spawn_blocking(move || {
+        db.local_phone_project_chats(&project_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn mobile_storage(
     app: AppHandle,
     runtime: State<'_, RuntimeSlot>,
@@ -476,11 +521,16 @@ async fn mobile_speech(
     let db = runtime.get(&app).await?.db.clone();
     let mut config = db.load_app_config().map_err(|_| "speech_configuration")?;
     let mut native = platform::call(&app, "speech", json!({"action":"status"})).await?;
+    let input_mode = args["mode"].as_str().unwrap_or("system");
+    let output_mode = args["outputMode"].as_str().unwrap_or("system");
     if action == "configure" {
         if speech_runtime.busy().await {
             return Err("speech_busy".into());
         }
         if let Some(mut input) = speech_to_text {
+            if input.connection_id.is_some() && !input.api_key.is_empty() {
+                return Err("speech_configuration".into());
+            }
             if input.api_key == speech::SAVED_KEY {
                 if (
                     input.provider.as_str(),
@@ -498,6 +548,9 @@ async fn mobile_speech(
             config.speech_to_text = input;
         }
         if let Some(mut output) = text_to_speech {
+            if output.connection_id.is_some() && !output.api_key.is_empty() {
+                return Err("speech_configuration".into());
+            }
             if output.api_key == speech::SAVED_KEY {
                 if (
                     output.provider.as_str(),
@@ -514,17 +567,18 @@ async fn mobile_speech(
             }
             config.text_to_speech = output;
         }
-        let input_mode = args["mode"].as_str().unwrap_or("system");
-        let output_mode = args["outputMode"].as_str().unwrap_or("system");
         if !matches!(input_mode, "system" | "on_device" | "cloud")
             || !matches!(output_mode, "system" | "cloud")
         {
             return Err("speech_configuration".into());
         }
-        let mut resolved = config.clone();
-        connections::resolve_speech_credentials(&app, &mut resolved)
-            .await
-            .map_err(|_| "speech_configuration")?;
+    }
+    let editing = matches!(action.as_str(), "status" | "configure");
+    let mut resolved = config.clone();
+    let speech_connections = connections::resolve_speech_credentials(&app, &mut resolved, editing)
+        .await
+        .map_err(|_| "speech_configuration")?;
+    if action == "configure" {
         if input_mode == "cloud" {
             speech::validate_input(&resolved.speech_to_text)?;
         }
@@ -533,14 +587,9 @@ async fn mobile_speech(
         }
         db.save_app_config(&config)
             .map_err(|_| "speech_configuration")?;
-        config = resolved;
         native = platform::call(&app, "speech", args.clone()).await?;
-    } else {
-        connections::resolve_speech_credentials(&app, &mut config)
-            .await
-            .map_err(|_| "speech_configuration")?;
     }
-    if matches!(action.as_str(), "status" | "configure") {
+    if editing {
         if !config.speech_to_text.api_key.is_empty() {
             config.speech_to_text.api_key = speech::SAVED_KEY.into();
         }
@@ -549,8 +598,10 @@ async fn mobile_speech(
         }
         native["speechToText"] = json!(config.speech_to_text);
         native["textToSpeech"] = json!(config.text_to_speech);
+        native["speechConnections"] = json!(speech_connections);
         return Ok(native);
     }
+    let mut config = resolved;
     if action == "listen" {
         speech_runtime.cancel(true).await;
         let input = if native["mode"] == "cloud" {
@@ -703,7 +754,26 @@ async fn mobile_remote(
             if method.starts_with("sync.") {
                 return Err("Credential synchronization is available only through the native connection manager.".into());
             }
-            remote::rpc(&app, &host_id, method, params).await
+            let deleting = matches!(method.as_str(), "chat.delete" | "chat.deleteArchived");
+            let deleted_chat = params
+                .as_ref()
+                .filter(|_| deleting)
+                .and_then(|args| args["conversationId"].as_str())
+                .map(str::to_owned);
+            let result = remote::rpc(&app, &host_id, method, params).await?;
+            if let Some(chat) = deleted_chat.filter(|_| result.as_u64().is_some_and(|n| n > 0)) {
+                // The host has already deleted this chat. A cleanup failure
+                // must not prompt the user to retry the remote operation.
+                if let Some(runtime) = app.state::<RuntimeSlot>().0.get() {
+                    if let Err(error) = runtime
+                        .db
+                        .clear_deleted_paired_chat_membership(&host_id, &chat)
+                    {
+                        eprintln!("Failed to clean a deleted chat's project membership: {error}");
+                    }
+                }
+            }
+            Ok(result)
         }
         _ => Err("Unsupported remote operation.".into()),
     }
@@ -728,6 +798,8 @@ pub fn run() {
             mobile_overlay,
             mobile_phone_control,
             mobile_storage,
+            mobile_chat_projects,
+            mobile_project_chats,
             mobile_web_settings,
             mobile_pair,
             mobile_remote,

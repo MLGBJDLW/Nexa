@@ -22,6 +22,16 @@ test('same-length edited content replaces an expanded copy', () => {
   assert.equal(mergeRemoteHistory(current, incoming)[0], incoming[0]);
 });
 
+test('a refreshed tool record retains its expanded text and new activity metadata', () => {
+  const current = [{ ...message(1), intermediate: false, toolCalls: [] as { id: string; name: string }[] }];
+  const toolCalls = [{ id: 'inspect', name: 'read_file' }];
+  const refreshed = [{ ...message(1, 'full'), intermediate: true, toolCalls }];
+  const [record] = mergeRemoteHistory(current, refreshed);
+  assert.equal(record.content, current[0].content);
+  assert.equal(record.intermediate, true);
+  assert.equal(record.toolCalls, toolCalls);
+});
+
 test('thought pagination survives refresh and new thought text replaces stale expansion', () => {
   const current = [{ ...message(1), thinking: 'first second third', thinkingTotalChars: 18 }];
   const prefix = [{ ...message(1), thinking: 'first', thinkingTotalChars: 18 }];

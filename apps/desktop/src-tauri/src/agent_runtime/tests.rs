@@ -388,7 +388,8 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
     let catalog = assembler
         .assemble_tool_registry(assembler.builtin_tool_registry())
         .unwrap();
-    for definition in catalog.tools.definitions() {
+    for name in catalog.tools.tool_names() {
+        let definition = catalog.tools.get(&name).unwrap().definition();
         request
             .dependencies
             .tools
@@ -533,9 +534,11 @@ pub(super) async fn run_live(kind: AgentRuntimeKind, model: &str) {
 /// Exercise the real read/edit implementations in an isolated disposable folder
 /// with the full production tool catalog present (including Copilot's >30 boundary).
 pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
+    let probe_shell = kind == AgentRuntimeKind::Codex;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("native-edit.txt");
-    std::fs::write(&path, "old value\n").unwrap();
+    let prior_value = uuid::Uuid::new_v4().to_string();
+    std::fs::write(&path, format!("{prior_value}\n")).unwrap();
     let (mut request, mut rx, _, nonce) = fixture(kind.clone(), model);
     request.config.max_iterations = 10;
     let assembler =
@@ -545,9 +548,13 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
         .unwrap();
     for definition in catalog
         .tools
-        .definitions()
+        .tool_names()
         .into_iter()
+        .map(|name| catalog.tools.get(&name).unwrap().definition())
         .filter(|definition| !matches!(definition.name.as_str(), "read_file" | "edit_file"))
+        .filter(|definition| {
+            !probe_shell || !matches!(definition.name.as_str(), "list_dir" | "run_shell")
+        })
     {
         request
             .dependencies
@@ -562,6 +569,21 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
         .dependencies
         .tools
         .register(Box::new(nexa_core::tools::edit_file_tool::EditFileTool));
+    if probe_shell {
+        // Restricted mode's git subcommand allowlist excludes --version.
+        // This test-only adapter enforces an exact argv before calling the real tool.
+        let mut settings = request.db.load_app_config().unwrap();
+        settings.shell_access_mode = nexa_core::app_settings::ShellAccessMode::ConfirmAll;
+        request.db.save_app_config(&settings).unwrap();
+        request
+            .dependencies
+            .tools
+            .register(Box::new(nexa_core::tools::list_dir_tool::ListDirTool));
+        request
+            .dependencies
+            .tools
+            .register(Box::new(GitVersionOnly));
+    }
     request.dependencies.tools =
         request
             .dependencies
@@ -570,10 +592,12 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
                 roots: vec![directory.path().to_string_lossy().into()],
             }));
     assert!(request.dependencies.tools.definitions().len() > 30);
-    request.user_parts = vec![ContentPart::Text { text: format!(
-        "In this disposable integration-test workspace, use read_file to read {}, then edit_file to replace old value with {}. Read it again to verify. Reply EDIT_VERIFIED and the exact new value. Use only read_file and edit_file; all other tools are unavailable in this test.",
-        path.display(), nonce
-    ) }];
+    let instructions = if probe_shell {
+        format!("List the contents of {}. Read native-edit.txt, replace its old value with {nonce} using edit_file, then read it again. Use run_shell with exactly program=git and args=[\"--version\"] to check the git version in this workspace. Reply EDIT_VERIFIED, the original value, the exact new value and the git version. Only list_dir, read_file, edit_file and run_shell are enabled for this disposable test.", directory.path().display())
+    } else {
+        format!("In this disposable integration-test workspace, use read_file to read {}, then edit_file to replace its contents with {}. Read it again to verify. Reply EDIT_VERIFIED and the exact new value. Use only read_file and edit_file; all other tools are unavailable in this test.", path.display(), nonce)
+    };
+    request.user_parts = vec![ContentPart::Text { text: instructions }];
     let db = request.db.clone();
     let conversation = request.conversation_id.clone();
     let drain = tokio::spawn(async move {
@@ -637,6 +661,23 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
     );
     assert!(answer.text_content().contains("EDIT_VERIFIED"));
     assert!(answer.text_content().contains(&nonce));
+    if probe_shell {
+        for (tool, expected) in [
+            ("list_dir", "native-edit.txt"),
+            ("read_file", prior_value.as_str()),
+            ("read_file", nonce.as_str()),
+            ("run_shell", "git version "),
+        ] {
+            let prefix = format!("{tool}: Completed ");
+            assert!(
+                tool_receipts
+                    .iter()
+                    .any(|receipt| receipt.starts_with(&prefix) && receipt.contains(expected)),
+                "Missing {tool} evidence: {tool_receipts:?}"
+            );
+        }
+        assert!(answer.text_content().contains(&prior_value));
+    }
     assert_eq!(edits, 1);
     assert_eq!(done, 1);
     assert_eq!(db.list_file_checkpoints(None).unwrap().len(), 1);
@@ -650,6 +691,89 @@ pub(super) async fn run_live_edit(kind: AgentRuntimeKind, model: &str) {
     eprintln!(
         "Live {kind:?} model={model}: real edit once; native context capacity={native_capacity:?}"
     );
+}
+
+/// Preserve the production run_shell schema and implementation, but never
+/// execute arbitrary model-selected commands during a subscription smoke test.
+struct GitVersionOnly;
+
+#[async_trait::async_trait]
+impl Tool for GitVersionOnly {
+    fn name(&self) -> &str {
+        "run_shell"
+    }
+    fn description(&self) -> &str {
+        nexa_core::tools::run_shell_tool::RunShellTool.description()
+    }
+    fn parameters_schema(&self) -> serde_json::Value {
+        nexa_core::tools::run_shell_tool::RunShellTool.parameters_schema()
+    }
+    async fn execute(&self, context: ToolExecutionContext<'_>) -> Result<ToolResult, CoreError> {
+        let args: serde_json::Value = serde_json::from_str(context.arguments)?;
+        if args != serde_json::json!({"program":"git","args":["--version"]}) {
+            return Err(CoreError::InvalidInput("This probe only authorizes program=git and args=[\"--version\"] without additional arguments.".into()));
+        }
+        nexa_core::tools::run_shell_tool::RunShellTool
+            .execute(context)
+            .await
+    }
+}
+
+#[tokio::test]
+#[ignore = "one real ChatGPT subscription turn in a disposable workspace"]
+async fn codex_sol_workspace_acceptance() {
+    run_live_edit(AgentRuntimeKind::Codex, "gpt-6.1-sol").await;
+}
+
+#[tokio::test]
+async fn codex_workspace_probe_only_executes_the_approved_git_command() {
+    let (mut request, _events, _, _) = fixture(AgentRuntimeKind::Codex, "test");
+    let directory = tempfile::tempdir().unwrap();
+    let mut settings = request.db.load_app_config().unwrap();
+    settings.shell_access_mode = nexa_core::app_settings::ShellAccessMode::ConfirmAll;
+    request.db.save_app_config(&settings).unwrap();
+    request
+        .dependencies
+        .tools
+        .register(Box::new(GitVersionOnly));
+    request.dependencies.tools =
+        request
+            .dependencies
+            .tools
+            .with_workspace(Some(nexa_core::workspace::Workspace {
+                roots: vec![directory.path().to_string_lossy().into()],
+            }));
+    let tools = request
+        .host_tools(false, request.cancellation.clone())
+        .unwrap();
+    let call = |args, id: &str| nexa_core::llm::ToolCallRequest {
+        id: id.into(),
+        name: "run_shell".into(),
+        arguments: serde_json::to_string(&args).unwrap(),
+        thought_signature: None,
+    };
+    let output = tools
+        .execute(call(
+            serde_json::json!({"program":"git","args":["--version"]}),
+            "version",
+        ))
+        .await
+        .unwrap()
+        .result;
+    assert!(
+        !output.is_error && output.content.contains("git version "),
+        "{}",
+        output.content
+    );
+    let denied = tools
+        .execute(call(
+            serde_json::json!({"program":"git","args":["status"]}),
+            "other",
+        ))
+        .await
+        .unwrap()
+        .result;
+    assert!(denied.is_error && denied.content.contains("only authorizes"));
 }
 
 #[test]

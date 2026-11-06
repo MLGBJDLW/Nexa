@@ -58,6 +58,79 @@ fn dynamic_tool_catalog(
     Ok((catalog, aliases))
 }
 
+const WORKSPACE_NAMESPACE: &str = "nexa";
+
+fn is_workspace_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "list_dir"
+            | "glob_files"
+            | "grep_files"
+            | "read_file"
+            | "read_files"
+            | "create_file"
+            | "edit_file"
+            | "run_shell"
+            | "computer_use"
+    )
+}
+
+fn callback_name<'a>(
+    params: &Value,
+    aliases: &'a HashMap<String, String>,
+    grouped: bool,
+) -> Result<&'a str, CoreError> {
+    let tool = params["tool"]
+        .as_str()
+        .ok_or_else(|| protocol_error("Codex tool call is missing its name"))?;
+    let expected_namespace = (grouped && is_workspace_tool(tool)).then_some(WORKSPACE_NAMESPACE);
+    if params["namespace"] != json!(expected_namespace) {
+        return Err(protocol_error(
+            "Codex requested a tool outside its registered namespace",
+        ));
+    }
+    aliases
+        .get(tool)
+        .map(String::as_str)
+        .ok_or_else(|| protocol_error("Codex requested an unregistered dynamic tool"))
+}
+
+// Build the wire catalog and invocation guide from the same filtered schema
+// list. Code-mode models call a namespace member as tools.<namespace>__<name>.
+fn workspace_catalog(tools: &[Value], grouped: bool, instructions: &str) -> (Vec<Value>, String) {
+    let (workspace, mut others): (Vec<_>, Vec<_>) = tools
+        .iter()
+        .cloned()
+        .partition(|tool| tool["name"].as_str().is_some_and(is_workspace_tool));
+    if workspace.is_empty() {
+        return (others, instructions.to_owned());
+    }
+    let prefix = if grouped { "nexa__" } else { "" };
+    let names = workspace
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    let direct = if grouped {
+        "in the nexa namespace"
+    } else {
+        "by name"
+    };
+    let mut guide = format!("{instructions}\n\nFor workspace actions call the registered functions {direct}. When using functions.exec, the available workspace functions on the tools object are {}.",
+        names.iter().map(|name| format!("{prefix}{name}")).collect::<Vec<_>>().join(", "));
+    if names.contains(&"list_dir") {
+        guide.push_str(&format!(" For a first directory inspection in code mode, set path to the authorized directory and use text(await tools.{prefix}list_dir({{path}}))."));
+    }
+    let mut catalog = if grouped {
+        vec![json!({"type":"namespace","name":WORKSPACE_NAMESPACE,
+            "description":"Nexa host tools for the current workspace. Use these functions to inspect files and perform the available actions under Nexa permissions.",
+            "tools":workspace})]
+    } else {
+        workspace
+    };
+    catalog.append(&mut others);
+    (catalog, guide)
+}
+
 /// One reader owns stdout. A bounded mailbox prevents output from exhausting
 /// memory while a tool is awaiting approval; it never blocks clock responses.
 struct Wire {
@@ -188,6 +261,10 @@ impl Wire {
     /// Bootstrap only. During inference the event pump handles responses and
     /// server requests concurrently with tool futures instead of blocking here.
     async fn request(&mut self, method: &str, params: Value) -> Result<Value, CoreError> {
+        rpc_result(self.request_frame(method, params).await?, method)
+    }
+
+    async fn request_frame(&mut self, method: &str, params: Value) -> Result<Value, CoreError> {
         let id = self.send(method, params).await?;
         tokio::time::timeout(RPC_TIMEOUT, async {
             loop {
@@ -195,7 +272,7 @@ impl Wire {
                     CoreError::StreamIncomplete("Codex exited during startup".into())
                 })??;
                 if message.get("method").is_none() && message["id"].as_u64() == Some(id) {
-                    return rpc_result(message, method);
+                    return Ok(message);
                 } else {
                     if self.queued.len() >= 1024 {
                         return Err(protocol_error("Codex startup event budget exceeded"));
@@ -417,7 +494,7 @@ async fn start_thread(
     cwd: &str,
     instructions: &str,
     tools: &[Value],
-) -> Result<String, CoreError> {
+) -> Result<(String, bool), CoreError> {
     let config = wire
         .request("config/read", json!({"includeLayers":false,"cwd":cwd}))
         .await?;
@@ -427,7 +504,26 @@ async fn start_thread(
     let overrides = disable_ambient(&config, &skills, &cwd)?;
     drop(config);
     drop(skills);
-    let response = wire.request("thread/start", json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":instructions,"dynamicTools":tools,"environments":[],"selectedCapabilityRoots":[],"approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await?;
+    let params = |grouped| {
+        let (catalog, instructions) = workspace_catalog(tools, grouped, instructions);
+        json!({"model":model_id,"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":instructions,"dynamicTools":catalog,"environments":[],"selectedCapabilityRoots":[],"approvalPolicy":"never","sandbox":"read-only","ephemeral":true})
+    };
+    let mut grouped = tools
+        .iter()
+        .any(|tool| tool["name"].as_str().is_some_and(is_workspace_tool))
+        && !tools.iter().any(|tool| {
+            tool["name"]
+                .as_str()
+                .is_some_and(|name| name == WORKSPACE_NAMESPACE || name.starts_with("nexa__"))
+        });
+    let mut frame = wire.request_frame("thread/start", params(grouped)).await?;
+    // Older app-servers accept only flat dynamic tool specs. Retry just a
+    // rejected parameter shape, before any thread or model turn has started.
+    if grouped && rejects_namespace_spec(&frame) {
+        grouped = false;
+        frame = wire.request_frame("thread/start", params(false)).await?;
+    }
+    let response = rpc_result(frame, "thread/start")?;
     if response["model"].as_str() != Some(model_id)
         || response["modelProvider"] != "openai"
         || response["approvalPolicy"] != "never"
@@ -442,7 +538,24 @@ async fn start_thread(
         .and_then(Value::as_str)
         .ok_or_else(|| protocol_error("Codex created no thread"))?
         .to_string();
-    Ok(thread_id)
+    Ok((thread_id, grouped))
+}
+
+fn rejects_namespace_spec(frame: &Value) -> bool {
+    let message = frame
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    match frame.pointer("/error/code").and_then(Value::as_i64) {
+        Some(-32602) => true,
+        // Some versions deserialize the request enum before method dispatch.
+        // At that layer an unknown variant or missing function schema is -32600.
+        Some(-32600) => {
+            (message.contains("unknown variant") && message.contains("namespace"))
+                || (message.contains("missing field") && message.contains("inputSchema"))
+        }
+        _ => false,
+    }
 }
 
 pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, CoreError> {
@@ -499,7 +612,7 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
         let turn = request.prepare(native_vision)?;
         let (tools, aliases) = dynamic_tool_catalog(turn.transcript.nexa_tools().definitions())?;
         let mut initial_wire = Some(wire);
-        let (mut wire, thread_id) =
+        let (mut wire, (thread_id, grouped)) =
             super::connect_with_recovery(&turn.events, &turn.cancellation, || {
                 let initial_wire = initial_wire.take();
                 let cwd = &cwd;
@@ -511,9 +624,9 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                         Some(wire) => wire,
                         None => Wire::start().await?,
                     };
-                    let thread_id =
+                    let started =
                         start_thread(&mut wire, model_id, cwd, &turn.system_prompt, tools).await?;
-                    Ok((wire, thread_id))
+                    Ok((wire, started))
                 }
             })
             .await?;
@@ -532,12 +645,13 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             turn_id,
             native_vision,
             aliases,
+            grouped,
             effort,
         ))
     };
     // Each RPC already has a deadline. A separate total deadline would consume
     // the recovery policy's backoff budget and interrupt its final attempts.
-    let (mut wire, mut turn, thread_id, mut turn_id, native_vision, aliases, effort) = tokio::select! {
+    let (mut wire, mut turn, thread_id, mut turn_id, native_vision, aliases, grouped, effort) = tokio::select! {
         _ = cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped during Codex connection".into())),
         result = bootstrap => result?,
     };
@@ -607,9 +721,8 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                             }
                             "item/tool/call" => {
                                 if params["turnId"].as_str() != Some(&turn_id) || pending.len() >= 16 { wire.reject(&message).await?; return Err(protocol_error("invalid Codex tool dispatch boundary")); }
-                                let tool = required_string(params,"tool")?;
-                                let name = aliases.get(&tool).ok_or_else(|| protocol_error("Codex requested an unregistered dynamic tool"))?.clone();
-                                let call = ToolCallRequest {id:required_string(params,"callId")?,name,arguments:params["arguments"].to_string(),thought_signature:None};
+                                let name = callback_name(params, &aliases, grouped)?;
+                                let call = ToolCallRequest {id:required_string(params,"callId")?,name:name.to_owned(),arguments:params["arguments"].to_string(),thought_signature:None};
                                 projection.resume_after_retry(&turn.events).await?;
                                 let tools = turn.transcript.nexa_tools().clone(); let id = message["id"].clone();
                                 projection.clear_answer();
@@ -996,6 +1109,88 @@ mod tests {
         assert_eq!(context.context_window, None);
     }
     #[test]
+    fn namespace_negotiation_only_retries_rejected_request_shapes() {
+        for (code, message, retry) in [
+            (
+                -32600,
+                "Invalid request: unknown variant `namespace`, expected `function`",
+                true,
+            ),
+            (-32600, "Invalid request: missing field `inputSchema`", true),
+            (-32602, "Invalid params", true),
+            (-32600, "Unsupported workspace policy", false),
+            (-32603, "Internal server error", false),
+        ] {
+            assert_eq!(
+                rejects_namespace_spec(&json!({"error":{"code":code,"message":message}})),
+                retry
+            );
+        }
+        assert!(!rejects_namespace_spec(
+            &json!({"result":{"thread":{"id":"started"}}})
+        ));
+    }
+
+    #[test]
+    fn workspace_guide_and_dispatch_use_the_filtered_wire_catalog() {
+        let definitions =
+            ["other", "list_dir", "read_file"].map(|name| nexa_core::llm::ToolDefinition {
+                name: name.to_owned(),
+                description: String::from("fixture"),
+                parameters: json!({"type":"object","properties":{}}),
+            });
+        let (flat, aliases) = dynamic_tool_catalog(definitions.into()).unwrap();
+        for grouped in [true, false] {
+            let (catalog, guide) = workspace_catalog(&flat, grouped, "host instructions");
+            let names = if grouped {
+                assert_eq!(catalog[0]["type"], "namespace");
+                assert_eq!(catalog[0]["name"], "nexa");
+                catalog[0]["tools"].as_array().unwrap().as_slice()
+            } else {
+                &catalog[..2]
+            };
+            assert_eq!(names, &flat[1..]);
+            assert_eq!(catalog.last().unwrap(), &flat[0]);
+            assert!(guide.contains(if grouped {
+                "tools.nexa__list_dir"
+            } else {
+                "tools.list_dir"
+            }));
+            assert!(!guide.contains("run_shell"));
+            let namespace = grouped.then_some("nexa");
+            assert_eq!(
+                callback_name(
+                    &json!({"namespace":namespace,"tool":"read_file"}),
+                    &aliases,
+                    grouped
+                )
+                .unwrap(),
+                "read_file"
+            );
+            assert!(callback_name(
+                &json!({"namespace":"other","tool":"read_file"}),
+                &aliases,
+                grouped
+            )
+            .is_err());
+            assert!(callback_name(
+                &json!({"namespace":namespace,"tool":"run_shell"}),
+                &aliases,
+                grouped
+            )
+            .is_err());
+            assert_eq!(
+                callback_name(&json!({"tool":"other"}), &aliases, grouped).unwrap(),
+                "other"
+            );
+        }
+        assert_eq!(
+            workspace_catalog(&[], true, "no tools"),
+            (vec![], "no tools".into())
+        );
+    }
+
+    #[test]
     fn mcp_dynamic_tools_have_stable_nonreserved_aliases_and_original_dispatch_names() {
         let definition = |name: &str| nexa_core::llm::ToolDefinition {
             name: name.into(),
@@ -1245,26 +1440,29 @@ mod tests {
             .iter()
             .find(|model| model["isDefault"] == true)
             .unwrap();
-        let cwd = std::env::current_dir()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
-        let config = wire
-            .request("config/read", json!({"includeLayers":false,"cwd":cwd}))
-            .await
+        let folder = tempfile::tempdir().unwrap();
+        let cwd = folder.path().to_str().unwrap();
+        let db = nexa_core::db::Database::open_memory().unwrap();
+        let assembler =
+            nexa_core::package_host::PackageRuntimeAssembler::database_builtin(&db).unwrap();
+        let registry = assembler
+            .assemble_tool_registry(assembler.builtin_tool_registry())
             .unwrap();
-        let skills = wire
-            .request("skills/list", json!({"cwds":[cwd],"forceReload":true}))
-            .await
-            .unwrap();
-        let overrides = disable_ambient(&config, &skills, &cwd).unwrap();
-        drop(config);
-        drop(skills);
-        let result = wire.request("thread/start",json!({"model":model["model"],"modelProvider":"openai","allowProviderModelFallback":false,"cwd":cwd,"config":overrides,"developerInstructions":"Nexa integration preflight. No model turn will be requested.","dynamicTools":[],"environments":[],"selectedCapabilityRoots":[],"approvalPolicy":"never","sandbox":"read-only","ephemeral":true})).await.unwrap();
-        assert_eq!(result["model"], model["model"]);
-        assert_eq!(result["modelProvider"], "openai");
-        assert_eq!(result["approvalPolicy"], "never");
-        assert_eq!(result["sandbox"]["type"], "readOnly");
+        let (tools, _) = dynamic_tool_catalog(registry.tools.definitions()).unwrap();
+        let (thread, grouped) = start_thread(
+            &mut wire,
+            model["model"].as_str().unwrap(),
+            cwd,
+            "Nexa integration preflight. No model turn will be requested.",
+            &tools,
+        )
+        .await
+        .unwrap();
+        assert!(!thread.is_empty());
+        eprintln!(
+            "Registered {} dynamic tools; namespaced workspace: {grouped}",
+            tools.len()
+        );
     }
     #[test]
     fn ambient_inventory_preserves_literal_server_names_and_rejects_scan_failure() {

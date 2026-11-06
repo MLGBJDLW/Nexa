@@ -123,6 +123,7 @@ impl LocalRuntime {
     pub async fn open(app: &AppHandle, directory: PathBuf) -> Result<Arc<Self>, String> {
         std::fs::create_dir_all(directory.join("workspace")).map_err(err)?;
         let db = Database::new(directory.join("nexa-mobile.db")).map_err(err)?;
+        db.initialize_phone_chat_projects().map_err(err)?;
         let outboxes = AgentRunEventOutboxes::new(
             DatabaseExecutor::new(db.clone(), 64).map_err(err)?,
             Arc::new(Delivery(app.clone())),

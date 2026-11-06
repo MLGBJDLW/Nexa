@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { ArrowRight, Check, ChevronDown, FolderOpen, Loader2, Monitor, Plus, ScanLine, Settings, Smartphone } from 'lucide-react';
@@ -8,6 +8,7 @@ import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from '../
 import type { RemoteConnection } from '../../desktop/src/features/remote/remoteClient';
 import { hostLabel, NativeClient, type NativeHost } from './nativeClient';
 import type { PhoneSettings } from './localClient';
+import { phoneChatProjects } from './phoneChatProjects';
 
 const LocalChat = lazy(() => import('./LocalChat').then(module => ({ default: module.LocalChat })));
 const ComputerChat = lazy(() => import('./ComputerChat'));
@@ -115,7 +116,8 @@ export function MobileApp() {
   const targetLabel = target === 'phone' ? t('remote.mobilePhone') : t('remote.mobileComputer');
   const heading = <button className="mobile-target-button" onClick={() => setTargetsOpen(true)} aria-label={t('remote.mobileTarget')}><Logo size={26} decorative/><span><strong>Nexa</strong><small>{targetLabel}<ChevronDown size={12}/></small></span></button>;
   const drawerFooter = <><button onClick={() => setTargetsOpen(true)}><Smartphone size={18}/>{t('remote.mobileTarget')}</button><button onClick={openFiles}><FolderOpen size={18}/>{t('remote.mobileFiles')}</button><button onClick={openSettings}><Settings size={18}/>{t('remote.mobileSettings')}</button></>;
-  const presentation: MobileChatPresentation = { heading, drawerFooter, caption: target === 'phone' ? t('remote.mobileLocalBoundary') : t('remote.mobileRemoteBoundary'), onConfigure: openSettings, onFiles: openFiles };
+  const projectStore = useMemo(() => phoneChatProjects(target === 'phone' ? null : target), [target]);
+  const presentation: MobileChatPresentation = { heading, drawerFooter, projectStore, caption: target === 'phone' ? t('remote.mobileLocalBoundary') : t('remote.mobileRemoteBoundary'), onConfigure: openSettings, onFiles: openFiles };
   const activeChat = !!state && (target === 'phone' ? !!state.settings || setupSkipped : !!client);
   const skipSetup = () => { localStorage.setItem('nexa.mobile.setupSkipped', 'true'); setSetupSkipped(true); setTarget('phone'); };
   const scanPairing = () => action(async () => {

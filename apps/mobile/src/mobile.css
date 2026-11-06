@@ -104,6 +104,31 @@
 .mobile-drawer { width: min(86vw,340px); max-height: var(--mobile-viewport-height,100dvh); height: var(--mobile-viewport-height,100dvh); margin: 0 auto 0 0; border-radius: 0; border-width: 0 1px 0 0; }
 .mobile-drawer .mobile-dialog-body { height: 100%; display: flex; flex-direction: column; padding: max(12px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom)); }
 .mobile-drawer-new { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 10px 12px; border-radius: 12px; background: var(--color-surface-1); font-size: 14px; }
+.mobile-projects { flex: none; margin-top: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--color-border); }
+.mobile-projects-heading, .mobile-project-entry { display: flex; align-items: center; gap: 2px; }
+.mobile-projects-heading { justify-content: space-between; padding-left: 12px; }
+.mobile-projects-heading h3 { font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
+.mobile-project-list { max-height: min(24dvh, 194px); overflow-y: auto; overscroll-behavior: contain; }
+.mobile-project-entry > .mobile-icon-button, .mobile-projects-heading > .mobile-icon-button { flex: none; width: 44px; height: 44px; }
+.mobile-project-destination, .mobile-project-options button, .mobile-project-drag-preview {
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px; padding: 8px 12px; text-align: left; font-size: 13px;
+}
+.mobile-project-destination { width: 100%; border-radius: 10px; }
+.mobile-project-destination > span, .mobile-project-drag-preview > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-project-destination > svg, .mobile-project-options button > svg, .mobile-project-drag-preview > svg { flex: none; }
+.mobile-project-destination[aria-pressed=true] { background: var(--color-surface-1); font-weight: 600; }
+.mobile-project-destination[data-over=true] { background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface-0)); outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.mobile-project-options { display: grid; gap: 4px; }
+.mobile-project-options button { border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.mobile-project-empty { padding: 8px 12px; color: var(--color-text-tertiary); font-size: 13px; }
+.mobile-project-grip { touch-action: none; cursor: grab; color: var(--color-text-tertiary); }
+.mobile-swipe-row:has(.mobile-project-grip) { user-select: none; -webkit-touch-callout: none; }
+.mobile-swipe-row[data-project-dragging=true] { opacity: .4; }
+.mobile-project-drag-preview { background: var(--color-surface-0); color: var(--color-text-primary); border: 1px solid var(--color-accent); border-radius: 12px; box-shadow: 0 4px 16px rgb(0 0 0 / .12); cursor: grabbing; }
+@media (max-height: 580px) {
+  .mobile-drawer .mobile-dialog-body:has(.mobile-projects) { min-height: 100%; height: auto; }
+  .mobile-drawer .mobile-projects ~ .mobile-history { min-height: 100px; max-height: 48dvh; }
+}
 .mobile-history { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; padding: 18px 0; display: flex; flex-direction: column; gap: 3px; }
 .mobile-history button { text-align: left; padding: 12px; border-radius: 10px; min-height: 44px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-conversation-row { display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 48px; touch-action: pan-y; }
@@ -198,12 +223,19 @@
 }
 
 /* Reveal archive intent with distance, without moving the scroll/touch owner. */
-.mobile-swipe-row { position: relative; overflow: hidden; border-radius: 14px; touch-action: pan-y; --swipe-distance: 0px; --swipe-progress: 0; }
+.mobile-swipe-row { position: relative; flex: none; overflow: hidden; border-radius: 14px; touch-action: pan-y; --swipe-distance: 0px; --swipe-progress: 0; }
 .mobile-swipe-content { position: relative; background: var(--color-surface-0); transform: translateX(calc(-1 * var(--swipe-distance))); transition: transform 220ms cubic-bezier(.22,1,.36,1); }
 .mobile-swipe-row[data-swiping="true"] .mobile-swipe-content { transition: none; }
 .mobile-swipe-action { position: absolute; inset: 0 0 0 auto; width: var(--swipe-distance); display: flex; align-items: center; justify-content: center; gap: 8px; color: #78350f; background: color-mix(in srgb, #facc15 calc(var(--swipe-progress) * 100%), #fef9c3); font-size: 12px; font-weight: 600; overflow: hidden; }
 .mobile-swipe-action svg { flex-shrink: 0; transform: scale(calc(.65 + var(--swipe-progress) * .65)); }
 .mobile-swipe-action span { opacity: var(--swipe-progress); white-space: nowrap; }
+.mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action { transition: width 220ms ease-out, background-color 220ms ease-out; }
+.mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action svg { transition: transform 220ms ease-out; }
+.mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action span { transition: opacity 180ms ease-out; }
+.mobile-swipe-row[data-archive-preview] .mobile-swipe-content { transform: translateX(-104px); }
+.mobile-swipe-row[data-archive-preview] .mobile-swipe-action { width: 104px; background: #facc15; }
+.mobile-swipe-row[data-archive-preview] .mobile-swipe-action svg { transform: scale(1.3); }
+.mobile-swipe-row[data-archive-preview] .mobile-swipe-action span { opacity: 1; }
 .mobile-settings-search { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-0); margin-bottom: 16px; }
 .mobile-settings-search input { flex: 1; min-width: 0; background: transparent; outline: none; font-size: 14px; }
 .mobile-settings-group { border-bottom: 1px solid var(--color-border); }
@@ -214,7 +246,11 @@
 .mobile-settings-group > .mobile-settings-group-body { padding-bottom: 20px; }
 .mobile-settings-group-body > .mobile-settings-section { margin-top: 0; padding-top: 0; border-top: 0; }
 .mobile-settings-group-body > .mobile-settings-section > h3 { display: none; }
-@media (prefers-reduced-motion: reduce) { .mobile-swipe-content, .mobile-settings-group > summary svg { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action,
+  .mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action :is(svg, span),
+  .mobile-swipe-content, .mobile-settings-group > summary svg { transition: none; }
+}
 
 .mobile-app .mobile-plan-chip { flex: 0 0 32px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; color: var(--color-text-secondary); transition: background-color 180ms ease, color 180ms ease; }
 .mobile-plan-chip:focus-visible { outline: 2px solid var(--color-accent); }
