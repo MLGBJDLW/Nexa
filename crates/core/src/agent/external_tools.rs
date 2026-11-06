@@ -1362,6 +1362,7 @@ pub struct ExternalToolOutput {
 }
 
 pub struct ExternalToolSession {
+    tool_cancellation: CancellationToken,
     input: ExternalToolSessionInput,
     source_scope: Vec<String>,
     privacy: privacy::PrivacyConfig,
@@ -1507,6 +1508,7 @@ impl ExternalToolSession {
             desktop_profile,
         };
         Ok(Self {
+            tool_cancellation: input.cancellation.child_token(),
             input,
             source_scope,
             privacy,
@@ -1555,11 +1557,17 @@ impl ExternalToolSession {
         self.state.lock().await.tool_budget_rejected
     }
 
+    /// Close tool admissions without cancelling answer verification/hooks.
+    pub fn cancel_tools(&self) {
+        self.tool_cancellation.cancel();
+    }
+
     pub async fn execute(&self, call: ToolCallRequest) -> Result<ExternalToolOutput, CoreError> {
         self.privacy_lease.ensure_current()?;
         tokio::select! {
             biased;
             _ = self.privacy_lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed before the tool result could be released".into())),
+            _ = self.tool_cancellation.cancelled() => Err(CoreError::Cancelled("Nexa tool session is closed".into())),
             result = self.privacy_lease.scope(self.execute_current(call)) => result,
         }
     }
@@ -1569,7 +1577,7 @@ impl ExternalToolSession {
         call: ToolCallRequest,
     ) -> Result<ExternalToolOutput, CoreError> {
         let mut state = self.state.lock().await;
-        if self.input.cancellation.is_cancelled() {
+        if self.tool_cancellation.is_cancelled() {
             return Err(CoreError::Cancelled("Stopped by user".into()));
         }
         self.ensure_delegated_recovery_clear()?;
@@ -1676,7 +1684,7 @@ impl ExternalToolSession {
             tools: &self.input.tools,
             config: &self.input.config,
             context_window_resolution: self.input.config.context_window_resolution,
-            cancel_token: &self.input.cancellation,
+            cancel_token: &self.tool_cancellation,
             confirmation_callback: &None,
             approval_callback: &approval,
             tool_visual_interpreter: &self.input.visual_interpreter,

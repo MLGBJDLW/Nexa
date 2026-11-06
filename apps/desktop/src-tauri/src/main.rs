@@ -441,6 +441,15 @@ fn update_tray_menu_cmd(
 }
 
 fn main() {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--nexa-mcp-stdio")
+    {
+        if agent_runtime::acp::host_tools::stdio_proxy().is_err() {
+            std::process::exit(1);
+        }
+        return;
+    }
     #[cfg(target_os = "windows")]
     if nexa_core::tools::computer_use_tool::desktop_feedback_process_entry() {
         return;
