@@ -690,6 +690,11 @@ async fn mobile_pair(
 }
 
 #[tauri::command]
+async fn mobile_notification_target(app: AppHandle) -> Result<Value, String> {
+    platform::call(&app, "notificationTarget", json!({})).await
+}
+
+#[tauri::command]
 async fn mobile_files(
     app: AppHandle,
     runtime: State<'_, RuntimeSlot>,
@@ -841,6 +846,7 @@ pub fn run() {
             mobile_local,
             mobile_permission,
             mobile_scan_pairing,
+            mobile_notification_target,
             mobile_speech,
             mobile_overlay,
             mobile_phone_control,

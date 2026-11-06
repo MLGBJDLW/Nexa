@@ -27,6 +27,27 @@ export function MobileApp() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [targetsOpen, setTargetsOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [notificationTarget, setNotificationTarget] = useState<MobileChatPresentation['notificationTarget']>(null);
+  const onNotificationHandled = useCallback(() => setNotificationTarget(null), []);
+  useEffect(() => {
+    let active = true;
+    const consume = async () => {
+      if (document.visibilityState === 'hidden') return;
+      const destination = await invoke<NonNullable<MobileChatPresentation['notificationTarget']>>('mobile_notification_target').catch(() => null);
+      if (!active || !destination?.conversationId) return;
+      setNotificationTarget(destination); setTarget('phone');
+      setSettingsOpen(false); setTargetsOpen(false); setDrawerOpen(false); setFilesOpen(false);
+      setSetupSkipped(true);
+    };
+    void consume();
+    window.addEventListener('nexa:notificationOpen', consume);
+    document.addEventListener('visibilitychange', consume);
+    return () => {
+      active = false;
+      window.removeEventListener('nexa:notificationOpen', consume);
+      document.removeEventListener('visibilitychange', consume);
+    };
+  }, []);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pairUrl, setPairUrl] = useState('');
@@ -133,7 +154,7 @@ export function MobileApp() {
   const heading = <button className="mobile-target-button" onClick={() => setTargetsOpen(true)} aria-label={t('remote.mobileTarget')}><Logo size={26} decorative/><span><strong>Nexa</strong><small>{targetLabel}<ChevronDown size={12}/></small></span></button>;
   const drawerFooter = <><button onClick={() => setTargetsOpen(true)}><Smartphone size={18}/>{t('remote.mobileTarget')}</button><button onClick={openFiles}><FolderOpen size={18}/>{t('remote.mobileFiles')}</button><button onClick={openSettings}><Settings size={18}/>{t('remote.mobileSettings')}</button></>;
   const projectStore = useMemo(() => phoneChatProjects(target === 'phone' ? null : target), [target]);
-  const presentation: MobileChatPresentation = { heading, drawerFooter, projectStore, caption: target === 'phone' ? t('remote.mobileLocalBoundary') : t('remote.mobileRemoteBoundary'), onConfigure: openSettings, onFiles: openFiles };
+  const presentation: MobileChatPresentation = { heading, drawerFooter, projectStore, notificationTarget:target==='phone'?notificationTarget:null, onNotificationHandled, caption: target === 'phone' ? t('remote.mobileLocalBoundary') : t('remote.mobileRemoteBoundary'), onConfigure: openSettings, onFiles: openFiles };
   const activeChat = !!state && (target === 'phone' ? !!state.settings || setupSkipped : !!client);
   const skipSetup = () => { localStorage.setItem('nexa.mobile.setupSkipped', 'true'); setSetupSkipped(true); setTarget('phone'); };
   const scanPairing = () => action(async () => {

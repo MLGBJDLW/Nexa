@@ -94,6 +94,8 @@ export function MobileDialog({ title, side = false, open = true, children, onClo
 }
 
 export interface MobileChatPresentation {
+  notificationTarget?: { conversationId: string; schedules?: boolean } | null;
+  onNotificationHandled?: () => void;
   onReplyRead?: (conversationId: string, runId: string) => Promise<unknown>;
   projectStore?: ChatProjectStore;
   heading: ReactNode;

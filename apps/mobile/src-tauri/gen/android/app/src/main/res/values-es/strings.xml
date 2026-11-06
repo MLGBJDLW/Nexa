@@ -15,4 +15,5 @@
     <string name="task_reply_ready">Nexa ha respondido</string>
     <string name="task_reply_open">Toca para ver la respuesta.</string>
     <string name="pairing_scan">Escanear código QR</string>
+    <string name="task_schedule_open">Abre la tarea programada para revisar esta ejecución.</string>
 </resources>

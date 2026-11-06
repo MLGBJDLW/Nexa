@@ -15,4 +15,5 @@
     <string name="task_reply_ready">Nexa 已回复</string>
     <string name="task_reply_open">点按查看回复。</string>
     <string name="pairing_scan">扫描配对二维码</string>
+    <string name="task_schedule_open">打开定时任务以审核本次运行。</string>
 </resources>

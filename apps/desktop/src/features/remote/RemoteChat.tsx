@@ -177,6 +177,17 @@ export function RemoteChat({
   const [archivesOpen, setArchivesOpen] = useState(false);
   const [deleteArchivedIds, setDeleteArchivedIds] = useState<string[] | null>(null);
   const [manageTarget, setManageTarget] = useState<{ item: Conversation; action: "archive" | "delete" } | null>(null);
+  const destination = mobile?.notificationTarget;
+  const onNotificationHandled = mobile?.onNotificationHandled;
+  useEffect(() => {
+    if (!destination) return;
+    selectConversation(destination.conversationId);
+    pendingSend.current = null;
+    followOutput.current = true;
+    setDrawerOpen(false); setModelOpen(false); setOptionsOpen(false);
+    setManageTarget(null); setDeleteArchivedIds(null); setSchedulesOpen(!!destination.schedules);
+    onNotificationHandled?.();
+  }, [destination, onNotificationHandled]);
   const [managing, setManaging] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

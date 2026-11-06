@@ -15,4 +15,5 @@
     <string name="task_reply_ready">Nexa가 답변했습니다</string>
     <string name="task_reply_open">탭하여 답변을 확인하세요.</string>
     <string name="pairing_scan">페어링 QR 코드 스캔</string>
+    <string name="task_schedule_open">예약된 작업을 열어 이번 실행을 검토하세요.</string>
 </resources>

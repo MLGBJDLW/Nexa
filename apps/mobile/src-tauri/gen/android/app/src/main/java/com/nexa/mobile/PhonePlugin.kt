@@ -202,26 +202,32 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     @Command fun taskResult(invoke: Invoke) = activity.runOnUiThread {
         guarded(invoke) {
             if (!foreground && invoke.getArgs().getString("status") == "completed") {
-                TaskService.ensureChannels(activity)
-                val open = PendingIntent.getActivity(activity, 2, Intent(activity, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                activity.getSystemService(NotificationManager::class.java).notify(invoke.getArgs().getString("conversationId"), TaskService.REPLY_NOTIFICATION,
-                    NotificationCompat.Builder(activity, TaskService.CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
-                        .addExtras(android.os.Bundle().apply { putString("nexa.run", invoke.getArgs().getString("runId")) })
-                        .setContentTitle(activity.getString(R.string.task_reply_ready)).setContentText(activity.getString(R.string.task_reply_open))
-                        .setContentIntent(open).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE).build())
+                PhoneReplies.post(activity, invoke.getArgs().getString("conversationId"), invoke.getArgs().getString("runId"))
             }
             JSObject()
         }
     }
     @Command fun replyRead(invoke: Invoke) = activity.runOnUiThread {
         guarded(invoke) {
-            val manager = activity.getSystemService(NotificationManager::class.java)
-            val chat = invoke.getArgs().getString("conversationId")
-            val run = invoke.getArgs().getString("runId")
-            if (foreground && manager.activeNotifications.any {
-                it.tag == chat && it.id == TaskService.REPLY_NOTIFICATION && it.notification.extras.getString("nexa.run") == run
-            }) manager.cancel(chat, TaskService.REPLY_NOTIFICATION)
+            if (foreground) PhoneReplies.read(activity, invoke.getArgs().getString("conversationId"), invoke.getArgs().getString("runId"))
             JSObject()
+        }
+    }
+    @Command fun scheduleWake(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            val args = invoke.getArgs()
+            PhoneScheduleJobs.reconcile(activity, if (args.isNull("nextWakeAt")) null else args.getString("nextWakeAt"))
+            JSObject()
+        }
+    }
+    @Command fun scheduleDecisionRead(invoke: Invoke) = guarded(invoke) {
+        PhoneReplies.clearApproval(activity, invoke.getArgs().getString("runId"))
+        JSObject()
+    }
+    @Command fun notificationTarget(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            val target = PhoneReplies.consume(activity.intent)
+            JSObject().apply { if (target != null) { put("conversationId", target.first); put("schedules", target.second) } }
         }
     }
     @Command fun approval(invoke: Invoke) {
