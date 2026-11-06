@@ -1,7 +1,8 @@
 use base64::Engine;
 use nexa_core::app_settings::{SpeechToTextConfig, TextToSpeechConfig};
 use serde_json::{json, Value};
-use tauri::AppHandle;
+use std::sync::OnceLock;
+use tauri::{ipc::Channel, AppHandle, Emitter};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -64,6 +65,7 @@ pub fn validate_output(config: &TextToSpeechConfig) -> Result<(), String> {
 pub struct SpeechRuntime {
     input: Mutex<Option<(uuid::Uuid, CancellationToken)>>,
     output: Mutex<Option<(uuid::Uuid, CancellationToken)>>,
+    progress: OnceLock<Channel<Value>>,
 }
 impl SpeechRuntime {
     pub async fn cancel(&self, output: bool) {
@@ -99,6 +101,17 @@ impl SpeechRuntime {
             *slot = Some((id, token.clone()));
         }
         args["action"] = json!("listen");
+        if request_id.is_some() {
+            // Android keeps native channels for the process lifetime. Share one
+            // across recordings; the UI accepts events only for its current ID.
+            let channel = self.progress.get_or_init(|| {
+                let app = app.clone();
+                Channel::new(move |event| {
+                    app.emit_to("main", "mobile:dictation", event.deserialize::<Value>()?)
+                })
+            });
+            args["progress"] = json!(channel);
+        }
         let result = tokio::select! {
             _ = token.cancelled() => Err("speech_cancelled".into()),
             result = async {

@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { applyTheme, getInitialTheme } from '../../src/lib/theme';
 import { I18nProvider } from '../../src/i18n';
 import { RemoteChat } from '../../src/features/remote/RemoteChat';
-import type { RemoteChatClient, RemoteEnvelope } from '../../src/features/remote/remoteClient';
+import type { NativeSpeechProgress, RemoteChatClient, RemoteEnvelope } from '../../src/features/remote/remoteClient';
 import { phoneChatProjects } from '../../../mobile/src/phoneChatProjects';
 import '../../../mobile/src/mobile.css';
 export function renderMobileContinuity() {
@@ -55,8 +55,8 @@ export function renderMobileContinuity() {
   let run: any = null;
   let messages: any[] = [];
   const events: any[] = [];
-  const emit = (kind: string, payload: unknown) => {
-    const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:activityFixture?'处理中':'Working',payload};
+  const emit = (kind: string, payload: unknown, presentation: {displayKind?:string;label?:string} = {}) => {
+    const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:activityFixture?'处理中':'Working',payload,...presentation};
     events.push(event); listeners.forEach(listener=>listener({event:'agent://run-event',payload:{conversationId:'created',runEvent:event}}));
   };
   const activityFixture = new URLSearchParams(location.search).has('activity');
@@ -100,13 +100,17 @@ export function renderMobileContinuity() {
   const composerFixture = new URLSearchParams(location.search).has('composer');
   let speechRequest: { id?: string; resolve: (value: string) => void; reject: (error: Error) => void } | undefined;
   const nativeSpeech = {
-    listen: (_language: string, id?: string) => new Promise<string>((resolve, reject) => { actions.push({method:'speech.listen',params:{id}}); speechRequest = { id, resolve, reject }; }),
+    listen: (_language: string, id?: string, update?: (event: NativeSpeechProgress) => void) => new Promise<string>((resolve, reject) => {
+      actions.push({method:'speech.listen',params:{id}}); speechRequest = { id, resolve, reject };
+      (window as any).__PHONE_SPEECH_SAMPLE__ = update;
+    }),
     finish: async (id?: string) => { actions.push({method:'speech.finish',params:{id}}); if (speechRequest && speechRequest.id === id) { speechRequest.resolve('Hello from dictation'); speechRequest = undefined; } },
     cancel: async (id?: string) => { actions.push({method:'speech.cancel',params:{id}}); if (speechRequest && speechRequest.id === id) { speechRequest.reject(new Error('speech_cancelled')); speechRequest = undefined; } },
     speak: async () => {}, stop: async () => {},
   };
+  let schedules: {id:string;definitionRevision:number;enabled:boolean;name:string}[] = [];
   const client = {
-    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0}},
+    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-steering-v1','chat-schedules-v1']}},
     state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:composerFixture, approvalModeAvailable:composerFixture, nativeSpeech: composerFixture ? nativeSpeech : undefined,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
@@ -118,10 +122,26 @@ export function renderMobileContinuity() {
         const start = params.before ? chats.findIndex(item => item.id === params.before) + 1 : 0;
         return {items:chats.slice(start,start+1),nextCursor: start+1 < chats.length ? chats[start].id : null};
       }
+      if (method==='chat.schedules') {
+        const input=params.input;
+        if (input.action==='preview') return {occurrences:[{scheduledFor:'2026-11-07T01:00:00Z'}]};
+        if (input.action==='list') return {tasks:schedules};
+        if (input.action==='create') schedules.push({...input,id:'job',enabled:true,definitionRevision:1,
+          trigger:{kind:'schedule',cron:input.cron},scheduleConfig:{timezone:input.timezone},approvalPolicy:{allowedTools:input.allowedTools,requireBeforeRun:input.requireApproval}});
+        if (input.action==='pause') schedules=schedules.map(job=>({...job,enabled:false,definitionRevision:2}));
+        if (input.action==='delete') schedules=schedules.filter(job=>job.id!==input.id);
+        return {};
+      }
       if (method==='chat.archived') { const start=params.before?archived.findIndex(item=>item.id===params.before)+1:0; const items=archived.slice(start,start+2); const page={items,nextCursor:start+2<archived.length?items.at(-1)!.id:null}; if(holdArchive) {holdArchive=false;return new Promise(resolve=>{releaseArchive=()=>{releaseArchive=null;resolve(page);};});} return page; }
       if (method==='chat.restore') {chats.push(...archived.filter(item=>item.id===params.conversationId));archived=archived.filter(item=>item.id!==params.conversationId);return null;}
       if (method==='chat.create') { const item={id:'created',title:'New work',model:'model'};chats=[item,...chats];return item; }
       if (method==='chat.start') { run={id:'run',status:'running'};return {}; }
+      if (method==='chat.steer') {
+        if (params.runId !== run?.id || params.conversationId !== 'created') throw new Error('Wrong steering target');
+        messages.push({id:'clarification',role:'user',steering:true,continuesTurn:true,content:params.message,totalChars:[...params.message].length,sortOrder:7});
+        emit('status', {}, {displayKind:'steering', label:params.message});
+        return {};
+      }
       if (method==='chat.stop') { run.status='cancelled';emit('done',{status:'cancelled'});return {}; }
       if (method==='chat.resume') return {run:params.conversationId==='created'?run:null,events:events.filter(event=>event.eventSeq>(params.afterSequence||0)),hasMore:false,nextSequence:events.length,durableHighWater:events.length};
       if (method==='chat.read') return {messages,beforeOrder:pagedActivity ? 10 : null};
@@ -144,7 +164,7 @@ export function renderMobileContinuity() {
       throw new Error(method);
     },
   } as unknown as RemoteChatClient;
-  (window as any).__MOBILE_CONTINUITY__={actions,emit,removeArchived:(id:string)=>{archived=archived.filter(item=>item.id!==id);},restoreArchived:(id:string)=>{chats.push(...archived.filter(item=>item.id===id));archived=archived.filter(item=>item.id!==id);},seedArchives:()=>{archived=['a','b','c','d','e'].map(id=>({id,title:'Archived '+id,model:'model'}));},finish:()=>{messages=[{id:'intro',role:'assistant',content:'I will inspect the report.',totalChars:26,sortOrder:1,intermediate:true},{id:'final',role:'assistant',content:'Final report: all three sections are consistent.',totalChars:46,sortOrder:2}];run={...run,status:'completed',finalMessageId:'final'};emit('done',{status:'completed'});},holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
+  (window as any).__MOBILE_CONTINUITY__={actions,emit,removeArchived:(id:string)=>{archived=archived.filter(item=>item.id!==id);},restoreArchived:(id:string)=>{chats.push(...archived.filter(item=>item.id===id));archived=archived.filter(item=>item.id!==id);},seedArchives:()=>{archived=['a','b','c','d','e'].map(id=>({id,title:'Archived '+id,model:'model'}));},finish:(content='Final report: all three sections are consistent.')=>{messages=[{id:'intro',role:'assistant',content:'I will inspect the report.',totalChars:26,sortOrder:1,intermediate:true},{id:'final',role:'assistant',content,totalChars:[...content].length,sortOrder:2}];run={...run,status:'completed',finalMessageId:'final'};emit('done',{status:'completed'});},holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
   const host=document.createElement('div');host.className='mobile-app';host.style.cssText='position:fixed;inset:0;z-index:1000;background:var(--color-surface-0)';document.body.appendChild(host);
   createRoot(host).render(<I18nProvider><RemoteChat client={client} initialDraft="" onDraftConsumed={()=>{}} mobile={{heading:activityFixture ? 'Nexa' : 'Phone',drawerFooter:null,caption:'',onConfigure:()=>{},onFiles:()=>{},
     projectStore: projectsFixture ? phoneChatProjects(hostId) : undefined}}/></I18nProvider>);

@@ -154,6 +154,7 @@ export function ProvidersSettingsTab({
   const normalizedProviderQuery = normalizeProviderSearch(providerQuery);
   const providerPresetResults = useMemo(() => PROVIDER_PRESETS
     .filter((preset) => {
+      if (preset.retired) return false;
       if (Boolean(preset.runtime) !== (connectionKind === 'agents')) return false;
       if (!normalizedProviderQuery) return true;
       return normalizeProviderSearch([

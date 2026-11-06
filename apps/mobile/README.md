@@ -1,7 +1,6 @@
 # Nexa Mobile
 
-Native Android application, independently versioned from Nexa Desktop. The current
-release is `0.3.1`; its tag prefix is `nexa-mobile-v`.
+Native Android application, independently versioned from Nexa Desktop. Its release tag prefix is `nexa-mobile-v`.
 
 See the [mobile application guide](../../docs/guides/MOBILE_APP.md) for setup,
 execution targets, permissions, acceptance boundaries and release instructions.

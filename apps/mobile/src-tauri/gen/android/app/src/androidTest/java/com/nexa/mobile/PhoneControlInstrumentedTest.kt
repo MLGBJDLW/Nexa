@@ -129,6 +129,10 @@ class PhoneControlInstrumentedTest {
     }
 
     @Test fun cloudDictationCapturesBoundedWavAndCancellationDiscardsAudio() {
+        assertEquals(0f, PhoneAudioRecorder.pcmLevel(ByteArray(16), 16), 0f)
+        val halfVolume = PhoneAudioRecorder.pcmLevel(byteArrayOf(0, 64), 2)
+        assertTrue(halfVolume in .89f.. .91f)
+        assertEquals(halfVolume, PhoneAudioRecorder.pcmLevel(byteArrayOf(64, 0), 2, bigEndian = true), 0f)
         val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("pm grant com.nexa.mobile android.permission.RECORD_AUDIO")).use { it.readBytes() }
         lateinit var speech: PhoneSpeech

@@ -34,6 +34,8 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     private var permissionListen: Invoke? = null
     override fun onResume(activity: androidx.appcompat.app.AppCompatActivity) {
         foreground = true
+        // Discard the single, unscoped reply posted by older app versions.
+        activity.getSystemService(NotificationManager::class.java).cancel(TaskService.REPLY_NOTIFICATION)
         pendingListen?.let { pendingListen = null; speech.listen(it) }
     }
     override fun onPause(activity: androidx.appcompat.app.AppCompatActivity) { foreground = false; speech.stop() }
@@ -96,6 +98,7 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     @Command fun scanPairing(invoke: Invoke) {
         try {
             val options = ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setCaptureActivity(PairingScannerActivity::class.java)
                 .setBeepEnabled(false).setOrientationLocked(false)
             startActivityForResult(invoke, options.createScanIntent(activity), "pairingScanned")
         } catch (error: Exception) { invoke.reject(error.message ?: "The camera could not be opened. Paste the pairing link instead.") }
@@ -199,14 +202,29 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     @Command fun taskResult(invoke: Invoke) = activity.runOnUiThread {
         guarded(invoke) {
             if (!foreground && invoke.getArgs().getString("status") == "completed") {
-                TaskService.ensureChannels(activity)
-                val open = PendingIntent.getActivity(activity, 2, Intent(activity, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                activity.getSystemService(NotificationManager::class.java).notify(TaskService.REPLY_NOTIFICATION,
-                    NotificationCompat.Builder(activity, TaskService.CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
-                        .setContentTitle(activity.getString(R.string.task_reply_ready)).setContentText(activity.getString(R.string.task_reply_open))
-                        .setContentIntent(open).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE).build())
+                PhoneReplies.post(activity, invoke.getArgs().getString("conversationId"), invoke.getArgs().getString("runId"))
             }
             JSObject()
+        }
+    }
+    @Command fun replyRead(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            if (foreground) PhoneReplies.read(activity, invoke.getArgs().getString("conversationId"), invoke.getArgs().getString("runId"))
+            JSObject()
+        }
+    }
+    @Command fun scheduleWake(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            val args = invoke.getArgs()
+            PhoneScheduleJobs.reconcile(activity, if (args.isNull("nextWakeAt")) null else args.getString("nextWakeAt"))
+            PhoneReplies.reconcileApprovals(activity, args)
+            JSObject()
+        }
+    }
+    @Command fun notificationTarget(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            val target = PhoneReplies.consume(activity.intent)
+            JSObject().apply { if (target != null) { put("conversationId", target.first); put("schedules", target.second) } }
         }
     }
     @Command fun approval(invoke: Invoke) {

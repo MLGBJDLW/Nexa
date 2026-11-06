@@ -6,6 +6,8 @@ import { computeWaveformBars, smoothWaveformBars, toBarHeights } from '../../fea
 interface MicrophoneWaveformProps {
   /** Live analyser to read from; when null the bars rest at their floor. */
   analyser: AnalyserNode | null;
+  /** Native capture supplies acoustic levels without opening a WebView microphone. */
+  subscribeLevel?: (update: (level: number) => void) => () => void;
   barCount?: number;
   className?: string;
   label?: string;
@@ -19,6 +21,7 @@ interface MicrophoneWaveformProps {
  */
 export function MicrophoneWaveform({
   analyser,
+  subscribeLevel,
   barCount = 24,
   className = '',
   label,
@@ -28,13 +31,22 @@ export function MicrophoneWaveform({
 
   useEffect(() => {
     const bars = barsRef.current;
-    if (!analyser || shouldReduceMotion) {
+    if ((!analyser && !subscribeLevel) || shouldReduceMotion) {
       bars.forEach((bar) => {
         if (bar) bar.style.transform = `scaleY(${analyser ? '0.18' : '0.06'})`;
       });
       return;
     }
 
+    if (subscribeLevel) {
+      const levels = new Array<number>(barCount).fill(0);
+      return subscribeLevel(level => {
+        levels.shift();
+        levels.push(level);
+        toBarHeights(levels).forEach((height, i) => { if (bars[i]) bars[i].style.transform = `scaleY(${height.toFixed(3)})`; });
+      });
+    }
+    if (!analyser) return;
     const samples = new Float32Array(analyser.fftSize);
     let smoothed = new Array<number>(barCount).fill(0);
     let frame = 0;
@@ -52,13 +64,13 @@ export function MicrophoneWaveform({
 
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [analyser, barCount, shouldReduceMotion]);
+  }, [analyser, subscribeLevel, barCount, shouldReduceMotion]);
 
   return (
     <div
       data-testid="microphone-waveform"
-      data-active={analyser ? 'true' : 'false'}
-      data-animated={analyser && !shouldReduceMotion ? 'true' : 'false'}
+      data-active={analyser || subscribeLevel ? 'true' : 'false'}
+      data-animated={(analyser || subscribeLevel) && !shouldReduceMotion ? 'true' : 'false'}
       role="img"
       aria-label={label}
       className={`flex h-6 items-center gap-[2px] ${className}`}

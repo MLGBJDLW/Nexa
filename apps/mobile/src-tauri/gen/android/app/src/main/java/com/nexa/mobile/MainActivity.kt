@@ -11,6 +11,14 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 
 class MainActivity : TauriActivity() {
+  private var notificationWebView: WebView? = null
+
+  override fun onNewIntent(intent: android.content.Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    notificationWebView?.evaluateJavascript("window.dispatchEvent(new Event('nexa:notificationOpen'))", null)
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -22,6 +30,7 @@ class MainActivity : TauriActivity() {
   }
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    notificationWebView = webView
     webView.post {
       val content = findViewById<View>(android.R.id.content)
       val left = content.paddingLeft; val top = content.paddingTop

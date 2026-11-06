@@ -2442,7 +2442,7 @@ pub fn default_tool_registry() -> ToolRegistry {
     registry.register(Box::new(computer_use_tool::ComputerControlTool));
     registry.register(Box::new(desktop_automation_tool::DesktopAutomationTool));
     registry.register(Box::new(open_in_nexa_tool::OpenInNexaTool::default()));
-    registry.register(Box::new(automation_tool::AutomationTool));
+    registry.register(Box::new(automation_tool::AutomationTool::default()));
     registry.register(Box::new(summarize_tool::SummarizeDocumentTool));
     registry.register(Box::new(update_plan_tool::UpdatePlanTool));
     registry.register(Box::new(conversation_goal_tool::GetGoalTool));

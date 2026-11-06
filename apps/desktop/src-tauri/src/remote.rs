@@ -440,8 +440,10 @@ impl RemoteHost for DesktopHost {
         vec![
             MODEL_CONNECTION_SYNC_CAPABILITY.into(),
             PHONE_CONTROL_CAPABILITY.into(),
+            "chat-schedules-v1".into(),
             "chat-management-v1".into(),
             "chat-delete-archived-v1".into(),
+            "chat-steering-v1".into(),
         ]
     }
     async fn execute(&self, owner: &str, command: RemoteCommand) -> Result<Value, String> {
@@ -451,7 +453,10 @@ impl RemoteHost for DesktopHost {
         if let StartTurn {
             conversation_id, ..
         }
-        | StopTurn { conversation_id } = &command
+        | StopTurn { conversation_id }
+        | SteerTurn {
+            conversation_id, ..
+        } = &command
         {
             let id = conversation_id.clone();
             state
@@ -522,6 +527,26 @@ impl RemoteHost for DesktopHost {
                 value(result)
             }
             Models { connection_id } => value(commands::model_choices::model_choices(app, connection_id).await?),
+            ScheduleDecision { conversation_id, run_id, allow } => {
+                let id = run_id.clone();
+                state.db_executor.read(move |db| {
+                    db.require_remote_conversation(&conversation_id)?;
+                    let due = db.get_workflow_due_for_run(&id)?;
+                    if due.automation.conversation_id.as_deref() != Some(&conversation_id) {
+                        return Err(nexa_core::error::CoreError::InvalidInput("Occurrence belongs to another conversation".into()));
+                    }
+                    if allow {
+                        nexa_core::tools::automation_tool::validate_phone_schedule_grants(&due.automation)?;
+                        db.validate_workflow_conversation(&due.automation, &conversation_id)?;
+                    }
+                    Ok(())
+                }).await.map_err(|e| e.to_string())?;
+                if allow { value(commands::approve_workflow_automation_run_cmd(app.state(), app.state(), app.state(), app.state(), app.clone(), run_id, None).await?) }
+                else { value(commands::deny_workflow_automation_run_cmd(app.state(), run_id)?) }
+            }
+            ConversationSchedules { conversation_id, input } => state.db_executor.write(move |db|
+                nexa_core::tools::automation_tool::conversation_schedule_action(db, &conversation_id, input)
+            ).await.map(|result| result.value).map_err(|e| e.to_string()),
             Conversations { before } => state.db_executor
                 .read(move |db| db.remote_conversations(before.as_deref()))
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
@@ -564,6 +589,10 @@ impl RemoteHost for DesktopHost {
             }
             StopTurn { conversation_id } => {
                 commands::agent_stop_cmd(app.state(), app.state(), app.state(), app.clone(), conversation_id).await?;
+                Ok(Value::Null)
+            }
+            SteerTurn { conversation_id, run_id, message } => {
+                app.state::<commands::AgentState>().sessions.steer_active_run(&conversation_id, Some(&run_id), message.trim()).await.map_err(|error| error.to_string())?;
                 Ok(Value::Null)
             }
             Resume { conversation_id, run_id, after_sequence, durable_high_water } => state.db_executor.read(move |db| {

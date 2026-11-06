@@ -14,4 +14,6 @@
     <string name="task_attention_channel">Respostas e aprovações</string>
     <string name="task_reply_ready">A Nexa respondeu</string>
     <string name="task_reply_open">Toque para ver a resposta.</string>
+    <string name="pairing_scan">Ler código QR</string>
+    <string name="task_schedule_open">Abra a tarefa agendada para revisar esta execução.</string>
 </resources>

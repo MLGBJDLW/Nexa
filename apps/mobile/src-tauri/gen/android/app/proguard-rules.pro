@@ -1,6 +1,7 @@
 # Add project specific ProGuard rules here.
 -keep class com.nexa.mobile.PhonePlugin { *; }
 -keep class com.nexa.mobile.PhoneAccessibilityService { *; }
+-keep class com.nexa.mobile.PhoneScheduleBridge { *; }
 -keep class com.nexa.mobile.TaskService { *; }
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.

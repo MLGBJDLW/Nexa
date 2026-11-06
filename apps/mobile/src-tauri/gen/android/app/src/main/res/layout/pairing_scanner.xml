@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/pairing_root" android:orientation="vertical"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#121619">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:paddingHorizontal="12dp" android:minHeight="56dp">
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:paddingStart="8dp" android:paddingEnd="4dp"
+            android:text="@string/pairing_scan" android:textSize="18sp" android:textColor="#FAF9F6"
+            android:fontFamily="sans-serif-medium"/>
+        <Button android:id="@+id/cancel_pairing_scan" style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:text="@android:string/cancel" android:textAllCaps="false"
+            android:textColor="#FAF9F6"/>
+    </LinearLayout>
+    <com.journeyapps.barcodescanner.DecoratedBarcodeView android:id="@+id/pairing_camera"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        app:zxing_scanner_layout="@layout/pairing_viewfinder" />
+</LinearLayout>

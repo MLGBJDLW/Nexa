@@ -29,6 +29,9 @@ assert.equal(changed.regionChanged.length, 1);
 assert.equal(driftDetected(changed), true);
 
 const isolated = compareEndpointModels(endpoint, [{ id: 'tenant-b-only-model' }]);
+const announced = compareEndpointModels(endpoint, [{ id: 'model-a', expiration_date: '2026-11-18' }]);
+assert.deepEqual(announced.lifecycleChanged, [{ id:'model-a', curated:'active', discovered:'deprecated' }]);
+assert.deepEqual(announced.expirationChanged, [{ id:'model-a', curated:null, discovered:'2026-11-18' }]);
 assert.deepEqual(isolated.newIds, ['tenant-b-only-model']);
 assert.deepEqual(isolated.missingIds, ['model-a']);
 assert.equal(isolated.capabilityChanged.length, 0);

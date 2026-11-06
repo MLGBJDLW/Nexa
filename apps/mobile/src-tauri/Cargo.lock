@@ -3081,6 +3081,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures",
+ "jni",
  "nexa-core",
  "reqwest 0.12.28",
  "serde",

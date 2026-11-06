@@ -2,7 +2,7 @@
 use crate::{connections, phone_host::PhoneHost, platform};
 use base64::Engine;
 use nexa_core::{
-    agent::{AgentConfig, AgentExecutionMode, CancellationToken},
+    agent::{AgentConfig, AgentExecutionMode, AgentSteeringMessage, CancellationToken},
     agent_run::AgentRunEvent,
     agent_session::ExecutorAgentSession,
     approval::{ApprovalDecision, ApprovalRequest, ToolApprovalMode},
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,29 +90,45 @@ impl TurnOptions {
     }
 }
 
-struct Delivery(AppHandle);
+pub(crate) mod host;
+use host::RunHost;
+
+struct Delivery;
 impl AgentRunEventDelivery for Delivery {
     fn deliver_run_event(&self, conversation: &str, event: &AgentRunEvent) {
-        let _ = self.0.emit(
+        let Some(app) = host::ui() else { return };
+        let _ = app.emit(
             "mobile:run",
             json!({"conversationId":conversation,"event":event}),
         );
     }
     fn deliver_task_run_snapshot(&self, conversation: &str, run: AgentTaskRun) {
-        let _ = self.0.emit(
+        let Some(app) = host::ui() else { return };
+        let _ = app.emit(
             "mobile:snapshot",
             json!({"conversationId":conversation,"run":run}),
         );
     }
 }
 
+struct ActivePhoneTurn {
+    conversation_id: String,
+    run_id: String,
+    cancel: CancellationToken,
+    steering: mpsc::UnboundedSender<AgentSteeringMessage>,
+}
+
+mod schedules;
+
 pub struct LocalRuntime {
+    scheduler: Mutex<()>,
+    pub(crate) arm_lock: Mutex<()>,
     pub db: Database,
     workspace: Workspace,
     outboxes: AgentRunEventOutboxes,
     // Admission spans idempotent persistence and spawning. One phone task at a
     // time avoids competing cross-app actions and keeps Stop unambiguous.
-    active: Mutex<Option<(String, CancellationToken)>>,
+    active: Mutex<Option<ActivePhoneTurn>>,
     pending: Mutex<HashMap<String, (ApprovalRequest, oneshot::Sender<ApprovalDecision>)>>,
 }
 
@@ -120,19 +136,20 @@ impl LocalRuntime {
     pub fn workspace_dir(&self) -> PathBuf {
         PathBuf::from(&self.workspace.roots[0])
     }
-    pub async fn open(app: &AppHandle, directory: PathBuf) -> Result<Arc<Self>, String> {
+    pub async fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
         std::fs::create_dir_all(directory.join("workspace")).map_err(err)?;
         let db = Database::new(directory.join("nexa-mobile.db")).map_err(err)?;
         db.initialize_phone_chat_projects().map_err(err)?;
         let outboxes = AgentRunEventOutboxes::new(
             DatabaseExecutor::new(db.clone(), 64).map_err(err)?,
-            Arc::new(Delivery(app.clone())),
+            Arc::new(Delivery),
         );
         // Never replay a possibly completed phone action after process death.
         outboxes
             .recover_after_restart_with_checkpoints()
             .await
             .map_err(err)?;
+        db.reconcile_interrupted_schedule_runs().map_err(err)?;
         Ok(Arc::new(Self {
             db,
             workspace: Workspace::validate(&[directory
@@ -142,13 +159,18 @@ impl LocalRuntime {
             .map_err(err)?,
             outboxes,
             active: Mutex::new(None),
+            scheduler: Mutex::new(()),
+            arm_lock: Mutex::new(()),
             pending: Mutex::new(HashMap::new()),
         }))
     }
 
     pub async fn approvals(&self, conversation_id: &str) -> Result<Value, String> {
         let active = self.active.lock().await;
-        if active.as_ref().is_none_or(|(id, _)| id != conversation_id) {
+        if active
+            .as_ref()
+            .is_none_or(|turn| turn.conversation_id != conversation_id)
+        {
             return Ok(json!([]));
         }
         let run = self.db.remote_latest_run(conversation_id).map_err(err)?;
@@ -163,15 +185,21 @@ impl LocalRuntime {
         Ok(json!(approvals))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         self: &Arc<Self>,
-        app: AppHandle,
+        host: RunHost,
         conversation_id: Option<String>,
         mut text: String,
         request_id: String,
         checkpoint_id: Option<String>,
         mut options: TurnOptions,
+        scheduled: Option<schedules::ScheduledLaunch>,
     ) -> Result<Value, String> {
+        let mut scheduled_tools = scheduled
+            .as_ref()
+            .map(|schedule| schedule.allowed_tools.clone());
+        let mut workflow_run = scheduled.as_ref().map(|schedule| schedule.run_id.clone());
         if let Some(id) = &checkpoint_id {
             let checkpoint = self.db.get_task_resume_checkpoint(id).map_err(err)?;
             let run = self
@@ -196,6 +224,22 @@ impl LocalRuntime {
                 .map(|value| serde_json::from_value(value.clone()).map_err(err))
                 .transpose()?
                 .unwrap_or_default();
+            if let Some(grants) = original
+                .artifacts
+                .as_ref()
+                .and_then(|value| value.get("phoneScheduledTools"))
+                .filter(|value| !value.is_null())
+            {
+                scheduled_tools = Some(serde_json::from_value(grants.clone()).map_err(err)?);
+                let job = self
+                    .db
+                    .get_workflow_automation_run_for_task_run(&run.id)
+                    .map_err(err)?
+                    .ok_or(
+                        "This scheduled task was interrupted before its occurrence was bound.",
+                    )?;
+                workflow_run = Some(job.id);
+            }
             text = checkpoint.resume_prompt;
         }
         options.validate_attachments()?;
@@ -205,7 +249,7 @@ impl LocalRuntime {
         uuid::Uuid::parse_str(&request_id)
             .map_err(|_| "A stable request ID is required.".to_string())?;
         let mut active = self.active.lock().await;
-        let mut saved = connections::get(&app, options.connection_id.as_deref()).await?;
+        let mut saved = host.connection(options.connection_id.as_deref()).await?;
         if let Some(selection) = &options.model_selection {
             selection.apply_to_shared(&mut saved).map_err(err)?;
         }
@@ -240,6 +284,10 @@ impl LocalRuntime {
         if active.is_some() && previous.is_none() {
             return Err("Stop or finish the current phone task first.".into());
         }
+        let app_config = self.db.load_app_config().map_err(err)?;
+        if scheduled_tools.is_some() && app_config.tool_approval_mode == ToolApprovalMode::DenyAll {
+            options.tool_approval_mode = ToolApprovalMode::DenyAll;
+        }
         let history =
             nexa_core::context_maintenance::load_context_projection(&self.db, &conversation.id)
                 .map_err(err)?
@@ -261,7 +309,7 @@ impl LocalRuntime {
             tool_call_id: None,
             tool_calls: Vec::new(),
             artifacts: Some(
-                json!({"phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
+                json!({"phoneScheduledTools": scheduled_tools, "phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
             ),
             token_count: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -289,33 +337,13 @@ impl LocalRuntime {
             )
             .map_err(err);
         }
-        let token = CancellationToken::new();
-        let weak = Arc::downgrade(self);
-        let stopped = token.clone();
-        let channel = tauri::ipc::Channel::<Value>::new(move |_| {
-            stopped.cancel();
-            if let Some(runtime) = weak.upgrade() {
-                tauri::async_runtime::spawn(async move {
-                    runtime.pending.lock().await.clear();
-                });
-            }
-            Ok(())
-        });
-        platform::call(
-            &app,
-            "registerListener",
-            json!({"event":"taskStop","handler":channel}),
-        )
-        .await?;
-        if let Err(error) = platform::call(&app, "taskService", json!({"active":true})).await {
-            let _ = platform::call(
-                &app,
-                "removeListener",
-                json!({"event":"taskStop","channelId":channel.id()}),
-            )
-            .await;
-            return Err(error);
-        }
+        let web = app_config.web_search;
+        let conversation_prompt = self
+            .db
+            .get_effective_conversation_system_prompt(&conversation)
+            .map_err(err)?;
+        let token = host.cancel_token();
+        let channel = host.begin(self, &token).await?;
         let persisted = if let Some(checkpoint) = &checkpoint_id {
             self.db.resume_agent_turn_from_checkpoint(
                 &message,
@@ -333,56 +361,73 @@ impl LocalRuntime {
                 &request_id,
             )
         };
+        let persisted = persisted.and_then(|launch| {
+            if let Some(id) = &workflow_run {
+                if launch.reused {
+                    return Ok(launch);
+                }
+                let binding = if checkpoint_id.is_some() {
+                    self.db.resume_bound_workflow_run(id, &launch.run_id)
+                } else {
+                    self.db
+                        .start_workflow_automation_run(id, &launch.run_id, None)
+                        .map(|_| ())
+                };
+                if let Err(error) = binding {
+                    self.db.finish_agent_task_run(
+                        &launch.run_id,
+                        "failed",
+                        None,
+                        Some(&error.to_string()),
+                        None,
+                    )?;
+                    return Err(error);
+                }
+            }
+            Ok(launch)
+        });
         let launch = match persisted {
             Ok(launch) => launch,
             Err(error) => {
-                let _ = platform::call(&app, "taskService", json!({"active":false})).await;
-                let _ = platform::call(
-                    &app,
-                    "removeListener",
-                    json!({"event":"taskStop","channelId":channel.id()}),
-                )
-                .await;
+                host.end(channel).await;
                 return Err(err(error));
             }
         };
         if launch.reused {
-            let _ = platform::call(&app, "taskService", json!({"active":false})).await;
-            let _ = platform::call(
-                &app,
-                "removeListener",
-                json!({"event":"taskStop","channelId":channel.id()}),
-            )
-            .await;
+            host.end(channel).await;
             return serde_json::to_value(launch).map_err(err);
         }
-        *active = Some((conversation.id.clone(), token.clone()));
+        let (steering, receiver) = mpsc::unbounded_channel();
         let mut tools = ToolRegistry::new().with_workspace(Some(self.workspace.clone()));
         tools.register(Box::new(FileTool));
         tools.register(Box::new(ListDirTool));
         tools.register(Box::new(CreateFileTool));
         tools.register(Box::new(EditFileTool));
-        tools.register(Box::new(
-            nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost(
-                app.clone(),
-            ))),
-        ));
+        if let Some(app) = host.app() {
+            tools.register(Box::new(
+                nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost(
+                    app.clone(),
+                ))),
+            ));
+        }
         tools.register(Box::new(
             nexa_core::tools::context_history_tool::ContextHistoryTool,
         ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
+        if let Some(allowed) = &scheduled_tools {
+            tools = tools.filtered(allowed);
+        } else {
+            tools.register(Box::new(
+                nexa_core::tools::automation_tool::AutomationTool::phone(),
+            ));
+        }
         let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(
             provider_type,
             saved.base_url.as_deref(),
             &saved.model,
         );
         let context_window = saved.context_window.and_then(|value| value.try_into().ok());
-        let web = self.db.load_app_config().map_err(err)?.web_search;
-        let conversation_prompt = self
-            .db
-            .get_effective_conversation_system_prompt(&conversation)
-            .map_err(err)?;
         let mut config = AgentConfig {
             system_prompt: nexa_core::agent::build_system_prompt(Some(&conversation_prompt), &[]),
             native_search_plan:
@@ -414,6 +459,12 @@ impl LocalRuntime {
             execution_mode: options.execution_mode,
             ..Default::default()
         };
+        if scheduled_tools
+            .as_ref()
+            .is_some_and(|allowed| !allowed.iter().any(|name| name == "web_search"))
+        {
+            config.native_search_plan = Default::default();
+        }
         config.volatile_system_sections.push(format!("You run on the user's Android phone. Files are confined to {}. Only advertise the registered tools. phone_control observes Android accessibility UI and acts only on a fresh observation. The user must explicitly enable accessibility. After any phone action observe and verify its result. Do not infer success from dispatch alone. Ask in chat when more user input is needed.", self.workspace.roots[0]));
         config
             .volatile_system_sections
@@ -421,8 +472,8 @@ impl LocalRuntime {
         let runtime = self.clone();
         let approval_runtime = self.clone();
         let confirmation_runtime = self.clone();
-        let approve_app = app.clone();
-        let confirm_app = app.clone();
+        let approve_app = host.app().cloned();
+        let confirm_app = host.app().cloned();
         // This bundle needs only the shared chat renderer. Keep desktop-only
         // skill runtimes out of the phone host and honor persisted enablement.
         let skills = self
@@ -469,10 +520,16 @@ impl LocalRuntime {
         .with_auto_loaded_skills_override(loaded_skills)
         .with_event_outboxes(self.outboxes.clone())
         .with_cancel_token(token.clone())
+        .with_steering_receiver(receiver)
         .with_approval_callback(Arc::new(move |request| {
             let runtime = approval_runtime.clone();
             let app = approve_app.clone();
-            Box::pin(async move { runtime.approve(&app, request).await })
+            Box::pin(async move {
+                match app {
+                    Some(app) => runtime.approve(&app, request).await,
+                    None => ApprovalDecision::Deny,
+                }
+            })
         }))
         .with_confirmation_callback(Arc::new(move |message| {
             let runtime = confirmation_runtime.clone();
@@ -485,9 +542,17 @@ impl LocalRuntime {
                     nexa_core::approval::ApprovalRisk::High,
                     message,
                 );
-                runtime.approve(&app, request).await == ApprovalDecision::AllowOnce
+                match app {
+                    Some(app) => {
+                        runtime.approve(&app, request).await == ApprovalDecision::AllowOnce
+                    }
+                    None => false,
+                }
             })
         }));
+        if scheduled_tools.is_some() {
+            session = session.with_source_scope_override(vec![]);
+        }
         let launch_result = serde_json::to_value(&launch).map_err(err)?;
         let mut turn_input = AgentTurnInput::text(text);
         turn_input.mode = options.execution_mode;
@@ -504,6 +569,12 @@ impl LocalRuntime {
                 base64_data: Some(image.base64_data),
             })
             .collect();
+        *active = Some(ActivePhoneTurn {
+            conversation_id: conversation.id.clone(),
+            run_id: launch.run_id.clone(),
+            cancel: token,
+            steering,
+        });
         tokio::spawn(async move {
             let result = session.start_turn(turn_input).await;
             if let Err(error) = result {
@@ -523,21 +594,33 @@ impl LocalRuntime {
                     let _ = outbox.wait_for_terminal_commit().await;
                 }
             }
+            drop(session);
             runtime.pending.lock().await.clear();
             let mut active = runtime.active.lock().await;
-            let _ = platform::call(&app, "taskService", json!({"active":false})).await;
-            if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
-                let _ = platform::call(&app, "taskResult", json!({"status":run.status})).await;
-            }
-            let _ = platform::call(
-                &app,
-                "removeListener",
-                json!({"event":"taskStop","channelId":channel.id()}),
-            )
-            .await;
+            host.end(channel).await;
+            let result = if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
+                if let Some(id) = &workflow_run {
+                    if let Err(error) = runtime.db.transition_workflow_automation_run(
+                        id,
+                        &run.status,
+                        run.error_message.as_deref(),
+                    ) {
+                        eprintln!("Failed to project phone schedule completion: {error}");
+                    }
+                }
+                json!({"status":run.status,"conversationId":conversation.id,"runId":run.id})
+            } else {
+                json!({"status":"error","conversationId":conversation.id,"runId":launch.run_id})
+            };
+            let app = host.app().cloned();
+            host.finish(result).await;
             active.take();
             drop(active);
-            let _ = app.emit("mobile:refresh", ());
+            if let Some(ui) = host::ui() {
+                let _ = ui.emit("mobile:refresh", ());
+            }
+            let Some(app) = app else { return };
+            runtime.arm_schedule(&app).await;
             // Title work must not hold task admission or delay the final answer.
             // The guarded DB update preserves manual titles and prevents a late
             // completion from renaming an already titled conversation.
@@ -669,11 +752,41 @@ impl LocalRuntime {
             .map_err(|_| "This task has ended.".into())
     }
 
-    pub async fn stop(&self) {
-        if let Some((_, token)) = self.active.lock().await.as_ref() {
-            token.cancel();
+    pub async fn steer(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+        message: &str,
+    ) -> Result<(), String> {
+        let message = message.trim();
+        if message.is_empty() || message.chars().count() > 64_000 {
+            return Err("Enter a steering message of 1 to 64000 characters.".into());
         }
-        self.pending.lock().await.clear();
+        let active = self.active.lock().await;
+        let turn = active
+            .as_ref()
+            .filter(|turn| {
+                turn.conversation_id == conversation_id
+                    && turn.run_id == run_id
+                    && !turn.cancel.is_cancelled()
+            })
+            .ok_or("This run is no longer accepting instructions.")?;
+        turn.steering
+            .send(AgentSteeringMessage::text(message))
+            .map_err(|_| "This run is no longer accepting instructions.".into())
+    }
+
+    pub async fn stop(&self, conversation_id: &str) {
+        if let Some(turn) = self
+            .active
+            .lock()
+            .await
+            .as_ref()
+            .filter(|turn| turn.conversation_id == conversation_id)
+        {
+            turn.cancel.cancel();
+            self.pending.lock().await.clear();
+        }
     }
 
     pub fn create(&self, settings: &LocalSettings) -> Result<Value, String> {

@@ -14,4 +14,6 @@
     <string name="task_attention_channel">回覆與審批</string>
     <string name="task_reply_ready">Nexa 已回覆</string>
     <string name="task_reply_open">點一下查看回覆。</string>
+    <string name="pairing_scan">掃描配對 QR 碼</string>
+    <string name="task_schedule_open">開啟排程工作以審核這次執行。</string>
 </resources>

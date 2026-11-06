@@ -21,7 +21,16 @@ use crate::workflow_scheduler::{
 use super::{scoped_sources, Tool, ToolCategory, ToolDef, ToolExecutionContext, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
-pub struct AutomationTool;
+#[derive(Default)]
+pub struct AutomationTool {
+    phone: bool,
+}
+
+impl AutomationTool {
+    pub fn phone() -> Self {
+        Self { phone: true }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,7 +121,7 @@ impl Tool for AutomationTool {
     }
     fn confirmation_message(&self, args: &Value) -> Option<String> {
         Some(format!(
-            "{} scheduled task '{}'. Saved tool grants apply to future runs while Nexa is running.",
+            "{} scheduled task '{}'. Saved tool grants apply to future runs on this device.",
             args["action"].as_str().unwrap_or("Change"),
             args["name"]
                 .as_str()
@@ -123,7 +132,11 @@ impl Tool for AutomationTool {
     async fn execute(&self, ctx: ToolExecutionContext<'_>) -> Result<ToolResult, CoreError> {
         validate_action_fields(ctx.arguments)?;
         let args: Args = serde_json::from_str(ctx.arguments)?;
-        let result = execute(&ctx, args)?;
+        let result = if self.phone {
+            execute_phone_action(&ctx, args)?
+        } else {
+            execute(&ctx, args)?
+        };
         Ok(ToolResult {
             call_id: ctx.call_id.into(),
             content: serde_json::to_string(&result)?,
@@ -180,7 +193,77 @@ fn validate_action_fields(arguments: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// The phone editor addresses the same scheduler as the agent. Expose only the
+/// current chat's jobs and the fields the editor displays. Elevated workflow
+/// policies must be edited in the Workbench that displays those grants.
+pub fn conversation_schedule_action(
+    db: &crate::db::Database,
+    conversation_id: &str,
+    input: Value,
+) -> Result<Value, CoreError> {
+    let arguments = serde_json::to_string(&input)?;
+    validate_action_fields(&arguments)?;
+    let args: Args = serde_json::from_value(input)?;
+    if args.action == "preview" {
+        // A new chat can preview a schedule before creating any durable row.
+        return execute(
+            &ToolExecutionContext::new("phone-schedules", &arguments, db, &[]),
+            args,
+        );
+    }
+    db.require_remote_conversation(conversation_id)?;
+    let mut registry = super::ToolRegistry::new();
+    registry.register(Box::new(super::web_search_tool::WebSearchTool));
+    registry.register(Box::new(super::fetch_url_tool::FetchUrlTool));
+    let sources = db.get_effective_conversation_source_scope(conversation_id)?;
+    let mut ctx = ToolExecutionContext::new("phone-schedules", &arguments, db, &sources)
+        .with_conversation_id(Some(conversation_id));
+    ctx.tool_registry = Some(&registry);
+    execute_phone_action(&ctx, args)
+}
+
+pub fn validate_phone_schedule_grants(task: &WorkflowAutomation) -> Result<(), CoreError> {
+    if task.schedule_config.execution_policy.workspace_policy
+        != WorkflowScheduleWorkspacePolicy::DenyWrites
+        || task
+            .approval_policy
+            .allowed_tools
+            .iter()
+            .any(|tool| !source_independent(tool))
+    {
+        return Err(CoreError::InvalidInput(
+            "Manage this task's saved grants in the desktop Workbench".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn execute_phone_action(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreError> {
+    if args.source_ids.is_some()
+        || args.workflow_template_id.is_some()
+        || args.workspace_policy.is_some()
+        || args.enabled.is_some()
+        || args
+            .allowed_tools
+            .as_ref()
+            .is_some_and(|tools| tools.iter().any(|t| !source_independent(t)))
+    {
+        return Err(CoreError::InvalidInput(
+            "Unsupported phone schedule policy".into(),
+        ));
+    }
+    execute_scoped(ctx, args, true)
+}
+
 fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreError> {
+    execute_scoped(ctx, args, false)
+}
+
+fn execute_scoped(
+    ctx: &ToolExecutionContext<'_>,
+    args: Args,
+    this_chat_only: bool,
+) -> Result<Value, CoreError> {
     if args.action == "preview" {
         return Ok(serde_json::to_value(preview_workflow_cron_schedule(
             required(args.cron.as_deref(), "cron")?,
@@ -206,7 +289,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
     if args.action == "list" {
         return Ok(
             json!({"tasks":ctx.db.list_workflow_automations()?.into_iter()
-            .filter(|task| visible(task, project.as_deref(), &sources)).collect::<Vec<_>>() }),
+            .filter(|task| (!this_chat_only || task.conversation_id.as_deref() == Some(conversation_id)) && visible(task, project.as_deref(), &sources)).collect::<Vec<_>>() }),
         );
     }
     let existing = if args.action == "create" {
@@ -215,6 +298,16 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         let task = ctx
             .db
             .get_workflow_automation(required(args.id.as_deref(), "id")?)?;
+        if this_chat_only {
+            if task.conversation_id.as_deref() != Some(conversation_id) {
+                return Err(CoreError::NotFound(
+                    "Scheduled task is outside this conversation".into(),
+                ));
+            }
+            if matches!(args.action.as_str(), "resume" | "update") {
+                validate_phone_schedule_grants(&task)?;
+            }
+        }
         if !visible(&task, project.as_deref(), &sources) {
             return Err(CoreError::InvalidInput(
                 "Scheduled task is outside this conversation's project/source scope".into(),
@@ -464,7 +557,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
         Err(error) => return Err(error),
     };
     Ok(
-        json!({"task":task,"preview":preview,"created":created,"runtime":"Runs while Nexa is open; missed runs catch up on startup in the same conversation"}),
+        json!({"task":task,"preview":preview,"created":created,"runtime":"Desktop runs while Nexa is open. Android can wake for background execution. Results return to the same conversation."}),
     )
 }
 
@@ -491,7 +584,7 @@ mod tests {
         let mut context = ToolExecutionContext::new("automation-test", &text, db, &[])
             .with_conversation_id(Some(conversation));
         context.tool_registry = Some(&registry);
-        AutomationTool
+        AutomationTool::default()
             .execute(context)
             .await
             .map(|result| serde_json::from_str(&result.content).unwrap())
@@ -514,6 +607,10 @@ mod tests {
             conversation
         );
         assert_eq!(first["task"]["approvalPolicy"]["allowedTools"], json!([]));
+        assert_eq!(
+            db.next_phone_schedule_wake().unwrap().as_deref(),
+            first["task"]["nextRunAt"].as_str()
+        );
         assert_eq!(first["preview"]["occurrences"].as_array().unwrap().len(), 5);
         let id = first["task"]["id"].as_str().unwrap();
         assert!(db
@@ -530,6 +627,9 @@ mod tests {
         let mut changed = create();
         changed["prompt"] = json!("A different task");
         assert!(call(&db, &conversation, changed).await.is_err());
+        db.archive_conversations_batch(std::slice::from_ref(&conversation))
+            .unwrap();
+        assert!(db.next_phone_schedule_wake().unwrap().is_none());
     }
 
     #[test]
@@ -766,9 +866,13 @@ mod tests {
             .await
             .unwrap();
         assert!(found.content.contains("automation"));
-        assert!(AutomationTool.access_profile(&create()).needs_approval);
         assert!(
-            !AutomationTool
+            AutomationTool::default()
+                .access_profile(&create())
+                .needs_approval
+        );
+        assert!(
+            !AutomationTool::default()
                 .access_profile(&json!({"action":"list"}))
                 .needs_approval
         );
@@ -820,7 +924,7 @@ mod tests {
         let mut context = ToolExecutionContext::new("scoped", &arguments, &db, &scope)
             .with_conversation_id(Some(&conversation));
         context.tool_registry = Some(&registry);
-        assert!(AutomationTool
+        assert!(AutomationTool::default()
             .execute(context)
             .await
             .unwrap_err()
@@ -832,7 +936,7 @@ mod tests {
         let mut context = ToolExecutionContext::new("scoped", &arguments, &db, &scope)
             .with_conversation_id(Some(&conversation));
         context.tool_registry = Some(&registry);
-        AutomationTool.execute(context).await.unwrap();
+        AutomationTool::default().execute(context).await.unwrap();
         assert_eq!(
             db.list_workflow_automations().unwrap()[0].source_scope,
             vec![source_a.clone()]

@@ -1,5 +1,13 @@
 use super::*;
 
+// Keep the OS wake and the due-page reader on the same set of phone chats.
+// Standalone schedules can gain a durable chat after their first delivery.
+const PHONE_CHAT_TARGET: &str =
+    "FROM workflow_automation_schedule_configs cfg
+     LEFT JOIN workflow_automation_delivery_targets delivery ON delivery.automation_id=cfg.automation_id
+     JOIN conversations chat ON chat.id=COALESCE(json_extract(cfg.config_json,'$.executionPolicy.conversationId'),delivery.conversation_id)
+     WHERE cfg.automation_id=workflow_automations.id AND chat.archived_at IS NULL AND chat.parent_conversation_id IS NULL";
+
 fn prepare_workflow_occurrence_claim(
     tx: &Transaction<'_>,
     mut due_run: WorkflowAutomationDueRun,
@@ -876,9 +884,42 @@ impl Database {
         })
     }
 
+    /// Earliest cron appointment the phone can deliver to a live conversation.
+    /// Approval and archive changes re-arm the OS job through the same ledger.
+    pub fn next_phone_schedule_wake(&self) -> Result<Option<String>, CoreError> {
+        let sql = format!(
+            "SELECT next_run_at FROM workflow_automations
+            WHERE enabled=1 AND trigger_kind='schedule' AND next_run_at IS NOT NULL
+              AND status <> 'waiting_approval' AND EXISTS(SELECT 1 {PHONE_CHAT_TARGET})
+            ORDER BY julianday(next_run_at) LIMIT 1"
+        );
+        Ok(self
+            .conn()
+            .query_row(&sql, [], |row| row.get(0))
+            .optional()?)
+    }
+
+    pub fn list_due_phone_schedules(
+        &self,
+        now: &str,
+    ) -> Result<Vec<WorkflowAutomationDueRun>, CoreError> {
+        let eligible = format!("AND trigger_kind='schedule' AND EXISTS(SELECT 1 {PHONE_CHAT_TARGET}
+            AND NOT EXISTS(SELECT 1 FROM agent_task_runs task WHERE task.conversation_id=chat.id AND task.status IN ({})))",
+            super::delivery::BUSY_TASK_STATUSES);
+        self.list_due_automations_scoped(now, &eligible)
+    }
+
     pub fn list_due_workflow_automations(
         &self,
         now_rfc3339: &str,
+    ) -> Result<Vec<WorkflowAutomationDueRun>, CoreError> {
+        self.list_due_automations_scoped(now_rfc3339, "")
+    }
+
+    fn list_due_automations_scoped(
+        &self,
+        now_rfc3339: &str,
+        host_filter: &str,
     ) -> Result<Vec<WorkflowAutomationDueRun>, CoreError> {
         let observed_through = parse_utc_timestamp(now_rfc3339).ok_or_else(|| {
             CoreError::InvalidInput("Invalid workflow observation timestamp".into())
@@ -886,7 +927,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!(
             "{WORKFLOW_AUTOMATION_SELECT}
-             WHERE enabled = 1
+             WHERE enabled = 1 {host_filter}
                AND status != 'waiting_approval'
                AND trigger_kind IN ('schedule', 'folder', 'manual')
                AND (
@@ -1606,6 +1647,62 @@ impl Database {
             }
             other => CoreError::Database(other),
         })
+    }
+
+    /// Resume an already-bound occurrence without spending a second claim or
+    /// moving its next cron appointment. The checkpoint owns task admission.
+    pub fn resume_bound_workflow_run(
+        &self,
+        workflow_run: &str,
+        task_run: &str,
+    ) -> Result<(), CoreError> {
+        let run = self.get_workflow_automation_run(workflow_run)?;
+        if run.task_run_id.as_deref() != Some(task_run) {
+            return Err(CoreError::Conflict(
+                "The checkpoint does not belong to this occurrence.".into(),
+            ));
+        }
+        if !matches!(
+            run.status,
+            WorkflowAutomationRunStatus::Paused
+                | WorkflowAutomationRunStatus::Resuming
+                | WorkflowAutomationRunStatus::Running
+        ) {
+            return Err(CoreError::Conflict(
+                "Scheduled execution is no longer resumable.".into(),
+            ));
+        }
+        if run.status == WorkflowAutomationRunStatus::Paused {
+            self.transition_workflow_automation_run(workflow_run, "resuming", None)?;
+        }
+        self.transition_workflow_automation_run(workflow_run, "running", None)?;
+        Ok(())
+    }
+
+    /// Project the ledger after phone process death, including a checkpoint
+    /// paused by startup recovery, before checking for a new due occurrence.
+    pub fn reconcile_interrupted_schedule_runs(&self) -> Result<(), CoreError> {
+        let stale = {
+            let conn = self.conn();
+            let mut stmt = conn.prepare(
+                "SELECT r.id, t.status, t.error_message FROM workflow_automation_runs r
+                 JOIN agent_task_runs t ON t.id=r.task_run_id
+                 WHERE r.status IN ('running','resuming','cancelling') AND r.status <> t.status
+                   AND t.status IN ('completed','failed','cancelled','timed_out','paused')",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for (id, status, message) in stale {
+            self.transition_workflow_automation_run(&id, &status, message.as_deref())?;
+        }
+        Ok(())
     }
 
     pub fn get_workflow_automation_run_for_task_run(

@@ -2,7 +2,7 @@
 
 [Documentation](../README.md) / [Category overview](README.md)
 
-Scheduled Tasks are durable workflow definitions hosted by the Nexa desktop
+Scheduled Tasks are durable workflow definitions hosted by the selected desktop or Android
 runtime. They reuse the normal Agent Run, provider, tool, approval, event, and
 task-projection paths; scheduling is not a second agent runtime.
 
@@ -11,11 +11,10 @@ palette (search for `cron`, `schedules`, or `automations`). This opens the
 existing workflow automation view at `/workflows?tab=automations`, with saved
 tasks, next/last run times, timezone, pause/resume, approvals, and run history.
 The selected tab survives refresh and browser back/forward navigation. The
-Workflows entry still opens templates. Local schedules run while Nexa is open. On startup and when the main window
+Workflows entry still opens templates. Desktop schedules run while Nexa is open. On startup and when the main window
 regains focus, the existing scheduler immediately checks for overdue work. The
 default `run_latest` policy coalesces missed occurrences into one catch-up run;
-explicit `skip` policies still apply. This does not create an operating-system
-or cloud scheduler.
+explicit `skip` policies still apply. Android can wake the phone process through a persisted JobScheduler job and executes through the same occurrence ledger. See the [phone execution and power limits](MOBILE_APP.md#conversation-controls-and-scheduled-tasks).
 
 ## Design sources
 

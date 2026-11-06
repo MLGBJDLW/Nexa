@@ -56,6 +56,7 @@ const publicCatalogPaths = new Map([
   ['image:openrouter-images', '/images/models'],
   ['decision:openrouter', '/models?output_modalities=decisions'],
   ['embedding:openrouter', '/embeddings/models'],
+  ['embedding:jina', '/models'],
   ['video:openrouter-video', '/videos/models'],
 ]);
 
@@ -132,6 +133,7 @@ async function buildStaticCatalog() {
           discoveryId: model.resolvedModel ?? model.id,
           aliases: model.aliases ?? [],
           lifecycle,
+          deprecationDate: model.deprecationDate ?? null,
           regions: model.regions ?? preset.regions ?? [],
           capabilities: modelCapabilities(model),
         });
@@ -171,27 +173,35 @@ async function probeEndpoint(endpoint) {
       return { endpointId: endpoint.endpointId, status: 'error', reason: `http_${response.status}` };
     }
     const payload = await response.json();
-    const liveModels = Array.isArray(payload?.data)
+    const rows = Array.isArray(payload?.data)
       ? payload.data
       : Array.isArray(payload?.models)
         ? payload.models
         : [];
-    const comparison = anonymousRequiredIdsOnly
-      ? compareRequiredModelIds(requiredIds, liveModels)
-      : compareEndpointModels(endpoint, liveModels);
+    // Jina lists its whole product line with namespaced IDs, while the
+    // embeddings operation takes the short wire ID from its request schema.
+    const liveModels = endpoint.endpointId === 'embedding:jina'
+      ? rows.filter(model => model.output_modalities?.includes('embeddings'))
+        .map(model => ({ ...model, id: model.id.replace(/^jina-ai\//, '') }))
+      : rows;
     // Availability candidates remain advisory: absence is not a retirement
     // notice. Exclude existing tombstones so the report highlights new gaps.
-    const unavailableCandidates = compareEndpointModels({
+    const active = compareEndpointModels({
       ...endpoint,
       models: endpoint.models.filter(model => model.lifecycle !== 'removed'),
-    }, liveModels).missingIds;
+    }, liveModels);
+    const comparison = anonymousRequiredIdsOnly ? {
+      ...compareRequiredModelIds(requiredIds, liveModels),
+      lifecycleChanged: active.lifecycleChanged,
+      expirationChanged: active.expirationChanged,
+    } : compareEndpointModels(endpoint, liveModels);
     return {
       endpointId: endpoint.endpointId,
       status: 'ok',
       ...(anonymousRequiredIdsOnly ? { probeMode: 'required_ids', requiredIds } : {}),
       discoveredCount: liveModels.length,
       discoveryScope: credential ? 'credential_catalog' : 'public_catalog',
-      unavailableCandidates,
+      unavailableCandidates: active.missingIds,
       // Inventory differences are candidates for protocol review. A missing
       // listing is not a retirement notice or authority to change saved models.
       inventory: compareEndpointModels(endpoint, liveModels.filter(model => {
@@ -233,6 +243,7 @@ function markdownReport(report) {
         `Missing: ${probe.missingIds.length ? probe.missingIds.join(', ') : 'none'}`,
         `Capability changes: ${probe.capabilityChanged.length ? probe.capabilityChanged.map((item) => `${item.id} (${item.fields.join(', ')})`).join('; ') : 'none'}`,
         `Lifecycle changes: ${probe.lifecycleChanged.length ? probe.lifecycleChanged.map((item) => `${item.id} (${item.curated} → ${item.discovered})`).join('; ') : 'none'}`,
+        `Expiration changes: ${probe.expirationChanged.length ? probe.expirationChanged.map(item => `${item.id} (${item.curated ?? 'unspecified'} → ${item.discovered})`).join('; ') : 'none'}`,
         `Region changes: ${probe.regionChanged.length ? probe.regionChanged.map((item) => `${item.id} (${item.curated.join('+')} → ${item.discovered.join('+')})`).join('; ') : 'none'}`,
       );
       if (probe.inventory) lines.push(`Inventory candidates (not verified integration support): ${probe.inventory.newIds.join(', ') || 'none'}`);

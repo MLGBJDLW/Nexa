@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseChatUi, MAX_UI_BYTES } from '../../../crates/core/assets/skills/visual-explanations/resources/chat-ui.ts';
 import { transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
-import { parseFollowupSuggestions, latestFollowupSuggestions } from '../src/lib/followupSuggestions.ts';
+import { parseFollowupSuggestions, latestFollowupSuggestions, stripFollowupBlocks } from '../src/lib/followupSuggestions.ts';
 
 test('completed replies have local suggestions when the provider omits optional metadata', () => {
   const items = [{label:'Explain',prompt:'Explain the result in more detail.'},{label:'Next steps',prompt:'Suggest useful next steps.'}];
@@ -27,6 +27,11 @@ test('followups require a complete final assistant block and never activate quot
   assert.deepEqual(parseFollowupSuggestions(json), items);
   const message = {id:'final',role:'assistant',content:'Done.\n\n```nexa-followups\n'+json+'\n```',toolCalls:[],artifacts:null} as any;
   assert.deepEqual(latestFollowupSuggestions([message]), {key:'final',items});
+  for (const marker of ['nexa-followup', 'nexa_followups json', 'json nexa-followups']) {
+    const block = '\`\`\`' + marker + '\n' + JSON.stringify({suggestions:items}, null, 2);
+    assert.equal(stripFollowupBlocks('Done.\n' + block), 'Done.\n');
+    assert.deepEqual(latestFollowupSuggestions([{...message, content:'Done.\n' + block + '\n\`\`\`'}]), {key:'final',items});
+  }
   for (const content of [message.content.slice(0,-3), '````md\n'+message.content+'\n````', message.content+'\nMore prose']) {
     assert.equal(latestFollowupSuggestions([{...message,content}]), null);
   }

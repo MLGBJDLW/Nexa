@@ -376,6 +376,18 @@ fn invalid_cron_or_timezone_is_rejected_before_automation_is_saved() {
 #[test]
 fn approval_occurrence_is_durable_actionable_and_single_winner() {
     let db = Database::open_memory().unwrap();
+    let conversation = db
+        .create_conversation(&CreateConversationInput {
+            provider: "mock".into(),
+            model: "mock".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap();
+    let mut config = WorkflowAutomationScheduleConfig::default();
+    config.execution_policy.conversation_id = Some(conversation.id.clone());
     let automation = db
         .save_workflow_automation_with_schedule_config(
             &SaveWorkflowAutomationInput {
@@ -395,7 +407,7 @@ fn approval_occurrence_is_durable_actionable_and_single_winner() {
                 },
                 enabled: true,
             },
-            &WorkflowAutomationScheduleConfig::default(),
+            &config,
         )
         .unwrap();
     let expected_next = automation.next_run_at.clone().unwrap();
@@ -424,6 +436,17 @@ fn approval_occurrence_is_durable_actionable_and_single_winner() {
     let waiting = db.list_workflow_automation_runs_waiting_approval().unwrap();
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].id, run.id);
+    assert_eq!(
+        db.pending_phone_schedule_approvals().unwrap().get(&run.id),
+        Some(&conversation.id)
+    );
+    db.archive_conversation(&conversation.id).unwrap();
+    assert!(db.pending_phone_schedule_approvals().unwrap().is_empty());
+    db.unarchive_conversation(&conversation.id).unwrap();
+    assert_eq!(
+        db.pending_phone_schedule_approvals().unwrap().get(&run.id),
+        Some(&conversation.id)
+    );
     assert!(db
         .list_due_workflow_automations(&expected_next)
         .unwrap()
@@ -456,6 +479,7 @@ fn approval_occurrence_is_durable_actionable_and_single_winner() {
         .list_workflow_automation_runs_waiting_approval()
         .unwrap()
         .is_empty());
+    assert!(db.pending_phone_schedule_approvals().unwrap().is_empty());
 }
 
 #[test]
@@ -1069,6 +1093,43 @@ fn run_latest_materializes_the_last_missed_occurrence_at_or_before_now() {
 }
 
 #[test]
+fn phone_due_page_skips_unavailable_chats_before_its_limit() {
+    let db = Database::open_memory().unwrap();
+    let busy = create_test_agent_run(&db, "active").conversation_id;
+    let new_chat = || {
+        db.create_conversation(&CreateConversationInput {
+            provider: "mock".into(),
+            model: "mock".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap()
+        .id
+    };
+    let archived = new_chat();
+    let deleted = new_chat();
+    let live = new_chat();
+    let schedule = |name: &str, chat: &str| {
+        let mut config = WorkflowAutomationScheduleConfig::default();
+        config.execution_policy.conversation_id = Some(chat.to_owned());
+        scheduled_automation(&db, name, "0 9 * * *", config)
+    };
+    schedule("A archived", &archived);
+    schedule("A deleted", &deleted);
+    for index in 0..101 {
+        schedule(&format!("B busy {index}"), &busy);
+    }
+    let eligible = schedule("Z available", &live);
+    db.archive_conversations_batch(&[archived]).unwrap();
+    db.delete_conversations_batch(&[deleted]).unwrap();
+    let due = db.list_due_phone_schedules("2099-01-01T09:00:00Z").unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].automation.id, eligible.id);
+}
+
+#[test]
 fn startup_catchup_reopens_database_and_waits_for_the_origin_chat() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("schedules.db");
@@ -1417,6 +1478,18 @@ fn starting_occurrence_advances_schedule_and_completion_updates_occurrence() {
     assert!(
         super::parse_utc_timestamp(advanced.next_run_at.as_deref().unwrap()).unwrap()
             > super::parse_utc_timestamp("2099-01-01T09:00:00Z").unwrap()
+    );
+    db.transition_workflow_automation_run(&run.id, "paused", None)
+        .unwrap();
+    assert!(db
+        .resume_bound_workflow_run(&run.id, "another-task")
+        .is_err());
+    db.resume_bound_workflow_run(&run.id, &task.id).unwrap();
+    assert_eq!(
+        db.get_workflow_automation(&automation.id)
+            .unwrap()
+            .next_run_at,
+        advanced.next_run_at
     );
     db.transition_workflow_automation_run(&run.id, "completed", Some("done"))
         .unwrap();

@@ -19,6 +19,19 @@ class PhoneAudioRecorder {
     companion object {
         const val SAMPLE_RATE = 16_000
         const val MAX_BYTES = SAMPLE_RATE * 2 * 60
+        fun pcmLevel(bytes: ByteArray, count: Int, bigEndian: Boolean = false): Float {
+            val samples = count / 2
+            if (samples == 0) return 0f
+            var energy = 0.0
+            for (i in 0 until samples) {
+                val high = bytes[2 * i + if (bigEndian) 0 else 1].toInt()
+                val low = bytes[2 * i + if (bigEndian) 1 else 0].toInt() and 0xff
+                val sample = ((high shl 8) or low) / 32768.0
+                energy += sample * sample
+            }
+            val decibels = 10 * kotlin.math.log10((energy / samples).coerceAtLeast(1e-12))
+            return ((decibels + 60) / 60).toFloat().coerceIn(0f, 1f)
+        }
         fun wav(pcm: ByteArray): ByteArray {
             require(pcm.size <= MAX_BYTES && pcm.size % 2 == 0)
             return ByteBuffer.allocate(44 + pcm.size).order(ByteOrder.LITTLE_ENDIAN).apply {
@@ -34,7 +47,7 @@ class PhoneAudioRecorder {
     private var session: Session? = null
     val active get() = session != null
 
-    fun start(invoke: Invoke) {
+    fun start(invoke: Invoke, onLevel: ((Float) -> Unit)? = null, onCaptured: () -> Unit = {}) {
         if (session != null) { invoke.reject("speech_busy"); return }
         var recorder: AudioRecord? = null
         try {
@@ -52,7 +65,13 @@ class PhoneAudioRecorder {
                     val buffer = ByteArray(4096)
                     while (!current.stop.get() && bytes.size() < MAX_BYTES) {
                         val count = current.recorder.read(buffer, 0, minOf(buffer.size, MAX_BYTES - bytes.size()))
-                        if (count > 0) bytes.write(buffer, 0, count)
+                        if (count > 0) {
+                            bytes.write(buffer, 0, count)
+                            if (onLevel != null) {
+                                val level = pcmLevel(buffer, count)
+                                main.post { if (session === current && !current.stop.get()) onLevel(level) }
+                            }
+                        }
                         else if (!current.stop.get()) error("Microphone read failed")
                     }
                     if (bytes.size() < SAMPLE_RATE / 5) failure = "speech_no_match"
@@ -66,7 +85,10 @@ class PhoneAudioRecorder {
                     if (session !== current) return@post
                     session = null
                     if (failure != null) current.invoke.reject(failure)
-                    else current.invoke.resolve(JSObject().apply { put("audioBase64", Base64.encodeToString(audio, Base64.NO_WRAP)); put("mimeType", "audio/wav") })
+                    else {
+                        onCaptured()
+                        current.invoke.resolve(JSObject().apply { put("audioBase64", Base64.encodeToString(audio, Base64.NO_WRAP)); put("mimeType", "audio/wav") })
+                    }
                 }
             }
         } catch (_: SecurityException) { recorder?.release(); session = null; invoke.reject("speech_permission") }

@@ -358,7 +358,10 @@ impl AgentRunEventOutboxes {
                     let run = db.get_agent_task_run(&run_id)?;
                     let conn = db.conn();
                     let scheduled: bool = conn.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM workflow_automation_runs WHERE task_run_id = ?1)",
+                        "SELECT EXISTS(SELECT 1 FROM workflow_automation_runs WHERE task_run_id = ?1)
+                         OR EXISTS(SELECT 1 FROM agent_task_runs t JOIN messages m ON m.id=t.user_message_id
+                                   WHERE t.id=?1 AND json_valid(m.artifacts_json)
+                                     AND json_type(m.artifacts_json,'$.phoneScheduledTools')='array')",
                         [&run_id], |row| row.get(0))?;
                     Ok(!scheduled && matches!(run.status.as_str(), "queued" | "running" | "waiting_approval")
                         && !Database::agent_run_has_unresolved_interactions_on_connection(&conn, &run_id)?)

@@ -1,4 +1,6 @@
 mod connections;
+#[cfg(target_os = "android")]
+mod job_bridge;
 mod local;
 mod phone_host;
 mod platform;
@@ -10,10 +12,11 @@ mod web_settings;
 use local::{LocalRuntime, LocalSettings};
 
 #[derive(Default)]
-struct RuntimeSlot(tokio::sync::OnceCell<Arc<LocalRuntime>>);
+struct RuntimeSlot;
+static PHONE_RUNTIME: tokio::sync::OnceCell<Arc<LocalRuntime>> = tokio::sync::OnceCell::const_new();
 impl RuntimeSlot {
     async fn get(&self, app: &AppHandle) -> Result<&Arc<LocalRuntime>, String> {
-        self.0
+        PHONE_RUNTIME
             .get_or_try_init(|| async {
                 let key = match platform::read_secret(app, "settings-key").await? {
                     Some(value) => value.as_str().ok_or("Invalid settings key")?.to_string(),
@@ -24,7 +27,7 @@ impl RuntimeSlot {
                     }
                 };
                 nexa_core::crypto::install_host_key(&key).map_err(|e| e.to_string())?;
-                LocalRuntime::open(app, app.path().app_data_dir().map_err(|e| e.to_string())?).await
+                LocalRuntime::open(app.path().app_data_dir().map_err(|e| e.to_string())?).await
             })
             .await
     }
@@ -35,7 +38,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result<Value, String> {
-    runtime.get(&app).await?;
+    runtime.get(&app).await?.arm_schedule(&app).await;
     let mut state = connections::public_state(&app).await?;
     state["version"] = json!(env!("CARGO_PKG_VERSION"));
     state["hosts"] = json!(remote::hosts(&app).await?);
@@ -86,6 +89,14 @@ async fn mobile_local(
             .ok_or_else(|| format!("Missing {key}."))
     };
     match action.as_str() {
+        "replyRead" => {
+            platform::call(
+                &app,
+                "replyRead",
+                json!({"conversationId":string("conversationId")?, "runId":string("runId")?}),
+            )
+            .await
+        }
         "connections" => {
             let library = connections::public_state(&app).await?;
             let mut records = library["connections"]
@@ -112,6 +123,50 @@ async fn mobile_local(
             )
             .map_err(|e| e.to_string())
         }
+        "schedules" => {
+            let conversation_id = string("conversationId")?;
+            let args = input["input"].clone();
+            let db = state.db.clone();
+            let update_wake = matches!(
+                args["action"].as_str(),
+                Some("create" | "update" | "delete" | "resume" | "pause")
+            );
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                nexa_core::tools::automation_tool::conversation_schedule_action(
+                    &db,
+                    &conversation_id,
+                    args,
+                )
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+            if update_wake {
+                state.arm_schedule(&app).await;
+            }
+            Ok(result)
+        }
+        "scheduleDecision" => {
+            let result = state
+                .decide_schedule(
+                    app.clone(),
+                    &string("conversationId")?,
+                    &string("runId")?,
+                    input["allow"]
+                        .as_bool()
+                        .ok_or("Choose an approval decision.")?,
+                )
+                .await;
+            state.arm_schedule(&app).await;
+            result
+        }
+        "scheduleTick" => {
+            let result = state
+                .tick_schedules(local::host::RunHost::Foreground(app.clone()))
+                .await;
+            state.arm_schedule(&app).await;
+            result
+        }
         "list" => state
             .db
             .remote_conversations(input["before"].as_str())
@@ -129,8 +184,9 @@ async fn mobile_local(
             state
                 .db
                 .unarchive_conversation(&id)
-                .map(|_| Value::Null)
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string())?;
+            state.arm_schedule(&app).await;
+            Ok(Value::Null)
         }
         "messages" => state
             .db
@@ -195,7 +251,9 @@ async fn mobile_local(
             } else {
                 state.db.delete_conversations_batch(&ids)
             };
-            result.map(|count| json!(count)).map_err(|e| e.to_string())
+            let count = result.map_err(|e| e.to_string())?;
+            state.arm_schedule(&app).await;
+            Ok(json!(count))
         }
         "create" => {
             let mut saved = connections::get(&app, input["connectionId"].as_str()).await?;
@@ -212,7 +270,7 @@ async fn mobile_local(
         "start" => {
             state
                 .start(
-                    app,
+                    local::host::RunHost::Foreground(app),
                     input["conversationId"].as_str().map(str::to_owned),
                     string("message")?,
                     string("requestId")?,
@@ -221,11 +279,22 @@ async fn mobile_local(
                         input.get("options").cloned().unwrap_or_else(|| json!({})),
                     )
                     .map_err(|e| e.to_string())?,
+                    None,
                 )
                 .await
         }
         "stop" => {
-            state.stop().await;
+            state.stop(&string("conversationId")?).await;
+            Ok(Value::Null)
+        }
+        "steer" => {
+            state
+                .steer(
+                    &string("conversationId")?,
+                    &string("runId")?,
+                    &string("message")?,
+                )
+                .await?;
             Ok(Value::Null)
         }
         "events" => state
@@ -452,6 +521,7 @@ async fn mobile_storage(
     .await
     .map_err(|error| error.to_string())??;
     if matches!(operation.as_str(), "archive" | "remove") {
+        runtime.get(&app).await?.arm_schedule(&app).await;
         let _ = app.emit(
             "mobile:conversations",
             json!({"ids":changed_ids,"action":operation}),
@@ -643,6 +713,11 @@ async fn mobile_pair(
 }
 
 #[tauri::command]
+async fn mobile_notification_target(app: AppHandle) -> Result<Value, String> {
+    platform::call(&app, "notificationTarget", json!({})).await
+}
+
+#[tauri::command]
 async fn mobile_files(
     app: AppHandle,
     runtime: State<'_, RuntimeSlot>,
@@ -764,7 +839,7 @@ async fn mobile_remote(
             if let Some(chat) = deleted_chat.filter(|_| result.as_u64().is_some_and(|n| n > 0)) {
                 // The host has already deleted this chat. A cleanup failure
                 // must not prompt the user to retry the remote operation.
-                if let Some(runtime) = app.state::<RuntimeSlot>().0.get() {
+                if let Some(runtime) = PHONE_RUNTIME.get() {
                     if let Err(error) = runtime
                         .db
                         .clear_deleted_paired_chat_membership(&host_id, &chat)
@@ -782,7 +857,11 @@ async fn mobile_remote(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(RuntimeSlot::default())
+        .setup(|app| {
+            local::host::bind_ui(app.handle().clone());
+            Ok(())
+        })
+        .manage(RuntimeSlot)
         .manage(speech::SpeechRuntime::default())
         .manage(Arc::new(remote::RemoteHosts::default()))
         .plugin(platform::plugin())
@@ -794,6 +873,7 @@ pub fn run() {
             mobile_local,
             mobile_permission,
             mobile_scan_pairing,
+            mobile_notification_target,
             mobile_speech,
             mobile_overlay,
             mobile_phone_control,

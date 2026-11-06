@@ -14,4 +14,6 @@
     <string name="task_attention_channel">Ответы и подтверждения</string>
     <string name="task_reply_ready">Nexa ответила</string>
     <string name="task_reply_open">Нажмите, чтобы посмотреть ответ.</string>
+    <string name="pairing_scan">Сканировать QR-код</string>
+    <string name="task_schedule_open">Откройте задачу по расписанию, чтобы проверить этот запуск.</string>
 </resources>

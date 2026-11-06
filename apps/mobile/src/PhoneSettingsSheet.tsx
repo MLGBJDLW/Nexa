@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Check, ChevronRight, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useTranslation } from '../../desktop/src/i18n';
-import { PROVIDER_PRESETS } from '../../desktop/src/lib/providerPresets';
+import { findProviderPreset, PROVIDER_PRESETS, type ProviderPreset } from '../../desktop/src/lib/providerPresets';
 import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell';
 import { NexaCombobox } from '../../desktop/src/components/ui/overlay/Combobox';
 import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
@@ -20,8 +20,72 @@ const phoneStorage: StorageService = {
 };
 
 const presets = PROVIDER_PRESETS.filter(preset => !preset.runtime && preset.requiresApiKey && !['bedrock','vertex','github_copilot_api'].includes(preset.provider));
-const presetFor = (record?: PhoneConnection) => presets.find(preset => preset.provider === record?.provider && preset.baseUrl === record.baseUrl)
-  ?? presets.find(preset => preset.provider === record?.provider) ?? presets.find(preset => preset.id === 'openai')!;
+type PhonePreset = Pick<ProviderPreset, 'id' | 'name' | 'provider' | 'baseUrl' | 'models' | 'retired'>;
+function presetFor(record?: PhoneConnection): PhonePreset {
+  if (!record) return presets.find(preset => preset.id === 'openai')!;
+  const matched = findProviderPreset(record);
+  if (matched && matched.provider === record.provider && presets.includes(matched)) return matched;
+  // Keep the account's actual adapter and endpoint when an older or synced
+  // connection has no equivalent in this phone's new-provider picker.
+  return { id: `saved:${record.id}`, name: record.provider, provider: record.provider, baseUrl: record.baseUrl ?? '', models: [] };
+}
+
+function SettingsSearch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { t } = useTranslation();
+  const field = useRef<HTMLInputElement>(null);
+  const [compact, setCompact] = useState(false);
+  const scrollWhileEditing = useRef(false);
+  useEffect(() => {
+    const sheet = field.current?.closest('dialog');
+    if (!sheet) return;
+    let anchor = sheet.scrollTop;
+    const allowGesture = () => { scrollWhileEditing.current = true; };
+    const outsideField = (event: PointerEvent) => {
+      if (!(event.target as Element).closest('.mobile-settings-search')) allowGesture();
+    };
+    const keyScroll = (event: KeyboardEvent) => {
+      if (event.key === 'PageDown' || event.key === 'PageUp') allowGesture();
+    };
+    const onScroll = () => {
+      const top = sheet.scrollTop;
+      // Focusing a sticky field, opening the keyboard, and filtering results
+      // can all scroll the dialog. Only a new scroll gesture may end editing.
+      if (sheet.ownerDocument.activeElement === field.current && !scrollWhileEditing.current) {
+        anchor = top;
+        return;
+      }
+      if (top <= 12) setCompact(false);
+      if (top > 64 && top - anchor >= 24) {
+        field.current?.blur();
+        setCompact(true);
+      }
+      if (top < anchor || top - anchor >= 24) anchor = top;
+    };
+    sheet.addEventListener('scroll', onScroll, { passive: true });
+    sheet.addEventListener('wheel', allowGesture, { passive: true });
+    sheet.addEventListener('touchmove', allowGesture, { passive: true });
+    sheet.addEventListener('pointerdown', outsideField);
+    sheet.addEventListener('keydown', keyScroll);
+    return () => {
+      sheet.removeEventListener('scroll', onScroll);
+      sheet.removeEventListener('wheel', allowGesture);
+      sheet.removeEventListener('touchmove', allowGesture);
+      sheet.removeEventListener('pointerdown', outsideField);
+      sheet.removeEventListener('keydown', keyScroll);
+    };
+  }, []);
+  const focus = () => { scrollWhileEditing.current = false; setCompact(false); field.current?.focus({ preventScroll: true }); };
+  const label = t('remote.mobileSettingsSearch');
+  return <div className="mobile-settings-search" data-compact={compact}>
+    <button type="button" className="mobile-icon-button" aria-label={label} aria-expanded={!compact}
+      tabIndex={compact ? 0 : -1} onClick={focus}><Search size={18}/></button>
+    <input ref={field} type="search" aria-label={label} placeholder={label} value={value}
+      tabIndex={compact ? -1 : 0} aria-hidden={compact || undefined} onFocus={() => { scrollWhileEditing.current = false; setCompact(false); }}
+      onChange={event => { scrollWhileEditing.current = false; onChange(event.target.value); }} />
+    {value && !compact && <button type="button" className="mobile-icon-button" aria-label={t('common.clear')}
+      onClick={() => { onChange(''); focus(); }}><X size={16}/></button>}
+  </div>;
+}
 
 export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncErrors, onSync, onClose, onChanged, onForgot }: {
   open: boolean; state: MobileState; host?: NativeHost; syncBusy: Record<string, boolean>; syncErrors: Record<string, string>;
@@ -34,24 +98,34 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const [name, setName] = useState(initialRecord?.name ?? '');
   const [provider, setProvider] = useState(initial.id);
   const [model, setModel] = useState(initialRecord?.model ?? initial.models[0]?.id ?? '');
-  const [baseUrl, setBaseUrl] = useState(initialRecord?.baseUrl ?? initial.baseUrl);
+  const [baseUrl, setBaseUrl] = useState(initialRecord ? initialRecord.baseUrl ?? '' : initial.baseUrl);
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ connections: true });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [searchCollapsed, setSearchCollapsed] = useState<Record<string, boolean>>({});
+  const [editingConnection, setEditingConnection] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<PhoneConnection | null>(null);
-  const preset = presets.find(item => item.id === provider)!;
+  const savedPreset = presetFor(state.connections?.find(record => record.id === selectedId));
+  const choices: PhonePreset[] = presets.filter(item => !item.retired || item.id === savedPreset.id);
+  if (!choices.some(item => item.id === savedPreset.id)) choices.push(savedPreset);
+  const preset = choices.find(item => item.id === provider) ?? savedPreset;
   const loadRecord = (record?: PhoneConnection) => {
     const preset = presetFor(record);
     setSelectedId(record?.id ?? ''); setName(record?.name ?? ''); setProvider(preset.id);
-    setModel(record?.model ?? preset.models[0]?.id ?? ''); setBaseUrl(record?.baseUrl ?? preset.baseUrl); setApiKey(''); setError('');
+    setModel(record?.model ?? preset.models[0]?.id ?? ''); setBaseUrl(record ? record.baseUrl ?? '' : preset.baseUrl); setApiKey(''); setError('');
   };
   // Preserve an in-progress form while background sync updates the library.
-  useEffect(() => { if (open) loadRecord(state.connections?.find(record => record.id === state.activeConnectionId)); }, [open]);
+  useEffect(() => {
+    if (open) {
+      loadRecord(state.connections?.find(record => record.id === state.activeConnectionId));
+      setEditingConnection(null); setExpanded({}); setSearchCollapsed({}); setSearch('');
+    }
+  }, [open]);
   const action = async (run: () => Promise<void>) => { setError(''); setBusy(true); try { await run(); await onChanged(); } catch (error) { setError(String(error)); } finally { setBusy(false); } };
   const groups = {
-    connections: [t('remote.mobileConnections'), t('settings.provider'), t('remote.model'), t('settings.apiKey'), t('settings.baseUrl'), ...presets.map(item => item.name)],
+    connections: [t('remote.mobileConnections'), t('settings.provider'), t('remote.model'), t('settings.apiKey'), t('settings.baseUrl'), 'LLM', ...choices.map(item => item.name), ...(state.connections ?? []).map(item => `${item.name} ${item.model}`)],
     sync: [t('remote.mobileConnectionSync'), t('remote.mobileAllowComputerControl'), ...state.hosts.map(hostLabel)],
     permissions: [t('remote.mobilePermissions'), t('remote.mobileNotifications'), t('remote.mobileAccessibility'), t('remote.mobileFloatingAssistant'), t('remote.mobileBatterySettings')],
     speech: [t('remote.mobileSpeechSettings'), t('settings.speechToText'), t('remote.mobileSpeechOutput'), t('settings.apiKey'), 'microphone voice audio 语音 麦克风'],
@@ -62,12 +136,17 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   type GroupId = keyof typeof groups;
   const query = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const matches = (id: GroupId) => (id !== 'sync' || state.hosts.length > 0) && query.every(word => groups[id].join(' ').toLocaleLowerCase().includes(word));
-  const group = (id: GroupId, children: ReactNode) => <details className="mobile-settings-group" hidden={!matches(id)} open={query.length > 0 || !!expanded[id]} onToggle={event => { if (!query.length) { const next = event.currentTarget.open; setExpanded(current => current[id] === next ? current : { ...current, [id]: next }); } }}>
-    <summary>{groups[id][0]}<ChevronRight size={17}/></summary><div className="mobile-settings-group-body">{children}</div>
+  const isExpanded = (id: GroupId) => query.length ? !searchCollapsed[id] : !!expanded[id];
+  const editorOpen = !selectedId || (editingConnection ?? query.length > 0);
+  const group = (id: GroupId, children: ReactNode) => <details className="mobile-settings-group" hidden={!matches(id)} open={isExpanded(id)}>
+    <summary onClick={event => { event.preventDefault(); (query.length ? setSearchCollapsed : setExpanded)(current => ({ ...current, [id]: !current[id] })); }}>
+      <span>{groups[id][0]}{id === 'connections' && initialRecord && <small>{initialRecord.model}</small>}</span>
+      <ChevronRight size={17}/>
+    </summary><div className="mobile-settings-group-body">{children}</div>
   </details>;
   return <>
     <MobileDialog open={open} title={t('remote.mobileSettings')} onClose={onClose}>
-      <label className="mobile-settings-search"><Search size={18}/><input type="search" aria-label={t('remote.mobileSettingsSearch')} placeholder={t('remote.mobileSettingsSearch')} value={search} onChange={event => setSearch(event.target.value)}/>{search && <button type="button" className="mobile-icon-button" aria-label={t('common.clear')} onClick={() => setSearch('')}><X size={16}/></button>}</label>
+      <SettingsSearch value={search} onChange={value => { setSearch(value); setSearchCollapsed({}); }}/>
       {!(Object.keys(groups) as GroupId[]).some(matches) && <p role="status" className="mobile-section-hint">{t('remote.mobileSettingsNoResults')}</p>}
       {error && <p role="alert" className="mobile-error">{error}</p>}
       {group('connections', <>
@@ -75,19 +154,24 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         const record = state.connections?.find(record => record.id === event.target.value);
         if (record) void action(async () => { await invoke('mobile_connection', { action: 'select', id: record.id }); loadRecord(record); });
       }}><option value="" disabled>{t('remote.mobileAddConnection')}</option>{state.connections.map(record => <option key={record.id} value={record.id}>{record.name} · {record.model}</option>)}</select></label>}
-      <button className="mobile-add-connection" disabled={busy} onClick={() => loadRecord()}><Plus size={16}/>{t('remote.mobileAddConnection')}</button>
+      <button className="mobile-add-connection" disabled={busy} onClick={() => { loadRecord(); setEditingConnection(true); }}><Plus size={16}/>{t('remote.mobileAddConnection')}</button>
+      <details className="mobile-connection-editor" open={editorOpen}>
+      <summary hidden={!selectedId} onClick={event => { event.preventDefault(); setEditingConnection(!editorOpen); }}>
+        {t('common.edit')}<ChevronRight size={16}/>
+      </summary>
       <form className="mobile-settings-form" onSubmit={event => { event.preventDefault(); void action(async () => {
         await invoke('mobile_save_settings', { settings: { connectionId: selectedId || null, providerType: preset.provider, baseUrl: baseUrl.trim() || null, model: model.trim() }, apiKey, name: name.trim() || model.trim(), createNew: !selectedId });
         setApiKey(''); onClose();
       }); }}>
         <label>{t('settings.providerName')}<input aria-label={t('settings.providerName')} value={name} onChange={event => setName(event.target.value)} placeholder={model}/></label>
-        <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={presets.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = presets.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(next.models[0]?.id ?? ''); setApiKey(''); }}/></label>
+        <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={choices.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = choices.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(next.models[0]?.id ?? ''); setApiKey(''); }}/></label>
         <label>{t('remote.model')}<input aria-label={t('remote.model')} list="phone-models" value={model} onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/></label><datalist id="phone-models">{preset.models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist>
         <label>{t('settings.apiKey')}<input aria-label={t('settings.apiKey')} type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={selectedId ? '••••••••' : ''} autoComplete="off"/></label>
         <details className="mobile-advanced" open={baseUrl !== preset.baseUrl || undefined}><summary>{t('remote.advancedOptions')}</summary><label>{t('settings.baseUrl')}<input aria-label={t('settings.baseUrl')} type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} autoCapitalize="none" spellCheck={false}/></label></details>
         <p className="mobile-section-hint">{t('remote.mobileCredentials')}</p><button className="mobile-primary" disabled={busy}>{busy && <Loader2 size={16} className="animate-spin"/>}{t('common.save')}</button>
       </form>
       {selectedId && <button className="mobile-forget" disabled={busy} onClick={() => setRemoveTarget(state.connections?.find(record => record.id === selectedId) ?? null)}>{t('remote.mobileRemoveConnection')}</button>}
+      </details>
       </>)}
       {!!state.hosts.length && group('sync', <section className="mobile-settings-section"><h3>{t('remote.mobileConnectionSync')}</h3><p className="mobile-section-hint">{t('remote.mobileSyncTrustedHint')}</p>
         {state.hosts.map(computer => {
@@ -113,9 +197,9 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         <details className="mobile-permission-help"><summary>{t('remote.mobileBackgroundHelp')}</summary><p>{t('remote.mobileBackgroundHint')}</p>{/samsung/i.test(state.capabilities.manufacturer ?? '') && <p>{t('remote.mobileSamsungBatteryHint')}</p>}{/xiaomi|redmi|poco|oppo|vivo|oneplus|huawei|honor/i.test(state.capabilities.manufacturer ?? '') && <p>{t('remote.mobileVendorBatteryHint')}</p>}{state.capabilities.backgroundRestricted && <p>{t('remote.mobileBackgroundRestricted')}</p>}<button onClick={() => void action(async () => { await invoke('mobile_permission', { permission: 'battery' }); })}>{t('remote.mobileBatterySettings')}<ChevronRight size={17}/></button></details>
         <button disabled={busy} onClick={() => void action(onChanged)}>{t('remote.mobileRefreshPermissions')}<RefreshCw size={17}/></button>
       </section>)}
-      {group('speech', <PhoneSpeechSettings open={open && matches('speech') && (query.length > 0 || !!expanded.speech)}/>)}
+      {group('speech', <PhoneSpeechSettings open={open && matches('speech') && isExpanded('speech')}/>)}
       {group('web', open && <PhoneWebSettings connections={state.connections}/>)}
-      {group('storage', open && matches('storage') && (query.length > 0 || expanded.storage) && <StorageUsageCard mobile service={phoneStorage}/>)}
+      {group('storage', open && matches('storage') && isExpanded('storage') && <StorageUsageCard mobile service={phoneStorage}/>)}
       {group('language', <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>)}
       {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}
       <p className="mobile-version">Nexa Mobile {state.version}</p>

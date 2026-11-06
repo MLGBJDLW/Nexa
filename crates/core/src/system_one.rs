@@ -76,11 +76,13 @@ pub struct SystemOnePreset {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemOneModel {
     pub id: String,
     pub name: String,
     #[serde(default)]
     pub status: String,
+    pub resolved_model: Option<String>,
 }
 
 pub fn presets() -> &'static [SystemOnePreset] {
@@ -341,12 +343,12 @@ fn endpoint(config: &SystemOneConfig) -> Result<reqwest::Url, CoreError> {
     {
         return Err(CoreError::InvalidInput("System One base URL must match the selected provider and region, without credentials, query or fragment.".into()));
     }
-    let operation = if config.provider == "openai" {
-        "decisions"
-    } else {
-        "systemone"
+    let operation = match config.provider.as_str() {
+        "openrouter" => "/api/alpha/decisions".to_owned(),
+        "openai" => "/v1/decisions".to_owned(),
+        _ => format!("{expected_path}/systemone"),
     };
-    url.set_path(&format!("{expected_path}/{operation}"));
+    url.set_path(&operation);
     Ok(url)
 }
 
@@ -357,16 +359,12 @@ fn prepare_request(
 ) -> Result<DecisionRequest, CoreError> {
     request.validate()?;
     let model = request.model.as_deref().unwrap_or(&config.model).trim();
+    let catalog_model = presets()
+        .iter()
+        .find(|preset| preset.id == config.provider)
+        .and_then(|preset| preset.models.iter().find(|row| row.id == model));
     if (config.provider == "siliconflow-cn" && model == "diffusiongemma")
-        || presets()
-            .iter()
-            .find(|preset| preset.id == config.provider)
-            .is_some_and(|preset| {
-                preset
-                    .models
-                    .iter()
-                    .any(|row| row.id == model && row.status == "removed")
-            })
+        || catalog_model.is_some_and(|row| row.status == "removed")
     {
         return Err(CoreError::InvalidInput(format!("The selected structured decision model '{model}' has been retired on {}. Choose an available model in Settings; no replacement or paid route was selected automatically.", config.provider)));
     }
@@ -424,12 +422,14 @@ fn prepare_request(
         state,
         questions,
         model: Some(
-            request
-                .model
-                .as_deref()
-                .unwrap_or(&config.model)
-                .trim()
-                .to_owned(),
+            if config.provider == "openrouter" {
+                catalog_model
+                    .and_then(|row| row.resolved_model.as_deref())
+                    .unwrap_or(model)
+            } else {
+                model
+            }
+            .to_owned(),
         ),
     };
     projected.validate()?;
@@ -753,7 +753,7 @@ mod tests {
         config.base_url = None;
         assert_eq!(
             endpoint(&config).unwrap().as_str(),
-            "https://openrouter.ai/api/v1/systemone"
+            "https://openrouter.ai/api/alpha/decisions"
         );
         for (id, model) in [
             ("typesafe", "jev-1.13.0"),
@@ -793,6 +793,18 @@ mod tests {
         assert!(!serialized.contains("person@example.com"));
         assert!(serialized.contains("[EMAIL]"));
         assert!(serialized.contains("\"type\":\"choice\""));
+        let router = SystemOneConfig {
+            provider: "openrouter".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            prepare_request(&router, &request, &lease.policy)
+                .unwrap()
+                .model
+                .as_deref(),
+            Some("~typesafe/jev-latest")
+        );
+        assert_eq!(projected.model.as_deref(), Some("jev-latest"));
     }
 
     #[test]

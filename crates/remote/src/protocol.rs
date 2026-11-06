@@ -61,6 +61,17 @@ pub enum RemoteCommand {
     Connections,
     #[serde(rename = "sync.connections")]
     SyncConnections { input: Value },
+    #[serde(rename = "chat.scheduleDecision")]
+    ScheduleDecision {
+        conversation_id: String,
+        run_id: String,
+        allow: bool,
+    },
+    #[serde(rename = "chat.schedules")]
+    ConversationSchedules {
+        conversation_id: String,
+        input: Value,
+    },
     #[serde(rename = "models.list")]
     Models { connection_id: String },
     #[serde(rename = "chat.list")]
@@ -108,6 +119,12 @@ pub enum RemoteCommand {
     },
     #[serde(rename = "chat.stop")]
     StopTurn { conversation_id: String },
+    #[serde(rename = "chat.steer")]
+    SteerTurn {
+        conversation_id: String,
+        run_id: String,
+        message: String,
+    },
     #[serde(rename = "chat.resume")]
     Resume {
         conversation_id: String,
@@ -156,6 +173,16 @@ pub enum RemoteCommand {
 
 impl RemoteCommand {
     pub fn validate(&self) -> Result<(), String> {
+        if let Self::SteerTurn {
+            run_id, message, ..
+        } = self
+        {
+            if run_id.is_empty() || message.trim().is_empty() || message.chars().count() > 64_000 {
+                return Err(
+                    "Specify an active run and a steering message of 1 to 64000 characters".into(),
+                );
+            }
+        }
         if let Self::PhoneControlResult {
             request_id,
             session_id,
