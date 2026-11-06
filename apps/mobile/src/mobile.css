@@ -135,7 +135,7 @@
 .mobile-conversation-row > button:first-child:not(.mobile-icon-button) { flex: 1; min-width: 0; }
 .mobile-history .mobile-conversation-row > .mobile-icon-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 10px; }
 .mobile-conversation-row > span { font-size: 13px; padding-left: 12px; }
-.mobile-drawer details[open] > .mobile-history { max-height: min(38dvh,320px); }
+
 .mobile-history .selected { background: var(--color-surface-1); font-weight: 550; }
 .mobile-history button:active, .mobile-drawer-new:active, .mobile-target-list button:active { background: var(--color-surface-2); }
 .mobile-drawer-footer { margin-top: auto; border-top: 1px solid var(--color-border); padding-top: 12px; }
@@ -222,20 +222,29 @@
   .mobile-app button, .mobile-dialog::backdrop { animation-duration: 0s !important; transition-duration: 0s !important; }
 }
 
-/* Reveal archive intent with distance, without moving the scroll/touch owner. */
-.mobile-swipe-row { position: relative; flex: none; overflow: hidden; border-radius: 14px; touch-action: pan-y; --swipe-distance: 0px; --swipe-progress: 0; }
-.mobile-swipe-content { position: relative; background: var(--color-surface-0); transform: translateX(calc(-1 * var(--swipe-distance))); transition: transform 220ms cubic-bezier(.22,1,.36,1); }
-.mobile-swipe-row[data-swiping="true"] .mobile-swipe-content { transition: none; }
-.mobile-swipe-action { position: absolute; inset: 0 0 0 auto; width: var(--swipe-distance); display: flex; align-items: center; justify-content: center; gap: 8px; color: #78350f; background: color-mix(in srgb, #facc15 calc(var(--swipe-progress) * 100%), #fef9c3); font-size: 12px; font-weight: 600; overflow: hidden; }
-.mobile-swipe-action svg { flex-shrink: 0; transform: scale(calc(.65 + var(--swipe-progress) * .65)); }
-.mobile-swipe-action span { opacity: var(--swipe-progress); white-space: nowrap; }
-.mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action { transition: width 220ms ease-out, background-color 220ms ease-out; }
-.mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action svg { transition: transform 220ms ease-out; }
-.mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action span { transition: opacity 180ms ease-out; }
-.mobile-swipe-row[data-archive-preview] .mobile-swipe-content { transform: translateX(-104px); }
-.mobile-swipe-row[data-archive-preview] .mobile-swipe-action { width: 104px; background: #facc15; }
-.mobile-swipe-row[data-archive-preview] .mobile-swipe-action svg { transform: scale(1.3); }
-.mobile-swipe-row[data-archive-preview] .mobile-swipe-action span { opacity: 1; }
+/* Each accessible action owns its icon from rest through the swipe. */
+.mobile-swipe-row { position: relative; flex: none; overflow: hidden; border-radius: 14px; touch-action: pan-y; }
+.mobile-swipe-action.archive { --action-fill: #facc15; --action-ink: #713f12; }
+.mobile-swipe-action.delete { --action-fill: #fecaca; --action-ink: #991b1b; }
+.mobile-swipe-action.restore { --action-fill: #bbf7d0; --action-ink: #14532d; }
+.mobile-history .mobile-conversation-row > .mobile-swipe-action {
+  --distance: 0px; --progress: 0; gap: 0; padding: 0; touch-action: pan-y;
+  width: calc(44px + var(--distance)); flex: 0 0 auto;
+  background: color-mix(in srgb, var(--action-fill) calc(var(--progress) * 100%), transparent);
+  color: color-mix(in srgb, var(--action-ink) calc(var(--progress) * 100%), var(--color-text-secondary));
+  transition: width 220ms ease-out, background-color 220ms ease-out;
+}
+.mobile-swipe-action svg { flex: none; transform: scale(calc(1 + var(--progress) * .25)); }
+.mobile-swipe-action span { max-width: var(--distance); margin-left: calc(6px * var(--progress)); overflow: hidden; opacity: var(--progress); }
+.mobile-swipe-row[data-swiping="left"] .mobile-conversation-row > .mobile-swipe-action:last-child,
+.mobile-swipe-row[data-swiping="right"] .mobile-conversation-row > .restore {
+  --distance: var(--swipe-distance); --progress: var(--swipe-progress); transition: none;
+}
+.mobile-history .mobile-swipe-row[data-archive-preview] .mobile-conversation-row > .mobile-swipe-action:last-child { --distance: 60px; --progress: 1; }
+.mobile-archive-heading { display: flex; align-items: center; }
+.mobile-archive-heading > button:first-child { flex: 1; text-align: left; min-height: 44px; }
+.mobile-archive-history { flex: 0 1 auto; max-height: min(38dvh,320px); }
+
 .mobile-settings-search { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-0); margin-bottom: 16px; }
 .mobile-settings-search input { flex: 1; min-width: 0; background: transparent; outline: none; font-size: 14px; }
 .mobile-settings-group { border-bottom: 1px solid var(--color-border); }
@@ -247,9 +256,8 @@
 .mobile-settings-group-body > .mobile-settings-section { margin-top: 0; padding-top: 0; border-top: 0; }
 .mobile-settings-group-body > .mobile-settings-section > h3 { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action,
-  .mobile-swipe-row:not([data-swiping="true"]) .mobile-swipe-action :is(svg, span),
-  .mobile-swipe-content, .mobile-settings-group > summary svg { transition: none; }
+  .mobile-history .mobile-conversation-row > .mobile-swipe-action,
+  .mobile-settings-group > summary svg { transition: none; }
 }
 
 .mobile-app .mobile-plan-chip { flex: 0 0 32px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; color: var(--color-text-secondary); transition: background-color 180ms ease, color 180ms ease; }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ListChecks, ArchiveRestore, Trash2, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
+import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
+import { MobileConversationRow } from './MobileConversationRow';
 import { MobileProjectHistory } from './MobileProjectHistory';
 
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from './MobileChatShell';
@@ -775,7 +776,28 @@ export function RemoteChat({
           onArchive={client.conversationManagementAvailable ? item => setManageTarget({ item, action:'archive' }) : undefined}
           onOpen={item => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}
           hasMore={!!cursor} onMore={() => void list(cursor).catch(errorText)}/>
-        {client.conversationManagementAvailable && <details open={archivesOpen} onToggle={event => { const open = event.currentTarget.open; setArchivesOpen(open); if (open) void listArchived().catch(errorText); }}><summary className="mobile-add-connection">{t('chat.archivedConversations')}</summary>{client.archivedDeletionAvailable && !!archived.length && <button className="mobile-forget" disabled={managing} onClick={() => void prepareDeleteArchived()}><Trash2 size={16}/>{t('chat.deleteAll')}</button>}{error && <p role="alert" className="mobile-error">{error}</p>}<nav className="mobile-history">{archived.map(item => <div key={item.id} className="mobile-conversation-row"><span className="min-w-0 flex-1 truncate">{item.title || t('remote.newChat')}</span><button disabled={managing} className="mobile-icon-button" aria-label={`${t('chat.unarchive')}: ${item.title}`} onClick={() => void restoreConversation(item.id)}><ArchiveRestore size={16}/></button><button disabled={managing} className="mobile-icon-button" aria-label={`${t('common.delete')}: ${item.title}`} onClick={() => setManageTarget({ item, action: 'delete' })}><Trash2 size={16}/></button></div>)}</nav>{archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}</details>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
+        {client.conversationManagementAvailable && <>
+          <div className="mobile-archive-heading">
+            <button className="mobile-add-connection" aria-expanded={archivesOpen} onClick={() => {
+              setArchivesOpen(!archivesOpen);
+              if (!archivesOpen) void listArchived().catch(errorText);
+            }}>{t('chat.archivedConversations')}</button>
+            {archivesOpen && client.archivedDeletionAvailable && archived.length > 0 &&
+              <button className="mobile-icon-button" disabled={managing} aria-label={t('chat.deleteAll')} title={t('chat.deleteAll')} onClick={() => void prepareDeleteArchived()}><Trash2 size={17}/></button>}
+          </div>
+          {archivesOpen && <>{error && <p role="alert" className="mobile-error">{error}</p>}
+            <nav className="mobile-history mobile-archive-history">{archived.map(item => {
+              const title = item.title || t('remote.newChat');
+              return <MobileConversationRow key={item.id} id={item.id} title={title} disabled={managing}
+                preview={manageTarget?.item.id === item.id && manageTarget.action === 'delete'}
+                onRestore={() => void restoreConversation(item.id)}
+                onDelete={client.archivedDeletionAvailable ? () => setManageTarget({ item, action: 'delete' }) : undefined}>
+                <span className="min-w-0 flex-1 truncate">{title}</span>
+              </MobileConversationRow>;
+            })}</nav>
+            {archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}
+          </>}
+        </>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
         <MobileDialog open={!!manageTarget} title={t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')} onClose={() => { if (!managing) setManageTarget(null); }}>{error && <p role="alert" className="mobile-error">{error}</p>}<p>{manageTarget?.item.title || t('remote.newChat')}</p><p className="mobile-section-hint">{t(manageTarget?.action === 'archive' ? 'remote.archiveChatHint' : 'remote.deleteChatHint')}</p><div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setManageTarget(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing} onClick={() => void manageConversation()}>{t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')}</button></div></MobileDialog>
         <MobileDialog open={deleteArchivedIds !== null} title={t('chat.deleteAll')} onClose={() => { if (!managing) setDeleteArchivedIds(null); }}><p>{t('chat.archivedConversations')}</p><p className="mobile-section-hint">{t('chat.deleteAllConfirmDesc', { count: deleteArchivedIds?.length ?? 0 })}</p>{error && <p role="alert" className="mobile-error">{error}</p>}<div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setDeleteArchivedIds(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing || !deleteArchivedIds?.length} onClick={() => void deleteArchived()}>{t('chat.deleteAll')}</button></div></MobileDialog>
         <MobileDialog open={modelOpen} title={t('remote.model')} onClose={() => setModelOpen(false)}><div className="mobile-model-controls">{providerControls}</div></MobileDialog>

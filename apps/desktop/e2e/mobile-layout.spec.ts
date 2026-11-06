@@ -132,7 +132,8 @@ test('left swipe offers archive without dismissing the history drawer',async({pa
   await page.locator('.mobile-app').getByRole('button',{name:'Conversation',exact:true}).click();
   const row=page.locator('.mobile-conversation-row').first();await row.hover();const box=(await row.boundingBox())!;
   await page.mouse.move(box.x+135,box.y+24);await page.mouse.down();await page.mouse.move(box.x+85,box.y+24,{steps:4});
-  const reveal=page.locator('.mobile-swipe-action').first();
+  const reveal=row.getByRole('button', {name: 'Archive: Previous work'});
+  await expect(row.locator('svg.lucide-archive')).toHaveCount(1);
   const initial=await reveal.evaluate(node=>({width:node.getBoundingClientRect().width,color:getComputedStyle(node).backgroundColor,scale:getComputedStyle(node.querySelector('svg')!).transform}));
   await page.mouse.move(box.x+24,box.y+24,{steps:6});
   const full=await reveal.evaluate(node=>({width:node.getBoundingClientRect().width,color:getComputedStyle(node).backgroundColor,scale:getComputedStyle(node.querySelector('svg')!).transform}));
@@ -174,6 +175,29 @@ test('phone settings search reveals matching sections and keeps other groups col
   await expect(page.getByTestId('phone-speech-settings')).toBeVisible();
   expect(await page.locator('.mobile-dialog').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({path:info.outputPath('mobile-settings-search.png')});
+});
+
+test('archived rows restore to the right and confirm deletion to the left',async({page})=>{
+  await page.setViewportSize({width:360,height:780});
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
+  await expect(page.locator('.mobile-app')).toBeVisible();
+  await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.seedArchives());
+  await page.getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByRole('button',{name:'Archived conversations',exact:true}).click();
+  const swipe = async (id: string, dx: number) => {
+    const row = page.locator(`[data-conversation-id="${id}"]`).last();
+    const box = (await row.boundingBox())!;
+    const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    await page.mouse.move(x,y); await page.mouse.down();
+    await page.mouse.move(x+dx,y,{steps:8}); await page.mouse.up();
+  };
+  await swipe('a',95);
+  await expect(page.getByRole('button',{name:'Archived a',exact:true})).toBeVisible();
+  await swipe('b',-95);
+  const confirm=page.getByRole('dialog',{name:'Delete',exact:true});
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button',{name:'Delete',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Unarchive: Archived b'})).toHaveCount(0);
 });
 
 test('delete all archived chats includes unloaded pages and preserves active chats',async({page})=>{
