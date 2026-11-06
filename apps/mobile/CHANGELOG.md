@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.1...nexa-mobile-v0.3.2) (2026-11-06)
+
+
+### Features
+
+* **assistant:** add hold-to-dictate, mobile chat controls and external agent tools ([#529](https://github.com/MLGBJDLW/Nexa/issues/529)) ([0b6a3f4](https://github.com/MLGBJDLW/Nexa/commit/0b6a3f46e2b96504dea2e011f77ce92bb690da81))
+
 ## 0.3.1
 
 - Repair narrow-screen and landscape layouts for conversation actions, search providers, storage sheets, Markdown tables, charts and HTML previews. Add left-swipe archive confirmation and original-size Mermaid viewing.
