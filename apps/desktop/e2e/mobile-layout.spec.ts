@@ -188,6 +188,12 @@ test('phone settings search reveals matching sections and keeps other groups col
   await expect(reopen).toHaveAttribute('aria-expanded','false');
   await reopen.click();
   await expect(search).toBeFocused();
+  // Browser/IME scroll adjustment after focus must not fold the field again.
+  await page.locator('.mobile-sheet').evaluate(async node => {
+    node.scrollTop += 52;
+    await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+  });
+  await expect(search).toBeFocused();
   await search.fill('LLM');
   await expect(page.locator('form.mobile-settings-form')).toBeVisible();
 });

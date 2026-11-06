@@ -34,12 +34,26 @@ function SettingsSearch({ value, onChange }: { value: string; onChange: (value: 
   const { t } = useTranslation();
   const field = useRef<HTMLInputElement>(null);
   const [compact, setCompact] = useState(false);
+  const scrollWhileEditing = useRef(false);
   useEffect(() => {
     const sheet = field.current?.closest('dialog');
     if (!sheet) return;
     let anchor = sheet.scrollTop;
+    const allowGesture = () => { scrollWhileEditing.current = true; };
+    const outsideField = (event: PointerEvent) => {
+      if (!(event.target as Element).closest('.mobile-settings-search')) allowGesture();
+    };
+    const keyScroll = (event: KeyboardEvent) => {
+      if (event.key === 'PageDown' || event.key === 'PageUp') allowGesture();
+    };
     const onScroll = () => {
       const top = sheet.scrollTop;
+      // Focusing a sticky field, opening the keyboard, and filtering results
+      // can all scroll the dialog. Only a new scroll gesture may end editing.
+      if (sheet.ownerDocument.activeElement === field.current && !scrollWhileEditing.current) {
+        anchor = top;
+        return;
+      }
       if (top <= 12) setCompact(false);
       if (top > 64 && top - anchor >= 24) {
         field.current?.blur();
@@ -48,16 +62,26 @@ function SettingsSearch({ value, onChange }: { value: string; onChange: (value: 
       if (top < anchor || top - anchor >= 24) anchor = top;
     };
     sheet.addEventListener('scroll', onScroll, { passive: true });
-    return () => sheet.removeEventListener('scroll', onScroll);
+    sheet.addEventListener('wheel', allowGesture, { passive: true });
+    sheet.addEventListener('touchmove', allowGesture, { passive: true });
+    sheet.addEventListener('pointerdown', outsideField);
+    sheet.addEventListener('keydown', keyScroll);
+    return () => {
+      sheet.removeEventListener('scroll', onScroll);
+      sheet.removeEventListener('wheel', allowGesture);
+      sheet.removeEventListener('touchmove', allowGesture);
+      sheet.removeEventListener('pointerdown', outsideField);
+      sheet.removeEventListener('keydown', keyScroll);
+    };
   }, []);
-  const focus = () => { setCompact(false); field.current?.focus({ preventScroll: true }); };
+  const focus = () => { scrollWhileEditing.current = false; setCompact(false); field.current?.focus({ preventScroll: true }); };
   const label = t('remote.mobileSettingsSearch');
   return <div className="mobile-settings-search" data-compact={compact}>
     <button type="button" className="mobile-icon-button" aria-label={label} aria-expanded={!compact}
       tabIndex={compact ? 0 : -1} onClick={focus}><Search size={18}/></button>
     <input ref={field} type="search" aria-label={label} placeholder={label} value={value}
-      tabIndex={compact ? -1 : 0} aria-hidden={compact || undefined} onFocus={() => setCompact(false)}
-      onChange={event => onChange(event.target.value)} />
+      tabIndex={compact ? -1 : 0} aria-hidden={compact || undefined} onFocus={() => { scrollWhileEditing.current = false; setCompact(false); }}
+      onChange={event => { scrollWhileEditing.current = false; onChange(event.target.value); }} />
     {value && !compact && <button type="button" className="mobile-icon-button" aria-label={t('common.clear')}
       onClick={() => { onChange(''); focus(); }}><X size={16}/></button>}
   </div>;
