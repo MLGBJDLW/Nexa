@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.3...nexa-mobile-v0.3.4) (2026-11-06)
+
+### Android and conversation controls
+
+- Scan pairing codes through a square viewfinder in portrait or landscape. The scanner follows the device rotation preference.
+- The microphone expands into a live sound-level display. System recognition can show interim words, and cloud dictation measures the audio being recorded.
+- Collapse individual model settings and connection forms. Scrolling compacts settings search into a single button, and tapping it restores the query and keyboard focus.
+- Steer a running phone or paired-computer turn from the composer. Follow-up fences become actionable choices and an editable draft suggestion.
+- Swipe a chat left to expand its archive button. In the archive, swipe right to restore or left to confirm permanent deletion. Use the trash icon in the archive header to confirm bulk deletion.
+- Reading a local reply clears its Android notification, including when opening Nexa through its launcher.
+
+### Scheduled tasks
+
+- Create, edit, pause and resume cron jobs from the chat drawer. Review scheduled times in their saved timezone, Web tool grants, approvals and execution history.
+- Android can wake the shared executor after the app process exits. Jobs use the durable occurrence ledger and the configured model connection protected by Android Keystore. Android network and battery scheduling affect delivery time. Reopening Nexa rearms jobs after a system Force stop.
+
+
+### Features
+
+* **mobile:** improve phone conversations, scheduled tasks and model support ([#535](https://github.com/MLGBJDLW/Nexa/issues/535)) ([8b488be](https://github.com/MLGBJDLW/Nexa/commit/8b488be46355fd70c0d2d3f3269271671239569a))
+
 ## [0.3.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.2...nexa-mobile-v0.3.3) (2026-11-06)
 
 ### Voice settings
