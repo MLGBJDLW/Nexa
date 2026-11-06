@@ -297,12 +297,12 @@ test.beforeEach(async ({ page }) => {
             state: 'running' | 'cancelled';
           };
           const historyFork = localStorage.getItem('__e2e_context_mode__') === 'history';
-          const waiting = historyFork && localStorage.getItem('__e2e_hold_fork__') === 'yes';
-          const remaining = waiting ? 1200 : Math.max(0, 1200 - (Date.now() - operation.startedAt));
+          const held = localStorage.getItem('__e2e_hold_compaction__') === 'yes';
+          const remaining = held ? 1200 : Math.max(0, 1200 - (Date.now() - operation.startedAt));
           if (operation.state === 'running' && remaining > 0) {
             await new Promise((resolve) => setTimeout(resolve, Math.min(remaining, 250)));
           }
-          const completed = operation.state === 'running' && !waiting
+          const completed = operation.state === 'running' && !held
             && Date.now() - operation.startedAt >= 1200;
           const state = operation.state === 'cancelled'
             ? 'cancelled'
@@ -336,7 +336,7 @@ test.beforeEach(async ({ page }) => {
                   seq: 2,
                   timestamp: new Date().toISOString(),
                   kind: 'progress',
-                  payload: { phase: historyFork ? (waiting ? 'waiting_for_boundary' : 'committing') : 'summarizing', progress: 0.45 },
+                  payload: { phase: historyFork ? (held ? 'waiting_for_boundary' : 'committing') : 'summarizing', progress: 0.45 },
                 }]
               : [{
                   activityId: operationId,
@@ -715,6 +715,9 @@ test('manual compact keeps canonical messages and yields its temporary estimate 
   await page.getByTestId('chat-send').click();
   await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /7% context used/);
 
+  // Keep the simulated operation live while the driver checks the composer,
+  // even when a busy runner takes longer than the mock's normal completion.
+  await page.evaluate(() => localStorage.setItem('__e2e_hold_compaction__', 'yes'));
   await page.getByTestId('chat-compact').click();
   await expect(page.getByTestId('chat-compact-status').first()).toBeVisible();
   await expect(page.getByTestId('chat-input-textarea')).toBeEnabled();
@@ -723,10 +726,12 @@ test('manual compact keeps canonical messages and yields its temporary estimate 
   await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Draft the next question while compacting.');
   await expect(page.getByTestId('chat-send')).toBeDisabled();
 
+  await page.evaluate(() => localStorage.removeItem('__e2e_hold_compaction__'));
+  await expect(page.getByText('Compaction complete').first()).toBeVisible();
+  await expect(page.getByTestId('chat-send')).toBeEnabled();
   await expect(page.getByTestId('chat-input-textarea')).toBeEnabled();
   await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Draft the next question while compacting.');
   await expect(page.getByTestId('chat-compact-status').first()).toBeVisible();
-  await expect(page.getByText('Compaction complete').first()).toBeVisible();
   await expect(page.getByTestId('chat-context-trigger')).not.toHaveAttribute('aria-label', /7% context used/);
   await expect(page.getByTestId('chat-context-trigger')).toHaveAttribute('aria-label', /0% context used/);
   await expect(page.getByText('Hello', { exact: true }).last()).toBeVisible();
@@ -896,7 +901,7 @@ test('runtime budget explains early compaction and survives usage hydration', as
 test('history Fork remains available during streaming and keeps the existing composer usable while queued', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('__e2e_context_mode__', 'history');
-    localStorage.setItem('__e2e_hold_fork__', 'yes');
+    localStorage.setItem('__e2e_hold_compaction__', 'yes');
   });
   await page.goto('/chat/conv-e2e');
   await page.getByTestId('chat-input-textarea').fill('Keep streaming, multi step, while I fork.');
@@ -912,7 +917,7 @@ test('history Fork remains available during streaming and keeps the existing com
   await page.getByTestId('chat-input-textarea').fill('Keep this draft while Fork is queued.');
   await expect(page.getByTestId('chat-send')).toBeEnabled();
   await page.screenshot({ path: '../../.artifacts/runtime-speech-20261021/fork-waiting.png' });
-  await page.evaluate(() => localStorage.removeItem('__e2e_hold_fork__'));
+  await page.evaluate(() => localStorage.removeItem('__e2e_hold_compaction__'));
   await expect(page.getByTestId('chat-compact-status')).toContainText('New window ready');
   await expect(page.getByTestId('chat-input-textarea')).toHaveValue('Keep this draft while Fork is queued.');
   await expect(page.getByTestId('chat-send')).toHaveAttribute('aria-label', 'Steering message');
@@ -922,7 +927,7 @@ test('history Fork remains available during streaming and keeps the existing com
 test('history mode accepts slash fork before capacity and can cancel a waiting handoff', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('__e2e_context_mode__', 'history');
-    localStorage.setItem('__e2e_hold_fork__', 'yes');
+    localStorage.setItem('__e2e_hold_compaction__', 'yes');
   });
   await page.goto('/chat/conv-empty');
   await expect(page.getByTestId('chat-compact')).toHaveAttribute('aria-label', 'Fork to new window');
