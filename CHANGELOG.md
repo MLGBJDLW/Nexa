@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.19.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.2...nexa-monorepo-v0.19.3) (2026-11-06)
+
+### Codex workspace access
+
+- Codex subscription chats can find the available file, shell and desktop actions for the selected workspace even when the MCP resource list is empty. Nexa groups these actions under `nexa` and supplies flat tool names to older app-servers that require them.
+- Codex ACP chats can use the workspace tools allowed by Nexa's existing approval and access settings.
+- In a live acceptance run, `gpt-6.1-sol` listed a temporary workspace, read and edited a file, verified the saved contents and ran `git --version`.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at f37d9806b12b356758aec68cb711939b726af1dc -->
+
+### What's Changed
+* fix(assistant): restore external Codex workspace access and organize conversations by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/532
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.2...nexa-monorepo-v0.19.3
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.1...nexa-monorepo-v0.19.2) (2026-11-06)
 
 ### Desktop assistant and provider settings
