@@ -224,11 +224,14 @@ impl LocalRuntime {
                 .filter(|value| !value.is_null())
             {
                 scheduled_tools = Some(serde_json::from_value(grants.clone()).map_err(err)?);
-                workflow_run = self
+                let job = self
                     .db
                     .get_workflow_automation_run_for_task_run(&run.id)
                     .map_err(err)?
-                    .map(|job| job.id);
+                    .ok_or(
+                        "This scheduled task was interrupted before its occurrence was bound.",
+                    )?;
+                workflow_run = Some(job.id);
             }
             text = checkpoint.resume_prompt;
         }
@@ -323,6 +326,11 @@ impl LocalRuntime {
             )
             .map_err(err);
         }
+        let web = self.db.load_app_config().map_err(err)?.web_search;
+        let conversation_prompt = self
+            .db
+            .get_effective_conversation_system_prompt(&conversation)
+            .map_err(err)?;
         let token = CancellationToken::new();
         let weak = Arc::downgrade(self);
         let stopped = token.clone();
@@ -369,10 +377,17 @@ impl LocalRuntime {
         };
         let persisted = persisted.and_then(|launch| {
             if let Some(id) = &workflow_run {
-                if let Err(error) = self
-                    .db
-                    .start_workflow_automation_run(id, &launch.run_id, None)
-                {
+                if launch.reused {
+                    return Ok(launch);
+                }
+                let binding = if checkpoint_id.is_some() {
+                    self.db.resume_bound_workflow_run(id, &launch.run_id)
+                } else {
+                    self.db
+                        .start_workflow_automation_run(id, &launch.run_id, None)
+                        .map(|_| ())
+                };
+                if let Err(error) = binding {
                     self.db.finish_agent_task_run(
                         &launch.run_id,
                         "failed",
@@ -427,7 +442,9 @@ impl LocalRuntime {
         if let Some(allowed) = &scheduled_tools {
             tools = tools.filtered(allowed);
         } else {
-            tools.register(Box::new(nexa_core::tools::automation_tool::AutomationTool));
+            tools.register(Box::new(
+                nexa_core::tools::automation_tool::AutomationTool::phone(),
+            ));
         }
         let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(
             provider_type,
@@ -435,11 +452,6 @@ impl LocalRuntime {
             &saved.model,
         );
         let context_window = saved.context_window.and_then(|value| value.try_into().ok());
-        let web = self.db.load_app_config().map_err(err)?.web_search;
-        let conversation_prompt = self
-            .db
-            .get_effective_conversation_system_prompt(&conversation)
-            .map_err(err)?;
         let mut config = AgentConfig {
             system_prompt: nexa_core::agent::build_system_prompt(Some(&conversation_prompt), &[]),
             native_search_plan:
@@ -552,6 +564,9 @@ impl LocalRuntime {
                 runtime.approve(&app, request).await == ApprovalDecision::AllowOnce
             })
         }));
+        if scheduled_tools.is_some() {
+            session = session.with_source_scope_override(vec![]);
+        }
         let launch_result = serde_json::to_value(&launch).map_err(err)?;
         let mut turn_input = AgentTurnInput::text(text);
         turn_input.mode = options.execution_mode;

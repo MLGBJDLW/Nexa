@@ -1,5 +1,6 @@
 //! Admit due occurrences from the shared durable cron ledger to the phone executor.
 use super::*;
+use nexa_core::workflow_automation::WorkflowAutomationApprovalState;
 use nexa_core::workflow_automation::WorkflowAutomationDueRunClaim;
 
 pub(crate) struct ScheduledLaunch {
@@ -23,12 +24,29 @@ impl LocalRuntime {
             if self.db.workflow_conversation_is_busy(chat).map_err(err)? {
                 continue;
             }
+            if self
+                .db
+                .get_conversation(chat)
+                .map_err(err)?
+                .archived_at
+                .is_some()
+            {
+                continue;
+            }
             let claim = self
                 .db
                 .claim_workflow_automation_due_run_at(due, &now, None)
                 .map_err(err)?;
             if let Some(run) = &claim.run {
-                if claim.due_run.automation.approval_policy.require_before_run {
+                let approved = run
+                    .occurrence_id
+                    .as_deref()
+                    .map(|id| self.db.workflow_automation_occurrence_approval_state(id))
+                    .transpose()
+                    .map_err(err)?;
+                if claim.due_run.automation.approval_policy.require_before_run
+                    && approved != Some(WorkflowAutomationApprovalState::Approved)
+                {
                     self.db
                         .mark_workflow_automation_run_waiting_approval(&run.id)
                         .map_err(err)?;
@@ -55,6 +73,11 @@ impl LocalRuntime {
         }
         let now = chrono::Utc::now().to_rfc3339();
         if allow {
+            nexa_core::tools::automation_tool::validate_phone_schedule_grants(&due.automation)
+                .map_err(err)?;
+            self.db
+                .validate_workflow_conversation(&due.automation, chat)
+                .map_err(err)?;
             if self.active.lock().await.is_some()
                 || self.db.workflow_conversation_is_busy(chat).map_err(err)?
             {
@@ -86,27 +109,52 @@ impl LocalRuntime {
             let task = due.automation;
             let chat = task
                 .conversation_id
+                .as_deref()
                 .ok_or("Missing scheduled conversation.")?;
-            let allowed = task.approval_policy.allowed_tools;
+            nexa_core::tools::automation_tool::validate_phone_schedule_grants(&task)
+                .map_err(err)?;
+            self.db
+                .validate_workflow_conversation(&task, chat)
+                .map_err(err)?;
             if !task.source_scope.is_empty()
-                || allowed
-                    .iter()
-                    .any(|tool| !matches!(tool.as_str(), "web_search" | "fetch_url"))
+                || !task
+                    .schedule_config
+                    .execution_policy
+                    .source_scope_is_explicit
             {
                 return Err(
                     "This phone schedule requires unsupported source or tool grants.".into(),
                 );
             }
+            let package =
+                nexa_core::package_host::database_backed_builtin_package_host_snapshot(&self.db)
+                    .map_err(err)?;
+            if !package.runtime_components().iter().any(|component| {
+                component.kind == nexa_core::package_host::PackageSurfaceKind::Workflow
+                    && component.id == task.workflow_template_id
+            }) {
+                return Err("This scheduled workflow template is disabled or unavailable.".into());
+            }
+            // The phone editor supports its active connection. Reject foreign
+            // pinned routes rather than running their prompts on another account.
+            let policy = &task.schedule_config.execution_policy;
+            if policy.agent_config_id.is_some()
+                || policy.provider.is_some()
+                || policy.provider_endpoint_id.is_some()
+                || policy.model.is_some()
+            {
+                return Err("Run this account-pinned task on its original host.".into());
+            }
             self.start(
                 app,
-                Some(chat),
+                Some(chat.to_owned()),
                 due.prompt,
                 run.id.clone(),
                 None,
                 TurnOptions::default(),
                 Some(ScheduledLaunch {
                     run_id: run.id.clone(),
-                    allowed_tools: allowed,
+                    allowed_tools: task.approval_policy.allowed_tools,
                 }),
             )
             .await?;

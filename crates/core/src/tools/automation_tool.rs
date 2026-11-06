@@ -21,7 +21,16 @@ use crate::workflow_scheduler::{
 use super::{scoped_sources, Tool, ToolCategory, ToolDef, ToolExecutionContext, ToolResult};
 
 static DEF: OnceLock<ToolDef> = OnceLock::new();
-pub struct AutomationTool;
+#[derive(Default)]
+pub struct AutomationTool {
+    phone: bool,
+}
+
+impl AutomationTool {
+    pub fn phone() -> Self {
+        Self { phone: true }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,7 +132,11 @@ impl Tool for AutomationTool {
     async fn execute(&self, ctx: ToolExecutionContext<'_>) -> Result<ToolResult, CoreError> {
         validate_action_fields(ctx.arguments)?;
         let args: Args = serde_json::from_str(ctx.arguments)?;
-        let result = execute(&ctx, args)?;
+        let result = if self.phone {
+            execute_phone_action(&ctx, args)?
+        } else {
+            execute(&ctx, args)?
+        };
         Ok(ToolResult {
             call_id: ctx.call_id.into(),
             content: serde_json::to_string(&result)?,
@@ -192,6 +205,33 @@ pub fn conversation_schedule_action(
     let arguments = serde_json::to_string(&input)?;
     validate_action_fields(&arguments)?;
     let args: Args = serde_json::from_value(input)?;
+    let mut registry = super::ToolRegistry::new();
+    registry.register(Box::new(super::web_search_tool::WebSearchTool));
+    registry.register(Box::new(super::fetch_url_tool::FetchUrlTool));
+    let sources = db.get_effective_conversation_source_scope(conversation_id)?;
+    let mut ctx = ToolExecutionContext::new("phone-schedules", &arguments, db, &sources)
+        .with_conversation_id(Some(conversation_id));
+    ctx.tool_registry = Some(&registry);
+    execute_phone_action(&ctx, args)
+}
+
+pub fn validate_phone_schedule_grants(task: &WorkflowAutomation) -> Result<(), CoreError> {
+    if task.schedule_config.execution_policy.workspace_policy
+        != WorkflowScheduleWorkspacePolicy::DenyWrites
+        || task
+            .approval_policy
+            .allowed_tools
+            .iter()
+            .any(|tool| !source_independent(tool))
+    {
+        return Err(CoreError::InvalidInput(
+            "Manage this task's saved grants in the desktop Workbench".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn execute_phone_action(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreError> {
     if args.source_ids.is_some()
         || args.workflow_template_id.is_some()
         || args.workspace_policy.is_some()
@@ -205,35 +245,7 @@ pub fn conversation_schedule_action(
             "Unsupported phone schedule policy".into(),
         ));
     }
-    let mut registry = super::ToolRegistry::new();
-    registry.register(Box::new(super::web_search_tool::WebSearchTool));
-    registry.register(Box::new(super::fetch_url_tool::FetchUrlTool));
-    let sources = db.get_effective_conversation_source_scope(conversation_id)?;
-    let mut ctx = ToolExecutionContext::new("phone-schedules", &arguments, db, &sources)
-        .with_conversation_id(Some(conversation_id));
-    ctx.tool_registry = Some(&registry);
-    if let Some(id) = args.id.as_deref() {
-        let task = db.get_workflow_automation(id)?;
-        if task.conversation_id.as_deref() != Some(conversation_id) {
-            return Err(CoreError::NotFound(
-                "Scheduled task is outside this conversation".into(),
-            ));
-        }
-        if matches!(args.action.as_str(), "resume" | "update")
-            && (task.schedule_config.execution_policy.workspace_policy
-                != WorkflowScheduleWorkspacePolicy::DenyWrites
-                || task
-                    .approval_policy
-                    .allowed_tools
-                    .iter()
-                    .any(|t| !source_independent(t)))
-        {
-            return Err(CoreError::InvalidInput(
-                "Manage this task's saved grants in the desktop Workbench".into(),
-            ));
-        }
-    }
-    execute_scoped(&ctx, args, true)
+    execute_scoped(ctx, args, true)
 }
 
 fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreError> {
@@ -279,6 +291,16 @@ fn execute_scoped(
         let task = ctx
             .db
             .get_workflow_automation(required(args.id.as_deref(), "id")?)?;
+        if this_chat_only {
+            if task.conversation_id.as_deref() != Some(conversation_id) {
+                return Err(CoreError::NotFound(
+                    "Scheduled task is outside this conversation".into(),
+                ));
+            }
+            if matches!(args.action.as_str(), "resume" | "update") {
+                validate_phone_schedule_grants(&task)?;
+            }
+        }
         if !visible(&task, project.as_deref(), &sources) {
             return Err(CoreError::InvalidInput(
                 "Scheduled task is outside this conversation's project/source scope".into(),
@@ -555,7 +577,7 @@ mod tests {
         let mut context = ToolExecutionContext::new("automation-test", &text, db, &[])
             .with_conversation_id(Some(conversation));
         context.tool_registry = Some(&registry);
-        AutomationTool
+        AutomationTool::default()
             .execute(context)
             .await
             .map(|result| serde_json::from_str(&result.content).unwrap())
@@ -830,9 +852,13 @@ mod tests {
             .await
             .unwrap();
         assert!(found.content.contains("automation"));
-        assert!(AutomationTool.access_profile(&create()).needs_approval);
         assert!(
-            !AutomationTool
+            AutomationTool::default()
+                .access_profile(&create())
+                .needs_approval
+        );
+        assert!(
+            !AutomationTool::default()
                 .access_profile(&json!({"action":"list"}))
                 .needs_approval
         );
@@ -884,7 +910,7 @@ mod tests {
         let mut context = ToolExecutionContext::new("scoped", &arguments, &db, &scope)
             .with_conversation_id(Some(&conversation));
         context.tool_registry = Some(&registry);
-        assert!(AutomationTool
+        assert!(AutomationTool::default()
             .execute(context)
             .await
             .unwrap_err()
@@ -896,7 +922,7 @@ mod tests {
         let mut context = ToolExecutionContext::new("scoped", &arguments, &db, &scope)
             .with_conversation_id(Some(&conversation));
         context.tool_registry = Some(&registry);
-        AutomationTool.execute(context).await.unwrap();
+        AutomationTool::default().execute(context).await.unwrap();
         assert_eq!(
             db.list_workflow_automations().unwrap()[0].source_scope,
             vec![source_a.clone()]

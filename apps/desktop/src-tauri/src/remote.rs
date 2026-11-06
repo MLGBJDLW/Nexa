@@ -535,6 +535,10 @@ impl RemoteHost for DesktopHost {
                     if due.automation.conversation_id.as_deref() != Some(&conversation_id) {
                         return Err(nexa_core::error::CoreError::InvalidInput("Occurrence belongs to another conversation".into()));
                     }
+                    if allow {
+                        nexa_core::tools::automation_tool::validate_phone_schedule_grants(&due.automation)?;
+                        db.validate_workflow_conversation(&due.automation, &conversation_id)?;
+                    }
                     Ok(())
                 }).await.map_err(|e| e.to_string())?;
                 if allow { value(commands::approve_workflow_automation_run_cmd(app.state(), app.state(), app.state(), app.state(), app.clone(), run_id, None).await?) }

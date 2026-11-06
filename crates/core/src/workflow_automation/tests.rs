@@ -1418,6 +1418,18 @@ fn starting_occurrence_advances_schedule_and_completion_updates_occurrence() {
         super::parse_utc_timestamp(advanced.next_run_at.as_deref().unwrap()).unwrap()
             > super::parse_utc_timestamp("2099-01-01T09:00:00Z").unwrap()
     );
+    db.transition_workflow_automation_run(&run.id, "paused", None)
+        .unwrap();
+    assert!(db
+        .resume_bound_workflow_run(&run.id, "another-task")
+        .is_err());
+    db.resume_bound_workflow_run(&run.id, &task.id).unwrap();
+    assert_eq!(
+        db.get_workflow_automation(&automation.id)
+            .unwrap()
+            .next_run_at,
+        advanced.next_run_at
+    );
     db.transition_workflow_automation_run(&run.id, "completed", Some("done"))
         .unwrap();
     assert_eq!(

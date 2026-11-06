@@ -1608,6 +1608,36 @@ impl Database {
         })
     }
 
+    /// Resume an already-bound occurrence without spending a second claim or
+    /// moving its next cron appointment. The checkpoint owns task admission.
+    pub fn resume_bound_workflow_run(
+        &self,
+        workflow_run: &str,
+        task_run: &str,
+    ) -> Result<(), CoreError> {
+        let run = self.get_workflow_automation_run(workflow_run)?;
+        if run.task_run_id.as_deref() != Some(task_run) {
+            return Err(CoreError::Conflict(
+                "The checkpoint does not belong to this occurrence.".into(),
+            ));
+        }
+        if !matches!(
+            run.status,
+            WorkflowAutomationRunStatus::Paused
+                | WorkflowAutomationRunStatus::Resuming
+                | WorkflowAutomationRunStatus::Running
+        ) {
+            return Err(CoreError::Conflict(
+                "Scheduled execution is no longer resumable.".into(),
+            ));
+        }
+        if run.status == WorkflowAutomationRunStatus::Paused {
+            self.transition_workflow_automation_run(workflow_run, "resuming", None)?;
+        }
+        self.transition_workflow_automation_run(workflow_run, "running", None)?;
+        Ok(())
+    }
+
     /// Project the ledger after phone process death, including a checkpoint
     /// paused by startup recovery, before checking for a new due occurrence.
     pub fn reconcile_interrupted_schedule_runs(&self) -> Result<(), CoreError> {
