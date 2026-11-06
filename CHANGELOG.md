@@ -2,6 +2,16 @@
 
 ## [0.19.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.1...nexa-monorepo-v0.19.2) (2026-11-06)
 
+### Desktop assistant and provider settings
+
+- External ACP agents can discover and call Nexa tools through a turn-scoped MCP server. Calls retain the existing workspace, approval and duplicate-delivery protections; native Codex and Copilot keep completion checks alive after tool dispatch ends.
+- Model storage settings now show measured disk usage, a category breakdown and conversation management. Views reuse a scan that is already in progress.
+- Speech recognition and synthesis can reuse a compatible saved provider connection at request time. Rotating or deleting that key takes effect without resaving voice settings; an explicit speech key still takes precedence.
+- Cursor's external-agent setup accepts a masked Cursor API key and discovers the models available to that account. Grok API keys continue to use the separate xAI provider.
+- Update OpenRouter chat and video choices and hide four unserved MiniMax routes from new selections. Existing saved model IDs are preserved.
+- Separate desktop release maintenance from mobile-only changes, including independent release PR labels and tags.
+- Hold the left mouse button in the chat input to dictate. Release to finish and review the editable draft; the microphone button remains available.
+
 
 ### Features
 
