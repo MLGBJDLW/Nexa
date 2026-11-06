@@ -876,6 +876,20 @@ impl Database {
         })
     }
 
+    /// Earliest cron appointment the phone can deliver to a live conversation.
+    /// Approval and archive changes re-arm the OS job through the same ledger.
+    pub fn next_phone_schedule_wake(&self) -> Result<Option<String>, CoreError> {
+        Ok(self.conn().query_row(
+            "SELECT a.next_run_at FROM workflow_automations a
+             JOIN workflow_automation_schedule_configs cfg ON cfg.automation_id = a.id
+             JOIN conversations chat ON chat.id = json_extract(cfg.config_json,'$.executionPolicy.conversationId')
+             WHERE a.enabled=1 AND a.trigger_kind='schedule' AND a.next_run_at IS NOT NULL
+               AND a.status <> 'waiting_approval' AND chat.archived_at IS NULL
+             ORDER BY julianday(a.next_run_at) LIMIT 1",
+            [], |row| row.get(0),
+        ).optional()?)
+    }
+
     pub fn list_due_workflow_automations(
         &self,
         now_rfc3339: &str,

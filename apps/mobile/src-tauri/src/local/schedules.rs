@@ -9,15 +9,42 @@ pub(crate) struct ScheduledLaunch {
 }
 
 impl LocalRuntime {
-    pub async fn tick_schedules(self: &Arc<Self>, app: AppHandle) -> Result<Value, String> {
+    pub(crate) fn next_wake_at(&self) -> Result<Option<String>, String> {
+        let raw = self.db.next_phone_schedule_wake().map_err(err)?;
+        let Some(raw) = raw else { return Ok(None) };
+        let at = chrono::DateTime::parse_from_rfc3339(&raw)
+            .map_err(err)?
+            .to_utc();
+        let now = chrono::Utc::now();
+        // A due task can be waiting for another turn, an unexpired claim, or
+        // retry backoff. Keep a single delayed wake in that case.
+        Ok(Some(
+            if at <= now {
+                now + chrono::Duration::minutes(1)
+            } else {
+                at
+            }
+            .to_rfc3339(),
+        ))
+    }
+
+    pub(crate) async fn arm_schedule(&self, app: &AppHandle) {
+        let _guard = self.arm_lock.lock().await;
+        if let Ok(next) = self.next_wake_at() {
+            let _ = platform::call(app, "scheduleWake", json!({"nextWakeAt":next})).await;
+        }
+    }
+
+    pub async fn tick_schedules(self: &Arc<Self>, host: RunHost) -> Result<Value, String> {
         let Ok(_tick) = self.scheduler.try_lock() else {
-            return Ok(Value::Null);
+            return Ok(json!({"status":"idle"}));
         };
         if self.active.lock().await.is_some() {
-            return Ok(Value::Null);
+            return Ok(json!({"status":"idle"}));
         }
         let now = chrono::Utc::now().to_rfc3339();
         for due in self.db.list_due_workflow_automations(&now).map_err(err)? {
+            host.check_worker()?;
             let Some(chat) = due.automation.conversation_id.as_deref() else {
                 continue;
             };
@@ -47,16 +74,22 @@ impl LocalRuntime {
                 if claim.due_run.automation.approval_policy.require_before_run
                     && approved != Some(WorkflowAutomationApprovalState::Approved)
                 {
-                    self.db
+                    let created = self
+                        .db
                         .mark_workflow_automation_run_waiting_approval(&run.id)
                         .map_err(err)?;
+                    if created {
+                        return Ok(
+                            json!({"status":"waiting_approval","conversationId":claim.due_run.automation.conversation_id,"runId":run.id}),
+                        );
+                    }
                     continue;
                 }
-                self.launch_schedule(app, claim).await?;
-                break;
+                self.launch_schedule(host, claim).await?;
+                return Ok(json!({"status":"running"}));
             }
         }
-        Ok(Value::Null)
+        Ok(json!({"status":"idle"}))
     }
 
     pub async fn decide_schedule(
@@ -89,7 +122,8 @@ impl LocalRuntime {
                 .db
                 .approve_workflow_automation_run_at(run_id, &now)
                 .map_err(err)?;
-            self.launch_schedule(app, claim).await?;
+            self.launch_schedule(RunHost::Foreground(app), claim)
+                .await?;
         } else {
             self.db
                 .deny_workflow_automation_run_at(run_id, &now)
@@ -100,7 +134,7 @@ impl LocalRuntime {
 
     async fn launch_schedule(
         self: &Arc<Self>,
-        app: AppHandle,
+        host: RunHost,
         claim: WorkflowAutomationDueRunClaim,
     ) -> Result<(), String> {
         let run = claim.run.ok_or("Missing scheduled attempt.")?;
@@ -146,7 +180,7 @@ impl LocalRuntime {
                 return Err("Run this account-pinned task on its original host.".into());
             }
             self.start(
-                app,
+                host,
                 Some(chat.to_owned()),
                 due.prompt,
                 run.id.clone(),

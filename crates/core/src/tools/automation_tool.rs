@@ -600,6 +600,10 @@ mod tests {
             conversation
         );
         assert_eq!(first["task"]["approvalPolicy"]["allowedTools"], json!([]));
+        assert_eq!(
+            db.next_phone_schedule_wake().unwrap().as_deref(),
+            first["task"]["nextRunAt"].as_str()
+        );
         assert_eq!(first["preview"]["occurrences"].as_array().unwrap().len(), 5);
         let id = first["task"]["id"].as_str().unwrap();
         assert!(db
@@ -616,6 +620,9 @@ mod tests {
         let mut changed = create();
         changed["prompt"] = json!("A different task");
         assert!(call(&db, &conversation, changed).await.is_err());
+        db.archive_conversations_batch(std::slice::from_ref(&conversation))
+            .unwrap();
+        assert!(db.next_phone_schedule_wake().unwrap().is_none());
     }
 
     #[test]

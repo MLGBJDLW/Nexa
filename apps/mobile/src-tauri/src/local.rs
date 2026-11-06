@@ -90,16 +90,21 @@ impl TurnOptions {
     }
 }
 
-struct Delivery(AppHandle);
+pub(crate) mod host;
+use host::RunHost;
+
+struct Delivery;
 impl AgentRunEventDelivery for Delivery {
     fn deliver_run_event(&self, conversation: &str, event: &AgentRunEvent) {
-        let _ = self.0.emit(
+        let Some(app) = host::ui() else { return };
+        let _ = app.emit(
             "mobile:run",
             json!({"conversationId":conversation,"event":event}),
         );
     }
     fn deliver_task_run_snapshot(&self, conversation: &str, run: AgentTaskRun) {
-        let _ = self.0.emit(
+        let Some(app) = host::ui() else { return };
+        let _ = app.emit(
             "mobile:snapshot",
             json!({"conversationId":conversation,"run":run}),
         );
@@ -117,6 +122,7 @@ mod schedules;
 
 pub struct LocalRuntime {
     scheduler: Mutex<()>,
+    arm_lock: Mutex<()>,
     pub db: Database,
     workspace: Workspace,
     outboxes: AgentRunEventOutboxes,
@@ -130,13 +136,13 @@ impl LocalRuntime {
     pub fn workspace_dir(&self) -> PathBuf {
         PathBuf::from(&self.workspace.roots[0])
     }
-    pub async fn open(app: &AppHandle, directory: PathBuf) -> Result<Arc<Self>, String> {
+    pub async fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
         std::fs::create_dir_all(directory.join("workspace")).map_err(err)?;
         let db = Database::new(directory.join("nexa-mobile.db")).map_err(err)?;
         db.initialize_phone_chat_projects().map_err(err)?;
         let outboxes = AgentRunEventOutboxes::new(
             DatabaseExecutor::new(db.clone(), 64).map_err(err)?,
-            Arc::new(Delivery(app.clone())),
+            Arc::new(Delivery),
         );
         // Never replay a possibly completed phone action after process death.
         outboxes
@@ -154,6 +160,7 @@ impl LocalRuntime {
             outboxes,
             active: Mutex::new(None),
             scheduler: Mutex::new(()),
+            arm_lock: Mutex::new(()),
             pending: Mutex::new(HashMap::new()),
         }))
     }
@@ -181,7 +188,7 @@ impl LocalRuntime {
     #[allow(clippy::too_many_arguments)]
     pub async fn start(
         self: &Arc<Self>,
-        app: AppHandle,
+        host: RunHost,
         conversation_id: Option<String>,
         mut text: String,
         request_id: String,
@@ -242,7 +249,7 @@ impl LocalRuntime {
         uuid::Uuid::parse_str(&request_id)
             .map_err(|_| "A stable request ID is required.".to_string())?;
         let mut active = self.active.lock().await;
-        let mut saved = connections::get(&app, options.connection_id.as_deref()).await?;
+        let mut saved = host.connection(options.connection_id.as_deref()).await?;
         if let Some(selection) = &options.model_selection {
             selection.apply_to_shared(&mut saved).map_err(err)?;
         }
@@ -331,33 +338,8 @@ impl LocalRuntime {
             .db
             .get_effective_conversation_system_prompt(&conversation)
             .map_err(err)?;
-        let token = CancellationToken::new();
-        let weak = Arc::downgrade(self);
-        let stopped = token.clone();
-        let channel = tauri::ipc::Channel::<Value>::new(move |_| {
-            stopped.cancel();
-            if let Some(runtime) = weak.upgrade() {
-                tauri::async_runtime::spawn(async move {
-                    runtime.pending.lock().await.clear();
-                });
-            }
-            Ok(())
-        });
-        platform::call(
-            &app,
-            "registerListener",
-            json!({"event":"taskStop","handler":channel}),
-        )
-        .await?;
-        if let Err(error) = platform::call(&app, "taskService", json!({"active":true})).await {
-            let _ = platform::call(
-                &app,
-                "removeListener",
-                json!({"event":"taskStop","channelId":channel.id()}),
-            )
-            .await;
-            return Err(error);
-        }
+        let token = host.cancel_token();
+        let channel = host.begin(self, &token).await?;
         let persisted = if let Some(checkpoint) = &checkpoint_id {
             self.db.resume_agent_turn_from_checkpoint(
                 &message,
@@ -403,24 +385,12 @@ impl LocalRuntime {
         let launch = match persisted {
             Ok(launch) => launch,
             Err(error) => {
-                let _ = platform::call(&app, "taskService", json!({"active":false})).await;
-                let _ = platform::call(
-                    &app,
-                    "removeListener",
-                    json!({"event":"taskStop","channelId":channel.id()}),
-                )
-                .await;
+                host.end(channel).await;
                 return Err(err(error));
             }
         };
         if launch.reused {
-            let _ = platform::call(&app, "taskService", json!({"active":false})).await;
-            let _ = platform::call(
-                &app,
-                "removeListener",
-                json!({"event":"taskStop","channelId":channel.id()}),
-            )
-            .await;
+            host.end(channel).await;
             return serde_json::to_value(launch).map_err(err);
         }
         let (steering, receiver) = mpsc::unbounded_channel();
@@ -429,11 +399,13 @@ impl LocalRuntime {
         tools.register(Box::new(ListDirTool));
         tools.register(Box::new(CreateFileTool));
         tools.register(Box::new(EditFileTool));
-        tools.register(Box::new(
-            nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost(
-                app.clone(),
-            ))),
-        ));
+        if let Some(app) = host.app() {
+            tools.register(Box::new(
+                nexa_core::tools::phone_control_tool::PhoneControlTool(Arc::new(PhoneHost(
+                    app.clone(),
+                ))),
+            ));
+        }
         tools.register(Box::new(
             nexa_core::tools::context_history_tool::ContextHistoryTool,
         ));
@@ -496,8 +468,8 @@ impl LocalRuntime {
         let runtime = self.clone();
         let approval_runtime = self.clone();
         let confirmation_runtime = self.clone();
-        let approve_app = app.clone();
-        let confirm_app = app.clone();
+        let approve_app = host.app().cloned();
+        let confirm_app = host.app().cloned();
         // This bundle needs only the shared chat renderer. Keep desktop-only
         // skill runtimes out of the phone host and honor persisted enablement.
         let skills = self
@@ -548,7 +520,12 @@ impl LocalRuntime {
         .with_approval_callback(Arc::new(move |request| {
             let runtime = approval_runtime.clone();
             let app = approve_app.clone();
-            Box::pin(async move { runtime.approve(&app, request).await })
+            Box::pin(async move {
+                match app {
+                    Some(app) => runtime.approve(&app, request).await,
+                    None => ApprovalDecision::Deny,
+                }
+            })
         }))
         .with_confirmation_callback(Arc::new(move |message| {
             let runtime = confirmation_runtime.clone();
@@ -561,7 +538,12 @@ impl LocalRuntime {
                     nexa_core::approval::ApprovalRisk::High,
                     message,
                 );
-                runtime.approve(&app, request).await == ApprovalDecision::AllowOnce
+                match app {
+                    Some(app) => {
+                        runtime.approve(&app, request).await == ApprovalDecision::AllowOnce
+                    }
+                    None => false,
+                }
             })
         }));
         if scheduled_tools.is_some() {
@@ -611,8 +593,8 @@ impl LocalRuntime {
             drop(session);
             runtime.pending.lock().await.clear();
             let mut active = runtime.active.lock().await;
-            let _ = platform::call(&app, "taskService", json!({"active":false})).await;
-            if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
+            host.end(channel).await;
+            let result = if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
                 if let Some(id) = &workflow_run {
                     if let Err(error) = runtime.db.transition_workflow_automation_run(
                         id,
@@ -622,22 +604,19 @@ impl LocalRuntime {
                         eprintln!("Failed to project phone schedule completion: {error}");
                     }
                 }
-                let _ = platform::call(
-                    &app,
-                    "taskResult",
-                    json!({"status":run.status,"conversationId":conversation.id,"runId":run.id}),
-                )
-                .await;
-            }
-            let _ = platform::call(
-                &app,
-                "removeListener",
-                json!({"event":"taskStop","channelId":channel.id()}),
-            )
-            .await;
+                json!({"status":run.status,"conversationId":conversation.id,"runId":run.id})
+            } else {
+                json!({"status":"error","conversationId":conversation.id,"runId":launch.run_id})
+            };
+            let app = host.app().cloned();
+            host.finish(result).await;
             active.take();
             drop(active);
-            let _ = app.emit("mobile:refresh", ());
+            if let Some(ui) = host::ui() {
+                let _ = ui.emit("mobile:refresh", ());
+            }
+            let Some(app) = app else { return };
+            runtime.arm_schedule(&app).await;
             // Title work must not hold task admission or delay the final answer.
             // The guarded DB update preserves manual titles and prevents a late
             // completion from renaming an already titled conversation.
