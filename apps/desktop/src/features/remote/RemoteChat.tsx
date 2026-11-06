@@ -462,7 +462,14 @@ export function RemoteChat({
       } else if (event.kind === 'status' && ['queued', 'running', 'recovering'].includes(event.status ?? '')) updateStatus('running');
       if (['approvalRequested', 'approvalResolved', 'interactionRequested'].includes(event.kind)) void questions().catch(() => {});
       // Bound presentation independently of the durable history cursor.
-      while (items.size > 128) items.delete(items.keys().next().value!);
+      while (items.size > 128) {
+        const oldest = items.keys().next().value!;
+        items.delete(oldest);
+        // A long tool loop can generate thousands of distinct text blocks.
+        // Keep the offset for a later continuation without retaining every body.
+        const block = blocks.get(oldest);
+        if (block) blocks.set(oldest, {bytes: block.bytes, text: '…', tail: ''});
+      }
     };
     const receive = (event: RunEvent) => {
       if (!valid() || retired.has(event.runId)) return;
@@ -791,9 +798,18 @@ export function RemoteChat({
     const defaults = defaultFollowupSuggestions(t);
     // A page can end inside an example fence. Only its complete Markdown
     // document can authorize model-supplied options; offer local choices now.
-    if ([...lastMessage.content].length < lastMessage.totalChars) return { key: lastMessage.id, items: defaults };
+    if ([...lastMessage.content].length < lastMessage.totalChars) {
+      // The first history page is bounded, but live/durable replay often
+      // already owns the entire final block. Parse it only when both agree.
+      const last = timeline[timeline.length - 1];
+      if (last?.kind === 'answer' && last.text.startsWith(lastMessage.content) &&
+          [...last.text].length === lastMessage.totalChars) {
+        return latestFollowupSuggestions([{...lastMessage, content:last.text}], defaults);
+      }
+      return { key: lastMessage.id, items: defaults };
+    }
     return latestFollowupSuggestions([lastMessage], defaults);
-  }, [running, runStatus, lastMessage, finalMessageId, t]);
+  }, [running, runStatus, lastMessage, finalMessageId, timeline, t]);
   const followups = !sending && !dictating && !draft && !attachments.length && suggestions?.key !== dismissedFollowup ? suggestions : null;
   const ghostPrompt = followups?.items[0]?.prompt;
   const draftProject = !conversationId && projectView?.projects.find(project => project.id === projectView.selectedId);
