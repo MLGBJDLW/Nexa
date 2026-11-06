@@ -1,0 +1,96 @@
+name: Mobile Release
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile-release.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-release-master
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    env:
+      HAS_RELEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN != '' }}
+    steps:
+      # A configured release token triggers ordinary PR/tag checks. With the
+      # built-in token, explicitly dispatch the otherwise suppressed events.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          target-branch: master
+          config-file: apps/mobile/release-please-config.json
+          manifest-file: apps/mobile/.release-please-manifest.json
+          skip-github-release: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Dispatch independent Android delivery
+        if: steps.release.outputs['apps/mobile--release_created'] == 'true' && env.HAS_RELEASE_TOKEN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs['apps/mobile--tag_name'] }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/mobile.yml/dispatches" \
+            -f ref=master -f "inputs[release_tag]=$RELEASE_TAG"
+
+      - name: Resolve the mobile release PR
+        id: release_pr
+        if: steps.release.outputs['apps/mobile--release_created'] != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_PR_BRANCH: release-please--branches--master--components--nexa-mobile
+        run: |
+          set -euo pipefail
+          count=$(gh pr list --state open --head "$RELEASE_PR_BRANCH" --json number --jq 'length')
+          test "$count" -le 1
+          echo "exists=$([ "$count" = 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        if: steps.release_pr.outputs.exists == 'true'
+        with:
+          ref: release-please--branches--master--components--nexa-mobile
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v6
+        if: steps.release_pr.outputs.exists == 'true'
+        with:
+          node-version: 24
+
+      - name: Synchronize mobile native metadata and dispatch checks
+        if: steps.release_pr.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR_BRANCH: release-please--branches--master--components--nexa-mobile
+        run: |
+          set -euo pipefail
+          node scripts/sync-workspace-lock-versions.mjs --write
+          node apps/mobile/scripts/release-metadata.mjs
+          # A mobile release must never rewrite the desktop workspace lock.
+          git diff --exit-code -- Cargo.lock
+          if ! git diff --quiet -- apps/mobile/src-tauri/Cargo.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- apps/mobile/src-tauri/Cargo.lock
+            git commit -m "chore(mobile): synchronize release lock metadata"
+            git push origin "HEAD:$RELEASE_PR_BRANCH"
+          fi
+          if [ "$HAS_RELEASE_TOKEN" != true ]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" -f "ref=$RELEASE_PR_BRANCH"
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/mobile.yml/dispatches" -f "ref=$RELEASE_PR_BRANCH"
+          fi

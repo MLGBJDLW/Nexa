@@ -37,6 +37,34 @@ const releaseConfig = JSON.parse(fs.readFileSync(
 ));
 test('mobile-only commits do not bump the desktop release', () => {
   assert.ok(releaseConfig.packages['.']['exclude-paths'].includes('apps/mobile'));
+  assert.ok(releaseConfig.packages['.']['exclude-paths'].includes('.github'));
+  assert.ok(releaseConfig.packages['.']['exclude-paths'].includes('docs'));
+  assert.ok(!releaseConfig.packages['.']['exclude-paths'].includes('crates'));
+  for (const excluded of releaseConfig.packages['.']['exclude-paths']) {
+    assert.ok(releaseWorkflow.includes(`- '${excluded}/**'`), `${excluded} must not start desktop delivery`);
+  }
+  const mobileConfig = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'apps/mobile/release-please-config.json'), 'utf8'));
+  assert.deepEqual(Object.keys(mobileConfig.packages), ['apps/mobile']);
+  assert.equal(mobileConfig.packages['apps/mobile'].component, 'nexa-mobile');
+  assert.equal(mobileConfig.packages['apps/mobile'].draft, true);
+  assert.equal(mobileConfig.packages['apps/mobile']['force-tag-creation'], true);
+});
+
+test('mobile releases own their version PR and validate the exact signed candidate', () => {
+  const workflow = fs.readFileSync(path.join(repositoryRoot, '.github/workflows/mobile-release.yml'), 'utf8');
+  assert.match(workflow, /config-file: apps\/mobile\/release-please-config\.json/);
+  assert.match(workflow, /manifest-file: apps\/mobile\/\.release-please-manifest\.json/);
+  assert.match(workflow, /components--nexa-mobile/);
+  assert.match(workflow, /steps\.release\.outputs\['apps\/mobile--release_created'\]/);
+  assert.match(workflow, /actions\/workflows\/mobile\.yml\/dispatches/);
+  assert.match(workflow, /git diff --exit-code -- Cargo\.lock/);
+  assert.doesNotMatch(workflow, /workflows\/release\.yml|nexa-monorepo-v/);
+  const android = mobileWorkflow.split('  android:')[1];
+  assert.match(android, /ref: \$\{\{ needs\.checks\.outputs\.target_sha \}\}/);
+  assert.match(android, /test "\$actual_sha" = "\$TARGET_SHA"/);
+  assert.match(mobileWorkflow, /git merge-base --is-ancestor "\$candidate" origin\/master/);
+  assert.match(android, /apksigner.*verify/);
+  assert.match(android, /--latest=false/);
 });
 const nativeAcceptanceWorkflowPath = path.join(
   repositoryRoot,

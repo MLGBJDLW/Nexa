@@ -152,6 +152,7 @@ const isCli =
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 const DOCUMENTATION_PATH = /^(?:docs\/|README(?:\.[A-Za-z-]+)?\.md$|(?:CONTRIBUTING|CHANGELOG|SECURITY)\.md$)/u;
+const MOBILE_ONLY_PATH = /^(?:apps\/mobile\/|\.github\/workflows\/mobile(?:-release)?\.yml$)/u;
 const FRONTEND_PATH = /^apps\/desktop\/(?:src\/|public\/|e2e\/|tests\/)/u;
 const NATIVE_SOURCE_PATH = /^(?:crates\/(?:core|remote|agent-eval|model-catalog)\/src\/|apps\/desktop\/src-tauri\/src\/).+\.rs$/u;
 
@@ -189,19 +190,21 @@ export function mobileCiRequired(changedPaths, dependencies = mobileSourceDepend
     || /^(?:apps\/mobile\/|shared\/|crates\/|\.cargo\/)/u.test(changedPath)
     || /^(?:Cargo\.(?:toml|lock)|rust-toolchain\.toml|package(?:-lock)?\.json)$/u.test(changedPath)
     || /^apps\/desktop\/(?:package(?:-lock)?\.json|tsconfig[^/]*\.json|public\/)/u.test(changedPath)
-    || ['scripts/ci-scope.mjs', 'scripts/ci-scope.test.mjs', 'scripts/release-workflow-contract.test.mjs', '.github/workflows/mobile.yml'].includes(changedPath));
+    || ['scripts/ci-scope.mjs', 'scripts/ci-scope.test.mjs', 'scripts/release-workflow-contract.test.mjs',
+      'scripts/release-notes.mjs', 'scripts/release-notes.test.mjs',
+      '.github/workflows/mobile.yml', '.github/workflows/mobile-release.yml'].includes(changedPath));
 }
 
 export function classifyCiScope(changedPaths, releaseMetadataOnly = false) {
   if (releaseMetadataOnly) return 'lightweight';
   if (changedPaths.length === 0) return 'full';
   // The independently versioned Android workflow owns mobile-only builds.
-  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || changedPath.startsWith('apps/mobile/'))) return 'lightweight';
-  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath))) return 'lightweight';
-  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || FRONTEND_PATH.test(changedPath))) {
+  const desktopPaths = changedPaths.filter(changedPath => !DOCUMENTATION_PATH.test(changedPath) && !MOBILE_ONLY_PATH.test(changedPath));
+  if (desktopPaths.length === 0) return 'lightweight';
+  if (desktopPaths.every(changedPath => FRONTEND_PATH.test(changedPath))) {
     return 'frontend';
   }
-  if (changedPaths.every(changedPath => DOCUMENTATION_PATH.test(changedPath) || NATIVE_SOURCE_PATH.test(changedPath))) {
+  if (desktopPaths.every(changedPath => NATIVE_SOURCE_PATH.test(changedPath))) {
     return 'native';
   }
   // Manifests, shared contracts, workflows, unknown paths and mixed boundaries

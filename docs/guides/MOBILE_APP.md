@@ -242,11 +242,18 @@ Android builds run only for a `nexa-mobile-v*` tag or an explicit release-tag
 dispatch. Shared core changes retain the desktop core checks. Native Android
 compilation and signing remain required before mobile release publication.
 
-To release, update the mobile package, npm lockfile, native Cargo package and
-Tauri versions together, write the English mobile changelog, and synchronize
-workspace lock metadata with `node scripts/sync-workspace-lock-versions.mjs --write`.
-Merge the reviewed change and push `nexa-mobile-v<version>` for that commit.
-The workflow validates version/tag identity, builds the ARM64 APK, verifies the
+The [Mobile Release workflow](../../.github/workflows/mobile-release.yml) maintains
+its own release PR, configuration and version manifest inside `apps/mobile`.
+Merge that reviewed PR to create the `nexa-mobile-v<version>` draft and start
+Android delivery. The release PR synchronizes the mobile npm, Tauri, Cargo and
+lockfile versions and generates an English changelog. It does not change the
+desktop version or start desktop packaging. For a manual release, update those
+same versions and `apps/mobile/.release-please-manifest.json`, write the English
+mobile changelog, run `node scripts/sync-workspace-lock-versions.mjs --write`,
+then merge and tag the reviewed commit.
+
+The workflow resolves one immutable source SHA for checks and packaging,
+validates version/tag identity and ancestry on master, builds the ARM64 APK, verifies the
 signature against the committed public certificate fingerprint, and publishes
 the APK, SHA-256 manifest and certificate receipt. Mobile releases use
 `latest=false` so desktop updater discovery keeps its existing release identity.
@@ -254,6 +261,20 @@ A failed draft can be resumed through the workflow's `release_tag` input.
 Its release body contains only the exact current mobile changelog entry, including
 on a draft retry. Desktop publication removes dedicated mobile sections and omits
 mobile-only pull requests from its generated release notes.
+
+Desktop release-please excludes the `apps/mobile`, `docs` and `.github`
+directories, so phone changes accompanied by documentation or CI changes do
+not cause a desktop version bump. Mobile workflow changes still run the mobile
+checks. Shared Rust runtime and imported desktop UI changes continue to validate
+their actual consumers; shared changes can require releases of both products.
+When releasing a shared-only mobile fix, include a mobile changelog/source change
+so the independent mobile release stream records it.
+
+This follows release-please's [directory-based commit exclusions](https://github.com/googleapis/release-please/blob/main/src/util/commit-exclude.ts),
+[per-package manifest configuration](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md)
+and [path-prefixed release outputs](https://github.com/googleapis/release-please-action#path-outputs).
+File names cannot be used as exclusion directories. CI-only and documentation-only
+commits do not themselves ship desktop application changes.
 
 Signing requires repository secrets `NEXA_MOBILE_KEYSTORE_B64`,
 `NEXA_MOBILE_KEY_PASSWORD` and `NEXA_MOBILE_KEY_ALIAS`. Keep the private keystore

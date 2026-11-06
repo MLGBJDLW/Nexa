@@ -73,7 +73,7 @@ function desktopPullRequests(generated, repository, execute) {
     inspected.add(match[2]);
     const files = execute('gh', ['api', `repos/${repository}/pulls/${match[2]}/files`, '--paginate', '--jq', '.[].filename']).split(/\r?\n/).filter(Boolean);
     if (!files.length) throw new Error(`Unresolved files for PR ${match[2]}`);
-    if (files.every(file => file.startsWith('apps/mobile/') || file === '.github/workflows/mobile.yml' || file === 'docs/guides/MOBILE_APP.md')) mobileOnly.add(match[2]);
+    if (files.every(file => file.startsWith('apps/mobile/') || /^\.github\/workflows\/mobile(?:-release)?\.yml$/.test(file) || file === 'docs/guides/MOBILE_APP.md')) mobileOnly.add(match[2]);
   }
   return generated.split('\n').filter(line => ![...mobileOnly].some(id => line.includes(`https://github.com/${repository}/pull/${id}`) && !new RegExp(`/pull/${id}\\d`).test(line))).join('\n');
 }

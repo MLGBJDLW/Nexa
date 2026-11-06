@@ -3,7 +3,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "exclude-paths": ["apps/mobile"],
+      "exclude-paths": ["apps/mobile", ".github", "docs"],
       "draft": true,
       "force-tag-creation": true,
       "bump-minor-pre-major": true,

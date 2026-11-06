@@ -20,6 +20,7 @@ on:
       - 'scripts/release-notes.mjs'
       - 'scripts/release-notes.test.mjs'
       - '.github/workflows/mobile.yml'
+      - '.github/workflows/mobile-release.yml'
   push:
     tags: ['nexa-mobile-v*']
   workflow_dispatch:
@@ -45,12 +46,27 @@ jobs:
     name: Mobile Source Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      target_sha: ${{ steps.target.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.release_tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Resolve immutable mobile source
+        id: target
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
+        run: |
+          set -euo pipefail
+          candidate=$(git rev-parse HEAD)
+          if [ -n "$REQUESTED_TAG" ]; then
+            node apps/mobile/scripts/release-metadata.mjs "$REQUESTED_TAG"
+            test "$candidate" = "$(git rev-parse "$REQUESTED_TAG^{commit}")"
+            git merge-base --is-ancestor "$candidate" origin/master
+          fi
+          echo "sha=$candidate" >> "$GITHUB_OUTPUT"
       - name: Classify release metadata
         id: scope
         env:
@@ -87,7 +103,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: ${{ needs.checks.outputs.target_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -168,7 +185,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.metadata.outputs.version }}
+          TARGET_SHA: ${{ needs.checks.outputs.target_sha }}
         run: |
+          set -euo pipefail
+          actual_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$MOBILE_RELEASE_TAG" --jq .sha)
+          test "$actual_sha" = "$TARGET_SHA"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
           RELEASE_TAG="$MOBILE_RELEASE_TAG" node scripts/release-notes.mjs mobile
           if gh release view "$MOBILE_RELEASE_TAG" >/dev/null 2>&1; then
             test "$(gh release view "$MOBILE_RELEASE_TAG" --json isDraft --jq .isDraft)" = true
