@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.1...nexa-monorepo-v0.19.2) (2026-11-06)
+
+
+### Features
+
+* **assistant:** add hold-to-dictate, mobile chat controls and external agent tools ([#529](https://github.com/MLGBJDLW/Nexa/issues/529)) ([0b6a3f4](https://github.com/MLGBJDLW/Nexa/commit/0b6a3f46e2b96504dea2e011f77ce92bb690da81))
+
 ## [0.19.1](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.0...nexa-monorepo-v0.19.1) (2026-11-05)
 
 ### Desktop and paired-device fixes
