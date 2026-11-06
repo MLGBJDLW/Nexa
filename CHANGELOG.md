@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.2...nexa-monorepo-v0.19.3) (2026-11-06)
+
+
+### Bug Fixes
+
+* **assistant:** restore external Codex workspace access and organize conversations ([#532](https://github.com/MLGBJDLW/Nexa/issues/532)) ([f37d980](https://github.com/MLGBJDLW/Nexa/commit/f37d9806b12b356758aec68cb711939b726af1dc))
+
 ## [0.19.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.1...nexa-monorepo-v0.19.2) (2026-11-06)
 
 ### Desktop assistant and provider settings
