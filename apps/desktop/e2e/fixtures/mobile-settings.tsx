@@ -49,7 +49,8 @@ export function renderMobileSettings(kind = 'web') {
   document.body.appendChild(host);
   const storage = { page:async()=>({entries:[{id:'chat',title:'Saved phone conversation'}],next:null}), archive:async(ids:string[])=>calls.push({action:'archive',ids}),remove:async(ids:string[])=>calls.push({action:'remove',ids}) } as unknown as StorageService;
   if (kind === 'all') {
-    createRoot(host).render(<I18nProvider><PhoneSettingsSheet open state={{version:'fixture',settings:null,connections:[],hosts:[],capabilities:{accessibility:true,notifications:true}}} syncBusy={{}} syncErrors={{}} onSync={async()=>({supported:true,checkedAt:'',connections:0,received:0,sent:0,conflicts:0,deviceOnly:0})} onClose={()=>{}} onChanged={async()=>{}} onForgot={()=>{}}/></I18nProvider>);
+    const saved = {id:'imported', name:'Imported account', provider:'legacy_protocol', model:'private-model', baseUrl:'https://models.example/v1'};
+    createRoot(host).render(<I18nProvider><PhoneSettingsSheet open state={{version:'fixture',settings:null,activeConnectionId:saved.id,connections:[saved],hosts:[],capabilities:{accessibility:true,notifications:true}}} syncBusy={{}} syncErrors={{}} onSync={async()=>({supported:true,checkedAt:'',connections:0,received:0,sent:0,conflicts:0,deviceOnly:0})} onClose={()=>{}} onChanged={async()=>{}} onForgot={()=>{}}/></I18nProvider>);
     return;
   }
   createRoot(host).render(<I18nProvider><MobileDialog title="Settings" onClose={() => {}}>{kind === 'speech' ? <><LocaleSwitch/><PhoneSpeechSettings open/></> : kind === 'storage' ? <ConversationStorageManager mobile service={storage} onClose={()=>{}} onChanged={()=>{}}/> : <PhoneWebSettings/>}</MobileDialog></I18nProvider>);

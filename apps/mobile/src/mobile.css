@@ -259,8 +259,19 @@
 .mobile-archive-heading > button:first-child { flex: 1; text-align: left; min-height: 44px; }
 .mobile-archive-history { flex: 0 1 auto; max-height: min(38dvh,320px); }
 
-.mobile-settings-search { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface-0); margin-bottom: 16px; }
-.mobile-settings-search input { flex: 1; min-width: 0; background: transparent; outline: none; font-size: 14px; }
+.mobile-settings-search { position: sticky; top: 54px; z-index: 1; display: flex; align-items: center; width: 100%; min-height: 46px; margin: 0 0 12px auto; overflow: hidden; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface-0); transition: width 200ms ease, border-radius 200ms ease; }
+.mobile-settings-search[data-compact=true] { width: 46px; border-radius: 50%; }
+.mobile-settings-search:focus-within { border-color: var(--color-text-secondary); }
+.mobile-app .mobile-settings-search input[type=search] { flex: 1; min-width: 0; width: 0; padding: 0 10px 0 0; border: 0; background: transparent; outline: none; }
+.mobile-settings-search input::-webkit-search-cancel-button { display: none; }
+.mobile-settings-search[data-compact=true] input { opacity: 0; pointer-events: none; }
+.mobile-settings-group > summary > span { min-width: 0; }
+.mobile-settings-group > summary small { display: block; font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-tertiary); }
+.mobile-connection-editor > summary:not([hidden]) { display: inline-flex; gap: 5px; align-items: center; min-height: 44px; cursor: pointer; font-size: 13px; }
+.mobile-connection-editor > summary::-webkit-details-marker { display: none; }
+.mobile-connection-editor[open] > summary svg { transform: rotate(90deg); }
+.mobile-connection-editor form { margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .mobile-settings-search { transition: none; } }
 .mobile-settings-group { border-bottom: 1px solid var(--color-border); }
 .mobile-settings-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
 .mobile-settings-group > summary::-webkit-details-marker { display: none; }

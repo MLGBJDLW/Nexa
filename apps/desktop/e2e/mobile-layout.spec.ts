@@ -165,6 +165,13 @@ test('phone settings search reveals matching sections and keeps other groups col
   await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=all');
   const search=page.getByRole('searchbox',{name:'Search settings'});
   await expect(search).toBeVisible();
+  await expect(page.locator('.mobile-settings-group[open]')).toHaveCount(0);
+  const connections = page.locator('.mobile-settings-group > summary').filter({hasText:'Model connections'});
+  await connections.click();
+  await expect(page.getByRole('button', {name:'Provider', exact:true})).not.toBeVisible();
+  await page.locator('.mobile-connection-editor > summary').click();
+  await expect(page.getByRole('button', {name:'Provider', exact:true})).toHaveText('legacy_protocol');
+  await connections.click();
   await expect(page.getByTestId('phone-speech-settings')).not.toBeVisible();
   await search.fill('voice');
   await expect(page.getByTestId('phone-speech-settings')).toBeVisible();
@@ -175,6 +182,14 @@ test('phone settings search reveals matching sections and keeps other groups col
   await expect(page.getByTestId('phone-speech-settings')).toBeVisible();
   expect(await page.locator('.mobile-dialog').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({path:info.outputPath('mobile-settings-search.png')});
+  await page.setViewportSize({width:360,height:460});
+  await page.locator('.mobile-sheet').evaluate(node => { node.scrollTop = 220; });
+  const reopen = page.getByRole('button', {name:'Search settings'});
+  await expect(reopen).toHaveAttribute('aria-expanded','false');
+  await reopen.click();
+  await expect(search).toBeFocused();
+  await search.fill('LLM');
+  await expect(page.locator('form.mobile-settings-form')).toBeVisible();
 });
 
 test('archived rows restore to the right and confirm deletion to the left',async({page})=>{
