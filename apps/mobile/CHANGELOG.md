@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.3...nexa-mobile-v0.3.4) (2026-11-06)
+
+
+### Features
+
+* **mobile:** improve phone conversations, scheduled tasks and model support ([#535](https://github.com/MLGBJDLW/Nexa/issues/535)) ([8b488be](https://github.com/MLGBJDLW/Nexa/commit/8b488be46355fd70c0d2d3f3269271671239569a))
+
 ## [0.3.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.2...nexa-mobile-v0.3.3) (2026-11-06)
 
 ### Voice settings
