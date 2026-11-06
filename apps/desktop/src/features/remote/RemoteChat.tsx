@@ -196,11 +196,13 @@ export function RemoteChat({
   const [runUserId, setRunUserId] = useState<string | null>(null);
   const [finalMessageId, setFinalMessageId] = useState<string | null>(null);
   const markReplyRead = mobile?.onReplyRead;
+  // Replay may reparent the canonical answer under a timeline after the
+  // final ID is known. Observe the currently mounted article in either layout.
+  const [renderedReply, setRenderedReply] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (!markReplyRead || !conversationId || !timelineRunId || !finalMessageId || drawerOpen) return;
     const root = contentScroll.current;
-    const reply = root?.querySelector(`[data-message-id="${CSS.escape(finalMessageId)}"]`);
-    if (!root || !reply) return;
+    if (!root || renderedReply?.dataset.messageId !== finalMessageId || !root.contains(renderedReply)) return;
     let visible = false;
     const markVisible = () => {
       if (visible && document.visibilityState === 'visible' && !document.querySelector('dialog[open]')) {
@@ -211,7 +213,7 @@ export function RemoteChat({
       visible = entry.isIntersecting;
       if (visible) markVisible();
     }, { root });
-    observer.observe(reply);
+    observer.observe(renderedReply);
     window.addEventListener('focus', markVisible);
     document.addEventListener('visibilitychange', markVisible);
     document.addEventListener('close', markVisible, true);
@@ -221,7 +223,7 @@ export function RemoteChat({
       document.removeEventListener('visibilitychange', markVisible);
       document.removeEventListener('close', markVisible, true);
     };
-  }, [markReplyRead, conversationId, timelineRunId, finalMessageId, drawerOpen]);
+  }, [markReplyRead, conversationId, timelineRunId, finalMessageId, renderedReply, drawerOpen]);
   const [runStatus, setRunStatus] = useState('');
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
@@ -937,7 +939,7 @@ export function RemoteChat({
         </button>
       )}
       <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
-        <RemoteTranscript messages={messages} timeline={timeline} running={running} finalMessageId={finalMessageId} runUserId={runUserId} runId={timelineRunId}
+        <RemoteTranscript messages={messages} timeline={timeline} running={running} finalMessageId={finalMessageId} runUserId={runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
           more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId}/>
       </div>
       {runStatus && (

@@ -20,7 +20,7 @@ export interface ChatMessage {
   thinkingTotalChars?: number;
 }
 
-function RemoteChatMessage({ message, onMore, onSpeak, speaking }: { message: ChatMessage; onMore: () => void; onSpeak?: () => void; speaking?: boolean }) {
+function RemoteChatMessage({ message, onMore, onSpeak, speaking, answerRef }: { message: ChatMessage; onMore: () => void; onSpeak?: () => void; speaking?: boolean; answerRef?: (node: HTMLElement | null) => void }) {
   const { t } = useTranslation();
   if (message.steering) return <article className="remote-steering flex items-start gap-2 rounded-lg border-l-2 border-accent bg-surface-1 px-3 py-2" aria-label={t('chat.steeringMessage')}>
     <CornerDownRight size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden="true"/>
@@ -28,7 +28,7 @@ function RemoteChatMessage({ message, onMore, onSpeak, speaking }: { message: Ch
       {[...message.content].length < message.totalChars && <button className={remoteButton} onClick={onMore}>{t('remote.moreText')}</button>}
     </div>
   </article>;
-  return <article data-message-id={message.id} className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
+  return <article ref={answerRef} data-message-id={message.id} className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
     <p className="mb-3 text-xs font-semibold text-text-tertiary">{message.role === 'user' ? t('remote.you') : 'Nexa'}</p>
     {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
       : <StreamingMarkdown content={stripFollowupBlocks(message.content)} isStreaming={false} reduceMotion />}
@@ -47,10 +47,10 @@ interface PhoneTurn {
   activity: RemoteTimelineItem[];
 }
 
-export function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId }: {
+export function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef }: {
   messages: ChatMessage[]; timeline: RemoteTimelineItem[]; running: boolean; finalMessageId: string | null;
   runId: string | null; runUserId: string | null; more: (message: ChatMessage, channel?: 'content' | 'thinking') => void;
-  speak?: (message: ChatMessage) => void; speakingId: string | null;
+  speak?: (message: ChatMessage) => void; speakingId: string | null; answerRef?: (node: HTMLElement | null) => void;
 }) {
   const turns: PhoneTurn[] = [];
   let turn: PhoneTurn | undefined;
@@ -94,6 +94,7 @@ export function RemoteTranscript({ messages, timeline, running, finalMessageId, 
     turns.push(liveTurn);
   }
   const renderMessage = (message: ChatMessage) => <RemoteChatMessage key={message.id} message={message} onMore={() => more(message)}
+    answerRef={message.id === finalMessageId ? answerRef : undefined}
     onSpeak={speak ? () => speak(message) : undefined} speaking={speakingId === message.id}/>;
   return <>{turns.map(item => {
     const live = item === liveTurn;
