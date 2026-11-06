@@ -1,6 +1,6 @@
 {
-  "cursorApiKey": "Cursor API Key (optional)",
-  "cursorApiKeyHelp": "Use a Cursor API key from your account dashboard, or leave blank to use Cursor CLI sign-in. Check the connection to load models available to your account. Grok API keys belong in the xAI provider; the two key types are not interchangeable.",
+  "cursorApiKey": "Cursor API 키(선택 사항)",
+  "cursorApiKeyHelp": "계정 대시보드에서 발급한 Cursor API 키를 입력하거나 비워 두어 Cursor CLI 로그인을 사용하세요. 연결을 확인하면 계정에서 사용할 수 있는 모델을 불러옵니다. Grok API 키는 xAI 공급자에 설정하세요.",
   "storageChats": "채팅 및 작업 기록",
   "storageKnowledge": "지식 및 색인",
   "storageModels": "로컬 모델",
