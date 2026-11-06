@@ -3447,3 +3447,60 @@ for (const cloud of [
     await expect.poll(() => page.evaluate(() => (window as any).__savedAgentConfig)).toMatchObject({ provider: cloud.provider, baseUrl: cloud.url, model: cloud.model, apiKey: 'cloud-test-credential' });
   });
 }
+
+
+test('desktop model storage exposes measured usage and refreshes it', async ({ page }) => {
+  await page.addInitScript(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    (window as any).storageFixtureSize = 1;
+    host.invoke = (command: string, args: unknown) => {
+      if (command !== 'get_storage_usage_cmd') return original(command, args);
+      const scans = (window as any).storageFixtureSize;
+      return Promise.resolve({ totalBytes: scans * 1024 * 1024, partial: false,
+        categories: [{ id: 'models', bytes: scans * 1024 * 1024 }],
+        activeConversations: 3, archivedConversations: 1,
+        database: { allocatedBytes: 0, reusableBytes: 0, mainFileBytes: 0, walBytes: 0 } });
+    };
+  });
+  await page.goto('/settings');
+  await page.getByRole('tab', { name: 'Models & Embedding', exact: true }).click();
+  const usage = page.getByTestId('storage-usage');
+  await expect(usage.getByRole('img', { name: 'Storage by category' })).toBeVisible();
+  await expect(usage).toContainText('1.0 MiB');
+  await page.evaluate(() => { (window as any).storageFixtureSize = 2; });
+  await usage.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(usage).toContainText('2.0 MiB');
+  await expect(usage.getByRole('button', { name: 'Manage conversations', exact: true })).toBeVisible();
+});
+
+
+test('Cursor API key is forwarded to Cursor discovery without becoming an xAI key', async ({ page }) => {
+  await page.addInitScript(() => {
+    const host = (window as any).__TAURI_INTERNALS__;
+    const original = host.invoke;
+    host.invoke = (command: string, args: any) => {
+      if (command === 'inspect_external_agent_cmd' && args.provider === 'acp_cursor') {
+        (window as any).cursorProbe = args;
+        return Promise.resolve({ models: [{ id: 'grok-4.7', name: 'Grok 4.7' }], currentModelId: 'grok-4.7', configOptions: [], commands: [] });
+      }
+      return original(command, args);
+    };
+  });
+  await page.goto('/settings');
+  await page.getByRole('tab', { name: 'AI Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click();
+  await page.getByRole('tab', { name: 'External agents', exact: true }).click();
+  await page.locator('[data-provider-preset-id="acp-cursor"]').click();
+  const form = page.getByTestId('external-agent-form');
+  const key = form.getByLabel('Cursor API Key (optional)', { exact: true });
+  await expect(key).toHaveAttribute('type', 'password');
+  await key.fill('cursor-fixture-key');
+  const environment = form.getByLabel('Environment (JSON object; stored encrypted)');
+  await expect(environment).toHaveValue('');
+  if (!await environment.isVisible()) await form.getByText('Advanced', { exact: true }).click();
+  await environment.fill('{"LOG_LEVEL":"error"}');
+  await form.getByRole('button', { name: /check connection/i }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).cursorProbe?.launch.env.CURSOR_API_KEY)).toBe('cursor-fixture-key');
+  expect(await page.evaluate(() => (window as any).cursorProbe?.launch.env.XAI_API_KEY)).toBeUndefined();
+});

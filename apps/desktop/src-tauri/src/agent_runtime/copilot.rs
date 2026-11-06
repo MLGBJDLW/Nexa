@@ -370,7 +370,13 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             next = MessageOptions::new(redact_user_text(&message.content,&turn.privacy)).with_attachments(attachments);
         }
     }.await;
-    turn.cancellation.cancel();
+    // Stop accepting tool effects immediately, but allow successful completion
+    // hooks to verify the final answer before the turn is torn down.
+    turn.transcript.nexa_tools().cancel_tools();
+    let _cancel_on_exit = turn.cancellation.clone().drop_guard();
+    if run.is_err() {
+        turn.cancellation.cancel();
+    }
     if let Err(cause) = &run {
         projection.persist_partial(&turn, cause).await?;
         for message in steering {

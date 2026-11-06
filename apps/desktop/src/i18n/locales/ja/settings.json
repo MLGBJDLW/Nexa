@@ -1,4 +1,6 @@
 {
+  "cursorApiKey": "Cursor API キー（任意）",
+  "cursorApiKeyHelp": "アカウントのダッシュボードで発行した Cursor API キーを入力してください。空欄の場合は Cursor CLI のログイン情報を使用します。接続を確認すると、利用可能なモデルが表示されます。Grok API キーは xAI プロバイダーに設定してください。",
   "storageChats": "チャットとタスク履歴",
   "storageKnowledge": "ナレッジと索引",
   "storageModels": "ローカルモデル",

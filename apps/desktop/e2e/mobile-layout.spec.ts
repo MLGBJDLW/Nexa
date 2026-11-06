@@ -95,9 +95,93 @@ test('left swipe offers archive without dismissing the history drawer',async({pa
   await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
   await page.locator('.mobile-app').getByRole('button',{name:'Conversation',exact:true}).click();
   const row=page.locator('.mobile-conversation-row').first();await row.hover();const box=(await row.boundingBox())!;
-  await page.mouse.move(box.x+135,box.y+24);await page.mouse.down();await page.mouse.move(box.x+24,box.y+24,{steps:8});await page.mouse.up();
+  await page.mouse.move(box.x+135,box.y+24);await page.mouse.down();await page.mouse.move(box.x+85,box.y+24,{steps:4});
+  const reveal=page.locator('.mobile-swipe-action').first();
+  const initial=await reveal.evaluate(node=>({width:node.getBoundingClientRect().width,color:getComputedStyle(node).backgroundColor,scale:getComputedStyle(node.querySelector('svg')!).transform}));
+  await page.mouse.move(box.x+24,box.y+24,{steps:6});
+  const full=await reveal.evaluate(node=>({width:node.getBoundingClientRect().width,color:getComputedStyle(node).backgroundColor,scale:getComputedStyle(node.querySelector('svg')!).transform}));
+  expect(full.width).toBeGreaterThan(initial.width);expect(full.color).not.toBe(initial.color);expect(full.scale).not.toBe(initial.scale);
+  await page.mouse.up();
   await expect(page.getByRole('dialog',{name:'Archive',exact:true})).toBeVisible();
   await page.getByRole('dialog',{name:'Archive',exact:true}).getByRole('button',{name:'Archive',exact:true}).click();
   await expect(page.getByRole('dialog',{name:'Conversation',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Archive: Previous work',exact:true})).toHaveCount(0);
+});
+
+
+test('phone settings search reveals matching sections and keeps other groups collapsed',async({page},info)=>{
+  await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=all');
+  const search=page.getByRole('searchbox',{name:'Search settings'});
+  await expect(search).toBeVisible();
+  await expect(page.getByTestId('phone-speech-settings')).not.toBeVisible();
+  await search.fill('voice');
+  await expect(page.getByTestId('phone-speech-settings')).toBeVisible();
+  await expect(page.locator('.mobile-settings-group:visible')).toHaveCount(1);
+  await search.fill('unmatched-fixture');await expect(page.getByText('No matching settings.')).toBeVisible();
+  await search.fill('');
+  await page.locator('.mobile-settings-group > summary').filter({hasText:'Voice'}).click();
+  await expect(page.getByTestId('phone-speech-settings')).toBeVisible();
+  expect(await page.locator('.mobile-dialog').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({path:info.outputPath('mobile-settings-search.png')});
+});
+
+test('delete all archived chats includes unloaded pages and preserves active chats',async({page})=>{
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
+  await expect(page.locator('.mobile-app')).toBeVisible();
+  await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.seedArchives());
+  await page.locator('.mobile-app').getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByText('Archived conversations',{exact:true}).click();
+  await expect(page.getByRole('button',{name:'Unarchive: Archived a',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Unarchive: Archived e',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Delete All',exact:true}).click();
+  const confirm=page.getByRole('dialog',{name:'Delete All',exact:true});
+  await expect(confirm.getByText(/all 5 conversations/)).toBeVisible();
+  await page.evaluate(()=>{const app=(window as any).__MOBILE_CONTINUITY__;app.restoreArchived('c');app.removeArchived('d');});
+  await confirm.getByRole('button',{name:'Delete All',exact:true}).click();
+  await expect(confirm).not.toBeVisible();
+  await expect(page.getByRole('button',{name:'Previous work',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Archived c',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((action:any)=>action.method==='chat.deleteArchived').map((action:any)=>action.params.conversationId))).toEqual(['a','b','c','d','e']);
+});
+
+
+test('holding the phone composer dictates into the draft and Plan is a distinct control',async({page})=>{
+  await page.setViewportSize({width:320,height:740});
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer=1');
+  const input=page.getByRole('textbox',{name:'Message',exact:true});
+  const plan=page.getByRole('button',{name:'Plan',exact:true});
+  const mic=page.getByRole('button',{name:'Voice input',exact:true});
+  await expect(plan).toHaveAttribute('aria-pressed','false');
+  await plan.focus(); await page.keyboard.press('Space'); await expect(plan).toHaveAttribute('aria-pressed','true');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  expect(await plan.locator('svg').evaluate(node=>getComputedStyle(node).transform)).toBe('none');
+  for (const width of [320,360]) {
+    await page.setViewportSize({width,height:740});
+    for (const control of [plan,mic,page.getByRole('button',{name:'Send',exact:true})]) {
+      const bounds=(await control.boundingBox())!; expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x+bounds.width).toBeLessThanOrEqual(width);
+    }
+  }
+  const plus=page.locator('.native-composer-actions').getByRole('button',{name:'Attach files',exact:true});await plus.click();
+  await expect(page.getByRole('combobox',{name:'Execution mode'})).toHaveCount(0); await plus.first().click();
+  const driver=await page.context().newCDPSession(page);
+  const touchStart=async()=>{
+    const box=(await input.boundingBox())!;
+    // Press blank editing space; pressing directly on a word retains the native selection menu.
+    await driver.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width-15,y:box.y+14}]});
+  };
+  const release=(type:'touchEnd'|'touchCancel')=>driver.send('Input.dispatchTouchEvent',{type,touchPoints:[]});
+  const count=(method:string)=>page.evaluate(method=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method===method).length,method);
+  await touchStart();await release('touchEnd');expect(await count('speech.listen')).toBe(0);
+  // Allow the short tap's double-click selection window to expire.
+  await page.waitForTimeout(380);
+  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(1);await release('touchEnd');
+  await expect(input).toHaveValue('Hello from dictation'); expect(await count('speech.finish')).toBe(1);expect(await count('chat.start')).toBe(0);
+  await input.fill('draft');await input.evaluate(node=>node.setSelectionRange(5,5));
+  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(2);await release('touchCancel');
+  await expect.poll(()=>count('speech.cancel')).toBe(1);await expect(input).toHaveValue('draft');
+  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(3);await page.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect(input).toHaveValue('draft Hello from dictation');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  const started=await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.find((a:any)=>a.method==='chat.start'));
+  expect(started.params.executionMode).toBe('plan');
 });

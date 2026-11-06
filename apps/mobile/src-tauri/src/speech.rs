@@ -68,6 +68,13 @@ impl SpeechRuntime {
             token.cancel();
         }
     }
+    pub async fn cancel_input(&self, request_id: Option<uuid::Uuid>) {
+        if let Some((owner, token)) = self.input.lock().await.as_ref() {
+            if request_id.is_none_or(|id| id == *owner) {
+                token.cancel();
+            }
+        }
+    }
     pub async fn busy(&self) -> bool {
         self.input.lock().await.is_some() || self.output.lock().await.is_some()
     }
@@ -76,8 +83,9 @@ impl SpeechRuntime {
         app: &AppHandle,
         mut args: Value,
         config: Option<SpeechToTextConfig>,
+        request_id: Option<uuid::Uuid>,
     ) -> Result<Value, String> {
-        let id = uuid::Uuid::new_v4();
+        let id = request_id.unwrap_or_else(uuid::Uuid::new_v4);
         let token = CancellationToken::new();
         {
             let mut slot = self.input.lock().await;
@@ -102,7 +110,12 @@ impl SpeechRuntime {
             } => result,
         };
         if token.is_cancelled() {
-            let _ = platform::call(app, "speech", json!({"action":"cancel"})).await;
+            let _ = platform::call(
+                app,
+                "speech",
+                json!({"action":"cancel", "requestId":request_id}),
+            )
+            .await;
         }
         let mut slot = self.input.lock().await;
         if slot.as_ref().is_some_and(|(owner, _)| *owner == id) {

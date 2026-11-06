@@ -1,4 +1,6 @@
 {
+  "cursorApiKey": "Clé API Cursor (facultative)",
+  "cursorApiKeyHelp": "Saisissez une clé API Cursor depuis votre tableau de bord ou laissez ce champ vide pour utiliser la session de Cursor CLI. Vérifiez la connexion pour charger les modèles disponibles pour votre compte. Les clés API Grok se configurent chez le fournisseur xAI.",
   "storageChats": "Discussions et historique",
   "storageKnowledge": "Connaissances et index",
   "storageModels": "Modèles locaux",

@@ -1,4 +1,5 @@
 {
+  "holdComposerToDictate": "Hold the message box to dictate. Release to add text.",
   "startRecording": "Start voice input",
   "stopRecording": "Stop recording",
   "processing": "Transcribing...",

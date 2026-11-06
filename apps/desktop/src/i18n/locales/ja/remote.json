@@ -225,5 +225,7 @@
   "mobileSpeechOutput": "読み上げサービス",
   "mobileSpeechSample": "こんにちは、Nexa です。音声サービスの準備ができました。",
   "speechConfiguration": "対応する音声プロバイダー、接続先、モデル、API キーを設定してください。",
-  "speechCloudFailed": "音声サービスに接続できません。アカウント、モデル、接続先、ネットワークを確認してください。"
+  "speechCloudFailed": "音声サービスに接続できません。アカウント、モデル、接続先、ネットワークを確認してください。",
+  "mobileSettingsSearch": "設定を検索",
+  "mobileSettingsNoResults": "一致する設定はありません。"
 }

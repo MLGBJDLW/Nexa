@@ -25,11 +25,20 @@ pub async fn discover_shell_environments_cmd() -> nexa_core::shell_environment::
 }
 
 #[tauri::command]
-pub async fn get_app_config_cmd(state: tauri::State<'_, AppState>) -> Result<AppConfig, String> {
+pub async fn get_app_config_cmd(
+    state: tauri::State<'_, AppState>,
+    resolve_speech: Option<bool>,
+) -> Result<AppConfig, String> {
     // Loading may migrate saved defaults, so use the bounded writer lane.
     state
         .db_executor
-        .write(Database::load_app_config)
+        .write(move |db| {
+            if resolve_speech.unwrap_or(false) {
+                db.load_speech_app_config()
+            } else {
+                db.load_app_config()
+            }
+        })
         .await
         .map(|result| result.value)
         .map_err(|e| e.to_string())
@@ -247,11 +256,21 @@ pub async fn synthesize_speech_preview_cmd(
         return Err("Speech text cannot be empty".into());
     }
     let tts = match config {
-        Some(config) => config,
+        Some(config) => {
+            let mut runtime_config = AppConfig {
+                text_to_speech: config,
+                ..AppConfig::default()
+            };
+            state
+                .db
+                .resolve_speech_credentials(&mut runtime_config)
+                .map_err(|error| error.to_string())?;
+            runtime_config.text_to_speech
+        }
         None => {
             state
                 .db
-                .load_app_config()
+                .load_speech_app_config()
                 .map_err(|error| error.to_string())?
                 .text_to_speech
         }

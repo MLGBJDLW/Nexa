@@ -1322,13 +1322,13 @@ mod tests {
 
     #[tokio::test]
     async fn structured_question_suspends_the_official_loop_and_preserves_resume_state() {
-        let (mut session, _, _rx) = session(4);
+        let (mut session, effects, _rx) = session(4);
         session.input.tools.register(Box::new(
             crate::tools::request_user_input_tool::RequestUserInputTool,
         ));
-        let call = ToolCallRequest {id:"question".into(),name:"request_user_input".into(),arguments:r#"{"questions":[{"id":"scope","header":"Scope","question":"Which scope?","type":"single_choice","options":[{"label":"App","description":"Only this app"},{"label":"Repo","description":"Entire repository"}]}]}"#.into(),thought_signature:None};
+        let question = ToolCallRequest {id:"question".into(),name:"request_user_input".into(),arguments:r#"{"questions":[{"id":"scope","header":"Scope","question":"Which scope?","type":"single_choice","options":[{"label":"App","description":"Only this app"},{"label":"Repo","description":"Entire repository"}]}]}"#.into(),thought_signature:None};
         assert!(matches!(
-            session.execute(call).await,
+            session.execute(question).await,
             Err(CoreError::AwaitingUserInput { .. })
         ));
         assert_eq!(
@@ -1350,6 +1350,15 @@ mod tests {
                 .len(),
             1
         );
+        assert!(matches!(
+            session.execute(call("after-question", 3)).await,
+            Err(CoreError::AwaitingUserInput { .. })
+        ));
+        assert_eq!(effects.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            session.persist_answer("Premature answer").await,
+            Err(CoreError::AwaitingUserInput { .. })
+        ));
     }
 }
 
@@ -1362,6 +1371,8 @@ pub struct ExternalToolOutput {
 }
 
 pub struct ExternalToolSession {
+    pending_interaction: tokio::sync::watch::Sender<Option<String>>,
+    tool_cancellation: CancellationToken,
     input: ExternalToolSessionInput,
     source_scope: Vec<String>,
     privacy: privacy::PrivacyConfig,
@@ -1507,6 +1518,8 @@ impl ExternalToolSession {
             desktop_profile,
         };
         Ok(Self {
+            pending_interaction: tokio::sync::watch::channel(None).0,
+            tool_cancellation: input.cancellation.child_token(),
             input,
             source_scope,
             privacy,
@@ -1555,11 +1568,42 @@ impl ExternalToolSession {
         self.state.lock().await.tool_budget_rejected
     }
 
+    /// An upstream loop with out-of-band tool callbacks must observe the same
+    /// durable suspension as a runtime that awaits execute() directly.
+    pub async fn wait_for_user_input_request(&self) -> CoreError {
+        let mut receiver = self.pending_interaction.subscribe();
+        let pending = receiver
+            .wait_for(Option::is_some)
+            .await
+            .expect("session owns the sender");
+        CoreError::AwaitingUserInput {
+            interaction_id: pending
+                .as_ref()
+                .expect("waited for a pending interaction")
+                .clone(),
+        }
+    }
+
+    pub fn ensure_not_suspended(&self) -> Result<(), CoreError> {
+        match self.pending_interaction.borrow().as_ref() {
+            Some(id) => Err(CoreError::AwaitingUserInput {
+                interaction_id: id.clone(),
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// Close tool admissions without cancelling answer verification/hooks.
+    pub fn cancel_tools(&self) {
+        self.tool_cancellation.cancel();
+    }
+
     pub async fn execute(&self, call: ToolCallRequest) -> Result<ExternalToolOutput, CoreError> {
         self.privacy_lease.ensure_current()?;
         tokio::select! {
             biased;
             _ = self.privacy_lease.cancelled() => Err(CoreError::Cancelled("Privacy settings changed before the tool result could be released".into())),
+            _ = self.tool_cancellation.cancelled() => Err(CoreError::Cancelled("Nexa tool session is closed".into())),
             result = self.privacy_lease.scope(self.execute_current(call)) => result,
         }
     }
@@ -1569,7 +1613,8 @@ impl ExternalToolSession {
         call: ToolCallRequest,
     ) -> Result<ExternalToolOutput, CoreError> {
         let mut state = self.state.lock().await;
-        if self.input.cancellation.is_cancelled() {
+        self.ensure_not_suspended()?;
+        if self.tool_cancellation.is_cancelled() {
             return Err(CoreError::Cancelled("Stopped by user".into()));
         }
         self.ensure_delegated_recovery_clear()?;
@@ -1676,7 +1721,7 @@ impl ExternalToolSession {
             tools: &self.input.tools,
             config: &self.input.config,
             context_window_resolution: self.input.config.context_window_resolution,
-            cancel_token: &self.input.cancellation,
+            cancel_token: &self.tool_cancellation,
             confirmation_callback: &None,
             approval_callback: &approval,
             tool_visual_interpreter: &self.input.visual_interpreter,
@@ -1844,15 +1889,19 @@ impl ExternalToolSession {
                 &format!("awaiting_user_input:{interaction_id}"),
                 None,
             )?;
-            self.input
+            // Enqueue the waiting UI before waking the ACP driver, which will
+            // revoke callbacks. A closed renderer cannot undo a durable question.
+            let _ = self
+                .input
                 .events
                 .send(AgentEvent::ControllerStatus {
                     code: "awaiting_user_input".into(),
                     content: "Waiting for your response".into(),
                     tone: Some("attention".into()),
                 })
-                .await
-                .map_err(|error| CoreError::Internal(error.to_string()))?;
+                .await;
+            self.pending_interaction
+                .send_replace(Some(interaction_id.clone()));
             return Err(CoreError::AwaitingUserInput { interaction_id });
         }
         if let Some(reason) = outcome.terminal_loop_guard_reason {
@@ -1974,6 +2023,7 @@ impl ExternalToolSession {
     ) -> Result<PersistedAssistantMessage, CoreError> {
         self.privacy_lease.ensure_current()?;
         if !intermediate {
+            self.ensure_not_suspended()?;
             self.ensure_delegated_recovery_clear()?;
             let source_scope = self
                 .input
@@ -2000,6 +2050,7 @@ impl ExternalToolSession {
         let mut state = self.state.lock().await;
         self.privacy_lease.ensure_current()?;
         if !intermediate {
+            self.ensure_not_suspended()?;
             self.ensure_delegated_recovery_clear()?;
             if let Some(error) = state.unbound_recovery_error() {
                 return Err(error);

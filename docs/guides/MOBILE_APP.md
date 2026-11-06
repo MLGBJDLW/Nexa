@@ -126,7 +126,7 @@ screens, password input and apps that prohibit capture remain protected.
 Phone tasks share desktop model discovery and searchable provider/model choices,
 web search and URL fetching, image attachments, follow-up suggestions and saved
 thinking history. Long thinking blocks load on demand. Choose **Ask** or
-**Allow all** beside the composer; Plan mode still excludes mutating tools even
+**Allow all** beside the composer. When supported by the host, the Plan icon switches between planning and execution without opening attachments; Plan mode still excludes mutating tools even
 when Allow all is selected. Each conversation retains its own model and reasoning
 intensity while connection credentials can continue to synchronize. Supported
 models reason by default; the picker offers intensity controls.
@@ -135,13 +135,15 @@ Interactive chart requests prefer inline `nexa-ui` components. Completed answers
 have local follow-up choices when the model omits valid suggestions. These choices
 are inert until the user selects them.
 
-Phone settings independently select the dictation and read-aloud service. System
+To dictate into a draft, press and hold the phone message field and release when
+finished. The microphone button is also available. Review or edit the transcript
+before pressing Send. Phone settings independently select the dictation and read-aloud service. System
 dictation uses an installed Android recognizer or an on-device engine. Empty
 recognition results and activity interruptions are explicit errors, and first-use
 permission results wait until the activity resumes. A failed system service can
 fall back once to an available on-device engine. System read-aloud uses Android TTS.
 
-Alternatively configure a provider, model, API key and endpoint for each direction.
+Alternatively configure a provider, model and endpoint for each direction. Leave the speech key blank to reuse a compatible saved phone connection, or set a separate key to override it.
 Custom dictation records mono PCM16 at 16 kHz in the foreground, then calls the
 same complete-file transcription adapters as desktop. Tap Stop to submit, or
 Cancel while transcribing to discard the pending result. Recordings are bounded
@@ -161,7 +163,7 @@ Opening another app and interacting with its visible controls is supported;
 completion, such as sending a message, must be verified from a fresh observation.
 
 The optional floating assistant snaps to either edge after dragging and restores
-its position. Its brief arrival/docking animations honor Android's animation setting.
+its position. Releasing near the center produces a quicker, larger rebound; at the edge it settles gently. Idle floating pauses while suspended and honors Android's animation setting.
 Storage settings show measured database, chat, knowledge, file, model and cache
 categories. The conversation manager selects across pages for batch archive or
 confirmed deletion. Running tasks must be stopped first. Archiving changes
@@ -188,13 +190,15 @@ policy; a renderer restart cannot change a Plan task into a write-capable task.
 
 A new phone chat stays a local draft until its first send. Repeated New taps do
 not create empty database rows. The composer uses one Send/Stop control; the
-conversation drawer provides compact Archive and Delete actions, left-swipe
-archiving with confirmation, plus an archived
-list with Restore, guarded by
-the same running-task checks as desktop storage management. Remote desktop chat
-management requires the advertised `chat-management-v1` capability.
+conversation drawer reveals Archive progressively as you swipe left. The archived
+list supports Restore and confirmed deletion across all pages. Chats restored or
+already removed by another client are skipped. Running-task checks still apply. Remote desktop chat
+management requires the advertised `chat-management-v1` capability; bulk archived
+deletion requires `chat-delete-archived-v1`. Completed replies keep the final
+answer visible, with thinking and intermediate tool activity available on demand.
+The phone generates an initial chat title without replacing a manual rename.
 
-Phone settings use a touch layout of the shared web search panel, including provider-native
+Phone settings support search and collapsible sections. Web settings use a touch layout of the shared web search panel, including provider-native
 search, provider ordering and DeepSeek Search & Fetch. Native requests share the
 core search/fetch adapters. Saved keys are masked in the WebView and encrypted
 with a random settings key wrapped by Android Keystore; existing desktop
@@ -242,11 +246,18 @@ Android builds run only for a `nexa-mobile-v*` tag or an explicit release-tag
 dispatch. Shared core changes retain the desktop core checks. Native Android
 compilation and signing remain required before mobile release publication.
 
-To release, update the mobile package, npm lockfile, native Cargo package and
-Tauri versions together, write the English mobile changelog, and synchronize
-workspace lock metadata with `node scripts/sync-workspace-lock-versions.mjs --write`.
-Merge the reviewed change and push `nexa-mobile-v<version>` for that commit.
-The workflow validates version/tag identity, builds the ARM64 APK, verifies the
+The [Mobile Release workflow](../../.github/workflows/mobile-release.yml) maintains
+its own release PR, configuration and version manifest inside `apps/mobile`.
+Merge that reviewed PR to create the `nexa-mobile-v<version>` draft and start
+Android delivery. The release PR synchronizes the mobile npm, Tauri, Cargo and
+lockfile versions and generates an English changelog. It does not change the
+desktop version or start desktop packaging. For a manual release, update those
+same versions and `apps/mobile/.release-please-manifest.json`, write the English
+mobile changelog, run `node scripts/sync-workspace-lock-versions.mjs --write`,
+then merge and tag the reviewed commit.
+
+The workflow resolves one immutable source SHA for checks and packaging,
+validates version/tag identity and ancestry on master, builds the ARM64 APK, verifies the
 signature against the committed public certificate fingerprint, and publishes
 the APK, SHA-256 manifest and certificate receipt. Mobile releases use
 `latest=false` so desktop updater discovery keeps its existing release identity.
@@ -254,6 +265,20 @@ A failed draft can be resumed through the workflow's `release_tag` input.
 Its release body contains only the exact current mobile changelog entry, including
 on a draft retry. Desktop publication removes dedicated mobile sections and omits
 mobile-only pull requests from its generated release notes.
+
+Desktop release-please excludes the `apps/mobile`, `docs` and `.github`
+directories, so phone changes accompanied by documentation or CI changes do
+not cause a desktop version bump. Mobile workflow changes still run the mobile
+checks. Shared Rust runtime and imported desktop UI changes continue to validate
+their actual consumers; shared changes can require releases of both products.
+When releasing a shared-only mobile fix, include a mobile changelog/source change
+so the independent mobile release stream records it.
+
+This follows release-please's [directory-based commit exclusions](https://github.com/googleapis/release-please/blob/main/src/util/commit-exclude.ts),
+[per-package manifest configuration](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md)
+and [path-prefixed release outputs](https://github.com/googleapis/release-please-action#path-outputs).
+File names cannot be used as exclusion directories. CI-only and documentation-only
+commits do not themselves ship desktop application changes.
 
 Signing requires repository secrets `NEXA_MOBILE_KEYSTORE_B64`,
 `NEXA_MOBILE_KEY_PASSWORD` and `NEXA_MOBILE_KEY_ALIAS`. Keep the private keystore

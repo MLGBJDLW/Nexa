@@ -4,9 +4,10 @@ import { cachedModelChoices, type ModelChoices } from '../../desktop/src/feature
 import type { NativeSpeech, RemoteChatClient, PairedRemote, RemoteConnection, RemoteEnvelope } from '../../desktop/src/features/remote/remoteClient';
 
 export const phoneSpeech: NativeSpeech = {
-  finish: () => invoke('mobile_speech', { action: 'finish' }),
-  listen: language => invoke<{ text: string }>('mobile_speech', { action: 'listen', language }).then(result => result.text),
-  cancel: () => invoke('mobile_speech', { action: 'cancel' }),
+  prepare: requestId => invoke('mobile_speech', { action: 'prepare', requestId }),
+  finish: requestId => invoke('mobile_speech', { action: 'finish', requestId }),
+  listen: (language, requestId) => invoke<{ text: string }>('mobile_speech', { action: 'listen', language, requestId }).then(result => result.text),
+  cancel: requestId => invoke('mobile_speech', { action: 'cancel', requestId }),
   speak: (text, language) => invoke('mobile_speech', { action: 'speak', text, language }),
   stop: () => invoke('mobile_speech', { action: 'stop' }),
 };
@@ -14,6 +15,7 @@ export const phoneSpeech: NativeSpeech = {
 export interface NativeHost extends PairedRemote { id: string; endpoint: string }
 export const hostLabel = (host: NativeHost) => { try { return new URL(host.endpoint).hostname; } catch { return host.device.name; } };
 export class NativeClient implements RemoteChatClient {
+  get archivedDeletionAvailable() { return this.paired.manifest.capabilities?.includes("chat-delete-archived-v1") ?? false; }
   get conversationManagementAvailable() { return this.paired.manifest.capabilities?.includes("chat-management-v1") ?? false; }
   readonly nativeSpeech = phoneSpeech;
   readonly voiceAvailable = false;

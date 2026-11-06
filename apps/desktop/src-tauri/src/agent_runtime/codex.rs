@@ -639,7 +639,13 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             }
         }
     }.await;
-    turn.cancellation.cancel();
+    // Stop accepting tool effects immediately, but allow successful completion
+    // hooks to verify the final answer before the turn is torn down.
+    turn.transcript.nexa_tools().cancel_tools();
+    let _cancel_on_exit = turn.cancellation.clone().drop_guard();
+    if result.is_err() {
+        turn.cancellation.cancel();
+    }
     // Poll cancellation through shared dispatch before dropping pending futures.
     let _ = tokio::time::timeout(Duration::from_secs(3), async {
         while pending.next().await.is_some() {}

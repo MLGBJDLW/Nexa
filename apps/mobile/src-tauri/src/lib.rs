@@ -178,6 +178,11 @@ async fn mobile_local(
             )
         }
         "approvals" => state.approvals(&string("conversationId")?).await,
+        "deleteArchived" => state
+            .db
+            .delete_archived_conversations_batch(&[string("conversationId")?])
+            .map(|count| json!(count))
+            .map_err(|e| e.to_string()),
         "archive" | "delete" => {
             let ids = [string("conversationId")?];
             state
@@ -418,6 +423,7 @@ async fn mobile_speech(
     runtime: State<'_, RuntimeSlot>,
     speech_runtime: State<'_, speech::SpeechRuntime>,
     action: String,
+    request_id: Option<uuid::Uuid>,
     text: Option<String>,
     language: Option<String>,
     mode: Option<String>,
@@ -427,7 +433,15 @@ async fn mobile_speech(
 ) -> Result<Value, String> {
     if !matches!(
         action.as_str(),
-        "listen" | "finish" | "cancel" | "speak" | "stop" | "status" | "configure" | "settings"
+        "prepare"
+            | "listen"
+            | "finish"
+            | "cancel"
+            | "speak"
+            | "stop"
+            | "status"
+            | "configure"
+            | "settings"
     ) {
         return Err("Unsupported speech action.".into());
     }
@@ -435,6 +449,9 @@ async fn mobile_speech(
         return Err("Load and read a smaller message section.".into());
     }
     let mut args = json!({"action":action,"text":text.unwrap_or_default()});
+    if let Some(id) = request_id {
+        args["requestId"] = json!(id);
+    }
     if let Some(language) = language {
         args["language"] = json!(language);
     }
@@ -445,12 +462,15 @@ async fn mobile_speech(
         args["outputMode"] = json!(mode);
     }
     if action == "cancel" {
-        speech_runtime.cancel(false).await;
+        speech_runtime.cancel_input(request_id).await;
     }
     if action == "stop" {
         speech_runtime.cancel(true).await;
     }
-    if matches!(action.as_str(), "cancel" | "stop" | "finish" | "settings") {
+    if matches!(
+        action.as_str(),
+        "prepare" | "cancel" | "stop" | "finish" | "settings"
+    ) {
         return platform::call(&app, "speech", args).await;
     }
     let db = runtime.get(&app).await?.db.clone();
@@ -501,15 +521,24 @@ async fn mobile_speech(
         {
             return Err("speech_configuration".into());
         }
+        let mut resolved = config.clone();
+        connections::resolve_speech_credentials(&app, &mut resolved)
+            .await
+            .map_err(|_| "speech_configuration")?;
         if input_mode == "cloud" {
-            speech::validate_input(&config.speech_to_text)?;
+            speech::validate_input(&resolved.speech_to_text)?;
         }
         if output_mode == "cloud" {
-            speech::validate_output(&config.text_to_speech)?;
+            speech::validate_output(&resolved.text_to_speech)?;
         }
         db.save_app_config(&config)
             .map_err(|_| "speech_configuration")?;
+        config = resolved;
         native = platform::call(&app, "speech", args.clone()).await?;
+    } else {
+        connections::resolve_speech_credentials(&app, &mut config)
+            .await
+            .map_err(|_| "speech_configuration")?;
     }
     if matches!(action.as_str(), "status" | "configure") {
         if !config.speech_to_text.api_key.is_empty() {
@@ -535,7 +564,7 @@ async fn mobile_speech(
         } else {
             None
         };
-        return speech_runtime.listen(&app, args, input).await;
+        return speech_runtime.listen(&app, args, input, request_id).await;
     }
     let output = if native["outputMode"] == "cloud" {
         speech::validate_output(&config.text_to_speech)?;

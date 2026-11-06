@@ -195,7 +195,7 @@ pub async fn start(
             let stt = app
                 .state::<AppState>()
                 .db_executor
-                .write(|db| Ok(db.load_app_config()?.speech_to_text))
+                .write(|db| Ok(db.load_speech_app_config()?.speech_to_text))
                 .await
                 .map_err(|e| e.to_string())?
                 .value;

@@ -634,14 +634,14 @@ test('phone dictation edits the composer live and retains manual corrections thr
   await page.goto('/phone.html#pair=123456&server=desktop-1');
   const draft = page.getByLabel('Message', {exact:true});
   await draft.fill('写下：');
-  await page.getByRole('button', {name:'Voice input',exact:true}).click();
+  await draft.hover(); await page.mouse.down();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
   app.dictation('今天天气很好');
   await expect(draft).toHaveValue('写下： 今天天气很好');
   await draft.fill('写下： 明天天气很好');
   app.dictation('今天天气很好啊');
   await expect(draft).toHaveValue('写下： 明天天气很好啊');
-  await page.getByRole('button', {name:'Finish dictation',exact:true}).click();
+  await page.mouse.up();
   await expect.poll(() => app.counts().actions.some(item => item.method === 'voice.finish')).toBe(true);
   await expect(page.getByRole('button', {name:'Voice input',exact:true})).toBeEnabled();
   await expect(draft).toHaveValue('写下： 明天天气很好啊');
@@ -1211,4 +1211,18 @@ test('native client refreshes negotiated chat capabilities after reconnect', asy
     return {before,after,wrongIdentity,removed,refreshes};
   });
   expect(result).toEqual({before:false,after:true,wrongIdentity:true,removed:false,refreshes:2});
+});
+
+
+test('native phone settles intermediate replies behind activity and keeps its final answer visible', async ({page}) => {
+  await page.goto('/');
+  await page.evaluate(async () => { const path='/e2e/fixtures/mobile-continuity.tsx'; (await import(/* @vite-ignore */ path)).renderMobileContinuity(); });
+  const phone=page.locator('.mobile-app');
+  await phone.getByLabel('Message',{exact:true}).fill('Review report');
+  await phone.getByRole('button',{name:'Send',exact:true}).click();
+  await expect(phone.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+  await page.evaluate(()=>{const f=(window as any).__MOBILE_CONTINUITY__;f.emit('outputSnapshot',{blockId:'intro',channel:'answer',text:'I will inspect the report.'});f.finish();});
+  await expect(phone.getByText('Final report: all three sections are consistent.',{exact:true})).toBeVisible();
+  await expect(phone.getByText('I will inspect the report.',{exact:true}).first()).not.toBeVisible();
+  await expect(phone.getByRole('button',{name:'Send',exact:true})).toBeVisible();
 });

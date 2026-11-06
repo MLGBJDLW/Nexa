@@ -182,7 +182,7 @@ test('small changes omit unrelated runtime jobs while shared or unknown changes 
   assert.equal(classifyCiScope(['apps/desktop/src/features/chat/ChatInput.tsx', 'docs/README.md']), 'frontend');
   assert.equal(classifyCiScope(['README.zh-CN.md']), 'lightweight');
   assert.equal(classifyCiScope(['apps/mobile/src/MobileApp.tsx', 'apps/mobile/src-tauri/src/local.rs']), 'lightweight');
-  assert.equal(classifyCiScope(['apps/mobile/src/MobileApp.tsx', 'crates/core/src/lib.rs']), 'full');
+  assert.equal(classifyCiScope(['apps/mobile/src/MobileApp.tsx', 'crates/core/src/lib.rs']), 'native');
   assert.equal(classifyCiScope(['apps/desktop/src-tauri/src/main.rs', 'crates/core/src/lib.rs', 'docs/README.md']), 'native');
   assert.equal(classifyCiScope(['apps/desktop/src/components/chat/ChatInput.tsx', 'crates/core/src/lib.rs']), 'full');
   for (const changedPath of ['apps/desktop/src-tauri/migrations/v1.sql',
@@ -207,6 +207,14 @@ test('mobile CI follows shared frontend imports and independent native boundarie
   assert.equal(mobileCiRequired(['apps/desktop/tsconfig.json'], dependencies), true);
   assert.equal(mobileCiRequired(['docs/README.md'], dependencies), false);
   assert.equal(mobileCiRequired(['apps/desktop/src/pages/ChatPage.tsx'], null), true);
+});
+
+test('mobile delivery infrastructure never requests desktop runtime builds', () => {
+  assert.equal(classifyCiScope(['apps/mobile/src/MobileApp.tsx', '.github/workflows/mobile.yml',
+    '.github/workflows/mobile-release.yml', 'docs/guides/MOBILE_APP.md']), 'lightweight');
+  assert.equal(mobileCiRequired(['.github/workflows/mobile-release.yml']), true);
+  assert.equal(mobileCiRequired(['scripts/release-notes.mjs']), true);
+  assert.equal(classifyCiScope(['.github/workflows/mobile.yml', 'crates/core/src/lib.rs']), 'native');
 });
 
 test('native-only CI retains every runtime gate and permits only unrelated suites to skip', () => {

@@ -45,6 +45,7 @@ import {
   getPastedImageDataUrl,
 } from "../../lib/chatAttachments";
 import { CheckpointMenu } from "./CheckpointMenu";
+import { useHoldToDictate } from "../../features/voice/useHoldToDictate";
 import { VoiceInputButton, type VoiceInputButtonHandle } from "./VoiceInputButton";
 import { ScreenCaptureButton } from './ScreenCaptureButton';
 import {
@@ -489,6 +490,13 @@ export function ChatInput({
   const hasImageAttachments = attachments.some((attachment) => attachment.mediaType.startsWith('image/'));
   const visionDecisionRequired = hasImageAttachments && visionPolicyMode === 'ask' && visionTurnOverride === null;
   const inputLocked = disabled || loadedDraftKey !== draftKey;
+  const holdToDictate = useHoldToDictate({
+    enabled: !inputLocked && !draftPreview,
+    pointerTypes: ['mouse'],
+    onStart: () => voiceInputRef.current?.startHold(),
+    onFinish: () => voiceInputRef.current?.finishHold(),
+    onCancel: () => voiceInputRef.current?.cancelHold(),
+  });
   const sendLocked = inputLocked || (isCompacting && !isForkWaiting) || visionDecisionRequired || sendPending;
   const visibleFollowups = !isStreaming && !sendLocked && !draftPreview && !value && !attachments.length && !activeSlashCommandId
     && followupSuggestions?.key !== dismissedFollowupKey ? followupSuggestions : null;
@@ -647,7 +655,8 @@ export function ChatInput({
     const nextOwnerDraft = { ...ownerDraft, value: projected.draft };
     draftsRef.current[ownerKey] = cloneDraftState(nextOwnerDraft);
     persistChatInputDraft(ownerKey, nextOwnerDraft);
-    if (ownerKey === draftKey) setValue(projected.draft);
+    // A final transcript can outlive the render that started the recording.
+    if (ownerKey === currentDraftKeyRef.current) setValue(projected.draft);
   }, [draftKey]);
 
   useEffect(() => {
@@ -2132,6 +2141,7 @@ export function ChatInput({
           data-testid="chat-input-textarea"
           data-draft-key={draftKey}
           ref={textareaRef}
+          {...holdToDictate}
           value={value}
           onChange={(e) => {
             const nextValue = e.target.value;
@@ -2148,7 +2158,7 @@ export function ChatInput({
           onPaste={handlePaste}
           placeholder={ghostSuggestion ? '' : isCompacting && !isForkWaiting ? `${t(historyFork ? "chat.forking" : "chat.compacting")} (>_<)` : t("chat.placeholder")}
           aria-label={t("chat.placeholder")}
-          aria-description={ghostSuggestion ? t('chat.followupTabHint', { prompt: ghostSuggestion }) : undefined}
+          aria-description={[ghostSuggestion && t('chat.followupTabHint', { prompt: ghostSuggestion }), !inputLocked && t('voice.holdComposerToDictate')].filter(Boolean).join(' ') || undefined}
           disabled={inputLocked}
           rows={1}
           hidden={draftPreview}

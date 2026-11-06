@@ -45,7 +45,7 @@ the long-command and overload-retry fixes in
 [1.0.102](https://github.com/github/copilot-cli/releases/tag/v1.0.102).
 
 The two external-agent Copilot entries use the official CLI: the SDK entry
-exposes Nexa tools, while the ACP entry uses native Copilot tools. **GitHub Copilot
+exposes Nexa tools directly, while ACP can call both native Copilot tools and the Nexa host MCP server. **GitHub Copilot
 API**, under API models, is a separate direct connection: Nexa owns its model loop,
 tool replay, Fork and compaction. Import an explicitly selected GitHub CLI account
 or enter a Copilot-enabled GitHub account token, refresh its model catalog and
@@ -134,6 +134,27 @@ For API/local connections and endpoint capability resolution, see
 the bundled driver contract; it is not a promise of parity with every upstream
 runtime feature or account plan.
 
+
+## Cursor and Grok API keys
+
+Choose **AI Providers → External agents → Cursor** to use a Cursor API key.
+The optional masked key field forwards the key as `CURSOR_API_KEY` to the
+Cursor runtime. Leave it empty to reuse Cursor CLI sign-in, then check the
+connection and select a model from that account's live catalog. Nexa does not
+assume that a model available to another Cursor account is enabled for yours.
+Cursor documents both [API-key authentication](https://cursor.com/docs/cli/reference/authentication)
+and the [ACP integration](https://cursor.com/docs/cli/acp).
+
+A dashboard can offer separate Cursor and Grok keys. A Grok API key belongs in
+Nexa's **xAI** API provider (`https://api.x.ai/v1`); a Cursor key belongs in the
+Cursor external agent. They authenticate different APIs. Cursor's Cloud Agents
+API is an agent API, not an OpenAI-compatible chat endpoint. The unified
+subscription does not make the two key types interchangeable, and
+[Grok API usage is billed separately](https://cursor.com/docs/models-and-pricing)
+from the shared subscription pool. Nexa never reads another application's
+private credential database to guess a key.
+
+
 ## Execution ownership
 
 `DesktopAgentBackend` selects Nexa's direct API executor in `core::llm` or an
@@ -145,7 +166,7 @@ Nexa tool dispatcher, approval callback, activity database, cancellation token,
 browser observation fence, message persistence and ordered Run Event outbox as
 direct chat. Tools retain their actual names and schemas.
 
-Copilot and Codex create one upstream session per Nexa turn; ACP can reuse a completed session. The driver remains in the backend
+Copilot and Codex create one upstream session per Nexa turn; ACP can reuse a completed session only when no Nexa host tools were offered. The driver remains in the backend
 when the renderer reloads; reconciliation reads the existing outbox instead of
 submitting another upstream turn. Nexa's bounded reference history is supplied
 as reference context, without replaying another provider's native tool records.
@@ -180,7 +201,7 @@ Common CLI entrypoints include:
 | Gemini CLI | `gemini --acp` | Install the official CLI and complete its login |
 | OpenCode | `opencode acp` | Install and configure its native providers/account |
 | Hermes Agent | `hermes acp` | Install with the ACP extra and configure its native account |
-| GitHub Copilot CLI (ACP) | `copilot --acp` | Use the official CLI login; this route uses native Copilot tools |
+| GitHub Copilot CLI (ACP) | `copilot --acp` | Use the official CLI login; this route supports native Copilot tools and Nexa host MCP tools |
 | Claude Code (ACP) | `claude-agent-acp` | Install the Agent Client Protocol Claude adapter and authenticate Claude Code |
 | Codex CLI (ACP) | `codex-acp` | Install the Agent Client Protocol Codex adapter and authenticate Codex |
 | Qwen Code | `qwen --acp` | Install and authenticate the official CLI |
@@ -336,12 +357,14 @@ Namespaced commands retain their prefix. Silent command completion emits a typed
 status receipt without inventing an assistant reply. Queued commands and ordinary
 steering messages execute as separate prompts so the latter are not swallowed.
 
-Profiles can explicitly select enabled user-managed MCP connectors to forward.
+Chat sessions expose the active Nexa tool catalog as `nexa-host`. Nexa supplies an absolute-path stdio executable in `session/new`, the transport required by [ACP v1](https://agentclientprotocol.com/protocol/v1/session-setup). The subprocess forwards requests to a private loopback listener for this turn. Each call goes through the existing Nexa approval, workspace, cancellation and receipt checks; native tool reports are display events and never trigger a second execution. Discovery and sign-in do not receive this bridge. When the turn ends, the host revokes access. A later turn with host tools gets a new capability and a new session because MCP requests do not identify their originating ACP turn.
+
+Profiles can also explicitly select enabled user-managed MCP connectors to forward.
 Stdio is supported by ACP; HTTP/SSE requires the agent's advertised capability.
 Selected connector environment variables/headers are passed to the native agent,
 which owns execution and permissions. Built-in Nexa connectors are not forwarded.
 
-ACP tools execute in the external process with its native configuration and
+The agent’s own ACP tools execute in the external process with its native configuration and
 permission policy. Nexa projects `tool_call` reports with `providerExecuted` and
 does not run them again. ACP permission requests use Nexa's approval UI, bind to
 the profile, working directory and stable action arguments, and select only a
@@ -366,7 +389,7 @@ does not block filesystem requests, terminal output or cancellation.
 
 Text/thinking, native tool lifecycle, context usage snapshots and final message
 IDs flow through the existing ordered outbox. A fresh session receives bounded
-reference history. Completed sessions are cached by conversation, profile and
+reference history. Completed sessions without host tools can be cached by conversation, profile and
 launch configuration, with at most four idle sessions and a five-minute idle TTL.
 A warm turn sends only new input and changed context. Transcript edits, route
 changes, changed cwd, cancellation, process death and uncertain outcomes require
@@ -440,7 +463,7 @@ the runtime does not silently switch to an in-memory journal.
   SDK's deferred discovery. Discovered definitions keep their Nexa callbacks,
   and editing tools remain callable above the SDK's default deferral threshold.
   The separately labelled Copilot CLI ACP
-  route uses native tools and native permissions instead.
+  route retains native tools and permissions alongside its Nexa host MCP connection.
 - Codex uses a fresh ephemeral app-server thread, no executor environments,
   read-only policy and disabled shell, web, plugins, hooks, agents and automation.
   Effective MCP names and skill paths are inventoried and disabled for that

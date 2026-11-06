@@ -225,5 +225,7 @@
   "mobileSpeechOutput": "朗读服务",
   "mobileSpeechSample": "你好，我是 Nexa。你的语音服务已准备就绪。",
   "speechConfiguration": "请先配置受支持的语音供应商、接口地址、模型和 API 密钥。",
-  "speechCloudFailed": "自配语音服务调用失败，请检查账号、模型、接口地址和网络。"
+  "speechCloudFailed": "自配语音服务调用失败，请检查账号、模型、接口地址和网络。",
+  "mobileSettingsSearch": "搜索设置",
+  "mobileSettingsNoResults": "没有匹配的设置。"
 }

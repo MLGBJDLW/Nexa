@@ -35,7 +35,7 @@ const MAX_CATALOG_PAGES: usize = 128;
 const MAX_CATALOG_TOOLS: usize = 4096;
 const MAX_CATALOG_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
-const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] =
+pub const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] =
     ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 fn content_catalog_part(

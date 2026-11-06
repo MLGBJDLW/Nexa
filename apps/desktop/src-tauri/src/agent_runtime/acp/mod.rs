@@ -5,6 +5,7 @@ mod catalog;
 pub(crate) use auth::{authenticate, Authentication};
 pub(super) mod client;
 mod config;
+pub(crate) mod host_tools;
 mod mcp;
 mod pool;
 mod projection;
@@ -115,7 +116,21 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
                     roots: vec![binding.launch.working_directory.clone()],
                 }));
     }
-    let servers = mcp::selected(&request.db, &binding.launch.mcp_server_ids)?;
+    let mut servers = mcp::selected(&request.db, &binding.launch.mcp_server_ids)?;
+    request.cancellation = request.cancellation.child_token();
+    let definitions = if request.config.max_iterations == 0 {
+        vec![]
+    } else {
+        request.dependencies.tools.definitions()
+    };
+    let bridge = if definitions.is_empty() {
+        None
+    } else {
+        Some(host_tools::Bridge::start(definitions, request.cancellation.clone()).await?)
+    };
+    if let Some(bridge) = &bridge {
+        servers.push(bridge.server()?);
+    }
     let preset = preset(provider).ok_or_else(|| error("Unknown external agent"))?;
     nexa_core::external_agent::credentials::validate_launch_credentials(&preset, &binding.launch)?;
     let key = blake3::hash(
@@ -163,11 +178,20 @@ pub(crate) async fn run(provider: &str, mut request: AgentRuntimeTurnRequest) ->
             }
         })
         .await?;
-    let answer = run_configured(provider, request, &mut connection).await?;
+    let tools = request.host_tools(connection.session.images, request.cancellation.clone())?;
+    if let Some(bridge) = &bridge {
+        bridge.activate(tools.clone());
+    }
+    let answer = run_configured_with_tools(provider, request, &mut connection, Some(tools)).await?;
+    if let Some(bridge) = &bridge {
+        bridge.deactivate();
+    }
     privacy_lease.ensure_current()?;
     // A changed/rewound transcript, model/effort, profile or workspace never reuses
     // hidden upstream state. Only a completed, persisted turn is cached.
-    if db.chat_worktree(&conversation)?.is_none() {
+    // MCP requests carry no turn identity. Do not retain a process holding a
+    // completed turn capability: the next turn gets a fresh bridge and session.
+    if bridge.is_none() && db.chat_worktree(&conversation)?.is_none() {
         if let Ok(history) = history_fingerprint(&db, &conversation, None) {
             connection.history = history;
             pool::put(key, connection);
@@ -310,10 +334,20 @@ async fn configure_connection(
     Ok(())
 }
 
+#[cfg(test)]
 async fn run_configured(
+    provider: &str,
+    request: AgentRuntimeTurnRequest,
+    connection: &mut pool::Connected,
+) -> Result<Message> {
+    run_configured_with_tools(provider, request, connection, None).await
+}
+
+async fn run_configured_with_tools(
     provider: &str,
     mut request: AgentRuntimeTurnRequest,
     connection: &mut pool::Connected,
+    tools: Option<std::sync::Arc<nexa_core::agent::ExternalToolSession>>,
 ) -> Result<Message> {
     let context = json!([
         request.config.system_prompt,
@@ -338,21 +372,22 @@ async fn run_configured(
     if warm {
         request.history.clear();
     }
-    let mut turn = request.prepare(connection.session.images)?;
+    let mut turn = request.prepare_with_tools(connection.session.images, tools)?;
     if warm && connection.context == context {
         turn.system_prompt.clear();
     }
     let mut output = super::projection::Projection::for_turn(&turn);
     let mut reports = projection::ToolReports::new(provider)?;
-    let result = drive(
-        provider,
-        &mut turn,
-        &mut connection.wire,
-        &mut connection.session,
-        &mut output,
-        &mut reports,
-    )
-    .await;
+    let tools = turn.transcript.nexa_tools().clone();
+    let result = tokio::select! {
+        biased;
+        cause = tools.wait_for_user_input_request() => Err(cause),
+        result = drive(provider, &mut turn, &mut connection.wire, &mut connection.session, &mut output, &mut reports) => result,
+    };
+    tools.cancel_tools();
+    // If protocol completion and the durable question raced on different
+    // executor threads, the checkpoint still owns the turn outcome.
+    let result = tools.ensure_not_suspended().and(result);
     match result {
         Ok(context_delivered) => {
             if context_delivered {

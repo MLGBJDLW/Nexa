@@ -13,11 +13,11 @@ export interface RemoteComposerSettings {
 }
 export const defaultComposerSettings: RemoteComposerSettings = { executionMode:'normal', powerMode:'standard', collaborationMode:'direct' };
 
-export function RemoteComposerOptions({ attachments, onAttachments, settings, onSettings, disabled, onBusy, extendedModes = true, imagesOnly = false }: {
+export function RemoteComposerOptions({ attachments, onAttachments, settings, onSettings, disabled, onBusy, extendedModes = true, imagesOnly = false, showExecutionMode = true }: {
   attachments: ImageAttachment[]; onAttachments: (items: ImageAttachment[]) => void;
   settings: RemoteComposerSettings; onSettings: (value: RemoteComposerSettings) => void;
   disabled: boolean; onBusy: (busy: boolean) => void;
-  extendedModes?: boolean; imagesOnly?: boolean;
+  extendedModes?: boolean; imagesOnly?: boolean; showExecutionMode?: boolean;
 }) {
   const { t } = useTranslation();
   const [error, setError] = useState('');
@@ -44,9 +44,9 @@ export function RemoteComposerOptions({ attachments, onAttachments, settings, on
   return <div className="flex flex-wrap items-center gap-2" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); void add(Array.from(event.dataTransfer.files)); }}>
     <input ref={input} type="file" accept={imagesOnly ? 'image/png,image/jpeg,image/webp,image/gif' : undefined} multiple className="hidden" aria-label={t('remote.addAttachments')} disabled={disabled || loading} onChange={event => void add(Array.from(event.target.files ?? []))} />
     <button type="button" className={remoteButton} disabled={disabled || loading} onClick={() => input.current?.click()}><Paperclip size={16} />{t('remote.addAttachments')}</button>
-    <select className={`${remoteField} !w-auto min-w-24 flex-1`} aria-label={t('remote.executionMode')} disabled={disabled} value={settings.executionMode} onChange={event => onSettings({...settings, executionMode:event.target.value as RemoteComposerSettings['executionMode']})}>
+    {showExecutionMode && <select className={`${remoteField} !w-auto min-w-24 flex-1`} aria-label={t('remote.executionMode')} disabled={disabled} value={settings.executionMode} onChange={event => onSettings({...settings, executionMode:event.target.value as RemoteComposerSettings['executionMode']})}>
       <option value="normal">{t('remote.modeNormal')}</option><option value="plan">{t('remote.modePlan')}</option>
-    </select>
+    </select>}
     {extendedModes && <><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={settings.powerMode === 'nexus'} disabled={disabled} onChange={event => onSettings({...settings, powerMode:event.target.checked ? 'nexus' : 'standard'})} />Nexus</label>
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={settings.collaborationMode === 'mixtureOfAgents'} disabled={disabled} onChange={event => onSettings({...settings, collaborationMode:event.target.checked ? 'mixtureOfAgents' : 'direct'})} />{t('remote.collaboration')}</label></>}
     {attachments.length > 0 && <div className="flex w-full flex-wrap gap-2">{attachments.map((item, index) => <span key={index} className="flex max-w-full items-center gap-2 rounded-lg border border-border p-2 text-xs">

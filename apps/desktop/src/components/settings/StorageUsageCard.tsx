@@ -18,6 +18,19 @@ const categories: Record<string, { label: TranslationKey; color: string }> = {
   wal: { label: 'settings.storageWal', color: '#fb923c' },
 };
 
+// A tab change can mount another view while a filesystem scan is still running.
+// Share only the pending scan; refresh and post-mutation reads always start fresh.
+const pendingUsage = new WeakMap<StorageService, Promise<StorageUsage>>();
+function readUsage(service: StorageService, refresh: boolean) {
+  const pending = pendingUsage.get(service);
+  if (!refresh && pending) return pending;
+  const request = service.usage();
+  pendingUsage.set(service, request);
+  const clear = () => { if (pendingUsage.get(service) === request) pendingUsage.delete(service); };
+  void request.then(clear, clear);
+  return request;
+}
+
 export function StorageUsageCard({ service = storageService, mobile = false }: { service?: StorageService; mobile?: boolean }) {
   const { t } = useTranslation();
   const [stats, setStats] = useState<StorageUsage | null>(null);
@@ -27,13 +40,14 @@ export function StorageUsageCard({ service = storageService, mobile = false }: {
   const [manage, setManage] = useState(false);
   useEffect(() => {
     let active = true; setLoading(true);
-    void service.usage().then(value => { if (active) { setStats(value); setError(null); } })
+    void readUsage(service, revision > 0).then(value => { if (active) { setStats(value); setError(null); } })
       .catch(reason => { if (active) setError(String(reason)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [service, revision]);
-  return <Section icon={<Database size={20} />} title={t('settings.storageSection')}>
-    <div data-testid="storage-usage" className="min-w-0 space-y-3">
+  return <Section icon={<Database size={20} />} title={t('settings.storageDistribution')}>
+    <div aria-busy={loading} data-testid="storage-usage" className="min-w-0 space-y-3">
       <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-text-secondary">{t('settings.storageUsageHint')}</p><button type="button" disabled={loading} onClick={() => setRevision(value => value + 1)} aria-label={t('taskCenter.refresh')} className="rounded-lg p-2 text-text-secondary disabled:opacity-40"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button></div>
+      {loading && !stats && <p role="status" className="text-xs text-text-secondary">{t('common.loading')}</p>}
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
       {stats && <>
         <p className="text-2xl font-semibold tabular-nums">{size(stats.totalBytes)}</p>

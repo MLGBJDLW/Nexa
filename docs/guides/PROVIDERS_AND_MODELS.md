@@ -19,6 +19,25 @@ currently has no serving endpoints and stays as an unavailable historical ID,
 with no automatic replacement by a paid model. Public catalogs and documentation
 establish route metadata, not account entitlement or successful inference.
 
+The November 6 review adds OpenRouter [Ling 3.0 Tiny](https://openrouter.ai/inclusionai/ling-3.0-tiny)
+and [Auto Code](https://openrouter.ai/openrouter/auto-code) on the existing chat
+transport. Auto Code chooses an upstream model; its catalog context is the
+router's upper bound and its price depends on the selected route. Gemini Omni
+1.1/1.2 Flash use the [OpenRouter video catalog](https://openrouter.ai/api/v1/videos/models)
+for text, first-frame and first/last-frame generation; video editing is not
+advertised by these entries. Four old MiniMax router IDs now have no serving
+endpoints and remain historical unavailable choices, without changing saved IDs
+or silently selecting a paid replacement.
+
+Catalog modality labels alone do not establish wire compatibility.
+[Clairic](https://openrouter.ai/cloudflare/clairic) requires the Extractions API,
+so it is not offered as a Decisions model. The public catalog and
+[Tev1 model page](https://openrouter.ai/togethercomputer/tev1-4b-experimental)
+disagree about its native decision transport; it remains outside the presets
+until that request contract is verified. The audit validates all seven catalog
+surfaces and separately records five public discovery probes. Authenticated
+provider catalogs and inference still require the relevant account credentials.
+
 ## Usage statistics
 
 Settings → AI Usage shows a daily contribution heatmap for the past 365 days.

@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import { useAppCommand } from '../../lib/appCommands';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Mic, Loader2, RotateCw, Trash2 } from 'lucide-react';
@@ -15,6 +15,9 @@ interface VoiceInputButtonProps {
 
 export interface VoiceInputButtonHandle {
   cancelCapture: () => void;
+  startHold: () => void;
+  finishHold: () => void;
+  cancelHold: () => void;
 }
 
 export const VoiceInputButton = forwardRef<VoiceInputButtonHandle, VoiceInputButtonProps>(
@@ -41,12 +44,14 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
     clearAutomaticResult,
     recordingDuration,
     toggleRecording,
+    finishActiveRecording,
     toggleRecordingPause,
     discardPendingVoiceSpool,
     formatDuration,
     analyser,
   } =
     voiceRuntime;
+  const heldCapture = useRef<'starting' | 'recording' | null>(null);
   const lastPublishedPartialRef = useRef('');
   const captureGenerationRef = useRef(0);
   const discardAutomaticResultRef = useRef(false);
@@ -62,6 +67,7 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
   }, [isRecording, onDictationEvent, partialTranscript]);
 
   const cancelCapture = useCallback(() => {
+    heldCapture.current = null;
     acceptingInterimRef.current = false;
     captureGenerationRef.current += 1;
     discardAutomaticResultRef.current = true;
@@ -69,12 +75,16 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
     lastPublishedPartialRef.current = '';
   }, [cancelRecording]);
 
+  const cancelOnUnmount = useRef(cancelCapture);
+  cancelOnUnmount.current = cancelCapture;
+  useLayoutEffect(() => () => {
+    if (heldCapture.current) cancelOnUnmount.current();
+  }, []);
+
   const handleCancel = useCallback(() => {
     cancelCapture();
     onDictationEvent({ kind: 'cancel' });
   }, [cancelCapture, onDictationEvent]);
-
-  useImperativeHandle(ref, () => ({ cancelCapture }), [cancelCapture]);
 
   // Cancel on Escape
   useEffect(() => {
@@ -117,6 +127,7 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
 
   useEffect(() => {
     if (!automaticResult) return;
+    heldCapture.current = null;
     acceptingInterimRef.current = false;
     if (discardAutomaticResultRef.current) {
       clearAutomaticResult();
@@ -134,11 +145,14 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
     clearAutomaticResult();
   }, [automaticResult, clearAutomaticResult, onDictationEvent, showRuntimeError]);
 
-  const handleClick = useCallback(async () => {
-    if (busy) return;
-
-    const wasRecording = isRecording;
-    if (wasRecording) acceptingInterimRef.current = false;
+  const performCapture = useCallback(async (action: 'toggle' | 'finishHold') => {
+    const wasRecording = action === 'finishHold' || isRecording;
+    if (wasRecording) {
+      acceptingInterimRef.current = false;
+      // An automatic safe stop can share the same finish promise. The explicit
+      // stop owns its result so the transcript is inserted only once.
+      discardAutomaticResultRef.current = true;
+    }
     if (!wasRecording && !hasRetryableVoiceSpool) {
       // Establish composer ownership before microphone startup can race a fast
       // provider interim event back to React.
@@ -148,7 +162,7 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
       onDictationEvent({ kind: 'start' });
     }
     const captureGeneration = captureGenerationRef.current;
-    const result = await toggleRecording();
+    const result = action === 'finishHold' ? await finishActiveRecording() : await toggleRecording();
     if (captureGeneration !== captureGenerationRef.current) return;
     if (result.status === 'transcribed') {
       lastPublishedPartialRef.current = '';
@@ -164,7 +178,36 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
       }
       showRuntimeError(result.code, result.message);
     }
-  }, [busy, hasRetryableVoiceSpool, isRecording, onDictationEvent, showRuntimeError, toggleRecording]);
+    return result.status;
+  }, [finishActiveRecording, hasRetryableVoiceSpool, isRecording, onDictationEvent, showRuntimeError, toggleRecording]);
+
+  const handleClick = useCallback(() => {
+    if (!busy && !heldCapture.current) void performCapture('toggle');
+  }, [busy, performCapture]);
+
+  useImperativeHandle(ref, () => ({
+    cancelCapture,
+    startHold() {
+      if (disabled || busy || heldCapture.current || isRecording || hasPendingVoiceSpool) return;
+      heldCapture.current = 'starting';
+      const generation = captureGenerationRef.current;
+      void performCapture('toggle').then(status => {
+        if (generation === captureGenerationRef.current && heldCapture.current === 'starting') {
+          heldCapture.current = status === 'started' ? 'recording' : null;
+        }
+      });
+    },
+    finishHold() {
+      if (heldCapture.current === 'starting') { handleCancel(); return; }
+      if (heldCapture.current !== 'recording') return;
+      heldCapture.current = null;
+      if (automaticResult || transportState === 'processing') return;
+      // Stop explicitly: a release between microphone startup and React's next
+      // render must never toggle an idle recorder back on.
+      void performCapture('finishHold');
+    },
+    cancelHold() { if (heldCapture.current) handleCancel(); },
+  }), [automaticResult, busy, cancelCapture, disabled, handleCancel, hasPendingVoiceSpool, isRecording, performCapture, transportState]);
 
   useAppCommand({ id: 'chat.voice', label: isRecording ? 'voice.stopRecording' : 'voice.startRecording', keywords: '/voice dictation microphone 语音', enabled: !disabled && !busy, run: () => { void handleClick(); } });
 
@@ -237,7 +280,7 @@ function VoiceInputButton({ onDictationEvent, disabled }, ref) {
             : 'w-8 text-text-tertiary hover:bg-surface-2 hover:text-text-secondary'
         }`}
         aria-label={label}
-        title={label}
+        title={isRecording || busy || hasPendingVoiceSpool ? label : `${label} · ${t('voice.holdComposerToDictate')}`}
       >
         {busy ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />

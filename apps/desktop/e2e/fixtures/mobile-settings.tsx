@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { I18nProvider, useTranslation } from '../../src/i18n';
+import PhoneSettingsSheet from '../../../mobile/src/PhoneSettingsSheet';
 import { PhoneWebSettings } from '../../../mobile/src/PhoneWebSettings';
 import { PhoneSpeechSettings } from '../../../mobile/src/PhoneSpeechSettings';
 import { ConversationStorageManager } from '../../src/components/settings/ConversationStorageManager';
@@ -19,6 +20,7 @@ export function renderMobileSettings(kind = 'web') {
   (window as any).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
+      if (command === 'mobile_storage') return {totalBytes:1024,categories:[{id:'chats',bytes:1024}],activeConversations:1,archivedConversations:0};
       if (command === 'mobile_speech') {
         if (args.action === 'configure') { speech = { ...speech, ...args }; return speech; }
         if (args.action === 'listen') return new Promise(resolve => { finish = resolve; });
@@ -33,5 +35,9 @@ export function renderMobileSettings(kind = 'web') {
   const host = document.createElement('div'); host.className = 'mobile-app';
   document.body.appendChild(host);
   const storage = { page:async()=>({entries:[{id:'chat',title:'Saved phone conversation'}],next:null}), archive:async(ids:string[])=>calls.push({action:'archive',ids}),remove:async(ids:string[])=>calls.push({action:'remove',ids}) } as unknown as StorageService;
+  if (kind === 'all') {
+    createRoot(host).render(<I18nProvider><PhoneSettingsSheet open state={{version:'fixture',settings:null,connections:[],hosts:[],capabilities:{accessibility:true,notifications:true}}} syncBusy={{}} syncErrors={{}} onSync={async()=>({supported:true,checkedAt:'',connections:0,received:0,sent:0,conflicts:0,deviceOnly:0})} onClose={()=>{}} onChanged={async()=>{}} onForgot={()=>{}}/></I18nProvider>);
+    return;
+  }
   createRoot(host).render(<I18nProvider><MobileDialog title="Settings" onClose={() => {}}>{kind === 'speech' ? <><LocaleSwitch/><PhoneSpeechSettings open/></> : kind === 'storage' ? <ConversationStorageManager mobile service={storage} onClose={()=>{}} onChanged={()=>{}}/> : <PhoneWebSettings/>}</MobileDialog></I18nProvider>);
 }

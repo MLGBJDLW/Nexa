@@ -687,27 +687,24 @@ export function ChatPage() {
   const toggleAutoSpeech = useCallback(async () => {
     if (!appConfig?.textToSpeech || autoSpeechSaving) return;
     const nextEnabled = !appConfig.textToSpeech.autoSpeakFinalAnswers;
-    if (nextEnabled) {
-      const tts = appConfig.textToSpeech;
-      const configured = isTextToSpeechConfigured(tts);
-      if (!configured) {
-        toast.error(t('chat.autoTtsNeedsProvider'));
-        return;
-      }
-    } else {
-      stopSpeech();
-      finalSpeechCandidateRef.current = null;
-    }
-    const nextConfig: AppConfig = {
-      ...appConfig,
-      textToSpeech: {
-        ...appConfig.textToSpeech,
-        autoSpeakFinalAnswers: nextEnabled,
-      },
-    };
-    setAppConfig(nextConfig);
     setAutoSpeechSaving(true);
     try {
+      if (nextEnabled) {
+        const tts = (await api.getAppConfig(true)).textToSpeech;
+        if (!isTextToSpeechConfigured(tts)) {
+          toast.error(t('chat.autoTtsNeedsProvider'));
+          return;
+        }
+      } else {
+        stopSpeech();
+        finalSpeechCandidateRef.current = null;
+      }
+      // Persist the ordinary settings snapshot, never a resolved speech key.
+      const nextConfig: AppConfig = {
+        ...appConfig,
+        textToSpeech: { ...appConfig.textToSpeech, autoSpeakFinalAnswers: nextEnabled },
+      };
+      setAppConfig(nextConfig);
       await api.saveAppConfig(nextConfig);
     } catch (error) {
       setAppConfig(appConfig);

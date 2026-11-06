@@ -207,7 +207,7 @@ impl Tool for SynthesizeSpeechTool {
             return Ok(error_result(call_id, "Speech text cannot be empty."));
         }
 
-        let config = db.load_app_config()?.text_to_speech;
+        let config = db.load_speech_app_config()?.text_to_speech;
         if !config.is_configured() {
             return Ok(error_result(
                 call_id,

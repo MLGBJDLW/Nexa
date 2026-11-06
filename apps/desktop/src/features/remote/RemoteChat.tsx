@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Archive, ArchiveRestore, Trash2, ArrowDown, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen, Volume2 } from "lucide-react";
+import { ListChecks, Archive, ArchiveRestore, Trash2, ArrowDown, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen, Volume2 } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from './MobileChatShell';
 import { useTranslation } from "../../i18n";
@@ -8,6 +8,7 @@ import { remoteButton, remoteField } from "./remoteUi";
 import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
 import type { TurnModelSelection } from '../models/modelChoices';
 import { RemoteVoiceInput } from './RemoteVoiceInput';
+import { useHoldToDictate, type DictationControls } from '../voice/useHoldToDictate';
 import { NativeDictationInput } from './NativeDictationInput';
 import { nativeSpeechErrorKey } from './nativeSpeechErrors';
 import { NexaCombobox } from '../../components/ui/overlay/Combobox';
@@ -47,6 +48,7 @@ interface ChatMessage {
   content: string;
   totalChars: number;
   sortOrder: number;
+  intermediate?: boolean;
   thinking?: string;
   thinkingTotalChars?: number;
 }
@@ -175,6 +177,7 @@ export function RemoteChat({
   const [archived, setArchived] = useState<Conversation[]>([]);
   const [archivedCursor, setArchivedCursor] = useState<string | null>(null);
   const [archivesOpen, setArchivesOpen] = useState(false);
+  const [deleteArchivedIds, setDeleteArchivedIds] = useState<string[] | null>(null);
   const [manageTarget, setManageTarget] = useState<{ item: Conversation; action: "archive" | "delete" } | null>(null);
   const [managing, setManaging] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -185,6 +188,15 @@ export function RemoteChat({
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
+  const dictationControls = useRef<DictationControls>(null);
+  const heldControls = useRef<DictationControls | null>(null);
+  const hasDictation = client.nativeSpeech ? !!client.nativeSpeech.finish : client.voiceAvailable !== false;
+  const holdHandlers = useHoldToDictate({
+    enabled: hasDictation && !sending && !dictating,
+    onStart: () => { heldControls.current = dictationControls.current; heldControls.current?.start(); },
+    onFinish: () => { heldControls.current?.finish(); heldControls.current = null; },
+    onCancel: () => { heldControls.current?.cancel(); heldControls.current = null; },
+  });
   useLayoutEffect(() => {
     if (mobile && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
   }, [mobile, messages, timeline]);
@@ -513,6 +525,38 @@ export function RemoteChat({
     catch (error) { errorText(error); }
     finally { setManaging(false); }
   }
+  async function prepareDeleteArchived() {
+    if (managing) return;
+    setManaging(true); setError('');
+    try {
+      const ids = new Set<string>(), cursors = new Set<string>();
+      let before: string | null = null;
+      do {
+        const page: {items: Conversation[]; nextCursor: string | null} = await client.rpc('chat.archived', { before });
+        page.items.forEach(item => ids.add(item.id));
+        before = page.nextCursor;
+        if (before && cursors.has(before)) throw new Error('Archived history did not advance its cursor');
+        if (before) cursors.add(before);
+      } while (before);
+      setDeleteArchivedIds([...ids]);
+    } catch (error) { errorText(error); }
+    finally { setManaging(false); }
+  }
+  async function deleteArchived() {
+    if (!deleteArchivedIds || managing) return;
+    setManaging(true); setError('');
+    listGeneration.current++; archiveGeneration.current++;
+    let deleted = 0;
+    try {
+      for (const id of deleteArchivedIds) {
+        const count = await client.rpc<number>('chat.deleteArchived', { conversationId: id });
+        deleted++;
+        if (count > 0 && selectedConversation.current === id) { selectConversation(''); pendingSend.current = null; }
+      }
+      setDeleteArchivedIds(null);
+    } catch (error) { setDeleteArchivedIds(deleteArchivedIds.slice(deleted)); errorText(error); }
+    finally { await Promise.all([list(), listArchived()]).catch(errorText); setManaging(false); }
+  }
   async function manageConversation() {
     if (!manageTarget || managing) return;
     listGeneration.current++; archiveGeneration.current++;
@@ -714,8 +758,9 @@ export function RemoteChat({
       data-testid="remote-chat"
     >
       {mobile ? <><MobileChatHeader center={mobile.heading} onMenu={() => setDrawerOpen(true)} onNew={() => void create()} disabled={sending || !connectionId}/>
-        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connectionId} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><nav className="mobile-history">{conversations.map(item => <MobileConversationRow key={item.id} onArchive={client.conversationManagementAvailable ? () => setManageTarget({ item, action: 'archive' }) : undefined}><button className={item.id === conversationId ? 'selected' : ''} onClick={() => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}>{item.title || t('remote.newChat')}</button>{client.conversationManagementAvailable && <><button className="mobile-icon-button" aria-label={`${t('chat.archive')}: ${item.title || t('remote.newChat')}`} onClick={() => setManageTarget({ item, action: 'archive' })}><Archive size={16}/></button><button className="mobile-icon-button" aria-label={`${t('common.delete')}: ${item.title || t('remote.newChat')}`} onClick={() => setManageTarget({ item, action: 'delete' })}><Trash2 size={16}/></button></>}</MobileConversationRow>)}</nav>{cursor && <button onClick={() => void list(cursor).catch(errorText)}>{t('remote.moreChats')}</button>}{client.conversationManagementAvailable && <details open={archivesOpen} onToggle={event => { const open = event.currentTarget.open; setArchivesOpen(open); if (open) void listArchived().catch(errorText); }}><summary className="mobile-add-connection">{t('chat.archivedConversations')}</summary>{error && <p role="alert" className="mobile-error">{error}</p>}<nav className="mobile-history">{archived.map(item => <div key={item.id} className="mobile-conversation-row"><span className="min-w-0 flex-1 truncate">{item.title || t('remote.newChat')}</span><button disabled={managing} className="mobile-icon-button" aria-label={`${t('chat.unarchive')}: ${item.title}`} onClick={() => void restoreConversation(item.id)}><ArchiveRestore size={16}/></button><button disabled={managing} className="mobile-icon-button" aria-label={`${t('common.delete')}: ${item.title}`} onClick={() => setManageTarget({ item, action: 'delete' })}><Trash2 size={16}/></button></div>)}</nav>{archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}</details>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
+        <MobileDialog open={drawerOpen} side title={t('remote.conversation')} onClose={() => setDrawerOpen(false)}><button className="mobile-drawer-new" disabled={sending || !connectionId} onClick={() => { setDrawerOpen(false); void create(); }}><SquarePen size={18}/>{t('remote.newChat')}</button><nav className="mobile-history">{conversations.map(item => <MobileConversationRow key={item.id} onArchive={client.conversationManagementAvailable ? () => setManageTarget({ item, action: 'archive' }) : undefined}><button className={item.id === conversationId ? 'selected' : ''} onClick={() => { selectConversation(item.id); pendingSend.current = null; followOutput.current = true; setDrawerOpen(false); }}>{item.title || t('remote.newChat')}</button>{client.conversationManagementAvailable && <><button className="mobile-icon-button" aria-label={`${t('chat.archive')}: ${item.title || t('remote.newChat')}`} onClick={() => setManageTarget({ item, action: 'archive' })}><Archive size={16}/></button><button className="mobile-icon-button" aria-label={`${t('common.delete')}: ${item.title || t('remote.newChat')}`} onClick={() => setManageTarget({ item, action: 'delete' })}><Trash2 size={16}/></button></>}</MobileConversationRow>)}</nav>{cursor && <button onClick={() => void list(cursor).catch(errorText)}>{t('remote.moreChats')}</button>}{client.conversationManagementAvailable && <details open={archivesOpen} onToggle={event => { const open = event.currentTarget.open; setArchivesOpen(open); if (open) void listArchived().catch(errorText); }}><summary className="mobile-add-connection">{t('chat.archivedConversations')}</summary>{client.archivedDeletionAvailable && !!archived.length && <button className="mobile-forget" disabled={managing} onClick={() => void prepareDeleteArchived()}><Trash2 size={16}/>{t('chat.deleteAll')}</button>}{error && <p role="alert" className="mobile-error">{error}</p>}<nav className="mobile-history">{archived.map(item => <div key={item.id} className="mobile-conversation-row"><span className="min-w-0 flex-1 truncate">{item.title || t('remote.newChat')}</span><button disabled={managing} className="mobile-icon-button" aria-label={`${t('chat.unarchive')}: ${item.title}`} onClick={() => void restoreConversation(item.id)}><ArchiveRestore size={16}/></button><button disabled={managing} className="mobile-icon-button" aria-label={`${t('common.delete')}: ${item.title}`} onClick={() => setManageTarget({ item, action: 'delete' })}><Trash2 size={16}/></button></div>)}</nav>{archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}</details>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
         <MobileDialog open={!!manageTarget} title={t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')} onClose={() => { if (!managing) setManageTarget(null); }}>{error && <p role="alert" className="mobile-error">{error}</p>}<p>{manageTarget?.item.title || t('remote.newChat')}</p><p className="mobile-section-hint">{t(manageTarget?.action === 'archive' ? 'remote.archiveChatHint' : 'remote.deleteChatHint')}</p><div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setManageTarget(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing} onClick={() => void manageConversation()}>{t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')}</button></div></MobileDialog>
+        <MobileDialog open={deleteArchivedIds !== null} title={t('chat.deleteAll')} onClose={() => { if (!managing) setDeleteArchivedIds(null); }}><p>{t('chat.archivedConversations')}</p><p className="mobile-section-hint">{t('chat.deleteAllConfirmDesc', { count: deleteArchivedIds?.length ?? 0 })}</p>{error && <p role="alert" className="mobile-error">{error}</p>}<div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setDeleteArchivedIds(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing || !deleteArchivedIds?.length} onClick={() => void deleteArchived()}>{t('chat.deleteAll')}</button></div></MobileDialog>
         <MobileDialog open={modelOpen} title={t('remote.model')} onClose={() => setModelOpen(false)}><div className="mobile-model-controls">{providerControls}</div></MobileDialog>
       </> : <>{conversationControls}{providerControls}</>}
       <div ref={contentScroll} className={mobile ? 'native-chat-content' : 'contents'} onScroll={mobile ? event => { const view = event.currentTarget; followOutput.current = view.scrollHeight - view.scrollTop - view.clientHeight < 80; } : undefined}>
@@ -927,22 +972,23 @@ export function RemoteChat({
         }}
       >
         {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
-        <textarea ref={composerInput} rows={mobile ? 1 : undefined}
+        <textarea {...holdHandlers} ref={composerInput} rows={mobile ? 1 : undefined}
           aria-label={t("remote.message")}
           className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
           maxLength={64000}
           placeholder={t("remote.messageHint")}
           value={draft}
           onChange={(event) => { draftRef.current = event.target.value; setDraft(event.target.value); }}
-          aria-description={followups?.items[0] ? t('chat.followupTabHint', { prompt: followups.items[0].prompt }) : undefined}
+          aria-description={[hasDictation && t('voice.holdComposerToDictate'), followups?.items[0] && t('chat.followupTabHint', { prompt: followups.items[0].prompt })].filter(Boolean).join(' ') || undefined}
           onKeyDown={event => {
             if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing && followups?.items[0]) {
               event.preventDefault(); draftRef.current = followups.items[0].prompt; setDraft(followups.items[0].prompt);
             }
           }}
         />
-        {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
+        {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
+          {mobile && client.composerOptionsAvailable !== false && <button type="button" className="mobile-plan-chip" aria-label={t('remote.modePlan')} title={t('remote.modePlan')} aria-pressed={composerSettings.executionMode === 'plan'} disabled={sending || running} onClick={() => setComposerSettings(current => ({ ...current, executionMode: current.executionMode === 'plan' ? 'normal' : 'plan' }))}><ListChecks size={16}/></button>}
           {client.approvalModeAvailable && <label className="mobile-approval-chip" data-mode={composerSettings.toolApprovalMode ?? 'ask'} title={t('settings.toolApproval')}>
             {composerSettings.toolApprovalMode === 'allow_all' ? <ShieldCheck size={15}/> : <Shield size={15}/>}
             <select aria-label={t('settings.toolApproval')} value={composerSettings.toolApprovalMode ?? 'ask'} disabled={sending || running} onChange={event => setComposerSettings(current => ({ ...current, toolApprovalMode: event.target.value as RemoteComposerSettings['toolApprovalMode'] }))}>
@@ -950,11 +996,11 @@ export function RemoteChat({
             </select>
           </label>}
           {mobile && <><button type="button" className="mobile-icon-button" aria-label={client.composerOptionsAvailable === false ? t('remote.mobileFiles') : t('remote.addAttachments')} onClick={() => client.composerOptionsAvailable === false ? mobile.onFiles() : setOptionsOpen(value => !value)}>{client.composerOptionsAvailable === false ? <FolderOpen size={20}/> : <Plus size={20}/>}</button><button type="button" className="mobile-model-chip" onClick={() => client.modelPickerAvailable === false ? mobile.onConfigure() : setModelOpen(true)}>{modelSelection?.model || connections.find(item => item.id === connectionId)?.model || t('remote.model')}<ChevronDown size={13}/></button><span className="native-composer-spacer"/></>}
-          {client.nativeSpeech && <NativeDictationInput key={conversationId} speech={client.nativeSpeech} disabled={sending} onBusy={setDictating} onEvent={event => {
+          {client.nativeSpeech && <NativeDictationInput controls={dictationControls} key={conversationId} speech={client.nativeSpeech} disabled={sending} onBusy={setDictating} onEvent={event => {
             const projected = applyVoiceDictationEvent(draftRef.current, voiceDraft.current, event);
             voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
           }}/>}
-          {!client.nativeSpeech && client.voiceAvailable !== false && <RemoteVoiceInput key={conversationId} client={client} disabled={sending} onBusy={setDictating} onEvent={event => {
+          {!client.nativeSpeech && client.voiceAvailable !== false && <RemoteVoiceInput controls={dictationControls} key={conversationId} client={client} disabled={sending} onBusy={setDictating} onEvent={event => {
             const projected = applyVoiceDictationEvent(draftRef.current, voiceDraft.current, event);
             voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
           }} />}
@@ -977,7 +1023,7 @@ export function RemoteChat({
 
 function RemoteChatMessage({ message, onMore, onMoreThinking, onSpeak, speaking }: { message: ChatMessage; onMore: () => void; onMoreThinking: () => void; onSpeak?: () => void; speaking?: boolean }) {
   const { t } = useTranslation();
-  return <article className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
+  const answer = <article className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
     <p className="mb-3 text-xs font-semibold text-text-tertiary">{message.role === 'user' ? t('remote.you') : 'Nexa'}</p>
     {!!message.thinking && <details className="remote-thinking" data-testid="remote-persisted-thinking"><summary>{t('remote.thinking')}</summary><div className="max-h-80 overflow-auto"><StreamingMarkdown content={message.thinking} isStreaming={false} reduceMotion/>{[...message.thinking].length < (message.thinkingTotalChars ?? 0) && <button className={remoteButton} onClick={onMoreThinking}>{t('remote.moreText')}</button>}</div></details>}
     {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
@@ -987,4 +1033,5 @@ function RemoteChatMessage({ message, onMore, onMoreThinking, onSpeak, speaking 
     </button>}
     {message.role === 'assistant' && onSpeak && <button className="mobile-read-aloud" aria-label={t(speaking ? 'remote.stopReading' : 'remote.readAloud')} onClick={onSpeak}>{speaking ? <CircleStop size={16}/> : <Volume2 size={16}/>}</button>}
   </article>;
+  return message.intermediate ? <details className="remote-activity" data-testid="remote-persisted-activity"><summary className="cursor-pointer text-xs text-text-secondary">{t('remote.activity')}</summary><div className="mt-4">{answer}</div></details> : answer;
 }

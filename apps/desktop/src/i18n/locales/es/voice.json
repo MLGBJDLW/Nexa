@@ -1,4 +1,5 @@
 {
+  "holdComposerToDictate": "Mantén pulsado el cuadro de mensaje para dictar. Suelta para añadir el texto.",
   "startRecording": "Iniciar entrada de voz",
   "stopRecording": "Detener grabación",
   "processing": "Transcribiendo...",

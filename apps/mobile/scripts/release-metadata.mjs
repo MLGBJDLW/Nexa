@@ -8,6 +8,10 @@ const tauri = JSON.parse(fs.readFileSync(path.join(root,'src-tauri/tauri.conf.js
 const manifest = fs.readFileSync(path.join(root,'src-tauri/Cargo.toml'),'utf8');
 const version = manifest.match(/^version = "([^"]+)"/m)?.[1];
 if (!/^\d+\.\d+\.\d+$/.test(pkg.version) || ![version,tauri.version,lock.version,lock.packages[''].version].every(value=>value===pkg.version)) throw new Error('Mobile package, lockfile, native host and application versions must agree.');
+const releaseManifestPath = path.join(root, '.release-please-manifest.json');
+if (fs.existsSync(releaseManifestPath) && JSON.parse(fs.readFileSync(releaseManifestPath, 'utf8'))['apps/mobile'] !== pkg.version) throw new Error('Mobile release manifest must match the mobile package version.');
+const newest = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8').match(/^## \[?(\d+\.\d+\.\d+)(?:\]|\s|$)/m)?.[1];
+if (newest !== pkg.version) throw new Error('Mobile changelog must describe the current mobile version.');
 const tag = process.argv[2];
 if (tag && tag !== `nexa-mobile-v${pkg.version}`) throw new Error(`The tag must be nexa-mobile-v${pkg.version}.`);
 console.log(`Nexa Mobile ${pkg.version}`);

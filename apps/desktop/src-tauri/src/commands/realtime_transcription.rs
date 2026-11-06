@@ -658,7 +658,7 @@ pub(super) async fn start_realtime_transcription(
 ) -> Result<String, String> {
     let config = app_state
         .db_executor
-        .write(|db| Ok(db.load_app_config()?.speech_to_text))
+        .write(|db| Ok(db.load_speech_app_config()?.speech_to_text))
         .await
         .map_err(|error| error.to_string())?
         .value;

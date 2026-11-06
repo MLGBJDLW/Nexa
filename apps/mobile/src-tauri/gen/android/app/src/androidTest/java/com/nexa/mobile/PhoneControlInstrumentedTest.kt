@@ -19,6 +19,43 @@ import java.util.concurrent.TimeUnit
 class PhoneControlInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private lateinit var service: PhoneAccessibilityService
+    @Test fun floatingAssistantAnimatesAndReleasesItsWindow() {
+        val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        automation.serviceInfo = automation.serviceInfo.apply { flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS }
+        fun durationScale(value: Int) { android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("settings put global animator_duration_scale $value")).use { it.readBytes() } }
+        fun capture(name: String): android.graphics.Bitmap {
+            val bitmap = requireNotNull(automation.takeScreenshot())
+            java.io.File(instrumentation.targetContext.getExternalFilesDir(null), name).outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            return bitmap
+        }
+        lateinit var overlay: PhoneAssistantOverlay
+        durationScale(1)
+        try {
+            instrumentation.runOnMainSync { service.setOverlay(false); overlay = PhoneAssistantOverlay(service); overlay.show() }
+            SystemClock.sleep(200)
+            val bounds = android.graphics.Rect()
+            val window = automation.windows.first { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY }
+            window.getBoundsInScreen(bounds)
+            fun pixels(bitmap: android.graphics.Bitmap): IntArray { val result = IntArray(bounds.width()*bounds.height()); bitmap.getPixels(result,0,bounds.width(),bounds.left,bounds.top,bounds.width(),bounds.height()); bitmap.recycle(); return result }
+            val first = pixels(capture("overlay-floating-first.png"))
+            SystemClock.sleep(1100)
+            val floating = pixels(capture("overlay-floating-second.png"))
+            assertTrue("Floating surface should visibly move while idle", first.indices.count { first[it] != floating[it] } > 50)
+            instrumentation.runOnMainSync { overlay.suspend() }
+            SystemClock.sleep(100)
+            val hidden = pixels(capture("overlay-suspended.png"))
+            assertTrue("Suspended overlay must disappear during phone control", hidden.indices.count { hidden[it] != floating[it] } > 100)
+            instrumentation.runOnMainSync { overlay.restore() }
+            SystemClock.sleep(150)
+            val restored = pixels(capture("overlay-restored.png"))
+            assertTrue("Restoring resumes the visible surface", hidden.indices.count { hidden[it] != restored[it] } > 100)
+            instrumentation.runOnMainSync { overlay.hide() }
+            val deadline = SystemClock.elapsedRealtime() + 2000
+            while (automation.windows.any { it.id == window.id } && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(40)
+            assertFalse("The assistant window must detach on hide", automation.windows.any { it.id == window.id })
+        } finally { instrumentation.runOnMainSync { runCatching { overlay.hide() } }; durationScale(0) }
+    }
+
     @Test fun settingsEncryptionKeySurvivesStoreReopen() {
         val store = SecretStore(instrumentation.targetContext)
         val previous = store.read("settings-key")
@@ -37,7 +74,12 @@ class PhoneControlInstrumentedTest {
         val previous = PhoneControlFixtureActivity.current
         instrumentation.targetContext.startActivity(Intent(instrumentation.targetContext, PhoneControlFixtureActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         val deadline = SystemClock.elapsedRealtime() + 10_000
-        while ((PhoneAccessibilityService.instance == null || PhoneControlFixtureActivity.current == null || PhoneControlFixtureActivity.current === previous || PhoneControlFixtureActivity.current?.hasWindowFocus() != true) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(50)
+        var ready = false
+        do {
+            instrumentation.runOnMainSync { ready = PhoneAccessibilityService.instance != null && PhoneControlFixtureActivity.current?.let { it !== previous && it.hasWindowFocus() } == true }
+            if (!ready) SystemClock.sleep(50)
+        } while (!ready && SystemClock.elapsedRealtime() < deadline)
+        assertTrue("Phone control fixture did not receive focus", ready)
         service = requireNotNull(PhoneAccessibilityService.instance)
         TaskService.stopRequested.set(false)
         instrumentation.waitForIdleSync()
@@ -61,6 +103,30 @@ class PhoneControlInstrumentedTest {
     }
     private fun args(state: JSONObject, action: String) = JSONObject().put("action", action).put("observationId", state.getString("observationId")).put("packageName", state.getString("packageName"))
     private fun summary(state: JSONObject) = JSONObject(state.toString()).apply { optJSONObject("image")?.remove("base64") }.toString()
+
+    @Test fun releasedComposerRequestCannotCaptureOrStopALaterDictation() {
+        val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("pm grant com.nexa.mobile android.permission.RECORD_AUDIO")).use { it.readBytes() }
+        lateinit var plugin: PhonePlugin
+        instrumentation.runOnMainSync { plugin = PhonePlugin(requireNotNull(PhoneControlFixtureActivity.current)) }
+        fun send(action: String, id: String, callback: (Long, String) -> Unit = { code, _ -> assertEquals(1L, code) }) {
+            val args = JSONObject().put("action", action).put("requestId", id).put("mode", "cloud")
+            val invoke = Invoke(1, "speech", 1, 2, callback, args.toString(), ObjectMapper())
+            instrumentation.runOnMainSync { plugin.speech(invoke) }
+        }
+        send("configure", "old"); send("prepare", "old"); send("finish", "old")
+        send("listen", "old") { code, data -> assertEquals(2L, code); assertTrue(data.contains("speech_cancelled")) }
+        send("prepare", "new")
+        val done = CountDownLatch(1); var audio = ""; var code = 0L
+        send("listen", "new") { resultCode, data -> code = resultCode; audio = data; done.countDown() }
+        try {
+            send("cancel", "old")
+            assertFalse("Stale cancellation interrupted a newer capture", done.await(650, TimeUnit.MILLISECONDS))
+            send("finish", "new")
+            assertTrue(done.await(8, TimeUnit.SECONDS)); assertEquals(1L, code)
+            assertTrue(JSONObject(audio).getString("audioBase64").isNotBlank())
+        } finally { send("cancel", "new") }
+    }
 
     @Test fun cloudDictationCapturesBoundedWavAndCancellationDiscardsAudio() {
         val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)

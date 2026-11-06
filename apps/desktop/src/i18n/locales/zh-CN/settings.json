@@ -1,4 +1,6 @@
 {
+  "cursorApiKey": "Cursor API Key（可选）",
+  "cursorApiKeyHelp": "输入账户控制台生成的 Cursor API Key，或留空使用 Cursor CLI 登录。检测连接后加载当前账户可用模型。Grok API Key 请配置到 xAI 供应商，两种密钥不能混用。",
   "storageChats": "聊天与任务记录",
   "storageKnowledge": "知识库与索引",
   "storageModels": "本地模型",

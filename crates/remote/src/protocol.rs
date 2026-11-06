@@ -85,6 +85,8 @@ pub enum RemoteCommand {
     RestoreConversation { conversation_id: String },
     #[serde(rename = "chat.delete")]
     DeleteConversation { conversation_id: String },
+    #[serde(rename = "chat.deleteArchived")]
+    DeleteArchivedConversation { conversation_id: String },
     #[serde(rename = "chat.create")]
     CreateConversation {
         connection_id: String,

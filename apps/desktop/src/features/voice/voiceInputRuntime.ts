@@ -305,7 +305,7 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
 
   const ensureSpeechProviderReadyForRecording = useCallback(async (): Promise<VoiceRuntimeActionResult | null> => {
     try {
-      const appConfig = await api.getAppConfig();
+      const appConfig = await api.getAppConfig(true);
       const speechConfig = appConfig.speechToText;
       if (!isSpeechToTextConfigured(speechConfig)) {
         return { status: 'error', code: 'speech_provider_not_configured' };
@@ -678,7 +678,7 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
       if (!startupIsCurrent()) return { status: 'empty' };
       if (readinessError) return readinessError;
 
-      const appConfig = await api.getAppConfig();
+      const appConfig = await api.getAppConfig(true);
       if (!startupIsCurrent()) return { status: 'empty' };
       const speechConfig = appConfig.speechToText;
       const realtime = isRealtimeTranscriptionConfig(speechConfig);
@@ -978,6 +978,7 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
       clearAutomaticResult,
       analyser: recorder.analyser,
       toggleRecording,
+      finishActiveRecording,
       toggleRecordingPause,
       cancelRecording,
       discardPendingVoiceSpool,
@@ -1004,6 +1005,7 @@ export function useVoiceInputRuntime(options: UseVoiceInputRuntimeOptions = {}) 
       refreshWhisperReadiness,
       resetWhisperReadiness,
       toggleRecording,
+      finishActiveRecording,
       toggleRecordingPause,
       transcribing,
       transportState,

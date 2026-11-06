@@ -21,8 +21,10 @@ external agents retain their own native discovery. See [workspace rules](WORKSPA
 
 ## Database storage
 
-Settings → Data & Privacy also reports SQLite allocated and reusable page
-bytes, plus the WAL file size. Reusable space can serve future
+Settings → Models & Embedding and Settings → Data & Privacy show the same
+measured usage bar and category breakdown, including local models, managed
+files, conversations, reusable database space and the write-ahead log. Use
+**Manage conversations** to inspect and act on selected conversations. Reusable space can serve future
 writes without shrinking the main file. The diagnostic is read-only and does not
 run VACUUM or delete conversation history.
 

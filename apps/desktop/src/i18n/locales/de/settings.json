@@ -1,4 +1,6 @@
 {
+  "cursorApiKey": "Cursor-API-Schlüssel (optional)",
+  "cursorApiKeyHelp": "Verwenden Sie einen Cursor-API-Schlüssel aus Ihrem Konto oder lassen Sie das Feld leer, um die Anmeldung der Cursor CLI zu nutzen. Prüfen Sie die Verbindung, um die für Ihr Konto verfügbaren Modelle zu laden. Grok-API-Schlüssel gehören zum Anbieter xAI.",
   "storageChats": "Chats und Aufgabenverlauf",
   "storageKnowledge": "Wissen und Indizes",
   "storageModels": "Lokale Modelle",
