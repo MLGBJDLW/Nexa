@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.2...nexa-mobile-v0.3.3) (2026-11-06)
+
+### Voice settings
+
+- Dictation and read-aloud each have their own model connection selector. Choose a compatible account synced from a paired computer, including Alibaba Cloud Model Studio (Bailian), and use its saved key. Existing manual speech settings are preserved.
+
+### Conversations and Projects
+
+- Each turn has one collapsed “Thinking and tools” section for reasoning, intermediate updates and tool calls. Expand it to see the steps in order. Final answers, user clarifications and approval requests stay visible during a run and after reopening a chat.
+- Swipe a conversation or tap its archive icon to archive it with a smooth transition. Open Archived conversations to delete individual chats or clear the archive.
+- Create a Project in the phone sidebar and drag chats into it, or use the move menu. New chats started in a Project join it on the first send. Project membership survives restarts and archive/restore. Removing a Project returns its chats to the ungrouped list.
+- Projects are organized on the phone, with a separate list for local conversations and for each paired computer.
+
+[Changes in #532](https://github.com/MLGBJDLW/Nexa/pull/532)
+
 ## [0.3.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.1...nexa-mobile-v0.3.2) (2026-11-06)
 
 ### Android assistant and chat
