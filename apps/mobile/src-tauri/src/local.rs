@@ -523,11 +523,12 @@ impl LocalRuntime {
                     let _ = outbox.wait_for_terminal_commit().await;
                 }
             }
+            drop(session);
             runtime.pending.lock().await.clear();
             let mut active = runtime.active.lock().await;
             let _ = platform::call(&app, "taskService", json!({"active":false})).await;
             if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
-                let _ = platform::call(&app, "taskResult", json!({"status":run.status})).await;
+                let _ = platform::call(&app, "taskResult", json!({"status":run.status,"conversationId":conversation.id,"runId":run.id})).await;
             }
             let _ = platform::call(
                 &app,

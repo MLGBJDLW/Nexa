@@ -73,7 +73,6 @@ class TaskService : Service() {
         }
         val stop = PendingIntent.getService(this, 1, Intent(this, TaskService::class.java).setAction("stop"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        getSystemService(NotificationManager::class.java).cancel(REPLY_NOTIFICATION)
         val notification = NotificationCompat.Builder(this, STATUS_CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
             .setContentTitle(getString(R.string.task_running)).setContentText(getString(if (remoteHost != null) R.string.phone_remote_control else R.string.task_progress))
             .setSilent(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_LOW)

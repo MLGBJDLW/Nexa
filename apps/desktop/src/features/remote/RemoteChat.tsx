@@ -181,6 +181,25 @@ export function RemoteChat({
   const [timelineRunId, setTimelineRunId] = useState<string | null>(null);
   const [runUserId, setRunUserId] = useState<string | null>(null);
   const [finalMessageId, setFinalMessageId] = useState<string | null>(null);
+  const markReplyRead = mobile?.onReplyRead;
+  useEffect(() => {
+    if (!markReplyRead || !conversationId || !timelineRunId || !finalMessageId || drawerOpen) return;
+    const markVisible = () => {
+      if (document.visibilityState === 'visible' && !document.querySelector('dialog[open]')) {
+        void markReplyRead(conversationId, timelineRunId).catch(() => {});
+      }
+    };
+    // Acknowledge only after the canonical final message has been rendered.
+    markVisible();
+    window.addEventListener('focus', markVisible);
+    document.addEventListener('visibilitychange', markVisible);
+    document.addEventListener('close', markVisible, true);
+    return () => {
+      window.removeEventListener('focus', markVisible);
+      document.removeEventListener('visibilitychange', markVisible);
+      document.removeEventListener('close', markVisible, true);
+    };
+  }, [markReplyRead, conversationId, timelineRunId, finalMessageId, drawerOpen]);
   const [runStatus, setRunStatus] = useState('');
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");

@@ -34,6 +34,8 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     private var permissionListen: Invoke? = null
     override fun onResume(activity: androidx.appcompat.app.AppCompatActivity) {
         foreground = true
+        // Discard the single, unscoped reply posted by older app versions.
+        activity.getSystemService(NotificationManager::class.java).cancel(TaskService.REPLY_NOTIFICATION)
         pendingListen?.let { pendingListen = null; speech.listen(it) }
     }
     override fun onPause(activity: androidx.appcompat.app.AppCompatActivity) { foreground = false; speech.stop() }
@@ -201,11 +203,23 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
             if (!foreground && invoke.getArgs().getString("status") == "completed") {
                 TaskService.ensureChannels(activity)
                 val open = PendingIntent.getActivity(activity, 2, Intent(activity, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                activity.getSystemService(NotificationManager::class.java).notify(TaskService.REPLY_NOTIFICATION,
+                activity.getSystemService(NotificationManager::class.java).notify(invoke.getArgs().getString("conversationId"), TaskService.REPLY_NOTIFICATION,
                     NotificationCompat.Builder(activity, TaskService.CHANNEL).setSmallIcon(R.drawable.ic_nexa_notification)
+                        .addExtras(android.os.Bundle().apply { putString("nexa.run", invoke.getArgs().getString("runId")) })
                         .setContentTitle(activity.getString(R.string.task_reply_ready)).setContentText(activity.getString(R.string.task_reply_open))
                         .setContentIntent(open).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE).build())
             }
+            JSObject()
+        }
+    }
+    @Command fun replyRead(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            val manager = activity.getSystemService(NotificationManager::class.java)
+            val chat = invoke.getArgs().getString("conversationId")
+            val run = invoke.getArgs().getString("runId")
+            if (foreground && manager.activeNotifications.any {
+                it.tag == chat && it.id == TaskService.REPLY_NOTIFICATION && it.notification.extras.getString("nexa.run") == run
+            }) manager.cancel(chat, TaskService.REPLY_NOTIFICATION)
             JSObject()
         }
     }

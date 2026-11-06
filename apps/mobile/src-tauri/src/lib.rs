@@ -86,6 +86,7 @@ async fn mobile_local(
             .ok_or_else(|| format!("Missing {key}."))
     };
     match action.as_str() {
+        "replyRead" => platform::call(&app, "replyRead", json!({"conversationId":string("conversationId")?, "runId":string("runId")?})).await,
         "connections" => {
             let library = connections::public_state(&app).await?;
             let mut records = library["connections"]

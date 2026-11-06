@@ -94,6 +94,7 @@ export function MobileDialog({ title, side = false, open = true, children, onClo
 }
 
 export interface MobileChatPresentation {
+  onReplyRead?: (conversationId: string, runId: string) => Promise<unknown>;
   projectStore?: ChatProjectStore;
   heading: ReactNode;
   drawerFooter: ReactNode;
