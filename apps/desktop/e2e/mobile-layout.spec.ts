@@ -143,3 +143,45 @@ test('delete all archived chats includes unloaded pages and preserves active cha
   await expect(page.getByRole('button',{name:'Archived c',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((action:any)=>action.method==='chat.deleteArchived').map((action:any)=>action.params.conversationId))).toEqual(['a','b','c','d','e']);
 });
+
+
+test('holding the phone composer dictates into the draft and Plan is a distinct control',async({page})=>{
+  await page.setViewportSize({width:320,height:740});
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer=1');
+  const input=page.getByRole('textbox',{name:'Message',exact:true});
+  const plan=page.getByRole('button',{name:'Plan',exact:true});
+  const mic=page.getByRole('button',{name:'Voice input',exact:true});
+  await expect(plan).toHaveAttribute('aria-pressed','false');
+  await plan.focus(); await page.keyboard.press('Space'); await expect(plan).toHaveAttribute('aria-pressed','true');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  expect(await plan.locator('svg').evaluate(node=>getComputedStyle(node).transform)).toBe('none');
+  for (const width of [320,360]) {
+    await page.setViewportSize({width,height:740});
+    for (const control of [plan,mic,page.getByRole('button',{name:'Send',exact:true})]) {
+      const bounds=(await control.boundingBox())!; expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x+bounds.width).toBeLessThanOrEqual(width);
+    }
+  }
+  const plus=page.locator('.native-composer-actions').getByRole('button',{name:'Attach files',exact:true});await plus.click();
+  await expect(page.getByRole('combobox',{name:'Execution mode'})).toHaveCount(0); await plus.first().click();
+  const driver=await page.context().newCDPSession(page);
+  const touchStart=async()=>{
+    const box=(await input.boundingBox())!;
+    // Press blank editing space; pressing directly on a word retains the native selection menu.
+    await driver.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width-15,y:box.y+14}]});
+  };
+  const release=(type:'touchEnd'|'touchCancel')=>driver.send('Input.dispatchTouchEvent',{type,touchPoints:[]});
+  const count=(method:string)=>page.evaluate(method=>(window as any).__MOBILE_CONTINUITY__.actions.filter((a:any)=>a.method===method).length,method);
+  await touchStart();await release('touchEnd');expect(await count('speech.listen')).toBe(0);
+  // Allow the short tap's double-click selection window to expire.
+  await page.waitForTimeout(380);
+  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(1);await release('touchEnd');
+  await expect(input).toHaveValue('Hello from dictation'); expect(await count('speech.finish')).toBe(1);expect(await count('chat.start')).toBe(0);
+  await input.fill('draft');await input.evaluate(node=>node.setSelectionRange(5,5));
+  await touchStart();await expect.poll(()=>count('speech.listen')).toBe(2);await release('touchCancel');
+  await expect.poll(()=>count('speech.cancel')).toBe(1);await expect(input).toHaveValue('draft');
+  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(3);await page.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect(input).toHaveValue('draft Hello from dictation');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  const started=await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.find((a:any)=>a.method==='chat.start'));
+  expect(started.params.executionMode).toBe('plan');
+});

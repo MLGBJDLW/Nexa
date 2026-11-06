@@ -29,6 +29,8 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     private val speech = PhoneSpeech(activity)
     private var foreground = true
     private var pendingListen: Invoke? = null
+    private var preparedListenId: String? = null
+    private var captureOwnerId: String? = null
     private var permissionListen: Invoke? = null
     override fun onResume(activity: androidx.appcompat.app.AppCompatActivity) {
         foreground = true
@@ -41,13 +43,34 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
         permissionListen?.reject(reason); permissionListen = null
     }
     @Command fun speech(invoke: Invoke) = activity.runOnUiThread {
+        val requestId = invoke.getArgs().optString("requestId").takeUnless { it.isEmpty() || it == "null" }
         when (invoke.getArgs().getString("action")) {
-            "listen" -> if (pendingListen != null || permissionListen != null) invoke.reject("speech_busy")
-                else if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                    if (foreground) speech.listen(invoke) else invoke.reject("speech_interrupted")
-                } else { permissionListen = invoke; requestPermissionForAlias("microphone", invoke, "microphoneGranted") }
-            "cancel" -> { cancelPendingSpeech("speech_cancelled"); speech.cancelListening(); invoke.resolve(JSObject()) }
-            "finish" -> { if (pendingListen != null || permissionListen != null) cancelPendingSpeech("speech_cancelled") else speech.finishListening(); invoke.resolve(JSObject()) }
+            "prepare" -> when {
+                requestId == null -> invoke.reject("speech_failed")
+                speech.inputBusy || pendingListen != null || permissionListen != null -> invoke.reject("speech_busy")
+                else -> { preparedListenId = requestId; invoke.resolve(JSObject()) }
+            }
+            // A release/cancel can arrive while Rust is resolving a cloud key.
+            // Revoking the prepared ID prevents that delayed listen from opening the mic.
+            "listen" -> when {
+                requestId != null && preparedListenId != requestId -> invoke.reject("speech_cancelled")
+                speech.inputBusy || pendingListen != null || permissionListen != null -> invoke.reject("speech_busy")
+                else -> {
+                    preparedListenId = null; captureOwnerId = requestId
+                    if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        if (foreground) speech.listen(invoke) else invoke.reject("speech_interrupted")
+                    } else { permissionListen = invoke; requestPermissionForAlias("microphone", invoke, "microphoneGranted") }
+                }
+            }
+            "cancel", "finish" -> {
+                if (requestId == null || preparedListenId == requestId) preparedListenId = null
+                if (requestId == null || captureOwnerId == requestId) {
+                    if (invoke.getArgs().getString("action") == "cancel") {
+                        captureOwnerId = null; cancelPendingSpeech("speech_cancelled"); speech.cancelListening()
+                    } else if (pendingListen != null || permissionListen != null) cancelPendingSpeech("speech_cancelled") else speech.finishListening()
+                }
+                invoke.resolve(JSObject())
+            }
             "speak" -> speech.speak(invoke)
             "play" -> if (foreground) speech.play(invoke) else invoke.reject("speech_interrupted")
             "stop" -> { speech.stopSpeech(); invoke.resolve(JSObject()) }

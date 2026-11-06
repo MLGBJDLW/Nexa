@@ -31,6 +31,7 @@ class PhoneSpeech(private val activity: Activity) {
     private val preferences = activity.getSharedPreferences("phone-speech", Activity.MODE_PRIVATE)
     private val recorder = PhoneAudioRecorder()
     private val audioPlayer = PhoneAudioPlayer()
+    val inputBusy: Boolean get() = listening != null || recorder.active
     private fun onDeviceAvailable() = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(activity)
     fun status() = JSObject().apply {
         put("mode", preferences.getString("mode", "system"))

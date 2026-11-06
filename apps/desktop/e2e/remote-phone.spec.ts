@@ -634,14 +634,14 @@ test('phone dictation edits the composer live and retains manual corrections thr
   await page.goto('/phone.html#pair=123456&server=desktop-1');
   const draft = page.getByLabel('Message', {exact:true});
   await draft.fill('写下：');
-  await page.getByRole('button', {name:'Voice input',exact:true}).click();
+  await draft.hover(); await page.mouse.down();
   await expect.poll(() => app.counts().audio).toBeGreaterThan(3);
   app.dictation('今天天气很好');
   await expect(draft).toHaveValue('写下： 今天天气很好');
   await draft.fill('写下： 明天天气很好');
   app.dictation('今天天气很好啊');
   await expect(draft).toHaveValue('写下： 明天天气很好啊');
-  await page.getByRole('button', {name:'Finish dictation',exact:true}).click();
+  await page.mouse.up();
   await expect.poll(() => app.counts().actions.some(item => item.method === 'voice.finish')).toBe(true);
   await expect(page.getByRole('button', {name:'Voice input',exact:true})).toBeEnabled();
   await expect(draft).toHaveValue('写下： 明天天气很好啊');

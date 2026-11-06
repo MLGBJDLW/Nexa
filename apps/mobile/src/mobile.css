@@ -215,3 +215,12 @@
 .mobile-settings-group-body > .mobile-settings-section { margin-top: 0; padding-top: 0; border-top: 0; }
 .mobile-settings-group-body > .mobile-settings-section > h3 { display: none; }
 @media (prefers-reduced-motion: reduce) { .mobile-swipe-content, .mobile-settings-group > summary svg { transition: none; } }
+
+.mobile-app .mobile-plan-chip { flex: 0 0 32px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; color: var(--color-text-secondary); transition: background-color 180ms ease, color 180ms ease; }
+.mobile-plan-chip:focus-visible { outline: 2px solid var(--color-accent); }
+.mobile-app .mobile-plan-chip[aria-pressed="true"] { color: var(--color-accent); background: var(--color-surface-1); }
+.mobile-plan-chip svg { transform: scale(.94); transition: transform 210ms cubic-bezier(.2,1.5,.5,1); }
+.mobile-plan-chip[aria-pressed="true"] svg { transform: scale(1.12) rotate(-5deg); }
+.mobile-plan-chip:active svg { transform: scale(.87); }
+.native-composer-actions .mobile-model-chip { min-width: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .mobile-app .mobile-plan-chip, .mobile-plan-chip svg { transition: none; } .mobile-app .mobile-plan-chip svg { transform: none; } }

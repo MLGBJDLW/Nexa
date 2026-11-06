@@ -4,9 +4,10 @@ import { cachedModelChoices, type ModelChoices } from '../../desktop/src/feature
 import type { NativeSpeech, RemoteChatClient, PairedRemote, RemoteConnection, RemoteEnvelope } from '../../desktop/src/features/remote/remoteClient';
 
 export const phoneSpeech: NativeSpeech = {
-  finish: () => invoke('mobile_speech', { action: 'finish' }),
-  listen: language => invoke<{ text: string }>('mobile_speech', { action: 'listen', language }).then(result => result.text),
-  cancel: () => invoke('mobile_speech', { action: 'cancel' }),
+  prepare: requestId => invoke('mobile_speech', { action: 'prepare', requestId }),
+  finish: requestId => invoke('mobile_speech', { action: 'finish', requestId }),
+  listen: (language, requestId) => invoke<{ text: string }>('mobile_speech', { action: 'listen', language, requestId }).then(result => result.text),
+  cancel: requestId => invoke('mobile_speech', { action: 'cancel', requestId }),
   speak: (text, language) => invoke('mobile_speech', { action: 'speak', text, language }),
   stop: () => invoke('mobile_speech', { action: 'stop' }),
 };

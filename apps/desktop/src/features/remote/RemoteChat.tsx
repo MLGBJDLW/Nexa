@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Archive, ArchiveRestore, Trash2, ArrowDown, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen, Volume2 } from "lucide-react";
+import { ListChecks, Archive, ArchiveRestore, Trash2, ArrowDown, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen, Volume2 } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from './MobileChatShell';
 import { useTranslation } from "../../i18n";
@@ -8,6 +8,7 @@ import { remoteButton, remoteField } from "./remoteUi";
 import { ConnectionModelPicker } from '../models/ConnectionModelPicker';
 import type { TurnModelSelection } from '../models/modelChoices';
 import { RemoteVoiceInput } from './RemoteVoiceInput';
+import { useHoldToDictate, type DictationControls } from '../voice/useHoldToDictate';
 import { NativeDictationInput } from './NativeDictationInput';
 import { nativeSpeechErrorKey } from './nativeSpeechErrors';
 import { NexaCombobox } from '../../components/ui/overlay/Combobox';
@@ -187,6 +188,15 @@ export function RemoteChat({
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
+  const dictationControls = useRef<DictationControls>(null);
+  const heldControls = useRef<DictationControls | null>(null);
+  const hasDictation = client.nativeSpeech ? !!client.nativeSpeech.finish : client.voiceAvailable !== false;
+  const holdHandlers = useHoldToDictate({
+    enabled: hasDictation && !sending && !dictating,
+    onStart: () => { heldControls.current = dictationControls.current; heldControls.current?.start(); },
+    onFinish: () => { heldControls.current?.finish(); heldControls.current = null; },
+    onCancel: () => { heldControls.current?.cancel(); heldControls.current = null; },
+  });
   useLayoutEffect(() => {
     if (mobile && contentScroll.current && followOutput.current) contentScroll.current.scrollTop = contentScroll.current.scrollHeight;
   }, [mobile, messages, timeline]);
@@ -962,22 +972,23 @@ export function RemoteChat({
         }}
       >
         {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
-        <textarea ref={composerInput} rows={mobile ? 1 : undefined}
+        <textarea {...holdHandlers} ref={composerInput} rows={mobile ? 1 : undefined}
           aria-label={t("remote.message")}
           className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
           maxLength={64000}
           placeholder={t("remote.messageHint")}
           value={draft}
           onChange={(event) => { draftRef.current = event.target.value; setDraft(event.target.value); }}
-          aria-description={followups?.items[0] ? t('chat.followupTabHint', { prompt: followups.items[0].prompt }) : undefined}
+          aria-description={[hasDictation && t('voice.holdComposerToDictate'), followups?.items[0] && t('chat.followupTabHint', { prompt: followups.items[0].prompt })].filter(Boolean).join(' ') || undefined}
           onKeyDown={event => {
             if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing && followups?.items[0]) {
               event.preventDefault(); draftRef.current = followups.items[0].prompt; setDraft(followups.items[0].prompt);
             }
           }}
         />
-        {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
+        {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
+          {mobile && client.composerOptionsAvailable !== false && <button type="button" className="mobile-plan-chip" aria-label={t('remote.modePlan')} title={t('remote.modePlan')} aria-pressed={composerSettings.executionMode === 'plan'} disabled={sending || running} onClick={() => setComposerSettings(current => ({ ...current, executionMode: current.executionMode === 'plan' ? 'normal' : 'plan' }))}><ListChecks size={16}/></button>}
           {client.approvalModeAvailable && <label className="mobile-approval-chip" data-mode={composerSettings.toolApprovalMode ?? 'ask'} title={t('settings.toolApproval')}>
             {composerSettings.toolApprovalMode === 'allow_all' ? <ShieldCheck size={15}/> : <Shield size={15}/>}
             <select aria-label={t('settings.toolApproval')} value={composerSettings.toolApprovalMode ?? 'ask'} disabled={sending || running} onChange={event => setComposerSettings(current => ({ ...current, toolApprovalMode: event.target.value as RemoteComposerSettings['toolApprovalMode'] }))}>
@@ -985,11 +996,11 @@ export function RemoteChat({
             </select>
           </label>}
           {mobile && <><button type="button" className="mobile-icon-button" aria-label={client.composerOptionsAvailable === false ? t('remote.mobileFiles') : t('remote.addAttachments')} onClick={() => client.composerOptionsAvailable === false ? mobile.onFiles() : setOptionsOpen(value => !value)}>{client.composerOptionsAvailable === false ? <FolderOpen size={20}/> : <Plus size={20}/>}</button><button type="button" className="mobile-model-chip" onClick={() => client.modelPickerAvailable === false ? mobile.onConfigure() : setModelOpen(true)}>{modelSelection?.model || connections.find(item => item.id === connectionId)?.model || t('remote.model')}<ChevronDown size={13}/></button><span className="native-composer-spacer"/></>}
-          {client.nativeSpeech && <NativeDictationInput key={conversationId} speech={client.nativeSpeech} disabled={sending} onBusy={setDictating} onEvent={event => {
+          {client.nativeSpeech && <NativeDictationInput controls={dictationControls} key={conversationId} speech={client.nativeSpeech} disabled={sending} onBusy={setDictating} onEvent={event => {
             const projected = applyVoiceDictationEvent(draftRef.current, voiceDraft.current, event);
             voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
           }}/>}
-          {!client.nativeSpeech && client.voiceAvailable !== false && <RemoteVoiceInput key={conversationId} client={client} disabled={sending} onBusy={setDictating} onEvent={event => {
+          {!client.nativeSpeech && client.voiceAvailable !== false && <RemoteVoiceInput controls={dictationControls} key={conversationId} client={client} disabled={sending} onBusy={setDictating} onEvent={event => {
             const projected = applyVoiceDictationEvent(draftRef.current, voiceDraft.current, event);
             voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
           }} />}

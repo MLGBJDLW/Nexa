@@ -26,9 +26,10 @@ export interface RemoteConnection {
 }
 /** Chat depends on the transport contract, shared by browser and native hosts. */
 export interface NativeSpeech {
-  listen: (language: string) => Promise<string>;
-  cancel: () => Promise<unknown>;
-  finish?: () => Promise<unknown>;
+  prepare?: (requestId: string) => Promise<unknown>;
+  listen: (language: string, requestId?: string) => Promise<string>;
+  cancel: (requestId?: string) => Promise<unknown>;
+  finish?: (requestId?: string) => Promise<unknown>;
   speak: (text: string, language: string) => Promise<unknown>;
   stop: () => Promise<unknown>;
 }

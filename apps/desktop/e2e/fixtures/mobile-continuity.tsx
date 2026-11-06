@@ -19,9 +19,17 @@ export function renderMobileContinuity() {
     const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:'Working',payload};
     events.push(event); listeners.forEach(listener=>listener({event:'agent://run-event',payload:{conversationId:'created',runEvent:event}}));
   };
+  const composerFixture = new URLSearchParams(location.search).has('composer');
+  let speechRequest: { id?: string; resolve: (value: string) => void; reject: (error: Error) => void } | undefined;
+  const nativeSpeech = {
+    listen: (_language: string, id?: string) => new Promise<string>((resolve, reject) => { actions.push({method:'speech.listen',params:{id}}); speechRequest = { id, resolve, reject }; }),
+    finish: async (id?: string) => { actions.push({method:'speech.finish',params:{id}}); if (speechRequest && speechRequest.id === id) { speechRequest.resolve('Hello from dictation'); speechRequest = undefined; } },
+    cancel: async (id?: string) => { actions.push({method:'speech.cancel',params:{id}}); if (speechRequest && speechRequest.id === id) { speechRequest.reject(new Error('speech_cancelled')); speechRequest = undefined; } },
+    speak: async () => {}, stop: async () => {},
+  };
   const client = {
     paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0}},
-    state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:false,
+    state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:composerFixture, approvalModeAvailable:composerFixture, nativeSpeech: composerFixture ? nativeSpeech : undefined,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
     async rpc(method:string,params:any={}) {

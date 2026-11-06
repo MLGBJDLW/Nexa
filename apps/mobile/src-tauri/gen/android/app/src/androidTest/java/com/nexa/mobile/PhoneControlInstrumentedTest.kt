@@ -104,6 +104,30 @@ class PhoneControlInstrumentedTest {
     private fun args(state: JSONObject, action: String) = JSONObject().put("action", action).put("observationId", state.getString("observationId")).put("packageName", state.getString("packageName"))
     private fun summary(state: JSONObject) = JSONObject(state.toString()).apply { optJSONObject("image")?.remove("base64") }.toString()
 
+    @Test fun releasedComposerRequestCannotCaptureOrStopALaterDictation() {
+        val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("pm grant com.nexa.mobile android.permission.RECORD_AUDIO")).use { it.readBytes() }
+        lateinit var plugin: PhonePlugin
+        instrumentation.runOnMainSync { plugin = PhonePlugin(requireNotNull(PhoneControlFixtureActivity.current)) }
+        fun send(action: String, id: String, callback: (Long, String) -> Unit = { code, _ -> assertEquals(1L, code) }) {
+            val args = JSONObject().put("action", action).put("requestId", id).put("mode", "cloud")
+            val invoke = Invoke(1, "speech", 1, 2, callback, args.toString(), ObjectMapper())
+            instrumentation.runOnMainSync { plugin.speech(invoke) }
+        }
+        send("configure", "old"); send("prepare", "old"); send("finish", "old")
+        send("listen", "old") { code, data -> assertEquals(2L, code); assertTrue(data.contains("speech_cancelled")) }
+        send("prepare", "new")
+        val done = CountDownLatch(1); var audio = ""; var code = 0L
+        send("listen", "new") { resultCode, data -> code = resultCode; audio = data; done.countDown() }
+        try {
+            send("cancel", "old")
+            assertFalse("Stale cancellation interrupted a newer capture", done.await(650, TimeUnit.MILLISECONDS))
+            send("finish", "new")
+            assertTrue(done.await(8, TimeUnit.SECONDS)); assertEquals(1L, code)
+            assertTrue(JSONObject(audio).getString("audioBase64").isNotBlank())
+        } finally { send("cancel", "new") }
+    }
+
     @Test fun cloudDictationCapturesBoundedWavAndCancellationDiscardsAudio() {
         val automation = instrumentation.getUiAutomation(android.app.UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("pm grant com.nexa.mobile android.permission.RECORD_AUDIO")).use { it.readBytes() }

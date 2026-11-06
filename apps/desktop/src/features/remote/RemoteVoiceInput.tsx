@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import { Loader2, Mic, Square, X } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { useVoiceRecorder } from '../voice/useVoiceRecorder';
 import type { VoiceDictationEvent } from '../voice/voiceDraftProjection';
+import type { DictationControls } from '../voice/useHoldToDictate';
 import { LiveAudioQueue } from '../live/liveAudioQueue';
 import { encodeLiveAudio } from '../live/liveTransport';
 import { RemoteNetworkError, type RemoteChatClient } from './remoteClient';
 import { remoteButton } from './remoteUi';
 
-export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
+export function RemoteVoiceInput({ client, disabled, onEvent, onBusy, controls }: {
+  controls?: Ref<DictationControls>;
   client: RemoteChatClient;
   disabled: boolean;
   onEvent: (event: VoiceDictationEvent) => void;
@@ -26,6 +28,7 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
   const eventSequence = useRef(0);
   const finishPending = useRef(false);
   const ready = useRef(false);
+  const heldId = useRef<string | null>(null);
   const connected = useRef(client.state.phase === 'connected');
   const transition = useRef(Promise.resolve());
   const reconnectDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,7 +110,7 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
       if (!connected.current) delivery.pause();
       await refs.current.recorder.startRecording({ targetSampleRate:opened.sampleRate, onPcmChunk:bytes => delivery.append(bytes),
         onCaptureIssue:() => clear(refs.current.t('remote.voiceInterrupted')) });
-      if (generation.current !== mine) { refs.current.recorder.cancelRecording(); return; }
+      if (generation.current !== mine) return;
       ready.current = true;
       if (!connected.current) { delivery.pause(); await refs.current.recorder.pauseRecording(); setPhase('reconnecting'); }
       else {
@@ -139,6 +142,17 @@ export function RemoteVoiceInput({ client, disabled, onEvent, onBusy }: {
       if (generation.current === mine) clear(error instanceof Error ? error.message : String(error));
     } finally { finishPending.current = false; }
   }
+  useImperativeHandle(controls, () => ({
+    start: () => { if (!session.current) { void start(); heldId.current = session.current; } },
+    finish: () => {
+      if (heldId.current && heldId.current === session.current) { if (ready.current) void finish(); else clear(); }
+      heldId.current = null;
+    },
+    cancel: () => {
+      if (heldId.current && heldId.current === session.current) { refs.current.onEvent({ kind:'cancel' }); clear(); }
+      heldId.current = null;
+    },
+  }));
   const busy = phase !== 'idle';
   return <div className="flex max-w-full flex-wrap items-center gap-2">
     <button type="button" className={`${remoteButton} ${phase === 'recording' ? 'text-danger' : ''}`} aria-label={phase === 'recording' ? t('remote.finishDictation') : t('remote.voiceInput')}
