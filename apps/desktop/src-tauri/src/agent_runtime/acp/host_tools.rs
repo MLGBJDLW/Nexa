@@ -170,7 +170,16 @@ async fn handle(
                         .to_string(),
                     thought_signature: None,
                 };
-                tools.execute(call).await.map(|output| {
+                let outcome = tools.execute(call).await;
+                if matches!(
+                    &outcome,
+                    Err(nexa_core::error::CoreError::AwaitingUserInput { .. })
+                ) {
+                    // This capability ends with the suspended turn. The driver
+                    // observes the interaction ID directly from the tool session.
+                    return StatusCode::GONE.into_response();
+                }
+                outcome.map(|output| {
                     let mut content = vec![json!({"type":"text","text":output.result.content})];
                     content.extend(output.visual_parts.into_iter().filter_map(|part| match part {
                         ContentPart::Image { media_type, data } => Some(json!({"type":"image","mimeType":media_type,"data":data})),

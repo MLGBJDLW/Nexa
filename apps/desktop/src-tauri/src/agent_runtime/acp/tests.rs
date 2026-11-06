@@ -907,6 +907,83 @@ fn wire_with_marker(mode: &str, marker: &str) -> Wire {
 }
 
 #[tokio::test]
+async fn acp_host_question_suspends_the_driver_before_another_effect_or_final_answer() {
+    let (mut request, mut events, effects, _) = super::super::tests::fixture(
+        super::super::AgentRuntimeKind::Acp("opencode".into()),
+        "vendor/模型",
+    );
+    request.dependencies.tools.register(Box::new(
+        nexa_core::tools::request_user_input_tool::RequestUserInputTool,
+    ));
+    let directory = tempfile::tempdir().unwrap();
+    let python = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" })
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    request.external = Some(super::super::ExternalAgentBinding {
+        profile_id: uuid::Uuid::new_v4().to_string(),
+        reasoning_effort: None,
+        launch: ExternalAgentLaunch {
+            executable: Some(String::from_utf8(python.stdout).unwrap().trim().into()),
+            working_directory: directory.path().to_string_lossy().into_owned(),
+            args: Some(vec![
+                "-u".into(),
+                "-c".into(),
+                include_str!("fixture.py").into(),
+                "host_question".into(),
+            ]),
+            ..Default::default()
+        },
+    });
+    let db = request.db.clone();
+    let conversation = request.conversation_id.clone();
+    let turn = request.turn_id.clone();
+    let user = db.get_messages(&conversation).unwrap().remove(0);
+    db.create_agent_task_run(
+        &conversation,
+        &turn,
+        &user.id,
+        "Question fixture",
+        Some("opencode"),
+        None,
+    )
+    .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(20), run("opencode", request))
+        .await
+        .unwrap();
+    let requests = db
+        .list_interaction_requests(Some(&conversation), false)
+        .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert!(
+        matches!(result, Err(CoreError::AwaitingUserInput { ref interaction_id }) if interaction_id == &requests[0].interaction_id),
+        "expected durable suspension, got {result:?}"
+    );
+    assert_eq!(
+        db.get_agent_task_run_by_turn(&turn)
+            .unwrap()
+            .unwrap()
+            .status,
+        "awaiting_user_input"
+    );
+    assert_eq!(effects.load(Ordering::SeqCst), 0);
+    assert!(!db
+        .get_messages(&conversation)
+        .unwrap()
+        .iter()
+        .any(|row| row.content.contains("stale final after question")));
+    let mut displayed_wait = false;
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(event, AgentEvent::Done { .. }));
+        displayed_wait |= matches!(event, AgentEvent::ControllerStatus { ref code, .. } if code == "awaiting_user_input");
+    }
+    assert!(
+        displayed_wait,
+        "the waiting status reaches the renderer before suspension"
+    );
+}
+
+#[tokio::test]
 async fn clearing_reasoning_override_reconnects_and_restores_native_default() {
     struct Cleanup(std::path::PathBuf);
     impl Drop for Cleanup {

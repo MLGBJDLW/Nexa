@@ -378,16 +378,16 @@ async fn run_configured_with_tools(
     }
     let mut output = super::projection::Projection::for_turn(&turn);
     let mut reports = projection::ToolReports::new(provider)?;
-    let result = drive(
-        provider,
-        &mut turn,
-        &mut connection.wire,
-        &mut connection.session,
-        &mut output,
-        &mut reports,
-    )
-    .await;
-    turn.transcript.nexa_tools().cancel_tools();
+    let tools = turn.transcript.nexa_tools().clone();
+    let result = tokio::select! {
+        biased;
+        cause = tools.wait_for_user_input_request() => Err(cause),
+        result = drive(provider, &mut turn, &mut connection.wire, &mut connection.session, &mut output, &mut reports) => result,
+    };
+    tools.cancel_tools();
+    // If protocol completion and the durable question raced on different
+    // executor threads, the checkpoint still owns the turn outcome.
+    let result = tools.ensure_not_suspended().and(result);
     match result {
         Ok(context_delivered) => {
             if context_delivered {

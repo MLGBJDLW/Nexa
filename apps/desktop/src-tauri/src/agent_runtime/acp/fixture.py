@@ -56,6 +56,9 @@ for line in sys.stdin:
             assert native_services is False
         reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}, "authMethods": auth_methods})
     elif method == "session/new":
+        if mode == "host_question":
+            server = next(s for s in message["params"]["mcpServers"] if s["name"] == "nexa-host")
+            bridge = {entry["name"]: entry["value"] for entry in server["env"]}
         if mode == "setup_error":
             emit({"id": message["id"], "error": {"code": -32603, "message": "No provider configured; complete native setup"}})
             continue
@@ -117,6 +120,24 @@ for line in sys.stdin:
             config[0]["currentValue"] = message["params"]["value"]
         reply(message, {"configOptions": config})
     elif method == "session/prompt":
+        if mode == "host_question":
+            from urllib.error import HTTPError
+            from urllib.request import Request, urlopen
+            def call(call_id, name, arguments):
+                body = {"jsonrpc": "2.0", "id": call_id, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+                headers = {"Authorization": "Bearer " + bridge["NEXA_MCP_BRIDGE_TOKEN"], "Content-Type": "application/json"}
+                try:
+                    with urlopen(Request(bridge["NEXA_MCP_BRIDGE_URL"], json.dumps(body).encode(), headers), timeout=5) as response:
+                        return json.load(response)
+                except HTTPError:
+                    return None
+            call(1, "request_user_input", {"questions": [{"id": "scope", "header": "Scope", "question": "Which scope?", "type": "single_choice", "options": [{"label": "App", "description": "Only this app"}, {"label": "Repo", "description": "Entire repository"}]}]})
+            # A peer that treats every MCP error as repairable must not execute a
+            # second effect or finish the turn while the host question is pending.
+            call(2, "read_test_nonce", {})
+            update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "stale final after question"}})
+            reply(message, {"stopReason": "end_turn"})
+            continue
         if mode in ("readable_low", "opaque_low"):
             assert config[1]["currentValue"] == "low", "the selected effort must not be raised to obtain summaries"
         if mode == "opaque_effort":
