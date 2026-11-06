@@ -18,6 +18,19 @@ const categories: Record<string, { label: TranslationKey; color: string }> = {
   wal: { label: 'settings.storageWal', color: '#fb923c' },
 };
 
+// A tab change can mount another view while a filesystem scan is still running.
+// Share only the pending scan; refresh and post-mutation reads always start fresh.
+const pendingUsage = new WeakMap<StorageService, Promise<StorageUsage>>();
+function readUsage(service: StorageService, refresh: boolean) {
+  const pending = pendingUsage.get(service);
+  if (!refresh && pending) return pending;
+  const request = service.usage();
+  pendingUsage.set(service, request);
+  const clear = () => { if (pendingUsage.get(service) === request) pendingUsage.delete(service); };
+  void request.then(clear, clear);
+  return request;
+}
+
 export function StorageUsageCard({ service = storageService, mobile = false }: { service?: StorageService; mobile?: boolean }) {
   const { t } = useTranslation();
   const [stats, setStats] = useState<StorageUsage | null>(null);
@@ -27,7 +40,7 @@ export function StorageUsageCard({ service = storageService, mobile = false }: {
   const [manage, setManage] = useState(false);
   useEffect(() => {
     let active = true; setLoading(true);
-    void service.usage().then(value => { if (active) { setStats(value); setError(null); } })
+    void readUsage(service, revision > 0).then(value => { if (active) { setStats(value); setError(null); } })
       .catch(reason => { if (active) setError(String(reason)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [service, revision]);
