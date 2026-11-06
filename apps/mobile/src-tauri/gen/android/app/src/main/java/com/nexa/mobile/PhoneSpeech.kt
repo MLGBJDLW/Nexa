@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -14,8 +15,30 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
+import app.tauri.plugin.Channel
+import app.tauri.annotation.InvokeArg
 import java.util.Locale
 import java.util.UUID
+
+@InvokeArg
+class DictationArgs {
+    var progress: Channel? = null
+    var requestId: String? = null
+}
+
+/** Only the active request receives acoustic levels and cumulative interim words. */
+private class DictationProgress(private val args: DictationArgs) {
+    private var lastLevelAt = 0L
+    fun level(value: Float) {
+        val now = SystemClock.elapsedRealtime()
+        if (!value.isFinite() || now - lastLevelAt < 75) return
+        lastLevelAt = now
+        send("level", value.coerceIn(0f, 1f))
+    }
+    fun send(key: String, value: Any) {
+        args.progress?.send(JSObject().apply { put("requestId", args.requestId); put(key, value) })
+    }
+}
 
 /** One activity-owned speech session. No WebView microphone or embedded model. */
 class PhoneSpeech(private val activity: Activity) {
@@ -63,16 +86,21 @@ class PhoneSpeech(private val activity: Activity) {
 
     fun listen(invoke: Invoke) = activity.runOnUiThread {
         if (listening != null || recorder.active) { invoke.reject("speech_busy"); return@runOnUiThread }
-        if (preferences.getString("mode", "system") == "cloud") { stopSpeech(); recorder.start(invoke); return@runOnUiThread }
+        val progress = if (invoke.getArgs().has("progress")) DictationProgress(invoke.parseArgs(DictationArgs::class.java)) else null
+        if (preferences.getString("mode", "system") == "cloud") {
+            stopSpeech()
+            recorder.start(invoke, progress?.let { it::level }) { progress?.send("captured", true) }
+            return@runOnUiThread
+        }
         val requestedOnDevice = preferences.getString("mode", "system") == "on_device"
         if (requestedOnDevice && !onDeviceAvailable()) { invoke.reject("speech_on_device_unavailable"); return@runOnUiThread }
         val onDevice = requestedOnDevice || (!SpeechRecognizer.isRecognitionAvailable(activity) && onDeviceAvailable())
         if (!onDevice && !SpeechRecognizer.isRecognitionAvailable(activity)) { invoke.reject("speech_unavailable"); return@runOnUiThread }
         stopSpeech()
         listening = invoke
-        startRecognition(invoke, onDevice)
+        startRecognition(invoke, onDevice, progress)
     }
-    private fun startRecognition(invoke: Invoke, onDevice: Boolean) {
+    private fun startRecognition(invoke: Invoke, onDevice: Boolean, progress: DictationProgress?) {
         try {
             val session = if (onDevice && Build.VERSION.SDK_INT >= 31) SpeechRecognizer.createOnDeviceSpeechRecognizer(activity) else SpeechRecognizer.createSpeechRecognizer(activity)
             recognizer = session
@@ -81,8 +109,10 @@ class PhoneSpeech(private val activity: Activity) {
             session.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) { if (current()) armRecognitionTimeout() }
                 override fun onBeginningOfSpeech() { if (current()) armRecognitionTimeout() }
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onRmsChanged(rmsdB: Float) { if (current()) progress?.level(rmsdB / 12f) }
+                override fun onBufferReceived(buffer: ByteArray?) {
+                    if (current() && buffer != null) progress?.level(PhoneAudioRecorder.pcmLevel(buffer, buffer.size, bigEndian = true))
+                }
                 override fun onEndOfSpeech() { if (current()) armRecognitionTimeout() }
                 override fun onError(error: Int) {
                     if (!current()) return
@@ -91,7 +121,7 @@ class PhoneSpeech(private val activity: Activity) {
                     // once locally, never loop or silently enable a cloud API.
                     if (!onDevice && partialText.isBlank() && onDeviceAvailable() && error in listOf(SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT)) {
                         recognizer = null; session.cancel(); session.destroy()
-                        startRecognition(invoke, true); return
+                        startRecognition(invoke, true, progress); return
                     }
                     val message = when (error) {
                         SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "speech_no_match"
@@ -107,7 +137,10 @@ class PhoneSpeech(private val activity: Activity) {
                     if (current()) finishRecognition(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull { it.isNotBlank() } ?: partialText)
                 }
                 override fun onPartialResults(partialResults: Bundle?) { if (current()) {
-                    partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull { it.isNotBlank() }?.let { partialText = it }
+                    partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull { it.isNotBlank() }?.takeIf { it != partialText }?.let {
+                        partialText = it
+                        progress?.send("text", it)
+                    }
                     armRecognitionTimeout()
                 } }
                 override fun onEvent(eventType: Int, params: Bundle?) {}

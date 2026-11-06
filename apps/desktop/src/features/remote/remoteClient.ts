@@ -25,9 +25,10 @@ export interface RemoteConnection {
   latencyMs?: number;
 }
 /** Chat depends on the transport contract, shared by browser and native hosts. */
+export interface NativeSpeechProgress { level?: number; text?: string; captured?: boolean }
 export interface NativeSpeech {
   prepare?: (requestId: string) => Promise<unknown>;
-  listen: (language: string, requestId?: string) => Promise<string>;
+  listen: (language: string, requestId?: string, onProgress?: (event: NativeSpeechProgress) => void) => Promise<string>;
   cancel: (requestId?: string) => Promise<unknown>;
   finish?: (requestId?: string) => Promise<unknown>;
   speak: (text: string, language: string) => Promise<unknown>;

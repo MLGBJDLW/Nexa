@@ -175,6 +175,12 @@
 .mobile-web-settings .mobile-search-provider-header > button:last-child { grid-column: 3; grid-row: 1; }
 .mobile-web-settings .mobile-search-provider-header > button span { white-space: normal; }
 .mobile-app .native-dictation { position: relative; }
+.native-dictation > .mobile-icon-button { overflow: hidden; transition: width 180ms ease, border-radius 180ms ease, background-color 180ms ease; }
+.native-dictation > .mobile-icon-button > svg { flex: none; }
+.native-dictation[data-active=true] > .mobile-icon-button { width: 92px; gap: 8px; border-radius: 22px; background: var(--color-text-primary); color: var(--color-surface-0); }
+.native-dictation [data-testid=microphone-waveform] { flex: none; }
+@media (max-width: 380px) { .native-composer-actions:has(.native-dictation[data-active=true]) > .mobile-model-chip { display: none; } }
+@media (prefers-reduced-motion: reduce) { .native-dictation .animate-spin { animation: none; } }
 .mobile-app .native-dictation-error { position: fixed; inset: auto 16px calc(env(safe-area-inset-bottom) + 132px); z-index: 10; }
 .mobile-app .remote-tool pre, .mobile-app .remote-tool code { font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .mobile-language { margin-top: 22px; }

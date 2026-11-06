@@ -254,7 +254,16 @@ test('holding the phone composer dictates into the draft and Plan is a distinct 
   await input.fill('draft');await input.evaluate(node=>node.setSelectionRange(5,5));
   await touchStart();await expect.poll(()=>count('speech.listen')).toBe(2);await release('touchCancel');
   await expect.poll(()=>count('speech.cancel')).toBe(1);await expect(input).toHaveValue('draft');
-  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(3);await page.getByRole('button',{name:'Stop',exact:true}).click();
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await mic.click();await expect.poll(()=>count('speech.listen')).toBe(3);
+  const waveform = page.getByTestId('microphone-waveform');
+  await expect(waveform).toBeVisible();
+  await page.evaluate(() => (window as any).__PHONE_SPEECH_SAMPLE__({level:.82, text:'Hello'}));
+  await expect(input).toHaveValue('draft Hello');
+  await expect(waveform.locator('span').last()).toHaveAttribute('style', /scaleY\(0\.82/);
+  await page.evaluate(() => (window as any).__PHONE_SPEECH_SAMPLE__({level:0}));
+  await expect(waveform.locator('span').last()).toHaveAttribute('style', /scaleY\(0\.06/);
+  await page.getByRole('button',{name:'Stop',exact:true}).click();
   await expect(input).toHaveValue('draft Hello from dictation');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   const started=await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.find((a:any)=>a.method==='chat.start'));

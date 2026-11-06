@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { applyTheme, getInitialTheme } from '../../src/lib/theme';
 import { I18nProvider } from '../../src/i18n';
 import { RemoteChat } from '../../src/features/remote/RemoteChat';
-import type { RemoteChatClient, RemoteEnvelope } from '../../src/features/remote/remoteClient';
+import type { NativeSpeechProgress, RemoteChatClient, RemoteEnvelope } from '../../src/features/remote/remoteClient';
 import { phoneChatProjects } from '../../../mobile/src/phoneChatProjects';
 import '../../../mobile/src/mobile.css';
 export function renderMobileContinuity() {
@@ -100,7 +100,10 @@ export function renderMobileContinuity() {
   const composerFixture = new URLSearchParams(location.search).has('composer');
   let speechRequest: { id?: string; resolve: (value: string) => void; reject: (error: Error) => void } | undefined;
   const nativeSpeech = {
-    listen: (_language: string, id?: string) => new Promise<string>((resolve, reject) => { actions.push({method:'speech.listen',params:{id}}); speechRequest = { id, resolve, reject }; }),
+    listen: (_language: string, id?: string, update?: (event: NativeSpeechProgress) => void) => new Promise<string>((resolve, reject) => {
+      actions.push({method:'speech.listen',params:{id}}); speechRequest = { id, resolve, reject };
+      (window as any).__PHONE_SPEECH_SAMPLE__ = update;
+    }),
     finish: async (id?: string) => { actions.push({method:'speech.finish',params:{id}}); if (speechRequest && speechRequest.id === id) { speechRequest.resolve('Hello from dictation'); speechRequest = undefined; } },
     cancel: async (id?: string) => { actions.push({method:'speech.cancel',params:{id}}); if (speechRequest && speechRequest.id === id) { speechRequest.reject(new Error('speech_cancelled')); speechRequest = undefined; } },
     speak: async () => {}, stop: async () => {},
