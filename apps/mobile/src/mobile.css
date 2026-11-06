@@ -222,6 +222,14 @@
   .mobile-app button, .mobile-dialog::backdrop { animation-duration: 0s !important; transition-duration: 0s !important; }
 }
 
+.mobile-schedules { display: grid; gap: 12px; }
+.mobile-schedules fieldset { display: grid; gap: 12px; min-width: 0; }
+.mobile-schedules section { border-bottom: 1px solid var(--color-border); padding: 8px 0; }
+.mobile-schedules section strong, .mobile-schedule-controls { display: flex; align-items: center; gap: 6px; }
+.mobile-schedules section p, .mobile-schedules li { margin-top: 4px; font-size: 13px; color: var(--color-text-secondary); overflow-wrap: anywhere; }
+.mobile-schedule-controls button { display: grid; place-items: center; min-width: 44px; min-height: 44px; }
+.mobile-schedules .mobile-schedule-check { flex-direction: row; align-items: center; min-height: 44px; }
+
 /* Each accessible action owns its icon from rest through the swipe. */
 .mobile-swipe-row { position: relative; flex: none; overflow: hidden; border-radius: 14px; touch-action: pan-y; }
 .mobile-swipe-action.archive { --action-fill: #facc15; --action-ink: #713f12; }

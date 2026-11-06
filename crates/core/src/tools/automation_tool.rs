@@ -180,7 +180,71 @@ fn validate_action_fields(arguments: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// The phone editor addresses the same scheduler as the agent. Expose only the
+/// current chat's jobs and the fields the editor displays. Elevated workflow
+/// policies must be edited in the Workbench that displays those grants.
+pub fn conversation_schedule_action(
+    db: &crate::db::Database,
+    conversation_id: &str,
+    input: Value,
+) -> Result<Value, CoreError> {
+    db.require_remote_conversation(conversation_id)?;
+    let arguments = serde_json::to_string(&input)?;
+    validate_action_fields(&arguments)?;
+    let args: Args = serde_json::from_value(input)?;
+    if args.source_ids.is_some()
+        || args.workflow_template_id.is_some()
+        || args.workspace_policy.is_some()
+        || args.enabled.is_some()
+        || args
+            .allowed_tools
+            .as_ref()
+            .is_some_and(|tools| tools.iter().any(|t| !source_independent(t)))
+    {
+        return Err(CoreError::InvalidInput(
+            "Unsupported phone schedule policy".into(),
+        ));
+    }
+    let mut registry = super::ToolRegistry::new();
+    registry.register(Box::new(super::web_search_tool::WebSearchTool));
+    registry.register(Box::new(super::fetch_url_tool::FetchUrlTool));
+    let sources = db.get_effective_conversation_source_scope(conversation_id)?;
+    let mut ctx = ToolExecutionContext::new("phone-schedules", &arguments, db, &sources)
+        .with_conversation_id(Some(conversation_id));
+    ctx.tool_registry = Some(&registry);
+    if let Some(id) = args.id.as_deref() {
+        let task = db.get_workflow_automation(id)?;
+        if task.conversation_id.as_deref() != Some(conversation_id) {
+            return Err(CoreError::NotFound(
+                "Scheduled task is outside this conversation".into(),
+            ));
+        }
+        if matches!(args.action.as_str(), "resume" | "update")
+            && (task.schedule_config.execution_policy.workspace_policy
+                != WorkflowScheduleWorkspacePolicy::DenyWrites
+                || task
+                    .approval_policy
+                    .allowed_tools
+                    .iter()
+                    .any(|t| !source_independent(t)))
+        {
+            return Err(CoreError::InvalidInput(
+                "Manage this task's saved grants in the desktop Workbench".into(),
+            ));
+        }
+    }
+    execute_scoped(&ctx, args, true)
+}
+
 fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreError> {
+    execute_scoped(ctx, args, false)
+}
+
+fn execute_scoped(
+    ctx: &ToolExecutionContext<'_>,
+    args: Args,
+    this_chat_only: bool,
+) -> Result<Value, CoreError> {
     if args.action == "preview" {
         return Ok(serde_json::to_value(preview_workflow_cron_schedule(
             required(args.cron.as_deref(), "cron")?,
@@ -206,7 +270,7 @@ fn execute(ctx: &ToolExecutionContext<'_>, args: Args) -> Result<Value, CoreErro
     if args.action == "list" {
         return Ok(
             json!({"tasks":ctx.db.list_workflow_automations()?.into_iter()
-            .filter(|task| visible(task, project.as_deref(), &sources)).collect::<Vec<_>>() }),
+            .filter(|task| (!this_chat_only || task.conversation_id.as_deref() == Some(conversation_id)) && visible(task, project.as_deref(), &sources)).collect::<Vec<_>>() }),
         );
     }
     let existing = if args.action == "create" {

@@ -61,6 +61,17 @@ pub enum RemoteCommand {
     Connections,
     #[serde(rename = "sync.connections")]
     SyncConnections { input: Value },
+    #[serde(rename = "chat.scheduleDecision")]
+    ScheduleDecision {
+        conversation_id: String,
+        run_id: String,
+        allow: bool,
+    },
+    #[serde(rename = "chat.schedules")]
+    ConversationSchedules {
+        conversation_id: String,
+        input: Value,
+    },
     #[serde(rename = "models.list")]
     Models { connection_id: String },
     #[serde(rename = "chat.list")]

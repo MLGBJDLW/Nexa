@@ -15,7 +15,7 @@ export class LocalClient implements RemoteChatClient {
   readonly imagesOnly = true;
   readonly approvalModeAvailable = true;
   readonly resumeAvailable = true;
-  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-steering-v1'] } };
+  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-steering-v1', 'chat-schedules-v1'] } };
   state: RemoteConnection = { phase: 'connected', endpoint: null };
   private listeners = new Set<(event: RemoteEnvelope) => void>();
   private unlisteners: UnlistenFn[] = [];
@@ -44,6 +44,8 @@ export class LocalClient implements RemoteChatClient {
       case 'models.list': return this.models(params.connectionId);
       case 'chat.list': return local('list',{before:params.before});
       case 'chat.archive': return local('archive', { conversationId: params.conversationId });
+      case 'chat.scheduleDecision': return local('scheduleDecision', params);
+      case 'chat.schedules': return local('schedules', params);
       case 'chat.archived': return local('archived', { before: params.before });
       case 'chat.restore': return local('restore', { conversationId: params.conversationId });
       case 'chat.deleteArchived': return local('deleteArchived', { conversationId: params.conversationId });

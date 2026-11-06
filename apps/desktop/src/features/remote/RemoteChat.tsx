@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
+import { MobileSchedules } from './MobileSchedules';
+import { CalendarClock } from 'lucide-react';
 import { MobileProjectHistory } from './MobileProjectHistory';
 
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from './MobileChatShell';
@@ -171,6 +173,7 @@ export function RemoteChat({
   const sendLock = useRef(false);
   const [archived, setArchived] = useState<Conversation[]>([]);
   const [archivedCursor, setArchivedCursor] = useState<string | null>(null);
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
   const [archivesOpen, setArchivesOpen] = useState(false);
   const [deleteArchivedIds, setDeleteArchivedIds] = useState<string[] | null>(null);
   const [manageTarget, setManageTarget] = useState<{ item: Conversation; action: "archive" | "delete" } | null>(null);
@@ -862,7 +865,15 @@ export function RemoteChat({
             })}</nav>
             {archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}
           </>}
-        </>}<div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
+        </>}
+        {client.paired.manifest.capabilities?.includes('chat-schedules-v1') && <button className="mobile-drawer-new" onClick={() => { setDrawerOpen(false); setSchedulesOpen(true); }}><CalendarClock size={17}/>{t('chat.scheduledTasks')}</button>}
+        <div className="mobile-drawer-footer" onClick={() => setDrawerOpen(false)}>{mobile.drawerFooter}</div></MobileDialog>
+        {schedulesOpen && <MobileSchedules client={client} conversationId={conversationId} onClose={()=>setSchedulesOpen(false)} ensureChat={async () => {
+          const item = await client.rpc<Conversation>('chat.create', {connectionId,modelSelection});
+          selectConversation(item.id); setConversations(current => [item,...current.filter(chat=>chat.id!==item.id)]);
+          if (projectView?.selectedId) await projectView.move(item.id, projectView.selectedId);
+          return item.id;
+        }}/>}
         <MobileDialog open={!!manageTarget} title={t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')} onClose={() => { if (!managing) setManageTarget(null); }}>{error && <p role="alert" className="mobile-error">{error}</p>}<p>{manageTarget?.item.title || t('remote.newChat')}</p><p className="mobile-section-hint">{t(manageTarget?.action === 'archive' ? 'remote.archiveChatHint' : 'remote.deleteChatHint')}</p><div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setManageTarget(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing} onClick={() => void manageConversation()}>{t(manageTarget?.action === 'archive' ? 'chat.archive' : 'common.delete')}</button></div></MobileDialog>
         <MobileDialog open={deleteArchivedIds !== null} title={t('chat.deleteAll')} onClose={() => { if (!managing) setDeleteArchivedIds(null); }}><p>{t('chat.archivedConversations')}</p><p className="mobile-section-hint">{t('chat.deleteAllConfirmDesc', { count: deleteArchivedIds?.length ?? 0 })}</p>{error && <p role="alert" className="mobile-error">{error}</p>}<div className="mobile-confirm-actions"><button disabled={managing} onClick={() => setDeleteArchivedIds(null)}>{t('common.cancel')}</button><button className="mobile-primary" disabled={managing || !deleteArchivedIds?.length} onClick={() => void deleteArchived()}>{t('chat.deleteAll')}</button></div></MobileDialog>
         <MobileDialog open={modelOpen} title={t('remote.model')} onClose={() => setModelOpen(false)}><div className="mobile-model-controls">{providerControls}</div></MobileDialog>

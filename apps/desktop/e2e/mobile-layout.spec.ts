@@ -260,3 +260,24 @@ test('holding the phone composer dictates into the draft and Plan is a distinct 
   const started=await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.find((a:any)=>a.method==='chat.start'));
   expect(started.params.executionMode).toBe('plan');
 });
+
+
+test('phone schedules are created in the selected chat and changes carry its revision', async ({page}) => {
+  await page.setViewportSize({width:360,height:780});
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
+  await page.getByRole('button',{name:'Conversation',exact:true}).click();
+  await page.getByRole('button',{name:'Scheduled tasks',exact:true}).click();
+  const sheet=page.getByRole('dialog',{name:'Scheduled tasks',exact:true});
+  await sheet.getByRole('button',{name:'Create automation'}).click();
+  await sheet.getByLabel('Name',{exact:true}).fill('Morning check');
+  await sheet.getByLabel('Prompt',{exact:true}).fill('Summarize the overnight changes.');
+  await sheet.getByLabel('Timezone (IANA)',{exact:true}).fill('Asia/Shanghai');
+  await sheet.getByRole('button',{name:'Save automation'}).click();
+  await expect(sheet.getByText('Morning check',{exact:true})).toBeVisible();
+  await sheet.getByRole('button',{name:/pause/i}).click();
+  await expect(sheet.getByText('Paused',{exact:true})).toBeVisible();
+  const calls=await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.actions.filter((x:any)=>x.method==='chat.schedules'));
+  const created=calls.find((x:any)=>x.params.input.action==='create').params;
+  expect(created.conversationId).toBeTruthy();
+  expect(calls.find((x:any)=>x.params.input.action==='pause').params).toEqual({conversationId:created.conversationId,input:{action:'pause',id:'job',expectedRevision:1}});
+});

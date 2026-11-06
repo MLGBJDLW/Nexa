@@ -113,7 +113,10 @@ struct ActivePhoneTurn {
     steering: mpsc::UnboundedSender<AgentSteeringMessage>,
 }
 
+mod schedules;
+
 pub struct LocalRuntime {
+    scheduler: Mutex<()>,
     pub db: Database,
     workspace: Workspace,
     outboxes: AgentRunEventOutboxes,
@@ -140,6 +143,7 @@ impl LocalRuntime {
             .recover_after_restart_with_checkpoints()
             .await
             .map_err(err)?;
+        db.reconcile_interrupted_schedule_runs().map_err(err)?;
         Ok(Arc::new(Self {
             db,
             workspace: Workspace::validate(&[directory
@@ -149,6 +153,7 @@ impl LocalRuntime {
             .map_err(err)?,
             outboxes,
             active: Mutex::new(None),
+            scheduler: Mutex::new(()),
             pending: Mutex::new(HashMap::new()),
         }))
     }
@@ -173,6 +178,7 @@ impl LocalRuntime {
         Ok(json!(approvals))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         self: &Arc<Self>,
         app: AppHandle,
@@ -181,7 +187,12 @@ impl LocalRuntime {
         request_id: String,
         checkpoint_id: Option<String>,
         mut options: TurnOptions,
+        scheduled: Option<schedules::ScheduledLaunch>,
     ) -> Result<Value, String> {
+        let mut scheduled_tools = scheduled
+            .as_ref()
+            .map(|schedule| schedule.allowed_tools.clone());
+        let mut workflow_run = scheduled.as_ref().map(|schedule| schedule.run_id.clone());
         if let Some(id) = &checkpoint_id {
             let checkpoint = self.db.get_task_resume_checkpoint(id).map_err(err)?;
             let run = self
@@ -206,6 +217,19 @@ impl LocalRuntime {
                 .map(|value| serde_json::from_value(value.clone()).map_err(err))
                 .transpose()?
                 .unwrap_or_default();
+            if let Some(grants) = original
+                .artifacts
+                .as_ref()
+                .and_then(|value| value.get("phoneScheduledTools"))
+                .filter(|value| !value.is_null())
+            {
+                scheduled_tools = Some(serde_json::from_value(grants.clone()).map_err(err)?);
+                workflow_run = self
+                    .db
+                    .get_workflow_automation_run_for_task_run(&run.id)
+                    .map_err(err)?
+                    .map(|job| job.id);
+            }
             text = checkpoint.resume_prompt;
         }
         options.validate_attachments()?;
@@ -271,7 +295,7 @@ impl LocalRuntime {
             tool_call_id: None,
             tool_calls: Vec::new(),
             artifacts: Some(
-                json!({"phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
+                json!({"phoneScheduledTools": scheduled_tools, "phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
             ),
             token_count: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -343,6 +367,24 @@ impl LocalRuntime {
                 &request_id,
             )
         };
+        let persisted = persisted.and_then(|launch| {
+            if let Some(id) = &workflow_run {
+                if let Err(error) = self
+                    .db
+                    .start_workflow_automation_run(id, &launch.run_id, None)
+                {
+                    self.db.finish_agent_task_run(
+                        &launch.run_id,
+                        "failed",
+                        None,
+                        Some(&error.to_string()),
+                        None,
+                    )?;
+                    return Err(error);
+                }
+            }
+            Ok(launch)
+        });
         let launch = match persisted {
             Ok(launch) => launch,
             Err(error) => {
@@ -382,6 +424,11 @@ impl LocalRuntime {
         ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
+        if let Some(allowed) = &scheduled_tools {
+            tools = tools.filtered(allowed);
+        } else {
+            tools.register(Box::new(nexa_core::tools::automation_tool::AutomationTool));
+        }
         let contract = nexa_core::llm::model_contract::resolve_configured_model_contract(
             provider_type,
             saved.base_url.as_deref(),
@@ -424,6 +471,12 @@ impl LocalRuntime {
             execution_mode: options.execution_mode,
             ..Default::default()
         };
+        if scheduled_tools
+            .as_ref()
+            .is_some_and(|allowed| !allowed.iter().any(|name| name == "web_search"))
+        {
+            config.native_search_plan = Default::default();
+        }
         config.volatile_system_sections.push(format!("You run on the user's Android phone. Files are confined to {}. Only advertise the registered tools. phone_control observes Android accessibility UI and acts only on a fresh observation. The user must explicitly enable accessibility. After any phone action observe and verify its result. Do not infer success from dispatch alone. Ask in chat when more user input is needed.", self.workspace.roots[0]));
         config
             .volatile_system_sections
@@ -545,7 +598,21 @@ impl LocalRuntime {
             let mut active = runtime.active.lock().await;
             let _ = platform::call(&app, "taskService", json!({"active":false})).await;
             if let Ok(run) = runtime.db.get_agent_task_run(&launch.run_id) {
-                let _ = platform::call(&app, "taskResult", json!({"status":run.status,"conversationId":conversation.id,"runId":run.id})).await;
+                if let Some(id) = &workflow_run {
+                    if let Err(error) = runtime.db.transition_workflow_automation_run(
+                        id,
+                        &run.status,
+                        run.error_message.as_deref(),
+                    ) {
+                        eprintln!("Failed to project phone schedule completion: {error}");
+                    }
+                }
+                let _ = platform::call(
+                    &app,
+                    "taskResult",
+                    json!({"status":run.status,"conversationId":conversation.id,"runId":run.id}),
+                )
+                .await;
             }
             let _ = platform::call(
                 &app,

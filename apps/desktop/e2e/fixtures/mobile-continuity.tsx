@@ -105,8 +105,9 @@ export function renderMobileContinuity() {
     cancel: async (id?: string) => { actions.push({method:'speech.cancel',params:{id}}); if (speechRequest && speechRequest.id === id) { speechRequest.reject(new Error('speech_cancelled')); speechRequest = undefined; } },
     speak: async () => {}, stop: async () => {},
   };
+  let schedules: {id:string;definitionRevision:number;enabled:boolean;name:string}[] = [];
   const client = {
-    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-steering-v1']}},
+    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-steering-v1','chat-schedules-v1']}},
     state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:composerFixture, approvalModeAvailable:composerFixture, nativeSpeech: composerFixture ? nativeSpeech : undefined,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
@@ -117,6 +118,15 @@ export function renderMobileContinuity() {
         if (!projectsFixture || !new URLSearchParams(location.search).has('paged')) return {items:chats,nextCursor:null};
         const start = params.before ? chats.findIndex(item => item.id === params.before) + 1 : 0;
         return {items:chats.slice(start,start+1),nextCursor: start+1 < chats.length ? chats[start].id : null};
+      }
+      if (method==='chat.schedules') {
+        const input=params.input;
+        if (input.action==='list') return {tasks:schedules};
+        if (input.action==='create') schedules.push({...input,id:'job',enabled:true,definitionRevision:1,
+          trigger:{kind:'schedule',cron:input.cron},scheduleConfig:{timezone:input.timezone},approvalPolicy:{allowedTools:input.allowedTools,requireBeforeRun:input.requireApproval}});
+        if (input.action==='pause') schedules=schedules.map(job=>({...job,enabled:false,definitionRevision:2}));
+        if (input.action==='delete') schedules=schedules.filter(job=>job.id!==input.id);
+        return {};
       }
       if (method==='chat.archived') { const start=params.before?archived.findIndex(item=>item.id===params.before)+1:0; const items=archived.slice(start,start+2); const page={items,nextCursor:start+2<archived.length?items.at(-1)!.id:null}; if(holdArchive) {holdArchive=false;return new Promise(resolve=>{releaseArchive=()=>{releaseArchive=null;resolve(page);};});} return page; }
       if (method==='chat.restore') {chats.push(...archived.filter(item=>item.id===params.conversationId));archived=archived.filter(item=>item.id!==params.conversationId);return null;}

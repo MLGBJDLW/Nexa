@@ -34,6 +34,22 @@ export function MobileApp() {
   const [connection, setConnection] = useState<RemoteConnection>({ phase: 'connecting', endpoint: null });
   const [files, setFiles] = useState<string[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
+  // One host-wide foreground check. The Rust scheduler claims persisted
+  // occurrences and admits at most one phone executor, regardless of chat.
+  useEffect(() => {
+    let checking = false;
+    const tick = async () => {
+      if (checking || document.visibilityState !== 'visible') return;
+      checking = true;
+      try { await invoke('mobile_local', { action: 'scheduleTick', input: {} }); }
+      catch (error) { console.warn('Phone schedule check failed', error); }
+      finally { checking = false; }
+    };
+    void tick();
+    const timer = setInterval(tick, 30_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); };
+  }, []);
   const reads = useRef(0);
   const clients = useRef(new Map<string, { client: NativeClient; stop: () => void }>());
   const [, setClientVersion] = useState(0);

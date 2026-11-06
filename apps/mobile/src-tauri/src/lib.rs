@@ -86,7 +86,14 @@ async fn mobile_local(
             .ok_or_else(|| format!("Missing {key}."))
     };
     match action.as_str() {
-        "replyRead" => platform::call(&app, "replyRead", json!({"conversationId":string("conversationId")?, "runId":string("runId")?})).await,
+        "replyRead" => {
+            platform::call(
+                &app,
+                "replyRead",
+                json!({"conversationId":string("conversationId")?, "runId":string("runId")?}),
+            )
+            .await
+        }
         "connections" => {
             let library = connections::public_state(&app).await?;
             let mut records = library["connections"]
@@ -113,6 +120,34 @@ async fn mobile_local(
             )
             .map_err(|e| e.to_string())
         }
+        "schedules" => {
+            let conversation_id = string("conversationId")?;
+            let args = input["input"].clone();
+            let db = state.db.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                nexa_core::tools::automation_tool::conversation_schedule_action(
+                    &db,
+                    &conversation_id,
+                    args,
+                )
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())
+        }
+        "scheduleDecision" => {
+            state
+                .decide_schedule(
+                    app,
+                    &string("conversationId")?,
+                    &string("runId")?,
+                    input["allow"]
+                        .as_bool()
+                        .ok_or("Choose an approval decision.")?,
+                )
+                .await
+        }
+        "scheduleTick" => state.tick_schedules(app).await,
         "list" => state
             .db
             .remote_conversations(input["before"].as_str())
@@ -222,6 +257,7 @@ async fn mobile_local(
                         input.get("options").cloned().unwrap_or_else(|| json!({})),
                     )
                     .map_err(|e| e.to_string())?,
+                    None,
                 )
                 .await
         }

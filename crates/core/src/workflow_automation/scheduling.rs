@@ -1608,6 +1608,32 @@ impl Database {
         })
     }
 
+    /// Project the ledger after phone process death, including a checkpoint
+    /// paused by startup recovery, before checking for a new due occurrence.
+    pub fn reconcile_interrupted_schedule_runs(&self) -> Result<(), CoreError> {
+        let stale = {
+            let conn = self.conn();
+            let mut stmt = conn.prepare(
+                "SELECT r.id, t.status, t.error_message FROM workflow_automation_runs r
+                 JOIN agent_task_runs t ON t.id=r.task_run_id
+                 WHERE r.status IN ('running','resuming','cancelling') AND r.status <> t.status
+                   AND t.status IN ('completed','failed','cancelled','timed_out','paused')",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        for (id, status, message) in stale {
+            self.transition_workflow_automation_run(&id, &status, message.as_deref())?;
+        }
+        Ok(())
+    }
+
     pub fn get_workflow_automation_run_for_task_run(
         &self,
         task_run_id: &str,
