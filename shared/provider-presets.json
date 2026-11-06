@@ -30493,7 +30493,8 @@
           "vision": true
         },
         "status": "deprecated",
-        "lastVerifiedAt": "2026-09-30",
+        "deprecationDate": "2026-11-24",
+        "lastVerifiedAt": "2026-11-06",
         "replacementModelId": "doubao-seed-2-1-lite-260915",
         "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh"
       },
