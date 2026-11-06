@@ -3,6 +3,7 @@ import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, CornerDownRight, 
 import { MobileConversationRow } from './MobileConversationRow';
 import { MobileSchedules } from './MobileSchedules';
 import { CalendarClock } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 import { MobileProjectHistory } from './MobileProjectHistory';
 
 import { MobileChatHeader, MobileDialog, type MobileChatPresentation } from './MobileChatShell';
@@ -174,6 +175,7 @@ export function RemoteChat({
   const [archived, setArchived] = useState<Conversation[]>([]);
   const [archivedCursor, setArchivedCursor] = useState<string | null>(null);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [archivesOpen, setArchivesOpen] = useState(false);
   const [deleteArchivedIds, setDeleteArchivedIds] = useState<string[] | null>(null);
   const [manageTarget, setManageTarget] = useState<{ item: Conversation; action: "archive" | "delete" } | null>(null);
@@ -596,9 +598,9 @@ export function RemoteChat({
   async function restoreConversation(id: string) {
     if (managing) return;
     listGeneration.current++; archiveGeneration.current++;
-    setManaging(true); setError('');
+    setRestoringId(id); setManaging(true); setError('');
     try { await client.rpc('chat.restore', { conversationId: id }); await Promise.all([list(), listArchived()]); }
-    catch (error) { errorText(error); }
+    catch (error) { setRestoringId(null); errorText(error); }
     finally { setManaging(false); }
   }
   async function prepareDeleteArchived() {
@@ -899,15 +901,16 @@ export function RemoteChat({
               <button className="mobile-icon-button" disabled={managing} aria-label={t('chat.deleteAll')} title={t('chat.deleteAll')} onClick={() => void prepareDeleteArchived()}><Trash2 size={17}/></button>}
           </div>
           {archivesOpen && <>{error && <p role="alert" className="mobile-error">{error}</p>}
-            <nav className="mobile-history mobile-archive-history">{archived.map(item => {
+            <nav className="mobile-history mobile-archive-history"><AnimatePresence initial={false} custom={restoringId}>{archived.map(item => {
               const title = item.title || t('remote.newChat');
               return <MobileConversationRow key={item.id} id={item.id} title={title} disabled={managing}
+                restoring={restoringId === item.id && managing}
                 preview={manageTarget?.item.id === item.id && manageTarget.action === 'delete'}
                 onRestore={() => void restoreConversation(item.id)}
-                onDelete={client.archivedDeletionAvailable ? () => setManageTarget({ item, action: 'delete' }) : undefined}>
+                onDelete={client.archivedDeletionAvailable ? () => { setRestoringId(null); setManageTarget({ item, action: 'delete' }); } : undefined}>
                 <span className="min-w-0 flex-1 truncate">{title}</span>
               </MobileConversationRow>;
-            })}</nav>
+            })}</AnimatePresence></nav>
             {archivedCursor && <button onClick={() => void listArchived(archivedCursor).catch(errorText)}>{t('remote.moreChats')}</button>}
           </>}
         </>}

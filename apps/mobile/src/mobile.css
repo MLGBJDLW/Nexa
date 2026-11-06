@@ -254,6 +254,7 @@
 .mobile-swipe-row[data-swiping="right"] .mobile-conversation-row > .restore {
   --distance: var(--swipe-distance); --progress: var(--swipe-progress); transition: none;
 }
+.mobile-history .mobile-swipe-row[data-restore-preview] .mobile-conversation-row > .restore,
 .mobile-history .mobile-swipe-row[data-archive-preview] .mobile-conversation-row > .mobile-swipe-action:last-child { --distance: 60px; --progress: 1; }
 .mobile-archive-heading { display: flex; align-items: center; }
 .mobile-archive-heading > button:first-child { flex: 1; text-align: left; min-height: 44px; }

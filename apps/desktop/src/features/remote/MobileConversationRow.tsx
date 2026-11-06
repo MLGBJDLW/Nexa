@@ -5,8 +5,8 @@ import { useTranslation } from '../../i18n';
 import { useEffect, useRef, type ReactNode, type PointerEvent } from 'react';
 
 /** The persistent action button expands with horizontal intent; vertical motion scrolls. */
-export function MobileConversationRow({ children, id, title, preview, onArchive, onDelete, onRestore, onMove, disabled }: {
-  children: ReactNode; id: string; title: string; preview?: boolean; disabled?: boolean;
+export function MobileConversationRow({ children, id, title, preview, restoring, onArchive, onDelete, onRestore, onMove, disabled }: {
+  children: ReactNode; id: string; title: string; preview?: boolean; restoring?: boolean; disabled?: boolean;
   onArchive?: () => void; onDelete?: () => void; onRestore?: () => void; onMove?: () => void;
 }) {
   const { t } = useTranslation();
@@ -43,6 +43,7 @@ export function MobileConversationRow({ children, id, title, preview, onArchive,
   };
   return <motion.div ref={setNodeRef} className="mobile-swipe-row" data-mobile-swipe-row data-conversation-id={id}
     data-archive-preview={preview || (!present && movedId !== id) || undefined}
+    data-restore-preview={restoring || (!present && !!onRestore && movedId === id) || undefined}
     data-project-dragging={isDragging || undefined} inert={!present}
     onMouseDown={event => { if (!(event.target as Element).closest('.mobile-swipe-action')) listeners?.onMouseDown?.(event); }}
     onTouchStart={event => { if (!(event.target as Element).closest('.mobile-swipe-action')) listeners?.onTouchStart?.(event); }}
@@ -51,7 +52,7 @@ export function MobileConversationRow({ children, id, title, preview, onArchive,
     onPointerDown={event => {
       if (!event.isPrimary || event.button !== 0) return;
       suppressClick.current = false;
-      if (disabled || !trailing && !onRestore || (event.target as Element).closest('.mobile-project-grip')) return;
+      if (disabled || (!trailing && !onRestore) || (event.target as Element).closest('.mobile-project-grip')) return;
       drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, distance: 0, horizontal: false };
     }}
     onPointerMove={event => {
@@ -64,7 +65,7 @@ export function MobileConversationRow({ children, id, title, preview, onArchive,
         event.currentTarget.setPointerCapture(event.pointerId);
       }
       if (state.horizontal) {
-        state.distance = distance > 0 && trailing || distance < 0 && onRestore ? distance : 0;
+        state.distance = (distance > 0 ? trailing : onRestore) ? distance : 0;
         event.currentTarget.dataset.swiping = state.distance < 0 ? 'right' : 'left';
         event.currentTarget.style.setProperty('--swipe-distance', `${Math.min(96, Math.abs(state.distance))}px`);
         event.currentTarget.style.setProperty('--swipe-progress', String(Math.min(1, Math.abs(state.distance) / 100)));
