@@ -14,4 +14,5 @@
     <string name="task_attention_channel">返信と承認</string>
     <string name="task_reply_ready">Nexa から返信があります</string>
     <string name="task_reply_open">タップして返信を表示します。</string>
+    <string name="pairing_scan">ペアリング QR コードをスキャン</string>
 </resources>

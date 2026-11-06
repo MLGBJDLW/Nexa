@@ -98,6 +98,7 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     @Command fun scanPairing(invoke: Invoke) {
         try {
             val options = ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setCaptureActivity(PairingScannerActivity::class.java)
                 .setBeepEnabled(false).setOrientationLocked(false)
             startActivityForResult(invoke, options.createScanIntent(activity), "pairingScanned")
         } catch (error: Exception) { invoke.reject(error.message ?: "The camera could not be opened. Paste the pairing link instead.") }
