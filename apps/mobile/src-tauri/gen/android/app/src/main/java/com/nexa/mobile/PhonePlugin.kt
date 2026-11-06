@@ -220,6 +220,12 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
             JSObject()
         }
     }
+    @Command fun scheduleApproval(invoke: Invoke) = activity.runOnUiThread {
+        guarded(invoke) {
+            PhoneReplies.post(activity, invoke.getArgs().getString("conversationId"), invoke.getArgs().getString("runId"), approval = true)
+            JSObject()
+        }
+    }
     @Command fun scheduleDecisionRead(invoke: Invoke) = guarded(invoke) {
         PhoneReplies.clearApproval(activity, invoke.getArgs().getString("runId"))
         JSObject()
