@@ -14,7 +14,7 @@ function normalizedUrl(value: string | null | undefined): string {
 }
 
 function endpointUrl(value: string | null | undefined): URL | null {
-  const normalized = normalizedUrl(value);
+  const normalized = value?.trim();
   if (!normalized) return null;
   try {
     return new URL(normalized);
@@ -45,7 +45,7 @@ export function providerCredentialScope(
   }
 
   const endpoint = endpointUrl(baseUrl);
-  const hasTrustedShape = endpoint?.protocol === 'https:'
+  const hasTrustedShape = endpoint != null && (endpoint.protocol === 'https:' || endpoint.protocol === 'wss:')
     && !endpoint.port
     && !endpoint.username
     && !endpoint.password

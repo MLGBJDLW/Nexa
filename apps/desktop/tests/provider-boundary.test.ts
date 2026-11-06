@@ -76,3 +76,10 @@ for (const endpoint of [
     `Coding Plan and edited Z.ai routes must keep isolated credentials: ${endpoint}`,
   );
 }
+
+for (const [provider, chat, speech] of [
+  ['google', 'https://generativelanguage.googleapis.com/v1beta', 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'],
+  ['mistral', 'https://api.mistral.ai/v1', 'https://api.mistral.ai/v1/audio/transcriptions/realtime'],
+]) {
+  assertEqual(providerCredentialScope(provider, chat), providerCredentialScope(provider, speech), `${provider} realtime speech reuses its official chat key`);
+}
