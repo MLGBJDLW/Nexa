@@ -2,10 +2,18 @@
 
 ## [0.3.2](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.1...nexa-mobile-v0.3.2) (2026-11-06)
 
+### Android assistant and chat
+
+- The floating assistant gently moves at rest. Release it closer to the middle of the screen for a stronger, faster elastic return to the edge. Motion pauses while the overlay is suspended and respects disabled system animations.
+- Completed replies keep the final answer in front and fold thinking and intermediate tool activity. New chats generate titles without delaying the final answer or overwriting a manual rename.
+- Search the phone settings and expand only the sections you need. Cloud dictation and read-aloud reuse compatible saved connections, including keys held in Android's encrypted store.
+- Swiping a conversation progressively reveals its archive action. A confirmed bulk action clears archived conversations across pages and safely skips chats restored or deleted by another client.
+- Mobile now has independent version and release PR maintenance and publishes its own signed ARM64 APK without bumping desktop for phone-only changes.
+- Hold the message field to dictate and release to finish without sending. The animated Plan mode switch is available beside Access, outside the attachment menu.
 
 ### Features
 
-* **assistant:** add hold-to-dictate, mobile chat controls and external agent tools ([#529](https://github.com/MLGBJDLW/Nexa/issues/529)) ([0b6a3f4](https://github.com/MLGBJDLW/Nexa/commit/0b6a3f46e2b96504dea2e011f77ce92bb690da81))
+* **assistant:** add hold-to-dictate and mobile chat controls ([#529](https://github.com/MLGBJDLW/Nexa/issues/529)) ([0b6a3f4](https://github.com/MLGBJDLW/Nexa/commit/0b6a3f46e2b96504dea2e011f77ce92bb690da81))
 
 ## 0.3.1
 
