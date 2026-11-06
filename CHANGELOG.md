@@ -7,6 +7,16 @@
 
 * **mobile:** improve phone conversations, scheduled tasks and model support ([#535](https://github.com/MLGBJDLW/Nexa/issues/535)) ([8b488be](https://github.com/MLGBJDLW/Nexa/commit/8b488be46355fd70c0d2d3f3269271671239569a))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 8b488be46355fd70c0d2d3f3269271671239569a -->
+
+### What's Changed
+* feat(mobile): improve phone conversations, scheduled tasks and model support by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/535
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.3...nexa-monorepo-v0.19.4
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.3](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.2...nexa-monorepo-v0.19.3) (2026-11-06)
 
 ### Codex workspace access
