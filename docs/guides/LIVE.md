@@ -9,6 +9,11 @@ browser/device permissions.
 
 ## Dictation
 
+On desktop, hold the left mouse button in the message field to start dictating;
+on Android, press and hold the field. Release to finish and review the editable
+draft. The microphone button remains available for tap-to-start recording. Neither
+gesture sends the message.
+
 Configure speech recognition in desktop Settings, then use the composer
 microphone. An interim-capable adapter updates the draft during recording;
 a final-only adapter publishes text only when its operation finishes.
@@ -16,7 +21,7 @@ a final-only adapter publishes text only when its operation finishes.
 Manual edits own the text the user corrected. Later provider hypotheses must
 not overwrite that correction or duplicate already finalized utterances.
 Changing a model name cannot turn a batch HTTP adapter into a realtime stream.
-Phone dictation uses the desktop speech configuration and preserves recognized
+Browser-based phone dictation uses the paired desktop speech configuration and preserves recognized
 text if the microphone transport is interrupted.
 
 Recording duration is independent of a provider socket. PCM accepted by the
