@@ -32,7 +32,7 @@ test('native phone groups activity once per turn during the run and after reload
       const group = index === 'first' ? groups.first() : groups.last();
       await group.locator(':scope > summary').click();
       const rows = group.locator('[data-timeline-kind]');
-      expect(await rows.evaluateAll(items => items.map(item => item.getAttribute('data-timeline-kind')))).toEqual(expected);
+      await expect.poll(() => rows.evaluateAll(items => items.map(item => item.getAttribute('data-timeline-kind')))).toEqual(expected);
       const labels = index === 'first'
         ? ['读取第一份报表。', 'read_file', '核对表格里的金额。', 'search_table']
         : ['读取第二份报表的目录。', 'read_section'];
