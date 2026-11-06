@@ -174,6 +174,174 @@
         "dimensions": 1024,
         "supportsDimensionOverride": true,
         "minDimensions": 32
+      },
+      {
+        "id": "jina-code-embeddings-0.5b",
+        "name": "Jina AI: Jina Code Embeddings 0.5b",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 32768,
+        "dimensions": 896,
+        "supportsDimensionOverride": true,
+        "minDimensions": 1,
+        "maxDimensions": 896
+      },
+      {
+        "id": "jina-code-embeddings-1.5b",
+        "name": "Jina AI: Jina Code Embeddings 1.5b",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 32768,
+        "dimensions": 1536,
+        "supportsDimensionOverride": true,
+        "minDimensions": 1,
+        "maxDimensions": 1536
+      },
+      {
+        "id": "jina-embeddings-v4",
+        "name": "Jina AI: Jina Embeddings v4",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 32768,
+        "dimensions": 2048,
+        "supportsDimensionOverride": true,
+        "minDimensions": 1,
+        "maxDimensions": 2048
+      },
+      {
+        "id": "jina-clip-v2",
+        "name": "Jina AI: Jina Clip v2",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 8192,
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "minDimensions": 1,
+        "maxDimensions": 1024
+      },
+      {
+        "id": "jina-clip-v1",
+        "name": "Jina AI: Jina Clip v1",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 8192,
+        "dimensions": 768,
+        "supportsDimensionOverride": false
+      },
+      {
+        "id": "jina-embeddings-v2-base-es",
+        "name": "Jina AI: Jina Embeddings v2 Base ES",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 8192,
+        "dimensions": 768,
+        "supportsDimensionOverride": false
+      },
+      {
+        "id": "jina-embeddings-v2-base-code",
+        "name": "Jina AI: Jina Embeddings v2 Base Code",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 8192,
+        "dimensions": 768,
+        "supportsDimensionOverride": false
+      },
+      {
+        "id": "jina-embeddings-v2-base-de",
+        "name": "Jina AI: Jina Embeddings v2 Base DE",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 8192,
+        "dimensions": 768,
+        "supportsDimensionOverride": false
+      },
+      {
+        "id": "jina-embeddings-v2-base-zh",
+        "name": "Jina AI: Jina Embeddings v2 Base ZH",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 8192,
+        "dimensions": 768,
+        "supportsDimensionOverride": false
+      },
+      {
+        "id": "jina-embeddings-v2-base-en",
+        "name": "Jina AI: Jina Embeddings v2 Base EN",
+        "source": "official",
+        "lastVerifiedAt": "2026-11-06",
+        "documentationRef": "https://api.jina.ai/docs",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "contextTokens": 8192,
+        "dimensions": 768,
+        "supportsDimensionOverride": false
       }
     ],
     "apiStyle": "jina_embeddings",

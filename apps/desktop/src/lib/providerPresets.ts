@@ -29,6 +29,7 @@ export type {
 } from './providerTypes';
 
 export interface ProviderPreset {
+  retired?: boolean;
   runtime?: 'copilot' | 'codex' | 'acp';
   command?: string;
   args?: string[];

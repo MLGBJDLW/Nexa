@@ -11,7 +11,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
-fn gateway_task_profile(base_url: &str, model: &str) -> &'static str {
+fn retrieval_task_profile(base_url: &str, model: &str) -> &'static str {
+    if base_url.trim_end_matches('/') == "https://api.jina.ai/v1" {
+        return match model {
+            "jina-code-embeddings-0.5b" | "jina-code-embeddings-1.5b" => "jina-nl2code-v1",
+            "jina-clip-v2" => "jina-query-only-v1",
+            "jina-clip-v1"
+            | "jina-embeddings-v2-base-en"
+            | "jina-embeddings-v2-base-es"
+            | "jina-embeddings-v2-base-de"
+            | "jina-embeddings-v2-base-zh"
+            | "jina-embeddings-v2-base-code" => "jina-no-task-v1",
+            _ => "plain",
+        };
+    }
     if base_url.trim_end_matches('/') != "https://openrouter.ai/api/v1" {
         return "plain";
     }
@@ -64,7 +77,7 @@ impl ApiEmbedder {
         style: EmbeddingApiStyle,
     ) -> String {
         let mut identity = json!(["api-v2", base_url, model, dimensions, style]);
-        let profile = gateway_task_profile(base_url, model);
+        let profile = retrieval_task_profile(base_url, model);
         if profile != "plain" {
             identity.as_array_mut().unwrap().push(json!(profile));
         }
@@ -251,17 +264,22 @@ impl ApiEmbedder {
                 body["input_type"] = json!(if query { "query" } else { "document" });
             }
             EmbeddingApiStyle::Jina => {
-                body["task"] = json!(if query {
-                    "retrieval.query"
-                } else {
-                    "retrieval.passage"
-                });
+                let task = match (retrieval_task_profile(&self.base_url, &self.model), query) {
+                    ("jina-no-task-v1", _) | ("jina-query-only-v1", false) => None,
+                    ("jina-nl2code-v1", true) => Some("nl2code.query"),
+                    ("jina-nl2code-v1", false) => Some("nl2code.passage"),
+                    (_, true) => Some("retrieval.query"),
+                    (_, false) => Some("retrieval.passage"),
+                };
+                if let Some(task) = task {
+                    body["task"] = json!(task);
+                }
             }
             _ => {}
         }
         if self.base_url == "https://openrouter.ai/api/v1" {
             body["encoding_format"] = json!("float");
-            match gateway_task_profile(&self.base_url, &self.model) {
+            match retrieval_task_profile(&self.base_url, &self.model) {
                 "gemini-2-retrieval-v1" => {
                     body["input"] = json!(texts
                         .iter()
@@ -638,6 +656,28 @@ mod tests {
             "retrieval.passage"
         );
         assert_eq!(jina.request(&["query"], true).1["task"], "retrieval.query");
+        let base = "https://api.jina.ai/v1";
+        for (model, dims, query, passage) in [
+            (
+                "jina-code-embeddings-1.5b",
+                512,
+                Some("nl2code.query"),
+                Some("nl2code.passage"),
+            ),
+            ("jina-clip-v2", 512, Some("retrieval.query"), None),
+            ("jina-clip-v1", 768, None, None),
+            ("jina-embeddings-v2-base-zh", 768, None, None),
+        ] {
+            let client = client(base, model, dims);
+            for (is_query, task) in [(true, query), (false, passage)] {
+                let body = client.request(&["text"], is_query).1;
+                assert_eq!(body.get("task").and_then(Value::as_str), task);
+                assert_eq!(
+                    body.get("dimensions").and_then(Value::as_u64),
+                    (dims == 512).then_some(512)
+                );
+            }
+        }
         let mistral = client("https://api.mistral.ai/v1", "mistral-embed", 1024);
         assert!(mistral
             .request(&["document"], false)

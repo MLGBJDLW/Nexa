@@ -14,7 +14,7 @@ export function normalizeCatalogModel(surface, model) {
 function liveLifecycle(model) {
   const explicit = String(model?.lifecycle ?? model?.status ?? '').trim().toLowerCase();
   if (explicit) return explicit;
-  return model?.deprecated === true ? 'deprecated' : null;
+  return model?.deprecated === true || model?.expiration_date ? 'deprecated' : null;
 }
 
 export function compareCapabilities(curated, discovered) {
@@ -52,6 +52,7 @@ export function compareEndpointModels(endpoint, liveModels) {
   const missingIds = [...curatedById.keys()].filter((id) => !liveById.has(id)).sort();
   const capabilityChanged = [];
   const lifecycleChanged = [];
+  const expirationChanged = [];
   const regionChanged = [];
 
   for (const [id, curated] of curatedById) {
@@ -63,6 +64,9 @@ export function compareEndpointModels(endpoint, liveModels) {
     if (lifecycle && lifecycle !== curated.lifecycle) {
       lifecycleChanged.push({ id, curated: curated.lifecycle, discovered: lifecycle });
     }
+    if (live.expiration_date && live.expiration_date !== curated.deprecationDate) {
+      expirationChanged.push({ id, curated: curated.deprecationDate ?? null, discovered: live.expiration_date });
+    }
     if (Array.isArray(live.regions)) {
       const curatedRegions = normalizedValues(curated.regions);
       const discoveredRegions = normalizedValues(live.regions);
@@ -72,7 +76,7 @@ export function compareEndpointModels(endpoint, liveModels) {
     }
   }
 
-  return { newIds, missingIds, capabilityChanged, lifecycleChanged, regionChanged };
+  return { newIds, missingIds, capabilityChanged, lifecycleChanged, expirationChanged, regionChanged };
 }
 
 /** Check a small public availability contract without treating an intentionally
@@ -91,6 +95,7 @@ export function compareRequiredModelIds(requiredIds, liveModels) {
     missingIds,
     capabilityChanged: [],
     lifecycleChanged: [],
+    expirationChanged: [],
     regionChanged: [],
   };
 }
@@ -100,5 +105,6 @@ export function driftDetected(comparison) {
     || comparison.missingIds.length > 0
     || comparison.capabilityChanged.length > 0
     || comparison.lifecycleChanged.length > 0
+    || comparison.expirationChanged.length > 0
     || comparison.regionChanged.length > 0;
 }

@@ -29,14 +29,31 @@ advertised by these entries. Four old MiniMax router IDs now have no serving
 endpoints and remain historical unavailable choices, without changing saved IDs
 or silently selecting a paid replacement.
 
-Catalog modality labels alone do not establish wire compatibility.
-[Clairic](https://openrouter.ai/cloudflare/clairic) requires the Extractions API,
-so it is not offered as a Decisions model. The public catalog and
-[Tev1 model page](https://openrouter.ai/togethercomputer/tev1-4b-experimental)
-disagree about its native decision transport; it remains outside the presets
-until that request contract is verified. The audit validates all seven catalog
-surfaces and separately records five public discovery probes. Authenticated
-provider catalogs and inference still require the relevant account credentials.
+OpenRouter also lists text output and the chat completions endpoint for both
+Gemini Omni Flash IDs. Select them in Chat for text replies, or in Video to
+generate a clip. Together Tev1 4B Experimental is available in Structured
+decisions through OpenRouter's Together adapter. It accepts typed decision
+questions. Clairic uses the separate Extractions transport.
+[OpenRouter text routes](https://openrouter.ai/api/v1/models?output_modalities=text)
+and [Decisions adapter reference](https://openrouter.ai/docs/guides/community/multimodal-decisions).
+
+OpenRouter's announced shutdown dates are shown on 14 chat selections, including
+the Mercury family (November 8) and Seed 2.0 Code (November 11). The NVIDIA
+Nemotron 3.5 Content Safety free route has no serving endpoints. Existing
+selections keep their identifiers, including the free suffix. The direct Yi API
+has closed, and historical Yi connections remain identifiable.
+[OpenRouter model lifecycles](https://openrouter.ai/api/v1/models),
+[NVIDIA free route](https://openrouter.ai/api/v1/models/nvidia/nemotron-3.5-content-safety:free/endpoints)
+and [Yi service announcement](https://platform.lingyiwanwu.com/assets/).
+
+Jina's embedding picker covers 15 dense-vector models for text indexing,
+including v4, CLIP, code embeddings and the v2 regional and code variants.
+Code retrieval sends distinct natural-language query and code-passage tasks.
+CLIP v2 sets a task only for queries. Fixed-size models use the provider's
+native dimensions. The catalog audit validates seven preset files and checks six
+public catalogs. Paid inference and account-specific catalogs require credentials.
+[Jina model inventory](https://api.jina.ai/v1/models) and
+[embedding request schemas](https://api.jina.ai/docs).
 
 ## Usage statistics
 
@@ -358,8 +375,9 @@ endpoint, or model. Source text is projected through the current privacy policy;
 revocation or cancellation stops the request. Question and option identities
 remain stable even when custom redaction changes their business labels.
 
-TypeSafe's direct pinned model is `jev-1.13.0`; OpenRouter uses
-`typesafe/jev-1.13` or the bare `jev-latest` alias through `/api/v1/systemone`.
+TypeSafe's direct pinned model is `jev-1.13.0`. OpenRouter accepts
+`typesafe/jev-1.13` and `~typesafe/jev-latest` through `/api/alpha/decisions`.
+Saved OpenRouter selections of `jev-latest` send the router's namespaced alias.
 The separately selectable OpenRouter chat model `typesafe/jev-router` chooses
 the serving chat model and effort remotely. It is not the decision endpoint,
 and Nexa does not select it automatically. See the
