@@ -1,4 +1,5 @@
 {
+  "holdComposerToDictate": "長按輸入框說話，放開將文字加入草稿。",
   "startRecording": "開始語音輸入",
   "stopRecording": "停止錄音",
   "processing": "轉錄中...",

@@ -1,4 +1,5 @@
 {
+  "holdComposerToDictate": "入力欄を長押しして話し、離すと下書きに追加されます。",
   "startRecording": "音声入力を開始",
   "stopRecording": "録音を停止",
   "processing": "文字起こし中...",

@@ -1117,3 +1117,61 @@ test('a stale selected-device failure never opens the default microphone', async
   )).toBe(0);
   await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
 });
+
+
+test('holding the message box records once and releasing appends to the unsent draft', async ({ page }) => {
+  await page.goto('/chat/conv-voice-dock');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep these words');
+  await input.hover({ position: { x: 19, y: 24 } });
+  const box = (await input.boundingBox())!;
+  // Point at the text line, above the empty lower half of the textarea.
+  const y = box.y + 24;
+  await page.mouse.move(box.x + 19, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 100, y, { steps: 3 });
+  await page.waitForTimeout(550);
+  await page.mouse.up();
+  expect(await input.evaluate(el => (el as HTMLTextAreaElement).selectionStart !== (el as HTMLTextAreaElement).selectionEnd)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.voiceSpoolStartCalls)).toBe(0);
+  await input.press('End');
+
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await expect(page.locator('.voice-btn-recording')).toBeVisible();
+  await page.mouse.up();
+  await expect(input).toHaveValue('Keep these words final voice transcript');
+  expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.realtimeFinishCalls)).toBe(1);
+  await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
+});
+
+test('releasing the message box before microphone permission never captures after release', async ({ page }) => {
+  await page.goto('/chat/conv-voice-dock');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Original');
+  await page.evaluate(() => { (window as any).__VOICE_MICROPHONE_CONTROL__.deferGrant = true; });
+  await input.hover();
+  await page.mouse.down();
+  await expect.poll(() => page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.grantPending)).toBe(true);
+  await page.mouse.up();
+  await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.grant());
+  await expect.poll(() => page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.stopCalls)).toBeGreaterThan(0);
+  await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
+  await expect(input).toHaveValue('Original');
+  expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.realtimeFinishCalls)).toBe(0);
+});
+
+
+test('a held recording cancels on window blur without changing the draft', async ({ page }) => {
+  await page.goto('/chat/conv-voice-dock');
+  const input = page.getByTestId('chat-input-textarea');
+  await input.fill('Keep this draft');
+  await input.hover();
+  await page.mouse.down();
+  await expect(page.locator('.voice-btn-recording')).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.mouse.up();
+  await expect(page.getByTestId('voice-recording-dock')).toHaveCount(0);
+  await expect(input).toHaveValue('Keep this draft');
+  expect(await page.evaluate(() => (window as any).__VOICE_MICROPHONE_CONTROL__.realtimeFinishCalls)).toBe(0);
+});

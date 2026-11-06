@@ -1,4 +1,5 @@
 {
+  "holdComposerToDictate": "Maintenez le champ du message enfoncé pour dicter. Relâchez pour ajouter le texte.",
   "startRecording": "Démarrer la saisie vocale",
   "stopRecording": "Arrêter l’enregistrement",
   "processing": "Transcription...",

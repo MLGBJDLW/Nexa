@@ -1,4 +1,5 @@
 {
+  "holdComposerToDictate": "입력란을 길게 눌러 말한 뒤 손을 떼면 초안에 추가됩니다.",
   "startRecording": "음성 입력 시작",
   "stopRecording": "녹음 중지",
   "processing": "전사 중...",
