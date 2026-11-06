@@ -55,8 +55,8 @@ export function renderMobileContinuity() {
   let run: any = null;
   let messages: any[] = [];
   const events: any[] = [];
-  const emit = (kind: string, payload: unknown) => {
-    const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:activityFixture?'处理中':'Working',payload};
+  const emit = (kind: string, payload: unknown, presentation: {displayKind?:string;label?:string} = {}) => {
+    const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:activityFixture?'处理中':'Working',payload,...presentation};
     events.push(event); listeners.forEach(listener=>listener({event:'agent://run-event',payload:{conversationId:'created',runEvent:event}}));
   };
   const activityFixture = new URLSearchParams(location.search).has('activity');
@@ -106,7 +106,7 @@ export function renderMobileContinuity() {
     speak: async () => {}, stop: async () => {},
   };
   const client = {
-    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0}},
+    paired:{token:'',device:{id:'fixture',name:'Phone'},manifest:{serverId:'mobile-fixture',endpoints:[],reconnectGraceSeconds:0,capabilities:['chat-steering-v1']}},
     state:{phase:'connected',endpoint:null}, conversationManagementAvailable:true, archivedDeletionAvailable:true, voiceAvailable:false, modelPickerAvailable:false, composerOptionsAvailable:composerFixture, approvalModeAvailable:composerFixture, nativeSpeech: composerFixture ? nativeSpeech : undefined,
     subscribe:(listener:(event:RemoteEnvelope)=>void)=>{listeners.add(listener);return()=>listeners.delete(listener);},
     subscribeConnection:()=>()=>{},
@@ -122,6 +122,12 @@ export function renderMobileContinuity() {
       if (method==='chat.restore') {chats.push(...archived.filter(item=>item.id===params.conversationId));archived=archived.filter(item=>item.id!==params.conversationId);return null;}
       if (method==='chat.create') { const item={id:'created',title:'New work',model:'model'};chats=[item,...chats];return item; }
       if (method==='chat.start') { run={id:'run',status:'running'};return {}; }
+      if (method==='chat.steer') {
+        if (params.runId !== run?.id || params.conversationId !== 'created') throw new Error('Wrong steering target');
+        messages.push({id:'clarification',role:'user',steering:true,continuesTurn:true,content:params.message,totalChars:[...params.message].length,sortOrder:7});
+        emit('status', {}, {displayKind:'steering', label:params.message});
+        return {};
+      }
       if (method==='chat.stop') { run.status='cancelled';emit('done',{status:'cancelled'});return {}; }
       if (method==='chat.resume') return {run:params.conversationId==='created'?run:null,events:events.filter(event=>event.eventSeq>(params.afterSequence||0)),hasMore:false,nextSequence:events.length,durableHighWater:events.length};
       if (method==='chat.read') return {messages,beforeOrder:pagedActivity ? 10 : null};
@@ -144,7 +150,7 @@ export function renderMobileContinuity() {
       throw new Error(method);
     },
   } as unknown as RemoteChatClient;
-  (window as any).__MOBILE_CONTINUITY__={actions,emit,removeArchived:(id:string)=>{archived=archived.filter(item=>item.id!==id);},restoreArchived:(id:string)=>{chats.push(...archived.filter(item=>item.id===id));archived=archived.filter(item=>item.id!==id);},seedArchives:()=>{archived=['a','b','c','d','e'].map(id=>({id,title:'Archived '+id,model:'model'}));},finish:()=>{messages=[{id:'intro',role:'assistant',content:'I will inspect the report.',totalChars:26,sortOrder:1,intermediate:true},{id:'final',role:'assistant',content:'Final report: all three sections are consistent.',totalChars:46,sortOrder:2}];run={...run,status:'completed',finalMessageId:'final'};emit('done',{status:'completed'});},holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
+  (window as any).__MOBILE_CONTINUITY__={actions,emit,removeArchived:(id:string)=>{archived=archived.filter(item=>item.id!==id);},restoreArchived:(id:string)=>{chats.push(...archived.filter(item=>item.id===id));archived=archived.filter(item=>item.id!==id);},seedArchives:()=>{archived=['a','b','c','d','e'].map(id=>({id,title:'Archived '+id,model:'model'}));},finish:(content='Final report: all three sections are consistent.')=>{messages=[{id:'intro',role:'assistant',content:'I will inspect the report.',totalChars:26,sortOrder:1,intermediate:true},{id:'final',role:'assistant',content,totalChars:[...content].length,sortOrder:2}];run={...run,status:'completed',finalMessageId:'final'};emit('done',{status:'completed'});},holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
   const host=document.createElement('div');host.className='mobile-app';host.style.cssText='position:fixed;inset:0;z-index:1000;background:var(--color-surface-0)';document.body.appendChild(host);
   createRoot(host).render(<I18nProvider><RemoteChat client={client} initialDraft="" onDraftConsumed={()=>{}} mobile={{heading:activityFixture ? 'Nexa' : 'Phone',drawerFooter:null,caption:'',onConfigure:()=>{},onFiles:()=>{},
     projectStore: projectsFixture ? phoneChatProjects(hostId) : undefined}}/></I18nProvider>);

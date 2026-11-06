@@ -15,7 +15,7 @@ export class LocalClient implements RemoteChatClient {
   readonly imagesOnly = true;
   readonly approvalModeAvailable = true;
   readonly resumeAvailable = true;
-  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0 } };
+  readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-steering-v1'] } };
   state: RemoteConnection = { phase: 'connected', endpoint: null };
   private listeners = new Set<(event: RemoteEnvelope) => void>();
   private unlisteners: UnlistenFn[] = [];
@@ -55,7 +55,8 @@ export class LocalClient implements RemoteChatClient {
       case 'chat.message': return local(params.channel === 'thinking' ? 'thinking' : 'message',{conversationId:params.conversationId,messageId:params.messageId,offset:params.offset});
       case 'chat.start':
         return local('start',{conversationId:params.conversationId,message:params.message,requestId:params.idempotencyKey,options:params});
-      case 'chat.stop': return local('stop');
+      case 'chat.stop': return local('stop', {conversationId:params.conversationId});
+      case 'chat.steer': return local('steer', params);
       case 'chat.continue': {
         const state = await local<{ checkpoint?: { id:string }; run:Run | null }>('currentRun',{conversationId:params.conversationId});
         if (!state.checkpoint) throw new Error('There is no paused task to resume.');

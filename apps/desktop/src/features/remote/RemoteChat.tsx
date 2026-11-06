@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
 import { MobileProjectHistory } from './MobileProjectHistory';
 
@@ -204,6 +204,11 @@ export function RemoteChat({
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
+  const [pendingSteers, setPendingSteers] = useState<{ id: string; runId: string; message: string }[]>([]);
+  const [dismissedFollowup, setDismissedFollowup] = useState('');
+  const canSteer = running && !!timelineRunId && runStatus !== 'cancelling' &&
+    client.paired.manifest.capabilities?.includes('chat-steering-v1');
+  const submittingSteer = canSteer && !!draft.trim() && !attachments.length;
   const dictationControls = useRef<DictationControls>(null);
   const heldControls = useRef<DictationControls | null>(null);
   const hasDictation = client.nativeSpeech ? !!client.nativeSpeech.finish : client.voiceAvailable !== false;
@@ -324,7 +329,7 @@ export function RemoteChat({
     const retired = new Set<string>();
     const terminal = new Set<string>();
     setTimeline([]); setTimelineRunId(null); setRunUserId(null); setFinalMessageId(null); setRunStatus('');
-    setProgress(''); setRunning(false); setMessages([]);
+    setProgress(''); setRunning(false); setMessages([]); setPendingSteers([]); setDismissedFollowup('');
     setApprovals([]); setInteractions([]); setBeforeOrder(null);
     if (!conversationId) return;
     localStorage.setItem(`nexa.remote.chat.${client.paired.manifest.serverId}`, conversationId);
@@ -377,6 +382,20 @@ export function RemoteChat({
       }
     };
     const apply = (event: RunEvent) => {
+      if (event.displayKind === 'steering') {
+        // The accepted event can race the RPC reply. History owns the full
+        // text and its position; the event label can be truncated to 280 chars.
+        setPendingSteers(current => {
+          const index = current.findIndex(item => {
+            if (item.runId !== event.runId) return false;
+            const compact = item.message.trim().replace(/\s+/g, ' ');
+            return event.label === item.message || event.label === compact ||
+              (event.label.endsWith('…') && compact.startsWith(event.label.slice(0, -1)));
+          });
+          return index < 0 ? current : current.filter((_, position) => position !== index);
+        });
+        readNeeded = true;
+      }
       if (event.visibility === 'user' && event.label) setProgress(event.label);
       const payload = (event.payload ?? {}) as Record<string, any>;
       if (event.visibility === 'user' && event.kind.startsWith('tool') && payload.run?.callId) {
@@ -592,12 +611,29 @@ export function RemoteChat({
     finally { setManaging(false); }
   }
   async function send(message = draft) {
-    if (sendLock.current || running || dictating || loadingAttachments || (!message.trim() && !attachments.length) || !connectionId) return;
+    if (sendLock.current || dictating || loadingAttachments || (!message.trim() && !attachments.length)) return;
+    if (running && (!canSteer || !message.trim() || attachments.length)) return;
+    if (!running && !connectionId) return;
     const generation = scope.current;
     sendLock.current = true;
     setSending(true);
     setError("");
     try {
+      if (running && timelineRunId) {
+        const item = { id: crypto.randomUUID(), runId: timelineRunId, message: message.trim() };
+        setPendingSteers(current => [...current, item]);
+        try {
+          await client.rpc('chat.steer', { conversationId, runId: item.runId, message: item.message });
+          if (selectedConversation.current === conversationId) {
+            setDraft(current => current === message ? '' : current);
+            refreshRef.current();
+          }
+        } catch (error) {
+          setPendingSteers(current => current.filter(entry => entry.id !== item.id));
+          throw error;
+        }
+        return;
+      }
       let id = conversationId;
       if (!id) {
         const projectId = projectView?.selectedId;
@@ -730,7 +766,17 @@ export function RemoteChat({
     }
   }
   const lastMessage = messages[messages.length - 1];
-  const followups = !running && !sending && (!runStatus || runStatus === 'completed') && !draft && !attachments.length && lastMessage && [...lastMessage.content].length >= lastMessage.totalChars ? latestFollowupSuggestions(messages, defaultFollowupSuggestions(t)) : null;
+  const suggestions = useMemo(() => {
+    if (running || (runStatus && runStatus !== 'completed') || lastMessage?.role !== 'assistant' ||
+      lastMessage.intermediate || !lastMessage.content.trim() || (finalMessageId && lastMessage.id !== finalMessageId)) return null;
+    const defaults = defaultFollowupSuggestions(t);
+    // A page can end inside an example fence. Only its complete Markdown
+    // document can authorize model-supplied options; offer local choices now.
+    if ([...lastMessage.content].length < lastMessage.totalChars) return { key: lastMessage.id, items: defaults };
+    return latestFollowupSuggestions([lastMessage], defaults);
+  }, [running, runStatus, lastMessage, finalMessageId, t]);
+  const followups = !sending && !dictating && !draft && !attachments.length && suggestions?.key !== dismissedFollowup ? suggestions : null;
+  const ghostPrompt = followups?.items[0]?.prompt;
   const draftProject = !conversationId && projectView?.projects.find(project => project.id === projectView.selectedId);
   const providerControls = <>
       {connections.length > 0 && (mobile ? <NexaCombobox ariaLabel={t('remote.providerConnection')} className={remoteField} value={connectionId} onValueChange={id=>{setConnectionId(id);setModelSelection(null);}} options={connections.map(item=>({value:item.id,label:item.name,description:item.model}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}/> : <select
@@ -1024,21 +1070,42 @@ export function RemoteChat({
           followOutput.current = true; void send();
         }}
       >
+        {pendingSteers.length > 0 && <div className="max-h-24 overflow-y-auto" aria-live="polite">{pendingSteers.map(item =>
+          <div className="flex min-w-0 items-center gap-2 px-2 py-1 text-xs text-text-secondary" key={item.id}>
+            <CornerDownRight size={14} aria-hidden="true"/><span className="min-w-0 flex-1 truncate" title={item.message}>{item.message}</span>
+            {running && timelineRunId === item.runId ? <span>{t('chat.subagentInputQueued')}</span> :
+              <button type="button" className={remoteButton} onClick={() => {
+                setDraft(current => [current, item.message].filter(Boolean).join('\n'));
+                setPendingSteers(current => current.filter(entry => entry.id !== item.id));
+                composerInput.current?.focus();
+              }}>{t('chat.editDraft')}</button>}
+          </div>
+        )}</div>}
         {followups && <div className="remote-followups" data-testid="followup-suggestions" aria-label={t('chat.followupSuggestions')}>{followups.items.map(item => <button key={item.prompt} type="button" title={item.prompt} onClick={() => { setDraft(item.prompt); draftRef.current = item.prompt; followOutput.current = true; void send(item.prompt); }}>{item.label}<ArrowUp size={13}/></button>)}</div>}
+        <div className="flex min-w-0 items-start">
         <textarea {...holdHandlers} ref={composerInput} rows={mobile ? 1 : undefined}
           aria-label={t("remote.message")}
           className={mobile ? "remote-composer-input native-composer-input" : "remote-composer-input max-h-52 min-h-24 w-full resize-y rounded-lg p-2 text-sm leading-6 outline-none"}
           maxLength={64000}
-          placeholder={t("remote.messageHint")}
+          placeholder={ghostPrompt || t(canSteer ? 'chat.steeringMessage' : 'remote.messageHint')}
           value={draft}
           onChange={(event) => { draftRef.current = event.target.value; setDraft(event.target.value); }}
           aria-description={[hasDictation && t('voice.holdComposerToDictate'), followups?.items[0] && t('chat.followupTabHint', { prompt: followups.items[0].prompt })].filter(Boolean).join(' ') || undefined}
           onKeyDown={event => {
+            if (event.key === 'Escape' && followups && !event.nativeEvent.isComposing) {
+              event.preventDefault(); setDismissedFollowup(followups.key);
+            }
             if (event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing && followups?.items[0]) {
               event.preventDefault(); draftRef.current = followups.items[0].prompt; setDraft(followups.items[0].prompt);
             }
           }}
         />
+        {ghostPrompt && <button type="button" aria-label={t('chat.editDraft')} title={ghostPrompt}
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-text-tertiary"
+          onClick={() => { draftRef.current = ghostPrompt; setDraft(ghostPrompt); composerInput.current?.focus(); }}>
+          <SquarePen size={16}/>
+        </button>}
+        </div>
         {client.composerOptionsAvailable !== false && (!mobile || optionsOpen) && <div className="mb-3"><RemoteComposerOptions showExecutionMode={!mobile} attachments={attachments} onAttachments={setAttachments} settings={composerSettings} onSettings={setComposerSettings} disabled={sending || running} onBusy={setLoadingAttachments} extendedModes={client.extendedModesAvailable !== false} imagesOnly={client.imagesOnly} /></div>}
         <div className={mobile ? 'native-composer-actions' : 'flex flex-wrap items-center justify-between gap-2'}>
           {mobile && client.composerOptionsAvailable !== false && <button type="button" className="mobile-plan-chip" aria-label={t('remote.modePlan')} title={t('remote.modePlan')} aria-pressed={composerSettings.executionMode === 'plan'} disabled={sending || running} onClick={() => setComposerSettings(current => ({ ...current, executionMode: current.executionMode === 'plan' ? 'normal' : 'plan' }))}><ListChecks size={16}/></button>}
@@ -1058,14 +1125,14 @@ export function RemoteChat({
             voiceDraft.current = projected.session; draftRef.current = projected.draft; setDraft(projected.draft);
           }} />}
           <button
-            type={running ? "button" : "submit"}
-            className={mobile ? `native-send composer-submit ${running ? 'is-stopping' : ''}` : `${remoteButton} composer-submit !border-accent !bg-accent text-white`}
-            aria-label={t(running ? "remote.stop" : "remote.send")}
-            onClick={running ? () => void act("chat.stop", { conversationId }) : undefined}
-            disabled={!running && (sending || dictating || loadingAttachments || !connectionId || (!draft.trim() && !attachments.length))}
+            type={running && !submittingSteer ? "button" : "submit"}
+            className={mobile ? `native-send composer-submit ${running && !submittingSteer ? 'is-stopping' : ''}` : `${remoteButton} composer-submit !border-accent !bg-accent text-white`}
+            aria-label={t(submittingSteer ? "chat.steeringMessage" : running ? "remote.stop" : "remote.send")}
+            onClick={running && !submittingSteer ? () => void act("chat.stop", { conversationId }) : undefined}
+            disabled={submittingSteer ? sending || dictating : !running && (sending || dictating || loadingAttachments || !connectionId || (!draft.trim() && !attachments.length))}
           >
-            <span className="composer-submit-icon" key={running ? 'stop' : sending ? 'sending' : 'send'}>{running ? <CircleStop size={20}/> : sending ? <Loader2 size={18} className="animate-spin"/> : mobile ? <ArrowUp size={20}/> : <Send size={16}/>}</span>
-            <span className={mobile ? "sr-only" : undefined}>{t(running ? "remote.stop" : "remote.send")}</span>
+            <span className="composer-submit-icon" key={submittingSteer ? 'steer' : running ? 'stop' : sending ? 'sending' : 'send'}>{submittingSteer ? <CornerDownRight size={20}/> : running ? <CircleStop size={20}/> : sending ? <Loader2 size={18} className="animate-spin"/> : mobile ? <ArrowUp size={20}/> : <Send size={16}/>}</span>
+            <span className={mobile ? "sr-only" : undefined}>{t(submittingSteer ? "chat.steeringMessage" : running ? "remote.stop" : "remote.send")}</span>
           </button>
         </div>
       </form>

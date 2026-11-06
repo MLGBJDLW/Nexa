@@ -3,6 +3,12 @@ import type { ConversationMessage } from '../types/conversation';
 
 export interface FollowupSuggestion { label: string; prompt: string }
 
+// Some providers use the singular name, underscores or a JSON language hint.
+// Require the explicit Nexa marker so ordinary JSON examples remain code.
+export function isFollowupFence(language: string | null | undefined, meta?: string | null): boolean {
+  return /^(?:json\s+)?nexa[-_]followups?(?:\s+json)?$/i.test([language, meta].filter(Boolean).join(' ').trim());
+}
+
 /** Local choices keep completed conversations usable when a model omits metadata. */
 export function defaultFollowupSuggestions(t: (key: 'chat.followupExplainLabel' | 'chat.followupExplainPrompt' | 'chat.followupNextLabel' | 'chat.followupNextPrompt') => string): FollowupSuggestion[] {
   return [{ label: t('chat.followupExplainLabel'), prompt: t('chat.followupExplainPrompt') },
@@ -16,9 +22,13 @@ export function parseFollowupSuggestions(source: string): FollowupSuggestion[] {
     // Older prompts asked for multiple JSON objects. Accept that exact JSONL
     // shape as well as the canonical array, without repairing arbitrary JSON.
     const trimmed = source.trim();
-    const items: unknown = trimmed.startsWith('[')
-      ? JSON.parse(trimmed)
-      : trimmed.split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
+    let items: unknown;
+    try {
+      const value = JSON.parse(trimmed);
+      items = Array.isArray(value) ? value : value?.suggestions ?? value?.followups ?? [value];
+    } catch {
+      items = trimmed.split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
+    }
     if (!Array.isArray(items) || items.length < 1 || items.length > 3) return [];
     const result: FollowupSuggestion[] = [];
     for (const item of items) {
@@ -35,7 +45,8 @@ export function parseFollowupSuggestions(source: string): FollowupSuggestion[] {
 
 /** Speech is a projection: metadata never mutates the stored message or draft. */
 export function stripFollowupBlocks(content: string): string {
-  const blocks = fromMarkdown(content).children.filter(node => node.type === 'code' && node.lang?.toLowerCase() === 'nexa-followups');
+  if (!/nexa[-_]followup/i.test(content)) return content;
+  const blocks = fromMarkdown(content).children.filter(node => node.type === 'code' && isFollowupFence(node.lang, node.meta));
   for (const block of blocks.reverse()) {
     content = content.slice(0, block.position!.start.offset) + content.slice(block.position!.end.offset);
   }
@@ -51,10 +62,10 @@ export function latestFollowupSuggestions(messages: FollowupMessage[], fallback:
   // Parse Markdown structure so examples inside longer fences cannot become actions.
   const children = fromMarkdown(message.content).children;
   const last = children[children.length - 1];
-  if (last?.type !== 'code' || last.lang?.toLowerCase() !== 'nexa-followups') return fallback.length ? { key: message.id, items: fallback } : null;
+  if (last?.type !== 'code' || !isFollowupFence(last.lang, last.meta)) return fallback.length ? { key: message.id, items: fallback } : null;
   const raw = message.content.slice(last.position?.start.offset, last.position?.end.offset);
   const lines = raw.trimEnd().split(/\r?\n/);
-  const opening = /^ {0,3}(`{3,}|~{3,})nexa-followups\s*$/i.exec(lines[0]);
+  const opening = /^ {0,3}(`{3,}|~{3,})/.exec(lines[0]);
   const closing = lines[lines.length - 1]?.trim();
   if (!opening || !closing || closing.length < opening[1].length || [...closing].some(char => char !== opening[1][0])) return fallback.length ? { key: message.id, items: fallback } : null;
   const items = parseFollowupSuggestions(last.value);

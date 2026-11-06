@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Check, ChevronDown, CircleAlert, Loader2, Terminal } from 'lucide-react';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { useTranslation } from '../../i18n';
+import { stripFollowupBlocks } from '../../lib/followupSuggestions';
 
 export type RemoteTimelineItem = {
   id: string;
@@ -76,7 +77,7 @@ export function RemoteRunTimeline({ saved, live, running, finalText, children }:
       {expanded && <div className="remote-run-timeline mt-4">
         {activity.map(item => item.kind === 'tool' ? <ToolStep key={item.id} tool={item.tool} running={running}/> : (
           <section key={item.id} data-timeline-kind={item.kind} className="min-w-0 break-words">
-            <StreamingMarkdown content={item.text} isStreaming={running} reduceMotion />
+            <StreamingMarkdown content={item.kind === 'answer' ? stripFollowupBlocks(item.text) : item.text} isStreaming={running} reduceMotion />
             {item.onMore && <button onClick={item.onMore}>{t('remote.moreText')}</button>}
           </section>
         ))}
@@ -85,7 +86,7 @@ export function RemoteRunTimeline({ saved, live, running, finalText, children }:
     {children}
     {hasStreamAnswer && last.kind === 'answer' && <article className="remote-answer" data-timeline-kind="answer">
       <p className="mb-3 text-xs font-semibold text-accent">Nexa</p>
-      <StreamingMarkdown content={last.text} isStreaming={running} reduceMotion />
+      <StreamingMarkdown content={stripFollowupBlocks(last.text)} isStreaming={running} reduceMotion />
     </article>}
   </div>;
 }

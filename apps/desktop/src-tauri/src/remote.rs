@@ -442,6 +442,7 @@ impl RemoteHost for DesktopHost {
             PHONE_CONTROL_CAPABILITY.into(),
             "chat-management-v1".into(),
             "chat-delete-archived-v1".into(),
+            "chat-steering-v1".into(),
         ]
     }
     async fn execute(&self, owner: &str, command: RemoteCommand) -> Result<Value, String> {
@@ -451,7 +452,10 @@ impl RemoteHost for DesktopHost {
         if let StartTurn {
             conversation_id, ..
         }
-        | StopTurn { conversation_id } = &command
+        | StopTurn { conversation_id }
+        | SteerTurn {
+            conversation_id, ..
+        } = &command
         {
             let id = conversation_id.clone();
             state
@@ -564,6 +568,10 @@ impl RemoteHost for DesktopHost {
             }
             StopTurn { conversation_id } => {
                 commands::agent_stop_cmd(app.state(), app.state(), app.state(), app.clone(), conversation_id).await?;
+                Ok(Value::Null)
+            }
+            SteerTurn { conversation_id, run_id, message } => {
+                app.state::<commands::AgentState>().sessions.steer_active_run(&conversation_id, Some(&run_id), message.trim()).await.map_err(|error| error.to_string())?;
                 Ok(Value::Null)
             }
             Resume { conversation_id, run_id, after_sequence, durable_high_water } => state.db_executor.read(move |db| {

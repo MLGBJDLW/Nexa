@@ -226,7 +226,17 @@ async fn mobile_local(
                 .await
         }
         "stop" => {
-            state.stop().await;
+            state.stop(&string("conversationId")?).await;
+            Ok(Value::Null)
+        }
+        "steer" => {
+            state
+                .steer(
+                    &string("conversationId")?,
+                    &string("runId")?,
+                    &string("message")?,
+                )
+                .await?;
             Ok(Value::Null)
         }
         "events" => state

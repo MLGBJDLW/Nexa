@@ -1,5 +1,32 @@
 import { test, expect } from '@playwright/test';
 
+test('phone steers its active run and accepts a follow-up into an editable draft', async ({page}) => {
+  await page.setViewportSize({width:360,height:780});
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
+  const input = page.getByRole('textbox', {name:'Message', exact:true});
+  await input.fill('Review this report');
+  await page.getByRole('button', {name:'Send', exact:true}).click();
+  await expect(input).toHaveAttribute('placeholder', 'Steering message');
+  await input.fill('Check the totals first.');
+  await page.getByRole('button', {name:'Steering message',exact:true}).click();
+  await expect(page.locator('article.remote-steering')).toContainText('Check the totals first.');
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('button',{name:'Stop',exact:true})).toBeVisible();
+  const next = 'Compare the two report sections.';
+  const content = 'All done.\n\n```nexa-followup json\n' + JSON.stringify([{label:'Compare sections',prompt:next}]) + '\n```';
+  await page.evaluate(value => {
+    (window as any).__MOBILE_CONTINUITY__.emit('outputSnapshot',{channel:'answer',blockId:'answer',text:value.slice(0,-3)});
+  }, content);
+  await expect(page.locator('[data-timeline-kind="answer"]')).toContainText('All done.');
+  await expect(page.locator('pre')).toHaveCount(0);
+  await page.evaluate(value => (window as any).__MOBILE_CONTINUITY__.finish(value), content);
+  await expect(page.getByTestId('followup-suggestions').getByRole('button',{name:'Compare sections'})).toBeVisible();
+  await expect(input).toHaveAttribute('placeholder', next);
+  await page.getByRole('button', {name:'Edit draft',exact:true}).click();
+  await expect(input).toHaveValue(next);
+  expect(await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.actions.filter((call:any) => call.method === 'chat.start').length)).toBe(1);
+});
+
 test('native phone groups activity once per turn during the run and after reloading history', async ({page}, info) => {
   test.slow();
   await page.setViewportSize({width:360,height:780});

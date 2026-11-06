@@ -89,6 +89,14 @@ impl ExecutorAgentSession {
         self
     }
 
+    pub fn with_steering_receiver(
+        mut self,
+        receiver: mpsc::UnboundedReceiver<crate::agent::AgentSteeringMessage>,
+    ) -> Self {
+        self.executor = self.executor.with_steering_receiver(receiver);
+        self
+    }
+
     pub fn with_event_outboxes(mut self, outboxes: AgentRunEventOutboxes) -> Self {
         self.event_outboxes = Some(outboxes);
         self

@@ -191,6 +191,15 @@ impl AgentSessionManager {
         session_id: &str,
         message: impl Into<String>,
     ) -> Result<(), CoreError> {
+        self.steer_active_run(session_id, None, message).await
+    }
+
+    pub async fn steer_active_run(
+        &self,
+        session_id: &str,
+        expected_run_id: Option<&str>,
+        message: impl Into<String>,
+    ) -> Result<(), CoreError> {
         let mut active = self.active.lock().await;
         let Some(turn) = active.get(session_id) else {
             return Err(CoreError::NotFound(
@@ -203,6 +212,14 @@ impl AgentSessionManager {
             }
             return Err(CoreError::NotFound(
                 "No running agent turn for this session.".to_string(),
+            ));
+        }
+        if expected_run_id.is_some_and(|id| id != turn.handle.run_id)
+            || turn.cancel_token.is_cancelled()
+            || turn.event_outbox.is_closed_for_submission()
+        {
+            return Err(CoreError::Conflict(
+                "This run is no longer accepting instructions.".into(),
             ));
         }
         turn.steer(message)
@@ -1071,8 +1088,12 @@ mod tests {
             .take_for_run("session-1", "run-other")
             .await
             .is_err());
+        assert!(manager
+            .steer_active_run("session-1", Some("run-1"), "stale")
+            .await
+            .is_err());
         manager
-            .steer("session-1", "keep going")
+            .steer_active_run("session-1", Some("run-2"), "keep going")
             .await
             .expect("active turn should accept steering");
         assert_eq!(

@@ -2,7 +2,7 @@
 use crate::{connections, phone_host::PhoneHost, platform};
 use base64::Engine;
 use nexa_core::{
-    agent::{AgentConfig, AgentExecutionMode, CancellationToken},
+    agent::{AgentConfig, AgentExecutionMode, AgentSteeringMessage, CancellationToken},
     agent_run::AgentRunEvent,
     agent_session::ExecutorAgentSession,
     approval::{ApprovalDecision, ApprovalRequest, ToolApprovalMode},
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,13 +106,20 @@ impl AgentRunEventDelivery for Delivery {
     }
 }
 
+struct ActivePhoneTurn {
+    conversation_id: String,
+    run_id: String,
+    cancel: CancellationToken,
+    steering: mpsc::UnboundedSender<AgentSteeringMessage>,
+}
+
 pub struct LocalRuntime {
     pub db: Database,
     workspace: Workspace,
     outboxes: AgentRunEventOutboxes,
     // Admission spans idempotent persistence and spawning. One phone task at a
     // time avoids competing cross-app actions and keeps Stop unambiguous.
-    active: Mutex<Option<(String, CancellationToken)>>,
+    active: Mutex<Option<ActivePhoneTurn>>,
     pending: Mutex<HashMap<String, (ApprovalRequest, oneshot::Sender<ApprovalDecision>)>>,
 }
 
@@ -148,7 +155,10 @@ impl LocalRuntime {
 
     pub async fn approvals(&self, conversation_id: &str) -> Result<Value, String> {
         let active = self.active.lock().await;
-        if active.as_ref().is_none_or(|(id, _)| id != conversation_id) {
+        if active
+            .as_ref()
+            .is_none_or(|turn| turn.conversation_id != conversation_id)
+        {
             return Ok(json!([]));
         }
         let run = self.db.remote_latest_run(conversation_id).map_err(err)?;
@@ -356,7 +366,7 @@ impl LocalRuntime {
             .await;
             return serde_json::to_value(launch).map_err(err);
         }
-        *active = Some((conversation.id.clone(), token.clone()));
+        let (steering, receiver) = mpsc::unbounded_channel();
         let mut tools = ToolRegistry::new().with_workspace(Some(self.workspace.clone()));
         tools.register(Box::new(FileTool));
         tools.register(Box::new(ListDirTool));
@@ -469,6 +479,7 @@ impl LocalRuntime {
         .with_auto_loaded_skills_override(loaded_skills)
         .with_event_outboxes(self.outboxes.clone())
         .with_cancel_token(token.clone())
+        .with_steering_receiver(receiver)
         .with_approval_callback(Arc::new(move |request| {
             let runtime = approval_runtime.clone();
             let app = approve_app.clone();
@@ -504,6 +515,12 @@ impl LocalRuntime {
                 base64_data: Some(image.base64_data),
             })
             .collect();
+        *active = Some(ActivePhoneTurn {
+            conversation_id: conversation.id.clone(),
+            run_id: launch.run_id.clone(),
+            cancel: token,
+            steering,
+        });
         tokio::spawn(async move {
             let result = session.start_turn(turn_input).await;
             if let Err(error) = result {
@@ -670,11 +687,41 @@ impl LocalRuntime {
             .map_err(|_| "This task has ended.".into())
     }
 
-    pub async fn stop(&self) {
-        if let Some((_, token)) = self.active.lock().await.as_ref() {
-            token.cancel();
+    pub async fn steer(
+        &self,
+        conversation_id: &str,
+        run_id: &str,
+        message: &str,
+    ) -> Result<(), String> {
+        let message = message.trim();
+        if message.is_empty() || message.chars().count() > 64_000 {
+            return Err("Enter a steering message of 1 to 64000 characters.".into());
         }
-        self.pending.lock().await.clear();
+        let active = self.active.lock().await;
+        let turn = active
+            .as_ref()
+            .filter(|turn| {
+                turn.conversation_id == conversation_id
+                    && turn.run_id == run_id
+                    && !turn.cancel.is_cancelled()
+            })
+            .ok_or("This run is no longer accepting instructions.")?;
+        turn.steering
+            .send(AgentSteeringMessage::text(message))
+            .map_err(|_| "This run is no longer accepting instructions.".into())
+    }
+
+    pub async fn stop(&self, conversation_id: &str) {
+        if let Some(turn) = self
+            .active
+            .lock()
+            .await
+            .as_ref()
+            .filter(|turn| turn.conversation_id == conversation_id)
+        {
+            turn.cancel.cancel();
+            self.pending.lock().await.clear();
+        }
     }
 
     pub fn create(&self, settings: &LocalSettings) -> Result<Value, String> {

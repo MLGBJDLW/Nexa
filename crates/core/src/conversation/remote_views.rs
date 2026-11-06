@@ -61,6 +61,7 @@ impl Database {
                     sort_order, created_at, substr(COALESCE(thinking,''),1,4000) AS thinking,
                     length(COALESCE(thinking,'')) AS thinking_total,
                     (role='user' AND COALESCE(display_artifact_kind,'') IN ('steering','questionResponse')) AS continues_turn,
+                    (role='user' AND COALESCE(display_artifact_kind,'')='steering') AS steering,
                     CASE WHEN role='assistant' AND json_valid(tool_calls_json) THEN tool_calls_json ELSE '[]' END AS calls,
                     CASE WHEN role='assistant' AND json_valid(artifacts_json) THEN json_extract(artifacts_json,'$.phase')='commentary' ELSE 0 END AS commentary
                 FROM messages
@@ -78,7 +79,7 @@ impl Database {
                                substr(json_extract(value,'$.name'),1,256) AS name
                         FROM json_each(page.calls) WHERE type='object' AND json_type(value,'$.name')='text'
                         LIMIT 32
-                    )) AS tool_summaries, continues_turn
+                    )) AS tool_summaries, continues_turn, steering
              FROM page ORDER BY sort_order DESC",
         )?;
         let mut rows = query
@@ -96,7 +97,8 @@ impl Database {
                 "content":row.get::<_,String>(2)?, "totalChars":row.get::<_,u64>(3)?,
                 "sortOrder":row.get::<_,i64>(4)?, "createdAt":row.get::<_,String>(5)?,
                 "thinking":row.get::<_,String>(6)?, "thinkingTotalChars":row.get::<_,u64>(7)?,
-                "intermediate":row.get::<_,bool>(8)?, "toolCalls":tools, "continuesTurn":row.get::<_,bool>(10)?}),
+                "intermediate":row.get::<_,bool>(8)?, "toolCalls":tools, "continuesTurn":row.get::<_,bool>(10)?,
+                "steering":row.get::<_,bool>(11)?}),
                 )
             })?
             .collect::<Result<Vec<_>, _>>()?;
