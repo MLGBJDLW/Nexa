@@ -5,6 +5,29 @@ const read = name => JSON.parse(readFileSync(new URL(`../../../shared/${name}.js
 const providers = read('provider-presets');
 const model = (provider, id) => providers.find(item => item.id === provider).models.find(item => item.id === id || item.aliases?.includes(id));
 
+test('November 6 routes retain endpoint capabilities and remove unavailable MiniMax choices', () => {
+  const tiny = model('openrouter', 'inclusionai/ling-3.0-tiny');
+  assert.equal(tiny.contextTokens, 262144);
+  assert.equal(tiny.maxOutputTokens, 250000);
+  assert.equal(tiny.supportsTools, true);
+  assert.equal(tiny.supportsStructuredOutput, true);
+  assert.equal(tiny.capabilities.vision, false);
+  assert.equal(model('openrouter', 'openrouter/auto-code').supportsTools, true);
+  for (const id of ['minimax/minimax-01', 'minimax/minimax-m2', 'minimax/minimax-m2.1', 'minimax/minimax-m2-her']) {
+    assert.equal(model('openrouter', id).status, 'removed');
+    assert.equal(model('openrouter', id).replacementModelId, undefined);
+  }
+  const video = read('video-provider-presets').find(row => row.id === 'openrouter-video').models;
+  for (const [id, duration] of [['google/gemini-omni-1.1-flash', 10], ['google/gemini-omni-1.2-flash', 15]]) {
+    const row = video.find(row => row.modelId === id);
+    assert.equal(row.selectable, true);
+    assert.deepEqual(row.operationCapabilities.map(op => op.operation), ['text_to_video', 'image_to_video', 'first_last_frame']);
+    assert.equal(Math.max(...row.operationCapabilities[0].durationOptions[0].durationsSeconds), duration);
+  }
+  const decisions = read('system-one-provider-presets').find(row => row.id === 'openrouter').models;
+  assert.equal(decisions.some(row => row.id === 'cloudflare/clairic'), false, 'extraction-only routes cannot use the Decisions wire contract');
+});
+
 test('October 29 catalog keeps Particle capabilities and retires unavailable free decision routes without remapping them', () => {
   const particle = model('openrouter', 'particle-ai/particle-1');
   assert.equal(particle.contextTokens, 1_048_576);
