@@ -106,7 +106,9 @@ impl SpeechRuntime {
             // across recordings; the UI accepts events only for its current ID.
             let channel = self.progress.get_or_init(|| {
                 let app = app.clone();
-                Channel::new(move |event| app.emit_to("main", "mobile:dictation", event))
+                Channel::new(move |event| {
+                    app.emit_to("main", "mobile:dictation", event.deserialize::<Value>()?)
+                })
             });
             args["progress"] = json!(channel);
         }
