@@ -41,6 +41,7 @@ import { DataPrivacySettingsTab } from '../../components/settings/DataPrivacySet
 import { EmbeddingConfigSection } from '../../components/settings/EmbeddingConfigSection';
 import { KnowledgeServicesPanel } from '../../components/settings/KnowledgeServicesPanel';
 import { ExtensionsSettingsTab, type SkillFilter } from '../../components/settings/ExtensionsSettingsTab';
+import { StorageUsageCard } from '../../components/settings/StorageUsageCard';
 import { LocalStorageSection } from '../../components/settings/LocalStorageSection';
 import { ModelDownloadsSection } from '../../components/settings/ModelDownloadsSection';
 import { OcrSettingsSection } from '../../components/settings/OcrSettingsSection';
@@ -1733,6 +1734,8 @@ export function SettingsPage() {
           onSave={handleSaveEmbedConfig}
           onRebuild={handleRebuildEmbeddings}
         />
+
+        <StorageUsageCard />
 
         <LocalStorageSection
           managedModelPaths={managedModelPaths}

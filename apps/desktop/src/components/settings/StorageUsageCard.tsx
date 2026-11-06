@@ -31,9 +31,10 @@ export function StorageUsageCard({ service = storageService, mobile = false }: {
       .catch(reason => { if (active) setError(String(reason)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [service, revision]);
-  return <Section icon={<Database size={20} />} title={t('settings.storageSection')}>
-    <div data-testid="storage-usage" className="min-w-0 space-y-3">
+  return <Section icon={<Database size={20} />} title={t('settings.storageDistribution')}>
+    <div aria-busy={loading} data-testid="storage-usage" className="min-w-0 space-y-3">
       <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-text-secondary">{t('settings.storageUsageHint')}</p><button type="button" disabled={loading} onClick={() => setRevision(value => value + 1)} aria-label={t('taskCenter.refresh')} className="rounded-lg p-2 text-text-secondary disabled:opacity-40"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button></div>
+      {loading && !stats && <p role="status" className="text-xs text-text-secondary">{t('common.loading')}</p>}
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
       {stats && <>
         <p className="text-2xl font-semibold tabular-nums">{size(stats.totalBytes)}</p>

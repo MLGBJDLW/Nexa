@@ -134,6 +134,27 @@ For API/local connections and endpoint capability resolution, see
 the bundled driver contract; it is not a promise of parity with every upstream
 runtime feature or account plan.
 
+
+## Cursor and Grok API keys
+
+Choose **AI Providers → External agents → Cursor** to use a Cursor API key.
+The optional masked key field forwards the key as `CURSOR_API_KEY` to the
+Cursor runtime. Leave it empty to reuse Cursor CLI sign-in, then check the
+connection and select a model from that account's live catalog. Nexa does not
+assume that a model available to another Cursor account is enabled for yours.
+Cursor documents both [API-key authentication](https://cursor.com/docs/cli/reference/authentication)
+and the [ACP integration](https://cursor.com/docs/cli/acp).
+
+A dashboard can offer separate Cursor and Grok keys. A Grok API key belongs in
+Nexa's **xAI** API provider (`https://api.x.ai/v1`); a Cursor key belongs in the
+Cursor external agent. They authenticate different APIs. Cursor's Cloud Agents
+API is an agent API, not an OpenAI-compatible chat endpoint. The unified
+subscription does not make the two key types interchangeable, and
+[Grok API usage is billed separately](https://cursor.com/docs/models-and-pricing)
+from the shared subscription pool. Nexa never reads another application's
+private credential database to guess a key.
+
+
 ## Execution ownership
 
 `DesktopAgentBackend` selects Nexa's direct API executor in `core::llm` or an

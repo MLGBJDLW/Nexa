@@ -29,6 +29,8 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
   const registryEntry = registry.snapshot?.entries.find(entry => entry.preset.provider === initialPreset.provider);
   const preset = registryEntry?.preset ?? initialPreset;
   const isGlmCodingPlan = preset.provider === 'acp_glm_acp_agent';
+  const isCursor = preset.provider === 'acp_cursor';
+  const credentialEnvName = isCursor ? 'CURSOR_API_KEY' : 'Z_AI_API_KEY';
   useEffect(() => { void checkExternalAgentUpdates(false); }, []);
   const [name, setName] = useState(config?.name ?? preset.name);
   const [launch, setLaunch] = useState<ExternalAgentLaunch>({ executable: null, workingDirectory: '' });
@@ -200,18 +202,18 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
     <label className="block text-xs font-medium text-text-secondary">{t('settings.providerName')}
       <input className={inputClass} value={name} onChange={event => { setName(event.target.value); onDirtyChange(true); }} />
     </label>
-    {isGlmCodingPlan && <div className="space-y-2 rounded-lg border border-border bg-surface-2/40 p-3" data-testid="glm-coding-plan-credentials">
-      <label className="block text-xs font-medium text-text-secondary">{t('settings.glmCodingPlanKey')}
+    {(isGlmCodingPlan || isCursor) && <div className="space-y-2 rounded-lg border border-border bg-surface-2/40 p-3" data-testid={isCursor ? "cursor-credentials" : "glm-coding-plan-credentials"}>
+      <label className="block text-xs font-medium text-text-secondary">{t(isCursor ? 'settings.cursorApiKey' : 'settings.glmCodingPlanKey')}
         <input type="password" autoComplete="off" spellCheck={false} className={inputClass} disabled={!initialLaunch}
-          value={Object.entries(launch.env ?? {}).find(([key]) => key.toUpperCase() === 'Z_AI_API_KEY')?.[1] ?? ''}
+          value={Object.entries(launch.env ?? {}).find(([key]) => key.toUpperCase() === credentialEnvName)?.[1] ?? ''}
           onChange={event => {
-            const env = Object.fromEntries(Object.entries(launch.env ?? {}).filter(([key]) => key.toUpperCase() !== 'Z_AI_API_KEY'));
-            if (event.target.value) env.Z_AI_API_KEY = event.target.value;
+            const env = Object.fromEntries(Object.entries(launch.env ?? {}).filter(([key]) => key.toUpperCase() !== credentialEnvName));
+            if (event.target.value) env[credentialEnvName] = event.target.value;
             setEnvText(Object.keys(env).length ? JSON.stringify(env, null, 2) : '');
             changeLaunch({ ...launch, env });
           }} />
       </label>
-      <p className="text-xs leading-5 text-text-secondary">{t('settings.glmCodingPlanHelp')}</p>
+      <p className="text-xs leading-5 text-text-secondary">{t(isCursor ? 'settings.cursorApiKeyHelp' : 'settings.glmCodingPlanHelp')}</p>
     </div>}
     <p className="text-xs leading-5 text-text-tertiary">{t('settings.externalAgentDirectoryHint')}</p>
     <details className="rounded-lg border border-border p-3" open={Boolean(initialLaunch?.workingDirectory || initialLaunch?.executable) || undefined}>
