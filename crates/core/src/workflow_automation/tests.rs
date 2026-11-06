@@ -1069,6 +1069,43 @@ fn run_latest_materializes_the_last_missed_occurrence_at_or_before_now() {
 }
 
 #[test]
+fn phone_due_page_skips_unavailable_chats_before_its_limit() {
+    let db = Database::open_memory().unwrap();
+    let busy = create_test_agent_run(&db, "active").conversation_id;
+    let new_chat = || {
+        db.create_conversation(&CreateConversationInput {
+            provider: "mock".into(),
+            model: "mock".into(),
+            system_prompt: None,
+            collection_context: None,
+            project_id: None,
+            persona_id: None,
+        })
+        .unwrap()
+        .id
+    };
+    let archived = new_chat();
+    let deleted = new_chat();
+    let live = new_chat();
+    let schedule = |name: &str, chat: &str| {
+        let mut config = WorkflowAutomationScheduleConfig::default();
+        config.execution_policy.conversation_id = Some(chat.to_owned());
+        scheduled_automation(&db, name, "0 9 * * *", config)
+    };
+    schedule("A archived", &archived);
+    schedule("A deleted", &deleted);
+    for index in 0..101 {
+        schedule(&format!("B busy {index}"), &busy);
+    }
+    let eligible = schedule("Z available", &live);
+    db.archive_conversations_batch(&[archived]).unwrap();
+    db.delete_conversations_batch(&[deleted]).unwrap();
+    let due = db.list_due_phone_schedules("2099-01-01T09:00:00Z").unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].automation.id, eligible.id);
+}
+
+#[test]
 fn startup_catchup_reopens_database_and_waits_for_the_origin_chat() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("schedules.db");

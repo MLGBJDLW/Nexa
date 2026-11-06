@@ -2,10 +2,13 @@
 use super::*;
 use crate::conversation::AgentConfig;
 
+pub(super) const BUSY_TASK_STATUSES: &str =
+    "'queued','running','waiting_approval','awaiting_user_input','cancelling','paused','resuming'";
+
 impl Database {
     pub fn workflow_conversation_is_busy(&self, conversation_id: &str) -> Result<bool, CoreError> {
         Ok(self.conn().query_row(
-            "SELECT EXISTS(SELECT 1 FROM agent_task_runs WHERE conversation_id=?1 AND status IN ('queued','running','waiting_approval','awaiting_user_input','cancelling','paused','resuming'))",
+            &format!("SELECT EXISTS(SELECT 1 FROM agent_task_runs WHERE conversation_id=?1 AND status IN ({BUSY_TASK_STATUSES}))"),
             [conversation_id], |row| row.get(0),
         )?)
     }

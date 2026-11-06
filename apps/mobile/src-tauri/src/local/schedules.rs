@@ -43,23 +43,8 @@ impl LocalRuntime {
             return Ok(json!({"status":"idle"}));
         }
         let now = chrono::Utc::now().to_rfc3339();
-        for due in self.db.list_due_workflow_automations(&now).map_err(err)? {
+        for due in self.db.list_due_phone_schedules(&now).map_err(err)? {
             host.check_worker()?;
-            let Some(chat) = due.automation.conversation_id.as_deref() else {
-                continue;
-            };
-            if self.db.workflow_conversation_is_busy(chat).map_err(err)? {
-                continue;
-            }
-            if self
-                .db
-                .get_conversation(chat)
-                .map_err(err)?
-                .archived_at
-                .is_some()
-            {
-                continue;
-            }
             let claim = self
                 .db
                 .claim_workflow_automation_due_run_at(due, &now, None)
@@ -185,7 +170,12 @@ impl LocalRuntime {
                 due.prompt,
                 run.id.clone(),
                 None,
-                TurnOptions::default(),
+                // The saved occurrence grants are already narrowed to the two
+                // supported read-only tools; use the desktop scheduled policy.
+                TurnOptions {
+                    tool_approval_mode: ToolApprovalMode::AllowAll,
+                    ..Default::default()
+                },
                 Some(ScheduledLaunch {
                     run_id: run.id.clone(),
                     allowed_tools: task.approval_policy.allowed_tools,
