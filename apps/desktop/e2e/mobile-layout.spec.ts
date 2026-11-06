@@ -136,7 +136,7 @@ test('delete all archived chats includes unloaded pages and preserves active cha
   await page.getByRole('button',{name:'Delete All',exact:true}).click();
   const confirm=page.getByRole('dialog',{name:'Delete All',exact:true});
   await expect(confirm.getByText(/all 5 conversations/)).toBeVisible();
-  await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.restoreArchived('c'));
+  await page.evaluate(()=>{const app=(window as any).__MOBILE_CONTINUITY__;app.restoreArchived('c');app.removeArchived('d');});
   await confirm.getByRole('button',{name:'Delete All',exact:true}).click();
   await expect(confirm).not.toBeVisible();
   await expect(page.getByRole('button',{name:'Previous work',exact:true})).toBeVisible();

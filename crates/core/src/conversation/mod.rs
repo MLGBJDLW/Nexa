@@ -1908,7 +1908,7 @@ impl Database {
         let mut eligible = Vec::with_capacity(ids.len());
         for id in ids {
             if !archived_only || transaction.query_row(
-                "SELECT EXISTS(SELECT 1 FROM conversations WHERE id=?1 AND archived_at IS NOT NULL)",
+                "SELECT EXISTS(SELECT 1 FROM conversations WHERE id=?1 AND parent_conversation_id IS NULL AND archived_at IS NOT NULL)",
                 [id], |row| row.get::<_, bool>(0),
             )? { eligible.push(id); }
         }
@@ -6462,10 +6462,24 @@ mod tests {
         };
         let removed = db.create_conversation(&input).unwrap();
         let restored = db.create_conversation(&input).unwrap();
-        let ids = vec![removed.id.clone(), restored.id.clone()];
+        let child = db.create_conversation(&input).unwrap();
+        db.conn()
+            .execute(
+                "UPDATE conversations SET parent_conversation_id=?1 WHERE id=?2",
+                [&restored.id, &child.id],
+            )
+            .unwrap();
+        let ids = vec![
+            removed.id.clone(),
+            restored.id.clone(),
+            child.id.clone(),
+            "removed-elsewhere".into(),
+        ];
         db.archive_conversations_batch(&ids).unwrap();
         db.unarchive_conversation(&restored.id).unwrap();
         assert_eq!(db.delete_archived_conversations_batch(&ids).unwrap(), 1);
+        assert_eq!(db.delete_archived_conversations_batch(&ids).unwrap(), 0);
+        assert!(db.get_conversation(&child.id).is_ok());
         assert!(db.get_conversation(&removed.id).is_err());
         assert!(db
             .get_conversation(&restored.id)

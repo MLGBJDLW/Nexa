@@ -539,9 +539,9 @@ export function RemoteChat({
     let deleted = 0;
     try {
       for (const id of deleteArchivedIds) {
-        await client.rpc('chat.deleteArchived', { conversationId: id });
+        const count = await client.rpc<number>('chat.deleteArchived', { conversationId: id });
         deleted++;
-        if (selectedConversation.current === id) { selectConversation(''); pendingSend.current = null; }
+        if (count > 0 && selectedConversation.current === id) { selectConversation(''); pendingSend.current = null; }
       }
       setDeleteArchivedIds(null);
     } catch (error) { setDeleteArchivedIds(deleteArchivedIds.slice(deleted)); errorText(error); }
