@@ -562,17 +562,18 @@ export function RemoteChat({
     void sync();
     // Live events remain immediate. A quiet or completed conversation needs
     // only an occasional missed-event check, and an ongoing replay owns its cursor.
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = () => {
-      const activeRun = ['queued', 'running', 'waiting_approval', 'awaiting_user_input', 'cancelling'].includes(status);
-      timer = setTimeout(() => {
-        if (!syncing && client.state.phase === 'connected' && document.visibilityState !== 'hidden') void sync();
-        poll();
-      }, activeRun ? 3000 : 30_000);
-    };
-    poll();
+    let nextIdleCheck = performance.now() + 30_000;
+    const timer = setInterval(() => {
+      if (syncing || client.state.phase !== 'connected' || document.visibilityState === 'hidden') return;
+      // The initial history read and live events can change the run after the
+      // timer was installed. Decide from the current run at each heartbeat.
+      const settled = !readNeeded && (!runId || terminal.has(runId));
+      if (settled && performance.now() < nextIdleCheck) return;
+      nextIdleCheck = performance.now() + 30_000;
+      void sync();
+    }, 3000);
     return () => {
-      stopped = true; off(); clearTimeout(timer);
+      stopped = true; off(); clearInterval(timer);
       document.removeEventListener('visibilitychange', foreground);
       window.removeEventListener('pageshow', foreground);
       if (paint) clearTimeout(paint);
