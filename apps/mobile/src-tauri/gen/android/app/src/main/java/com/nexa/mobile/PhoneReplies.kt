@@ -57,7 +57,8 @@ internal object PhoneReplies {
         }
         val manager = context.getSystemService(NotificationManager::class.java)
         val active = manager.activeNotifications.filter { it.id == APPROVAL }.mapNotNull { it.tag }.toSet()
-        for (run in active - runs) manager.cancel(run, APPROVAL)
+        // A just-enqueued alert may not have reached activeNotifications yet.
+        for (run in (active + delivered) - runs) manager.cancel(run, APPROVAL)
         val receipts = (delivered + active).intersect(runs).toMutableSet()
         if (runs.size > receipts.size && manager.areNotificationsEnabled()) {
             TaskService.ensureChannels(context)
