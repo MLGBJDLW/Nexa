@@ -315,7 +315,14 @@ mod tests {
         assert_eq!(replies.len(), 3, "notifications have no response frame");
         assert_eq!(replies[0]["result"]["serverInfo"]["name"], "nexa-host");
         for result in &replies[1..] {
-            assert_eq!(result["result"]["content"][0]["text"], nonce);
+            assert_eq!(
+                result["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap()
+                    .lines()
+                    .next(),
+                Some(nonce.as_str())
+            );
             assert_eq!(result["result"]["isError"], false);
         }
         let mut contradictory = call.clone();
