@@ -473,6 +473,12 @@ the runtime does not silently switch to an in-memory journal.
   Its stock executor-permission prompt is disabled because it incorrectly labels
   Nexa's host tools as read-only. Nexa supplies the actual host-tool scope and
   approval guidance; the Codex executor's read-only policy remains enforced.
+- During a workspace task, the Codex subscription route groups the permitted file,
+  shell and desktop tools under `nexa`. For example, a code-mode model can call
+  `tools.nexa__list_dir` when directory access is enabled. The thread receives
+  the callable names even when its MCP resource list is empty. Older app-servers
+  that reject the namespace parameter receive flat tools and matching instructions.
+  The separate Codex ACP route receives its filtered host tools through `nexa-host`.
 - Codex reserves the `mcp__` dynamic-tool namespace. Nexa sends stable protocol
   aliases and restores the original registered names at dispatch, preserving
   connector identity, permission rules and tool receipts. Runtime warnings remain
