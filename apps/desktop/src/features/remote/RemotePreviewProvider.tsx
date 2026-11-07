@@ -57,6 +57,7 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
   async function download() {
     if (!preview) return;
     try {
+      if (client.exportFile) { await client.exportFile(preview.path); return; }
       const data = media || await resolveFileUrl(preview.path);
       const blob = await (await fetch(data)).blob(); const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url; link.download = preview.displayName; link.click();

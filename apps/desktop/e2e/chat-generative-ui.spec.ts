@@ -144,6 +144,24 @@ test('generative HTML sandbox blocks parent access, storage, network, and extern
   expect(escaped).toBe(0); expect(page.url()).toContain('generative-ui.html');
 });
 
+test('native phone preview exports through the platform share action without reading file bytes', async ({page}) => {
+  const calls: {command:string;args:any}[] = [];
+  await page.exposeFunction('phonePreviewCall', (command:string, args:any) => {
+    calls.push({command,args});
+    if (command === 'mobile_files' && args.action === 'preview') return {path:'/phone/workspace/report.docx',displayName:'report.docx',extension:'.docx',kind:'binary',content:null};
+    if (command === 'mobile_files' && args.action === 'share') return null;
+    throw new Error('Unexpected preview operation');
+  });
+  await page.addInitScript(() => { (window as any).__TAURI_INTERNALS__ = {invoke:(command:string,args:any)=>(window as any).phonePreviewCall(command,args)}; });
+  await page.goto('/e2e/fixtures/generative-ui.html?local');
+  await page.evaluate(() => (window as any).setUiFixture('[Report](file:report.docx)'));
+  await page.getByText('Report', {exact:true}).click();
+  await expect(page.getByRole('dialog')).toContainText('report.docx');
+  await page.getByRole('button', {name:'Download',exact:true}).click();
+  await expect.poll(() => calls.filter(call=>call.args.action==='share')).toEqual([{command:'mobile_files',args:{action:'share',relativePath:'/phone/workspace/report.docx'}}]);
+  expect(calls.some(call=>call.args.action==='data')).toBe(false);
+});
+
 test('generative HTML source edits revoke active execution and ordinary html remains opt-in',async({page})=>{
   await show(page,'<h1>Code example</h1>','html');
   await expect(page.getByTestId('html-preview')).toHaveCount(0);

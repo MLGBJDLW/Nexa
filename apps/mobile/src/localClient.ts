@@ -16,6 +16,7 @@ export class LocalClient implements RemoteChatClient {
   readonly extendedModesAvailable = false;
   readonly imagesOnly = true;
   readonly createHtmlPreview = createNativeHtmlPreview;
+  readonly exportFile = (path: string) => invoke('mobile_files', { action: 'share', relativePath: path });
   readonly approvalModeAvailable = true;
   readonly resumeAvailable = true;
   readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-steering-v1', 'chat-schedules-v1'] } };
