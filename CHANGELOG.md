@@ -11,6 +11,9 @@
 - Run inline HTML timelines in standalone phone chat using the shared isolated preview host.
 - Replan leaked DeepSeek DSML text through structured tool dispatch instead of treating it as a completed action; retain the existing no-progress guard.
 - Fit the desktop terminal to its padded container without clipping columns.
+- Scope automatic local image previews to authorized roots and reject network/device paths and symlink escapes before reading.
+- Restore native Android camera capture and file sharing from chat previews.
+- Add the paid and free OpenRouter LFM3-1.7B chat routes and refresh announced chat and embedding retirement dates without changing saved model selections.
 
 ## [0.19.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.3...nexa-monorepo-v0.19.4) (2026-11-06)
 

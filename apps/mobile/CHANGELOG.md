@@ -7,6 +7,7 @@
 - Restore active and archived conversation touch swipes and full-width chat tables.
 - Display uploaded image attachments after sending and reloading; offer gallery and camera selection.
 - Enable inline HTML timelines and workspace image previews in standalone phone chat using the shared preview host.
+- Grant the camera picker access only to app-owned Pictures and retain native file sharing from chat previews.
 
 ## [0.3.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.3...nexa-mobile-v0.3.4) (2026-11-06)
 

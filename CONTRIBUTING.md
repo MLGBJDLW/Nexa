@@ -266,6 +266,26 @@ Provider protocol printed as answer text is a separate failure. Recover through
 the structured tool-call channel with the existing progress guard; never execute
 DSML/XML copied out of prose or count it as a completed action.
 
+The boundary follows patterns reviewed in these upstream implementations:
+
+- [Pi's agent loop](https://github.com/earendil-works/pi/blob/main/packages/agent/src/agent-loop.ts)
+  validates arguments and returns a per-call error for unknown tools.
+- [Codex's tool registry](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/registry.rs)
+  reports unsupported calls through the model-facing error path.
+- [Hermes's registry](https://github.com/NousResearch/hermes-agent/blob/main/tools/registry.py)
+  keeps schema, handler and availability together and isolates failed discovery.
+- [DeepSeek Harness tools](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/README.md)
+  reuse a resolved tool set for visibility and execution while preserving policy.
+- [Zed's tool definitions](https://github.com/zed-industries/zed/blob/main/crates/agent/src/tools.rs)
+  document the additional profile and feature gates needed after registration.
+
+Automatic Markdown image reads are a separate trust boundary from explicit file
+opening. Resolve them only within the current workspace, permitted sources or
+generated image cache; reject network/device paths before filesystem access and
+do not follow symlinks or junctions from model-provided paths. Browser capture
+tests do not prove Android camera access: the native FileProvider must expose
+Wry's app-owned Pictures directory, and file export must retain native sharing.
+
 ## Documentation and translations
 
 - Use English for public technical documentation. Keep
