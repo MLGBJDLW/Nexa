@@ -55,6 +55,17 @@ public catalogs. Paid inference and account-specific catalogs require credential
 [Jina model inventory](https://api.jina.ai/v1/models) and
 [embedding request schemas](https://api.jina.ai/docs).
 
+The November 7 audit validates 92 endpoints and 1,306 model projections and
+checks six public catalogs. OpenRouter's paid and free LFM3-1.7B routes use the
+existing chat adapter, with 262,144 context tokens, an 8,192 output limit,
+mandatory reasoning and tool/structured-output support. The LFM2.5 chat and
+embedding routes remain deprecated until November 13; NVIDIA's older free
+embedding route retires November 16. The Llama 3.2 1B/3B shutdown date moved to
+November 20. Saved IDs and free/paid identities remain unchanged.
+[OpenRouter text catalog](https://openrouter.ai/api/v1/models) and
+[embedding catalog](https://openrouter.ai/api/v1/embeddings/models).
+Authenticated catalogs and paid inference were not exercised.
+
 ## Usage statistics
 
 Settings → AI Usage shows a daily contribution heatmap for the past 365 days.
