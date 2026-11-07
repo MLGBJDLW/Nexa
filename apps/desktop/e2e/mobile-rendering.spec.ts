@@ -104,6 +104,11 @@ for (const width of [320, 360, 412, 720]) test(`mobile markdown and charts fit $
   await expect(page.getByTestId('mermaid-surface').locator('svg')).toBeVisible();
   expect(await page.locator('.native-chat-content').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
   expect(await page.locator('.nexa-ui').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
+  const table = page.locator('.prose-chat > div > table').nth(1);
+  const widths = await table.evaluate(node => ({table:node.getBoundingClientRect().width, header:node.querySelector('thead')!.getBoundingClientRect().width, row:node.querySelector('tbody tr')!.getBoundingClientRect().width, container:node.parentElement!.clientWidth}));
+  expect(Math.abs(widths.table-widths.container)).toBeLessThanOrEqual(1);
+  expect(Math.abs(widths.header-widths.table)).toBeLessThanOrEqual(2);
+  expect(Math.abs(widths.row-widths.table)).toBeLessThanOrEqual(2);
   const bars = page.locator('.nexa-ui-bar-track');
   expect((await bars.first().boundingBox())!.width).toBeGreaterThan(100);
   const frame=page.getByTestId('html-preview').locator('iframe').contentFrame();

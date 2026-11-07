@@ -9,7 +9,9 @@ html[data-remote='true'] .app-theme-backdrop { position: fixed; }
 html[data-remote='true'] [data-testid='remote-app'] > :not(.app-theme-backdrop):not([role='dialog']) { position: relative; z-index: 1; }
 html[data-remote='true'] [data-testid='remote-app'] > header { position: sticky; z-index: 20; }
 html[data-remote='true'] .prose-chat { min-width: 0; overflow-wrap: anywhere; }
-html[data-remote='true'] .prose-chat table { display: block; max-width: 100%; overflow-x: auto; }
+/* The shared renderer owns the scroll container. Keep native table layout so
+   headers and rows fill that container, including short two-column tables. */
+html[data-remote='true'] .prose-chat table { width: 100%; }
 html[data-remote='true'] .prose-chat pre { max-width: 100%; overflow-x: auto; }
 html[data-remote='true'] .prose-chat img { max-width: 100%; height: auto; }
 html[data-remote='true'] .group\/code button { opacity: 1; }
