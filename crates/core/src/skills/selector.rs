@@ -238,6 +238,9 @@ pub(crate) fn enrich_tokens(tokens: &[String]) -> Vec<String> {
             "动态图",
             "动态演示",
             "模拟器",
+            "timeline",
+            "时间轴",
+            "时间线",
         ]
         .iter()
         .any(|keyword| token.contains(keyword))

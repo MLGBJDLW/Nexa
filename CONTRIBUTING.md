@@ -258,8 +258,8 @@ added tools. Cover an enabled tool, its disabled package, an undeclared sibling,
 and invalid configuration. Check that ordinary tools survive quarantine, that
 excluded tools cannot be dispatched, and that initialization errors reach chat.
 Extend the existing package/session tests; a separate CI workflow is unnecessary.
-Useful focused checks are `cargo test -p nexa-core --no-default-features --lib
-runtime_assembler` and `cargo test -p nexa-desktop --no-default-features --bin
+Useful focused checks are `cargo test -p nexa-core --no-default-features
+--features host-tools --lib runtime_assembler` and `cargo test -p nexa-desktop --no-default-features --bin
 nexa-desktop desktop_agent_session::tests::`.
 
 Provider protocol printed as answer text is a separate failure. Recover through
