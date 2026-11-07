@@ -11,6 +11,7 @@ use tauri::{http::Response, Manager};
 mod native_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
     static PROBE_CALLS: AtomicUsize = AtomicUsize::new(0);
     #[tauri::command]
     fn chat_ui_acceptance_probe() -> &'static str {
