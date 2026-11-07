@@ -66,7 +66,7 @@ export function ImagePreview({ src, alt = '', className, ...props }: ComponentPr
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-3">
             <div className="flex min-h-full min-w-full items-center justify-center" style={{ width: fittedWidth ? fittedWidth * zoom : undefined }}>
-              <img src={src} alt={alt} className="block max-w-none object-contain" style={{ width: fittedWidth ? fittedWidth * zoom : undefined, maxHeight: fittedWidth ? undefined : '72vh' }} onLoad={event => setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} />
+              <img src={src} alt={alt} referrerPolicy={props.referrerPolicy} decoding="async" className="block max-w-none object-contain" style={{ width: fittedWidth ? fittedWidth * zoom : undefined, maxHeight: fittedWidth ? undefined : '72vh' }} onLoad={event => setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} />
             </div>
           </div>
         </div>

@@ -88,6 +88,12 @@ pub enum RemoteCommand {
         offset: u32,
         channel: Option<String>,
     },
+    #[serde(rename = "chat.attachment")]
+    MessageAttachment {
+        conversation_id: String,
+        message_id: String,
+        index: u32,
+    },
     #[serde(rename = "chat.archive")]
     ArchiveConversation { conversation_id: String },
     #[serde(rename = "chat.archived")]

@@ -556,6 +556,9 @@ impl RemoteHost for DesktopHost {
             Message { conversation_id, message_id, offset, channel } => state.db_executor
                 .read(move |db| if channel.as_deref() == Some("thinking") { db.remote_message_thinking(&conversation_id, &message_id, offset) } else { db.remote_message_text(&conversation_id, &message_id, offset) })
                 .await.map(|result| result.value).map_err(|e| e.to_string()),
+            MessageAttachment { conversation_id, message_id, index } => state.db_executor
+                .read(move |db| db.remote_message_attachment(&conversation_id, &message_id, index))
+                .await.map(|result| result.value).map_err(|e| e.to_string()),
             ArchivedConversations { before } => state.db_executor.read(move |db| db.remote_archived_conversations(before.as_deref())).await.map(|r| r.value).map_err(|e| e.to_string()),
             RestoreConversation { conversation_id } => state.db_executor.write(move |db| { db.require_remote_conversation(&conversation_id)?; db.unarchive_conversation(&conversation_id).map(|_| Value::Null) }).await.map(|r| r.value).map_err(|e| e.to_string()),
             ArchiveConversation { conversation_id } => state.db_executor.write(move |db| { db.require_remote_conversation(&conversation_id)?; db.archive_conversations_batch(&[conversation_id]).map(|count| json!(count)) }).await.map(|r| r.value).map_err(|e| e.to_string()),

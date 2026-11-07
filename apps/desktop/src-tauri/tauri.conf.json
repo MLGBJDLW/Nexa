@@ -27,7 +27,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; font-src 'self' data: asset: http://asset.localhost https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost blob: data: https://*.huggingface.co; frame-src https: http: nexa-ui:",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: asset: http://asset.localhost https://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost https://asset.localhost blob:; font-src 'self' data: asset: http://asset.localhost https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost blob: data: https://*.huggingface.co; frame-src https: http: nexa-ui:",
       "assetProtocol": {
         "enable": true,
         "scope": [

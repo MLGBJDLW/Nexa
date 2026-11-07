@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { I18nProvider } from '../../src/i18n';
 import { StreamingMarkdown } from '../../src/components/chat/StreamingMarkdown';
 import { FilePreviewContext } from '../../src/features/preview/filePreviewContext';
+import { RemotePreviewProvider } from '../../src/features/remote/RemotePreviewProvider';
+import { LocalClient } from '../../../mobile/src/localClient';
 import sample from '../../../../crates/core/assets/skills/visual-explanations/resources/examples.json';
 
 const initial = '```nexa-ui\n'+JSON.stringify(sample)+'\n```';
@@ -19,4 +21,6 @@ const context = {
     return {url:next.url, release:()=>{void (window as any).releaseUiFixture(next.id);}};
   },
 };
-export function renderFixture(){ createRoot(document.body.appendChild(document.createElement('div'))).render(<I18nProvider><FilePreviewContext.Provider value={context}><Fixture /></FilePreviewContext.Provider></I18nProvider>); }
+export function renderFixture(){ createRoot(document.body.appendChild(document.createElement('div'))).render(<I18nProvider>{new URLSearchParams(location.search).has('local')
+  ? <RemotePreviewProvider client={new LocalClient()}><Fixture /></RemotePreviewProvider>
+  : <FilePreviewContext.Provider value={context}><Fixture /></FilePreviewContext.Provider>}</I18nProvider>); }

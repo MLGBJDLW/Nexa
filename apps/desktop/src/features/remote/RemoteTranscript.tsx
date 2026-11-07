@@ -4,6 +4,7 @@ import { useTranslation } from '../../i18n';
 import { stripFollowupBlocks } from '../../lib/followupSuggestions';
 import { remoteButton } from './remoteUi';
 import { RemoteRunTimeline, type RemoteTimelineItem } from './RemoteRunTimeline';
+import { MessageImage, type MessageAttachmentSummary, type LoadMessageAttachment } from '../../components/chat/MessageImage';
 
 export interface ChatMessage {
   id: string;
@@ -18,18 +19,25 @@ export interface ChatMessage {
   toolCalls?: Array<{ id: string; name: string }>;
   thinking?: string;
   thinkingTotalChars?: number;
+  attachments?: MessageAttachmentSummary[];
 }
 
-function RemoteChatMessage({ message, onMore, onSpeak, speaking, answerRef }: { message: ChatMessage; onMore: () => void; onSpeak?: () => void; speaking?: boolean; answerRef?: (node: HTMLElement | null) => void }) {
+function RemoteChatMessage({ message, onMore, onSpeak, speaking, answerRef, loadAttachment }: { message: ChatMessage; onMore: () => void; onSpeak?: () => void; speaking?: boolean; answerRef?: (node: HTMLElement | null) => void; loadAttachment?: LoadMessageAttachment }) {
   const { t } = useTranslation();
+  const attachments = !!message.attachments?.length && <div className="mb-2 flex max-w-full flex-wrap gap-2">{message.attachments.map(attachment =>
+      attachment.mediaType?.startsWith('image/') && loadAttachment
+        ? <MessageImage key={attachment.index} messageId={message.id} attachment={attachment} load={loadAttachment} />
+        : <span key={attachment.index} className="rounded border border-border p-2 text-xs">{attachment.originalName}</span>,
+    )}</div>;
   if (message.steering) return <article className="remote-steering flex items-start gap-2 rounded-lg border-l-2 border-accent bg-surface-1 px-3 py-2" aria-label={t('chat.steeringMessage')}>
     <CornerDownRight size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden="true"/>
-    <div className="min-w-0"><small className="text-accent">{t('chat.steeringLabel')}</small><p className="whitespace-pre-wrap break-words">{message.content}</p>
+    <div className="min-w-0"><small className="text-accent">{t('chat.steeringLabel')}</small><p className="whitespace-pre-wrap break-words">{message.content}</p>{attachments}
       {[...message.content].length < message.totalChars && <button className={remoteButton} onClick={onMore}>{t('remote.moreText')}</button>}
     </div>
   </article>;
   return <article ref={answerRef} data-message-id={message.id} className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
     <p className="mb-3 text-xs font-semibold text-text-tertiary">{message.role === 'user' ? t('remote.you') : 'Nexa'}</p>
+    {attachments}
     {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
       : <StreamingMarkdown content={stripFollowupBlocks(message.content)} isStreaming={false} reduceMotion />}
     {[...message.content].length < message.totalChars && <button className={`${remoteButton} mt-3`} onClick={onMore}>
@@ -47,10 +55,11 @@ interface PhoneTurn {
   activity: RemoteTimelineItem[];
 }
 
-export function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef }: {
+export function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef, loadAttachment }: {
   messages: ChatMessage[]; timeline: RemoteTimelineItem[]; running: boolean; finalMessageId: string | null;
   runId: string | null; runUserId: string | null; more: (message: ChatMessage, channel?: 'content' | 'thinking') => void;
   speak?: (message: ChatMessage) => void; speakingId: string | null; answerRef?: (node: HTMLElement | null) => void;
+  loadAttachment?: LoadMessageAttachment;
 }) {
   const turns: PhoneTurn[] = [];
   let turn: PhoneTurn | undefined;
@@ -94,6 +103,7 @@ export function RemoteTranscript({ messages, timeline, running, finalMessageId, 
     turns.push(liveTurn);
   }
   const renderMessage = (message: ChatMessage) => <RemoteChatMessage key={message.id} message={message} onMore={() => more(message)}
+    loadAttachment={loadAttachment}
     answerRef={message.id === finalMessageId ? answerRef : undefined}
     onSpeak={speak ? () => speak(message) : undefined} speaking={speakingId === message.id}/>;
   return <>{turns.map(item => {

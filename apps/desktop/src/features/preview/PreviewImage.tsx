@@ -5,7 +5,7 @@ import { localFileReference } from './localFileReference';
 import { ImagePreview } from '../../components/ui/ImagePreview';
 
 export function PreviewImage({ src, node: _node, ...props }: ComponentPropsWithoutRef<'img'> & { node?: unknown }) {
-  const { resolveFileUrl, openFilePreview } = useFilePreview();
+  const { resolveFileUrl, openFilePreview, openWebLink } = useFilePreview();
   const [url, setUrl] = useState('');
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -21,6 +21,8 @@ export function PreviewImage({ src, node: _node, ...props }: ComponentPropsWitho
     }
     return () => { active = false; };
   }, [src, resolveFileUrl]);
-  if (failed) return <button type="button" className="text-sm text-accent underline" onClick={() => src && openFilePreview(localFileReference(src))}>{props.alt || src}</button>;
-  return url ? <ImagePreview {...props} src={url} loading="lazy" onError={() => setFailed(true)} /> : <span className="text-xs text-text-tertiary">{props.alt}</span>;
+  if (failed) return <button type="button" className="text-sm text-accent underline" onClick={() => {
+    if (src) /^https?:/i.test(src) ? openWebLink(src) : openFilePreview(localFileReference(src));
+  }}>{props.alt || src}</button>;
+  return url ? <ImagePreview {...props} src={url} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <span className="text-xs text-text-tertiary">{props.alt}</span>;
 }

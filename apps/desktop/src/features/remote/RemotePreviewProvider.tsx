@@ -25,6 +25,7 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
   const labels = useMemo(() => createPreviewLabels(t), [t]);
   const resolveFileUrl = useCallback((path: string) => client.rpc<string>('files.data', { path }), [client]);
   const createHtmlPreview = useCallback(async (html: string) => {
+    if (client.createHtmlPreview) return client.createHtmlPreview(html);
     const path = await client.rpc<string>('preview.html', { html });
     return { url: new URL(path, client.state.endpoint!.url).href,
       release: () => { void client.rpc('preview.release', { id: path.split('/').pop() }).catch(() => {}); } };

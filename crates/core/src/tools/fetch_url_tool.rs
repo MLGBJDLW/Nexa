@@ -1862,7 +1862,7 @@ async fn render_fetch_payload(
         if assets.len() > 8 {
             content.push_str(&format!("- … {} more\n", assets.len() - 8));
         }
-        content.push_str("Use download_asset to save a supported image candidate.");
+        content.push_str("Display a relevant candidate inline with ![description](verified_image_url), followed by explanatory text and its source page. Use download_asset when a local copy is needed, then embed its returned path. Do not invent image URLs.");
     }
 
     Ok(ToolResult {
