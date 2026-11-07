@@ -22,6 +22,15 @@ pub(crate) struct DesktopPackageRegistryResolution {
     error: Option<String>,
 }
 
+impl DesktopPackageRegistryResolution {
+    pub(super) fn ensure_ready(&self) -> Result<(), String> {
+        if let Some(error) = self.error.as_ref().filter(|_| !self.used_last_known_good) {
+            return Err(format!("Desktop tools could not be initialized: {error}. No model request was sent. Check the capability package configuration and retry."));
+        }
+        Ok(())
+    }
+}
+
 static DESKTOP_PACKAGE_REGISTRY_SNAPSHOT: OnceLock<
     TokioMutex<Option<DesktopPackageRegistrySnapshot>>,
 > = OnceLock::new();
@@ -109,7 +118,7 @@ fn native_only_workspace_registry(
 
 pub async fn build_desktop_agent_session_dependencies(
     request: DesktopAgentSessionDependencyRequest<'_>,
-) -> DesktopAgentSessionDependencies {
+) -> Result<DesktopAgentSessionDependencies, String> {
     let DesktopAgentSessionDependencyRequest {
         phone_host,
         media_generation,
@@ -174,7 +183,7 @@ pub async fn build_desktop_agent_session_dependencies(
 
     if let Some(tools) = native_only_workspace_registry(agent_runtime.as_ref(), workspace.as_ref())
     {
-        return DesktopAgentSessionDependencies {
+        return Ok(DesktopAgentSessionDependencies {
             delegation_runtime: None,
             tools,
             selected_skills,
@@ -183,7 +192,7 @@ pub async fn build_desktop_agent_session_dependencies(
                 skill_select_ms,
                 ..Default::default()
             },
-        };
+        });
     }
 
     let tool_registry_started = Instant::now();
@@ -336,7 +345,21 @@ pub async fn build_desktop_agent_session_dependencies(
         image_model,
     );
     let current_prefilter = tools.clone();
-    let assembled = package_assembler.and_then(|assembler| assembler.assemble_tool_registry(tools));
+    let assembled =
+        package_assembler.map(|assembler| assembler.assemble_available_tool_registry(tools));
+    if let Ok(capabilities) = &assembled {
+        if !capabilities.quarantined_tools.is_empty() {
+            let unavailable = capabilities.quarantined_tools.join(", ");
+            warn!("Desktop tools quarantined because their package declarations are missing: {unavailable}");
+            emit_agent_frontend_event(
+                event_seq, conversation_id, task_run_id, Some(turn_id),
+                AgentEvent::Status {
+                    content: format!("These tools are unavailable because their capability declarations are missing: {unavailable}. Other authorized tools remain available."),
+                    tone: Some("warning".to_string()),
+                },
+            );
+        }
+    }
     let package_snapshot_cache =
         DESKTOP_PACKAGE_REGISTRY_SNAPSHOT.get_or_init(|| TokioMutex::new(None));
     let mut package_snapshot_guard = package_snapshot_cache.lock().await;
@@ -350,6 +373,7 @@ pub async fn build_desktop_agent_session_dependencies(
         *package_snapshot_guard = Some(snapshot);
     }
     drop(package_snapshot_guard);
+    resolution.ensure_ready()?;
     tools = resolution.tools;
     let after_package_filter_count = tools.tool_names().len();
     if before_package_filter_count != after_package_filter_count {
@@ -412,7 +436,7 @@ pub async fn build_desktop_agent_session_dependencies(
         runtime.set_tool_registry(tools.clone());
     }
 
-    DesktopAgentSessionDependencies {
+    Ok(DesktopAgentSessionDependencies {
         delegation_runtime,
         tools,
         selected_skills,
@@ -422,7 +446,7 @@ pub async fn build_desktop_agent_session_dependencies(
             mcp_sync_ms,
             tool_registry_ms: elapsed_ms(tool_registry_started),
         },
-    }
+    })
 }
 
 pub(crate) fn filter_root_tool_registry(
