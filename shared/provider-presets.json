@@ -919,112 +919,6 @@
     },
     "models": [
       {
-        "id": "liquid/lfm-3-1.7b:free",
-        "name": "LiquidAI: LFM3-1.7B (free)",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "contextTokens": 262144,
-        "inputModalities": [
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "frequency_penalty",
-          "include_reasoning",
-          "logprobs",
-          "max_completion_tokens",
-          "max_tokens",
-          "min_p",
-          "presence_penalty",
-          "reasoning",
-          "repetition_penalty",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_k",
-          "top_logprobs",
-          "top_p"
-        ],
-        "source": "official",
-        "lastVerifiedAt": "2026-11-07",
-        "documentationRef": "https://openrouter.ai/liquid/lfm-3-1.7b:free",
-        "maxOutputTokens": 8192,
-        "capabilities": {
-          "vision": false,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true
-          }
-        }
-      },
-      {
-        "id": "liquid/lfm-3-1.7b",
-        "name": "LiquidAI: LFM3-1.7B",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "contextTokens": 262144,
-        "inputModalities": [
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "frequency_penalty",
-          "include_reasoning",
-          "logprobs",
-          "max_completion_tokens",
-          "max_tokens",
-          "min_p",
-          "presence_penalty",
-          "reasoning",
-          "repetition_penalty",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_k",
-          "top_logprobs",
-          "top_p"
-        ],
-        "source": "official",
-        "lastVerifiedAt": "2026-11-07",
-        "documentationRef": "https://openrouter.ai/liquid/lfm-3-1.7b",
-        "maxOutputTokens": 8192,
-        "capabilities": {
-          "vision": false,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true
-          }
-        }
-      },
-      {
         "id": "~anthropic/claude-fable-latest",
         "name": "Anthropic: Claude Fable Latest",
         "tagKey": "providers.tagLatest",
@@ -19178,6 +19072,112 @@
           }
         },
         "deprecationDate": "2026-11-13"
+      },
+      {
+        "id": "liquid/lfm-3-1.7b:free",
+        "name": "LiquidAI: LFM3-1.7B (free)",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 262144,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_completion_tokens",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "source": "official",
+        "lastVerifiedAt": "2026-11-07",
+        "documentationRef": "https://openrouter.ai/liquid/lfm-3-1.7b:free",
+        "maxOutputTokens": 8192,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
+      },
+      {
+        "id": "liquid/lfm-3-1.7b",
+        "name": "LiquidAI: LFM3-1.7B",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 262144,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_completion_tokens",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "source": "official",
+        "lastVerifiedAt": "2026-11-07",
+        "documentationRef": "https://openrouter.ai/liquid/lfm-3-1.7b",
+        "maxOutputTokens": 8192,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
       },
       {
         "id": "nvidia/nemotron-3.5-lightning",
