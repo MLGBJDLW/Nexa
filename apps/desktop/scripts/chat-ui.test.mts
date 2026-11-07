@@ -4,6 +4,16 @@ import { readFileSync } from 'node:fs';
 import { parseChatUi, MAX_UI_BYTES } from '../../../crates/core/assets/skills/visual-explanations/resources/chat-ui.ts';
 import { transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
 import { parseFollowupSuggestions, latestFollowupSuggestions, stripFollowupBlocks } from '../src/lib/followupSuggestions.ts';
+import { localFileReference, isInlineFileReference } from '../src/features/preview/localFileReference.ts';
+
+test('automatic inline images reject network and device references before native reads', () => {
+  for (const path of ['//example.invalid/share/photo.png', '\\\\example.invalid\\share\\photo.png', 'file://example.invalid/share/photo.png', '%2f%2fexample.invalid/share/photo.png', '\\\\?\\C:\\photo.png', 'javascript:alert(1)']) {
+    assert.equal(isInlineFileReference(localFileReference(path)), false, path);
+  }
+  for (const path of ['C:/workspace/photo.png', 'file:///C:/workspace/photo.png', '/workspace/photo.png', 'images/photo.png']) {
+    assert.equal(isInlineFileReference(localFileReference(path)), true, path);
+  }
+});
 
 test('completed replies have local suggestions when the provider omits optional metadata', () => {
   const items = [{label:'Explain',prompt:'Explain the result in more detail.'},{label:'Next steps',prompt:'Suggest useful next steps.'}];

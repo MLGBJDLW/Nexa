@@ -54,6 +54,12 @@ export function renderMobileContinuity() {
   let releaseArchive: (()=>void) | null = null;
   let run: any = null;
   let messages: any[] = [];
+  const mediaFixture = params.has('media');
+  let media: any[] = mediaFixture ? JSON.parse(sessionStorage.getItem('fixture-media') || '[]') : [];
+  if (mediaFixture && media.length) {
+    localStorage.setItem('nexa.remote.chat.mobile-fixture', 'created');
+    messages = [{id:'photo-user',role:'user',content:'Photo',totalChars:5,sortOrder:1,attachments:media.map(({mediaType,originalName},index)=>({index,mediaType,originalName}))}];
+  }
   const events: any[] = [];
   const emit = (kind: string, payload: unknown, presentation: {displayKind?:string;label?:string} = {}) => {
     const event = {version:2,runId:'run',turnId:'turn',eventSeq:events.length+1,kind,visibility:'user',label:activityFixture?'处理中':'Working',payload,...presentation};
@@ -135,7 +141,14 @@ export function renderMobileContinuity() {
       if (method==='chat.archived') { const start=params.before?archived.findIndex(item=>item.id===params.before)+1:0; const items=archived.slice(start,start+2); const page={items,nextCursor:start+2<archived.length?items.at(-1)!.id:null}; if(holdArchive) {holdArchive=false;return new Promise(resolve=>{releaseArchive=()=>{releaseArchive=null;resolve(page);};});} return page; }
       if (method==='chat.restore') {chats.push(...archived.filter(item=>item.id===params.conversationId));archived=archived.filter(item=>item.id!==params.conversationId);return null;}
       if (method==='chat.create') { const item={id:'created',title:'New work',model:'model'};chats=[item,...chats];return item; }
-      if (method==='chat.start') { run={id:'run',status:'running'};return {}; }
+      if (method==='chat.start') {
+        if (mediaFixture) {
+          media = params.attachments; sessionStorage.setItem('fixture-media',JSON.stringify(media));
+          messages = [{id:'photo-user',role:'user',content:params.message,totalChars:params.message.length,sortOrder:1,attachments:media.map(({mediaType,originalName}:any,index:number)=>({index,mediaType,originalName}))}];
+        }
+        run={id:'run',status:'running',userMessageId:mediaFixture?'photo-user':undefined};return {};
+      }
+      if (method==='chat.attachment') return media[params.index];
       if (method==='chat.steer') {
         if (params.runId !== run?.id || params.conversationId !== 'created') throw new Error('Wrong steering target');
         messages.push({id:'clarification',role:'user',steering:true,continuesTurn:true,content:params.message,totalChars:[...params.message].length,sortOrder:7});

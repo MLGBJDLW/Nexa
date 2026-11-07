@@ -1,3 +1,4 @@
+import { createNativeHtmlPreview } from '../../lib/nativeHtmlPreview';
 import {
   useCallback,
   useEffect,
@@ -60,10 +61,19 @@ type PreviewMode = 'preview' | 'text' | 'edit' | 'split';
 const isMediaPreview = (preview: api.FilePreview) => ['image', 'audio', 'video'].includes(preview.kind);
 
 function MediaPreview({ preview, ready, failed, startMs }: { preview: api.FilePreview; ready: () => void; failed: () => void; startMs?: number }) {
-  const source = `${convertFileSrc(preview.path)}?preview=${encodeURIComponent(preview.hash)}`;
+  const [imageSource, setImageSource] = useState('');
+  useEffect(() => {
+    let active = true;
+    setImageSource('');
+    if (preview.kind === 'image') void api.readGeneratedImageDataUrl(preview.path).then(url => {
+      if (active) setImageSource(url);
+    }).catch(() => { if (active) failed(); });
+    return () => { active = false; };
+  }, [preview.path, preview.hash, preview.kind]);
+  const source = preview.kind === 'image' ? imageSource : `${convertFileSrc(preview.path)}?preview=${encodeURIComponent(preview.hash)}`;
   const loaded = (event: SyntheticEvent<HTMLMediaElement>) => { if (startMs != null) event.currentTarget.currentTime = Math.max(0, startMs / 1000); ready(); };
   return <div className="flex h-full min-h-60 items-center justify-center bg-surface-0 p-4" data-testid="file-preview-media">
-    {preview.kind === 'image' ? <img src={source} alt={preview.displayName} className="max-h-full max-w-full object-contain" onLoad={ready} onError={failed} />
+    {preview.kind === 'image' ? source && <img src={source} alt={preview.displayName} className="max-h-full max-w-full object-contain" onLoad={ready} onError={failed} />
       : preview.kind === 'audio' ? <audio src={source} controls preload="metadata" className="w-full" onLoadedMetadata={loaded} onError={failed} />
         : <video src={source} controls playsInline preload="metadata" className="max-h-full max-w-full" onLoadedMetadata={loaded} onError={failed} />}
   </div>;
@@ -819,15 +829,13 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     };
   }, [open]);
 
-  const createHtmlPreview = useCallback(async (html: string) => {
-    const path = await invoke<string>('create_chat_ui_preview_cmd', { html });
-    const id = path.split('/').pop()!;
-    return { url: convertFileSrc('', 'nexa-ui') + path.replace(/^\//, ''),
-      release: () => { void invoke('release_chat_ui_preview_cmd', { id }).catch(() => {}); } };
-  }, []);
+  const createHtmlPreview = createNativeHtmlPreview;
+  const resolveFileUrl = useCallback((path: string) => api.readInlineImageDataUrl(
+    path, /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1] ?? null,
+  ), [location.pathname]);
   const contextValue = useMemo(
-    () => ({ openFilePreview, openWebLink, createHtmlPreview, openEvidence: setEvidenceRef, togglePreviewPanel, previewPanelOpen: open }),
-    [openFilePreview, openWebLink, createHtmlPreview, togglePreviewPanel, open],
+    () => ({ openFilePreview, openWebLink, createHtmlPreview, resolveFileUrl, openEvidence: setEvidenceRef, togglePreviewPanel, previewPanelOpen: open }),
+    [openFilePreview, openWebLink, createHtmlPreview, resolveFileUrl, togglePreviewPanel, open],
   );
   const content = preview?.content ?? '';
   const hasStructured = hasStructuredPreview(preview);

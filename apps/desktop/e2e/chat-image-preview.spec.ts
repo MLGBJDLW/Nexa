@@ -7,6 +7,26 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/e2e/fixtures/chat-image-preview.html');
 });
 
+test('verified web images render with following text under packaged desktop and mobile image policies', async ({ page }) => {
+  await page.route('https://images.example.test/photo.png', route => route.fulfill({contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64')}));
+  await page.addInitScript(policy => {
+    const apply = () => { const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = policy; document.head.append(meta); };
+    if (document.head) apply(); else document.addEventListener('DOMContentLoaded', apply, {once: true});
+  }, packagedCsp.split(';').find(directive => directive.trim().startsWith('img-src'))!);
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({width, height: 900});
+    await page.goto('/e2e/fixtures/chat-image-preview.html?external=1');
+    const region = page.getByTestId('external-image');
+    const image = region.getByRole('img', {name: 'Web photograph'});
+    await image.scrollIntoViewIfNeeded();
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
+    await expect(region.getByText('Caption after the image.')).toBeVisible();
+    await image.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+  }
+});
+
 test('image selection preserves pixels and exports the edit mask after undo and retry', async ({ page }, testInfo) => {
   // Exercise the packaged connection policy: img-src alone does not authorize
   // reading an uploaded data URL or a local asset through fetch.

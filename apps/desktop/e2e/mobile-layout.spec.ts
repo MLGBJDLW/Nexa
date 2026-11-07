@@ -198,19 +198,21 @@ test('phone settings search reveals matching sections and keeps other groups col
   await expect(page.locator('form.mobile-settings-form')).toBeVisible();
 });
 
-test('archived rows restore to the right and confirm deletion to the left',async({page})=>{
+test('touch swipes restore archived rows to the right and confirm deletion to the left',async({page})=>{
   await page.setViewportSize({width:360,height:780});
   await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat');
   await expect(page.locator('.mobile-app')).toBeVisible();
   await page.evaluate(()=>(window as any).__MOBILE_CONTINUITY__.seedArchives());
   await page.getByRole('button',{name:'Conversation',exact:true}).click();
   await page.getByRole('button',{name:'Archived conversations',exact:true}).click();
+  const touch = await page.context().newCDPSession(page);
   const swipe = async (id: string, dx: number) => {
     const row = page.locator(`[data-conversation-id="${id}"]`).last();
     const box = (await row.boundingBox())!;
     const x = box.x + box.width / 2, y = box.y + box.height / 2;
-    await page.mouse.move(x,y); await page.mouse.down();
-    await page.mouse.move(x+dx,y,{steps:8}); await page.mouse.up();
+    await touch.send('Input.dispatchTouchEvent', {type:'touchStart',touchPoints:[{x,y}]});
+    for (let step=1;step<=8;step++) await touch.send('Input.dispatchTouchEvent', {type:'touchMove',touchPoints:[{x:x+dx*step/8,y}]});
+    await touch.send('Input.dispatchTouchEvent', {type:'touchEnd',touchPoints:[]});
   };
   await swipe('a',95);
   await expect(page.getByRole('button',{name:'Archived a',exact:true})).toBeVisible();

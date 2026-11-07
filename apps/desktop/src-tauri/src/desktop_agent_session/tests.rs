@@ -254,7 +254,7 @@ fn disabling_delegation_removes_every_delegation_tool_from_the_runtime_registry(
 }
 
 #[test]
-fn unowned_tool_uses_the_previous_successful_package_projection_not_the_prefilter_registry() {
+fn invalid_package_configuration_requires_the_same_validated_generation_or_stops_initialization() {
     let assembler =
         PackageRuntimeAssembler::from_host(&BuiltinPackageHost).expect("built-in package snapshot");
     let known_good = canonical_builtin_tool_registry().filtered(&["run_shell".to_string()]);
@@ -271,23 +271,43 @@ fn unowned_tool_uses_the_previous_successful_package_projection_not_the_prefilte
 
     let mut current_prefilter = known_good;
     current_prefilter.register(Box::new(UnownedDesktopTestTool));
-    let failed_assembly = assembler.assemble_tool_registry(current_prefilter.clone());
-    assert!(
-        failed_assembly.is_err(),
-        "the injected tool must be unowned"
-    );
+    let failed_assembly = || {
+        Err(PackageHostContractError::StateStore {
+            message: "package configuration unavailable".to_string(),
+        })
+    };
 
     let fallback = resolve_desktop_package_registry(
         &current_prefilter,
-        failed_assembly,
+        failed_assembly(),
         Some("package-generation-a"),
         Some(last_known_good),
     );
 
     assert!(fallback.used_last_known_good);
+    assert!(fallback.ensure_ready().is_ok());
     assert_eq!(fallback.tools.tool_names(), vec!["run_shell".to_string()]);
     assert!(!fallback.tools.contains("unowned_desktop_test_tool"));
     assert_ne!(fallback.tools.tool_names(), current_prefilter.tool_names());
+
+    let cold_start = resolve_desktop_package_registry(
+        &current_prefilter,
+        failed_assembly(),
+        Some("new-generation"),
+        None,
+    );
+    assert!(cold_start
+        .ensure_ready()
+        .unwrap_err()
+        .contains("package configuration unavailable"));
+    let stale = resolve_desktop_package_registry(
+        &current_prefilter,
+        failed_assembly(),
+        Some("new-generation"),
+        Some(last_known_good),
+    );
+    assert!(!stale.used_last_known_good);
+    assert!(stale.ensure_ready().is_err());
 }
 
 #[test]

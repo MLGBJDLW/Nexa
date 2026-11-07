@@ -92,6 +92,7 @@ pub(super) fn decode(
         model: result["model"].as_str().ok_or_else(invalid)?.into(),
         answers,
         usage: serde_json::from_value(result["usage"].clone()).map_err(|_| invalid())?,
+        annotations: Vec::new(),
     })
 }
 

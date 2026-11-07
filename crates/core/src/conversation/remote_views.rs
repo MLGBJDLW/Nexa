@@ -63,6 +63,7 @@ impl Database {
                     (role='user' AND COALESCE(display_artifact_kind,'') IN ('steering','questionResponse')) AS continues_turn,
                     (role='user' AND COALESCE(display_artifact_kind,'')='steering') AS steering,
                     CASE WHEN role='assistant' AND json_valid(tool_calls_json) THEN tool_calls_json ELSE '[]' END AS calls,
+                    CASE WHEN json_valid(image_attachments_json) THEN image_attachments_json ELSE '[]' END AS attachments,
                     CASE WHEN role='assistant' AND json_valid(artifacts_json) THEN json_extract(artifacts_json,'$.phase')='commentary' ELSE 0 END AS commentary
                 FROM messages
                 WHERE conversation_id=?1 AND role IN ('user','assistant')
@@ -79,7 +80,9 @@ impl Database {
                                substr(json_extract(value,'$.name'),1,256) AS name
                         FROM json_each(page.calls) WHERE type='object' AND json_type(value,'$.name')='text'
                         LIMIT 32
-                    )) AS tool_summaries, continues_turn, steering
+                    )) AS tool_summaries, continues_turn, steering,
+                    (SELECT json_group_array(json_object('index',key,'mediaType',json_extract(value,'$.mediaType'),'originalName',substr(json_extract(value,'$.originalName'),1,512)))
+                     FROM json_each(page.attachments) WHERE type='object') AS attachment_summaries
              FROM page ORDER BY sort_order DESC",
         )?;
         let mut rows = query
@@ -98,7 +101,7 @@ impl Database {
                 "sortOrder":row.get::<_,i64>(4)?, "createdAt":row.get::<_,String>(5)?,
                 "thinking":row.get::<_,String>(6)?, "thinkingTotalChars":row.get::<_,u64>(7)?,
                 "intermediate":row.get::<_,bool>(8)?, "toolCalls":tools, "continuesTurn":row.get::<_,bool>(10)?,
-                "steering":row.get::<_,bool>(11)?}),
+                "steering":row.get::<_,bool>(11)?, "attachments":serde_json::from_str::<Value>(&row.get::<_,String>(12)?).unwrap_or_else(|_| json!([]))}),
                 )
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -137,6 +140,40 @@ impl Database {
         let conn = self.conn();
         Ok(conn.query_row("SELECT substr(content,?3+1,8000),length(content) FROM messages WHERE conversation_id=?1 AND id=?2 AND role IN ('user','assistant') AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext')",params![conversation_id,message_id,offset],|row|Ok(json!({"content":row.get::<_,String>(0)?,"totalChars":row.get::<_,u64>(1)?,"offset":offset})))?)
     }
+    /// Fetch one attachment only when its thumbnail is visible. Never put image
+    /// blobs or vision observations into the paginated history envelope.
+    pub fn remote_message_attachment(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        index: u32,
+    ) -> Result<Value, CoreError> {
+        self.require_remote_conversation(conversation_id)?;
+        let raw: Option<String> = self.conn().query_row(
+            "SELECT CASE WHEN json_valid(image_attachments_json) THEN json_extract(image_attachments_json,?3) END
+             FROM messages WHERE conversation_id=?1 AND id=?2 AND role='user'
+             AND COALESCE(display_artifact_kind,'') NOT IN ('checkpointContinuation','replayableRuntimeContext')",
+            params![conversation_id, message_id, format!("$[{index}]")], |row| row.get(0),
+        ).optional()?.flatten();
+        let raw = raw.ok_or_else(|| CoreError::NotFound("Message attachment not found".into()))?;
+        let attachment: Value = serde_json::from_str(&raw)?;
+        let media_type = attachment["mediaType"].as_str().unwrap_or("");
+        let data = attachment["base64Data"].as_str().unwrap_or("");
+        if !matches!(
+            media_type,
+            "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+        ) || data.is_empty()
+            || data.len() > 12 * 1024 * 1024
+        {
+            return Err(CoreError::InvalidInput(
+                "Attachment cannot be displayed as an image".into(),
+            ));
+        }
+        Ok(
+            json!({"mediaType":media_type,"base64Data":data,"originalName":attachment["originalName"]}),
+        )
+    }
+
     pub fn remote_latest_run(&self, conversation_id: &str) -> Result<Option<String>, CoreError> {
         let conn = self.conn();
         Ok(conn.query_row("SELECT r.id FROM agent_task_runs r JOIN conversations c ON c.id=r.conversation_id WHERE r.conversation_id=?1 AND c.parent_conversation_id IS NULL ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1",[conversation_id],|row|row.get(0)).optional()?)
@@ -270,7 +307,16 @@ mod tests {
                 created_at: String::new(),
                 sort_order: index,
                 thinking: None,
-                image_attachments: None,
+                image_attachments: (index == 30).then(|| {
+                    vec![crate::conversation::ImageAttachment {
+                        base64_data: "cGl4ZWxz".into(),
+                        media_type: "image/png".into(),
+                        original_name: "photo.png".into(),
+                        attachment_id: None,
+                        attachment_hash: None,
+                        vision_analysis: None,
+                    }]
+                }),
             })
             .unwrap();
         }
@@ -294,6 +340,34 @@ mod tests {
             .is_err());
         let page = db.remote_messages(&chat.id, None).unwrap();
         assert!(!page.to_string().contains("Private checkpoint"));
+        assert!(!page.to_string().contains("cGl4ZWxz"));
+        assert_eq!(
+            page["messages"][25]["attachments"],
+            json!([{"index":0,"mediaType":"image/png","originalName":"photo.png"}])
+        );
+        assert_eq!(
+            db.remote_message_attachment(&chat.id, "m30", 0).unwrap()["base64Data"],
+            "cGl4ZWxz"
+        );
+        assert!(db.remote_message_attachment(&chat.id, "m30", 1).is_err());
+        assert!(db
+            .remote_message_attachment("other-conversation", "m30", 0)
+            .is_err());
+        assert!(db
+            .remote_message_attachment(&chat.id, "resume-control", 0)
+            .is_err());
+        assert_eq!(
+            db.get_messages(&chat.id)
+                .unwrap()
+                .iter()
+                .find(|message| message.id == "m30")
+                .unwrap()
+                .image_attachments
+                .as_ref()
+                .unwrap()[0]
+                .base64_data,
+            "cGl4ZWxz"
+        );
         assert_eq!(page["messages"].as_array().unwrap().len(), 30);
         assert_eq!(page["messages"][0]["sortOrder"], 5);
         assert_eq!(page["messages"][0]["precedingUserId"], "m2");

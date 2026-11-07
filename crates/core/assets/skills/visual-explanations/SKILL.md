@@ -1,13 +1,13 @@
 ---
 name: visual-explanations
-description: "Interactive charts and visual explanations inside the conversation: sortable tables, comparisons, diagrams, what-if calculators, and simulations. Use for 可互动图表、交互图表、可视化、动态演示、流程图. Deliver inline nexa-ui or nexa-html components by default."
+description: "Interactive charts and visual explanations inside the conversation: sortable tables, comparisons, timelines, diagrams, what-if calculators, and simulations. Use for 可互动图表、交互图表、可视化、动态演示、流程图、时间轴、时间线. Deliver inline nexa-ui or nexa-html components by default."
 ---
 
 # Visual explanations
 
 Deliver the requested visual inside the assistant reply. The final answer must
 contain a closed `nexa-ui`, `nexa-html`, or `mermaid` fence with the actual visual
-payload. A file path or a description of a chart does not deliver an inline chart.
+payload. For a requested timeline, include dates, events and relationships in a responsive timeline inside the chat; use `nexa-html` for a custom visual layout. A generic checklist does not replace a timeline. A file path or a description of a chart does not deliver an inline chart.
 Choose the smallest surface below; keep its takeaway and evidence nearby.
 
 - **Mermaid:** static flows, relationships, sequences, and state machines. Use
@@ -16,7 +16,7 @@ Choose the smallest surface below; keep its takeaway and evidence nearby.
   steps, or tabs. Read [the format](references/structured-ui.md), then emit one
   `nexa-ui` fence containing its versioned JSON. Nexa handles layout, theme,
   accessibility, and local interaction. Use JSON data, not executable expressions.
-- **HTML:** a simulation, calculator, bespoke visualization, or interaction that
+- **HTML:** a timeline with dates and eras, a simulation, calculator, bespoke visualization, or interaction that
   the structured components cannot express. Read
   [HTML authoring](references/html.md), then emit a self-contained `nexa-html`
   fence. Static HTML/CSS appears during generation; the user can enable scripts

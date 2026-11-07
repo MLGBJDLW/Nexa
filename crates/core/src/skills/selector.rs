@@ -238,6 +238,9 @@ pub(crate) fn enrich_tokens(tokens: &[String]) -> Vec<String> {
             "动态图",
             "动态演示",
             "模拟器",
+            "timeline",
+            "时间轴",
+            "时间线",
         ]
         .iter()
         .any(|keyword| token.contains(keyword))
@@ -480,6 +483,10 @@ pub fn select_skills_from_pool(skills: Vec<Skill>, query: &str, max_skills: usiz
                         "what-if",
                         "data visualization",
                         "in-chat",
+                        "timeline",
+                        "时间轴",
+                        "时间线",
+                        "nexa ui",
                         "可互动",
                         "交互图",
                         "交互表",

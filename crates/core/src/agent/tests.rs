@@ -12250,3 +12250,136 @@ async fn model_progress_cancellation_wins_the_deadline_race() {
     assert_eq!(event_counts.errors, 1);
     assert_eq!(event_counts.done, 0);
 }
+
+struct TextToolRecoveryProvider {
+    calls: Arc<AtomicUsize>,
+    repeat: bool,
+}
+
+#[async_trait]
+impl LlmProvider for TextToolRecoveryProvider {
+    fn name(&self) -> &str {
+        "text-tool-recovery"
+    }
+    async fn list_models(&self) -> Result<Vec<String>, CoreError> {
+        Ok(vec![])
+    }
+    async fn health_check(&self) -> Result<(), CoreError> {
+        Ok(())
+    }
+    async fn complete(&self, _: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
+        unreachable!()
+    }
+    async fn stream_events(
+        &self,
+        request: &CompletionRequest,
+    ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
+        let stage = self.calls.fetch_add(1, Ordering::SeqCst);
+        if stage > 0 {
+            assert!(request
+                .messages
+                .iter()
+                .all(|message| !message.text_content().contains("<｜｜DSML")));
+            if stage == 1 {
+                assert!(request.messages.iter().any(|message| message
+                    .text_content()
+                    .contains("structured tool-call channel")));
+            }
+        }
+        let (text, tool) = if stage == 0 || self.repeat {
+            ("Inspecting now.\n<｜｜DSML｜｜ invoke name=\"recording_tool\"><｜｜DSML｜｜ parameter name=\"value\">draft</｜｜DSML｜｜ parameter></｜｜DSML｜｜ invoke>", None)
+        } else if stage == 1 {
+            assert!(request
+                .tools
+                .as_ref()
+                .is_some_and(|tools| tools.iter().any(|tool| tool.name == "recording_tool")));
+            (
+                "",
+                Some(ToolCallDelta {
+                    id: "recovered-call".into(),
+                    name: Some("recording_tool".into()),
+                    arguments_delta: r#"{"value":"verified"}"#.into(),
+                    index: Some(0),
+                    thought_signature: None,
+                }),
+            )
+        } else {
+            ("Verified tool result received.", None)
+        };
+        crate::llm::provider_events_from_chunk_stream(Box::pin(stream::iter(vec![Ok(
+            StreamChunk {
+                delta: text.into(),
+                tool_call_delta: tool,
+                finish_reason: Some(FinishReason::Stop),
+                usage: None,
+                thinking_delta: None,
+            },
+        )])))
+    }
+}
+
+#[tokio::test]
+async fn text_tool_call_recovers_through_structured_dispatch_and_stops_repeated_leaks() {
+    for repeat in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let mut tools = ToolRegistry::new();
+        tools.register(Box::new(RecordingTool {
+            executions: executions.clone(),
+        }));
+        let executor = AgentExecutor::new(
+            Box::new(TextToolRecoveryProvider {
+                calls: calls.clone(),
+                repeat,
+            }),
+            tools,
+            AgentConfig {
+                model: Some("deepseek-flash".into()),
+                max_iterations: 1,
+                ..Default::default()
+            },
+        );
+        let db = Database::open_memory().unwrap();
+        let (tx, mut rx) = mpsc::channel(512);
+        let answer = executor
+            .run(
+                vec![],
+                vec![ContentPart::Text {
+                    text: "Inspect the directory with the available tool.".into(),
+                }],
+                &db,
+                None,
+                None,
+                tx,
+                0,
+            )
+            .await;
+        if repeat {
+            assert!(answer
+                .unwrap_err()
+                .to_string()
+                .contains("provider_tool_protocol_stalled"));
+            assert_eq!(executions.load(Ordering::SeqCst), 0);
+            assert_eq!(calls.load(Ordering::SeqCst), 4);
+        } else {
+            assert_eq!(
+                answer.unwrap().text_content(),
+                "Verified tool result received."
+            );
+            assert_eq!(executions.load(Ordering::SeqCst), 1);
+            assert_eq!(calls.load(Ordering::SeqCst), 3);
+        }
+        let mut visible = String::new();
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                AgentEvent::TextDelta { delta } => visible.push_str(&delta),
+                AgentEvent::StreamReset {
+                    discard_sample: true,
+                    ..
+                } => visible.clear(),
+                _ => {}
+            }
+        }
+        assert!(!visible.contains("DSML"));
+    }
+}

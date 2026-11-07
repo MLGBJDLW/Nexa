@@ -149,6 +149,9 @@ export function RemoteChat({
       ) || "",
   );
   const selectedConversation = useRef(conversationId);
+  const loadAttachment = useCallback((messageId: string, index: number) => client.rpc<ImageAttachment>('chat.attachment', {
+    conversationId, messageId, index,
+  }), [client, conversationId]);
   useEffect(() => {
     speechGeneration.current++; setSpeakingId(null);
     void client.nativeSpeech?.stop().catch(() => {});
@@ -944,7 +947,7 @@ export function RemoteChat({
       )}
       <div className="remote-transcript" aria-live="polite" aria-busy={syncingHistory}>
         <RemoteTranscript messages={messages} timeline={timeline} running={running} finalMessageId={finalMessageId} runUserId={runUserId} runId={timelineRunId} answerRef={markReplyRead ? setRenderedReply : undefined}
-          more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId}/>
+          more={more} speak={client.nativeSpeech ? speak : undefined} speakingId={speakingId} loadAttachment={loadAttachment}/>
       </div>
       {runStatus && (
         <div role="status" data-testid="remote-run-status" className="remote-run-status">

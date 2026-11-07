@@ -2200,12 +2200,22 @@ impl AgentExecutor {
                 .as_ref()
                 .filter(|replay| replay.resumes_provider_pause())
                 .and_then(|replay| replay.state_fingerprint());
-            let recovery_decision = output_recovery.observe_with_provider_state(
-                step_finish_reason_kind.as_ref(),
-                &full_content,
-                !tool_calls.is_empty(),
-                provider_state_fingerprint.as_deref(),
-            );
+            let text_tool_call = !suppress_tools_for_step
+                && !tool_defs.is_empty()
+                && final_answer_hygiene_scope.has_text_tool_call(&full_content);
+            let recovery_decision = if text_tool_call {
+                OutputRecoveryDecision::RejectToolRound {
+                    cause: ToolRoundRejectionCause::MalformedToolCall,
+                    committed_progress: false,
+                }
+            } else {
+                output_recovery.observe_with_provider_state(
+                    step_finish_reason_kind.as_ref(),
+                    &full_content,
+                    !tool_calls.is_empty(),
+                    provider_state_fingerprint.as_deref(),
+                )
+            };
             if !buffer_answer_projection && output_recovery.reserves_answer_channel() {
                 recovery_answer_projection.begin(accumulated_content_before_model_step);
             }
@@ -2665,7 +2675,7 @@ impl AgentExecutor {
                             Some(ToolRoundRejectionCause::OutputLimit) => "The previous tool-call draft was truncated at the provider output boundary and was not executed. Retry with a smaller operation. For large file content, create a small first chunk and append bounded chunks.".to_string(),
                             Some(ToolRoundRejectionCause::ProviderPause) => "The provider paused before the client tool draft committed. Resume from committed provider state; do not continue the discarded draft.".to_string(),
                             Some(ToolRoundRejectionCause::ContextLimit) => "The context ended before the tool draft committed. After rollover, retry once using the exposed tool schema; do not continue the discarded draft.".to_string(),
-                            Some(ToolRoundRejectionCause::MalformedToolCall) => "The previous tool-call draft was malformed and was not executed. Retry once using the exposed tool schema; change strategy if it fails again.".to_string(),
+                            Some(ToolRoundRejectionCause::MalformedToolCall) => "The previous tool-call draft was malformed and was not executed. Retry using the exposed tool schema through the provider's structured tool-call channel. DSML/XML printed in answer text is not a tool call. Rebuild arguments from the user request, preserving exact shell syntax; do not copy the rejected draft. Change strategy if it fails again.".to_string(),
                             Some(ToolRoundRejectionCause::ToolsSuppressed) => "Client tools are unavailable during the reserved answer-only step. Produce the best complete visible answer from the committed evidence and tool results.".to_string(),
                             Some(ToolRoundRejectionCause::ProtocolIncomplete) | None => "The previous tool-call draft was incomplete and was not executed. Retry once from the user request using the exposed tool schema.".to_string(),
                         };

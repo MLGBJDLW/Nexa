@@ -132,6 +132,7 @@ fn contains_marker_case_insensitive(text: &str, marker: &str) -> bool {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct FinalAnswerHygieneScope {
     referenced_markers: u8,
+    discusses_tool_protocol: bool,
 }
 
 impl FinalAnswerHygieneScope {
@@ -148,12 +149,46 @@ impl FinalAnswerHygieneScope {
     }
 
     fn observe_user_text(&mut self, text: &str) {
+        self.discusses_tool_protocol |= text.to_ascii_lowercase().contains("dsml");
         debug_assert!(RESERVED_INTERNAL_MARKERS.len() <= u8::BITS as usize);
         for (index, marker) in RESERVED_INTERNAL_MARKERS.iter().enumerate() {
             if contains_marker_case_insensitive(text, marker) {
                 self.referenced_markers |= 1_u8 << index;
             }
         }
+    }
+
+    /// Leaked provider markup is an unsuccessful tool plan, never an executable
+    /// call. Preserve explicitly requested protocol examples and fenced code.
+    pub(super) fn has_text_tool_call(&self, answer: &str) -> bool {
+        if self.discusses_tool_protocol {
+            return false;
+        }
+        let mut fence = None;
+        for line in answer.lines().map(str::trim_start) {
+            if line.starts_with("```") || line.starts_with("~~~") {
+                let marker = line.as_bytes()[0];
+                let width = line.bytes().take_while(|byte| *byte == marker).count();
+                match fence {
+                    None => fence = Some((marker, width)),
+                    Some((open, length)) if open == marker && width >= length => fence = None,
+                    _ => {}
+                }
+                continue;
+            }
+            if fence.is_some() {
+                continue;
+            }
+            if (line.starts_with("<｜") || line.starts_with("<|"))
+                && line.contains("DSML")
+                && (line.contains("invoke")
+                    || line.contains("function_calls")
+                    || line.contains("calls>"))
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// Return the reserved marker that contaminated `answer`, unless an
@@ -178,6 +213,16 @@ mod tests {
         let mut scope = FinalAnswerHygieneScope::default();
         scope.observe_user_texts(texts);
         scope
+    }
+
+    #[test]
+    fn text_tool_calls_recover_without_treating_protocol_examples_as_actions() {
+        let markup = "<｜｜DSML｜｜ invoke name=\"run_shell\">powershell ...</｜｜DSML｜｜ invoke>";
+        assert!(scope(&["Inspect the directory"]).has_text_tool_call(markup));
+        assert!(scope(&["Inspect the directory"]).has_text_tool_call("<｜DSML｜function_calls>"));
+        assert!(!scope(&["Explain DSML"]).has_text_tool_call(markup));
+        assert!(!scope(&["Show the format"]).has_text_tool_call(&format!("```xml\n{markup}\n```")));
+        assert!(!scope(&["Inspect"]).has_text_tool_call("The DSML protocol is structured."));
     }
 
     #[test]

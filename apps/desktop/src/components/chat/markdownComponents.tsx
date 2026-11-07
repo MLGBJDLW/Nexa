@@ -1224,8 +1224,8 @@ export const markdownComponents: Record<string, React.ComponentType<ComponentPro
   },
   table({ children, ...r }: ComponentPropsWithoutRef<'table'>) {
     return (
-      <div className="overflow-x-auto my-2">
-        <table {...r} className="min-w-full text-xs border border-border rounded-md">
+      <div className="max-w-full overflow-x-auto my-2">
+        <table {...r} className="w-full min-w-full text-xs border border-border rounded-md">
           {children}
         </table>
       </div>

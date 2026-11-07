@@ -927,6 +927,7 @@ fn main() {
             preview_tool::acknowledge_preview_request_cmd,
             commands::save_text_file_cmd,
             commands::read_generated_image_data_url_cmd,
+            commands::read_inline_image_data_url_cmd,
             commands::save_generated_image_cmd,
             // Watcher
             commands::start_watching,

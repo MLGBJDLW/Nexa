@@ -879,11 +879,11 @@ export function TerminalDock({
       </div>
       {isOpen && (
         <div
-          className={`border-t border-border/50 bg-surface-0 ${panelHeight}`}
+          className={`border-t border-border/50 bg-surface-0 p-2 ${panelHeight}`}
           data-theme-surface="overlay"
           data-theme-overlay-tone="canvas"
         >
-          <div ref={hostRef} data-testid="terminal-screen" className="h-full w-full overflow-hidden px-2 py-2" />
+          <div ref={hostRef} data-testid="terminal-screen" className="h-full w-full overflow-hidden" />
         </div>
       )}
     </div>
