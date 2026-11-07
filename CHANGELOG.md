@@ -23,6 +23,16 @@
 
 * **chat:** restore mobile interactions, inline media and desktop tools ([#538](https://github.com/MLGBJDLW/Nexa/issues/538)) ([b64f679](https://github.com/MLGBJDLW/Nexa/commit/b64f679337d04e869bc4721650c03de043c64365))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at b64f679337d04e869bc4721650c03de043c64365 -->
+
+### What's Changed
+* feat(chat): restore mobile interactions, inline media and desktop tools by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/538
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.4...nexa-monorepo-v0.19.5
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.3...nexa-monorepo-v0.19.4) (2026-11-06)
 
 ### Paired phones and model support
