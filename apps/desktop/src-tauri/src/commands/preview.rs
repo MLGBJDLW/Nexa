@@ -248,14 +248,29 @@ fn resolve_inline_image_path(raw: &str, roots: &[PathBuf]) -> Result<PathBuf, St
             continue;
         }
         let root = Path::new(root_text);
+        // The user-authorized root may itself be reached through a system
+        // alias (macOS /var -> /private/var). Normalize this trusted boundary
+        // before checking model-provided descendants.
+        let Ok(canonical_root) = std::fs::canonicalize(root) else {
+            continue;
+        };
         let candidate = if requested.is_absolute() {
-            requested.to_path_buf()
+            let Ok(relative) = requested
+                .strip_prefix(root)
+                .or_else(|_| requested.strip_prefix(&canonical_root))
+            else {
+                continue;
+            };
+            canonical_root.join(relative)
         } else {
-            root.join(requested)
+            canonical_root.join(requested)
         };
         // Never follow a symlink/junction from generated content, including one
         // whose target is a network share. Check parents before the leaf.
-        let ancestors: Vec<_> = candidate.ancestors().collect();
+        let ancestors: Vec<_> = candidate
+            .ancestors()
+            .take_while(|path| *path != canonical_root)
+            .collect();
         let regular_path = ancestors.iter().rev().all(|part| {
             if part.as_os_str().is_empty() {
                 return true;
@@ -275,13 +290,10 @@ fn resolve_inline_image_path(raw: &str, roots: &[PathBuf]) -> Result<PathBuf, St
         if !regular_path {
             continue;
         }
-        let (Ok(canonical), Ok(root)) = (
-            std::fs::canonicalize(&candidate),
-            std::fs::canonicalize(root),
-        ) else {
+        let Ok(canonical) = std::fs::canonicalize(&candidate) else {
             continue;
         };
-        if canonical.starts_with(&root) && canonical.is_file() {
+        if canonical.starts_with(&canonical_root) && canonical.is_file() {
             return Ok(canonical);
         }
     }
@@ -1267,6 +1279,19 @@ mod tests {
             )
             .unwrap();
             assert!(resolve_inline_image_path("linked.png", &roots).is_err());
+            let alias = directory.path().join("trusted-alias");
+            std::os::unix::fs::symlink(&root, &alias).unwrap();
+            let alias_roots = [alias.clone()];
+            assert_eq!(
+                resolve_inline_image_path("image.png", &alias_roots).unwrap(),
+                root.join("image.png").canonicalize().unwrap()
+            );
+            assert_eq!(
+                resolve_inline_image_path(alias.join("image.png").to_str().unwrap(), &alias_roots)
+                    .unwrap(),
+                root.join("image.png").canonicalize().unwrap()
+            );
+            assert!(resolve_inline_image_path("linked.png", &alias_roots).is_err());
         }
     }
 
