@@ -9,6 +9,13 @@
 - Enable inline HTML timelines and workspace image previews in standalone phone chat using the shared preview host.
 - Grant the camera picker access only to app-owned Pictures and retain native file sharing from chat previews.
 
+## [0.3.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.4...nexa-mobile-v0.3.5) (2026-11-07)
+
+
+### Features
+
+* **chat:** restore mobile interactions, inline media and desktop tools ([#538](https://github.com/MLGBJDLW/Nexa/issues/538)) ([b64f679](https://github.com/MLGBJDLW/Nexa/commit/b64f679337d04e869bc4721650c03de043c64365))
+
 ## [0.3.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.3...nexa-mobile-v0.3.4) (2026-11-06)
 
 ### Android and conversation controls
