@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- Restore tools across desktop model providers by declaring the video tool package owner. Quarantine undeclared tools while preserving other authorized tools, and report invalid package configuration before model execution.
+- Restore touch swipes for active and archived phone conversations, and make Markdown tables fill the available chat width.
+- Preserve uploaded images in phone history with lazy attachment loading; add gallery and camera choices to the attachment menu.
+- Show verified web and downloaded workspace images inline with reply text on desktop and phone.
+- Run inline HTML timelines in standalone phone chat using the shared isolated preview host.
+- Replan leaked DeepSeek DSML text through structured tool dispatch instead of treating it as a completed action; retain the existing no-progress guard.
+- Fit the desktop terminal to its padded container without clipping columns.
+
 ## [0.19.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.3...nexa-monorepo-v0.19.4) (2026-11-06)
 
 ### Paired phones and model support

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- Restore active and archived conversation touch swipes and full-width chat tables.
+- Display uploaded image attachments after sending and reloading; offer gallery and camera selection.
+- Enable inline HTML timelines and workspace image previews in standalone phone chat using the shared preview host.
+
 ## [0.3.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.3...nexa-mobile-v0.3.4) (2026-11-06)
 
 ### Android and conversation controls
