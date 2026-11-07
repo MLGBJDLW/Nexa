@@ -13,6 +13,7 @@ const source = [
   '# 手机渲染验收',
   '中文、English 和长链接 https://example.test/' + 'verylongpath/'.repeat(10),
   '| 日期 | 项目 | 状态 | 下一步 | 负责人 |\n|---|---|---|---|---|\n|2026-11-05|手机适配与图表|进行中|检查宽度和操作|移动端体验团队|',
+  '| 地区 | 叫法 |\n|---|---|\n|桐庐|江刺鱼|\n|川渝|黄辣丁|',
   '```ts\nconst endpoint = "https://example.test/' + 'longpath/'.repeat(20) + '";\n```',
   '```nexa-ui\n' + JSON.stringify(ui) + '\n```',
   '```mermaid\nflowchart LR\n A[输入] --> B[解析 Markdown 内容] --> C[渲染手机图表] --> D[验证触摸与尺寸]\n```',

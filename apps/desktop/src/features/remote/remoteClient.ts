@@ -34,7 +34,7 @@ export interface NativeSpeech {
   speak: (text: string, language: string) => Promise<unknown>;
   stop: () => Promise<unknown>;
 }
-export type RemoteChatClient = Pick<RemoteClient, 'models' | 'paired' | 'state' | 'rpc' | 'subscribe' | 'subscribeConnection' | 'audio' | 'recoverAudio'> & { conversationManagementAvailable?: boolean; archivedDeletionAvailable?: boolean; voiceAvailable?: boolean; composerOptionsAvailable?: boolean; resumeAvailable?: boolean; modelPickerAvailable?: boolean; extendedModesAvailable?: boolean; imagesOnly?: boolean; approvalModeAvailable?: boolean; nativeSpeech?: NativeSpeech };
+export type RemoteChatClient = Pick<RemoteClient, 'models' | 'paired' | 'state' | 'rpc' | 'subscribe' | 'subscribeConnection' | 'audio' | 'recoverAudio'> & { conversationManagementAvailable?: boolean; archivedDeletionAvailable?: boolean; voiceAvailable?: boolean; composerOptionsAvailable?: boolean; resumeAvailable?: boolean; modelPickerAvailable?: boolean; extendedModesAvailable?: boolean; imagesOnly?: boolean; approvalModeAvailable?: boolean; nativeSpeech?: NativeSpeech; exportFile?: (path: string) => Promise<unknown>; createHtmlPreview?: (html: string) => Promise<import('../preview/filePreviewContext').HtmlPreviewLease> };
 export function remoteRouteHeaders(origin: string): Record<string, string> {
   const host = new URL(origin).hostname;
   return ['.free.pinggy.net', '.pinggy.link', '.pinggy.online', '.run.pinggy-free.link'].some(suffix => host.endsWith(suffix))
@@ -362,7 +362,7 @@ export class RemoteClient {
   }
   async rpc<T>(method: string, params?: unknown): Promise<T> {
     const retryable =
-      /^(connections\.list|models\.list|chat\.(list|read|message|resume|start|stop)|live\.(connections|snapshot|list|load|stop)|voice\.snapshot|interactions\.list|approvals\.list|connection\.certificate)$/.test(
+      /^(connections\.list|models\.list|chat\.(list|read|message|attachment|resume|start|stop)|live\.(connections|snapshot|list|load|stop)|voice\.snapshot|interactions\.list|approvals\.list|connection\.certificate)$/.test(
         method,
       );
     for (let attempt = 0; attempt < (retryable ? 2 : 1); attempt++) {

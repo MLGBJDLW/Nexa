@@ -13,7 +13,7 @@ again. Plain text, Markdown tables, Mermaid and file previews remain available.
 | --- | --- | --- |
 | `mermaid` fence | Static relationships, sequences and processes | Existing sanitized SVG renderer |
 | `nexa-ui` fence | Metrics, sortable/filterable tables, signed bar charts, steps and tabs | Versioned data validated and rendered by native React components |
-| `nexa-html` fence | Local calculators, simulations and bespoke HTML/CSS/JS explanations | Inert static preview streams; scripts run only after the user chooses Run |
+| `nexa-html` fence | Timelines, local calculators, simulations and bespoke HTML/CSS/JS explanations | Inert static preview streams; scripts run only after the user chooses Run |
 | Ordinary `html` fence | Source code examples | Code first, optional Preview using the same HTML surface |
 | Local HTML file | A deliverable with explicit supporting assets | Existing `open_in_nexa` and Browser Workspace contract |
 
@@ -68,8 +68,9 @@ partial scripts or allocating server resources per token.
 
 After completion, **Run scripts** obtains a temporary preview from the shared
 [HTML preview store](../../crates/remote/src/html_preview.rs). The desktop
-[custom-protocol adapter](../../apps/desktop/src-tauri/src/chat_ui_preview.rs) and
-remote HTTP adapter use this same store and security policy. The application
+[custom-protocol adapter](../../shared/rust/native_chat_ui_preview.rs) is also
+used by the standalone phone app, without pairing to a desktop. The remote
+HTTP adapter uses the same store and security policy. The application
 page's `script-src 'self'` remains unchanged.
 
 Execution has two iframe layers:
@@ -107,6 +108,27 @@ HTML must be self-contained browser JavaScript. JSX/TSX, npm dependencies,
 relative files and remote libraries require an appropriately built local file
 and the existing [Browser Workspace preview](local-html-preview.md).
 
+## Images in conversation
+
+Use ordinary Markdown images to interleave verified HTTPS image URLs or local
+workspace image paths with explanatory text. `fetch_url` exposes image
+candidates from page metadata and image elements; `download_asset` validates and
+saves a candidate when a local copy is needed. Keep captions and source links
+beside the image. Do not invent URLs or create a second download tool.
+
+Desktop local images use the existing validated image reader. Phone workspace
+previews enforce canonical path containment and bounded reads. Network images
+load lazily without a referrer and open in the existing image lightbox; failed
+loads retain a link to the source. Generated HTML remains self-contained: the
+permission to show a network image in Markdown does not grant its scripts
+network access.
+
+Phone history pages carry attachment metadata, with image bytes fetched only
+when a thumbnail becomes visible. Both paired and standalone chats read the
+persisted attachment by conversation, message and index, including after a
+reload. The attachment menu offers gallery images, a capture-enabled camera
+input and the existing file picker.
+
 ## Compatibility and migration
 
 Existing Markdown, Mermaid, messages and local HTML assets need no migration.
@@ -143,6 +165,13 @@ model and preserve its authority, lifecycle and history contracts.
 - [Hermes cron tools](https://github.com/NousResearch/hermes-agent/blob/aefffa077f0f964596d54385ab91e011606e1596/tools/cronjob_tools.py)
   inform the single action-based tool over Nexa's existing scheduler; see
   [Scheduled tasks](SCHEDULED_TASKS.md#agent-tool).
+- [DeepSeek Harness session architecture](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/architecture.md)
+  separates durable messages and tool settlements from transient rendering.
+  Attachment history follows that distinction; printed tool protocol is
+  rejected and replanned through structured tool dispatch.
+- [Zed Markdown renderer](https://github.com/zed-industries/zed/blob/b5cd310b3b54dfc659fcc06453e6358843dfe216/crates/markdown/src/markdown.rs)
+  informs full-width table layout and resolving image resources independently
+  of surrounding prose. Nexa retains its existing Markdown and preview owners.
 
 ## Verification
 
@@ -155,4 +184,6 @@ network/navigation access. Remote socket tests verify the actual served headers,
 owner revocation and both iframe routes. The opt-in native WebView2 test
 `native_chat_ui_sandbox_has_scripts_but_no_parent_storage_or_ipc` checks the real
 custom protocol and Tauri script-injection boundary. Browser mocks alone are not
-native acceptance.
+native acceptance. The phone local-client browser case checks native preview
+command routing without a remote endpoint; Android/iOS WebView acceptance
+still requires the corresponding native runtime.

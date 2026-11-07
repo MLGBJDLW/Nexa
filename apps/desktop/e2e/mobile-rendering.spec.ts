@@ -104,10 +104,43 @@ for (const width of [320, 360, 412, 720]) test(`mobile markdown and charts fit $
   await expect(page.getByTestId('mermaid-surface').locator('svg')).toBeVisible();
   expect(await page.locator('.native-chat-content').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
   expect(await page.locator('.nexa-ui').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
+  const table = page.locator('.prose-chat > div > table').nth(1);
+  const widths = await table.evaluate(node => ({table:node.getBoundingClientRect().width, header:node.querySelector('thead')!.getBoundingClientRect().width, row:node.querySelector('tbody tr')!.getBoundingClientRect().width, container:node.parentElement!.clientWidth}));
+  expect(Math.abs(widths.table-widths.container)).toBeLessThanOrEqual(1);
+  expect(Math.abs(widths.header-widths.table)).toBeLessThanOrEqual(2);
+  expect(Math.abs(widths.row-widths.table)).toBeLessThanOrEqual(2);
   const bars = page.locator('.nexa-ui-bar-track');
   expect((await bars.first().boundingBox())!.width).toBeGreaterThan(100);
   const frame=page.getByTestId('html-preview').locator('iframe').contentFrame();
   await expect(frame.getByRole('heading',{name:'HTML 图表'})).toBeVisible();
   expect(await frame.locator('body').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
   await page.getByTestId('generative-ui').screenshot({path:info.outputPath(`mobile-chart-${width}.png`)});
+});
+
+
+test('phone image and camera attachments appear in chat and survive reloading history', async ({page}) => {
+  await page.setViewportSize({width:360,height:780});
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=chat&composer&media');
+  await page.getByRole('button',{name:'Attach files',exact:true}).click();
+  const image = {name:'photo.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64')};
+  const picker = page.waitForEvent('filechooser');
+  await page.getByRole('button',{name:'Attach image',exact:true}).click();
+  await (await picker).setFiles(image);
+  const camera = page.locator('input[capture="environment"]');
+  await expect(camera).toHaveAttribute('accept','image/*');
+  const capture = page.waitForEvent('filechooser');
+  await page.getByRole('button',{name:'Camera',exact:true}).click();
+  await (await capture).setFiles({...image,name:'camera.png'});
+  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Photo');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  for (const name of ['photo.png','camera.png']) {
+    const thumbnail=page.locator('article.remote-message-user').getByRole('img',{name,exact:true});
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(()=>thumbnail.evaluate((node:HTMLImageElement)=>node.naturalWidth)).toBeGreaterThan(0);
+  }
+  await page.reload();
+  const restored=page.locator('article.remote-message-user').getByRole('img',{name:'photo.png',exact:true});
+  await expect(restored).toBeVisible();
+  await restored.click();
+  await expect(page.getByTestId('image-lightbox')).toBeVisible();
 });

@@ -31,6 +31,31 @@ async function show(page:Page,code:string,language='nexa-html',streaming=false){
   await page.evaluate(({code,language,streaming})=>(window as any).setUiFixture('```'+language+'\n'+code+(streaming?'':'\n```'),streaming),{code,language,streaming});
 }
 
+test('phone local chat runs an inline timeline without a paired desktop endpoint', async ({page}) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.addInitScript(origin => {
+    (window as any).__TAURI_INTERNALS__ = {
+      convertFileSrc: () => `${origin}/`,
+      async invoke(command:string, args:any) {
+        if (command === 'create_chat_ui_preview_cmd') { const preview = await (window as any).publishUiFixture(args.html); return new URL(preview.url).pathname; }
+        if (command === 'release_chat_ui_preview_cmd') return (window as any).releaseUiFixture(args.id);
+        throw new Error(`Unexpected native command: ${command}`);
+      },
+    };
+  }, origin);
+  await page.goto('/e2e/fixtures/generative-ui.html?local=1');
+  await show(page, '<style>body{font:16px system-ui}ol{border-left:3px solid teal}li{padding:12px}</style><h1>Project timeline</h1><ol><li>2025 — Started</li><li>2026 — Released</li></ol><button onclick="document.querySelector(\'output\').textContent=\'2026\'">Latest event</button><output></output>');
+  const card = page.getByTestId('html-preview');
+  await expect(card.locator('iframe').contentFrame().getByRole('heading', {name:'Project timeline'})).toBeVisible();
+  await page.getByRole('button', {name:'Run scripts'}).click();
+  const frame = card.locator('iframe').contentFrame().locator('iframe').contentFrame();
+  await frame.getByRole('button', {name:'Latest event'}).click();
+  await expect(frame.locator('output')).toHaveText('2026');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.getByRole('button', {name:'Stop',exact:true}).click();
+  await expect.poll(() => previews.size).toBe(0);
+});
+
 test('generative UI renders native data, filters, sorts, and restores from message text',async({page},info)=>{
   await expect(page.getByRole('heading',{name:'A clearer weekly review'})).toBeVisible();
   await expect(page.locator('.nexa-ui-bar[data-negative=true]')).toHaveCount(1);
@@ -117,6 +142,24 @@ test('generative HTML sandbox blocks parent access, storage, network, and extern
   await inner.getByRole('button',{name:'Navigate'}).click();
   await page.waitForTimeout(300);
   expect(escaped).toBe(0); expect(page.url()).toContain('generative-ui.html');
+});
+
+test('native phone preview exports through the platform share action without reading file bytes', async ({page}) => {
+  const calls: {command:string;args:any}[] = [];
+  await page.exposeFunction('phonePreviewCall', (command:string, args:any) => {
+    calls.push({command,args});
+    if (command === 'mobile_files' && args.action === 'preview') return {path:'/phone/workspace/report.docx',displayName:'report.docx',extension:'.docx',kind:'binary',content:null};
+    if (command === 'mobile_files' && args.action === 'share') return null;
+    throw new Error('Unexpected preview operation');
+  });
+  await page.addInitScript(() => { (window as any).__TAURI_INTERNALS__ = {invoke:(command:string,args:any)=>(window as any).phonePreviewCall(command,args)}; });
+  await page.goto('/e2e/fixtures/generative-ui.html?local');
+  await page.evaluate(() => (window as any).setUiFixture('[Report](file:report.docx)'));
+  await page.getByText('Report', {exact:true}).click();
+  await expect(page.getByRole('dialog')).toContainText('report.docx');
+  await page.getByRole('button', {name:'Download',exact:true}).click();
+  await expect.poll(() => calls.filter(call=>call.args.action==='share')).toEqual([{command:'mobile_files',args:{action:'share',relativePath:'/phone/workspace/report.docx'}}]);
+  expect(calls.some(call=>call.args.action==='data')).toBe(false);
 });
 
 test('generative HTML source edits revoke active execution and ordinary html remains opt-in',async({page})=>{

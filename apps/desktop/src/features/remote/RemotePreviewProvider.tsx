@@ -25,6 +25,7 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
   const labels = useMemo(() => createPreviewLabels(t), [t]);
   const resolveFileUrl = useCallback((path: string) => client.rpc<string>('files.data', { path }), [client]);
   const createHtmlPreview = useCallback(async (html: string) => {
+    if (client.createHtmlPreview) return client.createHtmlPreview(html);
     const path = await client.rpc<string>('preview.html', { html });
     return { url: new URL(path, client.state.endpoint!.url).href,
       release: () => { void client.rpc('preview.release', { id: path.split('/').pop() }).catch(() => {}); } };
@@ -56,6 +57,7 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
   async function download() {
     if (!preview) return;
     try {
+      if (client.exportFile) { await client.exportFile(preview.path); return; }
       const data = media || await resolveFileUrl(preview.path);
       const blob = await (await fetch(data)).blob(); const url = URL.createObjectURL(blob);
       const link = document.createElement('a'); link.href = url; link.download = preview.displayName; link.click();

@@ -185,6 +185,8 @@ impl DecisionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Answer {
+    // A refusal is an explicit outcome, never a negative or zero-valued answer.
+    Refusal {},
     Noul {
         noul: f64,
     },
@@ -215,6 +217,8 @@ pub struct DecisionResponse {
     pub model: String,
     pub answers: BTreeMap<String, Answer>,
     pub usage: DecisionUsage,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<Value>,
 }
 
 fn probability(value: f64) -> bool {
@@ -245,6 +249,7 @@ impl DecisionResponse {
             && self.answers.len() == request.questions.len()
             && request.questions.iter().all(|(id, question)| {
                 match (question, self.answers.get(id)) {
+                    (_, Some(Answer::Refusal {})) => true,
                     (Question::Noul { .. }, Some(Answer::Noul { noul })) => probability(*noul),
                     (
                         Question::Choice { criteria, .. },
@@ -668,6 +673,28 @@ mod tests {
             reqwest::Url::parse(&format!("http://{address}/v1/systemone")).unwrap(),
             thread,
         )
+    }
+
+    #[test]
+    fn system_one_preserves_partial_refusals_and_source_annotations() {
+        let request = mixed_request();
+        for id in request.questions.keys() {
+            let mut raw = mixed_response();
+            raw["answers"][id] = json!({"type":"refusal"});
+            raw["annotations"] = json!([{"type":"url_citation","url_citation":{
+                "url":"https://example.com/evidence","title":"Evidence","content":"Source excerpt"
+            }}]);
+            let response: DecisionResponse = serde_json::from_value(raw.clone()).unwrap();
+            response.validate(&request).unwrap();
+            let serialized = serde_json::to_value(&response).unwrap();
+            assert_eq!(serialized["answers"][id], json!({"type":"refusal"}));
+            assert_eq!(serialized["annotations"], raw["annotations"]);
+            raw["answers"].as_object_mut().unwrap().remove(id);
+            assert!(serde_json::from_value::<DecisionResponse>(raw)
+                .unwrap()
+                .validate(&request)
+                .is_err());
+        }
     }
 
     #[test]

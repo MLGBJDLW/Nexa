@@ -272,6 +272,18 @@ const IMAGE_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration
     workflows: &["generate-image"],
 };
 
+const VIDEO_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
+    enrich: None,
+    id: "video-generation",
+    name: "Video Generation",
+    capability: "Video creation",
+    description: "Runs durable video generation jobs and retrieves their generated assets.",
+    surface: EcosystemSurfaceKind::Adapter,
+    tools: &["generate_video"],
+    settings_surfaces: &[],
+    workflows: &[],
+};
+
 const TTS_PACKAGE: CapabilityPackageDeclaration = CapabilityPackageDeclaration {
     enrich: Some(text_to_speech::project),
     id: "text-to-speech",
@@ -457,6 +469,7 @@ const BUILTIN_PACKAGES: &[CapabilityPackageDeclaration] = &[
     KNOWLEDGE_PACKAGE,
     OFFICE_PACKAGE,
     IMAGE_PACKAGE,
+    VIDEO_PACKAGE,
     TTS_PACKAGE,
     SYSTEM_ONE_PACKAGE,
     WEB_PACKAGE,

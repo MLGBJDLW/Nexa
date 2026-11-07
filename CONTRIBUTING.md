@@ -228,6 +228,64 @@ The lightweight `nexa-model-catalog` crate can be checked independently of core.
 The [task evaluation guide](docs/development/AGENT_TASK_EVALUATION.md) documents reproducible
 runtime tasks, opt-in model calls and version comparisons.
 
+## Tool registration and failure isolation
+
+Every callable tool, including tools added only by the desktop host, must have
+an explicit capability declaration in [plugins.rs](crates/core/src/plugins.rs).
+Register the implementation and its declaration in the same change. Do not
+infer execution authority from a display label or a fallback capability owner.
+Use [PackageRuntimeAssembler](crates/core/src/package_host.rs) for the final
+registry so package enablement, component gates and connector policy apply to
+the tools sent to the model and to the tools dispatched by the host.
+
+A desktop outage exposed this boundary: `generate_video` was registered during
+session initialization but absent from the package declarations. Strict batch
+assembly rejected that tool, and the desktop fallback silently replaced the
+entire registry with an empty one. Every provider using that desktop registry
+then received no tools.
+The foundation-only registry tests missed the host-added implementation.
+
+The desktop runtime now quarantines undeclared tools from an otherwise valid package
+snapshot and reports their names. Independently authorized tools remain usable;
+disabled packages and unknown tools remain unavailable. Strict assembly remains
+available for contract checks. An unreadable or invalid package snapshot stops
+initialization with a visible error unless a validated projection for the exact
+same generation is available. Never recover by passing the unfiltered registry,
+silently sending an empty catalog, or weakening approval/workspace policy.
+
+Tool changes must exercise the assembled host boundary, including dynamically
+added tools. Cover an enabled tool, its disabled package, an undeclared sibling,
+and invalid configuration. Check that ordinary tools survive quarantine, that
+excluded tools cannot be dispatched, and that initialization errors reach chat.
+Extend the existing package/session tests; a separate CI workflow is unnecessary.
+Useful focused checks are `cargo test -p nexa-core --no-default-features
+--features host-tools --lib runtime_assembler` and `cargo test -p nexa-desktop --no-default-features --bin
+nexa-desktop desktop_agent_session::tests::`.
+
+Provider protocol printed as answer text is a separate failure. Recover through
+the structured tool-call channel with the existing progress guard; never execute
+DSML/XML copied out of prose or count it as a completed action.
+
+The boundary follows patterns reviewed in these upstream implementations:
+
+- [Pi's agent loop](https://github.com/earendil-works/pi/blob/main/packages/agent/src/agent-loop.ts)
+  validates arguments and returns a per-call error for unknown tools.
+- [Codex's tool registry](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/registry.rs)
+  reports unsupported calls through the model-facing error path.
+- [Hermes's registry](https://github.com/NousResearch/hermes-agent/blob/main/tools/registry.py)
+  keeps schema, handler and availability together and isolates failed discovery.
+- [DeepSeek Harness tools](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/README.md)
+  reuse a resolved tool set for visibility and execution while preserving policy.
+- [Zed's tool definitions](https://github.com/zed-industries/zed/blob/main/crates/agent/src/tools.rs)
+  document the additional profile and feature gates needed after registration.
+
+Automatic Markdown image reads are a separate trust boundary from explicit file
+opening. Resolve them only within the current workspace, permitted sources or
+generated image cache; reject network/device paths before filesystem access and
+do not follow symlinks or junctions from model-provided paths. Browser capture
+tests do not prove Android camera access: the native FileProvider must expose
+Wry's app-owned Pictures directory, and file export must retain native sharing.
+
 ## Documentation and translations
 
 - Use English for public technical documentation. Keep

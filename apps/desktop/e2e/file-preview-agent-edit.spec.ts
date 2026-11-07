@@ -233,6 +233,11 @@ test.beforeEach(async ({ page }) => {
           return 0;
         case 'plugin:dialog|open':
           return localStorage.getItem('e2e-picked-file');
+        case 'read_generated_image_data_url_cmd':
+          if (localStorage.getItem('e2e-delay-image') === '1') {
+            await new Promise<void>(resolve => Object.assign(window, { __releasePreviewImage: resolve }));
+          }
+          return 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="teal"/></svg>');
         case 'preview_file_cmd':
           window.__previewCalls!.push({ path: String(args.path), conversationId: args.conversationId as string | null | undefined });
           if (localStorage.getItem('e2e-delay-preview') === '1') await new Promise<void>(resolve => { delayedPreview = resolve; });
@@ -706,10 +711,16 @@ test('does not reopen a preview after the agent cancels a pending load',async({p
 });
 
 test('opens an image inside Nexa and acknowledges only after decoding',async({page})=>{
-  await page.route('**/image.svg?preview=*',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="teal"/></svg>'}));
   await page.goto('/chat/conv-agent-edit');
-  await page.evaluate(()=>(window as unknown as {__emitAgentPreview:(id:string,path:string)=>void}).__emitAgentPreview('image','/image.svg'));
+  await page.evaluate(()=>{
+    localStorage.setItem('e2e-delay-image','1');
+    (window as unknown as {__emitAgentPreview:(id:string,path:string)=>void}).__emitAgentPreview('image','/image.svg');
+  });
+  await expect.poll(()=>page.evaluate(()=>typeof (window as unknown as {__releasePreviewImage?:()=>void}).__releasePreviewImage)).toBe('function');
+  expect(await page.evaluate(()=>(window as unknown as {__previewAcks:unknown[]}).__previewAcks.length)).toBe(0);
+  await page.evaluate(()=>(window as unknown as {__releasePreviewImage:()=>void}).__releasePreviewImage());
   await expect(page.getByTestId('file-preview-media').getByRole('img')).toBeVisible();
+  await expect.poll(()=>page.getByTestId('file-preview-media').getByRole('img').evaluate(image=>(image as HTMLImageElement).naturalWidth)).toBe(40);
   await expect.poll(()=>page.evaluate(()=>(window as unknown as {__previewAcks:{receipt?:{kind:string}}[]}).__previewAcks[0]?.receipt?.kind)).toBe('image');
   expect(await page.evaluate(()=>(window as unknown as {__externalOpens:()=>number}).__externalOpens())).toBe(0);
 });

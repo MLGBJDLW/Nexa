@@ -123,7 +123,7 @@ impl Tool for EvaluateDecisionsTool {
             }
             results.push(value);
         }
-        let data = json!({"kind":"systemOneEvaluation","authority":"advisory","model":result.model,"usage":result.usage,"results":results});
+        let data = json!({"kind":"systemOneEvaluation","authority":"advisory","model":result.model,"usage":result.usage,"annotations":result.annotations,"results":results});
         let content = serde_json::to_string(&data)?;
         Ok(ToolResult::from_output(
             context.call_id,

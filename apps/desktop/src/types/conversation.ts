@@ -37,7 +37,7 @@ export interface ConversationMessage {
   createdAt: string;
   sortOrder: number;
   thinking: string | null;
-  /** Optimistic-only: image attachments sent with this user message. */
+  /** Durable attachments, also retained on optimistic messages until persistence. */
   imageAttachments?: ImageAttachment[] | null;
 }
 

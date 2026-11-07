@@ -1397,7 +1397,7 @@ pub(super) async fn launch_desktop_agent_chat_turn(
                     terminal_state,
                     browser_state,
                 })
-                .await;
+                .await?;
             for (stage, elapsed_ms) in [
                 (
                     TurnLaunchStage::SkillSelectMs,

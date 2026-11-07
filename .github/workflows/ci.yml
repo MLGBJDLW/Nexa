@@ -470,6 +470,8 @@ jobs:
           browser::
           command_dispatch::tests::
           commands::terminal::tests::
+          commands::preview::tests::
+          desktop_agent_session::tests::
           commands::update::tests::
           agent_runtime::
           subagent_tool::tests::
@@ -554,6 +556,8 @@ jobs:
           recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
           command_dispatch::tests::
           commands::terminal::tests::
+          commands::preview::tests::
+          desktop_agent_session::tests::
           browser::agent_tool::tests::
           browser::operation_progress::tests::
           agent_runtime::

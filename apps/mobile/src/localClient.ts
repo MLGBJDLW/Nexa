@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+import { createNativeHtmlPreview } from '../../desktop/src/lib/nativeHtmlPreview';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { AgentRunEvent } from '../../desktop/src/types/conversation';
 import type { RemoteChatClient, PairedRemote, RemoteConnection, RemoteEnvelope } from '../../desktop/src/features/remote/remoteClient';
@@ -13,6 +15,8 @@ export class LocalClient implements RemoteChatClient {
   readonly voiceAvailable = false;
   readonly extendedModesAvailable = false;
   readonly imagesOnly = true;
+  readonly createHtmlPreview = createNativeHtmlPreview;
+  readonly exportFile = (path: string) => invoke('mobile_files', { action: 'share', relativePath: path });
   readonly approvalModeAvailable = true;
   readonly resumeAvailable = true;
   readonly paired: PairedRemote = { token: '', device: { id: 'phone', name: 'Phone' }, manifest: { serverId: 'local-phone', endpoints: [], reconnectGraceSeconds: 0, capabilities: ['chat-steering-v1', 'chat-schedules-v1'] } };
@@ -54,6 +58,9 @@ export class LocalClient implements RemoteChatClient {
       case 'chat.read':
         this.selected = params.conversationId;
         return local('messages',{conversationId:params.conversationId,beforeOrder:params.beforeOrder});
+      case 'files.preview': return invoke('mobile_files', {action:'preview',relativePath:params.path});
+      case 'files.data': return invoke('mobile_files', {action:'data',relativePath:params.path});
+      case 'chat.attachment': return local('attachment', params);
       case 'chat.message': return local(params.channel === 'thinking' ? 'thinking' : 'message',{conversationId:params.conversationId,messageId:params.messageId,offset:params.offset});
       case 'chat.start':
         return local('start',{conversationId:params.conversationId,message:params.message,requestId:params.idempotencyKey,options:params});

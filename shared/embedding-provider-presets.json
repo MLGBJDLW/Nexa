@@ -1026,9 +1026,9 @@
         "documentationRef": "https://openrouter.ai/api/v1/models/liquid/lfm-2.5-embedding-350m:free/endpoints",
         "supportsDimensionOverride": false,
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-14",
+        "lastVerifiedAt": "2026-11-07",
         "availableToCredential": null,
         "recommended": false,
         "inputModalities": [
@@ -1036,7 +1036,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "deprecationDate": "2026-11-13"
       },
       {
         "id": "nvidia/nemotron-3-embed-1b:free",
@@ -1152,9 +1153,9 @@
         "documentationRef": "https://docs.api.nvidia.com/nim/reference/nvidia-llama-nemotron-embed-vl-1b-v2-infer",
         "supportsDimensionOverride": false,
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-15",
+        "lastVerifiedAt": "2026-11-07",
         "availableToCredential": null,
         "recommended": false,
         "inputModalities": [
@@ -1162,7 +1163,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "deprecationDate": "2026-11-16"
       },
       {
         "id": "google/gemini-embedding-2-preview",

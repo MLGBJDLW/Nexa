@@ -25,6 +25,7 @@ export const FilePreviewContext = createContext<FilePreviewContextValue>({
 });
 
 const PREVIEWABLE_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.webp', '.gif',
   '.md',
   '.markdown',
   '.txt',

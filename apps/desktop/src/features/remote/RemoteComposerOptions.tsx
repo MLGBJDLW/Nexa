@@ -1,4 +1,4 @@
-import { Paperclip, X } from 'lucide-react';
+import { Camera, ImagePlus, Paperclip, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from '../../i18n';
 import { getAllowedAttachmentMediaType } from '../../lib/chatAttachments';
@@ -23,8 +23,12 @@ export function RemoteComposerOptions({ attachments, onAttachments, settings, on
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
+  const adding = useRef(false);
   async function add(files: File[]) {
-    if (loading || disabled || !files.length) return;
+    if (adding.current || disabled || !files.length) return;
+    adding.current = true;
     setLoading(true); onBusy(true); setError('');
     try {
       if (attachments.length + files.length > 8 || attachments.reduce((sum, item) => sum + item.base64Data.length * 0.75, 0) + files.reduce((sum, file) => sum + file.size, 0) > 8 * 1024 * 1024) throw new Error(t('remote.attachmentLimit'));
@@ -39,10 +43,17 @@ export function RemoteComposerOptions({ attachments, onAttachments, settings, on
       }));
       onAttachments([...attachments, ...next]);
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
-    finally { setLoading(false); onBusy(false); if (input.current) input.current.value = ''; }
+    finally {
+      adding.current = false; setLoading(false); onBusy(false);
+      for (const ref of [input, imageInput, cameraInput]) if (ref.current) ref.current.value = '';
+    }
   }
   return <div className="flex flex-wrap items-center gap-2" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); void add(Array.from(event.dataTransfer.files)); }}>
     <input ref={input} type="file" accept={imagesOnly ? 'image/png,image/jpeg,image/webp,image/gif' : undefined} multiple className="hidden" aria-label={t('remote.addAttachments')} disabled={disabled || loading} onChange={event => void add(Array.from(event.target.files ?? []))} />
+    <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple className="hidden" aria-label={t('chat.attachImage')} disabled={disabled || loading} onChange={event => void add(Array.from(event.target.files ?? []))} />
+    <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" aria-label={t('live.camera')} disabled={disabled || loading} onChange={event => void add(Array.from(event.target.files ?? []))} />
+    <button type="button" className={remoteButton} disabled={disabled || loading} onClick={() => imageInput.current?.click()}><ImagePlus size={16} />{t('chat.attachImage')}</button>
+    <button type="button" className={remoteButton} disabled={disabled || loading} onClick={() => cameraInput.current?.click()}><Camera size={16} />{t('live.camera')}</button>
     <button type="button" className={remoteButton} disabled={disabled || loading} onClick={() => input.current?.click()}><Paperclip size={16} />{t('remote.addAttachments')}</button>
     {showExecutionMode && <select className={`${remoteField} !w-auto min-w-24 flex-1`} aria-label={t('remote.executionMode')} disabled={disabled} value={settings.executionMode} onChange={event => onSettings({...settings, executionMode:event.target.value as RemoteComposerSettings['executionMode']})}>
       <option value="normal">{t('remote.modeNormal')}</option><option value="plan">{t('remote.modePlan')}</option>

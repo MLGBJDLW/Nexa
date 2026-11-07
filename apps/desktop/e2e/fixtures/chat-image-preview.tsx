@@ -43,6 +43,7 @@ function Fixture() {
   const tool = state.toolCalls[0];
   return <main className="relative min-h-screen bg-surface-0 p-6 text-text-primary">
     <div data-testid="markdown-images"><StreamingMarkdown content={`![Markdown screenshot](${source})\n\n![Local screenshot](D:/workspace/screenshot.png)`} isStreaming={false} /></div>
+    {new URLSearchParams(location.search).has('external') && <div data-testid="external-image"><StreamingMarkdown content={'Source photograph:\n\n![Web photograph](https://images.example.test/photo.png)\n\nCaption after the image.'} isStreaming={false} /></div>}
     <MessageBubble msg={{ id: 'upload', conversationId: 'images', role: 'user', content: 'Attached screenshot', toolCallId: null, toolCalls: [], artifacts: null, tokenCount: 0, createdAt: new Date().toISOString(), sortOrder: 0, thinking: null, imageAttachments: [{ originalName: 'Uploaded screenshot.png', mediaType: 'image/png', base64Data: pixels }] }} />
     <div data-testid="visual-tool-card"><ToolCallCard toolName={tool.toolName} args={tool.arguments} status={tool.status} content={tool.content} artifacts={tool.artifacts} compact={new URLSearchParams(location.search).has('compact')} trace={new URLSearchParams(location.search).has('trace')} /></div>
     <button onClick={() => setState(previous => { const next = createDefaultState(); next.toolCalls = previous.toolCalls; next.streamRounds = previous.streamRounds; next.traceEvents = previous.traceEvents; applyToolRunEvent(next, completed); return next; })}>Reconcile durable tool result</button>

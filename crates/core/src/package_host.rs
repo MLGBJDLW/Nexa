@@ -235,6 +235,8 @@ pub struct RuntimeCapabilitySet {
     pub package_context: crate::runtime::RuntimePackageContext,
     pub tool_owners: HashMap<String, String>,
     pub excluded_tools: Vec<String>,
+    /// Unknown declarations are never present in the executable registry.
+    pub quarantined_tools: Vec<String>,
 }
 
 /// The single package-aware entry point for constructing runtime tools.
@@ -274,20 +276,33 @@ impl PackageRuntimeAssembler {
         &self,
         registry: ToolRegistry,
     ) -> Result<RuntimeCapabilitySet, PackageHostContractError> {
+        let capabilities = self.assemble_available_tool_registry(registry);
+        if let Some(tool_name) = capabilities.quarantined_tools.first() {
+            return Err(PackageHostContractError::UnownedRuntimeTool {
+                tool_name: tool_name.clone(),
+            });
+        }
+        Ok(capabilities)
+    }
+
+    /// A valid host snapshot can isolate an undeclared extension without
+    /// discarding independently authorized tools. Package and component gates
+    /// still apply to every retained tool; invalid snapshots never reach here.
+    pub fn assemble_available_tool_registry(&self, registry: ToolRegistry) -> RuntimeCapabilitySet {
         let mut allowed_names = Vec::new();
         let mut excluded_tools = Vec::new();
         let mut tool_owners = HashMap::new();
+        let mut quarantined_tools = Vec::new();
 
         for tool_name in registry.tool_names() {
             let ownership_selector = registry
                 .get(&tool_name)
                 .map(|tool| tool.ownership_selector())
                 .unwrap_or(&tool_name);
-            let owner = self.tool_owner(ownership_selector).ok_or_else(|| {
-                PackageHostContractError::UnownedRuntimeTool {
-                    tool_name: tool_name.clone(),
-                }
-            })?;
+            let Some(owner) = self.tool_owner(ownership_selector) else {
+                quarantined_tools.push(tool_name);
+                continue;
+            };
             tool_owners.insert(tool_name.clone(), owner.id.clone());
             if self.tool_is_runtime_visible(owner, ownership_selector) {
                 allowed_names.push(tool_name);
@@ -296,14 +311,15 @@ impl PackageRuntimeAssembler {
             }
         }
 
-        Ok(RuntimeCapabilitySet {
+        RuntimeCapabilitySet {
             tools: registry.filtered(&allowed_names),
             package_context: crate::runtime::RuntimePackageContext::from_package_host_snapshot(
                 &self.snapshot,
             ),
             tool_owners,
             excluded_tools,
-        })
+            quarantined_tools,
+        }
     }
 
     pub fn visible_tool_names(
@@ -847,6 +863,43 @@ mod tests {
                 tool_name: "unowned_tool".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn runtime_assembler_keeps_builtin_tools_when_desktop_registers_video() {
+        use crate::{
+            db_executor::DatabaseExecutor, media_generation::MediaGenerationRuntime,
+            tools::video_generation_tool::GenerateVideoTool,
+        };
+        let db = Database::open_memory().unwrap();
+        let runtime = MediaGenerationRuntime::new(DatabaseExecutor::new(db.clone(), 4).unwrap());
+        for enabled in [true, false] {
+            db.set_package_host_package_enabled("video-generation", enabled)
+                .unwrap();
+            let assembler = PackageRuntimeAssembler::database_builtin(&db).unwrap();
+            let mut registry = assembler.builtin_tool_registry();
+            let builtin_names = registry.tool_names();
+            registry.register(Box::new(GenerateVideoTool(runtime.clone())));
+            assembler
+                .assemble_tool_registry(registry.clone())
+                .expect("desktop video must not invalidate the entire tool registry");
+            registry.register(Box::new(NamedConnectorTool("undeclared_extension")));
+            assert!(assembler.assemble_tool_registry(registry.clone()).is_err());
+            let capabilities = assembler.assemble_available_tool_registry(registry);
+            assert_eq!(capabilities.quarantined_tools, ["undeclared_extension"]);
+            assert!(!capabilities.tools.contains("undeclared_extension"));
+            assert_eq!(
+                capabilities.tool_owners["generate_video"],
+                "video-generation"
+            );
+            assert_eq!(capabilities.tools.contains("generate_video"), enabled);
+            for name in builtin_names {
+                assert!(
+                    capabilities.tools.contains(&name),
+                    "video availability removed {name}"
+                );
+            }
+        }
     }
 
     struct NamedConnectorTool(&'static str);

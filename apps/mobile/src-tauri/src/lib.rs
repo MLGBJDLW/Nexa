@@ -1,4 +1,6 @@
+mod chat_ui_preview;
 mod connections;
+mod file_preview;
 #[cfg(target_os = "android")]
 mod job_bridge;
 mod local;
@@ -192,6 +194,17 @@ async fn mobile_local(
             .db
             .remote_messages(&string("conversationId")?, input["beforeOrder"].as_i64())
             .map_err(|e| e.to_string()),
+        "attachment" => state
+            .db
+            .remote_message_attachment(
+                &string("conversationId")?,
+                &string("messageId")?,
+                input["index"]
+                    .as_u64()
+                    .and_then(|value| u32::try_from(value).ok())
+                    .ok_or("Invalid attachment index.")?,
+            )
+            .map_err(|error| error.to_string()),
         "thinking" => state
             .db
             .remote_message_thinking(
@@ -730,6 +743,14 @@ async fn mobile_files(
         .canonicalize()
         .map_err(|e| e.to_string())?;
     match action.as_str() {
+        "preview" | "data" => {
+            file_preview::read(
+                &root,
+                relative_path.as_deref().ok_or("Choose a file")?,
+                action == "data",
+            )
+            .await
+        }
         "list" => {
             let mut paths = Vec::new();
             let mut directories = vec![root.clone()];
@@ -857,6 +878,14 @@ async fn mobile_remote(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_system(
+            include_str!("../../../desktop/src-tauri/src/main_frame_ipc.js")
+                .replace("__NEXA_OS__", &format!("{:?}", std::env::consts::OS)),
+        )
+        .manage(chat_ui_preview::ChatUiPreviewState::default())
+        .register_uri_scheme_protocol("nexa-ui", |context, request| {
+            chat_ui_preview::respond(context.app_handle(), request)
+        })
         .setup(|app| {
             local::host::bind_ui(app.handle().clone());
             Ok(())
@@ -866,6 +895,8 @@ pub fn run() {
         .manage(Arc::new(remote::RemoteHosts::default()))
         .plugin(platform::plugin())
         .invoke_handler(tauri::generate_handler![
+            chat_ui_preview::create_chat_ui_preview_cmd,
+            chat_ui_preview::release_chat_ui_preview_cmd,
             mobile_state,
             mobile_save_settings,
             mobile_connection,

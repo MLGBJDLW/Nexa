@@ -72,7 +72,11 @@ export function MobileConversationRow({ children, id, title, preview, restoring,
       }
     }}
     onPointerUp={event => finish(event, isDragging)} onPointerCancel={event => finish(event, true)}
-    onLostPointerCapture={event => finish(event, true)}
+    onLostPointerCapture={event => {
+      // Touch starts with implicit capture on the child button. Transferring
+      // it to this row emits a bubbling loss from that button, not a cancel.
+      if (event.target === event.currentTarget) finish(event, true);
+    }}
     onClickCapture={event => { if (suppressClick.current && event.detail) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}>
     <div className="mobile-conversation-row">{onRestore && actionButton(true)}{children}
       {onMove && <button className="mobile-icon-button mobile-project-grip" aria-label={`${t('project.moveToProject')}: ${title}`} onClick={onMove}><GripVertical size={17}/></button>}
