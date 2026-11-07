@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.19.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.4...nexa-monorepo-v0.19.5) (2026-11-07)
 
 ### Fixes
 
@@ -16,7 +16,6 @@
 - Add the paid and free OpenRouter LFM3-1.7B chat routes and refresh announced chat and embedding retirement dates without changing saved model selections.
 - Add the OpenRouter Parallel Decisions Fast free route, preserving per-question refusals and source citations in structured decision results.
 
-## [0.19.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.4...nexa-monorepo-v0.19.5) (2026-11-07)
 
 
 ### Features
