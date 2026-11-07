@@ -177,6 +177,117 @@ pub struct SaveGeneratedImageResult {
 
 const GENERATED_IMAGE_MAX_BYTES: u64 = 50 * 1024 * 1024;
 
+// Markdown is untrusted and renders without a user-open action. It must not
+// inherit the unrestricted reader used by explicitly opened/generated media.
+#[tauri::command]
+pub async fn read_inline_image_data_url_cmd(
+    state: tauri::State<'_, AppState>,
+    path: String,
+    conversation_id: Option<String>,
+) -> Result<String, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let workspace = conversation_id
+            .as_deref()
+            .map(|id| db.conversation_workspace(id))
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .flatten();
+        let mut roots: Vec<PathBuf> = if let Some(workspace) = workspace {
+            workspace.roots.into_iter().map(PathBuf::from).collect()
+        } else {
+            let scope = conversation_id
+                .as_deref()
+                .map(|id| db.get_effective_conversation_source_scope(id))
+                .transpose()
+                .map_err(|error| error.to_string())?
+                .unwrap_or_default();
+            db.list_sources()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .filter(|source| scope.is_empty() || scope.contains(&source.id))
+                .map(|source| PathBuf::from(source.root_path))
+                .collect()
+        };
+        roots.push(std::env::temp_dir().join("nexa/generated-image-previews"));
+        let canonical = resolve_inline_image_path(&path, &roots)?;
+        let (bytes, mime) = read_supported_image_bytes(&canonical.to_string_lossy(), None)?;
+        Ok(format!(
+            "data:{mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        ))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn is_inline_local_path(path: &str) -> bool {
+    !path.trim().is_empty()
+        && !path.contains('\0')
+        && !path.replace('\\', "/").starts_with("//")
+        && !Path::new(path)
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+}
+
+fn resolve_inline_image_path(raw: &str, roots: &[PathBuf]) -> Result<PathBuf, String> {
+    let denied = "Inline images must be regular files in the current workspace or sources.";
+    // Reject UNC, protocol-relative and device paths before any filesystem call.
+    if !is_inline_local_path(raw) {
+        return Err(denied.into());
+    }
+    let requested = Path::new(raw);
+    for root in roots {
+        let text = root.to_string_lossy();
+        // Trusted workspace roots may already be canonical Windows disk paths.
+        let root_text = text
+            .strip_prefix(r"\\?\")
+            .filter(|value| value.as_bytes().get(1) == Some(&b':'))
+            .unwrap_or(&text);
+        if !is_inline_local_path(root_text) {
+            continue;
+        }
+        let root = Path::new(root_text);
+        let candidate = if requested.is_absolute() {
+            requested.to_path_buf()
+        } else {
+            root.join(requested)
+        };
+        // Never follow a symlink/junction from generated content, including one
+        // whose target is a network share. Check parents before the leaf.
+        let ancestors: Vec<_> = candidate.ancestors().collect();
+        let regular_path = ancestors.iter().rev().all(|part| {
+            if part.as_os_str().is_empty() {
+                return true;
+            }
+            let Ok(metadata) = std::fs::symlink_metadata(part) else {
+                return false;
+            };
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if metadata.file_attributes() & 0x400 != 0 {
+                    return false;
+                }
+            }
+            !metadata.file_type().is_symlink()
+        });
+        if !regular_path {
+            continue;
+        }
+        let (Ok(canonical), Ok(root)) = (
+            std::fs::canonicalize(&candidate),
+            std::fs::canonicalize(root),
+        ) else {
+            continue;
+        };
+        if canonical.starts_with(&root) && canonical.is_file() {
+            return Ok(canonical);
+        }
+    }
+    Err(denied.into())
+}
+
 #[tauri::command]
 pub async fn read_generated_image_data_url_cmd(
     path: String,
@@ -255,11 +366,22 @@ fn read_supported_image_bytes(
         return Err(format!("Generated image preview not found: {path}"));
     }
     let metadata = std::fs::metadata(file_path).map_err(|e| e.to_string())?;
+    if !metadata.is_file() {
+        return Err("Choose a regular image file.".to_string());
+    }
     if metadata.len() > GENERATED_IMAGE_MAX_BYTES {
         return Err("Generated image is too large to preview or save.".to_string());
     }
 
-    let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    std::fs::File::open(file_path)
+        .map_err(|e| e.to_string())?
+        .take(GENERATED_IMAGE_MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > GENERATED_IMAGE_MAX_BYTES {
+        return Err("Generated image grew beyond the preview size.".to_string());
+    }
     let is_svg = file_path
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
@@ -1109,6 +1231,44 @@ pub(super) fn save_text_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_images_reject_network_paths_and_escape_from_authorized_roots() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("image.png"), [1, 2, 3]).unwrap();
+        std::fs::write(directory.path().join("private.png"), [4, 5, 6]).unwrap();
+        let roots = [root.clone()];
+        for path in [
+            "//example.invalid/share/image.png",
+            r"\\example.invalid\share\image.png",
+            r"\\?\C:\private.png",
+            "../private.png",
+        ] {
+            assert!(!is_inline_local_path(path));
+            assert!(resolve_inline_image_path(path, &roots).is_err());
+        }
+        assert!(resolve_inline_image_path(
+            directory.path().join("private.png").to_str().unwrap(),
+            &roots
+        )
+        .is_err());
+        assert_eq!(
+            resolve_inline_image_path("image.png", &roots).unwrap(),
+            root.join("image.png").canonicalize().unwrap()
+        );
+        assert!(resolve_inline_image_path(root.to_str().unwrap(), &roots).is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                directory.path().join("private.png"),
+                root.join("linked.png"),
+            )
+            .unwrap();
+            assert!(resolve_inline_image_path("linked.png", &roots).is_err());
+        }
+    }
 
     #[test]
     fn generated_svg_is_validated_even_with_a_raster_hint() {

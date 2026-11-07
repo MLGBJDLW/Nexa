@@ -883,6 +883,9 @@ export interface SaveGeneratedImageResult {
   bytesWritten: number;
 }
 
+export const readInlineImageDataUrl = (path: string, conversationId: string | null) =>
+  invoke<string>('read_inline_image_data_url_cmd', { path, conversationId });
+
 export const readGeneratedImageDataUrl = (path: string, mediaType?: string | null) =>
   invoke<string>('read_generated_image_data_url_cmd', {
     path,

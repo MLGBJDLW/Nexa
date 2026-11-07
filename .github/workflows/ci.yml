@@ -470,6 +470,8 @@ jobs:
           browser::
           command_dispatch::tests::
           commands::terminal::tests::
+          commands::preview::tests::
+          desktop_agent_session::tests::
           commands::update::tests::
           agent_runtime::
           subagent_tool::tests::

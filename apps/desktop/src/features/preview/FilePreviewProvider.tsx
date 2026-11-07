@@ -830,9 +830,12 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [open]);
 
   const createHtmlPreview = createNativeHtmlPreview;
+  const resolveFileUrl = useCallback((path: string) => api.readInlineImageDataUrl(
+    path, /^\/chat\/([^/]+)$/.exec(location.pathname)?.[1] ?? null,
+  ), [location.pathname]);
   const contextValue = useMemo(
-    () => ({ openFilePreview, openWebLink, createHtmlPreview, resolveFileUrl: api.readGeneratedImageDataUrl, openEvidence: setEvidenceRef, togglePreviewPanel, previewPanelOpen: open }),
-    [openFilePreview, openWebLink, createHtmlPreview, togglePreviewPanel, open],
+    () => ({ openFilePreview, openWebLink, createHtmlPreview, resolveFileUrl, openEvidence: setEvidenceRef, togglePreviewPanel, previewPanelOpen: open }),
+    [openFilePreview, openWebLink, createHtmlPreview, resolveFileUrl, togglePreviewPanel, open],
   );
   const content = preview?.content ?? '';
   const hasStructured = hasStructuredPreview(preview);
