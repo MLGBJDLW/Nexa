@@ -14,6 +14,7 @@
 - Scope automatic local image previews to authorized roots and reject network/device paths and symlink escapes before reading.
 - Restore native Android camera capture and file sharing from chat previews.
 - Add the paid and free OpenRouter LFM3-1.7B chat routes and refresh announced chat and embedding retirement dates without changing saved model selections.
+- Add the OpenRouter Parallel Decisions Fast free route, preserving per-question refusals and source citations in structured decision results.
 
 ## [0.19.4](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.3...nexa-monorepo-v0.19.4) (2026-11-06)
 
