@@ -1734,6 +1734,9 @@ impl AgentExecutor {
 
         let mut workflow_repair = completion_repair::CompletionRepairGuard::default();
         let mut hook_repair = completion_repair::CompletionRepairGuard::default();
+        // An active goal may request one lifecycle reconciliation, but prose
+        // alone cannot renew it. Productive tool rounds remain unlimited.
+        let mut goal_continuation_boundary: Option<(String, u32)> = None;
         let mut output_recovery = OutputRecovery::default();
         let mut recovery_answer_projection = RecoveryAnswerProjection::default();
         let mut contaminated_sample_retries = 0u8;
@@ -3138,6 +3141,9 @@ impl AgentExecutor {
                 let active_goal = if self.config.execution_mode.is_plan()
                     || !self.config.request_kind.is_main_agent()
                     || !turn_budget.can_start_normal_step()
+                    || !effective_tool_surface(tool_defs.as_slice(), suppress_tools_for_step)
+                        .iter()
+                        .any(|tool| tool.name == "update_goal")
                 {
                     None
                 } else {
@@ -3145,9 +3151,13 @@ impl AgentExecutor {
                         .and_then(|id| db.get_conversation_goal(id).ok().flatten())
                         .filter(|goal| {
                             goal.status == crate::conversation::ConversationGoalStatus::Active
+                                && goal_continuation_boundary.as_ref()
+                                    != Some(&(goal.id.clone(), turn_budget.tool_rounds_used()))
                         })
                 };
                 if let Some(goal) = active_goal {
+                    goal_continuation_boundary =
+                        Some((goal.id.clone(), turn_budget.tool_rounds_used()));
                     let status = format!(
                         "Goal remains active; continuing execution: {}",
                         goal.objective
