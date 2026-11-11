@@ -1209,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_catalog_lists_opus55_and_fable_51() {
+    fn anthropic_catalog_lists_current_fable_and_gated_mythos() {
         let anthropic = find_provider_preset("anthropic", Some("https://api.anthropic.com/v1"))
             .expect("anthropic preset should match");
         let ids = anthropic
@@ -1218,7 +1218,8 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"claude-opus-5-5"));
+        assert!(ids.contains(&"claude-opus-5-5"));
+        assert!(ids.contains(&"claude-fable-5-1"));
         assert!(ids.contains(&"claude-opus-5"));
         assert!(ids.contains(&"claude-mythos-5"));
         assert!(ids.contains(&"claude-sonnet-5"));
@@ -1230,9 +1231,17 @@ mod tests {
         let fable_5 = anthropic
             .models
             .iter()
-            .find(|model| model.id == "claude-fable-5-1")
-            .expect("claude-fable-5 should be listed");
+            .find(|model| model.id == "claude-fable-5-2")
+            .expect("claude-fable-5-2 should be listed");
         assert_eq!(fable_5.recommended, Some(true));
+
+        let mythos = anthropic
+            .models
+            .iter()
+            .find(|model| model.id == "claude-mythos-5-2")
+            .expect("the new Mythos version should be listed with its access boundary");
+        assert_eq!(mythos.status, Some(ModelLifecycleStatus::Gated));
+        assert_eq!(mythos.recommended, Some(false));
 
         let reasoning = fable_5
             .capabilities
@@ -1557,7 +1566,8 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"gemini-4-argon"));
+        assert_eq!(ids.first(), Some(&"gemini-4-carbon"));
+        assert!(ids.contains(&"gemini-4-argon"));
         assert!(ids.contains(&"gemini-3.7-flash"));
         assert!(ids.contains(&"gemini-3.6-flash"));
         assert!(ids.contains(&"gemini-3.5-flash-lite"));
@@ -1568,18 +1578,18 @@ mod tests {
         let latest = google
             .models
             .first()
-            .expect("Gemini 3.8 Flash should be listed first");
+            .expect("Gemini 4 Carbon should be listed first");
         assert_eq!(latest.recommended, Some(true));
         assert_eq!(latest.source, Some(ModelCatalogSource::Official));
         let limits = model_limits_from_catalog(ProviderType::Google, &latest.id)
-            .expect("Gemini 3.8 Flash limits should project from the shared catalog");
+            .expect("Gemini 4 Carbon limits should project from the shared catalog");
         assert_eq!(limits.context_tokens, Some(1_048_576));
         assert_eq!(limits.max_output_tokens, Some(65_536));
         let reasoning = latest
             .capabilities
             .as_ref()
             .and_then(|capabilities| capabilities.reasoning.as_ref())
-            .expect("Gemini 3.8 Flash should expose reasoning controls");
+            .expect("Gemini 4 Carbon should expose reasoning controls");
         assert_eq!(reasoning.mode.as_deref(), Some("always"));
         assert_eq!(
             reasoning.effort_levels,
@@ -1605,7 +1615,8 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"~anthropic/claude-fable-latest"));
+        assert_eq!(ids.first(), Some(&"anthropic/claude-fable-5.2"));
+        assert!(ids.contains(&"~anthropic/claude-fable-latest"));
         assert!(ids.contains(&"anthropic/claude-fable-5"));
         assert!(ids.contains(&"openai/gpt-5.6-sol"));
         assert!(ids.contains(&"x-ai/grok-4.6"));
@@ -1703,17 +1714,19 @@ mod tests {
 
         let meta = find_provider_preset("open_ai", Some("https://api.meta.ai/v1/"))
             .expect("Meta Model API preset should match its exact base URL");
-        let muse = meta.models.first().expect("Muse Spark 1.3 preset");
+        let muse = meta.models.first().expect("Muse Ember 1.0 preset");
         assert_eq!(meta.id, "meta-model-api");
-        assert_eq!(muse.id, "muse-spark-1.3");
+        assert_eq!(muse.id, "muse-ember-1.0");
         assert_eq!(muse.context_tokens, Some(1_048_576));
-        assert_eq!(muse.max_output_tokens, None);
+        assert_eq!(muse.max_output_tokens, Some(524_288));
+        assert!(meta.models.iter().any(|model| model.id == "muse-spark-1.3"));
         let muse_reasoning = muse
             .capabilities
             .as_ref()
             .and_then(|capabilities| capabilities.reasoning.as_ref())
-            .expect("Muse Spark should expose its reasoning controls");
+            .expect("Muse Ember should expose its reasoning controls");
         assert_eq!(muse_reasoning.mode.as_deref(), Some("always"));
+        assert_eq!(muse_reasoning.default_effort.as_deref(), Some("max"));
         assert_eq!(
             muse_reasoning.effort_levels,
             ["minimal", "low", "medium", "high", "xhigh", "max"]
