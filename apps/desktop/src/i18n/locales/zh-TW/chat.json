@@ -987,5 +987,7 @@
   "imageEditLoadError": "無法載入此圖片，請儲存至本機後重新加入。",
   "imageEditSubmitError": "無法傳送修改要求，選取範圍仍保留，請重試。",
   "imageEditSubmit": "傳送修改",
-  "imageEditSending": "正在傳送…"
+  "imageEditSending": "正在傳送…",
+  "generationSpeed": "生成速度（TPS）",
+  "generationSpeedHint": "最近一次模型請求的輸出 token ÷ 請求耗時，包含首字等待，不包含工具執行和使用者等待。"
 }

@@ -987,5 +987,7 @@
   "imageEditLoadError": "No se pudo cargar la imagen. Guárdala localmente y adjúntala de nuevo.",
   "imageEditSubmitError": "No se pudo enviar la edición. La selección se conserva; inténtalo de nuevo.",
   "imageEditSubmit": "Enviar edición",
-  "imageEditSending": "Enviando…"
+  "imageEditSending": "Enviando…",
+  "generationSpeed": "Velocidad de generación (TPS)",
+  "generationSpeedHint": "Última solicitud al modelo: tokens de salida / duración, incluida la latencia del primer token y sin esperas de herramientas o del usuario."
 }

@@ -333,6 +333,7 @@ export interface UseChatSessionReturn {
   contextWindow: number;
   runtimeProfile: RuntimeProfile | null;
   lastUsage: UsageTotal | null;
+  generationMetrics?: ContextUsageBreakdown['generation'];
   tokenUsage: {
     promptTokens: number;
     totalTokens: number;
@@ -1772,6 +1773,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     loadingConfig: loadingConfig || loadingConvos,
     agentConfig,
     contextWindow,
+    generationMetrics: usageForView?.contextBreakdown?.generation,
     runtimeProfile,
     lastUsage: scopedLastUsage,
     tokenUsage,

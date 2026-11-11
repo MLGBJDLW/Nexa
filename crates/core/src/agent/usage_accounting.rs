@@ -183,6 +183,14 @@ impl AgentExecutor {
             .provider_type
             .map(|provider| crate::provider_registry::canonical_provider_key(provider).to_string());
         context_breakdown.runtime_model = Some(model.to_string());
+        context_breakdown.generation =
+            chunk_usage
+                .as_ref()
+                .filter(|_| request_latency_ms > 0)
+                .map(|usage| context::GenerationMetrics {
+                    output_tokens: usage.completion_tokens,
+                    request_duration_ms: request_latency_ms,
+                });
         let (prompt_tokens, completion_tokens, _has_actual_usage) =
             model_step_accounting_tokens(chunk_usage.as_ref(), context_breakdown.total_tokens);
         let operation_kind = match self.config.request_kind {

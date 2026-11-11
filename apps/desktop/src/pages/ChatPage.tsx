@@ -2135,6 +2135,7 @@ export function ChatPage() {
                 <ChatRunOverview
                   isStreaming={chat.isStreaming}
                   tokenUsage={chat.tokenUsage}
+                  generationMetrics={chat.generationMetrics}
                   runtimeProfile={chat.runtimeProfile}
                   finishReason={chat.finishReason}
                   contextOverflow={chat.contextOverflow}

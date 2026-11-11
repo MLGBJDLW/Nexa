@@ -987,5 +987,7 @@
   "imageEditLoadError": "This image could not be loaded. Save it locally and attach it again.",
   "imageEditSubmitError": "The edit could not be sent. Your selection is still here; please try again.",
   "imageEditSubmit": "Send edit",
-  "imageEditSending": "Sending…"
+  "imageEditSending": "Sending…",
+  "generationSpeed": "Generation speed (TPS)",
+  "generationSpeedHint": "Latest model request: output tokens / request time, including first-token latency and excluding tools and user waits."
 }

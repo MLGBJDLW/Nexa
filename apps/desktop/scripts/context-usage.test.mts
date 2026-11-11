@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveContextUsage } from '../src/lib/contextUsage.ts';
+import { modelTokensPerSecond, resolveContextUsage } from '../src/lib/contextUsage.ts';
+
+test('generation speed uses one model request and rejects unavailable or invalid timing', () => {
+  assert.equal(modelTokensPerSecond({outputTokens: 120, requestDurationMs: 2000}), 60);
+  assert.equal(modelTokensPerSecond({outputTokens: 0, requestDurationMs: 2000}), 0);
+  for (const metrics of [undefined, {outputTokens: 120, requestDurationMs: 0}, {outputTokens: -1, requestDurationMs: 10}, {outputTokens: Infinity, requestDurationMs: 10}]) {
+    assert.equal(modelTokensPerSecond(metrics), null);
+  }
+});
 
 test('runtime-reported capacity survives a different next-turn model selection', () => {
   const view = resolveContextUsage({ promptTokens: 50_000, contextWindow: 1_000_000, contextBreakdown: {

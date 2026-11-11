@@ -93,6 +93,7 @@ export interface ContextUsageSegment {
 }
 
 export interface ContextUsageBreakdown {
+  generation?: { outputTokens: number; requestDurationMs: number };
   totalTokens: number;
   segments: ContextUsageSegment[];
   contextWindow?: number;

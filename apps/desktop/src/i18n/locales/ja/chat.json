@@ -987,5 +987,7 @@
   "imageEditLoadError": "画像を読み込めません。端末に保存して再度添付してください。",
   "imageEditSubmitError": "送信できませんでした。選択範囲は保持されています。再試行してください。",
   "imageEditSubmit": "編集を送信",
-  "imageEditSending": "送信中…"
+  "imageEditSending": "送信中…",
+  "generationSpeed": "生成速度（TPS）",
+  "generationSpeedHint": "直近のモデル要求の出力トークン数 ÷ 所要時間。最初のトークンまでの待ち時間を含み、ツール実行やユーザー待機を除きます。"
 }

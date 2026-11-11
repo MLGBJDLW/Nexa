@@ -108,6 +108,7 @@ mod tests {
             last_prompt_tokens: 0,
             context_breakdown: Some(nexa_core::agent::context::ContextUsageBreakdown {
                 total_tokens: 0,
+                generation: None,
                 segments: vec![],
                 budget: None,
                 measurement: None,

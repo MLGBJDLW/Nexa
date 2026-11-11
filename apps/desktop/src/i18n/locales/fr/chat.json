@@ -987,5 +987,7 @@
   "imageEditLoadError": "Impossible de charger l’image. Enregistrez-la localement puis joignez-la à nouveau.",
   "imageEditSubmitError": "Impossible d’envoyer la modification. La sélection est conservée ; réessayez.",
   "imageEditSubmit": "Envoyer la modification",
-  "imageEditSending": "Envoi…"
+  "imageEditSending": "Envoi…",
+  "generationSpeed": "Vitesse de génération (TPS)",
+  "generationSpeedHint": "Dernière requête au modèle : tokens de sortie / durée, latence du premier token incluse, hors outils et attente utilisateur."
 }

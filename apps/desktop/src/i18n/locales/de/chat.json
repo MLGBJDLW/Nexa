@@ -987,5 +987,7 @@
   "imageEditLoadError": "Bild konnte nicht geladen werden. Lokal speichern und erneut anhängen.",
   "imageEditSubmitError": "Änderung konnte nicht gesendet werden. Die Auswahl bleibt erhalten. Bitte erneut versuchen.",
   "imageEditSubmit": "Änderung senden",
-  "imageEditSending": "Wird gesendet…"
+  "imageEditSending": "Wird gesendet…",
+  "generationSpeed": "Generierungsgeschwindigkeit (TPS)",
+  "generationSpeedHint": "Letzte Modellanfrage: Ausgabetokens / Anfragezeit, einschließlich Wartezeit auf das erste Token, ohne Werkzeug- und Benutzerwartezeiten."
 }

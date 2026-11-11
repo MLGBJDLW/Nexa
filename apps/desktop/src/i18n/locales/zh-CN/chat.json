@@ -987,5 +987,7 @@
   "imageEditLoadError": "无法加载此图片，请保存到本地后重新添加。",
   "imageEditSubmitError": "未能发送修改请求，选区仍保留，请重试。",
   "imageEditSubmit": "发送修改",
-  "imageEditSending": "正在发送…"
+  "imageEditSending": "正在发送…",
+  "generationSpeed": "生成速度（TPS）",
+  "generationSpeedHint": "最近一次模型请求的输出 token ÷ 请求耗时，包含首字等待，不包含工具执行和用户等待。"
 }

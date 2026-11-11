@@ -438,6 +438,7 @@ test.beforeEach(async ({ page }) => {
             lastPromptTokens: 74000,
             contextBreakdown: {
               totalTokens: 74000,
+              generation: { outputTokens: 1400, requestDurationMs: 20000 },
               segments: [
                 { kind: 'systemCore', tokens: 3000 },
                 { kind: 'runtime', tokens: 1500 },
@@ -567,6 +568,7 @@ test('context usage ring persists after reloading the same conversation', async 
   await contextTrigger.hover();
   await expect(contextDetails).toBeVisible();
   await expect(contextTrigger).toHaveAttribute('aria-expanded', 'true');
+  await expect(contextDetails).toContainText('70.0 tok/s');
   const triggerBox = await contextTrigger.boundingBox();
   const detailsBox = await contextDetails.boundingBox();
   expect(triggerBox).not.toBeNull();
@@ -599,6 +601,7 @@ test('context usage ring persists after reloading the same conversation', async 
   await expect(contextTrigger).toHaveAttribute('aria-label', /7% context used/);
   await contextTrigger.hover();
   await expect(page.getByTestId('chat-context-details')).toContainText('Verified endpoint catalog');
+  await expect(contextDetails).toContainText('70.0 tok/s');
 });
 
 test('usage cache is scoped to conversation id and does not leak to another conversation', async ({ page }) => {
@@ -611,6 +614,8 @@ test('usage cache is scoped to conversation id and does not leak to another conv
 
   await page.goto('/chat/conv-empty');
   await expect(contextTrigger).not.toHaveAttribute('aria-label', /\d+% context used/);
+  await contextTrigger.hover();
+  await expect(page.getByTestId('chat-context-details')).not.toContainText('70.0 tok/s');
 });
 
 test('context HUD refreshes confirmed conversation cache usage before the live turn ends', async ({ page }) => {
