@@ -356,6 +356,7 @@ test('QwenCloud and Token Plan keep distinct Qwen model catalogs', () => {
   assert.ok(qwenCloud.models.some((model) => model.id === 'qwen3.8-flash' && model.recommended));
   assert.deepEqual(tokenPlan.models.map((model) => model.id), [
     'qwen3.8-max',
+    'qwen4-max-preview',
     'qwen3.8-flash',
     'qwen3.8-max-preview',
     'auto', 'qwen3.7-max', 'qwen3.7-plus', 'qwen3.6-flash',
