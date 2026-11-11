@@ -6183,6 +6183,22 @@ data: [DONE]
         assert_eq!(body["enable_thinking"], false);
         assert!(body.get("thinking_budget").is_none());
 
+        request.model = "qwen4-max-preview".to_string();
+        request.reasoning_enabled = None;
+        request.reasoning_effort = None;
+        request.thinking_budget = None;
+        request.max_tokens = Some(393_216);
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            false,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["reasoning_effort"], "xhigh");
+        assert_eq!(body["max_completion_tokens"], 393_216);
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("thinking_budget").is_none());
+
         request.model = "qwen3.8-max-preview".to_string();
         request.reasoning_effort = None;
         request.thinking_budget = None;

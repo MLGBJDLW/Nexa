@@ -140,6 +140,11 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   assert.equal(model('openrouter', 'recursive/flint-v1.0:free').capabilities.reasoning.mode, 'always');
   assert.equal(model('alibaba-model-studio', 'deepseek-v4.1-flash-1017').contextTokens, 1000000);
   assert.deepEqual(model('qwen-cloud-intl', 'deepseek-v4.1-flash-1017').regions, ['ap-southeast-1']);
+  const qwen4 = model('qwen-token-plan-cn', 'qwen4-max-preview');
+  assert.equal(qwen4.maxOutputTokens, 393_216);
+  assert.equal(qwen4.capabilities.reasoning.defaultEffort, 'xhigh');
+  assert.equal(qwen4.deprecationDate, '2026-11-26');
+  assert.ok(!read('provider-presets').find(row => row.id === 'qwen-token-plan-global').models.some(row => row.id === 'qwen4-max-preview'));
   const carbon = model('google', 'gemini-4-carbon');
   assert.equal(carbon.maxOutputTokens, 65_536);
   assert.equal(carbon.capabilities.reasoning.defaultEffort, 'medium');

@@ -28155,6 +28155,56 @@
         }
       },
       {
+        "id": "qwen4-max-preview",
+        "name": "Qwen4 Max Preview",
+        "tagKey": "providers.tagLatest",
+        "recommended": false,
+        "status": "preview",
+        "access": "account_enablement",
+        "source": "official",
+        "productReadiness": "product_ready",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-11-11",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 393216,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "xhigh",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "minTokens": 0,
+              "maxTokens": 262144,
+              "step": 1,
+              "allowZero": true
+            }
+          }
+        },
+        "deprecationDate": "2026-11-26",
+        "documentationRef": "https://help.aliyun.com/en/model-studio/qwen4-max-preview"
+      },
+      {
         "id": "qwen3.8-flash",
         "name": "Qwen3.8 Flash",
         "tagKey": "providers.tagFast",

@@ -1452,14 +1452,20 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
-        if matches!(
-            model.as_str(),
-            "qwen3.8-max" | "qwen3.8-max-preview" | "qwen3.8-flash"
-        ) || (qwen_payg
-            && matches!(
+        let qwen4_token_plan = token_plan
+            && model == "qwen4-max-preview"
+            && find_provider_preset("qwen", base_url)
+                .is_some_and(|preset| preset.id == "qwen-token-plan-cn");
+        if qwen4_token_plan
+            || matches!(
                 model.as_str(),
-                "qwen3.8-max-0902" | "qwen3.8-max-2026-09-02"
-            ))
+                "qwen3.8-max" | "qwen3.8-max-preview" | "qwen3.8-flash"
+            )
+            || (qwen_payg
+                && matches!(
+                    model.as_str(),
+                    "qwen3.8-max-0902" | "qwen3.8-max-2026-09-02"
+                ))
         {
             let mode_control = if model == "qwen3.8-max-preview" {
                 ThinkingModeControl::AlwaysOn
@@ -1478,10 +1484,15 @@ pub fn resolve_reasoning_profile(
                         ReasoningEffort::Medium,
                         ReasoningEffort::XHigh,
                     ],
-                    Some(ReasoningEffort::Low),
+                    Some(if qwen4_token_plan {
+                        ReasoningEffort::XHigh
+                    } else {
+                        ReasoningEffort::Low
+                    }),
                 ),
                 ReasoningBudgetField::ThinkingBudget,
             );
+            value.use_max_completion_tokens = qwen4_token_plan;
             value.min_budget_tokens = Some(0);
             value.max_budget_tokens = Some(262_144);
             value.effort_budget_exclusive = true;
