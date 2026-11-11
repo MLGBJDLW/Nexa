@@ -1,5 +1,5 @@
 name: Configure Ubuntu APT
-description: Prefer a reachable Ubuntu archive while retaining the hosted-runner mirror fallbacks.
+description: Prefer a reachable Ubuntu archive with independent mirror fallbacks.
 
 runs:
   using: composite
@@ -9,18 +9,34 @@ runs:
       run: |
         source /etc/os-release
         mirror_file=/etc/apt/apt-mirrors.txt
-        primary_archive=https://archive.ubuntu.com/ubuntu/
-        fallback_archive=http://azure.archive.ubuntu.com/ubuntu/
+        archives=(
+          https://archive.ubuntu.com/ubuntu/
+          http://azure.archive.ubuntu.com/ubuntu/
+          https://mirrors.edge.kernel.org/ubuntu/
+          https://security.ubuntu.com/ubuntu/
+        )
+        primary_archive=
         # Avoid paying the DNS/connection timeout for every package when the
         # preferred archive is unavailable. APT still handles later failover.
-        if ! curl --fail --silent --show-error --location --connect-timeout 5 --max-time 15 \
-          "${primary_archive}dists/${VERSION_CODENAME}/InRelease" --output /dev/null; then
-          primary_archive=http://azure.archive.ubuntu.com/ubuntu/
-          fallback_archive=https://archive.ubuntu.com/ubuntu/
+        for archive in "${archives[@]}"; do
+          if curl --fail --silent --show-error --location --connect-timeout 5 --max-time 15 \
+            "${archive}dists/${VERSION_CODENAME}/InRelease" --output /dev/null; then
+            primary_archive="$archive"
+            break
+          fi
+        done
+        if [[ -z "$primary_archive" ]]; then
+          echo "::error::No Ubuntu archive is reachable for ${VERSION_CODENAME}."
+          exit 1
         fi
-        printf '%s\tpriority:1\n%s\tpriority:2\n%s\tpriority:3\n' \
-          "$primary_archive" "$fallback_archive" 'https://security.ubuntu.com/ubuntu/' \
-          | sudo tee "$mirror_file" >/dev/null
+        {
+          printf '%s\tpriority:1\n' "$primary_archive"
+          for archive in "${archives[@]}"; do
+            if [[ "$archive" != "$primary_archive" ]]; then
+              printf '%s\tpriority:2\n' "$archive"
+            fi
+          done
+        } | sudo tee "$mirror_file" >/dev/null
 
         source_files=(
           /etc/apt/sources.list
