@@ -224,7 +224,12 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     @Command fun notificationTarget(invoke: Invoke) = activity.runOnUiThread {
         guarded(invoke) {
             val target = PhoneReplies.consume(activity.intent)
-            JSObject().apply { if (target != null) { put("conversationId", target.first); put("schedules", target.second) } }
+            val draft = if (activity.intent.getBooleanExtra("nexa.overlayDraft", false)) PhoneAssistantOverlay.consumeTranslation() else null
+            activity.intent.removeExtra("nexa.overlayDraft")
+            JSObject().apply {
+                if (target != null) { put("conversationId", target.first); put("schedules", target.second) }
+                if (!draft.isNullOrBlank()) put("draft", draft)
+            }
         }
     }
     @Command fun approval(invoke: Invoke) {

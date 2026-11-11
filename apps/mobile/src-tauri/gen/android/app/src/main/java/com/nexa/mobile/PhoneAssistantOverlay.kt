@@ -15,6 +15,8 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.GestureDetector
+import android.widget.Toast
 import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.view.animation.AccelerateDecelerateInterpolator
@@ -27,11 +29,17 @@ import kotlin.math.PI
 
 /** A small, optional accessibility overlay; the existing task service owns Stop. */
 class PhoneAssistantOverlay(private val service: AccessibilityService) {
+    companion object {
+        // Keep screen text in process memory, outside Binder's intent size limit.
+        private var pendingTranslation: String? = null
+        fun consumeTranslation(): String? = pendingTranslation.also { pendingTranslation = null }
+    }
     private val manager = service.getSystemService(WindowManager::class.java)
     private var view: FrameLayout? = null
     private var surface: LinearLayout? = null
     private var hover: ValueAnimator? = null
     private var suspended = false
+    private var quickActionHidden = false
     private var receiverRegistered = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -40,12 +48,15 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
     }
     private var position: WindowManager.LayoutParams? = null
     private var snap: ValueAnimator? = null
+    private var quickActions: LinearLayout? = null
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private val preferences = service.getSharedPreferences("phone-assistant", android.content.Context.MODE_PRIVATE)
     private val density = service.resources.displayMetrics.density
     private fun dp(value: Int) = (value * density).toInt()
     private fun maxX() = maxOf(dp(8), service.resources.displayMetrics.widthPixels - dp(74))
     private fun maxY() = maxOf(dp(24), service.resources.displayMetrics.heightPixels - dp(160))
     fun reposition() {
+        quickActions?.visibility = View.GONE
         val params = position ?: return
         val layout = view ?: return
         snap?.cancel()
@@ -61,7 +72,7 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
         stopHover()
         val panel = surface ?: return
         val layout = view ?: return
-        if (suspended || !layout.isAttachedToWindow || !ValueAnimator.areAnimatorsEnabled()
+        if (suspended || quickActionHidden || !layout.isAttachedToWindow || !ValueAnimator.areAnimatorsEnabled()
             || !service.getSystemService(PowerManager::class.java).isInteractive) return
         hover = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 2600; repeatCount = ValueAnimator.INFINITE; repeatMode = ValueAnimator.REVERSE
@@ -132,25 +143,78 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
             setOnClickListener { service.startService(Intent(service, TaskService::class.java).setAction("stop")); visibility = View.GONE }
         }
         open.setOnClickListener { service.startActivity(Intent(service, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) }
-        open.setOnLongClickListener { stop.visibility = if (stop.visibility == View.VISIBLE) View.GONE else View.VISIBLE; true }
+        val actions = LinearLayout(service).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        quickActions = actions
+        fun screenshot() {
+            try { (service as PhoneAccessibilityService).ensureOverlayIdle() }
+            catch (error: Exception) { Toast.makeText(service, error.message, Toast.LENGTH_LONG).show(); return }
+            actions.visibility = View.GONE
+            setQuickActionHidden(true)
+            main.postDelayed({
+                if (view !== layout) return@postDelayed
+                try {
+                    (service as PhoneAccessibilityService).ensureOverlayIdle()
+                    if (android.os.Build.VERSION.SDK_INT < 28 || !service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)) {
+                        Toast.makeText(service, R.string.overlay_screenshot_unavailable, Toast.LENGTH_LONG).show()
+                    }
+                } catch (error: Exception) {
+                    Toast.makeText(service, error.message ?: service.getString(R.string.overlay_screenshot_unavailable), Toast.LENGTH_LONG).show()
+                } finally { main.postDelayed({ if (view === layout) setQuickActionHidden(false) }, 400) }
+            }, 160)
+        }
+        actions.addView(button(android.R.drawable.ic_menu_camera, service.getString(R.string.overlay_screenshot)).apply { setOnClickListener { screenshot() } })
+        actions.addView(button(android.R.drawable.ic_menu_sort_alphabetically, service.getString(R.string.overlay_translate)).apply {
+            setOnClickListener {
+                try {
+                    val text = (service as PhoneAccessibilityService).overlayTranslationText()
+                    actions.visibility = View.GONE
+                    pendingTranslation = service.getString(R.string.overlay_translate_prompt, text)
+                    service.startActivity(Intent(service, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        .putExtra("nexa.overlayDraft", true))
+                } catch (error: Exception) { Toast.makeText(service, error.message ?: service.getString(R.string.overlay_text_unavailable), Toast.LENGTH_LONG).show() }
+            }
+        })
+        stop.visibility = View.VISIBLE
+        actions.addView(stop)
+        open.setOnLongClickListener {
+            actions.visibility = if (actions.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            if (actions.visibility == View.VISIBLE) {
+                stop.visibility = View.VISIBLE
+                params.y = params.y.coerceAtMost(maxOf(dp(24), service.resources.displayMetrics.heightPixels - dp(240)))
+                manager.updateViewLayout(layout, params)
+            }
+            true
+        }
+        open.contentDescription = service.getString(R.string.overlay_gestures)
+        val gestures = GestureDetector(service, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(event: MotionEvent) = true
+            override fun onSingleTapConfirmed(event: MotionEvent): Boolean { open.performClick(); return true }
+            override fun onDoubleTap(event: MotionEvent): Boolean { screenshot(); return true }
+            override fun onLongPress(event: MotionEvent) { open.performLongClick() }
+        })
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var dragged = false
         open.setOnTouchListener { control, event ->
+            if (!dragged || event.actionMasked == MotionEvent.ACTION_DOWN) gestures.onTouchEvent(event)
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { snap?.cancel(); stopHover(); downX = event.rawX; downY = event.rawY; startX = params.x; startY = params.y; dragged = false; false }
+                MotionEvent.ACTION_DOWN -> { snap?.cancel(); stopHover(); downX = event.rawX; downY = event.rawY; startX = params.x; startY = params.y; dragged = false; true }
                 MotionEvent.ACTION_MOVE -> {
-                    if (abs(event.rawX-downX) + abs(event.rawY-downY) > dp(8)) dragged = true
+                    if (!dragged && abs(event.rawX-downX) + abs(event.rawY-downY) > dp(8)) {
+                        dragged = true; actions.visibility = View.GONE
+                        MotionEvent.obtain(event).also { it.action = MotionEvent.ACTION_CANCEL; gestures.onTouchEvent(it); it.recycle() }
+                    }
                     if (dragged) {
                         control.cancelLongPress(); control.isPressed = false
                         params.x = (startX+(event.rawX-downX).toInt()).coerceIn(dp(8), maxX())
                         params.y = (startY+(event.rawY-downY).toInt()).coerceIn(dp(24), maxY())
                         manager.updateViewLayout(layout, params)
-                    }; dragged
+                    }; true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (dragged) { control.isPressed = false; dock(layout, params) } else startHover(); dragged }
-                else -> false
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { if (dragged) { control.isPressed = false; dock(layout, params) } else startHover(); true }
+                else -> true
             }
         }
-        panel.addView(open); panel.addView(stop); manager.addView(layout, params)
+        panel.addView(open); panel.addView(actions); manager.addView(layout, params)
         view = layout; surface = panel; position = params; suspended = false
         val filter = IntentFilter().apply { addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON) }
         if (android.os.Build.VERSION.SDK_INT >= 33) service.registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -161,12 +225,19 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
         layout.post { if (view === layout) startHover() }
     }
     fun hide() {
+        main.removeCallbacksAndMessages(null); quickActions = null; quickActionHidden = false
         snap?.cancel(); snap = null; stopHover()
         if (receiverRegistered) { service.unregisterReceiver(screenReceiver); receiverRegistered = false }
         view?.let { manager.removeView(it) }; view = null; surface = null; position = null
     }
-    fun suspend() { suspended = true; snap?.cancel(); stopHover(); view?.visibility = View.GONE }
-    fun restore() { suspended = false; view?.visibility = View.VISIBLE; startHover() }
+    private fun updateVisibility() {
+        val hidden = suspended || quickActionHidden
+        view?.visibility = if (hidden) View.GONE else View.VISIBLE
+        if (hidden) stopHover() else startHover()
+    }
+    private fun setQuickActionHidden(hidden: Boolean) { quickActionHidden = hidden; snap?.cancel(); updateVisibility() }
+    fun suspend() { suspended = true; snap?.cancel(); updateVisibility() }
+    fun restore() { suspended = false; updateVisibility() }
 }
 
 /** Bounded edge rebound, independent of frame rate and Android UI state. */

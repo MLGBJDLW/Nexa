@@ -79,6 +79,24 @@ class PhoneAccessibilityService : AccessibilityService() {
         capture.close(); nativeInputWorker.shutdownNow(); main.removeCallbacksAndMessages(null); overlay.hide(); invalidate(); instance = null; super.onDestroy()
     }
     fun setOverlay(enabled: Boolean) { if (enabled) overlay.show() else overlay.hide() }
+
+    fun ensureOverlayIdle() {
+        checkUnlocked()
+        check(activeRequest == null) { getString(R.string.overlay_busy) }
+    }
+
+    fun overlayTranslationText(): String {
+        ensureOverlayIdle()
+        val state = observe()
+        check(!sensitive) { getString(R.string.overlay_text_unavailable) }
+        val items = state.getJSONArray("nodes")
+        val text = (0 until items.length()).map { index ->
+            val node = items.getJSONObject(index)
+            node.optString("text").ifBlank { node.optString("description") }
+        }.filter { it.isNotBlank() }.distinct().joinToString("\n")
+        check(text.isNotBlank()) { getString(R.string.overlay_text_unavailable) }
+        return text
+    }
     @Suppress("DEPRECATION") private fun rotation() = getSystemService(WindowManager::class.java).defaultDisplay.rotation
     // Some OEMs transiently omit rootInActiveWindow while still publishing the
     // active application window. Never fall through to a background app.

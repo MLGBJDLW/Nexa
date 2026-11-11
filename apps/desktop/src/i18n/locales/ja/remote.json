@@ -207,7 +207,7 @@
   "readAloud": "読み上げ",
   "stopReading": "読み上げを停止",
   "mobileFloatingAssistant": "フローティングアシスタント",
-  "mobileFloatingAssistantHint": "他のアプリ上に表示する移動可能な Nexa ボタン。タップでチャット、長押しで停止ボタンを表示します。スマートフォン操作の許可が必要です。",
+  "mobileFloatingAssistantHint": "他のアプリ上に表示される移動可能なショートカット。タップでチャット、ダブルタップでスクリーンショット、長押しで撮影・画面テキスト翻訳・停止を表示します。翻訳は確認用の下書きを開きます。スマートフォン操作の権限が必要です。",
   "speechPermission": "Android のアプリ設定でマイクを許可するか、キーボードを使用してください。",
   "speechUnavailable": "Android の設定で音声エンジンをインストールまたは有効にしてください。",
   "speechNetwork": "音声サービスに接続できません。ネットワークを確認するか、オフラインエンジンを選択してください。",

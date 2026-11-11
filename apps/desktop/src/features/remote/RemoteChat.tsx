@@ -331,9 +331,12 @@ export function RemoteChat({
       unsubscribe();
     };
   }, [client, list]);
+  const consumedInitialDraft = useRef('');
   useEffect(() => {
-    if (initialDraft) {
-      setDraft(initialDraft);
+    if (!initialDraft) consumedInitialDraft.current = '';
+    if (initialDraft && consumedInitialDraft.current !== initialDraft) {
+      consumedInitialDraft.current = initialDraft;
+      setDraft(current => [current, initialDraft].filter(Boolean).join('\n\n'));
       onDraftConsumed();
     }
   }, [initialDraft, onDraftConsumed]);
