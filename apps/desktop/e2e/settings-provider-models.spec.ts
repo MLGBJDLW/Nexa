@@ -1715,7 +1715,8 @@ test("settings exposes current Qwen3.8 Token Plan models without the retired pre
   const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
   await expectNexaValue(modelSelect, "");
   await expectNexaOptions(modelSelect, ["Qwen3.8 Max", "Qwen3.8 Flash"]);
-  await expectNexaOptionCount(modelSelect, 13);
+  await expectNexaOptionCount(modelSelect, 14);
+  await expectNexaOption(modelSelect, "qwen4-max-preview", "visible");
   await expectNexaOption(modelSelect, "auto", "visible");
   await expectNexaOption(modelSelect, "glm-5.3", "visible");
   await expectNexaOption(modelSelect, "deepseek-v4.1-flash", "visible");
