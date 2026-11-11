@@ -866,7 +866,7 @@ fn normalize_thinking_level(model: &str, level: &ReasoningEffort) -> String {
     let normalized = normalized_model_name(model).to_ascii_lowercase();
     let minimum = if normalized.starts_with("gemini-3.7-flash")
         || normalized.starts_with("gemini-3.8-flash")
-        || normalized == "gemini-4-argon"
+        || matches!(normalized.as_str(), "gemini-4-argon" | "gemini-4-carbon")
     {
         "low"
     } else {
@@ -891,7 +891,7 @@ fn thinking_budget_to_level(model: &str, budget: u32) -> String {
                 let normalized = normalized_model_name(model).to_ascii_lowercase();
                 normalized.starts_with("gemini-3.7-flash")
                     || normalized.starts_with("gemini-3.8-flash")
-                    || normalized == "gemini-4-argon"
+                    || matches!(normalized.as_str(), "gemini-4-argon" | "gemini-4-carbon")
             } =>
         {
             "low"
@@ -2820,6 +2820,12 @@ mod tests {
     #[test]
     fn argon_uses_levels_and_omits_unsupported_sampling_controls() {
         assert!(uses_thinking_levels("gemini-4-argon"));
+        assert!(uses_latest_generation_contract("models/gemini-4-carbon"));
+        assert_eq!(
+            normalize_thinking_level("gemini-4-carbon", &ReasoningEffort::Minimal),
+            "low"
+        );
+        assert_eq!(thinking_budget_to_level("gemini-4-carbon", 0), "low");
         assert!(uses_latest_generation_contract("models/gemini-4-argon"));
         assert_eq!(
             normalize_thinking_level("gemini-4-argon", &ReasoningEffort::Minimal),

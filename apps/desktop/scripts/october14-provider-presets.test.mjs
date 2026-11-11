@@ -140,6 +140,16 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   assert.equal(model('openrouter', 'recursive/flint-v1.0:free').capabilities.reasoning.mode, 'always');
   assert.equal(model('alibaba-model-studio', 'deepseek-v4.1-flash-1017').contextTokens, 1000000);
   assert.deepEqual(model('qwen-cloud-intl', 'deepseek-v4.1-flash-1017').regions, ['ap-southeast-1']);
+  const carbon = model('google', 'gemini-4-carbon');
+  assert.equal(carbon.maxOutputTokens, 65_536);
+  assert.equal(carbon.capabilities.reasoning.defaultEffort, 'medium');
+  const ember = model('meta-model-api', 'muse-ember-1.0');
+  assert.equal(ember.maxOutputTokens, 524_288);
+  assert.equal(ember.capabilities.reasoning.defaultEffort, 'max');
+  for (const id of ['claude-fable-5-2', 'claude-mythos-5-2']) {
+    assert.equal(model('anthropic', id).capabilities.reasoning.mode, 'always');
+    assert.equal(model('anthropic', id).maxOutputTokens, 128_000);
+  }
   const argon = model('google', 'gemini-4-argon');
   assert.equal(argon.contextTokens, 1_048_576);
   assert.equal(argon.maxOutputTokens, 65_536);

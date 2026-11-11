@@ -148,7 +148,9 @@ fn gemini_implicit_cache_minimum(model: &str) -> Option<u32> {
         .to_ascii_lowercase();
     // Argon supports automatic prefix reuse, not explicit cachedContent or
     // message breakpoints. Keep its diagnostics and stable layout enabled.
-    if normalized == "gemini-4-argon" || normalized.starts_with("gemini-3.") {
+    if matches!(normalized.as_str(), "gemini-4-argon" | "gemini-4-carbon")
+        || normalized.starts_with("gemini-3.")
+    {
         Some(4_096)
     } else if normalized.starts_with("gemini-2.5-") {
         Some(2_048)
@@ -196,7 +198,7 @@ pub fn resolve_prompt_cache_profile(
         && is_meta_model_api_endpoint(provider_type, base_url)
         && matches!(
             model.trim().to_ascii_lowercase().as_str(),
-            "muse-spark-1.3" | "muse-wonder-1.0"
+            "muse-spark-1.3" | "muse-wonder-1.0" | "muse-ember-1.0"
         )
     {
         return PromptCacheProfile {
@@ -461,7 +463,12 @@ mod tests {
 
     #[test]
     fn latest_gemini_and_meta_models_use_only_their_verified_cache_contracts() {
-        for model in ["gemini-4-argon", "models/gemini-4-argon"] {
+        for model in [
+            "gemini-4-argon",
+            "models/gemini-4-argon",
+            "gemini-4-carbon",
+            "models/gemini-4-carbon",
+        ] {
             let argon = resolve_prompt_cache_profile(
                 ProviderType::Google,
                 None,

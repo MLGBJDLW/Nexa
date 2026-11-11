@@ -940,7 +940,10 @@ pub fn resolve_reasoning_profile(
     }
 
     if is_meta_model_api_endpoint(provider, base_url)
-        && matches!(model.as_str(), "muse-spark-1.3" | "muse-wonder-1.0")
+        && matches!(
+            model.as_str(),
+            "muse-spark-1.3" | "muse-wonder-1.0" | "muse-ember-1.0"
+        )
     {
         let Some((accepted_efforts, default_effort, mandatory)) =
             catalog_reasoning_effort_policy(provider, &model)
@@ -2388,6 +2391,14 @@ mod tests {
     }
     #[test]
     fn muse_wonder_reasoning_is_exact_endpoint_scoped_and_has_no_fabricated_default() {
+        let ember = resolve_reasoning_profile(
+            ProviderType::OpenAi,
+            Some("https://api.meta.ai/v1"),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            "muse-ember-1.0",
+        );
+        assert_eq!(ember.mode_control, ThinkingModeControl::AlwaysOn);
+        assert_eq!(ember.default_effort, Some(ReasoningEffort::Max));
         let value = resolve_reasoning_profile(
             ProviderType::OpenAi,
             Some("https://api.meta.ai/v1"),
