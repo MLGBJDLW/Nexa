@@ -19,6 +19,24 @@ const phoneStorage: StorageService = {
   remove: ids => invoke('mobile_storage', { action: 'remove', ids }),
 };
 
+function PhoneStorageSettings() {
+  const { t } = useTranslation();
+  const [locations, setLocations] = useState<{data: string; cache: string} | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    void invoke<{data: string; cache: string}>('mobile_storage', { action: 'locations' })
+      .then(value => { if (active) setLocations(value); })
+      .catch(error => { if (active) setError(String(error)); });
+    return () => { active = false; };
+  }, []);
+  return <><StorageUsageCard mobile service={phoneStorage}/>
+    <section className="mobile-settings-section"><h3>{t('settings.storageSection')}</h3>
+      {error && <p role="status" className="mobile-error">{error}</p>}
+      {locations && <dl className="text-xs break-all"><dt>{t('settings.storageInternalState')}</dt><dd className="py-2 font-mono">{locations.data}</dd><dt>{t('settings.storageRuntime')}</dt><dd className="py-2 font-mono">{locations.cache}</dd></dl>}
+    </section></>;
+}
+
 const presets = PROVIDER_PRESETS.filter(preset => !preset.runtime && preset.requiresApiKey && !['bedrock','vertex','github_copilot_api'].includes(preset.provider));
 type PhonePreset = Pick<ProviderPreset, 'id' | 'name' | 'provider' | 'baseUrl' | 'models' | 'retired'>;
 function presetFor(record?: PhoneConnection): PhonePreset {
@@ -102,6 +120,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<'general' | 'data_privacy'>('general');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [searchCollapsed, setSearchCollapsed] = useState<Record<string, boolean>>({});
   const [editingConnection, setEditingConnection] = useState<boolean | null>(null);
@@ -120,7 +139,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   useEffect(() => {
     if (open) {
       loadRecord(state.connections?.find(record => record.id === state.activeConnectionId));
-      setEditingConnection(null); setExpanded({}); setSearchCollapsed({}); setSearch('');
+      setEditingConnection(null); setExpanded({}); setSearchCollapsed({}); setSearch(''); setTab('general');
     }
   }, [open]);
   const action = async (run: () => Promise<void>) => { setError(''); setBusy(true); try { await run(); await onChanged(); } catch (error) { setError(String(error)); } finally { setBusy(false); } };
@@ -130,13 +149,13 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
     permissions: [t('remote.mobilePermissions'), t('remote.mobileNotifications'), t('remote.mobileAccessibility'), t('remote.mobileFloatingAssistant'), t('remote.mobileBatterySettings')],
     speech: [t('remote.mobileSpeechSettings'), t('settings.speechToText'), t('remote.mobileSpeechOutput'), t('settings.apiKey'), 'microphone voice audio 语音 麦克风'],
     web: [t('settings.webSearchTitle'), 'search fetch DeepSeek 搜索 联网'],
-    storage: [t('settings.storageSection'), t('settings.storageManageChats'), 'storage cache space 存储 缓存 空间'],
+    storage: [t('settings.storageSection'), t('settings.tabDataPrivacy'), t('settings.storageManageChats'), 'storage cache space 存储 缓存 空间'],
     language: [t('remote.language'), ...availableLocales.map(item => item.name)],
   };
   type GroupId = keyof typeof groups;
   const query = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  const matches = (id: GroupId) => (id !== 'sync' || state.hosts.length > 0) && query.every(word => groups[id].join(' ').toLocaleLowerCase().includes(word));
-  const isExpanded = (id: GroupId) => query.length ? !searchCollapsed[id] : !!expanded[id];
+  const matches = (id: GroupId) => (query.length > 0 || (id === 'storage') === (tab === 'data_privacy')) && (id !== 'sync' || state.hosts.length > 0) && query.every(word => groups[id].join(' ').toLocaleLowerCase().includes(word));
+  const isExpanded = (id: GroupId) => query.length ? !searchCollapsed[id] : (expanded[id] ?? id === 'storage');
   const editorOpen = !selectedId || (editingConnection ?? query.length > 0);
   const group = (id: GroupId, children: ReactNode) => <details className="mobile-settings-group" hidden={!matches(id)} open={isExpanded(id)}>
     <summary onClick={event => { event.preventDefault(); (query.length ? setSearchCollapsed : setExpanded)(current => ({ ...current, [id]: !current[id] })); }}>
@@ -146,6 +165,10 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   </details>;
   return <>
     <MobileDialog open={open} title={t('remote.mobileSettings')} onClose={onClose}>
+      <nav className="mobile-settings-tabs" aria-label={t('remote.mobileSettings')}>
+        <button type="button" aria-pressed={tab === 'general'} onClick={() => { setTab('general'); setSearch(''); }}>{t('remote.mobileSettings')}</button>
+        <button type="button" aria-pressed={tab === 'data_privacy'} onClick={() => { setTab('data_privacy'); setSearch(''); }}>{t('settings.tabDataPrivacy')}</button>
+      </nav>
       <SettingsSearch value={search} onChange={value => { setSearch(value); setSearchCollapsed({}); }}/>
       {!(Object.keys(groups) as GroupId[]).some(matches) && <p role="status" className="mobile-section-hint">{t('remote.mobileSettingsNoResults')}</p>}
       {error && <p role="alert" className="mobile-error">{error}</p>}
@@ -199,7 +222,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
       </section>)}
       {group('speech', <PhoneSpeechSettings open={open && matches('speech') && isExpanded('speech')}/>)}
       {group('web', open && <PhoneWebSettings connections={state.connections}/>)}
-      {group('storage', open && matches('storage') && isExpanded('storage') && <StorageUsageCard mobile service={phoneStorage}/>)}
+      {group('storage', open && matches('storage') && isExpanded('storage') && <PhoneStorageSettings/>)}
       {group('language', <label className="mobile-language">{t('remote.language')}<select aria-label={t('remote.language')} value={locale} onChange={event => setLocale(event.target.value as typeof locale)}>{availableLocales.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>)}
       {host && <button className="mobile-forget" onClick={() => void action(async () => { await invoke('mobile_remote', { hostId: host.id, action: 'forget' }); onForgot(); onClose(); })}>{t('remote.forget')}</button>}
       <p className="mobile-version">Nexa Mobile {state.version}</p>

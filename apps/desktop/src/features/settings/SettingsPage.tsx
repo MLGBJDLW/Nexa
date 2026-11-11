@@ -41,7 +41,6 @@ import { DataPrivacySettingsTab } from '../../components/settings/DataPrivacySet
 import { EmbeddingConfigSection } from '../../components/settings/EmbeddingConfigSection';
 import { KnowledgeServicesPanel } from '../../components/settings/KnowledgeServicesPanel';
 import { ExtensionsSettingsTab, type SkillFilter } from '../../components/settings/ExtensionsSettingsTab';
-import { StorageUsageCard } from '../../components/settings/StorageUsageCard';
 import { LocalStorageSection } from '../../components/settings/LocalStorageSection';
 import { ModelDownloadsSection } from '../../components/settings/ModelDownloadsSection';
 import { OcrSettingsSection } from '../../components/settings/OcrSettingsSection';
@@ -298,7 +297,7 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'models_embedding' && !embedConfig) {
+    if ((activeTab === 'models_embedding' || activeTab === 'data_privacy') && !embedConfig) {
       void loadEmbedConfig();
     }
   }, [activeTab, embedConfig, loadEmbedConfig]);
@@ -317,7 +316,7 @@ export function SettingsPage() {
   }, [activeTab, !!embedConfig, embedConfig?.localModel, embedConfig?.modelPath, downloadLoading, deleteEmbedModelLoading]);
 
   useEffect(() => {
-    if (activeTab !== 'models_embedding') return;
+    if (activeTab !== 'models_embedding' && activeTab !== 'data_privacy') return;
     void api.getManagedModelPaths(
       appConfig?.localModelRoot?.trim() || undefined,
       embedConfig?.localModel,
@@ -552,7 +551,7 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if ((activeTab === 'models_embedding' || activeTab === 'media') && !ocrConfig) {
+    if ((activeTab === 'models_embedding' || activeTab === 'media' || activeTab === 'data_privacy') && !ocrConfig) {
       void loadOcrConfig();
     }
   }, [activeTab, loadOcrConfig, ocrConfig]);
@@ -660,7 +659,7 @@ export function SettingsPage() {
   }, [refreshWhisperReadiness]);
 
   useEffect(() => {
-    if ((activeTab === 'models_embedding' || activeTab === 'media') && !videoConfig) {
+    if ((activeTab === 'models_embedding' || activeTab === 'media' || activeTab === 'data_privacy') && !videoConfig) {
       void loadVideoConfig();
     }
   }, [activeTab, loadVideoConfig, videoConfig]);
@@ -1735,16 +1734,6 @@ export function SettingsPage() {
           onRebuild={handleRebuildEmbeddings}
         />
 
-        <StorageUsageCard />
-
-        <LocalStorageSection
-          managedModelPaths={managedModelPaths}
-          modelStorageSaving={modelStorageSaving}
-          disabled={isTabDirty('models_embedding') || downloadLoading || ocrDownloading || videoDownloading}
-          onApplyManagedModelRoot={(root) => handleManagedModelRootChange(root)}
-          onResetManagedModelRoot={() => handleManagedModelRootChange(undefined)}
-        />
-
         <ModelDownloadsSection
           embedConfig={embedConfig}
           localModelReady={localModelReady}
@@ -1863,6 +1852,13 @@ export function SettingsPage() {
       {/* ── Tab: Data & Privacy ─────────────────────────────────── */}
       {activeTab === 'data_privacy' && (
         <DataPrivacySettingsTab
+          storageLocation={<LocalStorageSection
+            managedModelPaths={managedModelPaths}
+            modelStorageSaving={modelStorageSaving}
+            disabled={!appConfig || !embedConfig || !ocrConfig || !videoConfig || isTabDirty('models_embedding') || isTabDirty('media') || downloadLoading || deleteEmbedModelLoading || ocrDownloading || videoDownloading}
+            onApplyManagedModelRoot={(root) => handleManagedModelRootChange(root)}
+            onResetManagedModelRoot={() => handleManagedModelRootChange(undefined)}
+          />}
           stats={stats}
           rebuildLoading={rebuildLoading}
           optimizeLoading={optimizeLoading}

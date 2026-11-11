@@ -33,6 +33,7 @@ export function renderMobileSettings(kind = 'web') {
   (window as any).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
+      if (command === 'mobile_storage' && args.action === 'locations') return {data:'/phone/data',cache:'/phone/cache'};
       if (command === 'mobile_storage') return {totalBytes:1024,categories:[{id:'chats',bytes:1024}],activeConversations:1,archivedConversations:0};
       if (command === 'mobile_speech') {
         if (args.action === 'configure') { speech = { ...speech, ...args }; return speech; }

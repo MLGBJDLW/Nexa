@@ -508,6 +508,7 @@ async fn mobile_storage(
     let changed_ids = ids.clone().unwrap_or_default();
     let operation = action.clone();
     let result = tokio::task::spawn_blocking(move || match action.as_str() {
+        "locations" => Ok(json!({ "data": directory, "cache": cache })),
         "usage" => {
             let mut usage = db.storage_usage().map_err(|error| error.to_string())?;
             nexa_core::storage_usage::add_files(
