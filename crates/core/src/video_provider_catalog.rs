@@ -15,6 +15,7 @@ pub enum VideoModelReleaseStatus {
     Announced,
     ContractPending,
     Deprecated,
+    Retired,
     Unverified,
 }
 
@@ -168,6 +169,20 @@ mod tests {
             .expect("MiniMax H3 should be present");
         assert_eq!(minimax_h3.release_status, VideoModelReleaseStatus::Ga);
         assert!(minimax_h3.selectable);
+
+        let retired_route = presets
+            .iter()
+            .find(|preset| preset.provider_id == "openrouter")
+            .unwrap()
+            .models
+            .iter()
+            .find(|model| model.model_id == "bytedance/seedance-1-5-pro")
+            .unwrap();
+        assert_eq!(
+            retired_route.release_status,
+            VideoModelReleaseStatus::Retired
+        );
+        assert!(!retired_route.selectable);
 
         let runway_seedance = presets
             .iter()
