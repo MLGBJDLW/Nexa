@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Check, ChevronRight, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { useTranslation } from '../../desktop/src/i18n';
 import { findProviderPreset, PROVIDER_PRESETS, type ProviderPreset } from '../../desktop/src/lib/providerPresets';
+import { selectImplicitDefault } from '../../desktop/src/lib/modelCatalog';
 import { MobileDialog } from '../../desktop/src/features/remote/MobileChatShell';
 import { NexaCombobox } from '../../desktop/src/components/ui/overlay/Combobox';
 import type { ConnectionSyncSummary, MobileState, PhoneConnection } from './MobileApp';
@@ -115,7 +116,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const [selectedId, setSelectedId] = useState(initialRecord?.id ?? '');
   const [name, setName] = useState(initialRecord?.name ?? '');
   const [provider, setProvider] = useState(initial.id);
-  const [model, setModel] = useState(initialRecord?.model ?? initial.models[0]?.id ?? '');
+  const [model, setModel] = useState(initialRecord?.model ?? selectImplicitDefault(initial.models)?.id ?? '');
   const [baseUrl, setBaseUrl] = useState(initialRecord ? initialRecord.baseUrl ?? '' : initial.baseUrl);
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
@@ -133,7 +134,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const loadRecord = (record?: PhoneConnection) => {
     const preset = presetFor(record);
     setSelectedId(record?.id ?? ''); setName(record?.name ?? ''); setProvider(preset.id);
-    setModel(record?.model ?? preset.models[0]?.id ?? ''); setBaseUrl(record ? record.baseUrl ?? '' : preset.baseUrl); setApiKey(''); setError('');
+    setModel(record?.model ?? selectImplicitDefault(preset.models)?.id ?? ''); setBaseUrl(record ? record.baseUrl ?? '' : preset.baseUrl); setApiKey(''); setError('');
   };
   // Preserve an in-progress form while background sync updates the library.
   useEffect(() => {
@@ -187,8 +188,8 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         setApiKey(''); onClose();
       }); }}>
         <label>{t('settings.providerName')}<input aria-label={t('settings.providerName')} value={name} onChange={event => setName(event.target.value)} placeholder={model}/></label>
-        <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={choices.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = choices.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(next.models[0]?.id ?? ''); setApiKey(''); }}/></label>
-        <label>{t('remote.model')}<input aria-label={t('remote.model')} list="phone-models" value={model} onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/></label><datalist id="phone-models">{preset.models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist>
+        <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={choices.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = choices.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(selectImplicitDefault(next.models)?.id ?? ''); setApiKey(''); }}/></label>
+        <label>{t('remote.model')}<input aria-label={t('remote.model')} list="phone-models" value={model} required pattern=".*\S.*" onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/></label><datalist id="phone-models">{preset.models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist>
         <label>{t('settings.apiKey')}<input aria-label={t('settings.apiKey')} type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={selectedId ? '••••••••' : ''} autoComplete="off"/></label>
         <details className="mobile-advanced" open={baseUrl !== preset.baseUrl || undefined}><summary>{t('remote.advancedOptions')}</summary><label>{t('settings.baseUrl')}<input aria-label={t('settings.baseUrl')} type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} autoCapitalize="none" spellCheck={false}/></label></details>
         <p className="mobile-section-hint">{t('remote.mobileCredentials')}</p><button className="mobile-primary" disabled={busy}>{busy && <Loader2 size={16} className="animate-spin"/>}{t('common.save')}</button>
