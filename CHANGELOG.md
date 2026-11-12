@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.19.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.5...nexa-monorepo-v0.19.6) (2026-11-12)
+
+
+### Features
+
+* **android:** add screenshot and translation overlay gestures ([aae5175](https://github.com/MLGBJDLW/Nexa/commit/aae51753aedee65cc00eece359eb075a83038c3b))
+* **app:** improve mobile actions, task completion and token metrics ([8d7ab47](https://github.com/MLGBJDLW/Nexa/commit/8d7ab479a90271aaa2212918fde4a7914e1687fe))
+* **app:** improve mobile actions, task completion and token metrics ([#542](https://github.com/MLGBJDLW/Nexa/issues/542)) ([8d7ab47](https://github.com/MLGBJDLW/Nexa/commit/8d7ab479a90271aaa2212918fde4a7914e1687fe))
+* **chat:** show request token throughput in context details ([ddb34c6](https://github.com/MLGBJDLW/Nexa/commit/ddb34c6763350a816763281f973b4a0c61e3a8ac))
+* **mobile:** fill swipe actions and separate data privacy settings ([d4ffa75](https://github.com/MLGBJDLW/Nexa/commit/d4ffa75395bb50082c8539121d33cc3d2d41d9a2))
+* **models:** refresh verified November routes and native protocols ([0fbd5d7](https://github.com/MLGBJDLW/Nexa/commit/0fbd5d77d84dae064c3e6ddfca042f618ef39611))
+* **models:** support Beijing Qwen4 Token Plan preview ([f3395bf](https://github.com/MLGBJDLW/Nexa/commit/f3395bf50bfc4872adac27d6bf6f8f07ee72d778))
+
+
+### Bug Fixes
+
+* **agent:** stop goal continuation without tool progress ([f67d754](https://github.com/MLGBJDLW/Nexa/commit/f67d754d2b08dc66f9c3ca799e90fcf80ea51b2c))
+* **deps:** update bundled SQLite and vulnerable runtime dependencies ([916fd94](https://github.com/MLGBJDLW/Nexa/commit/916fd94c5e52bf8d643b038b3c40eef32d682353))
+* **mobile:** respect model eligibility when choosing defaults ([fcd3642](https://github.com/MLGBJDLW/Nexa/commit/fcd36423ece4515bb32e902fd10e4b53a3f6a8d7))
+* **models:** distinguish retired video routes from deprecations ([0b0dcd9](https://github.com/MLGBJDLW/Nexa/commit/0b0dcd979574308d2fe45e28a3c642d51a362e85))
+
 ## [0.19.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.4...nexa-monorepo-v0.19.5) (2026-11-07)
 
 ### Fixes
