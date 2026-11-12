@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.5...nexa-mobile-v0.3.6) (2026-11-12)
+
+
+### Features
+
+* **android:** add screenshot and translation overlay gestures ([aae5175](https://github.com/MLGBJDLW/Nexa/commit/aae51753aedee65cc00eece359eb075a83038c3b))
+* **app:** improve mobile actions, task completion and token metrics ([8d7ab47](https://github.com/MLGBJDLW/Nexa/commit/8d7ab479a90271aaa2212918fde4a7914e1687fe))
+* **app:** improve mobile actions, task completion and token metrics ([#542](https://github.com/MLGBJDLW/Nexa/issues/542)) ([8d7ab47](https://github.com/MLGBJDLW/Nexa/commit/8d7ab479a90271aaa2212918fde4a7914e1687fe))
+* **mobile:** fill swipe actions and separate data privacy settings ([d4ffa75](https://github.com/MLGBJDLW/Nexa/commit/d4ffa75395bb50082c8539121d33cc3d2d41d9a2))
+
+
+### Bug Fixes
+
+* **deps:** update bundled SQLite and vulnerable runtime dependencies ([916fd94](https://github.com/MLGBJDLW/Nexa/commit/916fd94c5e52bf8d643b038b3c40eef32d682353))
+* **mobile:** respect model eligibility when choosing defaults ([fcd3642](https://github.com/MLGBJDLW/Nexa/commit/fcd36423ece4515bb32e902fd10e4b53a3f6a8d7))
+
 ## [0.3.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.4...nexa-mobile-v0.3.5) (2026-11-07)
 
 ### Fixes
