@@ -140,7 +140,7 @@ test('left swipe offers archive without dismissing the history drawer',async({pa
   expect(full.width).toBeGreaterThan(initial.width);expect(full.color).not.toBe(initial.color);expect(full.scale).not.toBe(initial.scale);
   await page.mouse.up();
   await expect(page.getByRole('dialog',{name:'Archive',exact:true})).toBeVisible();
-  await expect(reveal).toHaveCSS('width', '104px');
+  await expect.poll(async () => (await reveal.boundingBox())!.width).toBeCloseTo(box.width, 0);
   // Capture rendered frames so an instant unmount cannot pass as a transition.
   const collapse = row.evaluate(element => new Promise<boolean>(resolve => {
     const wrapper = element.closest('.mobile-swipe-row')!;
@@ -165,7 +165,12 @@ test('phone settings search reveals matching sections and keeps other groups col
   await page.setViewportSize({width:360,height:780});await page.goto('/e2e/fixtures/mobile-shell.html?kind=all');
   const search=page.getByRole('searchbox',{name:'Search settings'});
   await expect(search).toBeVisible();
-  await expect(page.locator('.mobile-settings-group[open]')).toHaveCount(0);
+  await expect(page.getByText('/phone/data', {exact:true})).toHaveCount(0);
+  await page.getByRole('button', {name:'Data & Privacy', exact:true}).click();
+  await expect(page.getByText('/phone/data', {exact:true})).toBeVisible();
+  await expect(page.getByText('/phone/cache', {exact:true})).toBeVisible();
+  await page.locator('.mobile-settings-tabs button').first().click();
+  await expect(page.locator('.mobile-settings-group[open]:visible')).toHaveCount(0);
   const connections = page.locator('.mobile-settings-group > summary').filter({hasText:'Model connections'});
   await connections.click();
   await expect(page.getByRole('button', {name:'Provider', exact:true})).not.toBeVisible();
@@ -196,6 +201,28 @@ test('phone settings search reveals matching sections and keeps other groups col
   await expect(search).toBeFocused();
   await search.fill('LLM');
   await expect(page.locator('form.mobile-settings-form')).toBeVisible();
+});
+
+test('phone model defaults skip gated models and preserve saved selections', async ({page}) => {
+  await page.setViewportSize({width:360,height:780});
+  await page.goto('/e2e/fixtures/mobile-shell.html?kind=all&gated=1');
+  await page.locator('.mobile-settings-group > summary').filter({hasText:'Model connections'}).click();
+  await page.locator('.mobile-connection-editor > summary').click();
+  const model = page.getByRole('combobox', {name:'Model connection', exact:true});
+  await expect(model).toHaveValue('claude-mythos-5-2');
+  await page.locator('.mobile-add-connection').click();
+  await page.getByRole('button', {name:'Provider', exact:true}).click();
+  await page.getByRole('option', {name:/^Anthropic/}).click();
+  // No native Anthropic model is marked product-ready in the current catalog;
+  // require an explicit choice instead of silently selecting a restricted model.
+  await expect(model).toHaveValue('');
+  await page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true}).click();
+  expect(await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.some((call: any) => call.command === 'mobile_save_settings'))).toBe(false);
+  await model.fill('claude-fable-5-2');
+  await page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true}).click();
+  expect(await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.findLast((call: any) => call.command === 'mobile_save_settings').args.settings.model)).toBe('claude-fable-5-2');
+  await page.getByRole('combobox', {name:'Model connections', exact:true}).selectOption('imported');
+  await expect(model).toHaveValue('claude-mythos-5-2');
 });
 
 test('touch swipes restore archived rows to the right and confirm deletion to the left',async({page})=>{

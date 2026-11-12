@@ -207,7 +207,7 @@
   "readAloud": "소리 내어 읽기",
   "stopReading": "읽기 중지",
   "mobileFloatingAssistant": "플로팅 어시스턴트",
-  "mobileFloatingAssistantHint": "다른 앱 위에서 이동 가능한 Nexa 바로가기입니다. 탭하면 채팅, 길게 누르면 중지가 표시됩니다. 휴대폰 제어 권한이 필요합니다.",
+  "mobileFloatingAssistantHint": "다른 앱 위에서 드래그할 수 있는 바로가기입니다. 한 번 탭하면 채팅, 두 번 탭하면 스크린샷, 길게 누르면 캡처·화면 텍스트 번역·중지 메뉴가 열립니다. 번역은 검토할 초안을 엽니다. 휴대전화 제어 권한이 필요합니다.",
   "speechPermission": "Android 앱 설정에서 마이크를 허용하거나 키보드를 사용하세요.",
   "speechUnavailable": "Android 설정에서 음성 엔진을 설치하거나 사용 설정하세요.",
   "speechNetwork": "음성 서비스에 연결할 수 없습니다. 네트워크를 확인하거나 오프라인 엔진을 선택하세요.",

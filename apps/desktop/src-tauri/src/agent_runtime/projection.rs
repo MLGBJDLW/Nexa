@@ -188,6 +188,7 @@ impl Projection {
         self.last_prompt_tokens = used;
         self.context_breakdown = Some(nexa_core::agent::context::ContextUsageBreakdown {
             total_tokens: used,
+            generation: None,
             segments,
             budget: None,
             measurement: Some(nexa_core::agent::context::ContextMeasurement::Provider),
@@ -213,6 +214,7 @@ impl Projection {
             self.runtime_identity.as_ref().map(|(provider, model)| {
                 nexa_core::agent::context::ContextUsageBreakdown {
                     total_tokens: self.last_prompt_tokens,
+                    generation: None,
                     segments: vec![],
                     budget: None,
                     measurement: Some(nexa_core::agent::context::ContextMeasurement::Provider),

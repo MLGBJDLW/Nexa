@@ -9,7 +9,7 @@ import { ProviderIcon } from '../../lib/providerIcons';
 import type { TurnTiming } from '../../lib/streaming/protocol';
 import { formatTimingLatency, useElapsedTime } from '../../lib/useElapsedTime';
 import type { ContextUsageBreakdown, ContextUsageSegment } from '../../types/conversation';
-import { resolveContextUsage } from '../../lib/contextUsage';
+import { modelTokensPerSecond, resolveContextUsage } from '../../lib/contextUsage';
 
 interface TokenUsage {
   promptTokens: number;
@@ -47,6 +47,7 @@ interface CacheUsageStats {
 }
 
 interface ChatRunOverviewProps {
+  generationMetrics?: ContextUsageBreakdown['generation'];
   isStreaming: boolean;
   tokenUsage?: TokenUsage | null;
   runtimeProfile?: RuntimeProfile | null;
@@ -195,6 +196,7 @@ function contextSegments(usage: TokenUsage): ContextUsageSegment[] {
 }
 
 export function ChatRunOverview({
+  generationMetrics,
   isStreaming,
   tokenUsage,
   runtimeProfile,
@@ -207,6 +209,7 @@ export function ChatRunOverview({
   onConfigureContext,
 }: ChatRunOverviewProps) {
   const { t } = useTranslation();
+  const tps = modelTokensPerSecond(generationMetrics ?? tokenUsage?.contextBreakdown?.generation);
   const overviewRef = useRef<HTMLDivElement>(null);
   const pointerInsideRef = useRef(false);
   const suppressHoverRef = useRef(false);
@@ -595,6 +598,11 @@ export function ChatRunOverview({
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="col-span-2 rounded-lg border border-border/55 bg-surface-1/75 px-2.5 py-2" title={t('chat.generationSpeedHint')}>
+            <span className="text-[10px] text-text-tertiary">{t('chat.generationSpeed')}</span>
+            <span data-testid="chat-generation-tps" className="ml-2 text-sm font-semibold tabular-nums text-text-primary">{tps == null ? '—' : `${tps.toFixed(1)} tok/s`}</span>
+            <p className="mt-1 text-[10px] text-text-tertiary">{t('chat.generationSpeedHint')}</p>
+          </div>
           {turnTiming ? (
             <div
               data-testid="chat-turn-timing-metrics"

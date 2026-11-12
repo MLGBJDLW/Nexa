@@ -207,7 +207,7 @@
   "readAloud": "Read aloud",
   "stopReading": "Stop reading",
   "mobileFloatingAssistant": "Floating assistant",
-  "mobileFloatingAssistantHint": "A draggable shortcut to Nexa over other apps. Tap to open chat; hold to show Stop. Requires phone control access.",
+  "mobileFloatingAssistantHint": "A draggable shortcut over other apps. Tap to open chat, double-tap to take a screenshot, or hold for Screenshot, Translate screen text, and Stop. Translation opens a draft for review. Requires phone control access.",
   "speechPermission": "Allow microphone access in Android app settings, or use the keyboard.",
   "speechUnavailable": "Install or enable a speech engine in Android settings.",
   "speechNetwork": "The speech service could not connect. Check the network or choose an offline engine.",

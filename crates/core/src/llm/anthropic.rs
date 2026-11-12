@@ -756,8 +756,10 @@ fn uses_adaptive_thinking(model: &str) -> bool {
         model.trim().to_ascii_lowercase().as_str(),
         "claude-fable-5"
             | "claude-fable-5-1"
+            | "claude-fable-5-2"
             | "claude-mythos-5"
             | "claude-mythos-5-1"
+            | "claude-mythos-5-2"
             | "claude-opus-5"
             | "claude-opus-5-5"
             | "claude-sonnet-5"
@@ -772,7 +774,9 @@ fn requires_thinking_binding_controls(model: &str) -> bool {
     matches!(
         model.trim().to_ascii_lowercase().as_str(),
         "claude-fable-5-1"
+            | "claude-fable-5-2"
             | "claude-mythos-5-1"
+            | "claude-mythos-5-2"
             | "claude-opus-5-5"
             | "claude-sonnet-5-5"
             | "claude-haiku-5-5"
@@ -2406,26 +2410,27 @@ mod tests {
 
     #[test]
     fn fable_51_uses_always_on_adaptive_thinking_and_handles_changed_history() {
-        let messages = vec![Message::text(Role::User, "solve it")];
-        let (_, api_messages) = convert_messages(&messages);
-        let mut request = request_with_messages(messages, None);
-        request.thinking_budget = Some(2048);
-        request.model = "claude-fable-5-1".to_string();
-        request.reasoning_enabled = Some(false);
-        request.reasoning_effort = Some(ReasoningEffort::None);
-        let body =
-            serde_json::to_value(build_request_body(&request, None, api_messages, true)).unwrap();
-        assert_eq!(body["thinking"]["type"], "adaptive");
-        assert_eq!(
-            body["thinking"]["block_binding"]["prefix_mismatch_behavior"],
-            "drop_block"
-        );
-        assert!(body["thinking"].get("budget_tokens").is_none());
-        assert!(body.get("temperature").is_none());
-        assert_eq!(body["output_config"]["effort"], "low");
-        assert!(
-            anthropic_beta_headers(&request.model).contains("thinking-binding-controls-2026-08-01")
-        );
+        for model in ["claude-fable-5-1", "claude-fable-5-2", "claude-mythos-5-2"] {
+            let messages = vec![Message::text(Role::User, "solve it")];
+            let (_, api_messages) = convert_messages(&messages);
+            let mut request = request_with_messages(messages, None);
+            request.thinking_budget = Some(2048);
+            request.model = model.to_string();
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = Some(ReasoningEffort::None);
+            let body = serde_json::to_value(build_request_body(&request, None, api_messages, true))
+                .unwrap();
+            assert_eq!(body["thinking"]["type"], "adaptive");
+            assert_eq!(
+                body["thinking"]["block_binding"]["prefix_mismatch_behavior"],
+                "drop_block"
+            );
+            assert!(body["thinking"].get("budget_tokens").is_none());
+            assert!(body.get("temperature").is_none());
+            assert_eq!(body["output_config"]["effort"], "low");
+            assert!(anthropic_beta_headers(&request.model)
+                .contains("thinking-binding-controls-2026-08-01"));
+        }
     }
 
     #[test]

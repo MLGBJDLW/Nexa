@@ -6646,6 +6646,80 @@ async fn active_goal_continues_until_the_model_explicitly_completes_it() {
     );
 }
 
+#[tokio::test]
+async fn active_goal_cannot_repeat_final_answers_without_tool_progress() {
+    for lifecycle_available in [false, true] {
+        let mut registry = ToolRegistry::new();
+        if lifecycle_available {
+            registry.register(Box::new(
+                crate::tools::conversation_goal_tool::UpdateGoalTool,
+            ));
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let executor = AgentExecutor::new(
+            Box::new(ScriptedProvider {
+                stream_calls: calls.clone(),
+                first_chunks: vec![StreamChunk {
+                    delta: "The requested answer is complete.".into(),
+                    finish_reason: Some(FinishReason::Stop),
+                    tool_call_delta: None,
+                    usage: None,
+                    thinking_delta: None,
+                }],
+                final_answer: "The requested answer is complete.",
+            }),
+            registry,
+            AgentConfig::default(),
+        );
+        let db = Database::open_memory().unwrap();
+        let conversation = db
+            .create_conversation(&CreateConversationInput {
+                provider: "openai".into(),
+                model: "mock-model".into(),
+                system_prompt: None,
+                collection_context: None,
+                project_id: None,
+                persona_id: None,
+            })
+            .unwrap();
+        db.set_conversation_goal(&conversation.id, "Finish the task")
+            .unwrap();
+        let (tx, mut rx) = mpsc::channel(256);
+        let collector = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let result = executor
+            .run(
+                vec![],
+                vec![ContentPart::Text {
+                    text: "Give the final answer".into(),
+                }],
+                &db,
+                Some(&conversation.id),
+                None,
+                tx,
+                0,
+            )
+            .await;
+        collector.await.unwrap();
+        assert_eq!(
+        calls.load(Ordering::SeqCst),
+        if lifecycle_available { 2 } else { 1 },
+        "only a tool-capable goal can reconcile once; prose alone must never renew continuation"
+    );
+        assert_eq!(
+            result.unwrap().text_content(),
+            "The requested answer is complete."
+        );
+        assert_eq!(
+            db.get_conversation_goal(&conversation.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            crate::conversation::ConversationGoalStatus::Active,
+            "never invent goal completion"
+        );
+    }
+}
+
 #[test]
 fn test_resource_keys_allow_independent_writes_to_share_batch() {
     let mut registry = ToolRegistry::new();

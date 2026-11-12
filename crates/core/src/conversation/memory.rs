@@ -280,7 +280,8 @@ fn model_profile_context_window(m: &str) -> Option<u32> {
         "codex-mini-latest" => 200_000,
 
         // Anthropic current models with a default 1M context window.
-        "claude-fable-5-1" | "claude-fable-5" | "claude-mythos-5" | "claude-sonnet-5" => 1_000_000,
+        "claude-fable-5-2" | "claude-mythos-5-2" | "claude-fable-5-1" | "claude-fable-5"
+        | "claude-mythos-5" | "claude-sonnet-5" => 1_000_000,
         "claude-opus-4-8" | "claude-opus-4-7" | "claude-opus-4-6" => 1_000_000,
         "claude-sonnet-4-6" => 1_000_000,
         // Other Claude 4.x models default to 200K.
@@ -322,7 +323,9 @@ fn model_profile_context_window(m: &str) -> Option<u32> {
         "gemini-1.5-flash" | "gemini-1.5-flash-latest" => 1_048_576,
 
         // Meta Muse Spark
-        "muse-spark-1.3" | "meta/muse-spark-1.3" => 1_048_576,
+        "muse-spark-1.3" | "meta/muse-spark-1.3" | "muse-ember-1.0" | "meta/muse-ember" => {
+            1_048_576
+        }
 
         // DeepSeek
         "deepseek-v4-pro" | "deepseek-v4-flash" => 1_000_000,

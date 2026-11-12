@@ -101,6 +101,12 @@ test('Riverflow fallback matches its raster editing contract and Gemini keeps de
   assert.deepEqual(riverflow.outputFormats, ['png', 'jpeg', 'webp']);
   assert.ok(riverflow.sizeOptions?.some(option => option.value === '4:5|4K'));
   assert.equal((riverflow.supportedParameters?.input_references as { max: number }).max, 10);
+  for (const id of ['minimax/minimax-h3-image', 'minimax/minimax-h3-image-highspeed']) {
+    const h3 = presets.find(provider => provider.id === 'openrouter-images')!.models.find(model => model.id === id)!;
+    assert.deepEqual(h3.descriptor.inputModalities, ['text', 'image']);
+    assert.ok(h3.sizeOptions?.some(option => option.value === '4:5|4K'));
+    assert.equal((h3.supportedParameters?.input_references as {max:number}).max, 16);
+  }
   const gemini = presets.find(provider => provider.id === 'google-gemini')!.models.find(model => model.id === 'gemini-3.1-flash-image')!;
   assert.equal(gemini.descriptor.lifecycle, 'deprecated');
   assert.equal(gemini.recommended, false);

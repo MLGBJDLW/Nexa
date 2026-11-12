@@ -1,5 +1,11 @@
 import type { ContextUsageBreakdown } from '../types/conversation';
 
+export function modelTokensPerSecond(metrics: ContextUsageBreakdown['generation']): number | null {
+  if (!metrics || !Number.isSafeInteger(metrics.outputTokens) || metrics.outputTokens < 0
+    || !Number.isSafeInteger(metrics.requestDurationMs) || metrics.requestDurationMs <= 0) return null;
+  return metrics.outputTokens * 1000 / metrics.requestDurationMs;
+}
+
 interface UsageInput {
   promptTokens: number;
   contextWindow: number;

@@ -207,7 +207,7 @@
   "readAloud": "Ler em voz alta",
   "stopReading": "Parar leitura",
   "mobileFloatingAssistant": "Assistente flutuante",
-  "mobileFloatingAssistantHint": "Atalho móvel do Nexa sobre outros apps. Toque para abrir o chat; segure para mostrar Parar. Requer controle do telefone.",
+  "mobileFloatingAssistantHint": "Atalho arrastável sobre outros apps. Toque para abrir o chat, toque duas vezes para capturar a tela ou segure para Captura, Traduzir texto e Parar. A tradução abre um rascunho para revisão. Requer acesso ao controle do telefone.",
   "speechPermission": "Permita o microfone nas definições da aplicação Android ou use o teclado.",
   "speechUnavailable": "Instale ou ative um motor de voz nas definições do Android.",
   "speechNetwork": "Não foi possível ligar ao serviço de voz. Verifique a rede ou escolha um motor offline.",

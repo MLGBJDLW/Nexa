@@ -207,7 +207,7 @@
   "readAloud": "Vorlesen",
   "stopReading": "Vorlesen stoppen",
   "mobileFloatingAssistant": "Schwebender Assistent",
-  "mobileFloatingAssistantHint": "Verschiebbare Nexa-Verknüpfung über anderen Apps. Tippen öffnet den Chat, langes Drücken zeigt Stopp. Telefonsteuerung muss aktiviert sein.",
+  "mobileFloatingAssistantHint": "Ziehbare Verknüpfung über anderen Apps. Tippen öffnet den Chat, Doppeltippen erstellt einen Screenshot, langes Drücken zeigt Screenshot, Bildschirmtext übersetzen und Stopp. Die Übersetzung öffnet einen Entwurf zur Prüfung. Benötigt Zugriff auf die Telefonsteuerung.",
   "speechPermission": "Erlaube das Mikrofon in den Android-App-Einstellungen oder verwende die Tastatur.",
   "speechUnavailable": "Installiere oder aktiviere eine Sprach-Engine in den Android-Einstellungen.",
   "speechNetwork": "Der Sprachdienst ist nicht erreichbar. Prüfe das Netzwerk oder wähle eine Offline-Engine.",

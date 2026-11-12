@@ -207,7 +207,7 @@
   "readAloud": "朗读",
   "stopReading": "停止朗读",
   "mobileFloatingAssistant": "悬浮助手",
-  "mobileFloatingAssistantHint": "可拖动的跨应用 Nexa 入口。轻点打开聊天，长按显示停止按钮。需要先开启手机控制。",
+  "mobileFloatingAssistantHint": "可拖动并吸附到屏幕边缘。单击打开聊天，双击截屏，长按显示截屏、翻译屏幕文字和停止。翻译会先生成草稿供你确认。需要开启手机控制权限。",
   "speechPermission": "请在 Android 应用设置中允许麦克风权限，或使用键盘输入。",
   "speechUnavailable": "请在 Android 设置中安装或启用语音引擎。",
   "speechNetwork": "语音服务无法连接，请检查网络或选择离线引擎。",

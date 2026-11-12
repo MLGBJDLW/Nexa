@@ -373,6 +373,16 @@ pub struct ContextUsageBreakdown {
     pub runtime_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_model: Option<String>,
+    /// Latest physical model request only; never conversation totals or tool time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<GenerationMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationMetrics {
+    pub output_tokens: u32,
+    pub request_duration_ms: u64,
 }
 
 pub fn estimate_context_usage_breakdown_for_model(
@@ -469,6 +479,7 @@ pub(super) fn breakdown_from_segments(
         context_window: None,
         runtime_provider: None,
         runtime_model: None,
+        generation: None,
     }
 }
 

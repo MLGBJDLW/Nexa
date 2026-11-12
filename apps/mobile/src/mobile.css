@@ -243,7 +243,7 @@
 .mobile-swipe-action.restore { --action-fill: #bbf7d0; --action-ink: #14532d; }
 .mobile-history .mobile-conversation-row > .mobile-swipe-action {
   --distance: 0px; --progress: 0; gap: 0; padding: 0; touch-action: pan-y;
-  width: calc(44px + var(--distance)); flex: 0 0 auto;
+  width: 44px; flex: 0 0 44px;
   background: color-mix(in srgb, var(--action-fill) calc(var(--progress) * 100%), transparent);
   color: color-mix(in srgb, var(--action-ink) calc(var(--progress) * 100%), var(--color-text-secondary));
   transition: width 220ms ease-out, background-color 220ms ease-out;
@@ -252,16 +252,26 @@
 .mobile-swipe-action span { max-width: var(--distance); margin-left: calc(6px * var(--progress)); overflow: hidden; opacity: var(--progress); }
 .mobile-swipe-row[data-swiping="left"] .mobile-conversation-row > .mobile-swipe-action:last-child,
 .mobile-swipe-row[data-swiping="right"] .mobile-conversation-row > .restore {
-  --distance: var(--swipe-distance); --progress: var(--swipe-progress); transition: none;
+  --distance: var(--swipe-distance); --progress: var(--swipe-progress);
+  position: absolute; z-index: 2; inset-block: 0; right: 0;
+  width: min(100%, calc(44px + var(--distance))); height: 100%; border-radius: inherit; transition: none;
 }
+.mobile-swipe-row[data-swiping="right"] .mobile-conversation-row > .restore { left: 0; right: auto; }
+.mobile-swipe-row[data-swipe-committing] .mobile-conversation-row > .mobile-swipe-action { transition: width 180ms ease-out, background-color 180ms ease-out; }
 .mobile-history .mobile-swipe-row[data-restore-preview] .mobile-conversation-row > .restore,
-.mobile-history .mobile-swipe-row[data-archive-preview] .mobile-conversation-row > .mobile-swipe-action:last-child { --distance: 60px; --progress: 1; }
+.mobile-history .mobile-swipe-row[data-archive-preview] .mobile-conversation-row > .mobile-swipe-action:last-child {
+  --distance: 100vw; --progress: 1; position: absolute; z-index: 2; inset: 0;
+  width: 100%; height: 100%; border-radius: inherit;
+}
 .mobile-archive-heading { display: flex; align-items: center; }
 .mobile-archive-heading > button:first-child { flex: 1; text-align: left; min-height: 44px; }
 .mobile-archive-history { flex: 0 1 auto; max-height: min(38dvh,320px); }
 
 .mobile-settings-search { position: sticky; top: 54px; z-index: 1; display: flex; align-items: center; width: 100%; min-height: 46px; margin: 0 0 12px auto; overflow: hidden; border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-surface-0); transition: width 200ms ease, border-radius 200ms ease; }
 .mobile-settings-search[data-compact=true] { width: 46px; border-radius: 50%; }
+.mobile-settings-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.mobile-settings-tabs > button { flex: 1; min-height: 44px; border-radius: 12px; padding: 8px; font-size: 13px; }
+.mobile-settings-tabs > button[aria-pressed=true] { background: var(--color-surface-2); color: var(--color-text-primary); font-weight: 600; }
 .mobile-settings-search:focus-within { border-color: var(--color-text-secondary); }
 .mobile-app .mobile-settings-search input[type=search] { flex: 1; min-width: 0; width: 0; padding: 0 10px 0 0; border: 0; background: transparent; outline: none; }
 .mobile-settings-search input::-webkit-search-cancel-button { display: none; }
@@ -282,6 +292,7 @@
 .mobile-settings-group-body > .mobile-settings-section { margin-top: 0; padding-top: 0; border-top: 0; }
 .mobile-settings-group-body > .mobile-settings-section > h3 { display: none; }
 @media (prefers-reduced-motion: reduce) {
+  .mobile-swipe-row[data-swipe-committing] .mobile-conversation-row > .mobile-swipe-action,
   .mobile-history .mobile-conversation-row > .mobile-swipe-action,
   .mobile-settings-group > summary svg { transition: none; }
 }

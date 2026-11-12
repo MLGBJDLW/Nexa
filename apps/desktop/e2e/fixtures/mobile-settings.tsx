@@ -33,6 +33,7 @@ export function renderMobileSettings(kind = 'web') {
   (window as any).__TAURI_INTERNALS__ = {
     invoke: async (command: string, args: any) => {
       calls.push({ command, args });
+      if (command === 'mobile_storage' && args.action === 'locations') return {data:'/phone/data',cache:'/phone/cache'};
       if (command === 'mobile_storage') return {totalBytes:1024,categories:[{id:'chats',bytes:1024}],activeConversations:1,archivedConversations:0};
       if (command === 'mobile_speech') {
         if (args.action === 'configure') { speech = { ...speech, ...args }; return speech; }
@@ -49,7 +50,9 @@ export function renderMobileSettings(kind = 'web') {
   document.body.appendChild(host);
   const storage = { page:async()=>({entries:[{id:'chat',title:'Saved phone conversation'}],next:null}), archive:async(ids:string[])=>calls.push({action:'archive',ids}),remove:async(ids:string[])=>calls.push({action:'remove',ids}) } as unknown as StorageService;
   if (kind === 'all') {
-    const saved = {id:'imported', name:'Imported account', provider:'legacy_protocol', model:'private-model', baseUrl:'https://models.example/v1'};
+    const saved = new URLSearchParams(location.search).has('gated')
+      ? {id:'imported', name:'Imported account', provider:'anthropic', model:'claude-mythos-5-2', baseUrl:'https://api.anthropic.com/v1'}
+      : {id:'imported', name:'Imported account', provider:'legacy_protocol', model:'private-model', baseUrl:'https://models.example/v1'};
     createRoot(host).render(<I18nProvider><PhoneSettingsSheet open state={{version:'fixture',settings:null,activeConnectionId:saved.id,connections:[saved],hosts:[],capabilities:{accessibility:true,notifications:true}}} syncBusy={{}} syncErrors={{}} onSync={async()=>({supported:true,checkedAt:'',connections:0,received:0,sent:0,conflicts:0,deviceOnly:0})} onClose={()=>{}} onChanged={async()=>{}} onForgot={()=>{}}/></I18nProvider>);
     return;
   }

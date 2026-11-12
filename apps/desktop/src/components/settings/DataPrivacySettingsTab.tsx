@@ -8,12 +8,14 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Section, StatCard } from './SettingsSection';
 import { StorageUsageCard } from './StorageUsageCard';
+import type { ReactNode } from 'react';
 
 interface FtsProgress {
   operation?: string | null;
 }
 
 interface DataPrivacySettingsTabProps {
+  storageLocation: ReactNode;
   stats: IndexStats | null;
   rebuildLoading: boolean;
   optimizeLoading: boolean;
@@ -93,6 +95,7 @@ const REDACT_RULE_EXAMPLES: Array<RedactRule & { labelKey: TranslationKey }> = [
 ];
 
 export function DataPrivacySettingsTab({
+  storageLocation,
   stats,
   rebuildLoading,
   optimizeLoading,
@@ -132,6 +135,7 @@ export function DataPrivacySettingsTab({
   return (
     <>
       <StorageUsageCard />
+      {storageLocation}
 
       <Section
         icon={<Database size={20} />}
