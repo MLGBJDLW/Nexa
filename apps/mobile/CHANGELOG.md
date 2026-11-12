@@ -2,19 +2,17 @@
 
 ## [0.3.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.5...nexa-mobile-v0.3.6) (2026-11-12)
 
+### Improvements
 
-### Features
+- Update bundled SQLite to fix a disclosed WAL memory-exposure vulnerability, preserving existing database compatibility.
 
-* **android:** add screenshot and translation overlay gestures ([aae5175](https://github.com/MLGBJDLW/Nexa/commit/aae51753aedee65cc00eece359eb075a83038c3b))
-* **app:** improve mobile actions, task completion and token metrics ([8d7ab47](https://github.com/MLGBJDLW/Nexa/commit/8d7ab479a90271aaa2212918fde4a7914e1687fe))
-* **app:** improve mobile actions, task completion and token metrics ([#542](https://github.com/MLGBJDLW/Nexa/issues/542)) ([8d7ab47](https://github.com/MLGBJDLW/Nexa/commit/8d7ab479a90271aaa2212918fde4a7914e1687fe))
-* **mobile:** fill swipe actions and separate data privacy settings ([d4ffa75](https://github.com/MLGBJDLW/Nexa/commit/d4ffa75395bb50082c8539121d33cc3d2d41d9a2))
-
-
-### Bug Fixes
-
-* **deps:** update bundled SQLite and vulnerable runtime dependencies ([916fd94](https://github.com/MLGBJDLW/Nexa/commit/916fd94c5e52bf8d643b038b3c40eef32d682353))
-* **mobile:** respect model eligibility when choosing defaults ([fcd3642](https://github.com/MLGBJDLW/Nexa/commit/fcd36423ece4515bb32e902fd10e4b53a3f6a8d7))
+- Expand archive, restore, and delete gestures across the entire conversation row, with reduced-motion support.
+- Move storage usage categories and storage locations into the Data & Privacy settings tab.
+- Add double-tap screenshots and a long-press action menu to the Android floating assistant while preserving drag-to-dock behavior.
+- Open screen translations as editable chat drafts, preserving existing input and protecting sensitive screens.
+- Prevent finished tasks from repeatedly continuing without new tool progress.
+- Refresh verified provider models and endpoint-specific reasoning settings.
+- Apply shared eligibility rules to automatic model selection while preserving explicitly saved models.
 
 ## [0.3.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.4...nexa-mobile-v0.3.5) (2026-11-07)
 
