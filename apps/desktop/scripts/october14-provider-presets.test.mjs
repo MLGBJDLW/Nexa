@@ -246,3 +246,17 @@ test('November 4 hosted reasoning and Voyage aliases follow their endpoint contr
   assert.equal(model('siliconflow','zai-org/GLM-4.5V').status,'deprecated');
   for(const row of read('embedding-provider-presets').find(x=>x.id==='openrouter').models.filter(x=>x.id.startsWith('mongodb/'))) assert(row.aliases.includes(row.id.replace('mongodb/','voyageai/')));
 });
+
+test('November 12 routed Gemini Decisions remains opt-in on the supported Decisions endpoint', () => {
+  const decisions = read('system-one-provider-presets');
+  const router = decisions.find(row => row.id === 'openrouter');
+  const model = router.models.find(row => row.id === 'google/gemini-decision-1');
+  assert.equal(router.baseUrl, 'https://openrouter.ai/api/v1');
+  assert.equal(router.models[0].id, 'nace-ai/drex-max-finance');
+  assert.equal(model.recommended, false);
+  assert.equal(model.contextTokens, 262144);
+  assert.deepEqual(model.inputModalities, ['text', 'image']);
+  assert.deepEqual(model.outputModalities, ['decisions']);
+  assert.equal(decisions.some(row => row.id === 'google'), false, 'native Google needs a separate wire adapter');
+  assert.equal(providers.some(row => row.models?.some(model => model.id === 'google/gemini-decision-1')), false);
+});
