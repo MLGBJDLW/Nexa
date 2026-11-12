@@ -21,6 +21,16 @@
 * **mobile:** respect model eligibility when choosing defaults ([fcd3642](https://github.com/MLGBJDLW/Nexa/commit/fcd36423ece4515bb32e902fd10e4b53a3f6a8d7))
 * **models:** distinguish retired video routes from deprecations ([0b0dcd9](https://github.com/MLGBJDLW/Nexa/commit/0b0dcd979574308d2fe45e28a3c642d51a362e85))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 8d7ab479a90271aaa2212918fde4a7914e1687fe -->
+
+### What's Changed
+* feat(app): improve mobile actions, task completion and token metrics by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/542
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.5...nexa-monorepo-v0.19.6
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.4...nexa-monorepo-v0.19.5) (2026-11-07)
 
 ### Fixes
