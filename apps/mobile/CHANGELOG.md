@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.5...nexa-mobile-v0.3.6) (2026-11-12)
+
+### Improvements
+
+- Update bundled SQLite to fix a disclosed WAL memory-exposure vulnerability, preserving existing database compatibility.
+
+- Expand archive, restore, and delete gestures across the entire conversation row, with reduced-motion support.
+- Move storage usage categories and storage locations into the Data & Privacy settings tab.
+- Add double-tap screenshots and a long-press action menu to the Android floating assistant while preserving drag-to-dock behavior.
+- Open screen translations as editable chat drafts, preserving existing input and protecting sensitive screens.
+- Prevent finished tasks from repeatedly continuing without new tool progress.
+- Refresh verified provider models and endpoint-specific reasoning settings.
+- Apply shared eligibility rules to automatic model selection while preserving explicitly saved models.
+
 ## [0.3.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.4...nexa-mobile-v0.3.5) (2026-11-07)
 
 ### Fixes
