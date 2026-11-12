@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.19.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.5...nexa-monorepo-v0.19.6) (2026-11-12)
+
+### Improvements
+
+- Stop repeated follow-up answers after a task is finished while preserving productive long-running agent work.
+- Show request-level token throughput in desktop context details, with correct persistence and conversation isolation.
+- Consolidate storage categories and storage locations under Data & Privacy.
+- Fill mobile browser conversation rows during archive, restore, and delete gestures, respecting reduced motion.
+- Refresh verified native and OpenRouter model routes, endpoint-specific reasoning and token budgets, and retirement states.
+- Update bundled SQLite and affected runtime dependencies to address disclosed vulnerabilities while preserving database compatibility.
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 8d7ab479a90271aaa2212918fde4a7914e1687fe -->
+
+### What's Changed
+* feat(app): improve mobile actions, task completion and token metrics by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/542
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.5...nexa-monorepo-v0.19.6
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.5](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.4...nexa-monorepo-v0.19.5) (2026-11-07)
 
 ### Fixes
