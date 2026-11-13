@@ -12,6 +12,18 @@
 - Refresh verified provider models and endpoint-specific Gemini reasoning, preserving saved model identities and retirement diagnostics.
 - Use Nexa's own logo in the workspace menu and keep the usage tooltip from intercepting newly streamed replies.
 
+## [0.19.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.6...nexa-monorepo-v0.19.7) (2026-11-13)
+
+
+### Features
+
+* **app:** add cross-device screen assistance and responsive persistent tools ([#547](https://github.com/MLGBJDLW/Nexa/issues/547)) ([ea08132](https://github.com/MLGBJDLW/Nexa/commit/ea08132dd99c28aba6b58d5164abc202bb78a06a))
+
+
+### Bug Fixes
+
+* **catalog:** add Gemini Decisions and restore release checks ([#546](https://github.com/MLGBJDLW/Nexa/issues/546)) ([c2527c3](https://github.com/MLGBJDLW/Nexa/commit/c2527c33a1863ee239a02000ada7be5fd49ca038))
+
 ## [0.19.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.5...nexa-monorepo-v0.19.6) (2026-11-12)
 
 ### Improvements
