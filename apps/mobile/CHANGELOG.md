@@ -1,15 +1,26 @@
 # Changelog
 
-## Unreleased
+## [0.3.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.6...nexa-mobile-v0.3.7) (2026-11-13)
 
 ### Improvements
 
-- View and control an explicitly shared Windows window from paired phone chat, with touch-sized controls, text input, zoom and a visible Stop action.
-- Open Android screen assistance in a compact floating input panel with continuous preview. Translate a captured image using text regions drawn over that image, with a tap to inspect the original.
-- Show a non-interactive edge glow while Nexa controls the phone, honoring reduced motion and excluding assistant overlays from captured frames.
+- View and control an explicitly shared Windows window from paired phone chat, with touch-friendly controls, text input, keyboard actions, scrolling, zoom and Stop.
+- Open screen assistance in a compact floating image panel with a question field and optional continuous preview.
+- Translate a frozen screenshot directly over its original text regions. Tap a translated region to briefly reveal the original; submitted questions and answers remain available in normal conversation history.
+- Show a non-interactive animated border while Nexa applies phone input. Assistant feedback is hidden during capture, and preview frames remain in memory.
+- Let an authorized desktop view and control the Android screen, including focused text entry while keyboard pixels remain masked.
 - Persist phone action receipts and uncertain outcomes without replaying input after interruption.
-- Keep storage scans independent of conversation/model loading and reuse the shared usage snapshot.
-- Refresh verified provider/model routes while preserving saved selections and account-specific discovery.
+- Keep storage scans independent of conversation and model loading, reduce repeated web requests, and refresh verified provider/model routes while preserving saved selections.
+
+### Screen-assistance availability
+
+Screenshot assistance requires Android 11 or newer, accessibility permission and an unobstructed app with a complete, non-sensitive accessibility tree. Protected content is excluded; pixels outside the observed app and keyboard pixels are masked. Translation requires a suitable vision model, and translation quality and placement depend on that model.
+
+Paired screen views refresh approximately once per second after each capture completes. Translation applies to the submitted frozen image rather than continuously translating every preview frame. Closing the assistant cancels pending requests; screen-only assistant requests cannot call tools.
+
+### Features
+
+* **app:** add cross-device screen assistance and responsive persistent tools ([#547](https://github.com/MLGBJDLW/Nexa/issues/547)) ([ea08132](https://github.com/MLGBJDLW/Nexa/commit/ea08132dd99c28aba6b58d5164abc202bb78a06a))
 
 ## [0.3.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.5...nexa-mobile-v0.3.6) (2026-11-12)
 
