@@ -14,23 +14,38 @@ const protocolNames: Record<LiveProtocol, string> = { openAiRealtime: 'OpenAI Re
 const field = 'w-full rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50';
 const button = 'inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 disabled:pointer-events-none';
 
-export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTransport; onSendToChat: (text: string) => void }) {
+interface LiveSetup { connectionId?: string; summaryId?: string; purpose?: string; microphone?: boolean; interval?: number; protocol?: LiveProtocol | ''; model?: string; endpoint?: string; observerModel?: TurnModelSelection | null; summaryModel?: TurnModelSelection | null }
+function savedSetup(key?: string): LiveSetup {
+  try {
+    const value = JSON.parse(localStorage.getItem(`nexa.live.setup:${key ?? 'preview'}`) || '{}');
+    const text = (key: string) => typeof value[key] === 'string' ? value[key] : '';
+    const selection = (input: unknown): TurnModelSelection | null => {
+      if (!input || typeof input !== 'object' || !('model' in input) || typeof input.model !== 'string' || !input.model.trim()) return null;
+      const record = input as Partial<TurnModelSelection>;
+      return {model:input.model,reasoningEnabled:typeof record.reasoningEnabled === 'boolean' ? record.reasoningEnabled : null,reasoningEffort:typeof record.reasoningEffort === 'string' ? record.reasoningEffort : null,thinkingBudget:typeof record.thinkingBudget === 'number' && Number.isFinite(record.thinkingBudget) && record.thinkingBudget >= 0 ? Math.floor(record.thinkingBudget) : null};
+    };
+    return {connectionId:text('connectionId'),summaryId:text('summaryId'),purpose:text('purpose'),model:text('model'),endpoint:text('endpoint'),protocol:['openAiRealtime','geminiLive','qwenRealtime'].includes(value.protocol) ? value.protocol : '',observerModel:selection(value.observerModel),summaryModel:selection(value.summaryModel),microphone: typeof value.microphone === 'boolean' ? value.microphone : true, interval: Number.isFinite(value.interval) ? Math.min(30,Math.max(1,value.interval)) : 2};
+  } catch { return {}; }
+}
+
+export function LiveWorkspace({ transport, onSendToChat, background = false, onReturn }: { transport: LiveTransport; onSendToChat: (text: string) => void; background?: boolean; onReturn?: () => void }) {
   const { t } = useTranslation();
   const live = useLiveSession(transport);
   const monitors = useDesktopMonitors(Boolean(transport.nativeScreenCapture));
   const desktopWindows = useDesktopWindows(Boolean(transport.nativeScreenCapture));
+  const [saved] = useState(() => savedSetup(transport.preferenceKey));
   const [connections, setConnections] = useState<LiveConnection[]>([]);
-  const [connectionId, setConnectionId] = useState('');
-  const [summaryId, setSummaryId] = useState('');
-  const [observerModel, setObserverModel] = useState<TurnModelSelection | null>(null);
-  const [summaryModel, setSummaryModel] = useState<TurnModelSelection | null>(null);
-  const [protocol, setProtocol] = useState<LiveProtocol | ''>('');
-  const [model, setModel] = useState('');
-  const [endpoint, setEndpoint] = useState('');
-  const [microphone, setMicrophone] = useState(true);
+  const [connectionId, setConnectionId] = useState(saved.connectionId || '');
+  const [summaryId, setSummaryId] = useState(saved.summaryId || '');
+  const [observerModel, setObserverModel] = useState<TurnModelSelection | null>(saved.observerModel ?? null);
+  const [summaryModel, setSummaryModel] = useState<TurnModelSelection | null>(saved.summaryModel ?? null);
+  const [protocol, setProtocol] = useState<LiveProtocol | ''>(saved.protocol || '');
+  const [model, setModel] = useState(saved.model || '');
+  const [endpoint, setEndpoint] = useState(saved.endpoint || '');
+  const [microphone, setMicrophone] = useState(saved.microphone ?? true);
   const [source, setSource] = useState<LiveVideoSource>('none');
-  const [purpose, setPurpose] = useState('');
-  const [interval, setInterval] = useState(2);
+  const [purpose, setPurpose] = useState(saved.purpose || '');
+  const [interval, setInterval] = useState(saved.interval || 2);
   const [summary, setSummary] = useState('');
   const [summarizing, setSummarizing] = useState(false);
   const [history, setHistory] = useState<LiveRecordRef[]>([]);
@@ -40,16 +55,27 @@ export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTran
   const mounted = useRef(true);
   const selected = connections.find(item => item.id === connectionId);
   useEffect(() => {
+    if (!transport.preferenceKey) return;
+    const timer = window.setTimeout(() => {
+      try { localStorage.setItem(`nexa.live.setup:${transport.preferenceKey}`, JSON.stringify({connectionId,summaryId,observerModel,summaryModel,protocol,model,endpoint,purpose,microphone,interval})); } catch { /* Storage may be disabled. */ }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [connectionId, summaryId, observerModel, summaryModel, protocol, model, endpoint, purpose, microphone, interval, transport.preferenceKey]);
+  useEffect(() => {
+    if (selected && protocol && !selected.nativeProtocols.includes(protocol) && !live.active) { setProtocol(''); setModel(''); }
+  }, [selected, protocol, live.active]);
+  useEffect(() => {
     let cancelled = false; mounted.current = true; setLoading(true);
     void Promise.all([transport.connections(), transport.list()]).then(([items, records]) => {
       if (cancelled) return;
       setConnections(items); setHistory(records);
       const initial = items.find(item => item.isDefault) || items[0];
-      setConnectionId(current => current || initial?.id || ''); setSummaryId(current => current || initial?.id || '');
+      setConnectionId(current => { if (items.some(item => item.id === current)) return current; setObserverModel(null); return initial?.id || ''; });
+      setSummaryId(current => { if (items.some(item => item.id === current)) return current; setSummaryModel(null); return initial?.id || ''; });
     }).catch(error => { if (!cancelled) live.setError(String(error)); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; mounted.current = false; };
   }, [transport, loadRevision, live.setError]);
-  useEffect(() => { if (preview.current) preview.current.srcObject = live.preview; }, [live.preview]);
+  useEffect(() => { if (preview.current) preview.current.srcObject = live.preview; }, [live.preview, background]);
   async function stop() {
     await live.stop();
     try { const records = await transport.list(); if (mounted.current) setHistory(records); } catch (error) { if (mounted.current) live.setError(String(error)); }
@@ -64,6 +90,7 @@ export function LiveWorkspace({ transport, onSendToChat }: { transport: LiveTran
   }
   const status = live.reconnecting && live.active ? 'connecting' : live.snapshot?.phase ?? 'stopped';
   const evidence = summary || live.snapshot?.entries.map(entry => `[${Math.floor(entry.atMs / 1000)}s · ${entry.role}${entry.complete ? '' : ' · partial'}] ${entry.text}`).join('\n') || '';
+  if (background) return live.active ? <div role="status" className="fixed bottom-5 left-1/2 z-50 flex max-w-[calc(100vw-6rem)] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-accent/30 bg-surface-1 p-3 text-xs shadow-xl"><Radio size={16} className="text-accent motion-safe:animate-pulse"/><span>{t('remote.liveBackground')}</span><button className={button} onClick={onReturn}>{t('remote.liveReturn')}</button><button className={button} onClick={() => void stop()}>{t('live.stop')}</button></div> : null;
   return <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 p-4 text-text-primary sm:p-7" data-testid="live-workspace">
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div><div className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-[0.14em] text-accent"><Radio size={15} /> NEXA LIVE</div><h1 className="text-2xl font-semibold">{t('live.title')}</h1><p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-secondary">{t('live.subtitle')}</p></div>

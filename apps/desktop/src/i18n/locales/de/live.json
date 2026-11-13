@@ -32,7 +32,7 @@
   "stopping": "Wird beendet…",
   "stopped": "Beendet",
   "error": "Getrennt",
-  "privacy": "Eingaben werden erst nach dem Start an die gewählten Anbieter gesendet. Rohes Audio und Video werden nicht gespeichert. Textaufzeichnungen bleiben erhalten. Beim Verlassen endet die Aufnahme.",
+  "privacy": "Eingaben werden erst nach dem Start an die gewählten Anbieter gesendet. Rohes Audio und Video werden nicht gespeichert. Textaufzeichnungen bleiben erhalten. Beenden Sie die Freigabe mit Aufnahme stoppen.",
   "preview": "Aufnahmevorschau",
   "observations": "Live-Protokoll",
   "frames": "Analysierte Bilder",

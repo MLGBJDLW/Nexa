@@ -32,7 +32,7 @@
   "stopping": "Arrêt…",
   "stopped": "Arrêté",
   "error": "Déconnecté",
-  "privacy": "Les entrées sont envoyées aux services choisis après le démarrage. Le son et la vidéo bruts ne sont pas enregistrés. Les textes sont conservés. Quitter cette page arrête la capture.",
+  "privacy": "Les entrées sont envoyées aux services choisis après le démarrage. Le son et la vidéo bruts ne sont pas enregistrés. Les textes sont conservés. Utilisez Arrêter la capture pour terminer le partage.",
   "preview": "Aperçu de la capture",
   "observations": "Compte rendu en direct",
   "frames": "Images analysées",

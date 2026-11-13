@@ -32,7 +32,7 @@
   "stopping": "Deteniendo…",
   "stopped": "Detenido",
   "error": "Desconectado",
-  "privacy": "Las entradas se envían a los servicios elegidos al iniciar. No se guarda audio ni vídeo original. Se conservan los textos. Salir de esta página detiene la captura.",
+  "privacy": "Las entradas se envían a los servicios elegidos al iniciar. No se guarda audio ni vídeo original. Se conservan los textos. Usa Detener captura para finalizar la transmisión.",
   "preview": "Vista previa",
   "observations": "Registro en directo",
   "frames": "Fotogramas analizados",
