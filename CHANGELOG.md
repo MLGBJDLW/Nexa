@@ -24,6 +24,17 @@
 
 * **catalog:** add Gemini Decisions and restore release checks ([#546](https://github.com/MLGBJDLW/Nexa/issues/546)) ([c2527c3](https://github.com/MLGBJDLW/Nexa/commit/c2527c33a1863ee239a02000ada7be5fd49ca038))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at ea08132dd99c28aba6b58d5164abc202bb78a06a -->
+
+### What's Changed
+* fix(catalog): add Gemini Decisions and restore release checks by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/546
+* feat(app): add cross-device screen assistance and responsive persistent tools by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/547
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.6...nexa-monorepo-v0.19.7
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.5...nexa-monorepo-v0.19.6) (2026-11-12)
 
 ### Improvements
