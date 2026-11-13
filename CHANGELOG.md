@@ -1,18 +1,23 @@
 # Changelog
 
-## Unreleased
+## [0.19.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.6...nexa-monorepo-v0.19.7) (2026-11-13)
 
 ### Improvements
 
-- View and control a locally shared Windows window from a paired phone, and open a paired Android phone screen on desktop. Keep explicit view/control grants, fresh observations, cancellation and a visible Stop control.
-- Keep desktop Live capture running while navigating between pages, with a persistent status banner and saved setup preferences.
-- Reuse web transports, resolve independent search redirects concurrently, and coalesce identical reads while preserving evidence, extraction and conditional freshness validation.
-- Persist phone input receipts before dispatch, retain uncertain outcomes after interruption, and prevent blind input replay.
-- Isolate storage accounting from interactive database reads and reuse completed usage snapshots on desktop and phone.
-- Refresh verified provider models and endpoint-specific Gemini reasoning, preserving saved model identities and retirement diagnostics.
-- Use Nexa's own logo in the workspace menu and keep the usage tooltip from intercepting newly streamed replies.
+- View and control an explicitly shared Windows window from a paired phone or browser. Select one window locally, grant control separately, and use touch-friendly input, scrolling, keyboard controls and zoom.
+- View an authorized Android phone from desktop, with taps, focused text entry, scrolling, Back and Home. Stop, collapse and disconnect cancel the viewer and pending input.
+- Keep desktop Live capture running while navigating between pages, with a persistent Return to Live / Stop banner and saved connection, model and capture preferences.
+- Reduce repeated web requests and resolve independent search redirects concurrently while preserving source extraction, freshness validation and evidence.
+- Persist phone action receipts and interrupted outcomes without automatically replaying uncertain input.
+- Keep storage accounting separate from conversation and model loading, and reuse completed usage snapshots on desktop and phone.
+- Refresh verified provider/model routes and endpoint-specific reasoning settings while preserving saved model selections and retirement diagnostics.
+- Use Nexa's own workspace-menu logo, prevent usage tooltips from intercepting streamed replies, and restore Windows release-build compatibility with the updated Rust toolchain.
 
-## [0.19.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.6...nexa-monorepo-v0.19.7) (2026-11-13)
+### Screen-sharing availability
+
+Native desktop window sharing and control currently require Windows. Desktop can also view an Android phone that explicitly enabled phone control. Other desktop platforms retain supported Live system-screen capture; arbitrary iOS cross-app control is not available.
+
+Paired screen views refresh approximately once per second after each capture completes. They support deliberate interaction rather than high-frame-rate video or continuous dragging. Screen grants and OS capture permissions are not restored after restart.
 
 
 ### Features
