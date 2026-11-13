@@ -1,5 +1,5 @@
 {
-  "reason": "Adopt upstream zip 9 security fixes without unrelated downstream API upgrades",
+  "reason": "Retain locked runtime APIs while applying upstream security and Cargo compatibility fixes",
   "packages": [
     {
       "crate": "calamine",
@@ -39,6 +39,17 @@
       "registryChecksum": "806d9dac662c2e4594ff03c647a552f2c9bd544e7d0f683ec58f872f952ce4af",
       "patchedFiles": [
         "Cargo.toml"
+      ]
+    },
+    {
+      "crate": "ort-sys",
+      "version": "2.0.0-rc.12",
+      "registryChecksum": "d7b497d21a8b6fbb4b5a544f8fadb77e801a09ae0add9e411d31c6f89e3c1e90",
+      "upstreamFix": "https://github.com/pykeio/ort/commit/eed56816088613b24f8d1a5bf9ae0fd43d8d6a70",
+      "patchedFiles": [
+        "build/dynamic_link.rs",
+        "build/main.rs",
+        "build/vars.rs"
       ]
     }
   ],

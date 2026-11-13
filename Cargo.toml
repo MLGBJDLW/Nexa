@@ -14,6 +14,7 @@ exclude = ["vendor/rust/*", "apps/mobile/src-tauri"]
 calamine = { path = "vendor/rust/calamine" }
 candle-core = { path = "vendor/rust/candle-core" }
 github-copilot-sdk = { path = "vendor/rust/github-copilot-sdk" }
+ort-sys = { path = "vendor/rust/ort-sys" }
 tauri-plugin-updater = { path = "vendor/rust/tauri-plugin-updater" }
 
 [workspace.package]

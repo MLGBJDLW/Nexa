@@ -103,17 +103,15 @@ impl Database {
 }
 
 fn is_link(metadata: &std::fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        if metadata.file_attributes() & 0x400 != 0 {
-            return true;
-        }
+        metadata.file_type().is_symlink() || metadata.file_attributes() & 0x400 != 0
     }
-    false
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
 }
 
 /// Run on a blocking worker. A partial scan is explicit and never counts a

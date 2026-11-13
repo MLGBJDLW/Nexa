@@ -1371,11 +1371,7 @@ async fn send_gemini_content_chunks(
             .is_some_and(|delta| !delta.is_empty())
         || chunk.finish_reason.is_some()
         || chunk.usage.is_some();
-    if has_payload && tx.send(Ok(chunk)).await.is_err() {
-        return false;
-    }
-
-    true
+    !has_payload || tx.send(Ok(chunk)).await.is_ok()
 }
 
 type GeminiReplaySlot = Arc<std::sync::Mutex<Option<super::provider_turn::ProviderReplayPayload>>>;
