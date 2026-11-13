@@ -115,6 +115,29 @@ It uses the enabled accessibility service's overlay and requires no separate
 draw-over-other-apps permission. The app does not promise survival of a
 force-stop, reboot, vendor power restriction or permission revocation.
 
+The bubble's screen and translation actions open an image panel over the current
+app, with a compact question field and optional continuous preview. Translate
+submits a frozen screenshot and places translated text over its original regions;
+tap a translated region to reveal the original briefly. Translation quality and
+positioning depend on the chosen vision model. Answers remain in a normal saved
+conversation, while preview frames stay in memory. Explicit submissions use the
+usual image-attachment storage and selected model provider. These screen-only
+requests have no tools available. Close cancels a pending answer.
+
+A non-touchable animated border shows when Nexa is applying phone input. The
+feedback and assistant panel are hidden during capture. Screenshots require one
+unobstructed app with a complete non-sensitive accessibility tree; close split
+screen, picture-in-picture and overlapping system panels when requested. Pixels
+outside the observed app and keyboard pixels are masked, preserving focused text
+entry. Protected content cannot be translated or shared through this panel.
+
+Paired desktop users can open **View phone screen** in Connect after Android has
+enabled that computer's phone control. Conversely, a phone's screen tab can view
+and control a Windows window explicitly shared from Connect. These views refresh
+roughly once per second, with pause, zoom, touch controls and Stop; they are not
+high-frame-rate video streams. Stopping, collapsing or disconnecting a phone
+viewer cancels its pending control session. Input is never replayed automatically.
+
 The distribution target is a signed GitHub APK. This is not a claim of Google
 Play acceptance for autonomous accessibility-based control. iOS and native
 HarmonyOS need their own platform adapters, signing and device validation;

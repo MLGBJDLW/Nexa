@@ -143,9 +143,14 @@ use transport adapters to reach the same desktop-hosted service.
 - Capture pauses during transport loss. Reconnection can resume the same
   session within its lease; expiration ends that capture session and requires
   a new start. Interruptions remain visible in the observation record.
-- Leaving Live, revoking the device, or a capture failure releases the acquired
-  microphone/camera resources. Cleanup also covers inputs acquired while an
-  asynchronous start is still pending.
+- On desktop, navigating away from Live keeps the current session running. A
+  persistent banner provides Return to Live and Stop. Use Stop to end sharing;
+  closing the app ends the session. Browser/phone route unmount, device revocation
+  and capture failure still release their acquired resources. Cleanup also covers
+  inputs acquired while an asynchronous start is pending.
+- Connection, model, protocol/endpoint, purpose, microphone and interval settings
+  are remembered per host. Source selection and capture/control permissions are
+  never restored automatically after restart.
 - Stop persists bounded text observations and summaries, not raw audio/video.
   Records retain at most 160 entries of at most 8,000 characters each and report
   omitted older entries. Summaries must account for gaps and truncation.

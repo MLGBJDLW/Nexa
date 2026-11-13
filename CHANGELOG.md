@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- View and control a locally shared Windows window from a paired phone, and open a paired Android phone screen on desktop. Keep explicit view/control grants, fresh observations, cancellation and a visible Stop control.
+- Keep desktop Live capture running while navigating between pages, with a persistent status banner and saved setup preferences.
+- Reuse web transports, resolve independent search redirects concurrently, and coalesce identical reads while preserving evidence, extraction and conditional freshness validation.
+- Persist phone input receipts before dispatch, retain uncertain outcomes after interruption, and prevent blind input replay.
+- Isolate storage accounting from interactive database reads and reuse completed usage snapshots on desktop and phone.
+- Refresh verified provider models and endpoint-specific Gemini reasoning, preserving saved model identities and retirement diagnostics.
+- Use Nexa's own logo in the workspace menu and keep the usage tooltip from intercepting newly streamed replies.
+
 ## [0.19.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.5...nexa-monorepo-v0.19.6) (2026-11-12)
 
 ### Improvements

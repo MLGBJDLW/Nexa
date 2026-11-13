@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Improvements
+
+- View and control an explicitly shared Windows window from paired phone chat, with touch-sized controls, text input, zoom and a visible Stop action.
+- Open Android screen assistance in a compact floating input panel with continuous preview. Translate a captured image using text regions drawn over that image, with a tap to inspect the original.
+- Show a non-interactive edge glow while Nexa controls the phone, honoring reduced motion and excluding assistant overlays from captured frames.
+- Persist phone action receipts and uncertain outcomes without replaying input after interruption.
+- Keep storage scans independent of conversation/model loading and reuse the shared usage snapshot.
+- Refresh verified provider/model routes while preserving saved selections and account-specific discovery.
+
 ## [0.3.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.5...nexa-mobile-v0.3.6) (2026-11-12)
 
 ### Improvements

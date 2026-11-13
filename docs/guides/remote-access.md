@@ -2,6 +2,30 @@
 
 [Documentation](../README.md) / [Category overview](README.md)
 
+## Paired screens
+
+In desktop **Connect**, expand a connected device's **Screen** controls and select
+a Windows window. Enable control separately before sharing. The paired phone or
+browser gains a Screen tab for that exact window; it cannot select another source
+or silently renew a grant. The desktop's global sharing banner remains available
+across navigation and provides Stop. Disconnect, revocation and app restart remove
+the grant, including pending starts.
+
+The same panel offers **View phone screen** for an Android phone that enabled this
+computer's phone control. The viewer supports tap, focused text entry, scrolling,
+Back and Home. Stop, collapse and disconnect cancel the viewer and pending input.
+Desktop window controls also provide Focus, Enter, Tab and Escape. Images refresh
+about once per second after each capture completes, pause when hidden and offer
+fit/native-size zoom. This is deliberate screen interaction, not a video-streaming
+or continuous-drag implementation. Actions are never automatically replayed.
+
+Native desktop window sharing/control currently requires Windows. Other desktop
+hosts can use the Live system screen picker where supported and can view an
+authorized Android phone. Android screenshots require Android 11+, accessibility
+permission and an unobstructed non-sensitive app. iOS arbitrary cross-app control
+is not supported. See [Live](LIVE.md) and [Mobile app](MOBILE_APP.md) for capture and
+storage behavior.
+
 Phone access connects a browser to the Nexa desktop runtime. The computer owns
 conversations, model credentials, tools, and Live sessions. Keep Nexa running
 and the computer awake; this is not a separately hosted cloud agent.
