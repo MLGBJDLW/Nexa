@@ -285,6 +285,9 @@ async fn build_remote_runtime(
 }
 #[tauri::command]
 pub async fn stop_remote_cmd(app: AppHandle, state: State<'_, RemoteState>) -> Result<(), String> {
+    app.state::<crate::remote_screen::RemoteScreenState>()
+        .stop_all();
+    crate::app_events::emit_main_window_event(&app, "remote:screen-changed", &());
     state
         .revision
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -440,6 +443,8 @@ impl RemoteHost for DesktopHost {
         vec![
             MODEL_CONNECTION_SYNC_CAPABILITY.into(),
             PHONE_CONTROL_CAPABILITY.into(),
+            #[cfg(windows)]
+            "screen-control-v1".into(),
             "chat-schedules-v1".into(),
             "chat-management-v1".into(),
             "chat-delete-archived-v1".into(),
@@ -466,6 +471,10 @@ impl RemoteHost for DesktopHost {
                 .map_err(|e| e.to_string())?;
         }
         match command {
+            ScreenStatus => Ok(app.state::<crate::remote_screen::RemoteScreenState>().status(owner)),
+            ScreenFrame => crate::remote_screen::frame(app, owner).await,
+            ScreenInput { input } => crate::remote_screen::input(app, owner, input).await,
+            ScreenStop => { app.state::<crate::remote_screen::RemoteScreenState>().stop(owner); crate::app_events::emit_main_window_event(app, "remote:screen-changed", &()); Ok(json!({"active":false})) },
             PhoneControlResult { .. } => Err("Phone results are owned by the authenticated transport.".into()),
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
             ReleasePreview { id } => { app.state::<RemoteState>().server()?.release_html_preview(owner, &id); value(()) },
@@ -664,10 +673,20 @@ impl RemoteHost for DesktopHost {
         }
     }
     async fn disconnected(&self, owner: &str) {
+        self.app
+            .state::<crate::remote_screen::RemoteScreenState>()
+            .stop(owner);
+        crate::app_events::emit_main_window_event(&self.app, "remote:screen-changed", &());
         self.app.state::<LiveState>().manager.stop_owner(owner);
         commands::remote_voice::stop_owner(&self.app, owner).await;
     }
     async fn connection_changed(&self, owner: &str, connected: bool) {
+        if !connected {
+            self.app
+                .state::<crate::remote_screen::RemoteScreenState>()
+                .stop(owner);
+            crate::app_events::emit_main_window_event(&self.app, "remote:screen-changed", &());
+        }
         self.app
             .state::<LiveState>()
             .manager

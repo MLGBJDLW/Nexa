@@ -464,6 +464,7 @@ jobs:
         run: >-
           cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
           desktop_agent_session::stop::
+          remote_screen::tests::
           recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
           desktop_stop_rejects_queued_and_future_approvals_without_cancelling_chat
           completed_agent_appearance_reaches_native_change_notification
@@ -552,6 +553,7 @@ jobs:
       - name: Windows terminal and browser contracts
         run: >-
           cargo test -p nexa-desktop --no-default-features --bin nexa-desktop --
+          remote_screen::tests::
           desktop_stop_rejects_queued_and_future_approvals_without_cancelling_chat
           recovery_finalization_persists_suspended_artifacts_and_preserves_resumed_runs
           command_dispatch::tests::

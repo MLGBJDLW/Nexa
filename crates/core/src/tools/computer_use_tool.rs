@@ -195,6 +195,45 @@ pub fn capture_user_share_window(source_id: &str) -> Result<String, CoreError> {
     }
 }
 
+/// Capture a locally selected, identity-bound window for a paired human viewer.
+/// Reuses the same observation registry and stale-input checks as Computer Use.
+pub async fn observe_user_share_window(
+    source_id: &str,
+    scope: &str,
+) -> Result<serde_json::Value, CoreError> {
+    if source_id.len() > 16_384 {
+        return Err(CoreError::InvalidInput(
+            "Invalid window sharing source".into(),
+        ));
+    }
+    let bytes = STANDARD
+        .decode(source_id)
+        .map_err(|error| CoreError::InvalidInput(error.to_string()))?;
+    let expected: WindowSnapshot = serde_json::from_slice(&bytes)?;
+    let capture =
+        blocking(move || platform::capture_window(&expected, CaptureOptions::pixels_only()))
+            .await?;
+    let observation_id = remember_observation(
+        Some(scope),
+        vec![ObservedWindow {
+            snapshot: capture.snapshot.clone(),
+            image_width: Some(capture.image_width),
+            image_height: Some(capture.image_height),
+            native_image_width: Some(capture.native_image_width),
+            native_image_height: Some(capture.native_image_height),
+            screenshot_signature: screenshot_signature(&capture.png),
+            screenshot_guard: screenshot_guard(&capture.png),
+            elements: capture.elements.clone(),
+        }],
+    )?;
+    Ok(
+        serde_json::json!({"observationId": observation_id, "windowId": capture.snapshot.id,
+        "title": capture.snapshot.title, "controlAvailable": !capture.snapshot.observation_only,
+        "image": {"base64": STANDARD.encode(capture.png), "mimeType": "image/png",
+            "width": capture.image_width, "height": capture.image_height}}),
+    )
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct ElementBounds {

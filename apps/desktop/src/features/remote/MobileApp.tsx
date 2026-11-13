@@ -6,6 +6,7 @@ import { LiveWorkspace } from '../live/LiveWorkspace';
 import { RemoteClient, remoteRouteHeaders, type PairedRemote, type RemoteConnection } from './remoteClient';
 import { remoteLiveTransport } from './remoteLiveTransport';
 import { RemoteChat } from './RemoteChat';
+import { RemoteScreen } from './RemoteScreen';
 import { remoteButton, remoteField } from './remoteUi';
 import { THEMES } from '../../lib/theme';
 import { useRemoteAppearance } from './useRemoteAppearance';
@@ -34,7 +35,7 @@ export function MobileApp() {
   const [name, setName] = useState('');
   const [pairingBusy, setPairingBusy] = useState(false);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'chat' | 'live'>('chat');
+  const [tab, setTab] = useState<'chat' | 'live' | 'screen'>('chat');
   const [settings, setSettings] = useState(false);
   const [draft, setDraft] = useState('');
   const [connection, setConnection] = useState<RemoteConnection>({
@@ -264,10 +265,10 @@ export function MobileApp() {
       ) : (
         <>
           <nav
-            className="mx-auto grid w-full max-w-3xl grid-cols-2 gap-2 px-4 pt-4"
+            className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-4 pt-4"
             aria-label={t('remote.navigation')}
           >
-            {(['chat', 'live'] as const).map((value) => (
+            {(['chat', 'live', ...(client.paired.manifest.capabilities?.includes('screen-control-v1') ? ['screen'] as const : [])] as const).map((value) => (
               <button
                 key={value}
                 className={`${remoteButton} ${tab === value ? '!border-accent/30 !bg-accent/10 text-accent' : 'text-text-secondary'}`}
@@ -275,16 +276,17 @@ export function MobileApp() {
                 onClick={() => setTab(value)}
               >
                 {value === 'chat' ? <MessageCircle size={17} /> : <Wifi size={17} />}
-                {value === 'chat' ? t('remote.chat') : 'Live'}
+                {value === 'chat' ? t('remote.chat') : value === 'screen' ? t('remote.screenTitle') : 'Live'}
               </button>
             ))}
           </nav>
           <RemotePreviewProvider client={client}>
-          {tab === 'chat' ? (
+          {tab === 'screen' ? <div className="mx-auto w-full max-w-4xl p-3"><RemoteScreen client={client} onClose={() => setTab('chat')}/></div> : tab === 'chat' ? (
             <RemoteChat client={client} initialDraft={draft} onDraftConsumed={draftConsumed} />
           ) : (
             liveTransport && (
               <LiveWorkspace
+                key={liveTransport.preferenceKey}
                 transport={liveTransport}
                 onSendToChat={(text) => {
                   setDraft(text);

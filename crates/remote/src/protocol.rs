@@ -12,6 +12,14 @@ pub const MODEL_CONNECTION_SYNC_CAPABILITY: &str = "model-connection-sync-v1";
     deny_unknown_fields
 )]
 pub enum RemoteCommand {
+    #[serde(rename = "screen.status")]
+    ScreenStatus,
+    #[serde(rename = "screen.frame")]
+    ScreenFrame,
+    #[serde(rename = "screen.input")]
+    ScreenInput { input: Value },
+    #[serde(rename = "screen.stop")]
+    ScreenStop,
     #[serde(rename = "device.control.result")]
     PhoneControlResult {
         request_id: String,
