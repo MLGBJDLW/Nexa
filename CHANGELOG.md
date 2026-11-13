@@ -2,6 +2,15 @@
 
 ## [0.19.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.7...nexa-monorepo-v0.19.8) (2026-11-13)
 
+### Improvements
+
+- Keep long-running agent checkpoints alive during temporary database queue pressure while preserving bounded admission, cancellation and durable completion.
+- Reduce native ACP and subscription streaming overhead with a bounded memory FIFO and ordered SQLite overflow.
+- Keep previously loaded phone conversation turns stable during live streaming, and preserve refreshed attachment and steering metadata.
+- Refresh verified ACP distributions, add Kimi Code, Kiro and OpenCode V2, retire the archived Kimi CLI, and preserve saved Autohand launch compatibility.
+- Add verified HeyGen Decisions choices and announced OpenRouter retirement dates without changing saved model selections.
+- Update locked Quinn dependencies to address published protocol and UDP security advisories without enabling HTTP/3.
+
 
 ### Performance Improvements
 
