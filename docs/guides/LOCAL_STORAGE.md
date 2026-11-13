@@ -2,7 +2,7 @@
 
 [Documentation](../README.md) / [Category overview](README.md)
 
-Open **Settings → Models & Embedding → Storage locations** to inspect the
+Open **Settings → Data & Privacy → Storage locations** to inspect the
 global declaration home, application state directory and managed model folders.
 The embedding provider selector appears above storage and downloads; **Sources →
 Embedding Configuration** opens it directly. Online APIs do not need local model
@@ -21,12 +21,18 @@ external agents retain their own native discovery. See [workspace rules](WORKSPA
 
 ## Database storage
 
-Settings → Models & Embedding and Settings → Data & Privacy show the same
-measured usage bar and category breakdown, including local models, managed
+Settings → Data & Privacy shows the measured usage bar and category breakdown, including local models, managed
 files, conversations, reusable database space and the write-ahead log. Use
 **Manage conversations** to inspect and act on selected conversations. Reusable space can serve future
 writes without shrinking the main file. The diagnostic is read-only and does not
 run VACUUM or delete conversation history.
+
+Storage scans use a separate read-only database connection and a blocking worker,
+so opening this panel does not queue conversation or model reads behind a disk
+scan. Desktop and phone reuse the same completed snapshot for 30 seconds and
+share one pending refresh. A storage mutation invalidates that snapshot; if a
+scan is already running, the panel performs one follow-up refresh. The previous
+result stays visible during refreshes and recoverable errors.
 
 Repeated knowledge-health scans update a stable finding identity instead of
 inserting duplicates. The migration retains resolved state and one canonical
