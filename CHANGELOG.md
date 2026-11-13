@@ -7,6 +7,17 @@
 
 * **agent:** reduce streaming overhead and refresh provider support ([#551](https://github.com/MLGBJDLW/Nexa/issues/551)) ([72128a9](https://github.com/MLGBJDLW/Nexa/commit/72128a9b142267d7368746985c77f113f8385d6d))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 72128a9b142267d7368746985c77f113f8385d6d -->
+
+### What's Changed
+* test(catalog): preserve unique opt-in Decider routes by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/549
+* perf(agent): reduce streaming overhead and refresh provider support by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/551
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.7...nexa-monorepo-v0.19.8
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.6...nexa-monorepo-v0.19.7) (2026-11-13)
 
 ### Improvements
