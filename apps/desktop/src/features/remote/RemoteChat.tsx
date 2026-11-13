@@ -102,30 +102,6 @@ export function RemoteChat({
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const speechGeneration = useRef(0);
   useEffect(() => () => { speechGeneration.current++; void client.nativeSpeech?.stop().catch(() => {}); }, [client]);
-  const speak = async (message: ChatMessage) => {
-    const speech = client.nativeSpeech; if (!speech) return;
-    const generation = ++speechGeneration.current;
-    const stopping = speakingId === message.id;
-    setSpeakingId(null); await speech.stop().catch(() => {});
-    if (stopping || generation !== speechGeneration.current) return;
-    setSpeakingId(message.id);
-    try {
-      const parts = [message.content];
-      let offset = [...message.content].length;
-      while (offset < message.totalChars) {
-        const page = await client.rpc<{ content: string; totalChars: number }>('chat.message', {
-          conversationId, messageId: message.id, offset,
-        });
-        if (generation !== speechGeneration.current) return;
-        const count = [...page.content].length;
-        if (!count) throw new Error('speech_failed');
-        parts.push(page.content); offset += count;
-      }
-      if (generation === speechGeneration.current) await speech.speak(finalAnswerToSpeechText(parts.join('')), locale);
-    }
-    catch (error) { if (generation === speechGeneration.current) setError(t(nativeSpeechErrorKey(error))); }
-    finally { if (generation === speechGeneration.current) setSpeakingId(null); }
-  };
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -271,6 +247,30 @@ export function RemoteChat({
     attachments: ImageAttachment[];
     settings: RemoteComposerSettings;
   } | null>(null);
+  const speak = useCallback(async (message: ChatMessage) => {
+    const speech = client.nativeSpeech; if (!speech) return;
+    const generation = ++speechGeneration.current;
+    const stopping = speakingId === message.id;
+    setSpeakingId(null); await speech.stop().catch(() => {});
+    if (stopping || generation !== speechGeneration.current) return;
+    setSpeakingId(message.id);
+    try {
+      const parts = [message.content];
+      let offset = [...message.content].length;
+      while (offset < message.totalChars) {
+        const page = await client.rpc<{ content: string; totalChars: number }>('chat.message', {
+          conversationId, messageId: message.id, offset,
+        });
+        if (generation !== speechGeneration.current) return;
+        const count = [...page.content].length;
+        if (!count) throw new Error('speech_failed');
+        parts.push(page.content); offset += count;
+      }
+      if (generation === speechGeneration.current) await speech.speak(finalAnswerToSpeechText(parts.join('')), locale);
+    }
+    catch (error) { if (generation === speechGeneration.current) setError(t(nativeSpeechErrorKey(error))); }
+    finally { if (generation === speechGeneration.current) setSpeakingId(null); }
+  }, [client, conversationId, locale, speakingId, t]);
   const errorText = (error: unknown) =>
     setError(error instanceof Error ? error.message : String(error));
   const list = useCallback(
@@ -786,7 +786,7 @@ export function RemoteChat({
       if (valid()) errorText(error);
     }
   }
-  async function more(message: ChatMessage, channel: 'content' | 'thinking' = 'content') {
+  const more = useCallback(async (message: ChatMessage, channel: 'content' | 'thinking' = 'content') => {
     const generation = scope.current;
     const valid = () =>
       scope.current === generation &&
@@ -810,9 +810,9 @@ export function RemoteChat({
         ),
       );
     } catch (error) {
-      if (valid()) errorText(error);
+      if (valid()) setError(error instanceof Error ? error.message : String(error));
     }
-  }
+  }, [client, conversationId]);
   const lastMessage = messages[messages.length - 1];
   const suggestions = useMemo(() => {
     if (running || (runStatus && runStatus !== 'completed') || lastMessage?.role !== 'assistant' ||

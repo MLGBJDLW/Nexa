@@ -47,3 +47,26 @@ test('history merge indexes each current id once instead of scanning for every i
   assert.equal(mergeRemoteHistory(current, incoming).length, 10000);
   assert.equal(reads, 10000);
 });
+
+test('unchanged JSON refresh preserves history, tool and attachment identities', () => {
+  const current = [{ ...message(1), role: 'user', steering: true,
+    toolCalls: [{ id: 'read', name: 'read_file' }],
+    attachments: [{ index: 0, mediaType: 'image/png', originalName: 'chart.png' }] }];
+  const incoming = JSON.parse(JSON.stringify(current));
+  assert.equal(mergeRemoteHistory(current, incoming), current);
+  assert.equal(mergeRemoteHistory(current, []), current);
+});
+
+test('refresh applies changed and removed metadata even when text is unchanged', () => {
+  const current = [{ ...message(1), role: 'user', steering: false,
+    attachments: [{ index: 0, mediaType: 'image/png', originalName: 'old.png' }] }];
+  for (const updated of [
+    { ...current[0], steering: true },
+    { ...current[0], sortOrder: 2 },
+    { ...current[0], attachments: [{ ...current[0].attachments[0], originalName: 'new.png' }] },
+    { ...message(1), role: 'user' },
+    { ...current[0], toolCalls: [{ id: 'read', name: 'read_file' }] },
+  ]) {
+    assert.equal(mergeRemoteHistory(current, [updated])[0], updated);
+  }
+});

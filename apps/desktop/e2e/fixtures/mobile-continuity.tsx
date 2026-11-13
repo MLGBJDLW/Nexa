@@ -54,6 +54,7 @@ export function renderMobileContinuity() {
   let releaseArchive: (()=>void) | null = null;
   let run: any = null;
   let messages: any[] = [];
+  let historicalContentReads = 0;
   const mediaFixture = params.has('media');
   let media: any[] = mediaFixture ? JSON.parse(sessionStorage.getItem('fixture-media') || '[]') : [];
   if (mediaFixture && media.length) {
@@ -81,6 +82,12 @@ export function renderMobileContinuity() {
       { id:'old-final', role:'assistant', content:'第一份报表的合计金额一致。', sortOrder:5 },
       { id:'user2', role:'user', content:'第二份报表有几个部分？', sortOrder:6 },
     ].map(row => ({...row,totalChars:row.content.length}));
+    const historicalAnswer = messages.find(message => message.id === 'old-final')!;
+    const historicalContent = historicalAnswer.content;
+    Object.defineProperty(historicalAnswer, 'content', { enumerable: true, get: () => {
+      historicalContentReads++;
+      return historicalContent;
+    }});
     const persisted = sessionStorage.getItem('fixture-completed-turn');
     if (persisted) messages.push(...JSON.parse(persisted));
     else {
@@ -177,7 +184,7 @@ export function renderMobileContinuity() {
       throw new Error(method);
     },
   } as unknown as RemoteChatClient;
-  (window as any).__MOBILE_CONTINUITY__={actions,emit,removeArchived:(id:string)=>{archived=archived.filter(item=>item.id!==id);},restoreArchived:(id:string)=>{chats.push(...archived.filter(item=>item.id===id));archived=archived.filter(item=>item.id!==id);},seedArchives:()=>{archived=['a','b','c','d','e'].map(id=>({id,title:'Archived '+id,model:'model'}));},finish:(content='Final report: all three sections are consistent.')=>{messages=[{id:'intro',role:'assistant',content:'I will inspect the report.',totalChars:26,sortOrder:1,intermediate:true},{id:'final',role:'assistant',content,totalChars:[...content].length,sortOrder:2}];run={...run,status:'completed',finalMessageId:'final'};emit('done',{status:'completed'});},holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
+  (window as any).__MOBILE_CONTINUITY__={actions,emit,historyReads:()=>historicalContentReads,resetHistoryReads:()=>{historicalContentReads=0;},removeArchived:(id:string)=>{archived=archived.filter(item=>item.id!==id);},restoreArchived:(id:string)=>{chats.push(...archived.filter(item=>item.id===id));archived=archived.filter(item=>item.id!==id);},seedArchives:()=>{archived=['a','b','c','d','e'].map(id=>({id,title:'Archived '+id,model:'model'}));},finish:(content='Final report: all three sections are consistent.')=>{messages=[{id:'intro',role:'assistant',content:'I will inspect the report.',totalChars:26,sortOrder:1,intermediate:true},{id:'final',role:'assistant',content,totalChars:[...content].length,sortOrder:2}];run={...run,status:'completed',finalMessageId:'final'};emit('done',{status:'completed'});},holdArchive:()=>{holdArchive=true;},archivePending:()=>!!releaseArchive,releaseArchive:()=>releaseArchive?.()};
   const host=document.createElement('div');host.className='mobile-app';host.style.cssText='position:fixed;inset:0;z-index:1000;background:var(--color-surface-0)';document.body.appendChild(host);
   createRoot(host).render(<I18nProvider><RemoteChat client={client} initialDraft="" onDraftConsumed={()=>{}} mobile={{heading:activityFixture ? 'Nexa' : 'Phone',drawerFooter:null,caption:'',onConfigure:()=>{},onFiles:()=>{},
     projectStore: projectsFixture ? phoneChatProjects(hostId) : undefined}}/></I18nProvider>);
