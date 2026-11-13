@@ -422,10 +422,11 @@ mod tests {
             .iter()
             .filter(|preset| preset.registry_id.is_some())
             .collect::<Vec<_>>();
-        assert_eq!(published.len(), 41);
-        assert!(published
-            .iter()
-            .all(|preset| preset.registry_id.as_deref() != Some("antigravity-acp")));
+        assert_eq!(published.len(), 43);
+        assert!(published.iter().all(|preset| !matches!(
+            preset.registry_id.as_deref(),
+            Some("antigravity-acp" | "kimi")
+        )));
         let providers = presets
             .iter()
             .map(|preset| &preset.provider)
@@ -449,6 +450,7 @@ mod tests {
         let qwen = preset("qwen_code").unwrap();
         assert!(qwen.args.contains(&"--experimental-skills".into()));
         assert!(preset("hermes").is_some() && preset("custom_acp").is_some());
+        assert!(preset("acp_kimi_code").is_some() && preset("acp_kiro").is_some());
     }
 
     #[tokio::test]

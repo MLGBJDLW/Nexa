@@ -25,10 +25,10 @@ test('registry refresh keeps reviewed runner constraints only for the same packa
       fs.writeFileSync(input, JSON.stringify({ version: '1.0.0', agents: [{
         id: 'example', name: 'Example', version, repository: 'https://example.org/agent',
         distribution: { uvx: { package: `example==${version}`, args: ['acp'] } },
-      }, { id: 'antigravity-acp', name: 'Suspended agent', version: '1.0.0', distribution: { npx: { package: 'agent@1.0.0' } } }] }));
+      }, ...['antigravity-acp', 'kimi'].map(id => ({ id, name: 'Retired agent', version: '1.0.0', distribution: { npx: { package: 'agent@1.0.0' } } }))] }));
       execFileSync(process.execPath, [script, input], { stdio: 'pipe' });
       const imported = JSON.parse(fs.readFileSync(output, 'utf8'))[0];
-      assert.ok(!JSON.parse(fs.readFileSync(output, 'utf8')).some(agent => agent.registryId === 'antigravity-acp'));
+      assert.ok(!JSON.parse(fs.readFileSync(output, 'utf8')).some(agent => ['antigravity-acp', 'kimi'].includes(agent.registryId)));
       assert.deepEqual(imported.distribution.uvx.runnerArgs, version === '1.0.0' ? runnerArgs : undefined);
       assert.deepEqual(imported.args, [...(version === '1.0.0' ? runnerArgs : []), `example==${version}`, 'acp']);
     }

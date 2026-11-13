@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { ArrowDown, CornerDownRight, CircleStop, Volume2 } from 'lucide-react';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { useTranslation } from '../../i18n';
@@ -55,68 +56,83 @@ interface PhoneTurn {
   activity: RemoteTimelineItem[];
 }
 
-export function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef, loadAttachment }: {
+interface RemoteTranscriptProps {
   messages: ChatMessage[]; timeline: RemoteTimelineItem[]; running: boolean; finalMessageId: string | null;
   runId: string | null; runUserId: string | null; more: (message: ChatMessage, channel?: 'content' | 'thinking') => void;
   speak?: (message: ChatMessage) => void; speakingId: string | null; answerRef?: (node: HTMLElement | null) => void;
   loadAttachment?: LoadMessageAttachment;
-}) {
-  const turns: PhoneTurn[] = [];
-  let turn: PhoneTurn | undefined;
-  for (const message of messages) {
-    // A user prompt or a new response after a visible final starts a boundary,
-    // including when an older history page starts part-way through a turn.
-    if (!turn || (message.role === 'user' && !message.continuesTurn)
-      || (!turn.promptId && turn.visible[0]?.role === 'assistant' && !message.continuesTurn)) {
-      const promptId = message.role === 'user' && !message.continuesTurn ? message.id : message.precedingUserId;
-      turn = { key: promptId ?? message.id, promptId, visible: [], activity: [] };
-      turns.push(turn);
+}
+
+const EMPTY_TIMELINE: RemoteTimelineItem[] = [];
+const LIVE_TURN: PhoneTurn = { key: 'live', visible: [], activity: [] };
+
+const RemoteTranscriptTurn = memo(function RemoteTranscriptTurn({ turn, timeline, running, finalMessageId, runId, more, speak, speakingId, answerRef, loadAttachment }: Omit<RemoteTranscriptProps, 'messages' | 'runUserId'> & { turn: PhoneTurn }) {
+  const finalIndex = turn.visible.findIndex(message => message.id === finalMessageId);
+  const split = turn.activityIndex ?? (finalIndex >= 0 ? finalIndex : turn.visible.length);
+  const renderMessage = (message: ChatMessage) => <RemoteChatMessage key={message.id} message={message} onMore={() => more(message)}
+    loadAttachment={loadAttachment}
+    answerRef={message.id === finalMessageId ? answerRef : undefined}
+    onSpeak={speak ? () => speak(message) : undefined} speaking={speakingId === message.id}/>;
+  return <div className="remote-transcript">
+    {turn.visible.slice(0, split).map(renderMessage)}
+    {(turn.activity.length > 0 || timeline.length > 0) ?
+      <RemoteRunTimeline key={runId ?? turn.key} saved={turn.activity} live={timeline}
+        running={running} finalText={turn.visible[finalIndex]?.content}>
+        {turn.visible.slice(split).map(renderMessage)}
+      </RemoteRunTimeline> : turn.visible.slice(split).map(renderMessage)}
+  </div>;
+});
+
+export const RemoteTranscript = memo(function RemoteTranscript({ messages, timeline, running, finalMessageId, runUserId, runId, more, speak, speakingId, answerRef, loadAttachment }: RemoteTranscriptProps) {
+  // Streaming updates only invalidate the live turn. Loaded history keeps its
+  // grouping, pagination callbacks and rendered subtrees until history changes.
+  const turns = useMemo(() => {
+    const turns: PhoneTurn[] = [];
+    let turn: PhoneTurn | undefined;
+    for (const message of messages) {
+      // A user prompt or a new response after a visible final starts a boundary,
+      // including when an older history page starts part-way through a turn.
+      if (!turn || (message.role === 'user' && !message.continuesTurn)
+        || (!turn.promptId && turn.visible[0]?.role === 'assistant' && !message.continuesTurn)) {
+        const promptId = message.role === 'user' && !message.continuesTurn ? message.id : message.precedingUserId;
+        turn = { key: promptId ?? message.id, promptId, visible: [], activity: [] };
+        turns.push(turn);
+      }
+      if (message.role === 'user') {
+        turn.visible.push(message);
+        continue;
+      }
+      const intermediate = message.intermediate && message.id !== finalMessageId;
+      for (const channel of ['thinking', 'content'] as const) {
+        const text = message[channel];
+        if (!text || (channel === 'content' && !intermediate)) continue;
+        const length = channel === 'thinking' ? message.thinkingTotalChars : message.totalChars;
+        turn.activity.push({ id: message.id + ':' + channel, sequence: message.sortOrder,
+          kind: channel === 'thinking' ? 'thinking' : 'answer', text,
+          onMore: length && [...text].length < length ? () => more(message, channel) : undefined });
+      }
+      for (const call of message.toolCalls ?? []) {
+        turn.activity.push({ id: 'tool:' + call.id, sequence: message.sortOrder, kind: 'tool',
+          tool: { toolName: call.name, status: 'recorded' } });
+      }
+      if (turn.activity.length && turn.activityIndex === undefined) turn.activityIndex = turn.visible.length;
+      if (!intermediate && message.content) turn.visible.push(message);
     }
-    if (message.role === 'user') {
-      turn.visible.push(message);
-      continue;
-    }
-    const intermediate = message.intermediate && message.id !== finalMessageId;
-    for (const channel of ['thinking', 'content'] as const) {
-      const text = message[channel];
-      if (!text || (channel === 'content' && !intermediate)) continue;
-      const length = channel === 'thinking' ? message.thinkingTotalChars : message.totalChars;
-      turn.activity.push({ id: message.id + ':' + channel, sequence: message.sortOrder,
-        kind: channel === 'thinking' ? 'thinking' : 'answer', text,
-        onMore: length && [...text].length < length ? () => more(message, channel) : undefined });
-    }
-    for (const call of message.toolCalls ?? []) {
-      turn.activity.push({ id: 'tool:' + call.id, sequence: message.sortOrder, kind: 'tool',
-        tool: { toolName: call.name, status: 'recorded' } });
-    }
-    if (turn.activity.length && turn.activityIndex === undefined) turn.activityIndex = turn.visible.length;
-    if (!intermediate && message.content) turn.visible.push(message);
-  }
+    return turns;
+  }, [messages, finalMessageId, more]);
 
   // Old peers do not send a user anchor. Attach their replay only to a
   // known final or the last open turn, never to an unrelated prior answer.
   let liveTurn = finalMessageId ? turns.find(item => item.visible.some(message => message.id === finalMessageId)) : undefined;
   if (!liveTurn && runUserId) liveTurn = turns.find(item => item.promptId === runUserId || item.visible.some(message => message.id === runUserId));
-  if (!liveTurn && !runUserId && !turn?.visible.some(message => message.role === 'assistant')) liveTurn = turn;
-  if (!liveTurn && timeline.length) {
-    liveTurn = { key: 'live', visible: [], activity: [] };
-    turns.push(liveTurn);
-  }
-  const renderMessage = (message: ChatMessage) => <RemoteChatMessage key={message.id} message={message} onMore={() => more(message)}
-    loadAttachment={loadAttachment}
-    answerRef={message.id === finalMessageId ? answerRef : undefined}
-    onSpeak={speak ? () => speak(message) : undefined} speaking={speakingId === message.id}/>;
-  return <>{turns.map(item => {
+  const lastTurn = turns[turns.length - 1];
+  if (!liveTurn && !runUserId && !lastTurn?.visible.some(message => message.role === 'assistant')) liveTurn = lastTurn;
+  if (!liveTurn && timeline.length) liveTurn = LIVE_TURN;
+  const displayedTurns = liveTurn === LIVE_TURN ? [...turns, LIVE_TURN] : turns;
+  return <>{displayedTurns.map(item => {
     const live = item === liveTurn;
-    const finalIndex = item.visible.findIndex(message => message.id === finalMessageId);
-    const split = item.activityIndex ?? (finalIndex >= 0 ? finalIndex : item.visible.length);
-    return <div className="remote-transcript" key={item.key}>
-      {item.visible.slice(0, split).map(renderMessage)}
-      {(item.activity.length > 0 || (live && timeline.length > 0)) ?
-        <RemoteRunTimeline key={live ? runId : item.key} saved={item.activity} live={live ? timeline : []}
-          running={live && running} finalText={item.visible[finalIndex]?.content}>
-          {item.visible.slice(split).map(renderMessage)}
-        </RemoteRunTimeline> : item.visible.slice(split).map(renderMessage)}
-    </div>;
+    return <RemoteTranscriptTurn key={item.key} turn={item} timeline={live ? timeline : EMPTY_TIMELINE}
+      runId={live ? runId : null} running={live && running} finalMessageId={finalMessageId}
+      more={more} speak={speak} speakingId={speakingId} answerRef={answerRef} loadAttachment={loadAttachment}/>;
   })}</>;
-}
+});

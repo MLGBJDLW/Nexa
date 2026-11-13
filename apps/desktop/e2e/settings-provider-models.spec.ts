@@ -3086,8 +3086,11 @@ test('registry agents and custom ACP profiles expose validated literal launch co
   await page.getByRole('tab',{name:'AI Providers',exact:true}).click();
   await page.getByRole('button',{name:'Add Provider',exact:true}).click();
   await page.getByRole('tab',{name:'External agents',exact:true}).click();
-  for (const id of ['acp-pi-acp','acp-kimi','acp-cursor','acp-cline','acp-mistral-vibe','custom-acp']) {
+  for (const id of ['acp-pi-acp','acp-kimi-code','acp-kiro','acp-opencode-v2','acp-cursor','acp-cline','acp-mistral-vibe','custom-acp']) {
     await expect(page.locator(`[data-provider-preset-id="${id}"]`)).toHaveCount(1);
+  }
+  for (const id of ['acp-kimi','acp-antigravity-acp']) {
+    await expect(page.locator(`[data-provider-preset-id="${id}"]`)).toHaveCount(0);
   }
   await page.locator('[data-provider-preset-id="acp-pi-acp"]').click();
   const form=page.getByTestId('external-agent-form');

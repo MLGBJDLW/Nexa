@@ -94,6 +94,21 @@ is delivered directly in sequence. Delivery is best effort: an unavailable
 main window does not roll back durable state or hold the run's completion
 barrier open.
 
+The database executor reserves separate bounded control lanes for durable
+commits, checkpoints, recovery and stop lookups. When these lanes fill, callers
+wait asynchronously for capacity; temporary contention is not a persistence
+failure. Cancelling before admission removes the pending operation. An admitted
+write still finishes if its caller stops waiting. Ordinary application lanes
+retain immediate overload errors, and database errors still fail the run closed.
+
+External native runtime callbacks use a separate, transient inbox before they
+reach this durable outbox. Up to 256 events and 256 KiB of serialized string
+allocations stay in memory. A slower consumer spills into the existing private
+SQLite receipt store and drains that tail before returning to memory, preserving
+FIFO order without a lifetime event limit. Terminal errors follow accepted
+events. This buffer is not recovery storage; committed Run Events remain the
+durable authority.
+
 Tool execution is projected through the typed `ToolRun` lifecycle. Provider
 assembly fragments such as partial `ToolCall` arguments are not a public UI
 protocol.

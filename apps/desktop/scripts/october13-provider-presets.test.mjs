@@ -66,8 +66,8 @@ test('retired routes are removed while future shutdowns remain deprecated', () =
 
 test('updated ACP packages remain version-pinned and preserve companion archive metadata', () => {
   const agents = read('external-agent-presets');
-  assert.equal(agents.find(p => p.id === 'qwen-code').registryVersion, '0.25.1');
-  assert.equal(agents.find(p => p.id === 'copilot-acp').registryVersion, '1.0.98');
+  assert.equal(agents.find(p => p.id === 'qwen-code').registryVersion, '0.27.3');
+  assert.equal(agents.find(p => p.id === 'copilot-acp').registryVersion, '1.0.110');
   for (const agent of agents.filter(p => p.registryId)) {
     for (const distribution of [agent.distribution.npx, agent.distribution.uvx].filter(Boolean)) {
       assert.ok(distribution.package.includes(agent.registryVersion), `${agent.id} pins the audited version`);

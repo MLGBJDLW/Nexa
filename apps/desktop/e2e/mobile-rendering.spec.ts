@@ -69,6 +69,20 @@ test('native phone groups activity once per turn during the run and after reload
     }
   };
   await checkCollapsed();
+  await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.resetHistoryReads());
+  for (let index = 1; index <= 4; index++) {
+    const text = `第二份报表有三个部分。 ${index}`;
+    await page.evaluate(value => (window as any).__MOBILE_CONTINUITY__.emit('outputSnapshot', {
+      channel: 'answer', blockId: 'answer', text: value,
+    }), text);
+    await expect(page.locator('[data-timeline-kind="answer"]')).toHaveText(`Nexa${text}`);
+  }
+  // Live output must not regroup, recount or render the persisted answer.
+  expect(await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.historyReads())).toBe(0);
+  await page.evaluate(() => (window as any).__MOBILE_CONTINUITY__.emit('outputSnapshot', {
+    channel: 'answer', blockId: 'answer', text: '第二份报表有三个部分。',
+  }));
+  await expect(latestAnswer).toBeVisible();
   await page.screenshot({path:info.outputPath('live-activity-and-approval.png')});
   await checkExpansion('live');
   await approval.click();

@@ -185,7 +185,7 @@ an uncertain action.
 
 ## Installed ACP agents
 
-The bundled External agents catalog includes 41 supported official agents,
+The bundled External agents catalog includes 43 supported official agents,
 plus Hermes and a custom ACP entry. Settings reads the
 [official ACP directory](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
 through one host-owned cache, checking at most hourly unless explicitly refreshed.
@@ -194,6 +194,11 @@ selected descriptor until **Use version** prepares the candidate and verifies it
 ACP handshake. A failed refresh or candidate keeps the previous selection; new
 agents also retain their first discovered version. Running sessions keep their
 existing process. Model/account discovery remains the agent runtime's authority.
+The archived Python Kimi CLI is excluded; select the separately published Kimi
+Code adapter to migrate. Existing profiles are not silently redirected. Kiro's
+official registry currently provides macOS and Linux distributions, so native
+Windows installation is not advertised. OpenCode and OpenCode V2 retain their
+upstream registry identities and share the same ACP host implementation.
 Common CLI entrypoints include:
 
 | Agent | Command | Preparation |

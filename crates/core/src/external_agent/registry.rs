@@ -594,25 +594,27 @@ mod tests {
     }
     #[test]
     fn retired_agents_cannot_return_through_directory_or_selected_cache() {
-        assert!(normalize(&directory("antigravity-acp", "agent@1.0.0"))
-            .unwrap()
-            .is_empty());
-        let retired = ExternalAgentPreset {
-            provider: "acp_antigravity_acp".into(),
-            registry_id: Some("antigravity-acp".into()),
-            ..Default::default()
-        };
-        let cache = Cache {
-            selected: BTreeMap::from([(retired.provider.clone(), retired.clone())]),
-            available: vec![retired],
-            ..Default::default()
-        };
-        assert!(cache.resolve("acp_antigravity_acp").is_none());
-        assert!(!cache
-            .snapshot()
-            .entries
-            .iter()
-            .any(|entry| entry.preset.registry_id.as_deref() == Some("antigravity-acp")));
+        for id in ["antigravity-acp", "kimi"] {
+            assert!(normalize(&directory(id, "agent@1.0.0")).unwrap().is_empty());
+            let retired = ExternalAgentPreset {
+                provider: format!("acp_{}", id.replace('-', "_")),
+                registry_id: Some(id.into()),
+                ..Default::default()
+            };
+            let cache = Cache {
+                selected: BTreeMap::from([(retired.provider.clone(), retired.clone())]),
+                available: vec![retired],
+                ..Default::default()
+            };
+            assert!(cache
+                .resolve(&format!("acp_{}", id.replace('-', "_")))
+                .is_none());
+            assert!(!cache.snapshot().entries.iter().any(|entry| entry
+                .preset
+                .registry_id
+                .as_deref()
+                == Some(id)));
+        }
     }
 
     #[test]

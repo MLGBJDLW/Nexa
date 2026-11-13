@@ -11,6 +11,11 @@ Pair with Desktop 0.18 or later to share saved cloud model connections and API
 keys in both directions. Phone settings can also add independent connections.
 Each device keeps its own selected model, tools, history and workspace.
 
+Chat history keeps older pages and expanded replies when it refreshes, while
+applying updated attachment and steering-message metadata. Earlier turns remain
+stable as new output streams, so long conversations avoid repeatedly processing
+the same saved replies. These behaviors are shared with the browser companion.
+
 Desktop 0.19 or later can also operate the phone after **Allow this computer to
 control this phone** is enabled in phone settings. The existing foreground-task
 notification provides Stop. Reconnection retains an enabled session but never

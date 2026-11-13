@@ -1,8 +1,9 @@
 //! Ordered native events with bounded memory, independent of UI consumption.
-//! The existing private SQLite receipt store spills unread events and reuses
+//! A small memory FIFO avoids database work for normal streaming. The existing
+//! private SQLite receipt store spills unread events and reuses
 //! consumed pages. Dropping the inbox closes storage; it is never user history.
 use super::{protocol_error, CoreError};
-use nexa_core::runtime_receipts::RuntimeReceipts;
+use nexa_core::runtime_receipts::RuntimeEventQueue;
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     marker::PhantomData,
@@ -11,9 +12,7 @@ use std::{
 use tokio::sync::{mpsc::error::TryRecvError, Notify};
 
 struct State {
-    receipts: RuntimeReceipts,
-    written: u64,
-    read: u64,
+    events: RuntimeEventQueue,
     closed: bool,
     receiver_closed: bool,
     failure: Option<CoreError>,
@@ -34,9 +33,7 @@ pub(super) struct EventWriter<T> {
 impl<T: Serialize + DeserializeOwned> EventInbox<T> {
     pub(super) fn new() -> Result<(EventWriter<T>, Self), CoreError> {
         let state = Arc::new(Mutex::new(State {
-            receipts: RuntimeReceipts::new()?,
-            written: 0,
-            read: 0,
+            events: RuntimeEventQueue::new()?,
             closed: false,
             receiver_closed: false,
             failure: None,
@@ -62,21 +59,10 @@ impl<T: Serialize + DeserializeOwned> EventInbox<T> {
 
     pub(super) fn try_recv(&mut self) -> Result<Result<T, CoreError>, TryRecvError> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if state.read < state.written {
-            let id = state.read.to_string();
-            let event = state
-                .receipts
-                .get(&id)
-                .and_then(|row| {
-                    row.map(|(_, value)| value)
-                        .ok_or_else(|| protocol_error("Native event inbox lost its next event"))
-                })
-                .and_then(|event| {
-                    state.receipts.remove(&id)?;
-                    Ok(event)
-                });
-            state.read += 1;
-            return Ok(event);
+        match state.events.pop() {
+            Ok(Some(event)) => return Ok(Ok(event)),
+            Err(error) => return Ok(Err(error)),
+            Ok(None) => {}
         }
         if let Some(error) = state.failure.take() {
             return Ok(Err(error));
@@ -109,14 +95,12 @@ impl<T: Serialize> EventWriter<T> {
         }
         match value {
             Ok(value) => {
-                let id = state.written.to_string();
-                if let Err(error) = state.receipts.insert(&id, "", &value) {
+                if let Err(error) = state.events.push(&value) {
                     state.failure = Some(protocol_error(error));
                     state.closed = true;
                     self.ready.notify_one();
                     return Err(protocol_error("Native event inbox storage failed"));
                 }
-                state.written += 1;
             }
             Err(error) => {
                 state.failure = Some(error);
@@ -141,5 +125,39 @@ impl<T> Drop for EventInbox<T> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .receiver_closed = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn queued_events_drain_before_terminal_failure_or_writer_close() {
+        for failed in [false, true] {
+            let (writer, mut inbox) = EventInbox::new().unwrap();
+            // Exercise both the memory prefix and the spilled tail.
+            for index in 0..300_u32 {
+                writer.send(Ok(index)).unwrap();
+            }
+            if failed {
+                writer
+                    .send(Err(CoreError::StreamIncomplete("stream closed".into())))
+                    .unwrap();
+                assert!(writer.send(Ok(300)).is_err());
+            }
+            drop(writer);
+            assert!(inbox.is_closed());
+            for index in 0..300_u32 {
+                assert_eq!(inbox.recv().await.unwrap().unwrap(), index);
+            }
+            if failed {
+                assert!(matches!(
+                    inbox.recv().await.unwrap(),
+                    Err(CoreError::StreamIncomplete(_))
+                ));
+            }
+            assert!(inbox.recv().await.is_none());
+        }
     }
 }
