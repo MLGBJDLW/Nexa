@@ -11,6 +11,13 @@
 - Keep storage scans independent of conversation/model loading and reuse the shared usage snapshot.
 - Refresh verified provider/model routes while preserving saved selections and account-specific discovery.
 
+## [0.3.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.6...nexa-mobile-v0.3.7) (2026-11-13)
+
+
+### Features
+
+* **app:** add cross-device screen assistance and responsive persistent tools ([#547](https://github.com/MLGBJDLW/Nexa/issues/547)) ([ea08132](https://github.com/MLGBJDLW/Nexa/commit/ea08132dd99c28aba6b58d5164abc202bb78a06a))
+
 ## [0.3.6](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.5...nexa-mobile-v0.3.6) (2026-11-12)
 
 ### Improvements
