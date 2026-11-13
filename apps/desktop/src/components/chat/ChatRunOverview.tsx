@@ -215,6 +215,7 @@ export function ChatRunOverview({
   const suppressHoverRef = useRef(false);
   const suppressHoverTimerRef = useRef<number | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const hoverOpenTimerRef = useRef<number | null>(null);
   const elapsedLabel = useElapsedTime(turnTiming, isStreaming, 3000);
   const wallLabel = useElapsedTime(turnTiming, isStreaming);
   const ttfeLabel = turnTiming
@@ -380,6 +381,9 @@ export function ChatRunOverview({
     if (suppressHoverTimerRef.current !== null) {
       window.clearTimeout(suppressHoverTimerRef.current);
     }
+    if (hoverOpenTimerRef.current !== null) {
+      window.clearTimeout(hoverOpenTimerRef.current);
+    }
   }, []);
 
   if (!usage && !runtimeProfile && !isStreaming && !isCompacting && !contextOverflow && !turnTiming) {
@@ -401,9 +405,22 @@ export function ChatRunOverview({
           window.clearTimeout(suppressHoverTimerRef.current);
           suppressHoverTimerRef.current = null;
         }
-        setDetailsOpen(true);
+        // Sending the first message moves the composer from the center to the
+        // bottom. Do not let its indicator passing under the stationary pointer
+        // open a large tooltip that captures clicks on the new response.
+        if (hoverOpenTimerRef.current !== null) window.clearTimeout(hoverOpenTimerRef.current);
+        hoverOpenTimerRef.current = window.setTimeout(() => {
+          hoverOpenTimerRef.current = null;
+          if (pointerInsideRef.current && !suppressHoverRef.current && overviewRef.current?.matches(':hover')) {
+            setDetailsOpen(true);
+          }
+        }, 250);
       }}
       onMouseLeave={() => {
+        if (hoverOpenTimerRef.current !== null) {
+          window.clearTimeout(hoverOpenTimerRef.current);
+          hoverOpenTimerRef.current = null;
+        }
         pointerInsideRef.current = false;
         suppressHoverRef.current = false;
         if (suppressHoverTimerRef.current !== null) {
