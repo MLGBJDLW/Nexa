@@ -9,6 +9,7 @@ pub enum ActivitySurface {
     Terminal,
     Browser,
     Desktop,
+    Phone,
     Maintenance,
 }
 

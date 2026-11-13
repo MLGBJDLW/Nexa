@@ -42,7 +42,11 @@ fn ephemeral_tool_visual_evidence(
 ) -> Option<serde_json::Value> {
     if !matches!(
         tool_name,
-        "browser_evidence_capture" | "browser_session" | "computer_observe" | "computer_control"
+        "browser_evidence_capture"
+            | "browser_session"
+            | "computer_observe"
+            | "computer_control"
+            | "phone_control"
     ) {
         return None;
     }
@@ -130,6 +134,12 @@ fn browser_action_effect_may_be_uncertain(tool_name: &str, arguments: &str) -> b
                 "list_sessions" | "list_tabs" | "observe" | "wait_for"
             )
         })
+}
+
+fn phone_action_effect_may_be_uncertain(tool_name: &str, arguments: &str) -> bool {
+    tool_name == "phone_control"
+        && serde_json::from_str::<serde_json::Value>(arguments)
+            .is_ok_and(|args| crate::tools::phone_control_tool::is_phone_mutation(&args))
 }
 
 fn approval_context_failure(
@@ -568,6 +578,7 @@ pub(super) struct ToolDispatchContext<'a> {
 fn action_reconciliation_blocks(tool_name: &str, args: &serde_json::Value) -> bool {
     match tool_name {
         "computer_control" | "desktop_automation" => true,
+        "phone_control" => crate::tools::phone_control_tool::is_phone_mutation(args),
         "browser_session" => !args
             .get("action")
             .and_then(serde_json::Value::as_str)
@@ -617,6 +628,9 @@ fn tool_result_requires_action_reconciliation(
                     Some("browser_action_uncertain" | "browser_action_timeout_uncertain")
                 )
         }
+        "phone_control" => {
+            is_error && crate::workflow_ir::tool_result_effect_may_have_occurred(artifacts)
+        }
         _ => false,
     }
 }
@@ -643,6 +657,18 @@ mod action_reconciliation_tests {
             "browser_session",
             &serde_json::json!({"action": "go_back"}),
         ));
+        assert!(!action_reconciliation_blocks(
+            "phone_control",
+            &serde_json::json!({"action":"observe"})
+        ));
+        assert!(!action_reconciliation_blocks(
+            "phone_control",
+            &serde_json::json!({"action":"screenshot"})
+        ));
+        assert!(action_reconciliation_blocks(
+            "phone_control",
+            &serde_json::json!({"action":"set_text"})
+        ));
     }
 
     #[test]
@@ -660,6 +686,16 @@ mod action_reconciliation_tests {
 
     #[test]
     fn uncertain_results_fence_later_dispatch_batches() {
+        assert!(tool_result_requires_action_reconciliation(
+            "phone_control",
+            true,
+            Some(&serde_json::json!({"sideEffect":"may_have_occurred"}))
+        ));
+        assert!(!tool_result_requires_action_reconciliation(
+            "phone_control",
+            true,
+            Some(&serde_json::json!({"sideEffect":"not_started"}))
+        ));
         assert!(tool_result_requires_action_reconciliation(
             "computer_control",
             true,
@@ -1695,18 +1731,25 @@ impl ToolDispatchRuntime<'_> {
                             &execution_call.name,
                             &execution_call.arguments,
                         );
-                        let uncertain_effect = computer_control_error || browser_action_error;
+                        let phone_action_error = phone_action_effect_may_be_uncertain(
+                            &execution_call.name,
+                            &execution_call.arguments,
+                        );
+                        let uncertain_effect =
+                            computer_control_error || browser_action_error || phone_action_error;
                         let code = if computer_control_error {
                             "computer_action_uncertain"
                         } else if browser_action_error {
                             "browser_action_uncertain"
+                        } else if phone_action_error {
+                            "phone_action_uncertain"
                         } else {
                             "tool_execution_failed"
                         };
                         let message = if uncertain_effect {
                             format!(
                                 "{} action failed at or after its commit boundary; effect is uncertain and sensitive details were omitted.",
-                                if computer_control_error { "Computer" } else { "Browser" }
+                                if computer_control_error { "Computer" } else if phone_action_error { "Phone" } else { "Browser" }
                             )
                         } else {
                             format!("{} failed: {e}", tc.name)
@@ -1750,16 +1793,34 @@ impl ToolDispatchRuntime<'_> {
                         )
                     }
                     ToolExecutionOutcome::Cancelled => {
-                        let structured = crate::tools::structured_tool_error_result(
-                            &tc.id,
-                            "tool_cancelled",
-                            format!("tool '{}' was cancelled by user request.", tc.name),
-                            serde_json::json!({
-                                "tool": &tc.name,
-                                "recovery": "stop using this tool for the interrupted request unless the user asks to resume"
-                            }),
-                            false,
+                        let phone_action = phone_action_effect_may_be_uncertain(
+                            &execution_call.name,
+                            &execution_call.arguments,
                         );
+                        let message = format!("tool '{}' was cancelled by user request.", tc.name);
+                        let recovery = serde_json::json!({
+                            "tool": &tc.name,
+                            "recovery": "stop using this tool for the interrupted request unless the user asks to resume"
+                        });
+                        let structured = if phone_action {
+                            crate::tools::structured_tool_error_result_with_side_effect(
+                                &tc.id,
+                                "tool_cancelled",
+                                message,
+                                recovery,
+                                false,
+                                crate::tools::ToolSideEffect::MayHaveOccurred,
+                                None,
+                            )
+                        } else {
+                            crate::tools::structured_tool_error_result(
+                                &tc.id,
+                                "tool_cancelled",
+                                message,
+                                recovery,
+                                false,
+                            )
+                        };
                         let err_content = structured.content.clone();
                         (
                             err_content.clone(),
@@ -1778,18 +1839,26 @@ impl ToolDispatchRuntime<'_> {
                             &execution_call.name,
                             &execution_call.arguments,
                         );
-                        let uncertain_effect = computer_control_timeout || browser_action_timeout;
+                        let phone_action_timeout = phone_action_effect_may_be_uncertain(
+                            &execution_call.name,
+                            &execution_call.arguments,
+                        );
+                        let uncertain_effect = computer_control_timeout
+                            || browser_action_timeout
+                            || phone_action_timeout;
                         let code = if computer_control_timeout {
                             "computer_action_timeout_uncertain"
                         } else if browser_action_timeout {
                             "browser_action_timeout_uncertain"
+                        } else if phone_action_timeout {
+                            "phone_action_timeout_uncertain"
                         } else {
                             "tool_timeout"
                         };
                         let message = if uncertain_effect {
                             format!(
                                 "{} action exceeded {} seconds and may still finish; effect is uncertain. Do not retry blindly.",
-                                if computer_control_timeout { "Computer" } else { "Browser" },
+                                if computer_control_timeout { "Computer" } else if phone_action_timeout { "Phone" } else { "Browser" },
                                 timeout_secs
                             )
                         } else {
@@ -2332,6 +2401,7 @@ mod visual_attachment_tests {
             "browser_session",
             "computer_observe",
             "computer_control",
+            "phone_control",
         ] {
             let evidence = ephemeral_tool_visual_evidence(tool_name, &[attachment.clone()])
                 .expect("visual interaction tools should expose current-turn UI evidence");
@@ -2356,6 +2426,18 @@ mod visual_attachment_tests {
 
     #[test]
     fn browser_mutation_failures_are_treated_as_uncertain_effects() {
+        assert!(phone_action_effect_may_be_uncertain(
+            "phone_control",
+            r#"{"action":"tap"}"#
+        ));
+        assert!(!phone_action_effect_may_be_uncertain(
+            "phone_control",
+            r#"{"action":"screenshot"}"#
+        ));
+        assert!(!phone_action_effect_may_be_uncertain(
+            "phone_control",
+            r#"{"action":"observe"}"#
+        ));
         assert!(browser_action_effect_may_be_uncertain(
             "browser_session",
             r#"{"action":"click","targetRef":"e_1"}"#,
