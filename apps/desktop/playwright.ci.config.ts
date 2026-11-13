@@ -174,6 +174,7 @@ export default defineConfig({
     {
       name: "live-phone",
       testMatch: [
+        "**/e2e/device-screen.spec.ts",
         "**/e2e/live-observation.spec.ts",
         "**/e2e/remote-phone.spec.ts",
         "**/e2e/remote-setup.spec.ts",
