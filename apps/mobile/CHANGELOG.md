@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.7...nexa-mobile-v0.3.8) (2026-11-13)
+
+
+### Performance Improvements
+
+* **agent:** reduce streaming overhead and refresh provider support ([#551](https://github.com/MLGBJDLW/Nexa/issues/551)) ([72128a9](https://github.com/MLGBJDLW/Nexa/commit/72128a9b142267d7368746985c77f113f8385d6d))
+
 ## [0.3.7](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.6...nexa-mobile-v0.3.7) (2026-11-13)
 
 ### Improvements
