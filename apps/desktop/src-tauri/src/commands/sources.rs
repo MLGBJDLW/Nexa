@@ -443,12 +443,11 @@ pub async fn get_database_storage_stats_cmd(
 pub async fn get_storage_usage_cmd(
     state: tauri::State<'_, AppState>,
 ) -> Result<nexa_core::storage_usage::StorageUsage, String> {
-    let (mut usage, database_path, model_paths) = state
+    let (database_path, model_paths) = state
         .db_executor
         .read(|db| {
             let config = db.load_app_config()?;
             Ok((
-                db.storage_usage()?,
                 db.db_path().map(Path::to_path_buf),
                 nexa_core::local_storage::ManagedModelPaths::new(
                     Some(&config.local_model_root),
@@ -460,7 +459,11 @@ pub async fn get_storage_usage_cmd(
         .map_err(|error| error.to_string())?
         .value;
     let extension_root = state.user_extensions.root().to_path_buf();
+    let db = state.db.clone();
     tokio::task::spawn_blocking(move || {
+        // dbstat can walk a large database. Run it on its own query-only
+        // connection instead of holding up the shared model/chat read lane.
+        let mut usage = db.storage_usage().map_err(|error| error.to_string())?;
         let mut roots = vec![
             (extension_root, "extensions"),
             (PathBuf::from(model_paths.root), "models"),
@@ -476,10 +479,10 @@ pub async fn get_storage_usage_cmd(
             roots.push((root.join("models"), "models"));
         }
         nexa_core::storage_usage::add_files(&mut usage, &roots, database_path.as_deref());
-        usage
+        Ok(usage)
     })
     .await
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

@@ -5,6 +5,48 @@ import { parseChatUi, MAX_UI_BYTES } from '../../../crates/core/assets/skills/vi
 import { transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
 import { parseFollowupSuggestions, latestFollowupSuggestions, stripFollowupBlocks } from '../src/lib/followupSuggestions.ts';
 import { localFileReference, isInlineFileReference } from '../src/features/preview/localFileReference.ts';
+import { invalidateStorageUsage, readStorageUsage, storageUsageSnapshot } from '../src/lib/storageUsageCache.ts';
+
+test('storage measurements survive tab remounts and coalesce refresh after a mutation', async () => {
+  const first = { totalBytes: 10 } as any;
+  const second = { totalBytes: 20 } as any;
+  let finish!: (value: any) => void;
+  let calls = 0;
+  const service = { usage: () => { calls++; return new Promise(resolve => { finish = resolve; }); } } as any;
+  const pending = readStorageUsage(service);
+  await Promise.resolve();
+  assert.equal(readStorageUsage(service), pending);
+  finish(first);
+  assert.equal(await pending, first);
+  assert.equal(storageUsageSnapshot(service), first);
+  assert.equal(await readStorageUsage(service), first);
+  assert.equal(calls, 1);
+  invalidateStorageUsage(service);
+  const refreshed = readStorageUsage(service);
+  await Promise.resolve();
+  invalidateStorageUsage(service);
+  assert.equal(readStorageUsage(service), refreshed);
+  assert.equal(storageUsageSnapshot(service), first);
+  finish(first);
+  await Promise.resolve();
+  assert.equal(calls, 3);
+  finish(second);
+  assert.equal(await refreshed, second);
+  assert.equal(storageUsageSnapshot(service), second);
+});
+
+test('failed storage refresh preserves the last measurement and can retry', async () => {
+  let fail = false;
+  const value = { totalBytes: 10 } as any;
+  const service = { usage: async () => { if (fail) throw new Error('disk unavailable'); return value; } } as any;
+  await readStorageUsage(service);
+  invalidateStorageUsage(service);
+  fail = true;
+  await assert.rejects(readStorageUsage(service), /disk unavailable/);
+  assert.equal(storageUsageSnapshot(service), value);
+  fail = false;
+  assert.equal(await readStorageUsage(service), value);
+});
 
 test('automatic inline images reject network and device references before native reads', () => {
   for (const path of ['//example.invalid/share/photo.png', '\\\\example.invalid\\share\\photo.png', 'file://example.invalid/share/photo.png', '%2f%2fexample.invalid/share/photo.png', '\\\\?\\C:\\photo.png', 'javascript:alert(1)']) {

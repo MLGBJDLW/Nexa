@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Database, RefreshCw } from 'lucide-react';
-import { storageService, type StorageService, type StorageUsage } from '../../lib/api';
+import { storageService, type StorageService } from '../../lib/api';
+import { invalidateStorageUsage, readStorageUsage, storageUsageSnapshot } from '../../lib/storageUsageCache';
 import { useTranslation, type TranslationKey } from '../../i18n';
 import { Section, StatCard } from './SettingsSection';
 import { Button } from '../ui/Button';
@@ -18,35 +19,26 @@ const categories: Record<string, { label: TranslationKey; color: string }> = {
   wal: { label: 'settings.storageWal', color: '#fb923c' },
 };
 
-// A tab change can mount another view while a filesystem scan is still running.
-// Share only the pending scan; refresh and post-mutation reads always start fresh.
-const pendingUsage = new WeakMap<StorageService, Promise<StorageUsage>>();
-function readUsage(service: StorageService, refresh: boolean) {
-  const pending = pendingUsage.get(service);
-  if (!refresh && pending) return pending;
-  const request = service.usage();
-  pendingUsage.set(service, request);
-  const clear = () => { if (pendingUsage.get(service) === request) pendingUsage.delete(service); };
-  void request.then(clear, clear);
-  return request;
-}
-
 export function StorageUsageCard({ service = storageService, mobile = false }: { service?: StorageService; mobile?: boolean }) {
   const { t } = useTranslation();
-  const [stats, setStats] = useState<StorageUsage | null>(null);
+  const [stats, setStats] = useState(() => storageUsageSnapshot(service));
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(false);
   const [manage, setManage] = useState(false);
+  const refresh = () => {
+    invalidateStorageUsage(service);
+    setRevision(value => value + 1);
+  };
   useEffect(() => {
-    let active = true; setLoading(true);
-    void readUsage(service, revision > 0).then(value => { if (active) { setStats(value); setError(null); } })
+    let active = true; setLoading(true); setStats(storageUsageSnapshot(service)); setError(null);
+    void readStorageUsage(service).then(value => { if (active) { setStats(value); setError(null); } })
       .catch(reason => { if (active) setError(String(reason)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [service, revision]);
   return <Section icon={<Database size={20} />} title={t('settings.storageDistribution')}>
     <div aria-busy={loading} data-testid="storage-usage" className="min-w-0 space-y-3">
-      <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-text-secondary">{t('settings.storageUsageHint')}</p><button type="button" disabled={loading} onClick={() => setRevision(value => value + 1)} aria-label={t('taskCenter.refresh')} className="rounded-lg p-2 text-text-secondary disabled:opacity-40"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button></div>
+      <div className="flex items-center justify-between gap-3"><p className="text-xs leading-5 text-text-secondary">{t('settings.storageUsageHint')}</p><button type="button" disabled={loading} onClick={refresh} aria-label={t('taskCenter.refresh')} className="rounded-lg p-2 text-text-secondary disabled:opacity-40"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button></div>
       {loading && !stats && <p role="status" className="text-xs text-text-secondary">{t('common.loading')}</p>}
       {error && <p role="alert" className="text-xs text-danger">{error}</p>}
       {stats && <>
@@ -59,7 +51,7 @@ export function StorageUsageCard({ service = storageService, mobile = false }: {
       </>}
       <p className="text-xs leading-5 text-text-tertiary">{t('settings.storageReuseHint')}</p>
       <Button size="sm" variant="secondary" onClick={() => setManage(true)}>{t('settings.storageManageChats')}</Button>
-      {manage && <ConversationStorageManager mobile={mobile} service={service} onClose={() => setManage(false)} onChanged={() => setRevision(value => value + 1)}/>}
+      {manage && <ConversationStorageManager mobile={mobile} service={service} onClose={() => setManage(false)} onChanged={refresh}/>}
     </div>
   </Section>;
 }

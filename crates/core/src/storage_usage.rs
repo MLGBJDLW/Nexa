@@ -55,18 +55,32 @@ fn table_category(table: &str) -> &'static str {
 }
 
 impl Database {
+    /// Storage accounting walks every database btree. Keep that work off the
+    /// connection used by interactive reads and writes, including mobile hosts.
+    /// Call this on a blocking worker, not the shared UI database executor.
     pub fn storage_usage(&self) -> Result<StorageUsage, CoreError> {
+        self.read_only_lane()?.storage_usage_on_reader()
+    }
+
+    fn storage_usage_on_reader(&self) -> Result<StorageUsage, CoreError> {
         let database = self.storage_stats()?;
         let conn = self.conn();
         let (active, archived) = conn.query_row(
             "SELECT COUNT(*) FILTER (WHERE archived_at IS NULL), COUNT(*) FILTER (WHERE archived_at IS NOT NULL)
              FROM conversations WHERE parent_conversation_id IS NULL", [], |row| Ok((row.get(0)?, row.get(1)?)))?;
         let mut sizes = BTreeMap::<String, u64>::new();
-        // dbstat reads page metadata, not large message bodies or attachments.
+        // Aggregate mode emits one row per btree, so the schema join and grouping
+        // do not process one row per database page. SQLite still visits pages;
+        // the dedicated connection is what isolates that I/O from UI queries.
         // A build without the virtual table still reports the measured database.
-        if let Ok(mut statement) = conn.prepare("SELECT COALESCE(s.tbl_name, d.name), SUM(d.pgsize)
-            FROM dbstat d LEFT JOIN sqlite_schema s ON s.name=d.name GROUP BY COALESCE(s.tbl_name,d.name)") {
-            for row in statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?)))? {
+        if let Ok(mut statement) = conn.prepare(
+            "SELECT COALESCE(s.tbl_name, d.name), SUM(d.pgsize)
+            FROM dbstat d LEFT JOIN sqlite_schema s ON s.name=d.name
+            WHERE d.aggregate=TRUE GROUP BY COALESCE(s.tbl_name,d.name)",
+        ) {
+            for row in statement.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+            })? {
                 let (table, bytes) = row?;
                 *sizes.entry(table_category(&table).into()).or_default() += bytes;
             }
@@ -206,6 +220,25 @@ pub fn add_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_scan_does_not_wait_for_the_interactive_connection() {
+        let root = tempfile::tempdir().unwrap();
+        let database = Database::new(root.path().join("storage.db")).unwrap();
+        let scan_database = database.clone();
+        let connection = database.conn();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            finished_tx.send(scan_database.storage_usage()).unwrap();
+        });
+        let result = finished_rx.recv_timeout(Duration::from_secs(2));
+        drop(connection);
+        worker.join().unwrap();
+        assert!(result
+            .expect("storage accounting held the interactive database mutex")
+            .is_ok());
+    }
+
     #[test]
     fn storage_categories_partition_allocated_pages_and_nested_files_once() {
         let root = tempfile::tempdir().unwrap();
