@@ -304,3 +304,28 @@ test('November 13 Decider v1.3 routes stay unique and opt-in on the Decisions pr
     assert.equal(item.replacementModelId, undefined);
   }
 });
+
+test('HeyGen Decisions routes remain opt-in and upcoming router retirements retain saved IDs', () => {
+  const router = read('system-one-provider-presets').find(row => row.id === 'openrouter');
+  for (const [id, context] of [
+    ['heygen/heygen-decision-1', 131072],
+    ['heygen/heygen-decision-1-turbo', 262144],
+  ]) {
+    const matches = router.models.filter(row => row.id === id);
+    assert.equal(matches.length, 1);
+    const [entry] = matches;
+    assert.equal(entry.contextTokens, context);
+    assert.equal(entry.recommended, false);
+    assert.equal(entry.status, 'active');
+    assert.deepEqual(entry.inputModalities, ['text', 'image']);
+    assert.deepEqual(entry.outputModalities, ['decisions']);
+    assert.equal(providers.some(row => row.models?.some(model => model.id === id)), false);
+  }
+  assert.equal(router.models.some(row => row.id === 'cloudflare/clairic'), false);
+  for (const id of ['stepfun/step-3.5-flash', 'qwen/qwen3-vl-30b-a3b-thinking', 'tencent/hunyuan-a13b-instruct']) {
+    const entry = model('openrouter', id);
+    assert.equal(entry.status, 'deprecated');
+    assert.equal(entry.deprecationDate, '2026-11-15');
+    assert.equal(entry.replacementModelId, undefined);
+  }
+});

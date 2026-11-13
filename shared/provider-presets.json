@@ -9698,9 +9698,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/stepfun/step-3.5-flash",
-        "maxOutputTokens": 65536
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "maxOutputTokens": 65536,
+        "status": "deprecated",
+        "deprecationDate": "2026-11-15"
       },
       {
         "id": "moonshotai/kimi-k2.5",
@@ -12136,9 +12138,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-20",
-        "documentationRef": "https://openrouter.ai/qwen/qwen3-vl-30b-a3b-thinking",
-        "maxOutputTokens": 235929
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "maxOutputTokens": 235929,
+        "status": "deprecated",
+        "deprecationDate": "2026-11-15"
       },
       {
         "id": "qwen/qwen3-vl-30b-a3b-instruct",
@@ -14249,9 +14253,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/tencent/hunyuan-a13b-instruct",
-        "maxOutputTokens": 117964
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "maxOutputTokens": 117964,
+        "status": "deprecated",
+        "deprecationDate": "2026-11-15"
       },
       {
         "id": "morph/morph-v3-large",

@@ -297,6 +297,16 @@ fn adapter_args<'a>(
     // overrides keep their original argv contract.
     if launch.executable.is_none() && launch.args.is_some() {
         if let Some(distribution) = &preset.distribution {
+            // Autohand replaced its npm wrapper with a native ACP binary.
+            // Only the exact previously bundled default is migrated; custom
+            // arguments and explicitly selected executables retain ownership.
+            if preset.registry_id.as_deref() == Some("autohand")
+                && distribution.npx.is_none()
+                && !distribution.binary.is_empty()
+                && args == ["--yes", "@autohandai/autohand-acp@0.2.1"]
+            {
+                return defaults;
+            }
             if let Some(package) = &distribution.npx {
                 if args.first().map(String::as_str) == Some("--yes")
                     && args.get(1).is_some_and(|argument| {
@@ -589,6 +599,27 @@ mod tests {
             assert_eq!(&plan.args[..2], &["--yes", package.package.as_str()]);
             assert_eq!(plan.args[2..], package.args);
         }
+    }
+
+    #[test]
+    fn autohand_native_distribution_migrates_only_the_previous_default_runner_args() {
+        let preset = super::super::preset("acp_autohand").unwrap();
+        let defaults = vec!["--acp".into()];
+        let previous = vec!["--yes".into(), "@autohandai/autohand-acp@0.2.1".into()];
+        let mut launch = ExternalAgentLaunch::default();
+        assert_eq!(adapter_args(&preset, &launch, &defaults), defaults);
+        launch.args = Some(previous.clone());
+        assert_eq!(adapter_args(&preset, &launch, &defaults), defaults);
+        launch.executable = Some("custom-npx".into());
+        assert_eq!(adapter_args(&preset, &launch, &defaults), previous);
+        launch.executable = None;
+        launch.args = Some(vec!["--acp".into(), "--verbose".into()]);
+        assert_eq!(
+            adapter_args(&preset, &launch, &defaults),
+            ["--acp", "--verbose"]
+        );
+        launch.args = Some(Vec::new());
+        assert!(adapter_args(&preset, &launch, &defaults).is_empty());
     }
 
     #[test]
