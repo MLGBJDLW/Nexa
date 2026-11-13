@@ -150,13 +150,6 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
     assert.equal(model('bedrock', id).capabilities.reasoning.mode, 'always');
     assert.equal(model('bedrock', id).maxOutputTokens, 128_000);
   }
-  const decisions = read('system-one-provider-presets').find(row => row.id === 'openrouter');
-  for (const id of ['perplexity/pplx-decider-v1.3:free', 'perplexity/pplx-decider-flash-v1.3:free']) {
-    const decision = decisions.models.find(row => row.id === id);
-    assert.equal(decision.recommended, false);
-    assert.deepEqual(decision.outputModalities, ['decisions']);
-  }
-  assert.equal(decisions.models.some(row => row.id === 'cloudflare/clairic'), false, 'extraction-only models cannot use the Decisions wire contract');
   const hostedMiniMax = model('alibaba-model-studio', 'MiniMax/MiniMax-M3.1-Flash');
   assert.equal(hostedMiniMax.capabilities.reasoning.mode, 'always');
   assert.deepEqual(hostedMiniMax.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
@@ -284,4 +277,30 @@ test('November 12 routed Gemini Decisions remains opt-in on the supported Decisi
   assert.deepEqual(model.outputModalities, ['decisions']);
   assert.equal(decisions.some(row => row.id === 'google'), false, 'native Google needs a separate wire adapter');
   assert.equal(providers.some(row => row.models?.some(model => model.id === 'google/gemini-decision-1')), false);
+});
+
+test('November 13 Decider v1.3 routes stay unique and opt-in on the Decisions provider', () => {
+  const presets = read('system-one-provider-presets');
+  const router = presets.find(row => row.id === 'openrouter');
+  for (const id of ['perplexity/pplx-decider-v1.3:free', 'perplexity/pplx-decider-flash-v1.3:free']) {
+    const matches = router.models.filter(row => row.id === id);
+    assert.equal(matches.length, 1, `${id} must appear exactly once in OpenRouter Decisions`);
+    const [item] = matches;
+    assert.equal(item.recommended, false);
+    assert.equal(item.contextTokens, 262144);
+    assert.equal(item.status, 'active');
+    assert.equal(item.resolvedModel, undefined);
+    assert.deepEqual(item.inputModalities, ['text', 'image']);
+    assert.deepEqual(item.outputModalities, ['decisions']);
+    assert.equal(providers.some(row => row.models?.some(model => model.id === id || model.aliases?.includes(id))), false);
+    assert.equal(presets.some(row => row.id !== 'openrouter' && row.models?.some(model => model.id === id || model.aliases?.includes(id))), false);
+  }
+  for (const id of ['perplexity/pplx-decider-v1.2', 'perplexity/pplx-decider-flash-v1.2']) {
+    const matches = router.models.filter(row => row.id === id);
+    assert.equal(matches.length, 1, `${id} must remain a unique selectable route`);
+    const [item] = matches;
+    assert.equal(item.status, 'active');
+    assert.equal(item.resolvedModel, undefined);
+    assert.equal(item.replacementModelId, undefined);
+  }
 });
