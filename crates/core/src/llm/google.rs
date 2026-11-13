@@ -866,8 +866,10 @@ fn normalize_thinking_level(model: &str, level: &ReasoningEffort) -> String {
     let normalized = normalized_model_name(model).to_ascii_lowercase();
     let minimum = if normalized.starts_with("gemini-3.7-flash")
         || normalized.starts_with("gemini-3.8-flash")
-        || matches!(normalized.as_str(), "gemini-4-argon" | "gemini-4-carbon" | "gemini-4-hydrogen")
-    {
+        || matches!(
+            normalized.as_str(),
+            "gemini-4-argon" | "gemini-4-carbon" | "gemini-4-hydrogen"
+        ) {
         "low"
     } else {
         "minimal"
@@ -877,7 +879,10 @@ fn normalize_thinking_level(model: &str, level: &ReasoningEffort) -> String {
         ReasoningEffort::Low => "low",
         ReasoningEffort::Medium => "medium",
         ReasoningEffort::XHigh | ReasoningEffort::Max | ReasoningEffort::Ultra
-            if normalized == "gemini-4-hydrogen" => "xhigh",
+            if normalized == "gemini-4-hydrogen" =>
+        {
+            "xhigh"
+        }
         ReasoningEffort::High
         | ReasoningEffort::XHigh
         | ReasoningEffort::Max
@@ -893,7 +898,10 @@ fn thinking_budget_to_level(model: &str, budget: u32) -> String {
                 let normalized = normalized_model_name(model).to_ascii_lowercase();
                 normalized.starts_with("gemini-3.7-flash")
                     || normalized.starts_with("gemini-3.8-flash")
-                    || matches!(normalized.as_str(), "gemini-4-argon" | "gemini-4-carbon" | "gemini-4-hydrogen")
+                    || matches!(
+                        normalized.as_str(),
+                        "gemini-4-argon" | "gemini-4-carbon" | "gemini-4-hydrogen"
+                    )
             } =>
         {
             "low"
@@ -3475,19 +3483,30 @@ mod tests {
         request.model = "models/gemini-4-hydrogen".into();
         request.reasoning_effort = Some(ReasoningEffort::XHigh);
         let config = build_request_body(&google_config(), &request, None, vec![])
-            .generation_config.expect("generation config");
+            .generation_config
+            .expect("generation config");
         let thinking = config.thinking_config.expect("thinking config");
         assert_eq!(thinking.thinking_level.as_deref(), Some("xhigh"));
         assert_eq!(thinking.thinking_budget, None);
         assert_eq!(config.temperature, None);
         // Earlier Gemini 4 models do not accept Hydrogen's new level.
-        assert_eq!(normalize_thinking_level("gemini-4-carbon", &ReasoningEffort::XHigh), "high");
-        assert_eq!(normalize_thinking_level("gemini-4-hydrogen", &ReasoningEffort::Max), "xhigh");
+        assert_eq!(
+            normalize_thinking_level("gemini-4-carbon", &ReasoningEffort::XHigh),
+            "high"
+        );
+        assert_eq!(
+            normalize_thinking_level("gemini-4-hydrogen", &ReasoningEffort::Max),
+            "xhigh"
+        );
     }
 
     #[test]
     fn test_latest_gemini_models_never_emit_unsupported_minimal_thinking() {
-        for model in ["models/gemini-3.7-flash", "models/gemini-3.8-flash", "models/gemini-4-hydrogen"] {
+        for model in [
+            "models/gemini-3.7-flash",
+            "models/gemini-3.8-flash",
+            "models/gemini-4-hydrogen",
+        ] {
             for (reasoning_effort, thinking_budget) in
                 [(Some(ReasoningEffort::Minimal), None), (None, Some(128))]
             {
