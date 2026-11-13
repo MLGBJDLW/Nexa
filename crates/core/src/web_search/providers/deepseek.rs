@@ -65,12 +65,29 @@ async fn post_validated(
     url: reqwest::Url,
     body: Value,
 ) -> Result<Value, SearchProviderFailure> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return post_with_client(client, provider, operation, url, body).await;
+    }
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|_| failure("request_failed", "Unable to initialize DeepSeek web client"))?;
-    post_with_client(&client, provider, operation, url, body).await
+    post_with_client(
+        CLIENT.get_or_init(|| client),
+        provider,
+        operation,
+        url,
+        body,
+    )
+    .await
+}
+
+fn request_interval(operation: &str) -> Duration {
+    // https://api-docs.deepseek.com/guides/search/ (verified 2026-11-13):
+    // independent account quotas: Search 100 QPS, Fetch 25 QPS.
+    Duration::from_millis(if operation == "search" { 10 } else { 40 })
 }
 
 async fn post_with_client(
@@ -81,21 +98,17 @@ async fn post_with_client(
     body: Value,
 ) -> Result<Value, SearchProviderFailure> {
     'attempts: for attempt in 0..3 {
-        // Search and Fetch have independent 5 QPS account limits. Reserve a
-        // slot before transport; credentials never enter diagnostics or keys.
+        // Reserve independently by operation. Share the quota across all keys
+        // on an origin because API keys do not identify independent accounts.
         static SLOTS: OnceLock<tokio::sync::Mutex<HashMap<String, tokio::time::Instant>>> =
             OnceLock::new();
         let slot = {
             let mut slots = SLOTS.get_or_init(Default::default).lock().await;
             let now = tokio::time::Instant::now();
             slots.retain(|_, time| *time + Duration::from_secs(60) > now);
-            let key = format!(
-                "{}:{operation}:{}",
-                url.origin().ascii_serialization(),
-                blake3::hash(provider.api_key.trim().as_bytes())
-            );
+            let key = format!("{}:{operation}", url.origin().ascii_serialization());
             let slot = slots.get(&key).copied().unwrap_or(now).max(now);
-            slots.insert(key, slot + Duration::from_millis(200));
+            slots.insert(key, slot + request_interval(operation));
             slot
         };
         tokio::time::sleep_until(slot).await;

@@ -9,8 +9,7 @@ use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 #[cfg(any(feature = "headless-browser", test))]
 use std::sync::atomic::{AtomicUsize, Ordering};
-#[cfg(any(feature = "headless-browser", test))]
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -18,13 +17,15 @@ use async_trait::async_trait;
 use encoding_rs::Encoding;
 use futures::StreamExt;
 use readabilityrs::{Readability, ReadabilityOptions};
+use reqwest::cookie::{CookieStore, Jar};
 use reqwest::header::{
-    HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE,
-    IF_NONE_MATCH, LAST_MODIFIED, LOCATION,
+    HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_TYPE, COOKIE, ETAG,
+    IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION, SET_COOKIE, VARY,
 };
 use reqwest::redirect::Policy;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
+use tokio::sync::OnceCell;
 
 use crate::error::CoreError;
 
@@ -41,11 +42,13 @@ const JS_RENDER_STABILITY_BUDGET_MS: u64 = 1500;
 #[cfg(feature = "headless-browser")]
 const JS_RENDER_TIMEOUT_SECS: u64 = 10;
 static FETCH_BODY_CACHE: OnceLock<Mutex<HashMap<String, CachedFetchBody>>> = OnceLock::new();
+const FETCH_CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
+const FETCH_CACHE_MAX_ENTRIES: usize = 64;
 
 /// Tool that fetches a public URL and returns readable text plus provenance.
 pub struct FetchUrlTool;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct FetchUrlArgs {
     url: String,
     #[serde(default)]
@@ -60,7 +63,7 @@ struct FetchUrlArgs {
     render_js: FetchRenderPolicy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 enum FetchProvider {
     #[default]
@@ -77,7 +80,7 @@ fn default_include_assets() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 enum FetchMode {
     #[default]
@@ -88,7 +91,7 @@ enum FetchMode {
     Assets,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 enum FetchRenderPolicy {
     #[default]
@@ -199,12 +202,14 @@ pub(crate) struct BrowserDiagnostics {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConditionalRequestHeaders {
+    resource_url: String,
     etag: Option<String>,
     last_modified: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct CachedFetchBody {
+    stored_at: std::time::Instant,
     final_url: String,
     content_type: Option<String>,
     etag: Option<String>,
@@ -212,6 +217,9 @@ struct CachedFetchBody {
     body_bytes: Vec<u8>,
     body_truncated: bool,
 }
+
+#[derive(Clone)]
+struct FetchUsedCookies;
 
 #[derive(Debug)]
 struct FetchBodyPayload {
@@ -394,6 +402,10 @@ fn validate_url_for_browser_capture_blocking(
 }
 
 pub(crate) fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client.clone());
+    }
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
@@ -405,13 +417,13 @@ pub(crate) fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
         ACCEPT_LANGUAGE,
         HeaderValue::from_static("zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"),
     );
-    reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .default_headers(headers)
         .user_agent("Nexa/0.6 public-page-fetcher")
         .redirect(Policy::none())
-        .cookie_store(true)
         .timeout(Duration::from_secs(20))
-        .build()
+        .build()?;
+    Ok(CLIENT.get_or_init(|| client).clone())
 }
 
 pub(crate) async fn send_with_safe_redirects(
@@ -426,11 +438,21 @@ pub(crate) async fn send_with_safe_redirects_conditional(
     initial_url: reqwest::Url,
     conditional: Option<&ConditionalRequestHeaders>,
 ) -> Result<(reqwest::Response, reqwest::Url, usize), String> {
+    // The connection pool is shared, but cookies belong to one redirect chain.
+    // Never carry a site's session into another conversation's public fetch.
+    let cookies = Jar::default();
+    let mut used_cookies = false;
     let mut current = initial_url;
     for redirect_count in 0..=MAX_REDIRECTS {
         validate_resolved_host(&current).await?;
         let mut request = client.get(current.clone());
-        if let Some(conditional) = conditional {
+        if let Some(cookie) = cookies.cookies(&current) {
+            request = request.header(COOKIE, cookie);
+            used_cookies = true;
+        }
+        if let Some(conditional) =
+            conditional.filter(|headers| headers.resource_url == current.as_str() && !used_cookies)
+        {
             if let Some(etag) = &conditional.etag {
                 request = request.header(IF_NONE_MATCH, etag);
             }
@@ -438,12 +460,22 @@ pub(crate) async fn send_with_safe_redirects_conditional(
                 request = request.header(IF_MODIFIED_SINCE, last_modified);
             }
         }
-        let response = request
+        let mut response = request
             .send()
             .await
             .map_err(|e| format!("HTTP request failed: {e}"))?;
 
-        if !response.status().is_redirection() {
+        if response.headers().contains_key(SET_COOKIE) {
+            used_cookies = true;
+            cookies.set_cookies(&mut response.headers().get_all(SET_COOKIE).iter(), &current);
+        }
+        if used_cookies {
+            response.extensions_mut().insert(FetchUsedCookies);
+        }
+        // 304 is a validation response, not a redirect requiring Location.
+        if response.status() == reqwest::StatusCode::NOT_MODIFIED
+            || !response.status().is_redirection()
+        {
             return Ok((response, current, redirect_count));
         }
         if redirect_count == MAX_REDIRECTS {
@@ -500,6 +532,7 @@ fn conditional_headers_from_cache(
         return None;
     }
     Some(ConditionalRequestHeaders {
+        resource_url: cached.final_url.clone(),
         etag: cached.etag.clone(),
         last_modified: cached.last_modified.clone(),
     })
@@ -520,15 +553,18 @@ fn store_fetch_body(
     body_bytes: &[u8],
     body_truncated: bool,
 ) {
-    if body_truncated {
-        return;
-    }
+    let cache = FETCH_BODY_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let cacheable = !body_truncated && permits_body_cache(headers);
     let etag = header_to_string(headers, ETAG);
     let last_modified = header_to_string(headers, LAST_MODIFIED);
-    if etag.is_none() && last_modified.is_none() {
+    if !cacheable || (etag.is_none() && last_modified.is_none()) {
+        if let Ok(mut cache) = cache.lock() {
+            cache.remove(input_url);
+        }
         return;
     }
     let entry = CachedFetchBody {
+        stored_at: std::time::Instant::now(),
         final_url: final_url.to_string(),
         content_type,
         etag,
@@ -536,10 +572,38 @@ fn store_fetch_body(
         body_bytes: body_bytes.to_vec(),
         body_truncated,
     };
-    let cache = FETCH_BODY_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(mut cache) = cache.lock() {
-        cache.insert(input_url.to_string(), entry.clone());
-        cache.insert(final_url.to_string(), entry);
+        cache.insert(input_url.to_string(), entry);
+        trim_body_cache(&mut cache);
+    }
+}
+
+fn permits_body_cache(headers: &HeaderMap) -> bool {
+    !headers.contains_key(SET_COOKIE)
+        && !headers.contains_key(VARY)
+        && !headers.get_all(CACHE_CONTROL).iter().any(|value| {
+            value.to_str().map_or(true, |value| {
+                value.split(',').any(|directive| {
+                    let name = directive.trim().split('=').next().unwrap_or("");
+                    name.eq_ignore_ascii_case("no-store") || name.eq_ignore_ascii_case("private")
+                })
+            })
+        })
+}
+
+fn trim_body_cache(cache: &mut HashMap<String, CachedFetchBody>) {
+    let mut bytes: usize = cache.values().map(|entry| entry.body_bytes.len()).sum();
+    while bytes > FETCH_CACHE_MAX_BYTES || cache.len() > FETCH_CACHE_MAX_ENTRIES {
+        let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.stored_at)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        if let Some(entry) = cache.remove(&oldest) {
+            bytes -= entry.body_bytes.len();
+        }
     }
 }
 
@@ -552,6 +616,42 @@ fn cached_payload(cached: CachedFetchBody, redirect_count: usize) -> Option<Fetc
         redirect_count,
         cache_status: "validated",
     })
+}
+
+fn revalidated_payload(
+    key: &str,
+    final_url: &reqwest::Url,
+    headers: &HeaderMap,
+    cached: Option<CachedFetchBody>,
+    redirect_count: usize,
+) -> Option<FetchBodyPayload> {
+    let mut cached = cached.filter(|entry| entry.final_url == final_url.as_str())?;
+    let mut updated_headers = headers.clone();
+    // A 304 can update representation metadata and caching policy. Missing
+    // validators retain their previous values, while no-store/private/Vary
+    // evicts the entry after satisfying this validated request.
+    for (name, previous) in [(ETAG, &cached.etag), (LAST_MODIFIED, &cached.last_modified)] {
+        if !updated_headers.contains_key(&name) {
+            if let Some(value) = previous
+                .as_ref()
+                .and_then(|value| HeaderValue::from_str(value).ok())
+            {
+                updated_headers.insert(name, value);
+            }
+        }
+    }
+    if let Some(content_type) = header_to_string(headers, CONTENT_TYPE) {
+        cached.content_type = Some(content_type);
+    }
+    store_fetch_body(
+        key,
+        final_url,
+        &updated_headers,
+        cached.content_type.clone(),
+        &cached.body_bytes,
+        cached.body_truncated,
+    );
+    cached_payload(cached, redirect_count)
 }
 
 fn charset_from_content_type(content_type: Option<&str>) -> Option<&'static Encoding> {
@@ -1700,7 +1800,7 @@ async fn render_fetch_payload(
         cache_status,
     } = payload;
     let body_kind = classify_body_kind(content_type.as_deref(), &body_bytes);
-    let body = decode_body(&body_bytes, content_type.as_deref());
+    let body = Arc::new(decode_body(&body_bytes, content_type.as_deref()));
     let mut metadata = PageMetadata::default();
     let mut assets: Vec<ImageAsset> = Vec::new();
     let mut js_render_attempted = false;
@@ -1710,23 +1810,23 @@ async fn render_fetch_payload(
     let mut js_render_blocked_requests = 0usize;
     let (mut text, title, extraction_method) = match body_kind {
         BodyKind::Html => {
-            metadata = extract_page_metadata(&body, &final_url);
-            let mut extraction = extract_html_text(&body, &final_url, args.mode, &metadata);
-            if let Some(reason) = html_render_reason(&body, &extraction, args.mode, args.render_js)
-            {
+            let (mut extraction, render_reason) =
+                extract_fetch_html(body.clone(), final_url.clone(), args.mode, args.render_js)
+                    .await?;
+            if let Some(reason) = render_reason {
                 js_render_attempted = true;
                 js_render_reason = Some(reason);
                 match render_html_with_browser(final_url.clone()).await {
                     Ok(rendered) => {
                         js_render_blocked_requests = rendered.blocked_requests;
-                        let rendered_metadata =
-                            extract_page_metadata(&rendered.html, &rendered.final_url);
-                        let rendered_extraction = extract_html_text(
-                            &rendered.html,
-                            &rendered.final_url,
+                        let rendered_html = Arc::new(rendered.html);
+                        let (rendered_extraction, _) = extract_fetch_html(
+                            rendered_html.clone(),
+                            rendered.final_url.clone(),
                             args.mode,
-                            &rendered_metadata,
-                        );
+                            FetchRenderPolicy::Never,
+                        )
+                        .await?;
                         if rendered_html_is_better(
                             args.render_js,
                             &extraction,
@@ -1740,11 +1840,12 @@ async fn render_fetch_payload(
                             };
                             js_render_used = true;
                             if args.include_assets || args.mode == FetchMode::Assets {
-                                assets = extract_image_assets(
-                                    &rendered.html,
-                                    &final_url,
-                                    metadata.image.as_deref(),
-                                );
+                                assets = extract_fetch_assets(
+                                    rendered_html,
+                                    final_url.clone(),
+                                    metadata.image.clone(),
+                                )
+                                .await?;
                             }
                         } else {
                             js_render_error = Some(
@@ -1762,7 +1863,9 @@ async fn render_fetch_payload(
                 metadata = extraction.metadata.clone();
             }
             if (args.include_assets || args.mode == FetchMode::Assets) && assets.is_empty() {
-                assets = extract_image_assets(&body, &final_url, metadata.image.as_deref());
+                assets =
+                    extract_fetch_assets(body.clone(), final_url.clone(), metadata.image.clone())
+                        .await?;
             }
             (
                 extraction.text,
@@ -1775,10 +1878,17 @@ async fn render_fetch_payload(
             )
         }
         BodyKind::Json => {
-            let pretty = serde_json::from_str::<serde_json::Value>(&body)
-                .ok()
-                .and_then(|value| serde_json::to_string_pretty(&value).ok())
-                .unwrap_or_else(|| collapse_whitespace(&body));
+            let body = body.clone();
+            let pretty = tokio::task::spawn_blocking(move || {
+                serde_json::from_str::<serde_json::Value>(&body)
+                    .ok()
+                    .and_then(|value| serde_json::to_string_pretty(&value).ok())
+                    .unwrap_or_else(|| collapse_whitespace(&body))
+            })
+            .await
+            .map_err(|error| {
+                CoreError::Internal(format!("Page extraction worker failed: {error}"))
+            })?;
             (pretty, None, "json".to_string())
         }
         BodyKind::Text => {
@@ -1893,6 +2003,34 @@ async fn render_fetch_payload(
             "cacheStatus": cache_status,
         })),
     })
+}
+
+async fn extract_fetch_html(
+    html: Arc<String>,
+    url: reqwest::Url,
+    mode: FetchMode,
+    policy: FetchRenderPolicy,
+) -> Result<(HtmlExtraction, Option<&'static str>), CoreError> {
+    tokio::task::spawn_blocking(move || {
+        let metadata = extract_page_metadata(&html, &url);
+        let extraction = extract_html_text(&html, &url, mode, &metadata);
+        let render_reason = html_render_reason(&html, &extraction, mode, policy);
+        (extraction, render_reason)
+    })
+    .await
+    .map_err(|error| CoreError::Internal(format!("Page extraction worker failed: {error}")))
+}
+
+async fn extract_fetch_assets(
+    html: Arc<String>,
+    url: reqwest::Url,
+    image: Option<String>,
+) -> Result<Vec<ImageAsset>, CoreError> {
+    tokio::task::spawn_blocking(move || extract_image_assets(&html, &url, image.as_deref()))
+        .await
+        .map_err(|error| {
+            CoreError::Internal(format!("Page asset extraction worker failed: {error}"))
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -2014,91 +2152,67 @@ impl Tool for FetchUrlTool {
             }
         }
 
-        let client = build_http_client()
-            .map_err(|e| CoreError::InvalidInput(format!("Failed to build HTTP client: {e}")))?;
+        fetch_direct_shared(call_id, &args, max_length, parsed_url).await
+    }
+}
 
-        let fetch_cache_key = parsed_url.to_string();
-        let cached_body = cached_fetch_body(&fetch_cache_key);
-        let conditional = conditional_headers_from_cache(cached_body.as_ref());
-        let (response, final_url, redirect_count) =
-            match send_with_safe_redirects_conditional(&client, parsed_url, conditional.as_ref())
-                .await
-            {
-                Ok(result) => result,
-                Err(e) => {
-                    return Ok(ToolResult {
-                        call_id: call_id.to_string(),
-                        content: e,
-                        is_error: true,
-                        artifacts: None,
-                    });
-                }
-            };
+async fn fetch_direct_shared(
+    call_id: &str,
+    args: &FetchUrlArgs,
+    max_length: usize,
+    parsed_url: reqwest::Url,
+) -> Result<ToolResult, CoreError> {
+    let key = serde_json::to_string(args)?;
+    let mut result = share_fetch(key, fetch_direct("", args, max_length, parsed_url)).await?;
+    result.call_id = call_id.to_string();
+    Ok(result)
+}
 
-        let status = response.status();
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
-        if status == reqwest::StatusCode::NOT_MODIFIED {
-            let Some(payload) =
-                cached_body.and_then(|cached| cached_payload(cached, redirect_count))
-            else {
-                return Ok(ToolResult {
-                    call_id: call_id.to_string(),
-                    content: format!(
-                        "HTTP {status} fetching {final_url}, but no cached body was available"
-                    ),
-                    is_error: true,
-                    artifacts: Some(serde_json::json!({
-                        "kind": "fetchUrl",
-                        "url": args.url,
-                        "finalUrl": final_url.as_str(),
-                        "status": status.as_u16(),
-                        "blockedReason": null,
-                        "contentType": content_type,
-                        "redirectCount": redirect_count,
-                        "bodyTruncated": false,
-                        "cacheStatus": "validator_miss",
-                    })),
-                });
-            };
-            return render_fetch_payload(call_id, &args, max_length, payload).await;
+async fn share_fetch(
+    key: String,
+    fetch: impl std::future::Future<Output = Result<ToolResult, CoreError>>,
+) -> Result<ToolResult, CoreError> {
+    static FLIGHTS: OnceLock<Mutex<HashMap<String, Weak<OnceCell<ToolResult>>>>> = OnceLock::new();
+    let cell = {
+        let mut flights = FLIGHTS.get_or_init(Default::default).lock().map_err(|_| {
+            CoreError::Internal("fetch_url request coordination unavailable".into())
+        })?;
+        flights.retain(|_, cell| cell.strong_count() > 0);
+        match flights.get(&key).and_then(Weak::upgrade) {
+            Some(cell) => cell,
+            None => {
+                let cell = Arc::new(OnceCell::new());
+                flights.insert(key, Arc::downgrade(&cell));
+                cell
+            }
         }
-        if !status.is_success() {
-            let (error_bytes, error_truncated) = read_limited_body(response, MAX_ERROR_BODY_BYTES)
-                .await
-                .unwrap_or_default();
-            let error_body = decode_body(&error_bytes, content_type.as_deref());
-            let reason = blocked_reason(status, &error_body);
-            return Ok(ToolResult {
-                call_id: call_id.to_string(),
-                content: format!(
-                    "HTTP {status} fetching {}{}",
-                    final_url,
-                    reason
-                        .map(|value| format!("\nBlocked reason: {value}"))
-                        .unwrap_or_default()
-                ),
-                is_error: true,
-                artifacts: Some(serde_json::json!({
-                    "kind": "fetchUrl",
-                    "url": args.url,
-                    "finalUrl": final_url.as_str(),
-                    "status": status.as_u16(),
-                    "blockedReason": reason,
-                    "contentType": content_type,
-                    "redirectCount": redirect_count,
-                    "bodyTruncated": error_truncated,
-                    "cacheStatus": "bypass",
-                })),
-            });
-        }
+    };
+    // Coalesce only overlapping identical reads, never serve a stale completed
+    // response. Cancellation drops the initializer and lets a waiter take over.
+    cell.get_or_try_init(|| fetch).await.cloned()
+}
 
-        let response_headers = response.headers().clone();
-        let (body_bytes, body_truncated) = match read_limited_body(response, MAX_BODY_BYTES).await {
-            Ok(body) => body,
+async fn fetch_direct(
+    call_id: &str,
+    args: &FetchUrlArgs,
+    max_length: usize,
+    parsed_url: reqwest::Url,
+) -> Result<ToolResult, CoreError> {
+    let client = build_http_client()
+        .map_err(|e| CoreError::InvalidInput(format!("Failed to build HTTP client: {e}")))?;
+
+    let fetch_cache_key = parsed_url.to_string();
+    let mut cached_body = cached_fetch_body(&fetch_cache_key);
+    let conditional = conditional_headers_from_cache(cached_body.as_ref());
+    let (mut response, mut final_url, mut redirect_count) =
+        match send_with_safe_redirects_conditional(
+            &client,
+            parsed_url.clone(),
+            conditional.as_ref(),
+        )
+        .await
+        {
+            Ok(result) => result,
             Err(e) => {
                 return Ok(ToolResult {
                     call_id: call_id.to_string(),
@@ -2109,68 +2223,388 @@ impl Tool for FetchUrlTool {
             }
         };
 
-        let body_kind = classify_body_kind(content_type.as_deref(), &body_bytes);
-        if body_kind == BodyKind::UnsupportedBinary {
-            let direct_asset = ImageAsset {
-                kind: "direct_asset".to_string(),
-                url: final_url.to_string(),
-                alt: None,
-                width: None,
-                height: None,
-            };
+    if response.status() == reqwest::StatusCode::NOT_MODIFIED
+        && (response.extensions().get::<FetchUsedCookies>().is_some()
+            || !cached_body
+                .as_ref()
+                .is_some_and(|cached| cached.final_url == final_url.as_str()))
+    {
+        // The redirect chain changed resource/session, so its 304 cannot
+        // validate the old representation. Retry once without validators.
+        cached_body = None;
+        if let Some(cache) = FETCH_BODY_CACHE.get() {
+            if let Ok(mut cache) = cache.lock() {
+                cache.remove(&fetch_cache_key);
+            }
+        }
+        match send_with_safe_redirects(&client, parsed_url).await {
+            Ok(result) => (response, final_url, redirect_count) = result,
+            Err(error) => {
+                return Ok(ToolResult {
+                    call_id: call_id.into(),
+                    content: error,
+                    is_error: true,
+                    artifacts: None,
+                })
+            }
+        }
+    }
+
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        let Some(payload) = revalidated_payload(
+            &fetch_cache_key,
+            &final_url,
+            response.headers(),
+            cached_body,
+            redirect_count,
+        ) else {
             return Ok(ToolResult {
                 call_id: call_id.to_string(),
                 content: format!(
-                    "URL: {}\nFinal URL: {}\nContent type: {}\n---\nfetch_url only returns readable text. Use download_asset for supported remote images.",
-                    args.url,
-                    final_url,
-                    content_type.as_deref().unwrap_or("unknown")
+                    "HTTP {status} fetching {final_url}, but no cached body was available"
                 ),
                 is_error: true,
                 artifacts: Some(serde_json::json!({
                     "kind": "fetchUrl",
                     "url": args.url,
                     "finalUrl": final_url.as_str(),
-                    "truncated": false,
-                    "bodyTruncated": body_truncated,
+                    "status": status.as_u16(),
+                    "blockedReason": null,
                     "contentType": content_type,
                     "redirectCount": redirect_count,
-                    "extractionMethod": "unsupported_binary",
-                    "assets": [direct_asset],
-                    "cacheStatus": "bypass",
+                    "bodyTruncated": false,
+                    "cacheStatus": "validator_miss",
                 })),
             });
-        }
-
-        store_fetch_body(
-            &fetch_cache_key,
-            &final_url,
-            &response_headers,
-            content_type.clone(),
-            &body_bytes,
-            body_truncated,
-        );
-
-        render_fetch_payload(
-            call_id,
-            &args,
-            max_length,
-            FetchBodyPayload {
-                final_url,
-                content_type,
-                body_bytes,
-                body_truncated,
-                redirect_count,
-                cache_status: "miss",
-            },
-        )
-        .await
+        };
+        return render_fetch_payload(call_id, args, max_length, payload).await;
     }
+    if !status.is_success() {
+        let (error_bytes, error_truncated) = read_limited_body(response, MAX_ERROR_BODY_BYTES)
+            .await
+            .unwrap_or_default();
+        let error_body = decode_body(&error_bytes, content_type.as_deref());
+        let reason = blocked_reason(status, &error_body);
+        return Ok(ToolResult {
+            call_id: call_id.to_string(),
+            content: format!(
+                "HTTP {status} fetching {}{}",
+                final_url,
+                reason
+                    .map(|value| format!("\nBlocked reason: {value}"))
+                    .unwrap_or_default()
+            ),
+            is_error: true,
+            artifacts: Some(serde_json::json!({
+                "kind": "fetchUrl",
+                "url": args.url,
+                "finalUrl": final_url.as_str(),
+                "status": status.as_u16(),
+                "blockedReason": reason,
+                "contentType": content_type,
+                "redirectCount": redirect_count,
+                "bodyTruncated": error_truncated,
+                "cacheStatus": "bypass",
+            })),
+        });
+    }
+
+    let mut response_headers = response.headers().clone();
+    if response.extensions().get::<FetchUsedCookies>().is_some() {
+        response_headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    let (body_bytes, body_truncated) = match read_limited_body(response, MAX_BODY_BYTES).await {
+        Ok(body) => body,
+        Err(e) => {
+            return Ok(ToolResult {
+                call_id: call_id.to_string(),
+                content: e,
+                is_error: true,
+                artifacts: None,
+            });
+        }
+    };
+
+    let body_kind = classify_body_kind(content_type.as_deref(), &body_bytes);
+    if body_kind == BodyKind::UnsupportedBinary {
+        let direct_asset = ImageAsset {
+            kind: "direct_asset".to_string(),
+            url: final_url.to_string(),
+            alt: None,
+            width: None,
+            height: None,
+        };
+        return Ok(ToolResult {
+            call_id: call_id.to_string(),
+            content: format!(
+                "URL: {}\nFinal URL: {}\nContent type: {}\n---\nfetch_url only returns readable text. Use download_asset for supported remote images.",
+                args.url,
+                final_url,
+                content_type.as_deref().unwrap_or("unknown")
+            ),
+            is_error: true,
+            artifacts: Some(serde_json::json!({
+                "kind": "fetchUrl",
+                "url": args.url,
+                "finalUrl": final_url.as_str(),
+                "truncated": false,
+                "bodyTruncated": body_truncated,
+                "contentType": content_type,
+                "redirectCount": redirect_count,
+                "extractionMethod": "unsupported_binary",
+                "assets": [direct_asset],
+                "cacheStatus": "bypass",
+            })),
+        });
+    }
+
+    store_fetch_body(
+        &fetch_cache_key,
+        &final_url,
+        &response_headers,
+        content_type.clone(),
+        &body_bytes,
+        body_truncated,
+    );
+
+    render_fetch_payload(
+        call_id,
+        args,
+        max_length,
+        FetchBodyPayload {
+            final_url,
+            content_type,
+            body_bytes,
+            body_truncated,
+            redirect_count,
+            cache_status: "miss",
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn revalidation_updates_metadata_and_obeys_changed_cache_policy() {
+        let url = reqwest::Url::parse("https://example.com/revalidation-policy-test").unwrap();
+        let key = url.as_str();
+        let mut original = HeaderMap::new();
+        original.insert(ETAG, HeaderValue::from_static("\"v1\""));
+        store_fetch_body(
+            key,
+            &url,
+            &original,
+            Some("text/html".into()),
+            b"original",
+            false,
+        );
+        let cached = cached_fetch_body(key).unwrap();
+        assert!(revalidated_payload(
+            key,
+            &url.join("/other").unwrap(),
+            &original,
+            Some(cached.clone()),
+            1
+        )
+        .is_none());
+
+        let mut updated = HeaderMap::new();
+        updated.insert(ETAG, HeaderValue::from_static("\"v2\""));
+        updated.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+        let payload = revalidated_payload(key, &url, &updated, Some(cached), 0).unwrap();
+        assert_eq!(payload.body_bytes, b"original");
+        assert_eq!(payload.content_type.as_deref(), Some("text/plain"));
+        assert_eq!(
+            cached_fetch_body(key).unwrap().etag.as_deref(),
+            Some("\"v2\"")
+        );
+
+        for (name, value) in [
+            (CACHE_CONTROL, "no-store"),
+            (CACHE_CONTROL, "private"),
+            (VARY, "Cookie"),
+            (SET_COOKIE, "session=1"),
+        ] {
+            store_fetch_body(
+                key,
+                &url,
+                &original,
+                Some("text/html".into()),
+                b"original",
+                false,
+            );
+            let mut policy = HeaderMap::new();
+            policy.insert(name, HeaderValue::from_static(value));
+            assert!(revalidated_payload(key, &url, &policy, cached_fetch_body(key), 0).is_some());
+            assert!(cached_fetch_body(key).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn identical_fetches_share_work_but_later_reads_revalidate() {
+        let calls = AtomicUsize::new(0);
+        let work = || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            Ok(ToolResult {
+                call_id: String::new(),
+                content: "full evidence".into(),
+                is_error: false,
+                artifacts: None,
+            })
+        };
+        let key = "coalesced-fetch-test".to_string();
+        let (a, b) = tokio::join!(
+            share_fetch(key.clone(), work()),
+            share_fetch(key.clone(), work())
+        );
+        assert_eq!(a.unwrap().content, b.unwrap().content);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        share_fetch(key, work()).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn cancelled_fetch_does_not_poison_future_reads() {
+        let key = "cancelled-fetch-test".to_string();
+        let pending = share_fetch(key.clone(), std::future::pending());
+        assert!(tokio::time::timeout(Duration::from_millis(1), pending)
+            .await
+            .is_err());
+        let result = share_fetch(key, async {
+            Ok(ToolResult {
+                call_id: String::new(),
+                content: "retry".into(),
+                is_error: false,
+                artifacts: None,
+            })
+        })
+        .await
+        .unwrap();
+        assert_eq!(result.content, "retry");
+    }
+
+    #[tokio::test]
+    async fn conditional_fetch_handles_304_and_isolates_redirect_cookies() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        // A local proxy emulates the public upstream without relaxing URL guards.
+        let proxy = format!("http://{}", listener.local_addr().unwrap());
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .proxy(reqwest::Proxy::all(proxy).unwrap())
+            .redirect(Policy::none())
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let server = tokio::spawn(async move {
+            for index in 0..4 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                while !bytes.ends_with(b"\r\n\r\n") {
+                    bytes.push(socket.read_u8().await.unwrap());
+                }
+                let request = String::from_utf8(bytes).unwrap().to_ascii_lowercase();
+                if index == 1 {
+                    assert!(request.contains("cookie: session=test"));
+                } else {
+                    assert!(!request.contains("cookie:"));
+                }
+                assert_eq!(request.contains("if-none-match: \"v1\""), index == 2);
+                let reply = match index {
+                    0 => "HTTP/1.1 302 Found\r\nLocation: /page\r\nSet-Cookie: session=test; Path=/\r\n",
+                    2 => "HTTP/1.1 304 Not Modified\r\n",
+                    _ => "HTTP/1.1 200 OK\r\n",
+                };
+                socket
+                    .write_all(
+                        format!("{reply}Content-Length: 0\r\nConnection: close\r\n\r\n").as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+            }
+        });
+        let page = reqwest::Url::parse("http://93.184.216.34/page").unwrap();
+        let conditional = ConditionalRequestHeaders {
+            resource_url: page.to_string(),
+            etag: Some("\"v1\"".into()),
+            last_modified: None,
+        };
+        let (response, _, hops) = send_with_safe_redirects_conditional(
+            &client,
+            page.join("/redirect").unwrap(),
+            Some(&conditional),
+        )
+        .await
+        .unwrap();
+        assert_eq!(hops, 1);
+        assert!(response.extensions().get::<FetchUsedCookies>().is_some());
+        let (response, _, hops) =
+            send_with_safe_redirects_conditional(&client, page.clone(), Some(&conditional))
+                .await
+                .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_MODIFIED);
+        assert_eq!(hops, 0);
+        assert!(response.extensions().get::<FetchUsedCookies>().is_none());
+        send_with_safe_redirects_conditional(
+            &client,
+            page.join("/other").unwrap(),
+            Some(&conditional),
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn validator_cache_respects_privacy_and_memory_budget() {
+        for (name, value) in [
+            (CACHE_CONTROL, "public, no-store"),
+            (CACHE_CONTROL, "private=\"data\""),
+            (VARY, "Cookie"),
+            (SET_COOKIE, "id=1"),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(name, HeaderValue::from_static(value));
+            assert!(!permits_body_cache(&headers));
+        }
+        assert!(permits_body_cache(&HeaderMap::new()));
+        let mut cache = HashMap::new();
+        for index in 0..=FETCH_CACHE_MAX_ENTRIES {
+            cache.insert(
+                index.to_string(),
+                CachedFetchBody {
+                    stored_at: std::time::Instant::now(),
+                    final_url: format!("https://example.com/{index}"),
+                    content_type: None,
+                    etag: Some("v1".into()),
+                    last_modified: None,
+                    body_bytes: vec![0; 600_000],
+                    body_truncated: false,
+                },
+            );
+        }
+        trim_body_cache(&mut cache);
+        assert!(cache.len() <= FETCH_CACHE_MAX_ENTRIES);
+        assert!(
+            cache
+                .values()
+                .map(|entry| entry.body_bytes.len())
+                .sum::<usize>()
+                <= FETCH_CACHE_MAX_BYTES
+        );
+        assert!(!cache.contains_key("0"));
+        assert!(cache.contains_key(&FETCH_CACHE_MAX_ENTRIES.to_string()));
+    }
 
     #[test]
     fn extract_title_reads_basic_title_tag() {
@@ -2240,6 +2674,7 @@ mod tests {
         assert!(conditional_headers_from_cache(None).is_none());
 
         let cached = CachedFetchBody {
+            stored_at: std::time::Instant::now(),
             final_url: "https://example.com/page".to_string(),
             content_type: Some("text/html".to_string()),
             etag: Some("\"abc\"".to_string()),
