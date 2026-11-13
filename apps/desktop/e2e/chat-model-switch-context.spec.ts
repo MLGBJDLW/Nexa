@@ -1077,6 +1077,7 @@ test('reasoning slider supports pointer drag and reduced motion in the dark them
 
 test.describe('reasoning slider motion', () => {
   test('DNA rotates continuously and the thumb follows dragging before springing to a stop', async ({ page }, testInfo) => {
+    await page.clock.install();
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.goto('/chat/conv-model-switch');
     await openProviderModels(page, 'cfg-sonnet');
@@ -1105,17 +1106,20 @@ test.describe('reasoning slider motion', () => {
     await expect(slider).toBeEnabled();
     await expect(slider).toHaveValue('1');
 
-    const positions = await page.evaluate(async () => {
-      const thumb = document.querySelector('.nexa-intensity-thumb')!;
+    // The spring uses RAF timestamps: sample fixed frame intervals so a busy CI
+    // worker cannot skip most of its intermediate positions between observations.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    await page.clock.runFor(500);
+    const thumb = page.locator('.nexa-intensity-thumb');
+    const positions = [await thumb.evaluate(element => element.getBoundingClientRect().x)];
+    await page.evaluate(() => {
       const button = [...document.querySelectorAll<HTMLButtonElement>('.nexa-intensity-options button')].find(element => element.textContent === 'Max')!;
-      const result = [thumb.getBoundingClientRect().x];
       button.click();
-      for (let index = 0; index < 24; index++) {
-        await new Promise(requestAnimationFrame);
-        result.push(thumb.getBoundingClientRect().x);
-      }
-      return result;
     });
+    for (let index = 0; index < 24; index++) {
+      await page.clock.runFor(16);
+      positions.push(await thumb.evaluate(element => element.getBoundingClientRect().x));
+    }
     const start = positions[0];
     const end = positions.at(-1)!;
     expect(end - start).toBeGreaterThan(80);

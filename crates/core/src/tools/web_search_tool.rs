@@ -31,6 +31,7 @@ const DEF_JSON: &str = include_str!("../../prompts/tools/web_search.json");
 const SEARCH_SUCCESS_CACHE_TTL: Duration = Duration::from_secs(300);
 const SEARCH_PARTIAL_CACHE_TTL: Duration = Duration::from_secs(120);
 const SEARCH_EMPTY_CACHE_TTL: Duration = Duration::from_secs(30);
+const SEARCH_CACHE_MAX_ENTRIES: usize = 256;
 const PROVIDER_MIN_INTERVAL: Duration = Duration::from_secs(2);
 const PROVIDER_DEGRADED_COOLDOWN: Duration = Duration::from_secs(30);
 const PROVIDER_RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(300);
@@ -603,6 +604,16 @@ fn store_response(key: String, response: &SearchResponse) {
     };
     let cache = SEARCH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(mut cache) = cache.lock() {
+        cache.retain(|_, entry| entry.stored_at.elapsed() <= entry.ttl);
+        if cache.len() >= SEARCH_CACHE_MAX_ENTRIES && !cache.contains_key(&key) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.stored_at)
+                .map(|(key, _)| key.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
         let mut stored = response.clone();
         stored.cache = SearchCacheInfo {
             status: "hit".to_string(),
@@ -700,7 +711,15 @@ async fn prepare_provider_call(
             if state.next_request_at > now {
                 Some(state.next_request_at.duration_since(now))
             } else {
-                state.next_request_at = now + PROVIDER_MIN_INTERVAL;
+                // DeepSeek reserves account-wide slots in its adapter. Applying
+                // the public HTML engine throttle here serializes independent
+                // API searches unnecessarily (and used to throttle twice).
+                state.next_request_at = now
+                    + if engine == SearchEngine::Deepseek {
+                        Duration::ZERO
+                    } else {
+                        PROVIDER_MIN_INTERVAL
+                    };
                 return Ok(state.health);
             }
         };
@@ -883,6 +902,20 @@ fn build_search_client(
         .redirect(redirect_policy)
         .build()
         .map_err(|e| CoreError::Internal(format!("Failed to build web search client: {e}")))
+}
+
+fn search_clients() -> Result<(reqwest::Client, reqwest::Client), CoreError> {
+    static CLIENTS: OnceLock<(reqwest::Client, reqwest::Client)> = OnceLock::new();
+    if let Some(clients) = CLIENTS.get() {
+        return Ok(clients.clone());
+    }
+    let clients = (
+        build_search_client(reqwest::redirect::Policy::limited(3))?,
+        build_search_client(reqwest::redirect::Policy::none())?,
+    );
+    // Failed initialization is retryable; concurrent first callers share the
+    // winner's pools. No API credentials or cookies are stored on either client.
+    Ok(CLIENTS.get_or_init(|| clients).clone())
 }
 
 fn custom_provider_failure(
@@ -1358,45 +1391,53 @@ async fn resolve_search_redirects(
     redirect_client: &reqwest::Client,
     results: &mut [SearchResultItem],
 ) -> Vec<SearchProviderFailure> {
-    let mut failures = Vec::new();
-    for result in results
+    // Resolve the same candidates with the same per-link budget, concurrently.
+    // join_all preserves ranking and diagnostic order regardless of completion.
+    let resolutions = results
         .iter_mut()
         .filter(|result| !result.resolved)
         .take(REDIRECT_RESOLVE_MAX_RESULTS)
-    {
-        let engine = result.engine;
-        let url = result.url.clone();
-        match tokio::time::timeout(
-            REDIRECT_RESOLVE_TIMEOUT,
-            crate::web_search::providers::resolve_search_redirect_target(
-                redirect_client,
-                engine,
-                &url,
-                REDIRECT_RESOLVE_MAX_HOPS,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(Some(resolved))) => {
-                result.url = resolved.url;
-                result.display_url = resolved.display_url;
-                result.source = resolved.source;
-                result.resolved = true;
-                result.confidence = "medium".to_string();
-            }
-            Ok(Ok(None)) => {}
-            Ok(Err(failure)) => failures.push(failure),
-            Err(_) => failures.push(SearchProviderFailure::new(
-                engine,
-                "redirect_resolve_timeout",
-                format!(
-                    "Search redirect resolver exceeded {}s",
-                    REDIRECT_RESOLVE_TIMEOUT.as_secs()
+        .map(|result| async move {
+            let engine = result.engine;
+            let url = result.url.clone();
+            match tokio::time::timeout(
+                REDIRECT_RESOLVE_TIMEOUT,
+                crate::web_search::providers::resolve_search_redirect_target(
+                    redirect_client,
+                    engine,
+                    &url,
+                    REDIRECT_RESOLVE_MAX_HOPS,
                 ),
-            )),
-        }
-    }
-    failures
+            )
+            .await
+            {
+                Ok(Ok(Some(resolved))) => {
+                    result.url = resolved.url;
+                    result.display_url = resolved.display_url;
+                    result.source = resolved.source;
+                    result.resolved = true;
+                    result.confidence = "medium".to_string();
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(failure)) => return Some(failure),
+                Err(_) => {
+                    return Some(SearchProviderFailure::new(
+                        engine,
+                        "redirect_resolve_timeout",
+                        format!(
+                            "Search redirect resolver exceeded {}s",
+                            REDIRECT_RESOLVE_TIMEOUT.as_secs()
+                        ),
+                    ))
+                }
+            }
+            None
+        });
+    futures::future::join_all(resolutions)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 fn runtime_key_for_plan_item(plan_item: &SearchPlanItem) -> ProviderRuntimeKey {
@@ -1662,13 +1703,15 @@ async fn execute_with_singleflight(
     runtime: SearchRuntimeConfig,
     cache_key: String,
 ) -> Result<SearchExecution, CoreError> {
-    let client = build_search_client(reqwest::redirect::Policy::limited(3))?;
-    let redirect_client = build_search_client(reqwest::redirect::Policy::none())?;
+    let (client, redirect_client) = search_clients()?;
     let cell = {
         let in_flight = SEARCH_IN_FLIGHT.get_or_init(|| Mutex::new(HashMap::new()));
         let mut in_flight = in_flight.lock().map_err(|_| {
             CoreError::Internal("web_search singleflight lock is unavailable".to_string())
         })?;
+        // A cancelled initializer leaves its cell empty. Drop abandoned cells
+        // without interfering with callers still waiting on an active request.
+        in_flight.retain(|_, cell| Arc::strong_count(cell) > 1);
         in_flight
             .entry(cache_key.clone())
             .or_insert_with(|| Arc::new(OnceCell::new()))
@@ -1677,10 +1720,24 @@ async fn execute_with_singleflight(
 
     let request_for_cell = request.clone();
     let runtime_for_cell = runtime.clone();
+    let cache_key_for_cell = cache_key.clone();
     let execution = cell
         .get_or_init(|| async move {
-            execute_search_request(request_for_cell, runtime_for_cell, client, redirect_client)
-                .await
+            // Another flight can complete between the caller's cache lookup
+            // and this admission. Recheck before starting duplicate transport.
+            if let Some(response) = cached_response(&cache_key_for_cell) {
+                return SearchExecution {
+                    response,
+                    all_failed: false,
+                };
+            }
+            let execution =
+                execute_search_request(request_for_cell, runtime_for_cell, client, redirect_client)
+                    .await;
+            // Publish before removing the flight, closing the duplicate-request
+            // gap between completion and cache insertion.
+            store_response(cache_key_for_cell, &execution.response);
+            execution
         })
         .await
         .clone();
@@ -1717,9 +1774,7 @@ pub(crate) async fn run_web_search(
         });
     }
 
-    let execution = execute_with_singleflight(request, runtime, cache_key.clone()).await?;
-    store_response(cache_key, &execution.response);
-    Ok(execution)
+    execute_with_singleflight(request, runtime, cache_key).await
 }
 
 pub fn provider_status_snapshot(config: &WebSearchConfig) -> Vec<WebSearchProviderStatus> {

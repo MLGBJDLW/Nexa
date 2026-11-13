@@ -32,7 +32,7 @@
   "stopping": "Stopping…",
   "stopped": "Stopped",
   "error": "Disconnected",
-  "privacy": "Inputs are sent to the selected providers only after you start. Raw audio and video are not saved. Text records are retained. Leaving this page stops capture.",
+  "privacy": "Inputs are sent to the selected providers only after you start. Raw audio and video are not saved. Text records are retained. Use Stop capture to end sharing.",
   "preview": "Capture preview",
   "observations": "Live record",
   "frames": "Frames analyzed",

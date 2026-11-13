@@ -2,6 +2,16 @@
 
 [Documentation](../README.md) / [Category overview](README.md)
 
+The paired-device Screen viewer reuses these observation, target-validation and
+action-receipt paths. A local user grants one Windows window, with a separate
+control toggle, from Connect. Human input is checked against its displayed
+observation; failed or uncertain input is not replayed. Grants survive desktop
+navigation with a global Stop indicator, but disconnect/restart and explicit Stop
+invalidate both active and pending grants. Phone viewing similarly uses the
+existing phone tool receipt path and a cancelable viewer session. Durable receipts
+are execution history, not reusable authorization or persisted screen pixels.
+See [paired screens](remote-access.md#paired-screens) for current platform limits.
+
 Computer Use is one observe–act–verify workflow. Consecutive native observation,
 control, application-launch and Browser Workspace receipts appear in one
 expandable chat record, using the same screenshot presenter and interaction

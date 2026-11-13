@@ -10,6 +10,8 @@ test.beforeEach(async ({ page, context }) => {
     localStorage.setItem('last-insights-at', String(Date.now()));
     const callbacks = new Map<number, (event: unknown) => void>();
     const listeners = new Map<number, {event: string; handler: number}>();
+    const screen = { shares: [] as {deviceId:string;active:boolean;control:boolean;source:string}[], reads:0, stops:0, hold:false, releases:[] as (()=>void)[] };
+    const screenChanged = () => { for (const [id, listener] of listeners) if (listener.event === 'remote:screen-changed') callbacks.get(listener.handler)?.({event:listener.event,id,payload:null}); };
     let seq=1; let lid=1; let delayed=false; let holdReady=false; let failStop=false; let release:(()=>void)|undefined;
     const state={ audio:0, frames:0, stopped:0, starts:0, snapshots:0, earlyAudio:0, tracks:[] as MediaStreamTrack[], snapshot:{id:'live-1',mode:'qwenRealtime',model:'qwen3.5-omni-flash-realtime',phase:'connecting',sampleRate:16000,startedAt:new Date().toISOString(),sequence:0,entries:[] as {id:string;role:string;text:string;atMs:number;complete:boolean}[],metrics:{framesReceived:0,framesSubmitted:0,framesReplaced:0,audioMs:0,lastResponseMs:null as number|null,omittedEntries:0},error:null as string|null} };
     const getUserMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -22,6 +24,8 @@ test.beforeEach(async ({ page, context }) => {
       switch(cmd){
         case 'plugin:event|listen':{const id=lid++;listeners.set(id,{event:String(args.event),handler:Number(args.handler)});return id;}
         case 'plugin:event|unlisten':listeners.delete(Number(args.eventId));return null;
+        case 'remote_screen_status_cmd': { screen.reads++; const snapshot=structuredClone(screen.shares); if(screen.hold)await new Promise<void>(resolve=>screen.releases.push(resolve)); return snapshot; }
+        case 'remote_screen_share_cmd': screen.stops++;screen.shares=screen.shares.filter(share=>share.deviceId!==args.deviceId);screenChanged();return {active:false};
         case 'live_connections_cmd':return [{id:'qwen',name:'Qwen',model:'qwen-vl',isDefault:true,nativeProtocols:['qwenRealtime'],vision:'supported'},{id:'summary',name:'Summary',model:'deepseek',isDefault:false,nativeProtocols:[],vision:'unsupported'}];
         case 'start_live_cmd':state.starts++;if(delayed)await new Promise<void>(resolve=>{release=resolve;});return structuredClone(state.snapshot);
         case 'live_snapshot_cmd':state.snapshots++;if(!holdReady)state.snapshot.phase='listening';return structuredClone(state.snapshot);
@@ -37,6 +41,9 @@ test.beforeEach(async ({ page, context }) => {
     };
     Object.assign(window,{__live:state,__delayLive:()=>{delayed=true;},__releaseLive:()=>release?.(),__disconnectLive:()=>emit({type:'state',phase:'error',error:'Fixture provider disconnected'})});
     Object.assign(window,{
+      __screenStatus:screen,
+      __setScreenShare:(active:boolean)=>{screen.shares=active?[{deviceId:'phone-1',active:true,control:true,source:'chosen-window'}]:[];screenChanged();},
+      __releaseScreenStatus:()=>{screen.hold=false;screen.releases.splice(0).forEach(resolve=>resolve());},
       __holdReadyLive:()=>{holdReady=true;},
       __failLiveSetup:()=>{state.snapshot.phase='error';state.snapshot.error='Setup failed';emit({type:'state',phase:'error',error:'Setup failed'});},
       __resumeReadyLive:()=>{holdReady=false;state.snapshot.phase='connecting';state.snapshot.error=null;},
@@ -139,7 +146,7 @@ test('cancels a pending start and closes media when the late session arrives',as
   expect((await state(page)).audio).toBe(0);
 });
 
-test('releases microphone and camera on provider failure and on navigation',async({page})=>{
+test('releases media on provider failure and preserves capture across navigation until explicitly stopped',async({page})=>{
   await chooseQwen(page);
   await page.getByRole('button',{name:'Start Live',exact:true}).click();
   await expect.poll(async()=>(await state(page)).audio).toBeGreaterThan(1);
@@ -149,7 +156,19 @@ test('releases microphone and camera on provider failure and on navigation',asyn
   await page.getByRole('button',{name:'Start Live',exact:true}).click();
   await expect.poll(async()=>(await state(page)).tracks.some(track=>track==='live')).toBe(true);
   await page.getByRole('link',{name:'Knowledge',exact:true}).click();
+  const audioBefore=(await state(page)).audio;
+  await expect.poll(async()=>(await state(page)).audio).toBeGreaterThan(audioBefore);
+  expect((await state(page)).tracks.some(track=>track==='live')).toBe(true);
+  await page.getByRole('button',{name:'Return to Live',exact:true}).click();
+  await expect(page.getByTestId('live-workspace')).toBeVisible();
+  await expect.poll(()=>page.locator('video').evaluate((video:HTMLVideoElement)=>Boolean(video.srcObject)&&video.readyState>=2)).toBe(true);
+  await page.getByRole('link',{name:'Knowledge',exact:true}).click();
+  await page.getByRole('button',{name:'Stop capture',exact:true}).click();
   await expect.poll(async()=>(await state(page)).tracks.every(track=>track==='ended')).toBe(true);
+  const stoppedAudio=(await state(page)).audio;
+  await page.waitForTimeout(350);
+  expect((await state(page)).audio).toBe(stoppedAudio);
+  await expect(page.getByRole('button',{name:'Return to Live',exact:true})).toHaveCount(0);
 });
 
 test('keeps Live controls readable at phone width',async({page})=>{
@@ -158,4 +177,21 @@ test('keeps Live controls readable at phone width',async({page})=>{
   await expect(page.getByRole('button',{name:'Start Live',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   await page.screenshot({path:'.artifacts/live-observation-phone.png',fullPage:true});
+});
+
+test('shared-window status follows changes during refresh and remains stoppable after navigation',async({page})=>{
+  await chooseQwen(page);
+  await expect.poll(()=>page.evaluate(()=>(window as any).__screenStatus.reads)).toBeGreaterThan(0);
+  const initialReads=await page.evaluate(()=>(window as any).__screenStatus.reads);
+  await page.evaluate(()=>{(window as any).__screenStatus.hold=true;(window as any).__setScreenShare(true);});
+  await expect.poll(()=>page.evaluate(()=>(window as any).__screenStatus.releases.length)).toBe(1);
+  await page.evaluate(()=>{(window as any).__setScreenShare(false);(window as any).__releaseScreenStatus();});
+  await expect.poll(()=>page.evaluate(()=>(window as any).__screenStatus.reads)).toBe(initialReads+2);
+  await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toHaveCount(0);
+  await page.evaluate(()=>(window as any).__setScreenShare(true));
+  await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toBeVisible();
+  await page.getByRole('link',{name:'Knowledge',exact:true}).click();
+  await page.getByRole('button',{name:'Stop sharing',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Stop sharing',exact:true})).toHaveCount(0);
+  expect(await page.evaluate(()=>(window as any).__screenStatus.stops)).toBe(1);
 });

@@ -4,6 +4,7 @@ mod file_preview;
 #[cfg(target_os = "android")]
 mod job_bridge;
 mod local;
+mod overlay;
 mod phone_host;
 mod platform;
 mod remote;
@@ -40,6 +41,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 async fn mobile_state(app: AppHandle, runtime: State<'_, RuntimeSlot>) -> Result<Value, String> {
+    overlay::bind(&app).await?;
     runtime.get(&app).await?.arm_schedule(&app).await;
     let mut state = connections::public_state(&app).await?;
     state["version"] = json!(env!("CARGO_PKG_VERSION"));

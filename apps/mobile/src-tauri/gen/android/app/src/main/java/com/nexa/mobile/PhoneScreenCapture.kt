@@ -25,12 +25,12 @@ class PhoneScreenCapture(private val service: AccessibilityService) {
     private var cancel: (() -> Unit)? = null
     private var lastCaptureAt = 0L
 
-    fun capture(observation: JSObject, bounds: Rect, valid: () -> Boolean, complete: (Result<PhoneCapture>) -> Unit) {
+    fun capture(observation: JSObject, bounds: Rect, redactions: List<Rect>, valid: () -> Boolean, complete: (Result<PhoneCapture>) -> Unit) {
         if (Build.VERSION.SDK_INT < 30) { complete(Result.failure(IllegalStateException("Screenshots require Android 11 or newer. Use accessibility nodes."))); return }
         if (cancel != null) { complete(Result.failure(IllegalStateException("A screenshot is already in progress."))); return }
         val appBounds = Rect(bounds)
         // Edge-to-edge app roots may cover the clock and navigation bar.
-        // Exclude only system insets, retaining keyboard/content pixels.
+        // Exclude system insets; keyboard rectangles are separately redacted.
         val metrics = service.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics
         val insets = metrics.windowInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
         appBounds.intersect(metrics.bounds.left + insets.left, metrics.bounds.top + insets.top,
@@ -60,12 +60,26 @@ class PhoneScreenCapture(private val service: AccessibilityService) {
                     if (settled.get()) { buffer.close(); return }
                     val bitmap = try {
                         val hardware = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace) ?: error("Screenshot pixels are unavailable.")
-                        try { hardware.copy(Bitmap.Config.ARGB_8888, false) ?: error("Screenshot copy failed.") } finally { hardware.recycle() }
+                        try { hardware.copy(Bitmap.Config.ARGB_8888, true) ?: error("Screenshot copy failed.") } finally { hardware.recycle() }
                     } catch (error: Exception) { finish(error.message ?: "Screenshot copy failed."); return } finally { buffer.close() }
                     if (!valid()) { bitmap.recycle(); finish("The active screen changed during capture. Observe again.", changed = true); return }
                     try { encoder.execute {
                         var scaled: Bitmap? = null
                         try {
+                            // Only the observed app may leave the phone. Keep
+                            // full-display coordinates but mask unrelated bars
+                            // and content outside its accessibility bounds.
+                            val visible = Rect(appBounds)
+                            check(visible.intersect(0,0,bitmap.width,bitmap.height) && !visible.isEmpty) { "The active app capture area is unavailable." }
+                            val canvas = android.graphics.Canvas(bitmap)
+                            val paint = android.graphics.Paint().apply { color = android.graphics.Color.BLACK }
+                            canvas.drawRect(0f,0f,bitmap.width.toFloat(),visible.top.toFloat(),paint)
+                            canvas.drawRect(0f,visible.bottom.toFloat(),bitmap.width.toFloat(),bitmap.height.toFloat(),paint)
+                            canvas.drawRect(0f,visible.top.toFloat(),visible.left.toFloat(),visible.bottom.toFloat(),paint)
+                            canvas.drawRect(visible.right.toFloat(),visible.top.toFloat(),bitmap.width.toFloat(),visible.bottom.toFloat(),paint)
+                            // Keep focused app editors usable while excluding
+                            // keyboard suggestions and third-party IME pixels.
+                            redactions.forEach { canvas.drawRect(it, paint) }
                             val ratio = minOf(1.0, 1280.0 / maxOf(bitmap.width, bitmap.height))
                             scaled = Bitmap.createScaledBitmap(bitmap, maxOf(1, (bitmap.width * ratio).toInt()), maxOf(1, (bitmap.height * ratio).toInt()), true)
                             val bytes = ByteArrayOutputStream().use { output ->

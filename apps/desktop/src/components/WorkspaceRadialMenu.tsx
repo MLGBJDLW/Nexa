@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { useTranslation, type TranslationKey } from '../i18n';
 import { openCommandPalette, runAppCommand, useAppCommands } from '../lib/appCommands';
 import { NexaMenu, NexaMenuContent, NexaMenuItem, NexaMenuTrigger } from './ui/overlay/Menu';
+import { Logo } from './Logo';
 import './workspaceRadialMenu.css';
 
 const SIZE = 300;
@@ -108,7 +109,7 @@ export function WorkspaceRadialMenu() {
         </NexaMenuItem>;
       })}
       <button className="workspace-radial-hub" tabIndex={-1} aria-label={t('common.close')} onClick={()=>setOpen(false)}>
-        <svg width="32" height="26" viewBox="0 0 32 26" fill="none" aria-hidden="true"><path d="M19 6a7 7 0 0 0-11 0l-3 4a7 7 0 0 0 11 9l2-3M13 20a7 7 0 0 0 11 0l3-4A7 7 0 0 0 16 7l-2 3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><circle cx="16" cy="13" r="2" fill="currentColor"/></svg>
+        <Logo size={36} decorative />
         <span>{active === null ? 'Nexa' : t(ACTIONS[active].label)}</span>
       </button>
     </NexaMenuContent>

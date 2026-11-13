@@ -20,6 +20,7 @@ import {
 import { useTranslation } from '../../i18n';
 import { remoteButton, remoteField } from './remoteUi';
 import { refreshRemoteStatus, useRemoteDesktopStatus } from './remoteDesktopStatus';
+import { DesktopDeviceScreen } from './DesktopDeviceScreen';
 
 interface Pairing {
   pairing: { code: string; expiresAt: string };
@@ -473,7 +474,7 @@ export function RemoteAccessPage() {
           {status?.devices.map((device) => (
             <div
               key={device.id}
-              className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface-1/50 p-4"
+              className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface-1/50 p-4"
             >
               <div className="flex items-center gap-3">
                 <Smartphone size={22} strokeWidth={1.5} className="text-text-secondary" />
@@ -499,6 +500,7 @@ export function RemoteAccessPage() {
               >
                 {t('remote.revoke')}
               </button>
+              <DesktopDeviceScreen deviceId={device.id} connected={online.includes(device.id)}/>
             </div>
           ))}
         </section>

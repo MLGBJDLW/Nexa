@@ -33,6 +33,7 @@ class PhoneAccessibilityService : AccessibilityService() {
     private var revision = 0L
     private var screenshotRevision = -1L
     private var screenshotFingerprint: String? = null
+    private var screenshotEvidence: PhoneScreenEvidence? = null
     private val observedBounds = Rect()
     private var screenshotWidth = 0
     private var screenshotHeight = 0
@@ -53,6 +54,7 @@ class PhoneAccessibilityService : AccessibilityService() {
     private val nativeInputWorker = Executors.newSingleThreadExecutor()
     private var activeRequest: Invoke? = null
     private var activeRequestId: String? = null
+    private var overlayCapturing = false
     override fun onServiceConnected() {
         instance = this
         if (android.os.Build.VERSION.SDK_INT >= 33) serviceInfo = serviceInfo.apply { flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR }
@@ -69,7 +71,7 @@ class PhoneAccessibilityService : AccessibilityService() {
             // Our overlay and the explicit approval shade are separate from
             // target content. Foreground identity is checked again on return.
             if ((contentChanged && event.packageName?.toString() == observedPackage && event.windowId == observedWindow)
-                || (windowChanged && !foregroundMatchesObservation() && !approvalShadeVisible())) revision++
+                || (windowChanged && (!foregroundMatchesObservation() || !captureWindowsSafe()) && !approvalShadeVisible())) revision++
         }
     }
     override fun onInterrupt() { invalidate() }
@@ -79,24 +81,20 @@ class PhoneAccessibilityService : AccessibilityService() {
         capture.close(); nativeInputWorker.shutdownNow(); main.removeCallbacksAndMessages(null); overlay.hide(); invalidate(); instance = null; super.onDestroy()
     }
     fun setOverlay(enabled: Boolean) { if (enabled) overlay.show() else overlay.hide() }
+    fun overlayResult(result: JSObject) = overlay.result(result)
+    fun isScreenRequestActive(id: String) = overlay.isScreenRequestActive(id)
+    fun overlayCapture(complete: (Result<PhoneCapture>) -> Unit) {
+        try {
+            ensureOverlayIdle(); overlayCapturing = true
+            captureObservation { result -> overlayCapturing = false; overlay.restore(); complete(result) }
+        } catch (error: Exception) { overlayCapturing = false; overlay.restore(); complete(Result.failure(error)) }
+    }
 
     fun ensureOverlayIdle() {
         checkUnlocked()
-        check(activeRequest == null) { getString(R.string.overlay_busy) }
+        check(activeRequest == null && !overlayCapturing) { getString(R.string.overlay_busy) }
     }
 
-    fun overlayTranslationText(): String {
-        ensureOverlayIdle()
-        val state = observe()
-        check(!sensitive) { getString(R.string.overlay_text_unavailable) }
-        val items = state.getJSONArray("nodes")
-        val text = (0 until items.length()).map { index ->
-            val node = items.getJSONObject(index)
-            node.optString("text").ifBlank { node.optString("description") }
-        }.filter { it.isNotBlank() }.distinct().joinToString("\n")
-        check(text.isNotBlank()) { getString(R.string.overlay_text_unavailable) }
-        return text
-    }
     @Suppress("DEPRECATION") private fun rotation() = getSystemService(WindowManager::class.java).defaultDisplay.rotation
     // Some OEMs transiently omit rootInActiveWindow while still publishing the
     // active application window. Never fall through to a background app.
@@ -132,7 +130,7 @@ class PhoneAccessibilityService : AccessibilityService() {
         @Suppress("DEPRECATION") root.recycle()
         if (shade) performGlobalAction(if (android.os.Build.VERSION.SDK_INT >= 31) GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE else GLOBAL_ACTION_BACK)
     }
-    @Suppress("DEPRECATION") private fun invalidate() { nodes.values.forEach { it.node.recycle() }; nodes.clear(); observation = ""; screenshotRevision = -1; screenshotFingerprint = null; observedEditor = null; observedEditorSignature = null }
+    @Suppress("DEPRECATION") private fun invalidate() { nodes.values.forEach { it.node.recycle() }; nodes.clear(); observation = ""; screenshotRevision = -1; screenshotFingerprint = null; screenshotEvidence = null; observedEditor = null; observedEditorSignature = null }
     private fun isProtected(node: AccessibilityNodeInfo) = node.isPassword || (android.os.Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive)
     private fun signature(node: AccessibilityNodeInfo): String {
         val bounds = Rect(); node.getBoundsInScreen(bounds)
@@ -181,7 +179,7 @@ class PhoneAccessibilityService : AccessibilityService() {
     }
     private fun reply(invoke: Invoke, value: JSObject) {
         if (activeRequest !== invoke) return
-        activeRequest = null; activeRequestId = null; overlay.restore(); invoke.resolve(value)
+        activeRequest = null; activeRequestId = null; overlay.setControlling(false); overlay.restore(); invoke.resolve(value)
     }
     fun cancelAllRequests() {
         fun cancel() {
@@ -220,8 +218,8 @@ class PhoneAccessibilityService : AccessibilityService() {
             }
         }
         main.post {
-            if (activeRequest != null) invoke.resolve(JSObject().apply { put("code", "control_busy"); put("retryable", true); put("actionPerformed", false); put("message", "Another phone operation is still finishing. Wait for its result before acting.") })
-            else { activeRequest = invoke; activeRequestId = requestId; ready() }
+            if (activeRequest != null || overlayCapturing) invoke.resolve(JSObject().apply { put("code", "control_busy"); put("retryable", true); put("actionPerformed", false); put("message", "Another phone operation is still finishing. Wait for its result before acting.") })
+            else { activeRequest = invoke; activeRequestId = requestId; overlay.setControlling(arguments.getString("action") !in listOf("observe", "screenshot", "list_apps")); ready() }
         }
     }
     private fun executeNow(invoke: Invoke, args: JSObject) {
@@ -268,26 +266,72 @@ class PhoneAccessibilityService : AccessibilityService() {
         if (approvalWait?.resolved == true) approvalWait = null
         if (args.getString("action") != "open_app") require(args.getString("packageName") == observedPackage) { "The target package must match the observation." }
     }
+    @Suppress("DEPRECATION") private fun captureWindowsSafe(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 30) return true
+        val area = Rect(observedBounds)
+        val metrics = getSystemService(WindowManager::class.java).maximumWindowMetrics
+        val insets = metrics.windowInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+        if (!area.intersect(metrics.bounds.left + insets.left, metrics.bounds.top + insets.top,
+                metrics.bounds.right - insets.right, metrics.bounds.bottom - insets.bottom)) return false
+        return windows.none { window ->
+            if (window.id == observedWindow) false else {
+                val bounds = Rect(); window.getBoundsInScreen(bounds)
+                val ownOverlay = if (window.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) {
+                    val root = window.root
+                    try { root?.packageName?.toString() == packageName } finally { root?.recycle() }
+                } else false
+                !ownOverlay && window.type != android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD && !bounds.isEmpty && (window.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION || Rect.intersects(bounds, area))
+            }
+        }
+    }
+    private fun keyboardBounds() = windows.filter { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        .map { Rect().apply { it.getBoundsInScreen(this) } }
     private fun captureObservation(complete: (Result<PhoneCapture>) -> Unit) {
         val request = activeRequest
         overlay.suspend()
         main.postDelayed({
             if (activeRequest !== request) return@postDelayed
+            var previousNodes = emptyList<AccessibilityNodeInfo>()
+            @Suppress("DEPRECATION") fun releasePreviousNodes() { previousNodes.forEach { it.recycle() }; previousNodes = emptyList() }
             try {
-                check(instance === this && !TaskService.stopRequested.get()) { "Phone control stopped." }
+                check(instance === this && (!TaskService.stopRequested.get() || overlayCapturing)) { "Phone control stopped." }
+                val previousId = observation
+                val previousEvidence = screenshotEvidence
+                val previousEditor = observedEditor
+                // Native equality includes the source-node and window IDs,
+                // unlike matching only labels and bounds on replacement views.
+                @Suppress("DEPRECATION")
+                previousNodes = nodes.values.map { AccessibilityNodeInfo.obtain(it.node) }
                 val state = observe()
                 check(!sensitive && !state.getBoolean("truncated")) { "This screen contains sensitive controls or an incomplete UI tree. Use accessible controls." }
+                check(captureWindowsSafe()) { "Screen capture requires one unobstructed app. Close split-screen, picture-in-picture or other overlays and try again." }
                 val id = observation; val version = revision; val screenRotation = observedRotation
-                capture.capture(state, Rect(observedBounds),
-                    { activeRequest === request && observation == id && revision == version && rotation() == screenRotation && !TaskService.stopRequested.get() && instance === this && foregroundMatchesObservation() }) { result ->
-                    if (activeRequest !== request) return@capture
-                    result.onSuccess { frame ->
-                        screenshotRevision = version; screenshotFingerprint = frame.fingerprint
-                        screenshotWidth = frame.width; screenshotHeight = frame.height; displayWidth = frame.displayWidth; displayHeight = frame.displayHeight
-                    }
-                    complete(result)
+                val keyboards = keyboardBounds()
+                capture.capture(state, Rect(observedBounds), keyboards,
+                    { activeRequest === request && observation == id && revision == version && rotation() == screenRotation && (!TaskService.stopRequested.get() || overlayCapturing) && instance === this && foregroundMatchesObservation() && captureWindowsSafe() && keyboardBounds() == keyboards }) { result ->
+                    try {
+                        if (activeRequest !== request) return@capture
+                        result.onSuccess { frame ->
+                            val evidence = PhoneScreenEvidence(observedPackage, observedWindow, observedRotation, version,
+                                listOf(observedBounds.left, observedBounds.top, observedBounds.right, observedBounds.bottom),
+                                keyboards.map { listOf(it.left, it.top, it.right, it.bottom) },
+                                frame.width, frame.height, frame.displayWidth, frame.displayHeight, frame.fingerprint,
+                                nodes.map { (id, target) -> "$id|${target.signature}|${target.focused}|${target.node.isFocused}|${target.node.isClickable}|${target.node.isEditable}|${target.node.isScrollable}" },
+                                observedEditorSignature)
+                            // Retain only a fully unchanged native target; changed
+                            // pixels/tree/focus/revision keep the newly issued ID.
+                            val sameNativeControls = previousNodes.size == nodes.size && previousNodes.zip(nodes.values).all { (previous, current) -> previous == current.node }
+                            observation = retainPhoneObservationId(previousId, previousEvidence, previousEditor, id, evidence, observedEditor, sameNativeControls)
+                            frame.state.put("observationId", observation)
+                            screenshotEvidence = evidence
+                            screenshotRevision = version; screenshotFingerprint = frame.fingerprint
+                            screenshotWidth = frame.width; screenshotHeight = frame.height; displayWidth = frame.displayWidth; displayHeight = frame.displayHeight
+                        }
+                        overlay.restoreFeedback()
+                        complete(result)
+                    } finally { releasePreviousNodes() }
                 }
-            } catch (error: Exception) { complete(Result.failure(error)) }
+            } catch (error: Exception) { releasePreviousNodes(); complete(Result.failure(error)) }
         }, 120)
     }
 

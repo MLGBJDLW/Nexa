@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { lazy, Suspense, useState, useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Search, FolderOpen, MessageCircle, Settings, Brain, BotMessageSquare, ClipboardList, Workflow, CalendarClock, Download, AlertCircle, RefreshCw, Radio, Command } from 'lucide-react';
@@ -34,6 +34,15 @@ import { openCommandPalette } from '../lib/appCommands';
 import { NexaPopover, NexaPopoverTrigger, NexaPopoverContent } from './ui/overlay/Popover';
 import { AttentionInboxButton } from './chat/AttentionInboxButton';
 import { WorkspaceRadialMenu } from './WorkspaceRadialMenu';
+import { RemoteScreenStatus } from '../features/remote/RemoteScreenStatus';
+
+const PersistentLivePage = lazy(() => import('../pages/LivePage').then(module => ({ default: module.LivePage })));
+function LiveSessionHost() {
+  const location = useLocation();
+  const [visited, setVisited] = useState(location.pathname === '/live');
+  useEffect(() => { if (location.pathname === '/live') setVisited(true); }, [location.pathname]);
+  return visited ? <Suspense fallback={null}><PersistentLivePage/></Suspense> : null;
+}
 
 function useAppVersion() {
   const [version, setVersion] = useState('');
@@ -339,6 +348,8 @@ export function Layout() {
         data-theme-unified-canvas={unifiedReadingCanvas ? 'true' : undefined}
       >
         <Outlet />
+        <LiveSessionHost />
+        <RemoteScreenStatus />
       </main>
 
       {/* Floating AI button */}

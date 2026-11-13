@@ -71,6 +71,21 @@ the existing Decisions adapter. Per-question refusals remain explicit outcomes,
 and source annotations are retained in tool results; neither authorizes an action.
 [Parallel integration contract](https://parallel.ai/articles/parallel-decisions-openrouter).
 
+The November 13 audit covers all 92 endpoint projections across the seven shared
+catalogs and checks six public inventories. New routes include native, Vertex and
+OpenRouter Gemini 4 Hydrogen; Vertex Gemini 4 Carbon and Claude Fable 5.2;
+Bedrock Fable/Mythos 5.2; Inkling 2 Small; Particle 1 free; Seedream 5.5; and
+Perplexity Decider V1.3 free. Enterprise and application-only models retain
+their access requirements. Hydrogen uses its native `xhigh` thinking level and
+implicit-cache contract; other Gemini 4 models retain their own supported levels.
+SiliconFlow's retired `Pro/zai-org/GLM-5.1` remains a historical identifier but is
+hidden from new choices. Saved selections, custom models and free/paid identities
+are preserved. Authenticated catalogs and paid inference require credentials and
+were not exercised by the public audit.
+[Hydrogen model contract](https://aistudio.google.com/docs/models/gemini-4-hydrogen.md),
+[OpenRouter inventories](https://openrouter.ai/api/v1/models), and
+[SiliconFlow lifecycle notices](https://docs.siliconflow.cn/docs/release-notes/overview).
+
 ## Usage statistics
 
 Settings → AI Usage shows a daily contribution heatmap for the past 365 days.

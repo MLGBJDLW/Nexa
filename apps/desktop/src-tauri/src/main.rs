@@ -19,6 +19,7 @@ mod image_generation_tool;
 mod phone_control;
 mod preview_tool;
 mod remote;
+mod remote_screen;
 mod subagent_lifecycle;
 mod subagent_tool;
 mod terminal_agent_tool;
@@ -777,6 +778,7 @@ fn main() {
 
             let (background_work, background_work_receiver) = BackgroundWorkGovernor::new();
             app.manage(remote::RemoteState::default());
+            app.manage(remote_screen::RemoteScreenState::default());
             app.manage(AppState {
                 db: db.clone(),
                 codex_account_runtime: commands::CodexAccountRuntime::default(),
@@ -1261,6 +1263,11 @@ fn main() {
             commands::capture_desktop_monitor_cmd,
             commands::list_desktop_windows_cmd,
             commands::capture_desktop_window_cmd,
+            remote_screen::remote_screen_share_cmd,
+            remote_screen::remote_screen_status_cmd,
+            remote_screen::remote_phone_screen_cmd,
+            remote_screen::remote_phone_screen_open_cmd,
+            remote_screen::remote_phone_screen_stop_cmd,
             desktop_control_status::desktop_control_status_cmd,
             desktop_control_status::set_desktop_control_appearance_cmd,
             desktop_control_status::stop_desktop_control_cmd,

@@ -719,6 +719,13 @@ Fetch and extract readable text from a public web page with SSRF and redirect-ho
 
 `fetch_url` is text-first. It reports image candidates in artifacts but does not write binary files. If the user wants a candidate image saved, use `download_asset`. Browser rendering keeps the same public URL validation boundary; blocked subrequests are reported in the `jsRender` artifact.
 
+Direct fetches reuse HTTP connections and coalesce simultaneous identical reads.
+Later reads still validate the page with its original resource's ETag or
+Last-Modified value; a successful 304 reuses the validated body. Private,
+cookie-dependent, `no-store`, and `Vary` responses are not retained in the shared
+body cache. Cookies exist only within one redirect chain. Extraction runs off the
+async executor, preserving article text, metadata, assets and rendering fallback.
+
 The optional `provider` is `auto` (default), `direct`, or `deepseek`. Auto follows
 the configured DeepSeek search provider when custom providers have priority;
 custom-first can fall back to direct extraction, while custom-only and explicit
@@ -748,6 +755,12 @@ Download a supported public image asset into the workspace. This tool requires c
 ### `web_search`
 
 Search the public web through Nexa's native no-key providers plus any enabled configured providers such as Brave, Tavily, AnySearch, SerpAPI, SearXNG, or DeepSeek. Use it to discover candidate URLs, then use `fetch_url` on the most authoritative results before citing or summarizing them.
+
+Independent result redirects resolve concurrently without changing result order,
+evidence count or provider selection. HTTP clients are reused, and overlapping
+identical queries share the existing cache/flight path. DeepSeek Search and Fetch
+have separate account-level pacing and retain Retry-After handling. Upstream
+latency, throttling and JavaScript rendering still affect total response time.
 
 DeepSeek uses `/v1/tools/search` and `/v1/tools/fetch` with separate per-key
 5-QPS limits. Configured root URLs, `/v1` bases and complete operation URLs are

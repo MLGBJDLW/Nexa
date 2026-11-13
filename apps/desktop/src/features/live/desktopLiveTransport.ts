@@ -4,6 +4,7 @@ import { encodeLiveAudio, type LiveEvent, type LiveTransport } from './liveTrans
 import { cachedModelChoices } from '../models/modelChoices';
 
 export const desktopLiveTransport: LiveTransport = {
+  preferenceKey: 'desktop',
   nativeScreenCapture: true,
   connections: () => invoke('live_connections_cmd'),
   models: cachedModelChoices(connectionId => invoke('model_choices_cmd', { connectionId })),

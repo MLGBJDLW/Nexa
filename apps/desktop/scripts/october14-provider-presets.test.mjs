@@ -132,6 +132,31 @@ test('new embedding routes preserve exact dimensions and text adapter boundaries
 });
 
 test('new native model IDs carry endpoint-specific limits and reasoning defaults', () => {
+  const hydrogen = model('google', 'gemini-4-hydrogen');
+  assert.equal(hydrogen.contextTokens, 1_048_576);
+  assert.equal(hydrogen.maxOutputTokens, 65_536);
+  assert.equal(hydrogen.capabilities.reasoning.mode, 'always');
+  assert.equal(hydrogen.capabilities.reasoning.defaultEffort, 'high');
+  assert.deepEqual(hydrogen.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh']);
+  assert.equal(model('openrouter', 'google/gemini-4-hydrogen').capabilities.reasoning.defaultEffort, 'medium');
+  assert.equal(model('openrouter', 'thinkingmachines/inkling-2-small').supportsTools, true);
+  assert.equal(model('openrouter', 'particle-ai/particle-1:free').capabilities.reasoning.mode, 'optional');
+  assert.equal(model('siliconflow', 'Pro/zai-org/GLM-5.1').status, 'removed');
+  assert.equal(model('siliconflow', 'Pro/zai-org/GLM-5.1').deprecationDate, '2026-11-10');
+  assert.equal(model('vertex', 'gemini-4-hydrogen').access, 'account_enablement');
+  assert.equal(model('vertex', 'gemini-4-carbon').status, 'gated');
+  assert.equal(model('vertex-anthropic', 'claude-fable-5-2').recommended, false);
+  for (const id of ['global.anthropic.claude-fable-5-2', 'global.anthropic.claude-mythos-5-2']) {
+    assert.equal(model('bedrock', id).capabilities.reasoning.mode, 'always');
+    assert.equal(model('bedrock', id).maxOutputTokens, 128_000);
+  }
+  const decisions = read('system-one-provider-presets').find(row => row.id === 'openrouter');
+  for (const id of ['perplexity/pplx-decider-v1.3:free', 'perplexity/pplx-decider-flash-v1.3:free']) {
+    const decision = decisions.models.find(row => row.id === id);
+    assert.equal(decision.recommended, false);
+    assert.deepEqual(decision.outputModalities, ['decisions']);
+  }
+  assert.equal(decisions.models.some(row => row.id === 'cloudflare/clairic'), false, 'extraction-only models cannot use the Decisions wire contract');
   const hostedMiniMax = model('alibaba-model-studio', 'MiniMax/MiniMax-M3.1-Flash');
   assert.equal(hostedMiniMax.capabilities.reasoning.mode, 'always');
   assert.deepEqual(hostedMiniMax.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
