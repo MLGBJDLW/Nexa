@@ -2,6 +2,12 @@
 
 ## [0.3.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.7...nexa-mobile-v0.3.8) (2026-11-13)
 
+### Improvements
+
+- Keep loaded conversation turns stable during streaming so older replies are not repeatedly processed.
+- Preserve expanded replies, attachment and steering metadata across history refreshes, and avoid duplicate rows when message order changes.
+- Handle temporary durable database queue pressure without incorrectly failing productive agent runs.
+- Refresh verified model choices and retirement notices while preserving saved provider selections.
 
 ### Performance Improvements
 
