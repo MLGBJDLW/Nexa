@@ -35,6 +35,8 @@ desktop.ini
 build/
 !vendor/rust/github-copilot-sdk/build/
 !vendor/rust/github-copilot-sdk/build/*.rs
+!vendor/rust/ort-sys/build/
+!vendor/rust/ort-sys/build/**
 .artifacts/
 **/bin/
 **/obj/

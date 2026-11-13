@@ -1,4 +1,6 @@
-# ZIP security compatibility patches
+# Rust dependency compatibility patches
+
+## ZIP security
 
 These four crates retain their previously locked releases. Their
 normalized Cargo manifests select ZIP 9 so the application, bundled Copilot CLI,
@@ -30,3 +32,19 @@ normal published dependency accepts a fixed ZIP release and the corresponding
 application checks pass. `Cargo.toml.orig` preserves the unmodified release
 manifest for comparison. These are source dependencies, not build caches or
 additional agent runtimes.
+
+## ONNX build directory compatibility
+
+`ort-sys` retains the locked `2.0.0-rc.12` release and ONNX Runtime 1.24.
+Its build script backports the upstream [Cargo 1.100 layout fix](https://github.com/pykeio/ort/commit/eed56816088613b24f8d1a5bf9ae0fd43d8d6a70).
+Both `build/ort-sys-<fingerprint>/out` and
+`build/ort-sys/<fingerprint>/out` resolve to the actual profile directory;
+DLL copying skips optional directories that Cargo has not created. This fixes
+cold Windows builds and keeps runtime DLLs beside the application without
+changing inference APIs, downloading additional models, or disabling checks.
+
+Only `build/dynamic_link.rs`, `build/main.rs`, and `build/vars.rs` differ from
+the registry release. The registry checksum and upstream commit are recorded
+in `provenance.json`, and the upstream licenses are retained. Remove this patch
+when the application migrates to a published `ort` release containing the fix
+(rc.14 or later); those releases also require a manual environment API migration.
