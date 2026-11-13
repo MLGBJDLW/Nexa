@@ -96,6 +96,10 @@ test('model output formats override the provider fallback in image descriptors',
 test('Riverflow fallback matches its raster editing contract and Gemini keeps deprecated access', () => {
   const items = JSON.parse(readFileSync(new URL('../../../shared/image-provider-presets.json', import.meta.url), 'utf8'));
   const presets = extractImageProviderPresets({ providerCatalogs: [{ id: 'imageProviders', items }] } as unknown as CapabilityPackageView, []);
+  const seedream = presets.find(provider => provider.id === 'openrouter-images')!.models.find(model => model.id === 'bytedance-seed/seedream-5-5')!;
+  assert.deepEqual(seedream.descriptor.inputModalities, ['text', 'image']);
+  assert.equal(seedream.supportedParameters?.input_references?.max, 10);
+  assert(seedream.sizeOptions?.some(option => option.value === '9:19.5|1.5K'));
   const riverflow = presets.find(provider => provider.id === 'openrouter-images')!.models.find(model => model.id === 'sourceful/riverflow-v2.6-pro')!;
   assert.deepEqual(riverflow.descriptor.inputModalities, ['text', 'image']);
   assert.deepEqual(riverflow.outputFormats, ['png', 'jpeg', 'webp']);

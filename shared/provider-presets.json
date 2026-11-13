@@ -22913,6 +22913,190 @@
         "capabilities": {
           "vision": true
         }
+      },
+      {
+        "id": "google/gemini-4-hydrogen",
+        "name": "Google: Gemini 4 Hydrogen",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://openrouter.ai/api/v1/models/google/gemini-4-hydrogen/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "inputModalities": [
+          "audio",
+          "file",
+          "image",
+          "text",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "medium",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
+      },
+      {
+        "id": "particle-ai/particle-1:free",
+        "name": "Particle AI: Particle-1 (free)",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://openrouter.ai/api/v1/models/particle-ai/particle-1:free/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
+      },
+      {
+        "id": "thinkingmachines/inkling-2-small",
+        "name": "Thinking Machines: Inkling 2 Small",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://openrouter.ai/api/v1/models/thinkingmachines/inkling-2-small/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logit_bias",
+          "logprobs",
+          "max_tokens",
+          "min_p",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "repetition_penalty",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
       }
     ]
   },
@@ -24214,6 +24398,135 @@
             }
           }
         }
+      },
+      {
+        "id": "gemini-4-hydrogen",
+        "name": "Gemini 4 Hydrogen",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-11-13",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-hydrogen",
+        "releaseDate": "2026-11-12",
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ]
+      },
+      {
+        "id": "gemini-4-carbon",
+        "name": "Gemini 4 Carbon",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "gated",
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-11-13",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-carbon",
+        "releaseDate": "2026-11-10",
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ]
       }
     ],
     "nativeWebSearch": {
@@ -24356,6 +24669,49 @@
           }
         },
         "access": "account_enablement"
+      },
+      {
+        "id": "claude-fable-5-2",
+        "name": "Claude Fable 5.2",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "mode": "always"
+          },
+          "vision": true
+        },
+        "status": "active",
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5-2",
+        "access": "account_enablement",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ]
       }
     ]
   },
@@ -24631,6 +24987,82 @@
         "capabilities": {
           "vision": true
         }
+      },
+      {
+        "id": "global.anthropic.claude-fable-5-2",
+        "name": "Claude Fable 5.2 (Global)",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "mode": "always"
+          },
+          "vision": true
+        },
+        "status": "active",
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5-2.html",
+        "access": "account_enablement",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true
+      },
+      {
+        "id": "global.anthropic.claude-mythos-5-2",
+        "name": "Claude Mythos 5.2 (Global)",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "mode": "always"
+          },
+          "vision": true
+        },
+        "status": "gated",
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-5-2.html",
+        "access": "application",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true
       }
     ]
   },
@@ -25287,6 +25719,66 @@
         "replacementModelId": "gemini-3.6-flash",
         "deprecationDate": "2026-02-17",
         "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
+      },
+      {
+        "id": "gemini-4-hydrogen",
+        "name": "Gemini 4 Hydrogen",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "lastVerifiedAt": "2026-11-13",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://aistudio.google.com/docs/models/gemini-4-hydrogen",
+        "releaseDate": "2026-11-12"
       }
     ]
   },
@@ -27710,10 +28202,12 @@
       {
         "id": "Pro/zai-org/GLM-5.1",
         "name": "Pro/zai-org/GLM-5.1",
-        "status": "active",
+        "status": "removed",
         "source": "official",
-        "lastVerifiedAt": "2026-09-12",
-        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview"
+        "lastVerifiedAt": "2026-11-13",
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
+        "recommended": false,
+        "deprecationDate": "2026-11-10"
       },
       {
         "id": "Pro/zai-org/GLM-5",
