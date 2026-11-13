@@ -5,7 +5,7 @@ test.beforeEach(async ({ page }) => {
 });
 const state = (page: Page) => page.evaluate(() => {
   const value = (window as any).__screenFixture;
-  return { frames: value.frames, pending: value.pending, maxPending: value.maxPending, inputs: value.inputs, stops: value.stops };
+  return { frames: value.frames, pending: value.pending, maxPending: value.maxPending, inputs: value.inputs, stops: value.stops, acceptedInputs:value.acceptedInputs };
 });
 async function open(page: Page, phone = false) {
   await page.goto(`/e2e/fixtures/device-screen.html${phone ? '?phone' : ''}`);
@@ -29,6 +29,19 @@ test('scaled desktop input preserves the clicked observation and waits for one p
   expect(input.x).toBeCloseTo(320, -1); expect(input.y).toBeCloseTo(540, -1);
   expect((await state(page)).maxPending).toBe(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.getByRole('button', { name: 'Scroll down' }).click();
+  await expect.poll(async () => (await state(page)).inputs.length).toBe(2);
+  expect((await state(page)).inputs[1]).toMatchObject({action:'scroll',scroll_y:3,window_id:42});
+  expect((await state(page)).inputs[1].x).toBeCloseTo(320,-1);
+  expect((await state(page)).inputs[1].y).toBeCloseTo(540,-1);
+});
+
+test('desktop scrolling targets the shared image center before a point is selected', async ({ page }) => {
+  await open(page);
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Scroll up' }).click();
+  await expect.poll(async () => (await state(page)).inputs.length).toBe(1);
+  expect((await state(page)).inputs[0]).toMatchObject({action:'scroll',scroll_y:-3,x:640,y:360});
 });
 
 test('stop suppresses late frames and never replays queued input', async ({ page }) => {
@@ -91,6 +104,24 @@ test('phone text and navigation use native observation identity and show action 
   await expect(page.getByRole('alert')).toContainText('Screen changed');
   expect((await state(page)).inputs).toHaveLength(2);
 });
+
+for (const changed of [false, true]) {
+  test(`queued phone input ${changed ? 'rejects replaced' : 'preserves unchanged'} native screen evidence`, async ({ page }) => {
+    await open(page, true);
+    await page.getByRole('checkbox').check();
+    await page.evaluate(() => { (window as any).__screenFixture.hold = true; });
+    await expect.poll(async () => (await state(page)).pending).toBe(1);
+    await page.getByRole('img', { name: 'Device screen' }).click({position:{x:20,y:20}});
+    await page.evaluate(changed => { if(changed)(window as any).__screenFixture.phoneRevision++;(window as any).__releaseScreen(); },changed);
+    await expect.poll(async () => (await state(page)).inputs.length).toBe(1);
+    expect((await state(page)).inputs[0].observationId).toBe('first:screen:0');
+    if(changed)await expect(page.getByRole('alert')).toContainText('Screen changed');
+    else await expect(page.getByRole('alert')).toHaveCount(0);
+    expect((await state(page)).acceptedInputs).toBe(changed?0:1);
+    await page.waitForTimeout(1100);
+    expect((await state(page)).inputs).toHaveLength(1);
+  });
+}
 
 test('switching device clears consent and stale frames before another device can receive input', async ({ page }) => {
   await open(page);

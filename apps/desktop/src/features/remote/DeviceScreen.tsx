@@ -28,12 +28,14 @@ export function DeviceScreen({ transport, onClose }: { transport: ScreenTranspor
   const inputPending = useRef(false);
   const captureValid = useRef(false);
   const pointer = useRef({x:0,y:0});
+  const scrollTarget = useRef({x:0.5,y:0.5});
   const current = useRef(frame); current.current = frame;
   const generation = useRef(0);
   const refresh = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     setFrame(null); setControl(false); setText(''); setError(''); setCaptureError(''); setFresh(false); setActing(false); setActive(true); setZoom(1);
     current.current = null; captureValid.current = false;
+    scrollTarget.current = {x:0.5,y:0.5};
   }, [transport]);
   useEffect(() => {
     const mine = ++generation.current;
@@ -79,6 +81,11 @@ export function DeviceScreen({ transport, onClose }: { transport: ScreenTranspor
     } catch (error) { if (mine === generation.current) setError(String(error)); }
     finally { working.current = false; inputPending.current = false; if (mine === generation.current) { setActing(false); void refresh.current(); } }
   };
+  const scrollDesktop = (direction: number) => {
+    const image = current.current?.image;
+    if (!image) return;
+    void send('scroll', {scroll_y: direction * 3, x: Math.min(image.width - 1, scrollTarget.current.x * image.width), y: Math.min(image.height - 1, scrollTarget.current.y * image.height)});
+  };
   const stop = () => { generation.current++; setActive(false); setControl(false); setFrame(null); void transport.stop?.().catch(error => setError(String(error))); onClose?.(); };
   const scrollNode = frame?.nodes?.find(node => node.scrollable)?.nodeId;
   const editor = frame?.nodes?.find(node => node.focused && node.editable)?.nodeId;
@@ -98,7 +105,7 @@ export function DeviceScreen({ transport, onClose }: { transport: ScreenTranspor
         className={`block select-none object-contain ${zoom === 1 ? 'max-h-[65dvh] max-w-full' : 'max-w-none'} ${control && fresh ? 'cursor-crosshair' : ''}`}
         style={zoom > 1 ? {width:frame.image.width} : undefined}
         onPointerDown={event => {pointer.current={x:event.clientX,y:event.clientY};}}
-        onClick={event => { if(Math.abs(event.clientX-pointer.current.x)+Math.abs(event.clientY-pointer.current.y)>10) return; const bounds = event.currentTarget.getBoundingClientRect(); const image = frame.image!; void send(transport.phone ? 'tap' : 'click', { x: Math.min(image.width - 1, Math.max(0, (event.clientX-bounds.left)*image.width/bounds.width)), y: Math.min(image.height - 1, Math.max(0, (event.clientY-bounds.top)*image.height/bounds.height)) }); }}/>
+        onClick={event => { if(Math.abs(event.clientX-pointer.current.x)+Math.abs(event.clientY-pointer.current.y)>10) return; const bounds = event.currentTarget.getBoundingClientRect(); const image = frame.image!; const x = Math.min(image.width - 1, Math.max(0, (event.clientX-bounds.left)*image.width/bounds.width)); const y = Math.min(image.height - 1, Math.max(0, (event.clientY-bounds.top)*image.height/bounds.height)); scrollTarget.current = {x:x/image.width,y:y/image.height}; void send(transport.phone ? 'tap' : 'click', {x,y}); }}/>
         : <p className="p-5 text-center text-sm text-white/70">{t('remote.screenWaiting')}</p>}
       </div>
     </div>
@@ -106,7 +113,7 @@ export function DeviceScreen({ transport, onClose }: { transport: ScreenTranspor
       {transport.phone && <><button className={button} disabled={acting} onClick={() => void send('back')} aria-label={t('remote.screenBack')}><ArrowLeft size={16}/></button><button className={button} disabled={acting} onClick={() => void send('home')} aria-label={t('remote.screenHome')}><Home size={16}/></button></>}
       {!transport.phone && <button className={button} disabled={acting} onClick={() => void send('focus_window')}>{t('remote.screenFocus')}</button>}
       {!transport.phone && ['ENTER','TAB','ESC'].map(key => <button key={key} className={button} disabled={acting} onClick={() => void send('key',{key_sequence:key})}>{key}</button>)}
-      {[-1, 1].map(direction => <button key={direction} className={button} disabled={acting} aria-label={t(direction < 0 ? 'remote.screenUp' : 'remote.screenDown')} onClick={() => void send(transport.phone ? direction < 0 ? 'scroll_backward' : 'scroll_forward' : 'scroll', transport.phone ? { nodeId: scrollNode } : {scroll_y: direction * 3})}>{direction < 0 ? <ArrowUp size={16}/> : <ArrowDown size={16}/>}</button>)}
+      {[-1, 1].map(direction => <button key={direction} className={button} disabled={acting} aria-label={t(direction < 0 ? 'remote.screenUp' : 'remote.screenDown')} onClick={() => { if (transport.phone) void send(direction < 0 ? 'scroll_backward' : 'scroll_forward', {nodeId:scrollNode}); else scrollDesktop(direction); }}>{direction < 0 ? <ArrowUp size={16}/> : <ArrowDown size={16}/>}</button>)}
     </div><form className="flex gap-2" onSubmit={event => { event.preventDefault(); void send(transport.phone ? 'set_text' : 'type_text', {text, ...(transport.phone && editor != null ? {nodeId:editor} : {})}); }}>
       <input className={remoteField} value={text} onChange={event => setText(event.target.value)} placeholder={t('remote.screenType')} aria-label={t('remote.screenType')}/>
       <button className={button} disabled={acting || !text} aria-label={t('chat.send')}><Send size={16}/></button>

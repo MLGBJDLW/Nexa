@@ -21,6 +21,8 @@ static OBSERVE_DEF: OnceLock<ToolDef> = OnceLock::new();
 static CONTROL_DEF: OnceLock<ToolDef> = OnceLock::new();
 const OBSERVE_DEF_JSON: &str = include_str!("../../prompts/tools/computer_observe.json");
 const CONTROL_DEF_JSON: &str = include_str!("../../prompts/tools/computer_control.json");
+/// Coordinate contract shared by native capture and paired-screen adapters.
+pub const CAPTURED_IMAGE_COORDINATE_SPACE: &str = "captured_image_pixels";
 // Retention is a cache policy, not permission to dispatch input. Native input
 // always revalidates target identity, pixels, focus, geometry and user takeover.
 const OBSERVATION_TTL: Duration = Duration::from_secs(30 * 60);
@@ -1188,7 +1190,11 @@ fn computer_control_approval_message(
     } else if let (Some(x), Some(y)) = (args.x, args.y) {
         details.push(format!(
             "Target coordinate: ({x}, {y}) in {} space.",
-            approval_label(args.coordinate_space.as_deref().unwrap_or("image_pixels"))
+            approval_label(
+                args.coordinate_space
+                    .as_deref()
+                    .unwrap_or(CAPTURED_IMAGE_COORDINATE_SPACE)
+            )
         ));
     }
     if let Some(element_id) = args.to_element_id.as_deref() {
@@ -1239,7 +1245,11 @@ fn computer_control_persistent_approval_message(
     } else if let (Some(x), Some(y)) = (args.x, args.y) {
         details.push(format!(
             "Target coordinate: ({x}, {y}) in {} space.",
-            approval_label(args.coordinate_space.as_deref().unwrap_or("image_pixels"))
+            approval_label(
+                args.coordinate_space
+                    .as_deref()
+                    .unwrap_or(CAPTURED_IMAGE_COORDINATE_SPACE)
+            )
         ));
     }
     if let Some(element_id) = args.to_element_id.as_deref() {
@@ -1926,7 +1936,7 @@ fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::V
         "imageHeight": capture.image_height,
         "nativeImageWidth": capture.native_image_width,
         "nativeImageHeight": capture.native_image_height,
-        "coordinateSpace": "captured_image_pixels",
+        "coordinateSpace": CAPTURED_IMAGE_COORDINATE_SPACE,
         "captureTransform": {
             "frameOriginScreenPhysical": {
                 "x": capture.snapshot.x,
@@ -1997,7 +2007,7 @@ fn semantic_observation_for_llm(observation_id: &str, capture: &CapturedWindow) 
             "width": capture.image_width,
             "height": capture.image_height
         },
-        "coordinateSpaces": ["captured_image_pixels", "normalized_0_1"],
+        "coordinateSpaces": [CAPTURED_IMAGE_COORDINATE_SPACE, "normalized_0_1"],
         "elements": capture.elements,
         "semanticStatus": if !capture.semantic_enabled { "disabled" } else if capture.semantic_error.is_some() { "error" } else { "available" },
         "semanticError": capture.semantic_error,
@@ -2022,12 +2032,12 @@ enum CoordinateSpace {
 impl CoordinateSpace {
     fn parse(value: Option<&str>) -> Result<Self, CoreError> {
         match value
-            .unwrap_or("captured_image_pixels")
+            .unwrap_or(CAPTURED_IMAGE_COORDINATE_SPACE)
             .trim()
             .to_ascii_lowercase()
             .as_str()
         {
-            "captured_image_pixels" => Ok(Self::CapturedImagePixels),
+            CAPTURED_IMAGE_COORDINATE_SPACE => Ok(Self::CapturedImagePixels),
             "normalized_0_1" => Ok(Self::Normalized),
             other => Err(CoreError::InvalidInput(format!(
                 "Unsupported coordinate_space '{other}'."

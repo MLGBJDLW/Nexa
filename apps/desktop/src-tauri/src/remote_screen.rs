@@ -226,6 +226,39 @@ mod tests {
         assert!(new.stopped.is_cancelled());
         assert!(screens.share("phone").is_err());
     }
+    #[tokio::test]
+    async fn paired_inputs_pass_the_real_computer_control_argument_contract() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = nexa_core::db::Database::new(directory.path().join("input.db")).unwrap();
+        let runtime = nexa_core::activity::ActivityRuntime::with_database(db.clone()).unwrap();
+        for input in [
+            json!({"action":"click", "x":12, "y":24}),
+            json!({"action":"scroll", "x":12, "y":24, "scroll_y":3}),
+            json!({"action":"type_text", "text":"sample"}),
+            json!({"action":"key", "key_sequence":"ENTER"}),
+            json!({"action":"focus_window"}),
+        ] {
+            let mut input = input;
+            input["observation_id"] = json!(uuid::Uuid::new_v4().to_string());
+            input["window_id"] = json!(1);
+            let args = screen_input_arguments(input).unwrap();
+            let context = ToolExecutionContext::new("contract", &args, &db, &[])
+                .with_activity_runtime(&runtime);
+            let result = computer_use_tool::ComputerControlTool
+                .execute(context)
+                .await
+                .unwrap();
+            // No real observation is installed: valid arguments must reach the
+            // observation guard, while a wrong adapter coordinate enum fails
+            // earlier with invalid_computer_action. No OS input can run here.
+            assert_eq!(
+                result.artifacts.as_ref().unwrap()["code"],
+                "computer_observation_stale",
+                "{args}: {}",
+                result.content
+            );
+        }
+    }
 }
 
 pub async fn frame(app: &AppHandle, owner: &str) -> Result<Value, String> {
@@ -242,15 +275,7 @@ pub async fn frame(app: &AppHandle, owner: &str) -> Result<Value, String> {
     Ok(result)
 }
 
-pub async fn input(app: &AppHandle, owner: &str, mut input: Value) -> Result<Value, String> {
-    let share = app.state::<RemoteScreenState>().share(owner)?;
-    if !share.control {
-        return Err("This share is view only. Enable control on the computer.".into());
-    }
-    let _gate = share
-        .gate
-        .try_lock()
-        .map_err(|_| "The previous screen operation is still finishing.")?;
+fn screen_input_arguments(mut input: Value) -> Result<String, String> {
     let fields = input.as_object_mut().ok_or("Invalid screen input")?;
     if fields.keys().any(|key| {
         ![
@@ -272,12 +297,27 @@ pub async fn input(app: &AppHandle, owner: &str, mut input: Value) -> Result<Val
     ) {
         return Err("Unsupported screen input".into());
     }
-    fields.insert("coordinate_space".into(), json!("image_pixels"));
+    fields.insert(
+        "coordinate_space".into(),
+        json!(computer_use_tool::CAPTURED_IMAGE_COORDINATE_SPACE),
+    );
     fields.insert("include_elements".into(), json!(false));
+    Ok(input.to_string())
+}
+
+pub async fn input(app: &AppHandle, owner: &str, input: Value) -> Result<Value, String> {
+    let share = app.state::<RemoteScreenState>().share(owner)?;
+    if !share.control {
+        return Err("This share is view only. Enable control on the computer.".into());
+    }
+    let _gate = share
+        .gate
+        .try_lock()
+        .map_err(|_| "The previous screen operation is still finishing.")?;
+    let args = screen_input_arguments(input)?;
     let state = app.state::<AppState>();
     let runtime = nexa_core::activity::ActivityRuntime::with_database((*state.db).clone())
         .map_err(|e| e.to_string())?;
-    let args = input.to_string();
     let call = uuid::Uuid::new_v4().to_string();
     let context = ToolExecutionContext::new(&call, &args, &state.db, &[])
         .with_conversation_id(Some(&share.id))

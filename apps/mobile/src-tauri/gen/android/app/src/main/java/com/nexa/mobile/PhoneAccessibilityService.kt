@@ -33,6 +33,7 @@ class PhoneAccessibilityService : AccessibilityService() {
     private var revision = 0L
     private var screenshotRevision = -1L
     private var screenshotFingerprint: String? = null
+    private var screenshotEvidence: PhoneScreenEvidence? = null
     private val observedBounds = Rect()
     private var screenshotWidth = 0
     private var screenshotHeight = 0
@@ -129,7 +130,7 @@ class PhoneAccessibilityService : AccessibilityService() {
         @Suppress("DEPRECATION") root.recycle()
         if (shade) performGlobalAction(if (android.os.Build.VERSION.SDK_INT >= 31) GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE else GLOBAL_ACTION_BACK)
     }
-    @Suppress("DEPRECATION") private fun invalidate() { nodes.values.forEach { it.node.recycle() }; nodes.clear(); observation = ""; screenshotRevision = -1; screenshotFingerprint = null; observedEditor = null; observedEditorSignature = null }
+    @Suppress("DEPRECATION") private fun invalidate() { nodes.values.forEach { it.node.recycle() }; nodes.clear(); observation = ""; screenshotRevision = -1; screenshotFingerprint = null; screenshotEvidence = null; observedEditor = null; observedEditorSignature = null }
     private fun isProtected(node: AccessibilityNodeInfo) = node.isPassword || (android.os.Build.VERSION.SDK_INT >= 34 && node.isAccessibilityDataSensitive)
     private fun signature(node: AccessibilityNodeInfo): String {
         val bounds = Rect(); node.getBoundsInScreen(bounds)
@@ -290,8 +291,17 @@ class PhoneAccessibilityService : AccessibilityService() {
         overlay.suspend()
         main.postDelayed({
             if (activeRequest !== request) return@postDelayed
+            var previousNodes = emptyList<AccessibilityNodeInfo>()
+            @Suppress("DEPRECATION") fun releasePreviousNodes() { previousNodes.forEach { it.recycle() }; previousNodes = emptyList() }
             try {
                 check(instance === this && (!TaskService.stopRequested.get() || overlayCapturing)) { "Phone control stopped." }
+                val previousId = observation
+                val previousEvidence = screenshotEvidence
+                val previousEditor = observedEditor
+                // Native equality includes the source-node and window IDs,
+                // unlike matching only labels and bounds on replacement views.
+                @Suppress("DEPRECATION")
+                previousNodes = nodes.values.map { AccessibilityNodeInfo.obtain(it.node) }
                 val state = observe()
                 check(!sensitive && !state.getBoolean("truncated")) { "This screen contains sensitive controls or an incomplete UI tree. Use accessible controls." }
                 check(captureWindowsSafe()) { "Screen capture requires one unobstructed app. Close split-screen, picture-in-picture or other overlays and try again." }
@@ -299,15 +309,29 @@ class PhoneAccessibilityService : AccessibilityService() {
                 val keyboards = keyboardBounds()
                 capture.capture(state, Rect(observedBounds), keyboards,
                     { activeRequest === request && observation == id && revision == version && rotation() == screenRotation && (!TaskService.stopRequested.get() || overlayCapturing) && instance === this && foregroundMatchesObservation() && captureWindowsSafe() && keyboardBounds() == keyboards }) { result ->
-                    if (activeRequest !== request) return@capture
-                    result.onSuccess { frame ->
-                        screenshotRevision = version; screenshotFingerprint = frame.fingerprint
-                        screenshotWidth = frame.width; screenshotHeight = frame.height; displayWidth = frame.displayWidth; displayHeight = frame.displayHeight
-                    }
-                    overlay.restoreFeedback()
-                    complete(result)
+                    try {
+                        if (activeRequest !== request) return@capture
+                        result.onSuccess { frame ->
+                            val evidence = PhoneScreenEvidence(observedPackage, observedWindow, observedRotation, version,
+                                listOf(observedBounds.left, observedBounds.top, observedBounds.right, observedBounds.bottom),
+                                keyboards.map { listOf(it.left, it.top, it.right, it.bottom) },
+                                frame.width, frame.height, frame.displayWidth, frame.displayHeight, frame.fingerprint,
+                                nodes.map { (id, target) -> "$id|${target.signature}|${target.focused}|${target.node.isFocused}|${target.node.isClickable}|${target.node.isEditable}|${target.node.isScrollable}" },
+                                observedEditorSignature)
+                            // Retain only a fully unchanged native target; changed
+                            // pixels/tree/focus/revision keep the newly issued ID.
+                            val sameNativeControls = previousNodes.size == nodes.size && previousNodes.zip(nodes.values).all { (previous, current) -> previous == current.node }
+                            observation = retainPhoneObservationId(previousId, previousEvidence, previousEditor, id, evidence, observedEditor, sameNativeControls)
+                            frame.state.put("observationId", observation)
+                            screenshotEvidence = evidence
+                            screenshotRevision = version; screenshotFingerprint = frame.fingerprint
+                            screenshotWidth = frame.width; screenshotHeight = frame.height; displayWidth = frame.displayWidth; displayHeight = frame.displayHeight
+                        }
+                        overlay.restoreFeedback()
+                        complete(result)
+                    } finally { releasePreviousNodes() }
                 }
-            } catch (error: Exception) { complete(Result.failure(error)) }
+            } catch (error: Exception) { releasePreviousNodes(); complete(Result.failure(error)) }
         }, 120)
     }
 

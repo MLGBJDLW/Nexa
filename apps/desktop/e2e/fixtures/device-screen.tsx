@@ -16,6 +16,7 @@ const image = { width: canvas.width, height: canvas.height, mimeType: 'image/png
 const state = {
   frames: 0, pending: 0, maxPending: 0, stops: 0, hold: false, failInput: false, failFrame: false,
   inputs: [] as Record<string, unknown>[], releases: [] as (() => void)[], controlAvailable: true,
+  phoneRevision: 0, phoneObservation: '', acceptedInputs: 0,
 };
 function makeTransport(device: string): ScreenTransport {
   return {
@@ -26,7 +27,11 @@ function makeTransport(device: string): ScreenTransport {
       try {
         if (state.hold) await new Promise<void>(resolve => state.releases.push(resolve));
         if (state.failFrame) throw new Error('Screen disconnected');
-        return { observationId: `${device}:${sequence}`, windowId: 42, packageName: `example.${device}`, title: `Screen ${device}`,
+        // Android keeps an ID only while its screenshot/target evidence is
+        // unchanged, and rejects input bound to a replaced observation.
+        const observationId = phone ? `${device}:screen:${state.phoneRevision}` : `${device}:${sequence}`;
+        if (phone) state.phoneObservation = observationId;
+        return { observationId, windowId: 42, packageName: `example.${device}`, title: `Screen ${device}`,
           controlAvailable: state.controlAvailable, image,
           nodes: [{ nodeId: 7, focused: true, editable: true, scrollable: false }, { nodeId: 8, focused: false, editable: false, scrollable: true }],
         } satisfies ScreenFrame;
@@ -34,7 +39,9 @@ function makeTransport(device: string): ScreenTransport {
     },
     async input(value) {
       state.inputs.push(value);
-      return state.failInput ? { code: 'stale_observation', message: 'Screen changed; inspect the new image.' } : { accepted: true };
+      if (state.failInput || (phone && value.observationId !== state.phoneObservation)) return { code: 'stale_observation', message: 'Screen changed; inspect the new image.' };
+      state.acceptedInputs++;
+      return { accepted: true };
     },
     async stop() { state.stops++; },
   };
