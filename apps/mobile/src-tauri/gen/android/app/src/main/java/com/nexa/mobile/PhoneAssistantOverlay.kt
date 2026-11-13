@@ -29,11 +29,12 @@ import kotlin.math.PI
 
 /** A small, optional accessibility overlay; the existing task service owns Stop. */
 class PhoneAssistantOverlay(private val service: AccessibilityService) {
-    companion object {
-        // Keep screen text in process memory, outside Binder's intent size limit.
-        private var pendingTranslation: String? = null
-        fun consumeTranslation(): String? = pendingTranslation.also { pendingTranslation = null }
-    }
+    private val screen by lazy { PhoneScreenPanel(service as PhoneAccessibilityService) }
+    private val glow by lazy { PhoneControlGlow(service) }
+    fun result(value: app.tauri.plugin.JSObject) = screen.result(value)
+    fun isScreenRequestActive(id: String) = screen.isActive(id)
+    fun setControlling(value: Boolean) = glow.setActive(value)
+    fun restoreFeedback() = glow.restore()
     private val manager = service.getSystemService(WindowManager::class.java)
     private var view: FrameLayout? = null
     private var surface: LinearLayout? = null
@@ -43,7 +44,7 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
     private var receiverRegistered = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_SCREEN_OFF) { snap?.cancel(); stopHover() } else startHover()
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) { snap?.cancel(); stopHover(); screen.close(); glow.close() } else startHover()
         }
     }
     private var position: WindowManager.LayoutParams? = null
@@ -146,34 +147,12 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
         val actions = LinearLayout(service).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         quickActions = actions
         fun screenshot() {
-            try { (service as PhoneAccessibilityService).ensureOverlayIdle() }
-            catch (error: Exception) { Toast.makeText(service, error.message, Toast.LENGTH_LONG).show(); return }
             actions.visibility = View.GONE
-            setQuickActionHidden(true)
-            main.postDelayed({
-                if (view !== layout) return@postDelayed
-                try {
-                    (service as PhoneAccessibilityService).ensureOverlayIdle()
-                    if (android.os.Build.VERSION.SDK_INT < 28 || !service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)) {
-                        Toast.makeText(service, R.string.overlay_screenshot_unavailable, Toast.LENGTH_LONG).show()
-                    }
-                } catch (error: Exception) {
-                    Toast.makeText(service, error.message ?: service.getString(R.string.overlay_screenshot_unavailable), Toast.LENGTH_LONG).show()
-                } finally { main.postDelayed({ if (view === layout) setQuickActionHidden(false) }, 400) }
-            }, 160)
+            screen.open(false)
         }
         actions.addView(button(android.R.drawable.ic_menu_camera, service.getString(R.string.overlay_screenshot)).apply { setOnClickListener { screenshot() } })
         actions.addView(button(android.R.drawable.ic_menu_sort_alphabetically, service.getString(R.string.overlay_translate)).apply {
-            setOnClickListener {
-                try {
-                    val text = (service as PhoneAccessibilityService).overlayTranslationText()
-                    actions.visibility = View.GONE
-                    pendingTranslation = service.getString(R.string.overlay_translate_prompt, text)
-                    service.startActivity(Intent(service, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        .putExtra("nexa.overlayDraft", true))
-                } catch (error: Exception) { Toast.makeText(service, error.message ?: service.getString(R.string.overlay_text_unavailable), Toast.LENGTH_LONG).show() }
-            }
+            setOnClickListener { actions.visibility = View.GONE; screen.open(true) }
         })
         stop.visibility = View.VISIBLE
         actions.addView(stop)
@@ -225,6 +204,7 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
         layout.post { if (view === layout) startHover() }
     }
     fun hide() {
+        screen.close(); glow.close()
         main.removeCallbacksAndMessages(null); quickActions = null; quickActionHidden = false
         snap?.cancel(); snap = null; stopHover()
         if (receiverRegistered) { service.unregisterReceiver(screenReceiver); receiverRegistered = false }
@@ -236,8 +216,8 @@ class PhoneAssistantOverlay(private val service: AccessibilityService) {
         if (hidden) stopHover() else startHover()
     }
     private fun setQuickActionHidden(hidden: Boolean) { quickActionHidden = hidden; snap?.cancel(); updateVisibility() }
-    fun suspend() { suspended = true; snap?.cancel(); updateVisibility() }
-    fun restore() { suspended = false; updateVisibility() }
+    fun suspend() { screen.suspend(); glow.suspend(); suspended = true; snap?.cancel(); updateVisibility() }
+    fun restore() { screen.restore(); glow.restore(); suspended = false; updateVisibility() }
 }
 
 /** Bounded edge rebound, independent of frame rate and Android UI state. */

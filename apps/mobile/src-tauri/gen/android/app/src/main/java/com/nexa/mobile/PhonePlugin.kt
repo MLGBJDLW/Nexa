@@ -25,6 +25,13 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     companion object { var instance: PhonePlugin? = null }
     override fun load(webView: android.webkit.WebView) { instance = this }
     fun taskStopped() { trigger("taskStop",JSObject()) }
+    fun overlayRequest(value: JSObject) { trigger("overlayRequest", value) }
+    @Command fun overlayResult(invoke: Invoke) = activity.runOnUiThread {
+        PhoneAccessibilityService.instance?.overlayResult(invoke.getArgs()); invoke.resolve(JSObject())
+    }
+    @Command fun overlayActive(invoke: Invoke) = activity.runOnUiThread {
+        invoke.resolve(JSObject().apply { put("active", PhoneAccessibilityService.instance?.isScreenRequestActive(invoke.getArgs().getString("requestId")) == true) })
+    }
     private val secrets = SecretStore(activity)
     private val speech = PhoneSpeech(activity)
     private var foreground = true
@@ -224,11 +231,8 @@ class PhonePlugin(private val activity: Activity): Plugin(activity) {
     @Command fun notificationTarget(invoke: Invoke) = activity.runOnUiThread {
         guarded(invoke) {
             val target = PhoneReplies.consume(activity.intent)
-            val draft = if (activity.intent.getBooleanExtra("nexa.overlayDraft", false)) PhoneAssistantOverlay.consumeTranslation() else null
-            activity.intent.removeExtra("nexa.overlayDraft")
             JSObject().apply {
                 if (target != null) { put("conversationId", target.first); put("schedules", target.second) }
-                if (!draft.isNullOrBlank()) put("draft", draft)
             }
         }
     }

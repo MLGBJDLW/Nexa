@@ -128,6 +128,7 @@ impl RunHost {
     pub(super) async fn finish(self, result: Value) {
         match self {
             Self::Foreground(app) => {
+                crate::overlay::finish(&app, &result).await;
                 let _ = platform::call(&app, "taskResult", result).await;
             }
             #[cfg(target_os = "android")]

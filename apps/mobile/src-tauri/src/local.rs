@@ -43,6 +43,9 @@ pub struct LocalSettings {
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnOptions {
+    /// Optional narrowing for image-only overlays; never expands scheduled grants.
+    #[serde(default)]
+    pub allowed_tools: Option<Vec<String>>,
     pub connection_id: Option<String>,
     pub model_selection: Option<TurnModelSelection>,
     #[serde(default)]
@@ -242,6 +245,18 @@ impl LocalRuntime {
             }
             text = checkpoint.resume_prompt;
         }
+        let execution_tools = if let Some(allowed) = &options.allowed_tools {
+            Some(match &scheduled_tools {
+                Some(granted) => granted
+                    .iter()
+                    .filter(|name| allowed.contains(name))
+                    .cloned()
+                    .collect(),
+                None => allowed.clone(),
+            })
+        } else {
+            scheduled_tools.clone()
+        };
         options.validate_attachments()?;
         if text.trim().is_empty() && options.attachments.is_empty() {
             return Err("Enter a message first.".into());
@@ -309,7 +324,7 @@ impl LocalRuntime {
             tool_call_id: None,
             tool_calls: Vec::new(),
             artifacts: Some(
-                json!({"phoneScheduledTools": scheduled_tools, "phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode}}),
+                json!({"phoneScheduledTools": scheduled_tools, "phoneTurnOptions":{"connectionId":saved.id,"modelSelection":{"model":saved.model,"reasoningEnabled":saved.reasoning_enabled,"reasoningEffort":saved.reasoning_effort,"thinkingBudget":saved.thinking_budget},"executionMode":options.execution_mode,"toolApprovalMode":options.tool_approval_mode,"allowedTools":options.allowed_tools}}),
             ),
             token_count: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -415,7 +430,7 @@ impl LocalRuntime {
         ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
-        if let Some(allowed) = &scheduled_tools {
+        if let Some(allowed) = &execution_tools {
             tools = tools.filtered(allowed);
         } else {
             tools.register(Box::new(
@@ -459,7 +474,7 @@ impl LocalRuntime {
             execution_mode: options.execution_mode,
             ..Default::default()
         };
-        if scheduled_tools
+        if execution_tools
             .as_ref()
             .is_some_and(|allowed| !allowed.iter().any(|name| name == "web_search"))
         {
