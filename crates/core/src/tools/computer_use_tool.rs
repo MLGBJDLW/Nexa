@@ -373,7 +373,7 @@ fn frame_signature(image: &image::RgbImage) -> Vec<u8> {
     .into_raw()
 }
 
-#[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
 fn screenshot_guard(png: &[u8]) -> Option<ScreenshotGuard> {
     Some(frame_guard(&image::load_from_memory(png).ok()?.to_rgb8()))
 }
