@@ -32479,7 +32479,7 @@
         "productReadiness": "known",
         "recommended": false,
         "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/newly-released-models",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/deepseek-v4-pro",
         "regions": [
           "ap-southeast-1"
         ],
@@ -32493,7 +32493,8 @@
         "capabilities": {
           "vision": false,
           "reasoning": null
-        }
+        },
+        "maxOutputTokens": 393216
       },
       {
         "id": "ZHIPU/GLM-5.3",
@@ -32504,11 +32505,11 @@
         "productReadiness": "known",
         "recommended": false,
         "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/newly-released-models",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/glm-5-3-by-zhipu",
         "regions": [
           "ap-southeast-1"
         ],
-        "contextTokens": 1000000,
+        "contextTokens": 1048576,
         "inputModalities": [
           "text"
         ],
@@ -32518,7 +32519,8 @@
         "capabilities": {
           "vision": false,
           "reasoning": null
-        }
+        },
+        "maxOutputTokens": 131072
       },
       {
         "id": "ZHIPU/GLM-5.2",
@@ -32529,11 +32531,11 @@
         "productReadiness": "known",
         "recommended": false,
         "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/newly-released-models",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/glm-5-2-by-zhipu",
         "regions": [
           "ap-southeast-1"
         ],
-        "contextTokens": 1000000,
+        "contextTokens": 1048576,
         "inputModalities": [
           "text"
         ],
@@ -32543,7 +32545,8 @@
         "capabilities": {
           "vision": false,
           "reasoning": null
-        }
+        },
+        "maxOutputTokens": 131072
       },
       {
         "id": "kimi/kimi-k3",
@@ -32554,11 +32557,11 @@
         "productReadiness": "known",
         "recommended": false,
         "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/newly-released-models",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/kimi-k3-by-moonshot",
         "regions": [
           "ap-southeast-1"
         ],
-        "contextTokens": 1000000,
+        "contextTokens": 1048576,
         "inputModalities": [
           "text",
           "image"
@@ -32569,7 +32572,8 @@
         "capabilities": {
           "vision": true,
           "reasoning": null
-        }
+        },
+        "maxOutputTokens": 1048576
       }
     ]
   },

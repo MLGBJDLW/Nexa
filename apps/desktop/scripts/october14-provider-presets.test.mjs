@@ -57,6 +57,18 @@ test('aggregators keep complete routed metadata and independent regional model a
   for (const provider of ['alibaba-model-studio', 'qwen-cloud-intl']) {
     assert.equal(providers.find(item => item.id === provider).models.some(item => item.id === 'qwen4-max-preview'), false);
   }
+  for (const [id, context, output] of [
+    ['deepseek-v4-pro-0813', 1_000_000, 393_216],
+    ['ZHIPU/GLM-5.3', 1_048_576, 131_072],
+    ['ZHIPU/GLM-5.2', 1_048_576, 131_072],
+    ['kimi/kimi-k3', 1_048_576, 1_048_576],
+  ]) {
+    const entry = model('qwen-cloud-intl', id);
+    assert.equal(entry.contextTokens, context, `${id} uses the exact Singapore specification rather than rounded 1M prose`);
+    assert.equal(entry.maxOutputTokens, output);
+    assert.equal(entry.capabilities.reasoning, null, 'numeric limits do not establish native reasoning controls');
+    assert.deepEqual(entry.regions, ['ap-southeast-1']);
+  }
 });
 
 test('October 29 catalog keeps Particle capabilities and retires unavailable free decision routes without remapping them', () => {

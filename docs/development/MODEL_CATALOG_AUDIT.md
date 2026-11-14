@@ -42,6 +42,19 @@ The 2026-11-14 review inventories **92 endpoint presets and 1,412 model projecti
 
 Together, Fireworks, Novita and ModelScope are not built-in provider endpoint presets in this snapshot. Models from those organizations may appear through OpenRouter; those IDs are audited under OpenRouter rather than advertised as separate native integrations. Custom endpoints can still discover their own account catalogs.
 
+### Exact Singapore hosted limits
+
+Numeric model tables take priority over rounded "1M" release descriptions. These limits belong to the exact hosted wire IDs; they do not establish reasoning controls or account entitlement.
+
+| Singapore wire ID | Context tokens | Maximum output tokens | Dedicated first-party specification |
+| --- | ---: | ---: | --- |
+| `deepseek-v4-pro-0813` | 1,000,000 | 393,216 | [DeepSeek snapshot table](https://www.alibabacloud.com/help/en/model-studio/deepseek-v4-pro) |
+| `ZHIPU/GLM-5.3` | 1,048,576 | 131,072 | [Zhipu supplied GLM 5.3](https://www.alibabacloud.com/help/en/model-studio/glm-5-3-by-zhipu) |
+| `ZHIPU/GLM-5.2` | 1,048,576 | 131,072 | [Zhipu supplied GLM 5.2](https://www.alibabacloud.com/help/en/model-studio/glm-5-2-by-zhipu) |
+| `kimi/kimi-k3` | 1,048,576 | 1,048,576 | [Moonshot supplied Kimi K3](https://help.aliyun.com/zh/model-studio/kimi-k3-by-moonshot) |
+
+The GLM specification pages explicitly identify Singapore. The namespaced Kimi specification identifies the Moonshot supplied model; its [Singapore availability is listed separately](https://www.alibabacloud.com/help/en/model-studio/context-cache). The Alibaba supplied unprefixed Kimi model has its [own specification and regions](https://www.alibabacloud.com/help/en/model-studio/kimi-k3), so those identities remain distinct.
+
 ## Other provider checks
 
 The native [Google model list](https://aistudio.google.com/docs/models) confirms the Carbon, Argon and Hydrogen family; synchronous output limits stay distinct from long decode and router limits. The [DeepSeek pricing and model table](https://api-docs.deepseek.com/quick_start/pricing/) confirms the Flash 1017 upgrade and compatibility aliases. [Claude lifecycle notices](https://platform.claude.com/docs/en/about-claude/model-deprecations) confirm existing tombstones and future Sonnet 4.5 retirement; supported legacy models are retained.
