@@ -53,7 +53,7 @@ For Actions, the optional `NEXA_MODEL_CATALOG_CREDENTIALS` repository secret is 
 JSON object mapping exact endpoint IDs to account credentials. For example, its
 keys can include `text:siliconflow`, `text:qwen-token-plan-global`,
 `text:qwen-cloud-intl`, `text:alibaba-model-studio`, `text:doubao`,
-`text:mistral`, `embedding:siliconflow-cn`, or any other supported discoverable
+`text:mistral`, or any other supported discoverable
 endpoint. This avoids adding a workflow variable whenever a provider is added.
 Separate endpoints keep separate entries; one upstream account does not verify
 an aggregator's entitlement. Unsupported discovery contracts, local servers,
