@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.9...nexa-monorepo-v0.19.10) (2026-11-14)
+
+
+### Features
+
+* **computer-use:** improve cross-platform observation and verified input ([#557](https://github.com/MLGBJDLW/Nexa/issues/557)) ([43ca435](https://github.com/MLGBJDLW/Nexa/commit/43ca4359d5bd242bedd5cd35f86acf012aaf0f3a))
+
 ## [0.19.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.8...nexa-monorepo-v0.19.9) (2026-11-14)
 
 
