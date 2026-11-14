@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.8...nexa-mobile-v0.3.9) (2026-11-14)
+
+
+### Features
+
+* **chat:** improve cross-platform previews, web tools, and agent controls ([#554](https://github.com/MLGBJDLW/Nexa/issues/554)) ([5aa645d](https://github.com/MLGBJDLW/Nexa/commit/5aa645dbddd3de1fc2fad729228af50320c7bd28))
+
 ## [0.3.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.7...nexa-mobile-v0.3.8) (2026-11-13)
 
 ### Improvements
