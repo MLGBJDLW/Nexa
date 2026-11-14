@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.19.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.9...nexa-monorepo-v0.19.10) (2026-11-14)
+
+
+### Improvements
+
+- Read selected or visible text from a Windows editor that exposes accessibility text ranges. Password fields are excluded and incomplete observations are identified.
+- Prevent an old screenshot from authorizing input after a newer capture of the same window. Stop guarded input when physical-input monitoring is unavailable.
+- Bound accessibility scans in large windows and require a unique target before a semantic action.
+- Deliver current control IDs and states to external agents while keeping Windows screen text out of durable chat summaries.
+
+### Features
+
+* **computer-use:** improve cross-platform observation and verified input ([#557](https://github.com/MLGBJDLW/Nexa/issues/557)) ([43ca435](https://github.com/MLGBJDLW/Nexa/commit/43ca4359d5bd242bedd5cd35f86acf012aaf0f3a))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 43ca4359d5bd242bedd5cd35f86acf012aaf0f3a -->
+
+### What's Changed
+* feat(computer-use): improve cross-platform observation and verified input by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/557
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.9...nexa-monorepo-v0.19.10
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.8...nexa-monorepo-v0.19.9) (2026-11-14)
 
 
