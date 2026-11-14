@@ -7,6 +7,16 @@
 
 * **runtime:** refresh model catalogs, retain TPS, and allow long shell arguments ([#562](https://github.com/MLGBJDLW/Nexa/issues/562)) ([16b9f8f](https://github.com/MLGBJDLW/Nexa/commit/16b9f8f78eae82609308ff0d194cd1f7c888d621))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 16b9f8f78eae82609308ff0d194cd1f7c888d621 -->
+
+### What's Changed
+* feat(runtime): refresh model catalogs, retain TPS, and allow long shell arguments by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/562
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.10...nexa-monorepo-v0.19.11) (2026-11-14)
 
 
