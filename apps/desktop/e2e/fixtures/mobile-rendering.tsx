@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { I18nProvider } from '../../src/i18n';
-import { StreamingMarkdown } from '../../src/components/chat/StreamingMarkdown';
+import { RemoteTranscript } from '../../src/features/remote/RemoteTranscript';
 import { FilePreviewContext } from '../../src/features/preview/filePreviewContext';
 import '../../../mobile/src/mobile.css';
 
@@ -22,5 +22,13 @@ const source = [
 export function renderMobileRendering() {
   document.documentElement.dataset.remote = 'true'; localStorage.setItem('nexa-locale','zh-CN');
   const host=document.createElement('div');host.className='mobile-app';document.body.appendChild(host);
-  createRoot(host).render(<I18nProvider><FilePreviewContext.Provider value={{openFilePreview(){},openWebLink(){},remote:true}}><main className="native-chat"><div className="native-chat-content"><article className="remote-answer"><StreamingMarkdown content={source} isStreaming={false} reduceMotion/></article></div></main></FilePreviewContext.Provider></I18nProvider>);
+  const messages = [
+    {id:'prompt', role:'user', content:'显示报表', totalChars:4, sortOrder:1},
+    {id:'chart', role:'assistant', intermediate:true, content:source, totalChars:[...source].length, sortOrder:2,
+      thinking:'整理报表数据', toolCalls:[{id:'verify',name:'verify_chart'}]},
+    {id:'final', role:'assistant', content:'已生成报表', totalChars:5, sortOrder:3},
+  ];
+  createRoot(host).render(<I18nProvider><FilePreviewContext.Provider value={{openFilePreview(){},openWebLink(){},remote:true}}><main className="native-chat"><div className="native-chat-content">
+    <RemoteTranscript messages={messages} timeline={[]} running={false} finalMessageId={null} runId={null} runUserId={null} more={()=>{}} speakingId={null}/>
+  </div></main></FilePreviewContext.Provider></I18nProvider>);
 }

@@ -27,6 +27,7 @@ import { useDeveloperMode } from "../../lib/developerMode";
 import { useConversationFileChanges } from '../../lib/useConversationFileChanges';
 import type { TimelineEntry } from '../../lib/conversationTimeline';
 import { observeScrollFollow } from '../../lib/scrollFollow';
+import { hasInlineChatPreview } from '../../lib/markdownCodeProtection';
 import { TurnFileChanges } from '../../components/chat/TurnFileChanges';
 import { hasTimeGap } from "../../lib/relativeTime";
 import {
@@ -1022,6 +1023,7 @@ export function ChatMessages(props: ChatMessagesProps) {
       const ordered: Array<
         | { kind: 'trace'; id: string; sections: TimelineSection[] }
         | { kind: 'steering'; id: string; text: string }
+        | { kind: 'reply'; id: string; text: string }
         | { kind: 'image'; id: string; section: Extract<TimelineSection, { kind: 'tool' }> }
         | {
             kind: 'answeredQuestion';
@@ -1048,6 +1050,11 @@ export function ChatMessages(props: ChatMessagesProps) {
       };
 
       for (const section of sections) {
+        if (section.kind === 'reply' && hasInlineChatPreview(section)) {
+          flushTrace();
+          ordered.push(section);
+          continue;
+        }
         // The image's generation state and result remain visible even when
         // the surrounding working trace is fully folded.
         if (section.kind === 'tool' && (section.toolCall.toolName === 'generate_image' || section.toolCall.renderKind === 'image')) {
@@ -1107,7 +1114,9 @@ export function ChatMessages(props: ChatMessagesProps) {
                 isStreaming && index === lastTraceIndex,
                 forceExpanded,
               )
-            : item.kind === 'image' ? (
+            : item.kind === 'reply'
+              ? renderTraceReplyNode(item.id, item.text)
+              : item.kind === 'image' ? (
                 <Fragment key={item.id}>{renderTimelineSection({ ...item.section, trace: false }, parentRunActive)?.node}</Fragment>
               ) : item.kind === 'steering' ? (
                 <TraceSteeringRow key={item.id} text={item.text} label={t('chat.steeringLabel')} />
@@ -1131,7 +1140,7 @@ export function ChatMessages(props: ChatMessagesProps) {
         </Fragment>
       );
     },
-    [questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, t],
+    [questionResponses, renderThinkingTraceNode, renderTimelineSection, renderTimelineSections, renderTraceReplyNode, t],
   );
 
   const messageThinkingText = useMemo(() => {

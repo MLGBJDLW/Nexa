@@ -12,6 +12,15 @@ interface HistoryMessage {
   toolCalls?: readonly unknown[];
 }
 
+/** Wire page lengths count Unicode code points. A matching complete replay
+ * can supply the remainder without fetching the same text page by page. */
+export function completeReplayText(prefix: string, totalChars: number, replay?: string): string | undefined {
+  if (!replay || replay.length <= prefix.length || replay.length < totalChars || !replay.startsWith(prefix)) return;
+  let count = 0;
+  for (const _ of replay) count++;
+  return count === totalChars ? replay : undefined;
+}
+
 function sameRecord(left: object, right: object): boolean {
   const keys = Object.keys(left);
   const leftFields = left as Record<string, unknown>;

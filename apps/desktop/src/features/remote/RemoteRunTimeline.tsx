@@ -1,15 +1,23 @@
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, CircleAlert, Loader2, Terminal } from 'lucide-react';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { useTranslation } from '../../i18n';
 import { stripFollowupBlocks } from '../../lib/followupSuggestions';
+import { hasInlineChatPreview } from '../../lib/markdownCodeProtection';
+import { compactActivityLabel, thinkingSummary } from '../../lib/thinkingSummary';
+import { completeReplayText } from './remoteHistory';
 
 export type RemoteTimelineItem = {
   id: string;
   sequence: number;
   onMore?: () => void;
+  totalChars?: number;
+  truncated?: boolean;
 } & ({
-  kind: 'answer' | 'thinking';
+  kind: 'answer';
+  text: string;
+} | {
+  kind: 'thinking';
   text: string;
 } | {
   kind: 'tool';
@@ -19,7 +27,8 @@ export type RemoteTimelineItem = {
 function sameItem(a: RemoteTimelineItem, b: RemoteTimelineItem) {
   if (a.kind !== b.kind) return false;
   if (a.kind === 'tool' || b.kind === 'tool') return a.id === b.id;
-  return a.text === b.text || Boolean(a.onMore && b.text.startsWith(a.text));
+  return a.text === b.text || Boolean(a.onMore && b.text.startsWith(a.text))
+    || Boolean(b.truncated && a.text.startsWith(b.text));
 }
 
 // Match persisted steps to replayed steps in order (identical repeated calls or
@@ -32,7 +41,12 @@ function mergeActivity(saved: RemoteTimelineItem[], live: RemoteTimelineItem[]) 
     if (match < 0) {
       merged.push(item);
     } else {
-      merged.push(...live.slice(cursor, match), { ...live[match], onMore: item.onMore });
+      const replay = live[match];
+      const whole = item.onMore && item.kind !== 'tool' && replay.kind !== 'tool' && item.totalChars !== undefined
+        && completeReplayText(item.text, item.totalChars, replay.text);
+      const longerPage = replay.truncated && item.kind !== 'tool' && replay.kind !== 'tool' && item.text.length >= replay.text.length;
+      const current = longerPage ? { ...item, id: replay.id } : item.onMore && !whole ? { ...replay, onMore: item.onMore } : replay;
+      merged.push(...live.slice(cursor, match), current);
       cursor = match + 1;
     }
   }
@@ -60,33 +74,79 @@ function ToolStep({ tool, running }: { tool: Extract<RemoteTimelineItem, { kind:
   </details>;
 }
 
+function activitySummary(items: RemoteTimelineItem[]): string {
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item.kind === 'tool') {
+      const previous = items[index - 1];
+      const note = compactActivityLabel(item.tool.progressNote ?? '')
+        || (previous?.kind === 'thinking' ? thinkingSummary(previous.text) : '');
+      return note || compactActivityLabel(item.tool.toolName.replace(/_/g, ' '));
+    }
+    if (item.kind === 'thinking') {
+      const summary = thinkingSummary(item.text);
+      if (summary) return summary;
+    }
+  }
+  return '';
+}
+
+function ActivityGroup({ items, running }: { items: RemoteTimelineItem[]; running: boolean }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const summary = !expanded && activitySummary(items);
+  return <details className="remote-activity" data-testid="remote-turn-activity" onToggle={event => setExpanded(event.currentTarget.open)}>
+    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs text-text-secondary">
+      <ChevronDown aria-hidden="true" size={14} className={expanded ? 'shrink-0' : 'shrink-0 -rotate-90'} />
+      <span className="shrink-0">{t('remote.activity')}</span>
+      {summary && <span title={summary} className="min-w-0 truncate text-text-tertiary">· {summary}</span>}
+    </summary>
+    {expanded && <div className="remote-run-timeline mt-4">
+      {items.map(item => item.kind === 'tool' ? <ToolStep key={item.id} tool={item.tool} running={running}/> : (
+        <section key={item.id} data-timeline-kind={item.kind} className="min-w-0 break-words">
+          <StreamingMarkdown content={item.kind === 'answer' ? stripFollowupBlocks(item.text) : item.text} isStreaming={running} reduceMotion />
+          {item.onMore && <button onClick={item.onMore}>{t('remote.moreText')}</button>}
+        </section>
+      ))}
+    </div>}
+  </details>;
+}
+
+function TimelineAnswer({ item, streaming }: { item: Extract<RemoteTimelineItem, { kind: 'answer' }>; streaming: boolean }) {
+  const { t } = useTranslation();
+  return <article className="remote-answer" data-timeline-kind="answer">
+    <p className="mb-3 text-xs font-semibold text-accent">Nexa</p>
+    <StreamingMarkdown content={stripFollowupBlocks(item.text)} isStreaming={streaming} partial={!!(item.onMore || item.truncated)} reduceMotion />
+    {item.onMore && <button onClick={item.onMore}>{t('remote.moreText')}</button>}
+  </article>;
+}
+
 export function RemoteRunTimeline({ saved, live, running, finalText, children }: {
   saved: RemoteTimelineItem[]; live: RemoteTimelineItem[]; running: boolean;
   finalText?: string; children?: ReactNode;
 }) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
   const last = live[live.length - 1];
   const hasStreamAnswer = last?.kind === 'answer' && finalText === undefined && !saved.some(item => sameItem(item, last));
   const canonicalReplacesLast = last?.kind === 'answer' && finalText !== undefined
     && (last.text.startsWith(finalText) || finalText.startsWith(last.text));
   const activity = mergeActivity(saved, hasStreamAnswer || canonicalReplacesLast ? live.slice(0, -1) : live);
-  return <div className="remote-run-timeline" data-testid={live.length ? 'remote-run-timeline' : undefined}>
-    {!!activity.length && <details className="remote-activity" data-testid="remote-turn-activity" onToggle={event => setExpanded(event.currentTarget.open)}>
-      <summary className="cursor-pointer text-xs text-text-secondary">{t('remote.activity')}</summary>
-      {expanded && <div className="remote-run-timeline mt-4">
-        {activity.map(item => item.kind === 'tool' ? <ToolStep key={item.id} tool={item.tool} running={running}/> : (
-          <section key={item.id} data-timeline-kind={item.kind} className="min-w-0 break-words">
-            <StreamingMarkdown content={item.kind === 'answer' ? stripFollowupBlocks(item.text) : item.text} isStreaming={running} reduceMotion />
-            {item.onMore && <button onClick={item.onMore}>{t('remote.moreText')}</button>}
-          </section>
-        ))}
-      </div>}
-    </details>}
-    {children}
-    {hasStreamAnswer && last.kind === 'answer' && <article className="remote-answer" data-timeline-kind="answer">
-      <p className="mb-3 text-xs font-semibold text-accent">Nexa</p>
-      <StreamingMarkdown content={stripFollowupBlocks(last.text)} isStreaming={running} reduceMotion />
-    </article>}
-  </div>;
+  const rows: ReactNode[] = [];
+  let group: RemoteTimelineItem[] = [];
+  function flushGroup() {
+    if (!group.length) return;
+    rows.push(<ActivityGroup key={'activity:' + group[0].id} items={group} running={running} />);
+    group = [];
+  }
+  for (const item of activity) {
+    if (item.kind === 'answer' && hasInlineChatPreview(item)) {
+      flushGroup();
+      rows.push(<TimelineAnswer key={item.id} item={item} streaming={running && last?.id === item.id} />);
+    } else {
+      group.push(item);
+    }
+  }
+  flushGroup();
+  rows.push(<Fragment key="messages">{children}</Fragment>);
+  if (hasStreamAnswer) rows.push(<TimelineAnswer key={last.id} item={last} streaming={running} />);
+  return <div className="remote-run-timeline" data-testid={live.length ? 'remote-run-timeline' : undefined}>{rows}</div>;
 }

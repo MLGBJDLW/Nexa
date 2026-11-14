@@ -25,12 +25,13 @@ import type { AgentRunEvent, ImageAttachment } from '../../types/conversation';
 import { enqueueStreamRunEvent, takeNextStreamRunEvent, takeAuthoritativeRunEventSuffix, type StreamEventOrderingState } from '../../lib/streaming/ordering';
 import type { RemoteTimelineItem } from './RemoteRunTimeline';
 import { RemoteTranscript, type ChatMessage } from './RemoteTranscript';
-import { mergeRemoteHistory } from './remoteHistory';
+import { completeReplayText, mergeRemoteHistory } from './remoteHistory';
 import { useMobileChatProjects } from './useMobileChatProjects';
 import { recoveredDeltaSuffix, utf8ByteLength } from '../../lib/streaming/blockTrace';
 
 // Durable fragments are at most 64 KiB. Retain enough UTF-16 units to validate
 // that entire overlap even after the independently bounded visible prefix.
+const LIVE_TEXT_PREFIX_CHARS = 128_000;
 function replayTail(text: string): string {
   const tail = text.slice(-65_538);
   const first = tail.charCodeAt(0);
@@ -354,7 +355,7 @@ export function RemoteChat({
     const ordering: StreamEventOrderingState = {
       _orderedRunId: null, _lastEventSeq: 0, _pendingRunEvents: new Map(),
     };
-    const blocks = new Map<string, { text: string; bytes: number; tail: string }>();
+    const blocks = new Map<string, { text: string; bytes: number; tail: string; truncated?: boolean }>();
     const items = new Map<string, RemoteTimelineItem>();
     const encoder = new TextEncoder();
     let paint: ReturnType<typeof setTimeout> | null = null;
@@ -448,12 +449,17 @@ export function RemoteChat({
             previous.bytes - utf8ByteLength(previous.tail));
         if (suffix !== null) {
           const text = suffix;
-          const next = event.kind === 'outputSnapshot'
-            ? { text: text.slice(0, 128_000), bytes: encoder.encode(text).byteLength, tail: replayTail(text) }
-            : { text: (previous.text + text).slice(0, 128_000), bytes: previous.bytes + encoder.encode(text).byteLength, tail: replayTail(previous.tail + text) };
+          const snapshot = event.kind === 'outputSnapshot';
+          const combined = snapshot ? text : previous.text + text;
+          const next = {
+            text: combined.slice(0, LIVE_TEXT_PREFIX_CHARS),
+            bytes: (snapshot ? 0 : previous.bytes) + encoder.encode(text).byteLength,
+            tail: replayTail(snapshot ? text : previous.tail + text),
+            truncated: combined.length > LIVE_TEXT_PREFIX_CHARS || (!snapshot && Boolean(previous.truncated)),
+          };
           blocks.set(id, next);
           const priorItem = items.get(id);
-          items.set(id, { id, kind: payload.channel, sequence: priorItem?.sequence ?? event.eventSeq, text: next.text });
+          items.set(id, { id, kind: payload.channel, sequence: priorItem?.sequence ?? event.eventSeq, text: next.text, truncated: next.truncated });
           publish();
         } else if (textReplayAttempts++ === 0) {
           // A byte-offset mismatch needs a full replay; skipping it permanently
@@ -489,7 +495,7 @@ export function RemoteChat({
         // A long tool loop can generate thousands of distinct text blocks.
         // Keep the offset for a later continuation without retaining every body.
         const block = blocks.get(oldest);
-        if (block) blocks.set(oldest, {bytes: block.bytes, text: '…', tail: ''});
+        if (block) blocks.set(oldest, {bytes: block.bytes, text: '…', tail: '', truncated: true});
       }
     };
     const receive = (event: RunEvent) => {
@@ -824,9 +830,9 @@ export function RemoteChat({
       // The first history page is bounded, but live/durable replay often
       // already owns the entire final block. Parse it only when both agree.
       const last = timeline[timeline.length - 1];
-      if (last?.kind === 'answer' && last.text.startsWith(lastMessage.content) &&
-          [...last.text].length === lastMessage.totalChars) {
-        return latestFollowupSuggestions([{...lastMessage, content:last.text}], defaults);
+      const replay = completeReplayText(lastMessage.content, lastMessage.totalChars, last?.kind === 'answer' ? last.text : undefined);
+      if (replay) {
+        return latestFollowupSuggestions([{...lastMessage, content:replay}], defaults);
       }
       return { key: lastMessage.id, items: defaults };
     }

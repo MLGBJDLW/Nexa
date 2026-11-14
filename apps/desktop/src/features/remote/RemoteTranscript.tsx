@@ -5,6 +5,7 @@ import { useTranslation } from '../../i18n';
 import { stripFollowupBlocks } from '../../lib/followupSuggestions';
 import { remoteButton } from './remoteUi';
 import { RemoteRunTimeline, type RemoteTimelineItem } from './RemoteRunTimeline';
+import { completeReplayText } from './remoteHistory';
 import { MessageImage, type MessageAttachmentSummary, type LoadMessageAttachment } from '../../components/chat/MessageImage';
 
 export interface ChatMessage {
@@ -30,18 +31,19 @@ function RemoteChatMessage({ message, onMore, onSpeak, speaking, answerRef, load
         ? <MessageImage key={attachment.index} messageId={message.id} attachment={attachment} load={loadAttachment} />
         : <span key={attachment.index} className="rounded border border-border p-2 text-xs">{attachment.originalName}</span>,
     )}</div>;
+  const partial = message.content.length < message.totalChars || Array.from(message.content).length < message.totalChars;
   if (message.steering) return <article className="remote-steering flex items-start gap-2 rounded-lg border-l-2 border-accent bg-surface-1 px-3 py-2" aria-label={t('chat.steeringMessage')}>
     <CornerDownRight size={16} className="mt-0.5 shrink-0 text-accent" aria-hidden="true"/>
     <div className="min-w-0"><small className="text-accent">{t('chat.steeringLabel')}</small><p className="whitespace-pre-wrap break-words">{message.content}</p>{attachments}
-      {[...message.content].length < message.totalChars && <button className={remoteButton} onClick={onMore}>{t('remote.moreText')}</button>}
+      {partial && <button className={remoteButton} onClick={onMore}>{t('remote.moreText')}</button>}
     </div>
   </article>;
   return <article ref={answerRef} data-message-id={message.id} className={`remote-message ${message.role === 'user' ? 'remote-message-user' : 'remote-answer'}`}>
     <p className="mb-3 text-xs font-semibold text-text-tertiary">{message.role === 'user' ? t('remote.you') : 'Nexa'}</p>
     {attachments}
     {message.role === 'user' ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{message.content}</div>
-      : <StreamingMarkdown content={stripFollowupBlocks(message.content)} isStreaming={false} reduceMotion />}
-    {[...message.content].length < message.totalChars && <button className={`${remoteButton} mt-3`} onClick={onMore}>
+      : <StreamingMarkdown content={stripFollowupBlocks(message.content)} isStreaming={false} partial={partial} reduceMotion />}
+    {partial && <button className={`${remoteButton} mt-3`} onClick={onMore}>
       <ArrowDown size={14} />{t('remote.moreText')}
     </button>}
     {message.role === 'assistant' && onSpeak && <button className="mobile-read-aloud" aria-label={t(speaking ? 'remote.stopReading' : 'remote.readAloud')} onClick={onSpeak}>{speaking ? <CircleStop size={16}/> : <Volume2 size={16}/>}</button>}
@@ -69,10 +71,16 @@ const LIVE_TURN: PhoneTurn = { key: 'live', visible: [], activity: [] };
 const RemoteTranscriptTurn = memo(function RemoteTranscriptTurn({ turn, timeline, running, finalMessageId, runId, more, speak, speakingId, answerRef, loadAttachment }: Omit<RemoteTranscriptProps, 'messages' | 'runUserId'> & { turn: PhoneTurn }) {
   const finalIndex = turn.visible.findIndex(message => message.id === finalMessageId);
   const split = turn.activityIndex ?? (finalIndex >= 0 ? finalIndex : turn.visible.length);
-  const renderMessage = (message: ChatMessage) => <RemoteChatMessage key={message.id} message={message} onMore={() => more(message)}
-    loadAttachment={loadAttachment}
-    answerRef={message.id === finalMessageId ? answerRef : undefined}
-    onSpeak={speak ? () => speak(message) : undefined} speaking={speakingId === message.id}/>;
+  const renderMessage = (message: ChatMessage) => {
+    const last = timeline[timeline.length - 1];
+    const replay = message.id === finalMessageId && last?.kind === 'answer'
+      && completeReplayText(message.content, message.totalChars, last.text);
+    const displayed = replay ? { ...message, content: replay } : message;
+    return <RemoteChatMessage key={message.id} message={displayed} onMore={() => more(message)}
+      loadAttachment={loadAttachment}
+      answerRef={message.id === finalMessageId ? answerRef : undefined}
+      onSpeak={speak ? () => speak(displayed) : undefined} speaking={speakingId === message.id}/>;
+  };
   return <div className="remote-transcript">
     {turn.visible.slice(0, split).map(renderMessage)}
     {(turn.activity.length > 0 || timeline.length > 0) ?
@@ -108,7 +116,7 @@ export const RemoteTranscript = memo(function RemoteTranscript({ messages, timel
         if (!text || (channel === 'content' && !intermediate)) continue;
         const length = channel === 'thinking' ? message.thinkingTotalChars : message.totalChars;
         turn.activity.push({ id: message.id + ':' + channel, sequence: message.sortOrder,
-          kind: channel === 'thinking' ? 'thinking' : 'answer', text,
+          kind: channel === 'thinking' ? 'thinking' : 'answer', text, totalChars: length,
           onMore: length && [...text].length < length ? () => more(message, channel) : undefined });
       }
       for (const call of message.toolCalls ?? []) {

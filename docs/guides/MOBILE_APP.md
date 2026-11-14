@@ -218,7 +218,9 @@ list supports Restore and confirmed deletion across all pages. Chats restored or
 already removed by another client are skipped. Running-task checks still apply. Remote desktop chat
 management requires the advertised `chat-management-v1` capability; bulk archived
 deletion requires `chat-delete-archived-v1`. Completed replies keep the final
-answer visible, with thinking and intermediate tool activity available on demand.
+answer visible. Inline HTML, Nexa UI and Mermaid previews keep their place when
+later tools run. The folded activity header shows a short progress note or
+reasoning excerpt and opens the underlying steps on demand.
 The phone generates an initial chat title without replacing a manual rename.
 
 Phone settings support search and collapsible sections. Web settings use a touch layout of the shared web search panel, including provider-native
