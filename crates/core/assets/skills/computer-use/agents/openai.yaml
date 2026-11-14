@@ -1,0 +1,4 @@
+interface:
+  display_name: "Computer Use"
+  short_description: "Operate and verify a selected window or browser tab"
+  default_prompt: "Use $computer-use to inspect the selected app and verify the requested change."

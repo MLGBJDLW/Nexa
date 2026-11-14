@@ -42,6 +42,8 @@ test('native phone groups activity once per turn during the run and after reload
     await expect(groups).toHaveCount(2);
     await expect(groups.first()).toHaveJSProperty('open', false);
     await expect(groups.last()).toHaveJSProperty('open', false);
+    await expect(groups.first().locator(':scope > summary')).toContainText('核对表格里的金额。');
+    await expect(groups.last().locator(':scope > summary')).toContainText('读取第二份报表的目录。');
     const steering = page.getByText('请重点核对合计金额。', {exact:true});
     await expect(steering).toBeVisible();
     // The clarification arrived after the first tool call.
@@ -115,6 +117,15 @@ for (const width of [320, 360, 412, 720]) test(`mobile markdown and charts fit $
   await page.setViewportSize({width,height:width >= 700 ? 360 : 820});
   await page.goto('/e2e/fixtures/mobile-rendering.html');
   await expect(page.getByTestId('generative-ui')).toBeVisible();
+  if (width === 360) {
+    const group = page.getByTestId('remote-turn-activity').last();
+    await expect(group).toHaveJSProperty('open', false);
+    await page.getByRole('tab', {name:'比较与后续计划'}).click();
+    await group.locator(':scope > summary').click();
+    await group.locator(':scope > summary').click();
+    await expect(page.getByRole('tab', {name:'比较与后续计划'})).toHaveAttribute('aria-selected','true');
+    await expect(page.getByTestId('generative-ui')).toHaveCount(1);
+  }
   await expect(page.getByTestId('mermaid-surface').locator('svg')).toBeVisible();
   expect(await page.locator('.native-chat-content').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);
   expect(await page.locator('.nexa-ui').evaluate(node=>node.scrollWidth-node.clientWidth)).toBeLessThanOrEqual(1);

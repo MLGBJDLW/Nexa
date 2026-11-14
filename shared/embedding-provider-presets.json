@@ -462,7 +462,7 @@
         "lastVerifiedAt": "2026-09-26"
       }
     ],
-    "documentationUrl": "https://docs.siliconflow.cn/en/api-reference/embeddings/create-embeddings"
+    "documentationUrl": "https://docs.siliconflow.cn/docs/api/embeddings-post"
   },
   {
     "id": "siliconflow-international",
@@ -532,7 +532,7 @@
         ]
       }
     ],
-    "documentationUrl": "https://docs.siliconflow.cn/en/api-reference/embeddings/create-embeddings"
+    "documentationUrl": "https://docs.siliconflow.com/en/api-reference/embeddings/create-embeddings"
   },
   {
     "id": "zhipu",
@@ -1026,9 +1026,9 @@
         "documentationRef": "https://openrouter.ai/api/v1/models/liquid/lfm-2.5-embedding-350m:free/endpoints",
         "supportsDimensionOverride": false,
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-07",
+        "lastVerifiedAt": "2026-11-14",
         "availableToCredential": null,
         "recommended": false,
         "inputModalities": [

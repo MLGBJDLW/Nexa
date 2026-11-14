@@ -99,11 +99,13 @@ const MarkdownDocument = memo(function MarkdownDocument({
 export const StreamingMarkdown = memo(function StreamingMarkdown({
   content,
   isStreaming,
+  partial = false,
   citationLookup,
   reduceMotion,
 }: {
   content: string;
   isStreaming: boolean;
+  partial?: boolean;
   citationLookup?: MarkdownCitationLookup;
   reduceMotion: boolean;
 }) {
@@ -115,7 +117,7 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
       <MarkdownDocument
         content={presented}
         citationLookup={effectiveCitationLookup}
-        isStreaming={isStreaming}
+        isStreaming={isStreaming || partial}
       />
       {isStreaming && (
         <span className={`streaming-caret-overlay ${reduceMotion ? '' : 'animate-pulse'}`} />

@@ -128,7 +128,13 @@ pub fn prepare_reasoning_replay_history(
     messages: &[Message],
     policy: ReasoningReplayPolicy,
 ) -> ReasoningReplayProjection {
-    let mut normalized = messages.to_vec();
+    project_reasoning_history(messages.to_vec(), policy)
+}
+
+fn project_reasoning_history(
+    mut normalized: Vec<Message>,
+    policy: ReasoningReplayPolicy,
+) -> ReasoningReplayProjection {
     for message in &mut normalized {
         let reasoning = if policy == ReasoningReplayPolicy::Forbidden {
             None
@@ -202,11 +208,23 @@ pub fn prepare_provider_replay_history(
     route: &RouteSnapshot,
 ) -> ReasoningReplayProjection {
     let required_payload = route.replay_policy.requires_tool_call_payload();
+    let mut normalized = messages.to_vec();
+    // A hosted read may carry a signed page even when the assistant made no
+    // client calls. Keep its visible answer when the user changes routes.
+    for message in &mut normalized {
+        if message.tool_calls.as_ref().is_none_or(Vec::is_empty)
+            && message
+                .provider_turn()
+                .is_some_and(|turn| !turn.route.same_route_identity(route))
+        {
+            message.clear_provider_turn();
+            message.reasoning_content = None;
+        }
+    }
     if !required_payload && route.replay_policy != ReasoningReplayPolicy::NotRequired {
-        return prepare_reasoning_replay_history(messages, route.replay_policy);
+        return project_reasoning_history(normalized, route.replay_policy);
     }
 
-    let mut normalized = messages.to_vec();
     for message in &mut normalized {
         let reasoning = if let Some(envelope) = message.provider_turn() {
             envelope.replay_payload.reasoning_content_ref()

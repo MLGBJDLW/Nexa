@@ -19,6 +19,7 @@ pub(super) struct Projection {
     answer_block_ids: Vec<String>,
     pub(super) usage: Usage,
     pub(super) usage_reported: bool,
+    pub(super) generation: Option<nexa_core::agent::context::GenerationMetrics>,
     usage_accounting:
         Option<std::sync::Arc<std::sync::Mutex<super::usage_accounting::RuntimeUsageAccounting>>>,
     pub(super) last_prompt_tokens: u32,
@@ -103,6 +104,7 @@ impl Projection {
                 *current = model.into();
                 // A capacity from the previous model is not transferable.
                 self.context_breakdown = None;
+                self.generation = None;
             }
         }
     }
@@ -210,7 +212,7 @@ impl Projection {
     }
 
     fn context_for_publication(&self) -> Option<nexa_core::agent::context::ContextUsageBreakdown> {
-        self.context_breakdown.clone().or_else(|| {
+        let mut context = self.context_breakdown.clone().or_else(|| {
             self.runtime_identity.as_ref().map(|(provider, model)| {
                 nexa_core::agent::context::ContextUsageBreakdown {
                     total_tokens: self.last_prompt_tokens,
@@ -223,7 +225,9 @@ impl Projection {
                     runtime_model: Some(model.clone()),
                 }
             })
-        })
+        })?;
+        context.generation.clone_from(&self.generation);
+        Some(context)
     }
 
     pub(super) async fn publish_usage(

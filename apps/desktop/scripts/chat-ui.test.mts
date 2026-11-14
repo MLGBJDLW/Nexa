@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseChatUi, MAX_UI_BYTES } from '../../../crates/core/assets/skills/visual-explanations/resources/chat-ui.ts';
-import { transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
+import { hasInlineChatPreview, transformMarkdownProse, markdownProse } from '../src/lib/markdownCodeProtection.ts';
 import { parseFollowupSuggestions, latestFollowupSuggestions, stripFollowupBlocks } from '../src/lib/followupSuggestions.ts';
 import { localFileReference, isInlineFileReference } from '../src/features/preview/localFileReference.ts';
 import { invalidateStorageUsage, readStorageUsage, storageUsageSnapshot } from '../src/lib/storageUsageCache.ts';
@@ -144,6 +144,11 @@ test('prose transforms preserve closed and streaming fences, spans and citation 
 });
 
 test('code protection follows CommonMark containers, indentation and matched spans', () => {
+  for (const lang of ['html', 'htm', 'NEXA-HTML', 'nexa-ui', 'mermaid']) {
+    assert.equal(hasInlineChatPreview({text: '> ~~~' + lang + '\n> content'}), true);
+  }
+  assert.equal(hasInlineChatPreview({text: '~~~~markdown\n```nexa-html\nexample\n```\n~~~~'}), false);
+  assert.equal(hasInlineChatPreview({text: '    ```nexa-ui'}), false);
   const rewrite = (value: string) => value.replaceAll('[cite:', '[ref:');
   for (const falseEnd of ['> ```', '- ```', '    ```', '\t```']) {
     const original = '```nexa-html\n<pre>\n' + falseEnd + '\n</pre>\n<p>[cite:literal]</p>\n```\n[cite:outside]';

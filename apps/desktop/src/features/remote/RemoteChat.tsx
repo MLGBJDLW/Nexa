@@ -1,3 +1,4 @@
+import { modelTokensPerSecond } from '../../lib/contextUsage';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
@@ -25,12 +26,13 @@ import type { AgentRunEvent, ImageAttachment } from '../../types/conversation';
 import { enqueueStreamRunEvent, takeNextStreamRunEvent, takeAuthoritativeRunEventSuffix, type StreamEventOrderingState } from '../../lib/streaming/ordering';
 import type { RemoteTimelineItem } from './RemoteRunTimeline';
 import { RemoteTranscript, type ChatMessage } from './RemoteTranscript';
-import { mergeRemoteHistory } from './remoteHistory';
+import { completeReplayText, mergeRemoteHistory } from './remoteHistory';
 import { useMobileChatProjects } from './useMobileChatProjects';
 import { recoveredDeltaSuffix, utf8ByteLength } from '../../lib/streaming/blockTrace';
 
 // Durable fragments are at most 64 KiB. Retain enough UTF-16 units to validate
 // that entire overlap even after the independently bounded visible prefix.
+const LIVE_TEXT_PREFIX_CHARS = 128_000;
 function replayTail(text: string): string {
   const tail = text.slice(-65_538);
   const first = tail.charCodeAt(0);
@@ -206,6 +208,7 @@ export function RemoteChat({
     };
   }, [markReplyRead, conversationId, timelineRunId, finalMessageId, renderedReply, drawerOpen]);
   const [runStatus, setRunStatus] = useState('');
+  const [generation, setGeneration] = useState<{ tps: number; external: boolean } | null>(null);
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
@@ -354,13 +357,13 @@ export function RemoteChat({
     const ordering: StreamEventOrderingState = {
       _orderedRunId: null, _lastEventSeq: 0, _pendingRunEvents: new Map(),
     };
-    const blocks = new Map<string, { text: string; bytes: number; tail: string }>();
+    const blocks = new Map<string, { text: string; bytes: number; tail: string; truncated?: boolean }>();
     const items = new Map<string, RemoteTimelineItem>();
     const encoder = new TextEncoder();
     let paint: ReturnType<typeof setTimeout> | null = null;
     const retired = new Set<string>();
     const terminal = new Set<string>();
-    setTimeline([]); setTimelineRunId(null); setRunUserId(null); setFinalMessageId(null); setRunStatus('');
+    setGeneration(null); setTimeline([]); setTimelineRunId(null); setRunUserId(null); setFinalMessageId(null); setRunStatus('');
     setProgress(''); setRunning(false); setMessages([]); setPendingSteers([]); setDismissedFollowup('');
     setApprovals([]); setInteractions([]); setBeforeOrder(null);
     if (!conversationId) return;
@@ -379,7 +382,7 @@ export function RemoteChat({
       runId = id; finalId = null; status = ''; textReplayAttempts = 0;
       ordering._orderedRunId = id; ordering._lastEventSeq = 0; ordering._pendingRunEvents.clear();
       blocks.clear(); items.clear(); readNeeded = true;
-      setTimeline([]); setTimelineRunId(id); setRunUserId(null); setFinalMessageId(null); setProgress('');
+      setGeneration(null); setTimeline([]); setTimelineRunId(id); setRunUserId(null); setFinalMessageId(null); setProgress('');
     };
     const updateStatus = (next: string, phase?: string) => {
       if (runId && terminal.has(runId) && !['completed', 'cancelled', 'failed', 'timed_out'].includes(next)) return;
@@ -430,6 +433,11 @@ export function RemoteChat({
       }
       if (event.visibility === 'user' && event.label) setProgress(event.label);
       const payload = (event.payload ?? {}) as Record<string, any>;
+      if (event.kind === 'usageUpdated' || event.kind === 'done') {
+        const metrics = (payload.contextBreakdown ?? payload.usageTotal?.contextBreakdown)?.generation;
+        const tps = modelTokensPerSecond(metrics);
+        setGeneration(tps == null ? null : { tps, external: metrics.externalTurn === true });
+      }
       if (event.visibility === 'user' && event.kind.startsWith('tool') && payload.run?.callId) {
         const id = `tool:${payload.run.callId}`;
         const previous = items.get(id);
@@ -448,12 +456,17 @@ export function RemoteChat({
             previous.bytes - utf8ByteLength(previous.tail));
         if (suffix !== null) {
           const text = suffix;
-          const next = event.kind === 'outputSnapshot'
-            ? { text: text.slice(0, 128_000), bytes: encoder.encode(text).byteLength, tail: replayTail(text) }
-            : { text: (previous.text + text).slice(0, 128_000), bytes: previous.bytes + encoder.encode(text).byteLength, tail: replayTail(previous.tail + text) };
+          const snapshot = event.kind === 'outputSnapshot';
+          const combined = snapshot ? text : previous.text + text;
+          const next = {
+            text: combined.slice(0, LIVE_TEXT_PREFIX_CHARS),
+            bytes: (snapshot ? 0 : previous.bytes) + encoder.encode(text).byteLength,
+            tail: replayTail(snapshot ? text : previous.tail + text),
+            truncated: combined.length > LIVE_TEXT_PREFIX_CHARS || (!snapshot && Boolean(previous.truncated)),
+          };
           blocks.set(id, next);
           const priorItem = items.get(id);
-          items.set(id, { id, kind: payload.channel, sequence: priorItem?.sequence ?? event.eventSeq, text: next.text });
+          items.set(id, { id, kind: payload.channel, sequence: priorItem?.sequence ?? event.eventSeq, text: next.text, truncated: next.truncated });
           publish();
         } else if (textReplayAttempts++ === 0) {
           // A byte-offset mismatch needs a full replay; skipping it permanently
@@ -489,7 +502,7 @@ export function RemoteChat({
         // A long tool loop can generate thousands of distinct text blocks.
         // Keep the offset for a later continuation without retaining every body.
         const block = blocks.get(oldest);
-        if (block) blocks.set(oldest, {bytes: block.bytes, text: '…', tail: ''});
+        if (block) blocks.set(oldest, {bytes: block.bytes, text: '…', tail: '', truncated: true});
       }
     };
     const receive = (event: RunEvent) => {
@@ -824,9 +837,9 @@ export function RemoteChat({
       // The first history page is bounded, but live/durable replay often
       // already owns the entire final block. Parse it only when both agree.
       const last = timeline[timeline.length - 1];
-      if (last?.kind === 'answer' && last.text.startsWith(lastMessage.content) &&
-          [...last.text].length === lastMessage.totalChars) {
-        return latestFollowupSuggestions([{...lastMessage, content:last.text}], defaults);
+      const replay = completeReplayText(lastMessage.content, lastMessage.totalChars, last?.kind === 'answer' ? last.text : undefined);
+      if (replay) {
+        return latestFollowupSuggestions([{...lastMessage, content:replay}], defaults);
       }
       return { key: lastMessage.id, items: defaults };
     }
@@ -964,6 +977,9 @@ export function RemoteChat({
                       : runStatus === 'waiting_approval' ? t('remote.runWaitingApproval')
                         : t('remote.runRunning')
           }</span>
+          {generation && <span className="text-xs tabular-nums" title={t(generation.external ? 'chat.externalTurnSpeedHint' : 'chat.generationSpeedHint')}>
+            {t(generation.external ? 'chat.externalTurnSpeed' : 'chat.generationSpeed')} · {generation.tps.toFixed(1)} tok/s
+          </span>}
           {running && progress && progress !== t('remote.runRunning') && <span className="min-w-0 flex-1 truncate text-text-tertiary">{progress}</span>}
           {runStatus === 'paused' && client.resumeAvailable && <button className={remoteButton} onClick={() => void act('chat.continue', { conversationId, connectionId, modelSelection, ...composerSettings })}>{t('chat.resumeTask')}</button>}
         </div>

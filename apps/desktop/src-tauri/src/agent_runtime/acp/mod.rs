@@ -21,7 +21,7 @@ pub(crate) use catalog::Model;
 use catalog::Session;
 use futures::{stream::FuturesUnordered, StreamExt};
 use nexa_core::{
-    agent::{AgentEvent, AgentExecutionMode, StreamBlockChannel},
+    agent::{AgentEvent, AgentExecutionMode, AgentSteeringMessage, StreamBlockChannel},
     approval::{ApprovalRequest, ApprovalRisk, ToolPermissionKey},
     error::CoreError,
     external_agent::{preset, ExternalAgentLaunch},
@@ -210,13 +210,28 @@ async fn connect(
     let cache_root = adapter_cache_root(&request.db);
     let mut wire = Wire::prepare(preset, launch, cache_root.as_deref()).await?;
     stage(&request.events, "connecting").await?;
-    let session = Session::connect_with_mcp(
-        &mut wire,
-        &launch.working_directory,
-        servers,
-        launch.authentication_method.as_deref(),
-    )
-    .await?;
+    let open = async |wire: &mut Wire| {
+        Session::connect_with_mcp(
+            wire,
+            &launch.working_directory,
+            servers,
+            launch.authentication_method.as_deref(),
+        )
+        .await
+    };
+    let mut session = open(&mut wire).await?;
+    // Older Cursor profiles store variant IDs, while the parameterized picker uses
+    // model IDs. Retry discovery in the old dialect only if the exact ID is missing.
+    if preset.registry_id.as_deref() == Some("cursor")
+        && request.config.model.as_deref().is_some_and(|id| {
+            id != catalog::DEFAULT_MODEL && !session.models.iter().any(|m| m.id == id)
+        })
+    {
+        drop(wire);
+        wire = Wire::prepare(preset, launch, cache_root.as_deref()).await?;
+        wire.parameterized_models = false;
+        session = open(&mut wire).await?;
+    }
     Ok(pool::Connected {
         wire,
         session,
@@ -379,10 +394,11 @@ async fn run_configured_with_tools(
     let mut output = super::projection::Projection::for_turn(&turn);
     let mut reports = projection::ToolReports::new(provider)?;
     let tools = turn.transcript.nexa_tools().clone();
+    let mut steering = VecDeque::new();
     let result = tokio::select! {
         biased;
         cause = tools.wait_for_user_input_request() => Err(cause),
-        result = drive(provider, &mut turn, &mut connection.wire, &mut connection.session, &mut output, &mut reports) => result,
+        result = drive(provider, &mut turn, &mut connection.wire, &mut connection.session, &mut output, &mut reports, &mut steering) => result,
     };
     tools.cancel_tools();
     // If protocol completion and the durable question raced on different
@@ -403,6 +419,9 @@ async fn run_configured_with_tools(
                 .close_pending(&turn.events, turn.cancellation.is_cancelled())
                 .await;
             output.persist_partial(&turn, &cause).await?;
+            for message in steering {
+                turn.transcript.persist_steering(&message).await?;
+            }
             Err(cause)
         }
     }
@@ -563,6 +582,17 @@ fn permission(
     }
 }
 
+fn steering_content(item: &AgentSteeringMessage, text: String) -> Vec<Value> {
+    let mut parts = vec![json!({"type":"text","text":text})];
+    parts.extend(item.parts.iter().filter_map(|part| match part {
+        nexa_core::llm::ContentPart::Image { media_type, data } => {
+            Some(json!({"type":"image","mimeType":media_type,"data":data}))
+        }
+        _ => None,
+    }));
+    parts
+}
+
 async fn drive(
     provider: &str,
     turn: &mut PreparedTurn,
@@ -570,6 +600,7 @@ async fn drive(
     session: &mut Session,
     output: &mut super::projection::Projection,
     reports: &mut projection::ToolReports,
+    steering: &mut VecDeque<AgentSteeringMessage>,
 ) -> Result<bool> {
     stage(&turn.events, "waiting").await?;
     session.sync(wire)?;
@@ -589,6 +620,7 @@ async fn drive(
             .iter()
             .map(|(mime, data)| json!({"type":"image","mimeType":mime,"data":data})),
     );
+    let mut prompt_started = std::time::Instant::now();
     let mut prompt_id = wire
         .send(
             "session/prompt",
@@ -598,7 +630,11 @@ async fn drive(
     let mut segment = 0u32;
     let mut answer_blocks: Vec<(String, String)> = Vec::new();
     let mut span = 0u32;
-    let mut steering = VecDeque::new();
+    let mut steering_request = None;
+    let mut finished_prompt = None;
+    let mut steering_deadline = None;
+    let mut waiting_for_idle = false;
+    let mut cancelled_for_steering = false;
     let mut steering_closed = false;
     let mut waiting = true;
     let receipts = nexa_core::runtime_receipts::RuntimeReceipts::new()?;
@@ -609,54 +645,92 @@ async fn drive(
     let mut terminal_tick = tokio::time::interval(std::time::Duration::from_millis(250));
     terminal_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        let message = tokio::select! {
-            biased;
-            _ = turn.cancellation.cancelled() => {
-                // Gracefully notify before process-tree teardown. Never wait on
-                // an unbounded prompt response after the user has stopped it.
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                    wire.notify("session/cancel",json!({"sessionId":session.id})).await?;
-                    loop {
-                        let message = wire.receive().await?;
-                        if message.get("method").is_none() && message["id"].as_u64() == Some(prompt_id) { break; }
-                        if message["method"] == "session/request_permission" && message.get("id").is_some() {
-                            wire.write(json!({"jsonrpc":"2.0","id":message["id"],"result":{"outcome":{"outcome":"cancelled"}}})).await?;
-                        } else if message["method"] == "session/update" && message["params"]["sessionId"] == session.id {
-                            let update = &message["params"]["update"];
-                            if matches!(update["sessionUpdate"].as_str(),Some("tool_call" | "tool_call_update")) {
-                                reports.update(&turn.events, update, &session.terminals).await?;
+        // Slash commands own a standalone prompt. Text can join an advertised
+        // running turn; baseline ACP instead cancels at a safe boundary and
+        // waits for that same prompt to finish before sending the correction.
+        if steering_request.is_none()
+            && finished_prompt.is_none()
+            && !waiting_for_idle
+            && command.is_none()
+        {
+            if let Some(item) = steering
+                .front()
+                .filter(|item| native_command(&item.content, &session.commands).is_none())
+            {
+                if session.steering {
+                    let text = super::redact_user_text(&item.content, &turn.privacy);
+                    steering_deadline = Some(tokio::time::Instant::now() + transport::RPC_TIMEOUT);
+                    steering_request = Some(wire.send("_session/steering", json!({"sessionId":session.id,"prompt":steering_content(item, text),"_meta":{"steering":{"idleBehavior":"promptRequired"}}})).await?);
+                } else if pending_services.is_empty() && !reports.has_pending() {
+                    wire.notify("session/cancel", json!({"sessionId":session.id}))
+                        .await?;
+                    waiting_for_idle = true;
+                    cancelled_for_steering = true;
+                }
+            }
+        }
+        let message = if steering_request.is_none() && finished_prompt.is_some() {
+            finished_prompt
+                .take()
+                .expect("received pending prompt result")
+        } else {
+            tokio::select! {
+                biased;
+                _ = turn.cancellation.cancelled() => {
+                    // Gracefully notify before process-tree teardown. Never wait on
+                    // an unbounded prompt response after the user has stopped it.
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                        wire.notify("session/cancel",json!({"sessionId":session.id})).await?;
+                        loop {
+                            let message = wire.receive().await?;
+                            if message.get("method").is_none() && message["id"].as_u64() == Some(prompt_id) { break; }
+                            if message["method"] == "session/request_permission" && message.get("id").is_some() {
+                                wire.write(json!({"jsonrpc":"2.0","id":message["id"],"result":{"outcome":{"outcome":"cancelled"}}})).await?;
+                            } else if message["method"] == "session/update" && message["params"]["sessionId"] == session.id {
+                                let update = &message["params"]["update"];
+                                if matches!(update["sessionUpdate"].as_str(),Some("tool_call" | "tool_call_update")) {
+                                    reports.update(&turn.events, update, &session.terminals).await?;
+                                }
                             }
                         }
+                        Ok::<_, CoreError>(())
+                    }).await;
+                    return Err(CoreError::Cancelled("Stopped by user".into()));
+                },
+                incoming = turn.steering.recv(), if !steering_closed => {
+                    match incoming {
+                        Some(item) if item.recovery_control.is_none() => {
+                            let images = item.parts.iter().any(|part| matches!(part, nexa_core::llm::ContentPart::Image { .. }));
+                            if images && (!session.images || native_command(&item.content, &session.commands).is_some()) {
+                                turn.transcript.persist_steering(&item).await?;
+                                turn.events.send(AgentEvent::ControllerStatus { code:"external_agent_warning".into(), content:"The current agent or slash command cannot receive these images. They were saved in the chat; send them with an image-capable model.".into(), tone:None }).await.map_err(error)?;
+                                continue;
+                            }
+                            steering.push_back(item);
+                        },
+                        Some(_) => return Err(error("ACP does not support Nexa recovery controls")),
+                        None => steering_closed = true,
                     }
-                    Ok::<_, CoreError>(())
-                }).await;
-                return Err(CoreError::Cancelled("Stopped by user".into()));
-            },
-            incoming = turn.steering.recv(), if !steering_closed => {
-                match incoming {
-                    Some(item) if item.recovery_control.is_none() => {
-                        if steering.len() >= 32 { return Err(error("ACP steering queue is full")); }
-                        steering.push_back(item);
-                    },
-                    Some(_) => return Err(error("ACP does not support Nexa recovery controls")),
-                    None => steering_closed = true,
-                }
-                continue;
-            },
-            Some((id, result)) = pending_services.next(), if !pending_services.is_empty() => {
-                let response = match result {
-                    Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),
-                    Err(cause) => json!({"jsonrpc":"2.0","id":id,"error":client::rpc_error(&cause)}),
-                };
-                if let Some(fingerprint) = service_calls.remove(&id.to_string()) { receipts.insert(&id.to_string(), &fingerprint, &response)?; }
-                wire.write(response).await?;
-                continue;
-            },
-            _ = terminal_tick.tick() => {
-                reports.refresh_terminals(&turn.events, &session.terminals).await?;
-                continue;
-            },
-            message = wire.receive() => message?,
+                    continue;
+                },
+                _ = async { if let Some(deadline) = steering_deadline { tokio::time::sleep_until(deadline).await; } }, if steering_deadline.is_some() => {
+                    return Err(error("The external agent did not acknowledge steering. Check the session before resending."));
+                },
+                Some((id, result)) = pending_services.next(), if !pending_services.is_empty() => {
+                    let response = match result {
+                        Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),
+                        Err(cause) => json!({"jsonrpc":"2.0","id":id,"error":client::rpc_error(&cause)}),
+                    };
+                    if let Some(fingerprint) = service_calls.remove(&id.to_string()) { receipts.insert(&id.to_string(), &fingerprint, &response)?; }
+                    wire.write(response).await?;
+                    continue;
+                },
+                _ = terminal_tick.tick() => {
+                    reports.refresh_terminals(&turn.events, &session.terminals).await?;
+                    continue;
+                },
+                message = wire.receive() => message?,
+            }
         };
         if let Some(method) = message["method"].as_str() {
             if message.get("id").is_some() {
@@ -675,6 +749,18 @@ async fn drive(
                             "ACP pending request id reused with different arguments",
                         ));
                     }
+                    continue;
+                }
+                // Requests can already be in transit when the steering cancellation
+                // reaches the peer. Do not start new effects or show stale approvals.
+                if cancelled_for_steering {
+                    let response = if method == "session/request_permission" {
+                        json!({"jsonrpc":"2.0","id":message["id"],"result":{"outcome":{"outcome":"cancelled"}}})
+                    } else {
+                        json!({"jsonrpc":"2.0","id":message["id"],"error":{"code":-32800,"message":"Prompt cancelled"}})
+                    };
+                    receipts.insert(&key, &fingerprint, &response)?;
+                    wire.write(response).await?;
                     continue;
                 }
                 if method == "session/request_permission" {
@@ -856,11 +942,47 @@ async fn drive(
             }
             continue;
         }
-        if message["id"].as_u64() != Some(prompt_id) {
+        let id = message["id"].as_u64();
+        if steering_request.is_some() && id == steering_request {
+            steering_request = None;
+            steering_deadline = None;
+            if message.pointer("/error/code").and_then(Value::as_i64) == Some(-32601) {
+                session.steering = false;
+                continue;
+            }
+            let result = wire.rpc_result(message, "_session/steering")?;
+            match result["outcome"].as_str() {
+                Some("injected") => {
+                    let item = steering.pop_front().expect("steering request has input");
+                    turn.transcript.persist_steering(&item).await?;
+                    turn.events.send(AgentEvent::Steering { content: item.content }).await.map_err(error)?;
+                }
+                Some("promptRequired") => waiting_for_idle = true,
+                // Older adapters may start a detached turn in this race. Its input
+                // was consumed; replaying it as a new prompt could duplicate effects.
+                Some("startedNewTurn") => return Err(error("The adapter started an untracked continuation; check its session before continuing")),
+                _ => return Err(error("Unknown ACP steering outcome")),
+            }
+            continue;
+        }
+        if id != Some(prompt_id) {
             return Err(error("Uncorrelated ACP response"));
         }
+        if steering_request.is_some() {
+            finished_prompt = Some(message);
+            continue;
+        }
         let completed = wire.rpc_result(message, "session/prompt")?;
+        output.generation = None;
         if let Some(usage) = session.usage.observe(provider, &completed) {
+            let elapsed_ms = prompt_started.elapsed().as_millis();
+            if elapsed_ms > 0 && usage.provider_raw.is_none() {
+                output.generation = Some(nexa_core::agent::context::GenerationMetrics {
+                    output_tokens: usage.completion_tokens,
+                    request_duration_ms: elapsed_ms.min(u128::from(u64::MAX)) as u64,
+                    external_turn: true,
+                });
+            }
             output.usage.prompt_tokens = output
                 .usage
                 .prompt_tokens
@@ -897,11 +1019,15 @@ async fn drive(
         if !matches!(
             completed["stopReason"].as_str(),
             Some("end_turn" | "refusal")
-        ) {
+        ) && !(cancelled_for_steering && completed["stopReason"] == "cancelled")
+        {
             return Err(error(format!(
                 "External agent stopped without completing the turn ({})",
                 completed["stopReason"]
             )));
+        }
+        if cancelled_for_steering && completed["stopReason"] == "cancelled" {
+            reports.close_pending(&turn.events, true).await?;
         }
         if reports.has_pending() || !pending_services.is_empty() {
             return Err(error(
@@ -933,15 +1059,6 @@ async fn drive(
         // Native slash commands consume one prompt. Keep subsequent steering
         // queued so it cannot be silently swallowed by a command handler.
         if let Some(item) = steering.pop_front() {
-            if item
-                .image_attachments
-                .as_ref()
-                .is_some_and(|images| !images.is_empty())
-            {
-                return Err(error(
-                    "Send images after this external-agent turn completes",
-                ));
-            }
             turn.transcript.persist_steering(&item).await?;
             command = native_command(&item.content, &session.commands).map(str::to_owned);
             turn.events
@@ -955,13 +1072,16 @@ async fn drive(
                 text = format!("{}\n\nCurrent user message:\n{text}", turn.system_prompt);
                 context_delivered = true;
             }
-            next.push(json!({"type":"text","text":text}));
+            next = steering_content(&item, text);
         }
+        waiting_for_idle = false;
+        cancelled_for_steering = false;
         segment += 1;
         answer_blocks.clear();
         span = 0;
         stage(&turn.events, "waiting").await?;
         waiting = true;
+        prompt_started = std::time::Instant::now();
         prompt_id = wire
             .send(
                 "session/prompt",

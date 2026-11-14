@@ -161,6 +161,7 @@ pub(super) struct Wire {
     secrets: Vec<String>,
     queued: VecDeque<Value>,
     next_id: u64,
+    pub(super) parameterized_models: bool,
 }
 
 impl Drop for Wire {
@@ -311,6 +312,7 @@ impl Wire {
             secrets,
             queued: VecDeque::new(),
             next_id: 1,
+            parameterized_models: true,
         })
     }
 

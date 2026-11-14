@@ -145,6 +145,14 @@ assume that a model available to another Cursor account is enabled for yours.
 Cursor documents both [API-key authentication](https://cursor.com/docs/cli/reference/authentication)
 and the [ACP integration](https://cursor.com/docs/cli/acp).
 
+Chat negotiates Cursor's parameterized model picker and reads the reasoning choices
+for each available model. Older saved variant IDs use the legacy picker when needed.
+
+The speed display uses the Copilot SDK's per-request output tokens and API duration.
+For ACP and Codex turns with reported output tokens and turn duration, **Agent turn
+throughput** includes tool and approval time. A dash means the runtime has not
+reported enough information to calculate a rate.
+
 A dashboard can offer separate Cursor and Grok keys. A Grok API key belongs in
 Nexa's **xAI** API provider (`https://api.x.ai/v1`); a Cursor key belongs in the
 Cursor external agent. They authenticate different APIs. Cursor's Cloud Agents
@@ -185,7 +193,7 @@ an uncertain action.
 
 ## Installed ACP agents
 
-The bundled External agents catalog includes 43 supported official agents,
+The bundled External agents catalog includes 44 supported official agents,
 plus Hermes and a custom ACP entry. Settings reads the
 [official ACP directory](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json)
 through one host-owned cache, checking at most hourly unless explicitly refreshed.
@@ -400,7 +408,10 @@ A warm turn sends only new input and changed context. Transcript edits, route
 changes, changed cwd, cancellation, process death and uncertain outcomes require
 a fresh session; effectful prompts are never retried automatically. Startup and
 waiting stages project into a single compact composer status row. Live renderer
-reload reads the existing outbox without resending a prompt. User steering is queued until the current native prompt ends.
+reload reads the existing outbox without resending a prompt. Nexa injects text into an active
+turn when the adapter advertises `_session/steering`. Baseline ACP completes active tool
+reports, cancels the outstanding prompt, then sends the correction in the same session.
+Native slash commands retain their own prompt.
 Stop sends `session/cancel` and tears down the process tree; transport loss and
 incomplete/unknown stop reasons retain partial text without emitting success.
 Native tool reports must finish before a successful terminal event. Context
@@ -459,8 +470,9 @@ the runtime does not silently switch to an in-memory journal.
 
 - Copilot uses the pinned SDK/verified CLI in Empty mode, explicitly selects
   custom Nexa tools and denies native permissions. Its official home remains the
-  credential owner; Nexa does not copy tokens. User steering is queued until the
-  current Copilot operation becomes idle, then sent in the same upstream session.
+  credential owner; Nexa does not copy tokens. During an active exchange, text steering uses the
+  SDK’s immediate delivery mode. Inputs queued before the session becomes active
+  or after the exchange settles are sent as follow-ups in the same session.
   Empty mode's forced keychain-disable environment setting is overridden with
   the caller's original setting, so enrollment and execution use the same
   system-keychain or explicitly selected file credential backend.

@@ -132,6 +132,23 @@ pub(super) fn is_meta_model_api_endpoint(provider: ProviderType, base_url: Optio
         && endpoint_matches(provider, base_url, &["api.meta.ai"], &["/v1"])
 }
 
+pub(super) fn is_meta_model_api_model(
+    provider: ProviderType,
+    base_url: Option<&str>,
+    model: &str,
+) -> bool {
+    is_meta_model_api_endpoint(provider, base_url)
+        && crate::provider_catalog::find_provider_preset("open_ai", base_url).is_some_and(
+            |preset| {
+                preset.id == "meta-model-api"
+                    && preset
+                        .models
+                        .iter()
+                        .any(|candidate| candidate.id.eq_ignore_ascii_case(model.trim()))
+            },
+        )
+}
+
 pub(super) fn is_openrouter_public_endpoint(
     provider: ProviderType,
     base_url: Option<&str>,

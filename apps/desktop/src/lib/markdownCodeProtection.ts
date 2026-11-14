@@ -2,9 +2,27 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 
 type MarkdownNode = {
   type: string;
+  lang?: string | null;
   position?: { start: { offset?: number }; end: { offset?: number } };
   children?: readonly MarkdownNode[];
 };
+
+const previewReplies = new WeakMap<{ text: string }, boolean>();
+
+/** Keep the whole assistant message so captions, references and the visual
+ * share the same Markdown document. A fence quoted inside a code example
+ * is not a preview. Timeline entries are immutable across streaming updates. */
+export function hasInlineChatPreview(reply: { text: string }): boolean {
+  const known = previewReplies.get(reply);
+  if (known !== undefined) return known;
+  const isPreview = (node: MarkdownNode): boolean =>
+    (node.type === 'code' && /^(?:nexa-ui|nexa-html|html?|mermaid)$/i.test(node.lang ?? ''))
+    || (node.children?.some(isPreview) ?? false);
+  const found = /(?:`{3,}|~{3,})[ \t]*(?:nexa-ui|nexa-html|html?|mermaid)\b/i.test(reply.text)
+    && isPreview(fromMarkdown(reply.text));
+  previewReplies.set(reply, found);
+  return found;
+}
 
 /** Use the renderer's CommonMark parser to protect exact source ranges, including
  * unfinished streaming fences and container-relative indentation. Unmatched

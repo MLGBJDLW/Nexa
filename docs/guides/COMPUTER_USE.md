@@ -17,10 +17,14 @@ control, application-launch and Browser Workspace receipts appear in one
 expandable chat record, using the same screenshot presenter and interaction
 receipt states. Only a verified requested condition gets a green success state;
 input delivery, observed change and uncertain results remain distinct.
-The two executable contracts remain `computer_observe` and `computer_control`:
-read-only observation and input keep distinct permission boundaries while sharing
-the observation store, input arbiter, action journal and completion checks. There
-is no third computer-use executor or duplicate set of model-facing aliases.
+The built-in [Computer Use skill](../../crates/core/assets/skills/computer-use/SKILL.md)
+uses the model-facing `computer_use` tool for window and browser targets.
+Windows observation and input route to `computer_observe` and `computer_control`.
+They keep distinct permission boundaries while sharing the observation store,
+input arbiter, action journal and completion checks. The semantic observation
+reports when the UI Automation scan or output limit truncated the controls list.
+A raw pixel-only wait returns the frame that satisfied the wait. Requests for
+accessibility elements or annotations acquire and verify an enriched frame.
 
 Observation includes Nexa's own top-level windows. Such snapshots carry
 `observationOnly: true`; fresh native identity checks continue to reject control
@@ -213,13 +217,21 @@ only after the complete tool-result batch, preserving provider message ordering.
 
 ## Source references and verification
 
-The implementation uses Nexa's existing contracts. Design references include
-[pi's image-aware read tool](https://github.com/earendil-works/pi/blob/42a3497d03ad17e308a2299fa824727894f2c0ec/packages/coding-agent/src/core/tools/read.ts),
-[Codex's view_image handler](https://github.com/openai/codex/blob/322bbf4d8486efd7dbbcf49598711a9e3fefc282/codex-rs/core/src/tools/handlers/view_image.rs),
-and [Cua's Windows pointer overlay](https://github.com/trycua/cua/blob/5274342fbf66ca2998325be5e900299406ca8650/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs).
-The investigation also compared [Hermes' unified action tool and effect verdicts](https://github.com/NousResearch/hermes-agent/blob/5ba559c9e4b1c8397df7788e319ab634144ca728/tools/computer_use/tool.py#L519-L577);
-the public tool count alone does not replace permission, recovery and receipt
-integration.
+Pi applies the active model's image resize profile during file reads. Codex
+reads an image through the selected environment's filesystem sandbox and checks
+the model's support for original detail. Nexa checks source scope, disclosure
+permission and the frozen vision route before sending image attachments.
+[Pi image processing](https://github.com/earendil-works/pi/blob/42a3497d03ad17e308a2299fa824727894f2c0ec/packages/coding-agent/src/core/tools/read.ts#L122-L147),
+[Codex image admission](https://github.com/openai/codex/blob/322bbf4d8486efd7dbbcf49598711a9e3fefc282/codex-rs/core/src/tools/handlers/view_image.rs#L147-L200).
+
+Hermes checks action effects before choosing the next step. When a follow-up
+capture is requested and the target identifiers are available, it captures the
+same process and window and checks its session fence again before returning
+the pixels. In Nexa the returned observation ID binds the next action to the
+captured window, and an uncertain outcome calls for inspection before more
+input. [Hermes action verdicts](https://github.com/NousResearch/hermes-agent/blob/422ad1861856dd9b80b947fbad9f39d1580f6b41/tools/computer_use/tool.py#L521-L560),
+[Hermes follow-up capture](https://github.com/NousResearch/hermes-agent/blob/422ad1861856dd9b80b947fbad9f39d1580f6b41/tools/computer_use/tool.py#L742-L760),
+[Cua's Windows pointer overlay](https://github.com/trycua/cua/blob/5274342fbf66ca2998325be5e900299406ca8650/libs/cua-driver/rust/crates/platform-windows/src/overlay.rs).
 
 Core regressions cover fresh-token retention, safe failure diagnostics, real local
 image reads, native/interpreted routing and privacy. Interactive Windows helper

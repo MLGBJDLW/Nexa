@@ -1319,6 +1319,21 @@ fn responses_tools(
     let mut tools = vec![super::native_search::compile_hosted_search_tool(
         dialect, capability, &intent,
     )?];
+    // Reading user-supplied links is a separate hosted capability. Preserve
+    // the caller's fetch scope and keep the local tool for explicit extraction.
+    if dialect == super::native_search::NativeSearchDialect::DeepSeekResponses
+        && request.model.trim().eq_ignore_ascii_case("deepseek-flash")
+    {
+        tools[0] = serde_json::json!({"type": "deepseek_web_search"});
+        if request
+            .tools
+            .iter()
+            .flatten()
+            .any(|tool| tool.name == "fetch_url")
+        {
+            tools.push(serde_json::json!({"type": "deepseek_read_url"}));
+        }
+    }
     let include_local_search = mode == super::native_search::SearchExecutionMode::Hybrid;
     tools.extend(
         request
@@ -1720,13 +1735,13 @@ fn parse_responses_completion_with_copilot(
                 // Responses dialects; retain every recognized built-in item in
                 // native order so adding a non-search ToolCard cannot silently
                 // invalidate a later client-tool replay envelope.
-                let item_completed = item
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| !id.trim().is_empty())
-                    && item.get("status").and_then(serde_json::Value::as_str) == Some("completed");
-                replay_sequence_valid &= item_completed;
-                if item_completed {
+                let terminal = super::provider_turn::ResponsesReplayPayload::completed_item(item)
+                    || (dialect == super::native_search::NativeSearchDialect::DeepSeekResponses
+                        && super::provider_turn::ResponsesReplayPayload::failed_deepseek_web_item(
+                            item,
+                        ));
+                replay_sequence_valid &= terminal;
+                if terminal {
                     reasoning_replay.push(item.clone());
                 }
             }
@@ -1918,7 +1933,11 @@ fn parse_responses_completion_with_copilot(
             "OpenRouter Responses returned incomplete or invalid native output alongside client tool calls; refusing dispatch".into(),
         ));
     }
-    let provider_replay = (replay_sequence_valid && has_replay_reasoning)
+    let hosted_web_turn = dialect == super::native_search::NativeSearchDialect::DeepSeekResponses
+        && reasoning_replay
+            .iter()
+            .any(|item| item["type"] == "web_search_call");
+    let provider_replay = (replay_sequence_valid && (has_replay_reasoning || hosted_web_turn))
         .then(|| {
             let payload = super::provider_turn::ResponsesReplayPayload {
                 response_status: response_status.clone(),
@@ -2502,8 +2521,11 @@ fn provider_hosted_tool_event(
         .or_else(|| compact_json_field(item.get("code")));
     let content = compact_json_field(item.get("output"))
         .or_else(|| compact_json_field(item.get("result")))
+        .or_else(|| compact_json_field(item.get("page")))
+        .or_else(|| compact_json_field(item.pointer("/action/sources")))
         .or_else(|| {
             item.pointer("/error/message")
+                .or_else(|| item.pointer("/error/code"))
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string)
         });
@@ -9157,6 +9179,107 @@ data: [DONE]
                 .total_tokens,
             7
         );
+    }
+
+    #[test]
+    fn deepseek_web_tools_match_the_model_and_available_fetch_scope() {
+        use super::super::native_search::{NativeSearchPlan, SearchExecutionMode};
+        for (model, fetch, expected) in [
+            (
+                "deepseek-flash",
+                true,
+                vec!["deepseek_web_search", "deepseek_read_url", "function"],
+            ),
+            ("deepseek-flash", false, vec!["deepseek_web_search"]),
+            ("deepseek-v4-pro", true, vec!["web_search", "function"]),
+        ] {
+            let plan = NativeSearchPlan::resolve(
+                SearchExecutionMode::Auto,
+                ProviderType::DeepSeek,
+                None,
+                model,
+            );
+            let mut request = endpoint_reasoning_request(model);
+            let mut tools = vec![plan.marker().expect("available on the official endpoint")];
+            for name in ["web_search"]
+                .into_iter()
+                .chain(fetch.then_some("fetch_url"))
+            {
+                tools.push(ToolDefinition {
+                    name: name.into(),
+                    description: name.into(),
+                    parameters: serde_json::json!({"type":"object"}),
+                });
+            }
+            request.tools = Some(tools);
+            let (dialect, mode, capability) = hosted_search_context(&request).unwrap();
+            let body = build_responses_request(&request, dialect, mode, capability).unwrap();
+            let kinds: Vec<_> = body["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["type"].as_str().unwrap())
+                .collect();
+            assert_eq!(kinds, expected);
+        }
+    }
+
+    #[test]
+    fn deepseek_read_link_without_thinking_retains_the_signed_web_item() {
+        let web = serde_json::json!({"type":"web_search_call","id":"read","status":"completed","kind":"read_link","action":{"type":"open_page","url":"https://example.com"},"page":{"title":"Example","url":"https://example.com"},"signature":"signed-link"});
+        let answer = serde_json::json!({"type":"message","id":"msg","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Example."}]});
+        let failed = serde_json::json!({"type":"web_search_call","id":"other","kind":"read_link","status":"failed","action":{"type":"open_page","url":"https://example.net"},"error":{"code":"unavailable"}});
+        let output = vec![web.clone(), failed, answer];
+        let dialect = super::super::native_search::NativeSearchDialect::DeepSeekResponses;
+        let response = parse_responses_completion(
+            serde_json::json!({"status":"completed","output":output}),
+            dialect,
+            generic_responses_capability(dialect),
+        )
+        .unwrap();
+        let replay = response.provider_replay.unwrap();
+        assert!(replay.is_present());
+        let mut request = endpoint_reasoning_request("deepseek-flash");
+        request.reasoning_enabled = Some(false);
+        let provider = OpenAiProvider::new(endpoint_config(
+            ProviderType::DeepSeek,
+            "https://api.deepseek.com",
+        ))
+        .unwrap();
+        let mut assistant = Message::text(Role::Assistant, response.content);
+        assistant.set_provider_turn(
+            super::super::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
+                "turn",
+                "sample",
+                provider.route_snapshot(&request),
+                "Example.",
+                None,
+                None,
+                vec![],
+                false,
+                Some(replay),
+            ),
+        );
+        let history = [assistant, Message::text(Role::User, "Summarize it")];
+        let route = provider.route_snapshot(&request);
+        let projected =
+            super::super::reasoning_replay::prepare_provider_replay_history(&history, &route);
+        let input = responses_input_items(&projected.messages).unwrap();
+        assert_eq!(&input[..output.len()], output.as_slice());
+        request.model = "deepseek-v4-pro".into();
+        let projected = super::super::reasoning_replay::prepare_provider_replay_history(
+            &history,
+            &provider.route_snapshot(&request),
+        );
+        let input = responses_input_items(&projected.messages).unwrap();
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["content"][0]["text"], "Example.");
+        let event = provider_hosted_tool_event(
+            &serde_json::json!({"type":"response.output_item.done","item": web}),
+            dialect,
+        )
+        .unwrap();
+        assert_eq!(event.content, Some(web["page"].to_string()));
     }
 
     #[test]

@@ -422,7 +422,7 @@ mod tests {
             .iter()
             .filter(|preset| preset.registry_id.is_some())
             .collect::<Vec<_>>();
-        assert_eq!(published.len(), 43);
+        assert_eq!(published.len(), 44);
         assert!(published.iter().all(|preset| !matches!(
             preset.registry_id.as_deref(),
             Some("antigravity-acp" | "kimi")

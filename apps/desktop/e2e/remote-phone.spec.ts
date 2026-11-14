@@ -205,8 +205,8 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
                   : 36,
                 sortOrder: 0,
               },
-            ].concat(finalAnswer == null ? [] : [{ id: 'final-message', role: 'assistant', content: finalAnswer,
-              totalChars: finalAnswer.length, sortOrder: 1 }]),
+            ].concat(finalAnswer == null ? [] : [{ id: 'final-message', role: 'assistant', content: [...finalAnswer].slice(0, 8000).join(''),
+              totalChars: [...finalAnswer].length, sortOrder: 1 }]),
             beforeOrder:
               historyEnabled && params.conversationId === "chat-1" ? 10 : null,
           };
@@ -662,6 +662,33 @@ test('phone renders Markdown, code, formulas and diagrams from the desktop run',
   await expect(page.locator('[data-testid="mermaid-surface"]')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path:testInfo.outputPath('phone-chat.png'), fullPage:true });
+});
+
+test('inline HTML stays runnable when the phone folds a later tool and restores a paged final', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await selectControl(page.getByLabel('Conversation', {exact:true}), 'chat-1');
+  const html = '~~~nexa-html\n<button onclick="this.textContent=\'Clicked\'">Try it</button>\n~~~';
+  app.emit('outputSnapshot', {blockId:'preview', channel:'answer', text:html});
+  const card = page.getByTestId('html-preview').first();
+  await expect(card.getByRole('button', {name:'Run scripts'})).toBeDisabled();
+  app.emit('toolStarted', {run:{callId:'check',toolName:'verify_chart',status:'running',progressNote:'Checking the totals'}});
+  const group = page.getByTestId('remote-turn-activity');
+  await expect(group.locator(':scope > summary')).toContainText('Checking the totals');
+  await expect(group).toHaveJSProperty('open', false);
+  await card.getByRole('button', {name:'Run scripts'}).click();
+  const frame = card.locator('iframe').contentFrame().locator('iframe').contentFrame();
+  await frame.getByRole('button', {name:'Try it'}).click();
+  await group.locator(':scope > summary').click();
+  await group.locator(':scope > summary').click();
+  await expect(frame.getByRole('button', {name:'Clicked'})).toBeVisible();
+
+  const final = '~~~nexa-html\n<!-- ' + '🙂'.repeat(8000) + ' -->\n<h1>Finished chart</h1>\n~~~';
+  app.emit('outputSnapshot', {blockId:'final', channel:'answer', text:final});
+  app.finishRun(final, true);
+  const canonical = page.locator('article[data-message-id="final-message"]');
+  await expect(canonical.locator('iframe').contentFrame().getByRole('heading', {name:'Finished chart'})).toBeVisible();
+  await expect(canonical.getByRole('button', {name:'Read more'})).toHaveCount(0);
 });
 
 test('phone keeps replies and tools in order and the composer opaque with a custom theme', async ({ page }, testInfo) => {

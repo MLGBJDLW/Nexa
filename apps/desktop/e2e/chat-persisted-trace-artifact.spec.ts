@@ -147,6 +147,7 @@ test.beforeEach(async ({ page }) => {
                 },
               },
               { kind: 'status', text: 'Recovered from persisted trace data.', tone: 'success' },
+              { kind: 'reply', text: '~~~nexa-html\n<h2>Retry chart</h2>\n~~~' },
             ],
           },
           tokenCount: 0,
@@ -277,6 +278,7 @@ test('renders persisted trace artifacts as a single unified timeline', async ({ 
   await page.goto('/chat/conv-persisted-artifact-trace');
   const thinkingToggle = page.getByRole('button', { name: /Thinking completed/ });
   await expect(thinkingToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('html-preview').locator('iframe').contentFrame().getByRole('heading', {name:'Retry chart'})).toBeVisible();
   await thinkingToggle.click();
 
   await expect(page.getByText('Investigating retry behaviour from persisted artifacts.')).toBeVisible();

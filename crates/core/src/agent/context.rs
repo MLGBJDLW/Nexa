@@ -383,6 +383,9 @@ pub struct ContextUsageBreakdown {
 pub struct GenerationMetrics {
     pub output_tokens: u32,
     pub request_duration_ms: u64,
+    /// Agent prompt elapsed time includes its tool calls and approval waits.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub external_turn: bool,
 }
 
 pub fn estimate_context_usage_breakdown_for_model(

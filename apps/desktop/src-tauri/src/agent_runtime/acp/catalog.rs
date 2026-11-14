@@ -23,6 +23,7 @@ pub(super) struct Initialization {
     pub auth_methods: Vec<super::auth::AuthMethod>,
     images: bool,
     mcp_capabilities: Value,
+    steering: bool,
 }
 
 pub(super) struct Session {
@@ -36,6 +37,7 @@ pub(super) struct Session {
     model_option: Option<String>,
     current_model: Option<String>,
     pub images: bool,
+    pub steering: bool,
 }
 
 impl Session {
@@ -104,6 +106,7 @@ impl Session {
             usage: Default::default(),
             id,
             cwd: String::new(),
+            steering: false,
             terminals: std::sync::Arc::new(super::terminals::Terminals::default()),
             models,
             config_options,
@@ -137,10 +140,11 @@ impl Session {
         wire: &mut Wire,
         native_services: bool,
     ) -> Result<Initialization> {
+        let parameterized_models = wire.parameterized_models;
         let initialized = wire.request("initialize", json!({
             "protocolVersion":1,
             "clientInfo":{"name":"nexa","version":env!("CARGO_PKG_VERSION")},
-            "clientCapabilities":{"fs":{"readTextFile":native_services,"writeTextFile":native_services},"terminal":native_services,"auth":{"terminal":true},"session":{"compaction":{},"notices":{}}}
+            "clientCapabilities":{"_meta":{"parameterizedModelPicker":parameterized_models},"fs":{"readTextFile":native_services,"writeTextFile":native_services},"terminal":native_services,"auth":{"terminal":true},"session":{"compaction":{},"notices":{}}}
         })).await?;
         if initialized["protocolVersion"] != 1 {
             return Err(error(
@@ -154,6 +158,10 @@ impl Session {
         Ok(Initialization {
             auth_methods: super::auth::methods(&initialized)?,
             images,
+            steering: initialized
+                .pointer("/_meta/steering/supported")
+                .and_then(Value::as_bool)
+                == Some(true),
             mcp_capabilities: initialized["agentCapabilities"]["mcpCapabilities"].clone(),
         })
     }
@@ -208,6 +216,7 @@ impl Session {
         }
         let value = wire.rpc_result(response, "session/new")?;
         let mut session = Self::parse(&value, initialized.images)?;
+        session.steering = initialized.steering;
         session.cwd = cwd.to_string();
         session.sync(wire)?;
         Ok(Some(session))

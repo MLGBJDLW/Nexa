@@ -554,6 +554,18 @@ mod tests {
             active.iter().any(|s| s.id == "builtin-visual-explanations"),
             "visual-explanations skill should match a flowchart query"
         );
+        for query in [
+            "operate the current application window",
+            "请操作桌面窗口并点击控件",
+        ] {
+            let active = get_active_skills_for_query(&db, query, 5).unwrap();
+            assert!(
+                active
+                    .iter()
+                    .any(|skill| skill.id == "builtin-computer-use"),
+                "{query}"
+            );
+        }
     }
 
     #[test]

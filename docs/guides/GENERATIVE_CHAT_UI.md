@@ -172,6 +172,10 @@ model and preserve its authority, lifecycle and history contracts.
 - [Zed Markdown renderer](https://github.com/zed-industries/zed/blob/b5cd310b3b54dfc659fcc06453e6358843dfe216/crates/markdown/src/markdown.rs)
   informs full-width table layout and resolving image resources independently
   of surrounding prose. Nexa retains its existing Markdown and preview owners.
+- Zed renders assistant text, thoughts and tool calls through separate views.
+  Nexa keeps a reply with an inline preview in the transcript while adjacent
+  activity can collapse, so toggling that activity preserves the interactive
+  document. [Zed thread view](https://github.com/zed-industries/zed/blob/f0fa51bb510fc91f6da7ec55f3e0f317f1f975ec/crates/agent_ui/src/conversation_view/thread_view.rs#L7634-L7697).
 
 ## Verification
 

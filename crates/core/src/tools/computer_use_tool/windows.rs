@@ -906,7 +906,7 @@ fn collect_elements(
     image_width: u32,
     image_height: u32,
     max_elements: usize,
-) -> Result<Vec<UiElementSnapshot>, CoreError> {
+) -> Result<(Vec<UiElementSnapshot>, bool), CoreError> {
     let _apartment = ComApartment::initialize()?;
     let automation = create_automation()?;
     let request = semantic_cache_request(&automation)?;
@@ -938,6 +938,7 @@ fn collect_elements(
             element.role.clone(),
         )
     });
+    let truncated = scan_limit < length || projected.len() > max_elements;
     projected.truncate(max_elements);
     let value_request = value_cache_request(&automation)?;
     let mut remaining_value_characters = 8_192;
@@ -950,10 +951,13 @@ fn collect_elements(
             &mut remaining_value_characters,
         );
     }
-    Ok(projected
-        .into_iter()
-        .map(|(snapshot, _)| snapshot)
-        .collect())
+    Ok((
+        projected
+            .into_iter()
+            .map(|(snapshot, _)| snapshot)
+            .collect(),
+        truncated,
+    ))
 }
 
 fn glyph_rows(character: char) -> Option<[u8; 7]> {
@@ -1079,7 +1083,12 @@ pub(super) fn capture_window(
 fn capture_window_with_elements(
     expected: &WindowSnapshot,
     options: CaptureOptions,
-    collect: impl FnOnce(&WindowSnapshot, u32, u32, usize) -> Result<Vec<UiElementSnapshot>, CoreError>,
+    collect: impl FnOnce(
+        &WindowSnapshot,
+        u32,
+        u32,
+        usize,
+    ) -> Result<(Vec<UiElementSnapshot>, bool), CoreError>,
 ) -> Result<CapturedWindow, CoreError> {
     let _physical_pixels = PhysicalPixels::enter()?;
     // Stamp the beginning, not completion: an older in-flight capture must
@@ -1105,18 +1114,18 @@ fn capture_window_with_elements(
     }
     let (png, image_width, image_height, native_image_width, native_image_height) =
         resized_png(image)?;
-    let (mut elements, mut semantic_error) = if options.include_elements {
+    let (mut elements, truncated, mut semantic_error) = if options.include_elements {
         match collect(
             &post_capture,
             image_width,
             image_height,
             options.max_elements,
         ) {
-            Ok(elements) => (elements, None),
-            Err(error) => (Vec::new(), Some(error.to_string())),
+            Ok((elements, truncated)) => (elements, truncated, None),
+            Err(error) => (Vec::new(), false, Some(error.to_string())),
         }
     } else {
-        (Vec::new(), None)
+        (Vec::new(), false, None)
     };
     let mut final_snapshot = current_window_for_access(&post_capture, true)?.1;
     capture::ensure_visible(&final_snapshot)?;
@@ -1185,6 +1194,7 @@ fn capture_window_with_elements(
         native_image_height,
         elements,
         semantic_enabled: options.include_elements,
+        semantic_truncated: truncated && semantic_error.is_none(),
         semantic_error,
         annotated_png,
         observation_captured_at_ms,

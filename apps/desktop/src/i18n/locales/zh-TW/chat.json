@@ -989,5 +989,8 @@
   "imageEditSubmit": "傳送修改",
   "imageEditSending": "正在傳送…",
   "generationSpeed": "生成速度（TPS）",
+  "externalTurnSpeed": "Agent 回合吞吐率",
+  "externalTurnSpeedHint": "輸出 token 數除以 Agent 回合耗時，包含工具執行和等待。",
+  "generationSpeedUnavailable": "執行階段尚未提供計算速度所需的輸出 token 數和耗時。",
   "generationSpeedHint": "最近一次模型請求的輸出 token ÷ 請求耗時，包含首字等待，不包含工具執行和使用者等待。"
 }

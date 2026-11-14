@@ -196,11 +196,23 @@ impl ResponsesReplayPayload {
         }
         has_reasoning
     }
-    fn completed_item(item: &serde_json::Value) -> bool {
+    pub(super) fn completed_item(item: &serde_json::Value) -> bool {
         item.get("id")
             .and_then(serde_json::Value::as_str)
             .is_some_and(|id| !id.trim().is_empty())
             && item.get("status").and_then(serde_json::Value::as_str) == Some("completed")
+    }
+
+    /// DeepSeek returns failed page reads alongside successful signed pages in
+    /// completed turns. Both are terminal web results in its input contract.
+    pub(super) fn failed_deepseek_web_item(item: &serde_json::Value) -> bool {
+        item["type"] == "web_search_call"
+            && item["status"] == "failed"
+            && item["id"].as_str().is_some_and(|id| !id.trim().is_empty())
+            && item
+                .pointer("/error/code")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|code| !code.trim().is_empty())
     }
 
     fn is_structurally_complete(&self, encrypted_reasoning_required: bool) -> bool {
@@ -216,6 +228,12 @@ impl ResponsesReplayPayload {
             return false;
         }
         let mut saw_reasoning = false;
+        let deepseek_web_without_thinking = contract == ResponsesReplayContract::DeepSeek
+            && self
+                .items
+                .iter()
+                .any(|item| item["type"] == "web_search_call")
+            && !self.items.iter().any(|item| item["type"] == "reasoning");
         for item in &self.items {
             match item.get("type").and_then(serde_json::Value::as_str) {
                 Some("reasoning") => {
@@ -241,7 +259,10 @@ impl ResponsesReplayPayload {
                     saw_reasoning = true;
                 }
                 Some("web_search_call") => {
-                    if !Self::completed_item(item) {
+                    if !(Self::completed_item(item)
+                        || (contract == ResponsesReplayContract::DeepSeek
+                            && Self::failed_deepseek_web_item(item)))
+                    {
                         return false;
                     }
                 }
@@ -271,7 +292,9 @@ impl ResponsesReplayPayload {
                             serde_json::from_str::<serde_json::Value>(arguments).ok()
                         })
                         .is_some_and(|arguments| arguments.is_object());
-                    if (!saw_reasoning && contract != ResponsesReplayContract::Copilot)
+                    if (!saw_reasoning
+                        && contract != ResponsesReplayContract::Copilot
+                        && !deepseek_web_without_thinking)
                         || !Self::completed_item(item)
                         || !call_id
                         || !name
@@ -283,7 +306,9 @@ impl ResponsesReplayPayload {
                 _ => return false,
             }
         }
-        saw_reasoning || contract == ResponsesReplayContract::Copilot
+        saw_reasoning
+            || deepseek_web_without_thinking
+            || contract == ResponsesReplayContract::Copilot
     }
 
     fn authorizes_tool_calls(
@@ -653,7 +678,9 @@ impl ProviderReplayPayload {
                         || super::bedrock::signed_reasoning_complete(&payload.content))
             }
             Self::DeepSeekResponseItems(payload) => {
-                payload.authorizes_tool_calls(tool_calls, false)
+                (!route.replay_policy.requires_tool_call_payload()
+                    || payload.items.iter().any(|item| item["type"] == "reasoning"))
+                    && payload.authorizes_tool_calls(tool_calls, false)
             }
             Self::OpenAiResponseItems(payload) => payload.authorizes_tool_calls(tool_calls, true),
             Self::CopilotResponseItems(payload) => {

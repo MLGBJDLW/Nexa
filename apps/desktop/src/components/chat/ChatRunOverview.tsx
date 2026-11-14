@@ -209,7 +209,9 @@ export function ChatRunOverview({
   onConfigureContext,
 }: ChatRunOverviewProps) {
   const { t } = useTranslation();
-  const tps = modelTokensPerSecond(generationMetrics ?? tokenUsage?.contextBreakdown?.generation);
+  const generation = generationMetrics ?? tokenUsage?.contextBreakdown?.generation;
+  const tps = modelTokensPerSecond(generation);
+  const speedHint = t(tps == null ? 'chat.generationSpeedUnavailable' : generation?.externalTurn ? 'chat.externalTurnSpeedHint' : 'chat.generationSpeedHint');
   const overviewRef = useRef<HTMLDivElement>(null);
   const pointerInsideRef = useRef(false);
   const suppressHoverRef = useRef(false);
@@ -615,10 +617,10 @@ export function ChatRunOverview({
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <div className="col-span-2 rounded-lg border border-border/55 bg-surface-1/75 px-2.5 py-2" title={t('chat.generationSpeedHint')}>
-            <span className="text-[10px] text-text-tertiary">{t('chat.generationSpeed')}</span>
+          <div className="col-span-2 rounded-lg border border-border/55 bg-surface-1/75 px-2.5 py-2" title={speedHint}>
+            <span className="text-[10px] text-text-tertiary">{t(generation?.externalTurn ? 'chat.externalTurnSpeed' : 'chat.generationSpeed')}</span>
             <span data-testid="chat-generation-tps" className="ml-2 text-sm font-semibold tabular-nums text-text-primary">{tps == null ? '—' : `${tps.toFixed(1)} tok/s`}</span>
-            <p className="mt-1 text-[10px] text-text-tertiary">{t('chat.generationSpeedHint')}</p>
+            <p className="mt-1 text-[10px] text-text-tertiary">{speedHint}</p>
           </div>
           {turnTiming ? (
             <div

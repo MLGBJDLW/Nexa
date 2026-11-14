@@ -35,6 +35,7 @@ def update(value):
     emit({"method": "session/update", "params": {"sessionId": session, "update": value}})
 
 pending = None
+prompt_count = 0
 authenticated = False
 auth_methods = [
     {"id":"oauth","name":"Browser sign-in"},
@@ -42,6 +43,8 @@ auth_methods = [
 ] if mode in ("auth_methods", "auth_revoked", "auth_disconnected", "auth_pending", "setup_error") else []
 if mode in ("auth_revoked", "auth_disconnected", "auth_pending"):
     auth_methods.insert(1, {"id":"replacement","name":"Another account"})
+if mode == "cursor_catalog":
+    auth_methods = [{"id":"cursor_login","name":"Cursor"}]
 for line in sys.stdin:
     message = json.loads(line)
     method = message.get("method")
@@ -49,12 +52,13 @@ for line in sys.stdin:
         with open(sys.argv[2], "a", encoding="utf-8") as log:
             log.write(json.dumps(message, ensure_ascii=False) + "\n")
     if method == "initialize":
+        assert message["params"]["clientCapabilities"]["_meta"]["parameterizedModelPicker"]
         native_services = message["params"]["clientCapabilities"]["terminal"]
         assert isinstance(native_services, bool)
         assert message["params"]["clientCapabilities"]["fs"] == {"readTextFile": native_services, "writeTextFile": native_services}
         if mode == "discovery":
             assert native_services is False
-        reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}, "authMethods": auth_methods})
+        reply(message, {"protocolVersion": 9 if mode == "bad_version" else 1, "agentCapabilities": {"promptCapabilities": {"image": False}}, "authMethods": auth_methods, "_meta":{"steering":{"supported": mode in ("steer_live", "steer_race")}}})
     elif method == "session/new":
         if mode == "host_question":
             server = next(s for s in message["params"]["mcpServers"] if s["name"] == "nexa-host")
@@ -75,6 +79,8 @@ for line in sys.stdin:
             reply(message, {"sessionId": session, "models": {"currentModelId": "first", "availableModels": [{"modelId": "first", "name": "First"}, {"modelId": "vendor/模型", "name": "Model"}]}})
         else:
             reply(message, {"sessionId": session, "configOptions": config})
+    elif method == "cursor/list_available_models" and mode == "cursor_catalog":
+        reply(message, {"models":[{"value":config[0]["options"][1]["value"],"configOptions":[{"id":"effort","type":"select","category":"thought_level","currentValue":"low","options":[{"value":"low"},{"value":"high"}]}]}]})
     elif method == "authenticate":
         selected = message["params"]["methodId"]
         if mode == "auth_pending":
@@ -119,7 +125,29 @@ for line in sys.stdin:
         if mode != "unconfirmed":
             config[0]["currentValue"] = message["params"]["value"]
         reply(message, {"configOptions": config})
+    elif method == "_session/steering":
+        assert message["params"]["_meta"]["steering"]["idleBehavior"] == "promptRequired"
+        assert message["params"]["prompt"][0]["text"] == "corrected"
+        if mode == "steer_race":
+            reply(pending, {"stopReason":"end_turn"})
+            reply(message, {"outcome":"promptRequired", "reason":"noRunningTurn"})
+        else:
+            assert mode == "steer_live"
+            reply(message, {"outcome":"injected"})
+            update({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" corrected answer"}})
+            reply(pending, {"stopReason":"end_turn","usage":{"inputTokens":2,"outputTokens":3,"totalTokens":5}})
     elif method == "session/prompt":
+        if mode.startswith("steer_"):
+            pending = message
+            prompt_count += 1
+            time.sleep(0.01)
+            if prompt_count == 1:
+                update({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"working"}})
+            else:
+                assert prompt_count == 2 and mode != "steer_live" and message["params"]["prompt"][0]["text"] == "corrected"
+                update({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"corrected answer"}})
+                reply(pending, {"stopReason":"end_turn","usage":{"inputTokens":2,"outputTokens":3,"totalTokens":5}})
+            continue
         if mode == "host_question":
             from urllib.error import HTTPError
             from urllib.request import Request, urlopen
@@ -162,7 +190,13 @@ for line in sys.stdin:
             update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking-私密"}})
         update({"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Native read", "kind": "read", "status": "pending"})
         emit({"id": "permission-1", "method": "session/request_permission", "params": {"sessionId": session, "toolCall": {"toolCallId": "call-1", "title": "Native read", "rawInput": {"path": "safe-fixture"}}, "options": [{"optionId": "permanent", "kind": "allow_always", "name": "Always"}, {"optionId": "once", "kind": "allow_once", "name": "Once"}, {"optionId": "deny", "kind": "reject_once", "name": "Deny"}]}})
+    elif message.get("id") == "late-steering-permission":
+        assert message["result"]["outcome"]["outcome"] == "cancelled"
+        reply(pending, {"stopReason":"cancelled"})
     elif method == "session/cancel":
+        if mode == "steer_baseline":
+            emit({"id":"late-steering-permission", "method":"session/request_permission", "params":{"sessionId":session}})
+            continue
         if pending:
             reply(pending, {"stopReason": "cancelled"})
         sys.exit(0)

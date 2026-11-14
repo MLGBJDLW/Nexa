@@ -215,19 +215,8 @@ pub async fn observe_user_share_window(
     let capture =
         blocking(move || platform::capture_window(&expected, CaptureOptions::pixels_only()))
             .await?;
-    let observation_id = remember_observation(
-        Some(scope),
-        vec![ObservedWindow {
-            snapshot: capture.snapshot.clone(),
-            image_width: Some(capture.image_width),
-            image_height: Some(capture.image_height),
-            native_image_width: Some(capture.native_image_width),
-            native_image_height: Some(capture.native_image_height),
-            screenshot_signature: screenshot_signature(&capture.png),
-            screenshot_guard: screenshot_guard(&capture.png),
-            elements: capture.elements.clone(),
-        }],
-    )?;
+    let observation_id =
+        remember_observation(Some(scope), vec![ObservedWindow::from_capture(&capture)])?;
     Ok(
         serde_json::json!({"observationId": observation_id, "windowId": capture.snapshot.id,
         "title": capture.snapshot.title, "controlAvailable": !capture.snapshot.observation_only,
@@ -350,32 +339,57 @@ struct ObservedWindow {
     elements: Vec<UiElementSnapshot>,
 }
 
-fn screenshot_signature(png: &[u8]) -> Option<Vec<u8>> {
-    let image = image::load_from_memory(png).ok()?.to_rgb8();
-    Some(
-        image::imageops::resize(
-            &image,
-            SCREENSHOT_SIGNATURE_EDGE,
-            SCREENSHOT_SIGNATURE_EDGE,
-            image::imageops::FilterType::Triangle,
-        )
-        .into_raw(),
-    )
+impl ObservedWindow {
+    fn from_capture(capture: &CapturedWindow) -> Self {
+        let rgb = image::load_from_memory(&capture.png)
+            .ok()
+            .map(|frame| frame.to_rgb8());
+        Self {
+            snapshot: capture.snapshot.clone(),
+            image_width: Some(capture.image_width),
+            image_height: Some(capture.image_height),
+            native_image_width: Some(capture.native_image_width),
+            native_image_height: Some(capture.native_image_height),
+            screenshot_signature: rgb.as_ref().map(frame_signature),
+            screenshot_guard: rgb.as_ref().map(frame_guard),
+            elements: capture.elements.clone(),
+        }
+    }
 }
 
+fn screenshot_signature(png: &[u8]) -> Option<Vec<u8>> {
+    Some(frame_signature(
+        &image::load_from_memory(png).ok()?.to_rgb8(),
+    ))
+}
+
+fn frame_signature(image: &image::RgbImage) -> Vec<u8> {
+    image::imageops::resize(
+        image,
+        SCREENSHOT_SIGNATURE_EDGE,
+        SCREENSHOT_SIGNATURE_EDGE,
+        image::imageops::FilterType::Triangle,
+    )
+    .into_raw()
+}
+
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
 fn screenshot_guard(png: &[u8]) -> Option<ScreenshotGuard> {
-    let image = image::load_from_memory(png).ok()?.to_rgb8();
+    Some(frame_guard(&image::load_from_memory(png).ok()?.to_rgb8()))
+}
+
+fn frame_guard(image: &image::RgbImage) -> ScreenshotGuard {
     let longest = image.width().max(image.height()).max(1);
     let scale = (SCREENSHOT_GUARD_EDGE as f64 / longest as f64).min(1.0);
     let width = ((image.width() as f64 * scale).round() as u32).max(1);
     let height = ((image.height() as f64 * scale).round() as u32).max(1);
     let image =
-        image::imageops::resize(&image, width, height, image::imageops::FilterType::Triangle);
-    Some(ScreenshotGuard {
+        image::imageops::resize(image, width, height, image::imageops::FilterType::Triangle);
+    ScreenshotGuard {
         width,
         height,
         rgb: image.into_raw(),
-    })
+    }
 }
 
 #[cfg(any(all(target_os = "windows", feature = "desktop-control"), test))]
@@ -1295,6 +1309,7 @@ struct CapturedWindow {
     native_image_height: u32,
     elements: Vec<UiElementSnapshot>,
     semantic_enabled: bool,
+    semantic_truncated: bool,
     semantic_error: Option<String>,
     annotated_png: Option<Vec<u8>>,
     observation_captured_at_ms: u64,
@@ -1963,6 +1978,7 @@ fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::V
         "semanticObservation": {
             "status": if !capture.semantic_enabled { "disabled" } else if capture.semantic_error.is_some() { "error" } else { "available" },
             "available": capture.semantic_enabled && capture.semantic_error.is_none(),
+            "truncated": capture.semantic_truncated,
             "error": capture.semantic_error,
             "elementIdsAreObservationScoped": true
         },
@@ -2010,6 +2026,7 @@ fn semantic_observation_for_llm(observation_id: &str, capture: &CapturedWindow) 
         "coordinateSpaces": [CAPTURED_IMAGE_COORDINATE_SPACE, "normalized_0_1"],
         "elements": capture.elements,
         "semanticStatus": if !capture.semantic_enabled { "disabled" } else if capture.semantic_error.is_some() { "error" } else { "available" },
+        "semanticTruncated": capture.semantic_truncated,
         "semanticError": capture.semantic_error,
         "singleUseForControl": !capture.snapshot.observation_only,
         "expiresInSeconds": OBSERVATION_TTL.as_secs(),
@@ -2627,23 +2644,26 @@ where
     let started = Instant::now();
     let mut sampled_frames = 0_u16;
     let mut last_snapshot = observed.snapshot.clone();
-    let transient_change_observed = loop {
+    let (capture, difference, transient_change_observed) = loop {
         let sampled = capture(last_snapshot, CaptureOptions::pixels_only()).await?;
         sampled_frames = sampled_frames.saturating_add(1);
-        last_snapshot = sampled.snapshot;
-        let changed = screenshot_signature(&sampled.png)
+        let difference = screenshot_signature(&sampled.png)
             .as_deref()
-            .and_then(|current| screenshot_difference(expected_signature, current))
-            .is_some_and(|difference| difference.materially_changed);
+            .and_then(|current| screenshot_difference(expected_signature, current));
+        let changed = difference.is_some_and(|diff| diff.materially_changed);
         if changed || started.elapsed() >= timeout {
-            break changed;
+            if !options.include_elements && options.mode == CaptureMode::Raw {
+                break (sampled, difference, changed);
+            }
+            let enriched = capture(sampled.snapshot, options).await?;
+            let final_difference = screenshot_signature(&enriched.png)
+                .as_deref()
+                .and_then(|current| screenshot_difference(expected_signature, current));
+            break (enriched, final_difference, changed);
         }
+        last_snapshot = sampled.snapshot;
         tokio::time::sleep(poll_interval.min(timeout.saturating_sub(started.elapsed()))).await;
     };
-    let capture = capture(last_snapshot, options).await?;
-    let difference = screenshot_signature(&capture.png)
-        .as_deref()
-        .and_then(|current| screenshot_difference(expected_signature, current));
     let changed = difference.is_some_and(|difference| difference.materially_changed);
     Ok(WaitOutcome {
         capture,
@@ -2963,16 +2983,7 @@ impl Tool for ComputerObserveTool {
                     };
                     let fresh_observation_id = remember_observation(
                         conversation_id,
-                        vec![ObservedWindow {
-                            snapshot: capture.snapshot.clone(),
-                            image_width: Some(capture.image_width),
-                            image_height: Some(capture.image_height),
-                            native_image_width: Some(capture.native_image_width),
-                            native_image_height: Some(capture.native_image_height),
-                            screenshot_signature: screenshot_signature(&capture.png),
-                            screenshot_guard: screenshot_guard(&capture.png),
-                            elements: capture.elements.clone(),
-                        }],
+                        vec![ObservedWindow::from_capture(&capture)],
                     )?;
                     let data = capture_data(&fresh_observation_id, &capture);
                     let display_content = format!(
@@ -3056,16 +3067,7 @@ impl Tool for ComputerObserveTool {
                     .await?;
                     let fresh_observation_id = remember_observation(
                         conversation_id,
-                        vec![ObservedWindow {
-                            snapshot: outcome.capture.snapshot.clone(),
-                            image_width: Some(outcome.capture.image_width),
-                            image_height: Some(outcome.capture.image_height),
-                            native_image_width: Some(outcome.capture.native_image_width),
-                            native_image_height: Some(outcome.capture.native_image_height),
-                            screenshot_signature: screenshot_signature(&outcome.capture.png),
-                            screenshot_guard: screenshot_guard(&outcome.capture.png),
-                            elements: outcome.capture.elements.clone(),
-                        }],
+                        vec![ObservedWindow::from_capture(&outcome.capture)],
                     )?;
                     let mut data = capture_data(&fresh_observation_id, &outcome.capture);
                     if let Some(object) = data.as_object_mut() {
@@ -3549,16 +3551,7 @@ impl Tool for ComputerControlTool {
                 if let Some(capture) = outcome.capture.as_ref() {
                     let observation_id = commit_tracker.result(remember_observation(
                         conversation_id,
-                        vec![ObservedWindow {
-                            snapshot: capture.snapshot.clone(),
-                            image_width: Some(capture.image_width),
-                            image_height: Some(capture.image_height),
-                            native_image_width: Some(capture.native_image_width),
-                            native_image_height: Some(capture.native_image_height),
-                            screenshot_signature: screenshot_signature(&capture.png),
-                            screenshot_guard: screenshot_guard(&capture.png),
-                            elements: capture.elements.clone(),
-                        }],
+                        vec![ObservedWindow::from_capture(capture)],
                     ))?;
                     (
                         Some(observation_id.clone()),

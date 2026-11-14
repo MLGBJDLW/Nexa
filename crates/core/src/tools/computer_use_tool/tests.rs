@@ -126,6 +126,7 @@ fn wait_capture_fixture(level: u8) -> CapturedWindow {
         native_image_height: 32,
         elements: Vec::new(),
         semantic_enabled: false,
+        semantic_truncated: false,
         semantic_error: None,
         annotated_png: None,
         observation_captured_at_ms: 0,
@@ -305,6 +306,26 @@ async fn computer_wait_change_is_proved_by_the_returned_frame() {
         "the changed intermediate frame was gone before final capture"
     );
     assert!(!result.difference.unwrap().materially_changed);
+}
+
+#[tokio::test]
+async fn pixel_only_wait_returns_the_observed_change_without_another_capture() {
+    let mut captures = 0;
+    let result = wait_for_window_change(
+        &wait_observed_fixture(),
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        CaptureOptions::pixels_only(),
+        |_, _| {
+            captures += 1;
+            async { Ok(wait_capture_fixture(255)) }
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(captures, 1);
+    assert!(result.changed);
+    assert_eq!(result.capture.png, wait_capture_fixture(255).png);
 }
 
 #[tokio::test]
