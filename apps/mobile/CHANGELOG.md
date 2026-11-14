@@ -3,6 +3,13 @@
 ## [0.3.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.8...nexa-mobile-v0.3.9) (2026-11-14)
 
 
+### Improvements
+
+- Keep HTML, Nexa UI and Mermaid previews visible and interactive when thinking or tools are folded. Reopening a folded activity keeps the preview's current state.
+- Show a short description of the latest tool or thinking activity in the collapsed row. Preserve it when loading earlier conversation turns.
+- Use DeepSeek's hosted search on supported models and let Flash read pages directly. Follow-up questions retain successful page results when another page fails.
+- Refresh provider and model choices, including reasoning options and retirement notices for existing selections.
+
 ### Features
 
 * **chat:** improve cross-platform previews, web tools, and agent controls ([#554](https://github.com/MLGBJDLW/Nexa/issues/554)) ([5aa645d](https://github.com/MLGBJDLW/Nexa/commit/5aa645dbddd3de1fc2fad729228af50320c7bd28))
