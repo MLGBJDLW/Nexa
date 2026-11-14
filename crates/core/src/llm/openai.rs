@@ -8177,7 +8177,7 @@ data: [DONE]
 
     #[test]
     fn openrouter_kimi_k3_headless_defaults_to_nested_low_effort() {
-        let request = CompletionRequest {
+        let mut request = CompletionRequest {
             model: "moonshotai/kimi-k3".to_string(),
             messages: vec![Message::text(Role::User, "hello")],
             temperature: Some(0.4),
@@ -8196,6 +8196,9 @@ data: [DONE]
 
         assert_eq!(body["reasoning"]["effort"], "low");
         assert!(body.get("reasoning_effort").is_none());
+        request.reasoning_effort = Some(ReasoningEffort::Max);
+        let explicit = serde_json::to_value(build_request_body(&request, false)).unwrap();
+        assert_eq!(explicit["reasoning"]["effort"], "max");
     }
 
     #[test]

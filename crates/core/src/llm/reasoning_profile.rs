@@ -1009,6 +1009,14 @@ pub fn resolve_reasoning_profile(
         } else {
             catalog_efforts.as_slice()
         };
+        // Preserve Nexa's established headless default independently of the
+        // gateway's advertised default. Explicit effort choices still win.
+        let runtime_default =
+            if model == "moonshotai/kimi-k3" && accepted_efforts.contains(&ReasoningEffort::Low) {
+                Some(ReasoningEffort::Low)
+            } else {
+                catalog_default
+            };
         let mut value = profile(
             key,
             "openrouter-normalized-reasoning-v1",
@@ -1019,7 +1027,7 @@ pub fn resolve_reasoning_profile(
             },
             ReasoningEffortField::NestedReasoning,
             ReasoningEffortMapping::OpenAiCompatible,
-            (accepted_efforts, catalog_default),
+            (accepted_efforts, runtime_default),
             ReasoningBudgetField::NestedReasoning,
         );
         value.effort_budget_exclusive = true;
