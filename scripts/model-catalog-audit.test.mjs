@@ -4,6 +4,7 @@ import {
   compareCatalogInventory,
   fetchCatalogPages,
   googleCatalogMethod,
+  supportsCatalogOperation,
   driftDetected,
   normalizeCatalogModel,
   normalizeDiscoveredModel,
@@ -128,6 +129,18 @@ for (const surface of ['image', 'speech_to_text', 'text_to_speech']) {
   assert.equal(normalizeGoogleCatalog(endpoint, googleRows), null,
     'text model listings do not assert image or speech model support');
 }
+for (const provider of ['open_ai', 'siliconflow']) {
+  for (const surface of ['image', 'embedding', 'speech_to_text', 'text_to_speech', 'decision', 'video']) {
+    const endpoint = { endpointId: `${surface}:${provider}`, provider, baseUrl: 'https://catalog.example/v1', models: [] };
+    assert.equal(supportsCatalogOperation(endpoint), false,
+      'generic authenticated inventories cannot establish an operation contract');
+    assert.deepEqual(compareCatalogInventory(endpoint, [{ id: 'gpt-6-sol' }]).newIds, []);
+  }
+}
+assert.equal(supportsCatalogOperation({ endpointId: 'embedding:openrouter' }, '/embeddings/models'), true);
+assert.equal(supportsCatalogOperation({ endpointId: 'embedding:google-gemini', provider: 'google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' }), true);
+assert.deepEqual(compareCatalogInventory({ endpointId: 'embedding:jina', models: [] }, [{ id: 'jina-ai/untyped-unknown-model' }]).newIds, []);
+assert.deepEqual(compareCatalogInventory({ endpointId: 'video:openrouter-video', operationSpecific: true, models: [] }, [{ id: 'new-video-model' }]).newIds, ['new-video-model']);
 const retiredOnly = compareCatalogInventory({ ...router, models: [{ ...router.models[0], lifecycle: 'removed' }] }, []);
 assert.equal(driftDetected(retiredOnly), false, 'existing tombstones are not repeated missing-model alerts');
 const denseEmbeddings = compareCatalogInventory({ endpointId: 'embedding:jina', models: [{

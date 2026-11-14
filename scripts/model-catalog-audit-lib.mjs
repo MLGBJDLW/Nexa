@@ -154,6 +154,14 @@ export function googleCatalogMethod(endpoint) {
   return { text: 'generateContent', embedding: 'embedContent' }[endpoint.endpointId.split(':')[0]] ?? null;
 }
 
+/** Untyped OpenAI-compatible /models inventories do not identify operations. */
+export function supportsCatalogOperation(endpoint, knownOperationPath) {
+  const surface = endpoint.endpointId.split(':')[0];
+  if (surface === 'text' || knownOperationPath) return true;
+  return surface === 'embedding' && endpoint.provider === 'google'
+    && endpoint.baseUrl?.includes('generativelanguage.googleapis.com');
+}
+
 export function normalizeGoogleCatalog(endpoint, rows) {
   const surface = endpoint.endpointId.split(':')[0];
   const method = googleCatalogMethod(endpoint);
@@ -179,6 +187,7 @@ export function compareCatalogInventory(endpoint, rows) {
     // consumes one dense vector per input. Catalog presence cannot bridge it.
     if (endpoint.endpointId === 'embedding:jina' && model.id?.replace(/^jina-ai\//, '') === 'jina-colbert-v2') return false;
     const outputs = stringArray(model.architecture?.output_modalities ?? model.output_modalities);
+    if (surface !== 'text' && !outputs && !endpoint.operationSpecific) return false;
     if (outputs && !outputs.includes(expectedModality)) return false;
     if (surface === 'text' && (model.id?.endsWith(':batch')
       || (Array.isArray(model.endpoints) && !model.endpoints.includes('/api/v1/chat/completions')))) return false;

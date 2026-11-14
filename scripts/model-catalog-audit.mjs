@@ -9,6 +9,7 @@ import {
   googleCatalogMethod,
   normalizeCatalogModel,
   normalizeGoogleCatalog,
+  supportsCatalogOperation,
 } from './model-catalog-audit-lib.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -173,10 +174,12 @@ async function probeEndpoint(endpoint) {
   const credentialEnv = discoveryCredentials.get(endpoint.endpointId)
     ?? `NEXA_${presetId.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_CATALOG_API_KEY`;
   const credential = (scopedCredentials[endpoint.endpointId] ?? process.env[credentialEnv])?.trim() ?? '';
-  const publicPath = livePublicCatalogs ? publicCatalogPaths.get(endpoint.endpointId) : null;
+  // A known operation path is also authoritative with credentials. The flag
+  // controls anonymous access, not which operation contract gets queried.
+  const publicPath = publicCatalogPaths.get(endpoint.endpointId);
   const google = endpoint.provider === 'google' && endpoint.baseUrl.includes('generativelanguage.googleapis.com');
   const anthropic = endpoint.provider === 'anthropic';
-  if (google && !googleCatalogMethod(endpoint)) {
+  if ((google && !googleCatalogMethod(endpoint)) || !supportsCatalogOperation(endpoint, publicPath)) {
     return { endpointId: endpoint.endpointId, status: 'skipped', reason: 'operation_catalog_not_supported' };
   }
   if (!endpoint.baseUrl || endpoint.baseUrl.includes('example.com')
@@ -184,7 +187,7 @@ async function probeEndpoint(endpoint) {
       || ['vertex', 'bedrock', 'github_copilot_api', 'ollama', 'lm_studio'].includes(endpoint.provider)))) {
     return { endpointId: endpoint.endpointId, status: 'skipped', reason: 'discovery_not_supported' };
   }
-  if (!credential && !publicPath) {
+  if (!credential && !(livePublicCatalogs && publicPath)) {
     return { endpointId: endpoint.endpointId, status: 'skipped', reason: 'credential_not_configured', credentialEnv };
   }
 
@@ -195,7 +198,10 @@ async function probeEndpoint(endpoint) {
           : { Authorization: `Bearer ${credential}` } : undefined,
     });
     const liveModels = google ? normalizeGoogleCatalog(endpoint, rows) : rows;
-    const comparison = compareCatalogInventory(endpoint, liveModels);
+    const comparison = compareCatalogInventory({
+      ...endpoint,
+      operationSpecific: Boolean(publicPath) && endpoint.endpointId !== 'embedding:jina',
+    }, liveModels);
     return {
       endpointId: endpoint.endpointId,
       status: 'ok',

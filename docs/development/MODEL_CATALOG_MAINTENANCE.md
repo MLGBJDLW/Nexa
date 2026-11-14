@@ -43,6 +43,11 @@ discovery use their own authentication and pagination. No inference is requested
 Google's model-list methods identify text generation and embedding operations;
 image and speech endpoints are explicitly unprobed because `generateContent`
 alone does not establish their output modality.
+Other generic OpenAI-compatible `/models` endpoints are audited for text only.
+Image, embedding, speech, decision and video inventories require an explicit
+operation contract; credentials alone do not make an untyped model list valid
+for those surfaces. Dedicated OpenRouter operation paths and Jina's explicitly
+typed embedding entries retain their existing coverage.
 
 For Actions, the optional `NEXA_MODEL_CATALOG_CREDENTIALS` repository secret is a
 JSON object mapping exact endpoint IDs to account credentials. For example, its
