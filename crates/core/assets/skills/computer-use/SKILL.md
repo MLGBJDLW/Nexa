@@ -16,6 +16,8 @@ Use the actions and target kinds advertised by `computer_use` in this session. A
 
 ## Act and verify
 
+For a Windows control advertising `expand` or `collapse`, send that action with its current `element_id`. Check `interaction.condition` for the requested state. During an open native menu, keep the parent as the target. An item's `menuImage` identifies the matching menu attachment and its bounds within that image. Use the item's `element_id` for a single left click. If the command has a known resulting window title, send `expected_window_title`. Otherwise inspect the fresh parent observation for the requested result. A dismissed menu alone only confirms dismissal.
+
 Use one grounded action, then inspect its receipt. A successful Windows control action can return the next observation and screenshot in the same receipt. Reuse them while the target remains current. When the app is still updating, wait for a change on that window or a relevant condition on that tab. Verify the user's requested outcome from the resulting screen, document or explicit condition.
 
 When asked to inspect selected text or read a visible document, use Windows `observe` with `text_context=selection` or `visible`. Inspect the element’s `state.textRanges`. An empty range list means no text in the requested ranges. A missing field means the provider could not supply that evidence. Use the most recent capture of that window for input.

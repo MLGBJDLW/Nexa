@@ -214,7 +214,7 @@ fn route_call_impl(
                 "type" => ("computer_control", "type_text"),
                 "press" => ("computer_control", "key"),
                 "move" => ("computer_control", "move_mouse"),
-                "focus_window" | "click" | "drag" | "scroll" | "invoke" | "set_value" => ("computer_control", action.as_str()),
+                "focus_window" | "click" | "drag" | "scroll" | "invoke" | "expand" | "collapse" | "set_value" => ("computer_control", action.as_str()),
                 _ => return Err("Unsupported action for target.kind=window. Choose an advertised window operation.".into()),
             };
             body.insert("action".into(), Value::String(action.to_string()));

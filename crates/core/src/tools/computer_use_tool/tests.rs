@@ -148,6 +148,7 @@ fn wait_capture_fixture(level: u8) -> CapturedWindow {
     let mut png = std::io::Cursor::new(Vec::new());
     image.write_to(&mut png, image::ImageFormat::Png).unwrap();
     CapturedWindow {
+        menu_images: vec![],
         started_at: Instant::now(),
         snapshot: serde_json::from_value(serde_json::json!({
             "id":42,"pid":7,"processStartedAt100ns":123,"executablePathHash":"fixture",
@@ -220,6 +221,7 @@ fn computer_receipt_requires_comparable_evidence_to_claim_unchanged() {
     use crate::observed_interaction::{InteractionCommit, ObservedEvidence};
     let commit = InteractionCommit::default();
     let mut outcome = ControlOutcome {
+        condition: crate::observed_interaction::RequestedCondition::NotRequested,
         summary: "Restored a minimized window".to_string(),
         capture: Some(wait_capture_fixture(0)),
         observation_error: None,
@@ -808,6 +810,8 @@ fn approval_preview_is_exact_conversation_scoped_and_hides_typed_text() {
             screenshot_signature: Some(vec![0; 256]),
             screenshot_guard: None,
             elements: vec![UiElementSnapshot {
+                menu_target: None,
+                menu_image: None,
                 id: "e1".to_string(),
                 role: "textbox".to_string(),
                 name: "Plan title".to_string(),
@@ -1130,6 +1134,7 @@ fn control_validation_accepts_normalized_targets_and_rejects_missing_semantic_id
         max_elements: None,
         capture_mode: None,
         wait_for_previous: None,
+        expected_window_title: None,
     };
     assert!(validate_control_args(&click, ControlAction::Click).is_ok());
 
@@ -1232,6 +1237,183 @@ fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens(
     assert_ne!(bind(&first, "task-a"), bind(&observe(456), "task-a"));
 }
 
+#[cfg(all(windows, feature = "desktop-control"))]
+#[test]
+#[ignore = "requires an interactive Windows desktop; operates a disposable tree and popup menu"]
+fn windows_tree_and_popup_menu_verify_requested_results() {
+    verify_tree_and_menu(false);
+}
+
+#[cfg(all(windows, feature = "desktop-control"))]
+#[test]
+#[ignore = "requires an interactive Windows desktop; operates a WPF context menu"]
+fn windows_wpf_popup_verifies_parent_result() {
+    verify_tree_and_menu(true);
+}
+
+#[cfg(all(windows, feature = "desktop-control"))]
+fn verify_tree_and_menu(wpf: bool) {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Command, Stdio};
+    struct Fixture(Child);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let fixture = Fixture(
+        Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-STA",
+                "-Command",
+                include_str!("windows/menu_fixture.ps1"),
+            ])
+            .creation_flags(0x08000000)
+            .env("NEXA_FIXTURE_WPF_MENU", if wpf { "1" } else { "0" })
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(16);
+    let options = CaptureOptions {
+        include_elements: true,
+        max_elements: 80,
+        mode: CaptureMode::Raw,
+        text_context: None,
+    };
+    let (parent, other, first) = loop {
+        let windows = platform::list_windows().unwrap();
+        let find = |title| {
+            windows
+                .iter()
+                .find(|w| w.pid == fixture.0.id() && w.title == title)
+        };
+        if let (Some(parent), Some(other)) = (
+            find("Nexa owned menu fixture"),
+            find("Nexa unrelated menu fixture"),
+        ) {
+            if let Ok(first) = platform::capture_window(parent, options) {
+                if first.elements.iter().any(|e| {
+                    e.state.expand_collapse_state == Some("collapsed")
+                        && e.actions.iter().any(|a| a == "expand")
+                }) {
+                    break (parent.clone(), other.clone(), first);
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "Tree not observed: {:?}",
+                    first.elements
+                );
+            }
+        }
+        assert!(Instant::now() < deadline, "Fixture did not appear");
+        std::thread::sleep(Duration::from_millis(80));
+    };
+    let db = crate::db::Database::open_memory().unwrap();
+    let activities = crate::activity::ActivityRuntime::with_database(db.clone()).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let first_id = remember_capture(None, &first).unwrap();
+    let mut view = capture_data(&first_id, &first);
+    let run = |view: &serde_json::Value, action: &str, name: &str, expected: Option<&str>| {
+        let item = view["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| name == "Folder" || e.get("menuImage").is_some() || name == "Open commands")
+            .find(|e| {
+                if name == "Folder" {
+                    e["actions"]
+                        .as_array()
+                        .is_some_and(|a| a.iter().any(|v| v == "expand"))
+                        && e["role"] != "menu_item"
+                } else {
+                    e["name"] == name
+                }
+            })
+            .expect(name);
+        let args = serde_json::json!({"action":action, "window_id":parent.id, "observation_id":view["observationId"], "element_id":item["id"], "expected_window_title":expected}).to_string();
+        let call = uuid::Uuid::new_v4().to_string();
+        let result = runtime
+            .block_on(
+                ComputerControlTool.execute(
+                    crate::tools::ToolExecutionContext::new(&call, &args, &db, &[])
+                        .with_activity_runtime(&activities),
+                ),
+            )
+            .unwrap();
+        assert!(
+            !result.is_error,
+            "{action} on {name}: {} {:?}",
+            result.content, result.artifacts
+        );
+        let output = result.output_channels();
+        (output.data.unwrap(), output.attachments.len())
+    };
+    for (action, state, delivered) in [
+        ("expand", "expanded", true),
+        ("expand", "expanded", false),
+        ("collapse", "collapsed", true),
+    ] {
+        let (data, _) = run(&view, action, "Folder", None);
+        assert_eq!(data["interaction"]["condition"], "matched");
+        assert_eq!(data["inputDelivered"], delivered);
+        view = data["observation"].clone();
+        assert!(view["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["role"] != "menu_item" && e["state"]["expandCollapseState"] == state));
+    }
+    let (opened, attachments) = run(&view, "click", "Open commands", None);
+    view = opened["observation"].clone();
+    assert_eq!(attachments, 2, "parent and menu screenshots: {view}");
+    let frame = &view["menuImages"][0];
+    assert!(
+        frame["screenBounds"]["x"].as_i64().unwrap()
+            + frame["screenBounds"]["width"].as_i64().unwrap()
+            > i64::from(parent.x) + i64::from(parent.width)
+    );
+    let item = view["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"] == "Apply choice")
+        .unwrap();
+    assert_eq!(item["menuImage"], frame["image"]);
+    assert!(platform::capture_window(&other, options)
+        .unwrap()
+        .menu_images
+        .is_empty());
+    let (applied, attachments) = run(
+        &view,
+        "click",
+        "Apply choice",
+        Some("Nexa menu choice applied"),
+    );
+    assert_eq!(applied["route"], "menu_item_click");
+    assert_eq!(applied["interaction"]["condition"], "matched");
+    assert_eq!(
+        applied["observation"]["window"]["title"],
+        "Nexa menu choice applied"
+    );
+    assert_eq!(attachments, 1);
+    if !wpf {
+        let (opened, _) = run(&applied["observation"], "click", "Open commands", None);
+        let (dismissed, images) = run(
+            &opened["observation"],
+            "click",
+            "Keep editing",
+            Some("Different document"),
+        );
+        assert_eq!(images, 1);
+        assert_eq!(dismissed["inputDelivered"], true);
+        assert_eq!(dismissed["interaction"]["condition"], "pending");
+    }
+}
+
 #[test]
 fn control_actions_always_require_confirmation() {
     let tool = ComputerControlTool;
@@ -1244,6 +1426,8 @@ fn control_actions_always_require_confirmation() {
         "type_text",
         "key",
         "invoke",
+        "expand",
+        "collapse",
         "set_value",
     ] {
         assert!(tool.requires_confirmation(&serde_json::json!({
@@ -2256,6 +2440,7 @@ fn windows_control_smoke(
             max_elements: Some(120),
             capture_mode: Some("som".to_string()),
             wait_for_previous: None,
+            expected_window_title: None,
         };
         validate_control_args(&args, initial_action).map_err(|error| error.to_string())?;
         let commit_tracker = ControlCommitTracker::default();

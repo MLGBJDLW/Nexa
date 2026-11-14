@@ -69,6 +69,23 @@ read. The 30-minute retention limit is checked on lookup and claim.
 
 ## Coordinates and recovery
 
+Windows `expand` and `collapse` target one observed element that advertises the
+requested action. Both read back the state from the same UI Automation provider.
+A control already in the requested state returns a matched condition without
+sending input. [Microsoft ExpandCollapsePattern](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nn-uiautomationclient-iuiautomationexpandcollapsepattern)
+
+A semantic observation returns the parent screenshot and separate images of
+its open Win32 menus and owned popups whose accessibility provider identifies
+them as menus, including WPF context menus. Each `menuImages` entry identifies its attachment,
+physical screen bounds and image dimensions. Menu item bounds are local to
+their `menuImage`. Use the current parent token and the item's `element_id` to
+click. Input checks the active menu owner, popup identity, current command and
+position, and the window and item under the click point. A click can request
+`expected_window_title` to verify an exact parent title in the resulting capture.
+Menu dismissal and other visual changes are reported independently of that condition.
+Pixel-only paired screen sharing keeps the granted window's frame.
+[Windows menu ownership](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-guithreadinfo)
+
 Window screenshots and UI Automation use physical pixels. Native workers enter
 a scoped per-monitor DPI context and restore the previous context on exit. The
 window snapshot uses the compositor's visible frame bounds; `GetWindowRect` can

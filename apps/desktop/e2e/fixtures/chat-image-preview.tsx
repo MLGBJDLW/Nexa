@@ -31,7 +31,10 @@ const receipt = { artifacts: { kind: 'computerObservation' }, data: { screenshot
 const completed: ToolRunItem = { callId: 'capture', toolName: 'computer_observe', status: 'completed', arguments: '{"action":"capture_window"}', content: 'Observed Editor.', artifacts: receipt,
   owner: { id: 'desktop', name: 'Desktop', capability: 'capture', description: 'Capture window' }, renderKind: 'generic',
   capabilities: { inputStreaming: 'none', renderKind: 'generic', readOnly: true, destructive: false, concurrencySafe: true, interruptBehavior: 'block', resourceKeys: [] } };
-const visual = { kind: 'toolVisualEvidence', persistence: 'currentTurnOnly', evidence: { name: 'Editor screenshot', mimeType: 'image/png', base64: pixels, contentHash: 'capture-hash' } };
+const visual = { kind: 'toolVisualEvidence', persistence: 'currentTurnOnly', evidence: { name: 'Editor screenshot', mimeType: 'image/png', base64: pixels, contentHash: 'capture-hash' },
+  additionalImages: new URLSearchParams(location.search).has('menu')
+    ? [{ name: 'menu-1.png', mimeType: 'image/png', base64: pixels, contentHash: 'menu-hash' }] : [],
+};
 
 function Fixture() {
   const [state, setState] = useState(() => {

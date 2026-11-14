@@ -45,7 +45,7 @@ import { Button } from '../ui/Button';
 import { Tooltip } from '../ui/Tooltip';
 import { ImagePreview } from '../ui/ImagePreview';
 import { ImageGenerationActivity } from './ImageGenerationActivity';
-import { extractToolVisualEvidence, type ToolVisualEvidence } from '../../lib/toolVisualEvidence';
+import { extractAdditionalToolImages, extractToolVisualEvidence, type ToolVisualEvidence } from '../../lib/toolVisualEvidence';
 import { extractManagedProcess } from '../../lib/processArtifacts';
 import { ManagedProcessCard } from './ManagedProcessCard';
 import { extractMcpResult } from '../../lib/mcpResult';
@@ -981,7 +981,15 @@ function extensionForMediaType(mediaType?: string): string {
   return 'png';
 }
 
-function ToolVisualEvidencePreview({
+function ToolVisualEvidencePreview({ evidence, additionalImages, label, compact }: {
+  evidence: ToolVisualEvidence; additionalImages: ToolVisualEvidence[]; label: string; compact?: boolean;
+}) {
+  return <>{[evidence, ...additionalImages].map(image => (
+    <ToolEvidenceImage key={image.name} evidence={image} label={label} compact={compact} />
+  ))}</>;
+}
+
+function ToolEvidenceImage({
   evidence,
   label,
   compact = false,
@@ -1575,6 +1583,7 @@ export const ToolCallCard = memo(function ToolCallCard({
   const trustBoundary = useMemo(() => extractTrustBoundary(artifacts), [artifacts]);
   const generatedImage = useMemo(() => extractGeneratedImageArtifact(artifacts), [artifacts]);
   const generatedAudio = useMemo(() => extractGeneratedAudioArtifact(artifacts), [artifacts]);
+  const additionalImages = useMemo(() => extractAdditionalToolImages(artifacts), [artifacts]);
   const visualEvidence = useMemo(() => extractToolVisualEvidence(artifacts), [artifacts]);
   const managedProcess = useMemo(() => extractManagedProcess(safeToolName, artifacts, activityEvents), [safeToolName, artifacts, activityEvents]);
   const graphUsage = useMemo(() => extractGraphAgentUsage(artifacts), [artifacts]);
@@ -1852,7 +1861,7 @@ export const ToolCallCard = memo(function ToolCallCard({
                   <McpResultView result={mcpResult} />
                 ) : visualEvidence ? (
                   <ToolVisualEvidencePreview
-                    evidence={visualEvidence}
+                    additionalImages={additionalImages} evidence={visualEvidence}
                     label={briefLabel}
                     compact
                   />
@@ -2025,7 +2034,7 @@ export const ToolCallCard = memo(function ToolCallCard({
                 ) : mcpResult ? (
                   <McpResultView result={mcpResult} />
                 ) : visualEvidence ? (
-                  <ToolVisualEvidencePreview evidence={visualEvidence} label={briefLabel} compact />
+                  <ToolVisualEvidencePreview additionalImages={additionalImages} evidence={visualEvidence} label={briefLabel} compact />
                 ) : generatedImage ? (
                   <GeneratedImagePreview image={generatedImage} compact />
                 ) : showImagePendingPreview ? (
@@ -2411,7 +2420,7 @@ export const ToolCallCard = memo(function ToolCallCard({
               ) : mcpResult ? (
                 <McpResultView result={mcpResult} />
               ) : visualEvidence ? (
-                <ToolVisualEvidencePreview evidence={visualEvidence} label={briefLabel} />
+                <ToolVisualEvidencePreview additionalImages={additionalImages} evidence={visualEvidence} label={briefLabel} />
               ) : generatedImage ? (
                 <GeneratedImagePreview image={generatedImage} />
               ) : showImagePendingPreview ? (
