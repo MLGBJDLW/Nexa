@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 const read = name => JSON.parse(readFileSync(new URL(`../../../shared/${name}.json`, import.meta.url), 'utf8'));
@@ -328,4 +329,19 @@ test('HeyGen Decisions routes remain opt-in and upcoming router retirements reta
     assert.equal(entry.deprecationDate, '2026-11-15');
     assert.equal(entry.replacementModelId, undefined);
   }
+});
+
+test('November 14 SiliconFlow tombstones do not recommend a retired target', () => {
+  for (const id of ['Pro/zai-org/GLM-5', 'Pro/zai-org/GLM-4.7']) {
+    const entry = model('siliconflow', id);
+    assert.equal(entry.status, 'removed');
+    assert.equal(entry.deprecationDate, '2026-06-11');
+    assert.equal(entry.replacementModelId, undefined);
+    assert.equal(entry.recommended, false);
+  }
+  assert.equal(model('siliconflow', 'Pro/zai-org/GLM-5.1').status, 'removed');
+  for (const id of ['mistral-medium-2508', 'devstral-2512', 'magistral-medium-2509']) {
+    assert.equal(model('mistral', id).replacementModelId, 'mistral-medium-3-5');
+  }
+  assert.equal(model('mistral', 'mistral-medium-3-5').status, 'deprecated');
 });
