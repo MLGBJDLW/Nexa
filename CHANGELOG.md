@@ -7,6 +7,16 @@
 
 * **computer-use:** improve cross-platform observation and verified input ([#557](https://github.com/MLGBJDLW/Nexa/issues/557)) ([43ca435](https://github.com/MLGBJDLW/Nexa/commit/43ca4359d5bd242bedd5cd35f86acf012aaf0f3a))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 43ca4359d5bd242bedd5cd35f86acf012aaf0f3a -->
+
+### What's Changed
+* feat(computer-use): improve cross-platform observation and verified input by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/557
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.9...nexa-monorepo-v0.19.10
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.8...nexa-monorepo-v0.19.9) (2026-11-14)
 
 
