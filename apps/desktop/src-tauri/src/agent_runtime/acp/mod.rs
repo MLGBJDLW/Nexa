@@ -751,6 +751,18 @@ async fn drive(
                     }
                     continue;
                 }
+                // Requests can already be in transit when the steering cancellation
+                // reaches the peer. Do not start new effects or show stale approvals.
+                if cancelled_for_steering {
+                    let response = if method == "session/request_permission" {
+                        json!({"jsonrpc":"2.0","id":message["id"],"result":{"outcome":{"outcome":"cancelled"}}})
+                    } else {
+                        json!({"jsonrpc":"2.0","id":message["id"],"error":{"code":-32800,"message":"Prompt cancelled"}})
+                    };
+                    receipts.insert(&key, &fingerprint, &response)?;
+                    wire.write(response).await?;
+                    continue;
+                }
                 if method == "session/request_permission" {
                     if pending_services.len() >= 64 {
                         return Err(error("ACP has too many simultaneous client requests"));

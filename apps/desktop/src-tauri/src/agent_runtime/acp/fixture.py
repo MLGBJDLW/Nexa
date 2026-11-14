@@ -190,11 +190,15 @@ for line in sys.stdin:
             update({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking-私密"}})
         update({"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Native read", "kind": "read", "status": "pending"})
         emit({"id": "permission-1", "method": "session/request_permission", "params": {"sessionId": session, "toolCall": {"toolCallId": "call-1", "title": "Native read", "rawInput": {"path": "safe-fixture"}}, "options": [{"optionId": "permanent", "kind": "allow_always", "name": "Always"}, {"optionId": "once", "kind": "allow_once", "name": "Once"}, {"optionId": "deny", "kind": "reject_once", "name": "Deny"}]}})
+    elif message.get("id") == "late-steering-permission":
+        assert message["result"]["outcome"]["outcome"] == "cancelled"
+        reply(pending, {"stopReason":"cancelled"})
     elif method == "session/cancel":
+        if mode == "steer_baseline":
+            emit({"id":"late-steering-permission", "method":"session/request_permission", "params":{"sessionId":session}})
+            continue
         if pending:
             reply(pending, {"stopReason": "cancelled"})
-        if mode == "steer_baseline":
-            continue
         sys.exit(0)
     elif message.get("id") == "permission-1":
         selected = message["result"]["outcome"].get("optionId")

@@ -81,7 +81,15 @@ pub(super) fn prompt_usage(value: &Value) -> Option<nexa_core::llm::Usage> {
     };
     let prompt = tokens("inputTokens", "input_tokens")?;
     let completion = tokens("outputTokens", "output_tokens")?;
-    let total = tokens("totalTokens", "total_tokens")?;
+    let total = if usage
+        .get("totalTokens")
+        .or_else(|| usage.get("total_tokens"))
+        .is_some()
+    {
+        tokens("totalTokens", "total_tokens")?
+    } else {
+        prompt.checked_add(completion)?
+    };
     Some(nexa_core::llm::Usage {
         prompt_tokens: prompt,
         completion_tokens: completion,
@@ -367,7 +375,7 @@ mod tests {
         assert_eq!(usage.thinking_tokens, Some(10));
         assert_eq!(usage.cache_read_tokens, Some(80));
         assert_eq!(
-            prompt_usage(&json!({"usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}))
+            prompt_usage(&json!({"usage":{"input_tokens":3,"output_tokens":4}}))
                 .unwrap()
                 .total_tokens,
             7
