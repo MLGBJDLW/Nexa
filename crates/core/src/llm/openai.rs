@@ -9259,9 +9259,20 @@ data: [DONE]
                 Some(replay),
             ),
         );
-        let input =
-            responses_input_items(&[assistant, Message::text(Role::User, "Summarize it")]).unwrap();
+        let history = [assistant, Message::text(Role::User, "Summarize it")];
+        let route = provider.route_snapshot(&request);
+        let projected =
+            super::super::reasoning_replay::prepare_provider_replay_history(&history, &route);
+        let input = responses_input_items(&projected.messages).unwrap();
         assert_eq!(&input[..2], output.as_slice());
+        request.model = "deepseek-v4-pro".into();
+        let projected = super::super::reasoning_replay::prepare_provider_replay_history(
+            &history,
+            &provider.route_snapshot(&request),
+        );
+        let input = responses_input_items(&projected.messages).unwrap();
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["content"][0]["text"], "Example.");
         let event = provider_hosted_tool_event(
             &serde_json::json!({"type":"response.output_item.done","item": web}),
             dialect,
