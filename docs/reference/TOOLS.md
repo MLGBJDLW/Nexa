@@ -1132,6 +1132,12 @@ Bash distributions. The saved profile applies to new terminals and `command`
 strings in ConfirmAll/Open mode, including `shell: "default"`. Explicit shell
 selectors override it; `program`/`args` remains exact host argv, and Restricted
 mode retains native scoped execution. Existing sessions keep their shell.
+Arguments have no application-specific per-item or aggregate byte quota. The
+selected program, interpreter and operating system still determine executable
+command-line limits. For bulk content, use `stdin` with a program that supports
+it or a script file under the workspace; arguments are never silently truncated,
+split or rewritten. OS length errors preserve their original cause and include
+recovery guidance.
 `cwd` remains a host directory; WSL receives it through `wsl --cd`, without
 assuming a `/mnt` mount layout. Missing explicit profiles fail without falling
 back. WSL commands and terminals own Linux sessions in addition to their Windows
@@ -1177,7 +1183,8 @@ shell effects remain pending in the runtime evidence audit until verified.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `program` | string | yes | Program basename; must be in the whitelist |
-| `args` | string[] | no | Argv list passed to the program (no shell expansion) |
+| `args` | string[] | no | Exact argv passed to the program; host command-line limits apply |
+| `stdin` | string | no | Optional text sent to the child process, useful for scripts and bulk content |
 | `cwd` | string | yes | Working directory (absolute or relative to a source root) |
 | `timeout_secs` | integer | no | Timeout in seconds (default 30); `0` disables the per-command timeout for intentional long installs/downloads/builds |
 
@@ -1189,7 +1196,7 @@ shell effects remain pending in the runtime evidence audit until verified.
 - Default timeout 30s; `timeout_secs: 0` disables the per-command timeout for intentional long installs/downloads/builds. The broader agent turn timeout can still stop the run unless it is also raised or disabled. Timed-out processes are killed.
 - Environment is rebuilt from scratch: secret-like vars (`*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*CREDENTIAL*`, …) are stripped; only a neutral allow-list (`PATH`, `LANG`, `HOME`, …) is forwarded.
 - `cwd` must canonicalize inside a registered source root (path sandbox).
-- No stdin is attached; interactive programs cannot prompt.
+- stdin is closed unless an explicit payload is provided; supplied text is written once and then the pipe is closed.
 - No network tunneling is provided — blocking network I/O is up to the child program.
 - Windows: child is spawned with `CREATE_NO_WINDOW` (no console flash).
 

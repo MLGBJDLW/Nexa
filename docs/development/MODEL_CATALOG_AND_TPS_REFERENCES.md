@@ -26,3 +26,11 @@ Pi's former `badlogic/pi-mono` URL redirects to `earendil-works/pi`. [DeepSeek's
 - Keep successful catalog data when a refresh fails, coalesce refreshes and bound network work. A complete authoritative empty response and an unavailable response require different handling.
 
 These decisions are an inference from the inspected sources. They do not imply that every upstream project already implements Nexa's exact TPS retention behavior.
+
+## Shell argument transport
+
+Nexa's former 8 KiB per-argument and 32 KiB aggregate checks rejected ordinary inline scripts before a process could start. These application quotas are removed; NUL, access-policy and path checks remain. Exact argv is preserved rather than silently rewriting a program to read stdin.
+
+The host owns the real limits: [CreateProcessW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw) counts a Windows command line in UTF-16 characters, [cmd.exe](https://learn.microsoft.com/en-us/troubleshoot/windows-client/shell-experience/command-line-string-limitation) has its own smaller interpreter limit, and [Linux execve](https://man7.org/linux/man-pages/man2/execve.2.html) bounds argument strings and the combined argv/environment. Genuine OS length failures retain the original error and explain stdin or script/response-file recovery when supported by the target program.
+
+[Codex's child-command wrapper](https://github.com/openai/codex/blob/main/codex-rs/utils/pty/src/child_command.rs) preserves argv and NUL validation. [Pi's bash tool](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/tools/bash.ts) uses stdin command transport only when the shell profile explicitly supports it. [Hermes's local environment](https://github.com/NousResearch/hermes-agent/blob/main/tools/environments/local.py) separates command argv from stdin data. These paths support removing a universal byte quota while preserving the caller's process semantics.
