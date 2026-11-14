@@ -652,6 +652,28 @@ test('context HUD refreshes confirmed conversation cache usage before the live t
   await expect(page.getByTestId('chat-run-cache-hit')).toHaveText('40.0%');
 });
 
+test('generation TPS remains visible between turns and through usage without timing', async ({ page }) => {
+  await page.goto('/chat/conv-e2e');
+  const speed = page.getByTestId('chat-generation-tps-summary');
+  await expect(speed).toHaveCount(0);
+  await page.getByTestId('chat-input-textarea').fill('Generate a measured response.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-stop')).toBeHidden();
+  await expect(speed).toBeVisible();
+  await expect(speed).toHaveText('70.0 tok/s');
+
+  await page.getByTestId('chat-input-textarea').fill('Effective budget, multi step, keep streaming.');
+  await page.getByTestId('chat-send').click();
+  await expect(page.getByTestId('chat-stop')).toBeVisible();
+  await expect(speed).toHaveText('70.0 tok/s');
+  await page.evaluate(() => window.dispatchEvent(new Event('nexa-e2e-cache-finish')));
+  await expect(page.getByTestId('chat-stop')).toBeHidden();
+  await expect(speed).toHaveText('70.0 tok/s');
+
+  await page.getByTestId('conversation-item-conv-empty').click();
+  await expect(speed).toHaveCount(0);
+});
+
 test('live conversation cache totals keep the aggregate prompt denominator without double counting', async ({ page }) => {
   await page.goto('/chat/conv-e2e');
   const cacheSummary = page.getByTestId('chat-run-cache-hit-summary');

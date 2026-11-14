@@ -209,7 +209,7 @@ export function ChatRunOverview({
   onConfigureContext,
 }: ChatRunOverviewProps) {
   const { t } = useTranslation();
-  const generation = generationMetrics ?? tokenUsage?.contextBreakdown?.generation;
+  const generation = generationMetrics;
   const tps = modelTokensPerSecond(generation);
   const speedHint = t(tps == null ? 'chat.generationSpeedUnavailable' : generation?.externalTurn ? 'chat.externalTurnSpeedHint' : 'chat.generationSpeedHint');
   const overviewRef = useRef<HTMLDivElement>(null);
@@ -388,7 +388,7 @@ export function ChatRunOverview({
     }
   }, []);
 
-  if (!usage && !runtimeProfile && !isStreaming && !isCompacting && !contextOverflow && !turnTiming) {
+  if (!usage && !runtimeProfile && !isStreaming && !isCompacting && !contextOverflow && !turnTiming && tps == null) {
     return null;
   }
 
@@ -447,6 +447,15 @@ export function ChatRunOverview({
           className="mr-1.5 inline-flex h-6 items-center rounded-full border border-accent/25 bg-accent/8 px-2 text-[10px] font-medium tabular-nums text-text-secondary"
         >
           {phaseLabel} · {elapsedLabel}
+        </span>
+      ) : null}
+      {tps != null ? (
+        <span
+          data-testid="chat-generation-tps-summary"
+          className="mr-1.5 inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full border border-border/60 bg-surface-1/80 px-2 text-[10px] font-semibold tabular-nums text-text-primary"
+          title={`${t(generation?.externalTurn ? 'chat.externalTurnSpeed' : 'chat.generationSpeed')}: ${speedHint}`}
+        >
+          {tps.toFixed(1)} tok/s
         </span>
       ) : null}
       {cacheStats?.hitPercent != null ? (
