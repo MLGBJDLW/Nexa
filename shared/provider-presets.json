@@ -28223,10 +28223,9 @@
         "productReadiness": "known",
         "recommended": false,
         "status": "removed",
-        "lastVerifiedAt": "2026-09-12",
+        "lastVerifiedAt": "2026-11-14",
         "deprecationDate": "2026-06-11",
-        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
-        "replacementModelId": "Pro/zai-org/GLM-5.1"
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview"
       },
       {
         "id": "Pro/zai-org/GLM-4.7",
@@ -28234,10 +28233,9 @@
         "status": "removed",
         "recommended": false,
         "source": "official",
-        "lastVerifiedAt": "2026-09-12",
+        "lastVerifiedAt": "2026-11-14",
         "deprecationDate": "2026-06-11",
-        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
-        "replacementModelId": "Pro/zai-org/GLM-5.1"
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview"
       },
       {
         "id": "deepseek-ai/DeepSeek-V3.2",
