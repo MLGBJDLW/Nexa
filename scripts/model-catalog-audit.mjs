@@ -6,6 +6,7 @@ import {
   compareCatalogInventory,
   driftDetected,
   fetchCatalogPages,
+  googleCatalogMethod,
   normalizeCatalogModel,
   normalizeGoogleCatalog,
 } from './model-catalog-audit-lib.mjs';
@@ -175,6 +176,9 @@ async function probeEndpoint(endpoint) {
   const publicPath = livePublicCatalogs ? publicCatalogPaths.get(endpoint.endpointId) : null;
   const google = endpoint.provider === 'google' && endpoint.baseUrl.includes('generativelanguage.googleapis.com');
   const anthropic = endpoint.provider === 'anthropic';
+  if (google && !googleCatalogMethod(endpoint)) {
+    return { endpointId: endpoint.endpointId, status: 'skipped', reason: 'operation_catalog_not_supported' };
+  }
   if (!endpoint.baseUrl || endpoint.baseUrl.includes('example.com')
     || (!publicPath && !google && !anthropic && (!String(endpoint.apiStyle).startsWith('openai')
       || ['vertex', 'bedrock', 'github_copilot_api', 'ollama', 'lm_studio'].includes(endpoint.provider)))) {

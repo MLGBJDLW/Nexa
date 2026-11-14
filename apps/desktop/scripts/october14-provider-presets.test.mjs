@@ -306,7 +306,7 @@ test('November 12 routed Gemini Decisions remains opt-in on the supported Decisi
   assert.equal(router.models[0].id, 'nace-ai/drex-max-finance');
   assert.equal(model.recommended, false);
   assert.equal(model.contextTokens, 262144);
-  assert.deepEqual(model.inputModalities, ['text', 'image']);
+  assert.deepEqual(model.inputModalities, ['text', 'image', 'audio', 'video', 'file']);
   assert.deepEqual(model.outputModalities, ['decisions']);
   assert.equal(decisions.some(row => row.id === 'google'), false, 'native Google needs a separate wire adapter');
   assert.equal(providers.some(row => row.models?.some(model => model.id === 'google/gemini-decision-1')), false);

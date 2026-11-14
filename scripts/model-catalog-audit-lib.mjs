@@ -150,9 +150,16 @@ export function normalizeDiscoveredModel(endpointId, model) {
 }
 
 /** Gemini model-list methods identify the operation, not just the vendor. */
+export function googleCatalogMethod(endpoint) {
+  return { text: 'generateContent', embedding: 'embedContent' }[endpoint.endpointId.split(':')[0]] ?? null;
+}
+
 export function normalizeGoogleCatalog(endpoint, rows) {
   const surface = endpoint.endpointId.split(':')[0];
-  const method = surface === 'embedding' ? 'embedContent' : 'generateContent';
+  const method = googleCatalogMethod(endpoint);
+  // generateContent alone is not authoritative evidence of image or speech
+  // output. Those operation catalogs require their own discovery contract.
+  if (!method) return null;
   return rows.filter(model => stringArray(model.supportedGenerationMethods)?.includes(method))
     .map(model => ({
       ...model,

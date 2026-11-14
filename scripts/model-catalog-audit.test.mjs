@@ -3,6 +3,7 @@ import {
   compareEndpointModels,
   compareCatalogInventory,
   fetchCatalogPages,
+  googleCatalogMethod,
   driftDetected,
   normalizeCatalogModel,
   normalizeDiscoveredModel,
@@ -121,7 +122,12 @@ assert.deepEqual(compareCatalogInventory({ endpointId: 'embedding:google-gemini'
 const googleChat = normalizeGoogleCatalog({ endpointId: 'text:google' }, googleRows);
 assert.deepEqual(googleChat.map(model => model.id), ['gemini-chat']);
 assert.equal(googleChat[0].top_provider.max_completion_tokens, 65536);
-assert.deepEqual(normalizeGoogleCatalog({ endpointId: 'image:google-gemini' }, googleRows).map(model => model.id), ['gemini-chat']);
+for (const surface of ['image', 'speech_to_text', 'text_to_speech']) {
+  const endpoint = { endpointId: `${surface}:google-gemini` };
+  assert.equal(googleCatalogMethod(endpoint), null);
+  assert.equal(normalizeGoogleCatalog(endpoint, googleRows), null,
+    'text model listings do not assert image or speech model support');
+}
 const retiredOnly = compareCatalogInventory({ ...router, models: [{ ...router.models[0], lifecycle: 'removed' }] }, []);
 assert.equal(driftDetected(retiredOnly), false, 'existing tombstones are not repeated missing-model alerts');
 const denseEmbeddings = compareCatalogInventory({ endpointId: 'embedding:jina', models: [{

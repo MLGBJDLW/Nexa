@@ -40,6 +40,9 @@ that endpoint's coverage row. Existing OpenAI, OpenRouter, DeepSeek and Alibaba
 variables continue working. Other OpenAI-compatible endpoints use
 `NEXA_<PRESET_ID_IN_UPPER_SNAKE_CASE>_CATALOG_API_KEY`; native Google and Anthropic
 discovery use their own authentication and pagination. No inference is requested.
+Google's model-list methods identify text generation and embedding operations;
+image and speech endpoints are explicitly unprobed because `generateContent`
+alone does not establish their output modality.
 
 For Actions, the optional `NEXA_MODEL_CATALOG_CREDENTIALS` repository secret is a
 JSON object mapping exact endpoint IDs to account credentials. For example, its
