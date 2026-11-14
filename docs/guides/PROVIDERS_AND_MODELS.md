@@ -609,9 +609,17 @@ search inside a chat request. Flash declares `deepseek_web_search` and
 `deepseek_read_url` on the Responses API. DeepSeek runs the operations on its
 servers and includes their results in the model context, the same execution
 model its chat demo uses through the Messages API. V4 Pro accepts the distinct
-Responses tool `web_search`. [DeepSeek chat demo](https://github.com/deepseek-ai/chat-demo),
+Responses tool `web_search`. [DeepSeek chat demo streaming client](https://github.com/deepseek-ai/chat-demo/blob/5d5dd754ebc1948e977ddb880a9eb5aa25f37b4c/src/services/api/client.ts#L141-L179),
 [Web Tools](https://api-docs.deepseek.com/guides/web_tools/) and
 [Responses tool compatibility](https://api-docs.deepseek.com/guides/responses_api/).
+
+The demo streams search and page-read results as typed blocks on the same
+request. DeepSeek Harness also supports a standalone retrieval path. It
+deduplicates queries within a batch, starts their searches concurrently and
+collects individual outcomes. These are separate sources of responsiveness.
+[Demo stream events](https://github.com/deepseek-ai/chat-demo/blob/5d5dd754ebc1948e977ddb880a9eb5aa25f37b4c/src/services/api/parseEvent.ts#L52-L138),
+[Harness query handling](https://github.com/deepseek-ai/deepseek-harness/blob/39163dd30f703a79079e2d2446545cff3c453738/packages/web/tool-web/src/search.ts#L48-L62),
+[Harness batch dispatch](https://github.com/deepseek-ai/deepseek-harness/blob/39163dd30f703a79079e2d2446545cff3c453738/packages/web/tool-web/src/search.ts#L253-L290).
 
 SiliconFlow's retired `diffusiongemma` decision route is no longer selectable;
 saved selections produce a migration error instead of silently choosing a
