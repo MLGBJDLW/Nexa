@@ -17,10 +17,14 @@ control, application-launch and Browser Workspace receipts appear in one
 expandable chat record, using the same screenshot presenter and interaction
 receipt states. Only a verified requested condition gets a green success state;
 input delivery, observed change and uncertain results remain distinct.
-The two executable contracts remain `computer_observe` and `computer_control`:
-read-only observation and input keep distinct permission boundaries while sharing
-the observation store, input arbiter, action journal and completion checks. There
-is no third computer-use executor or duplicate set of model-facing aliases.
+The built-in [Computer Use skill](../../crates/core/assets/skills/computer-use/SKILL.md)
+uses the model-facing `computer_use` tool for window and browser targets.
+Windows observation and input route to `computer_observe` and `computer_control`.
+They keep distinct permission boundaries while sharing the observation store,
+input arbiter, action journal and completion checks. The semantic observation
+reports when the UI Automation scan or output limit truncated the controls list.
+A raw pixel-only wait returns the frame that satisfied the wait. Requests for
+accessibility elements or annotations acquire and verify an enriched frame.
 
 Observation includes Nexa's own top-level windows. Such snapshots carry
 `observationOnly: true`; fresh native identity checks continue to reject control

@@ -26,6 +26,20 @@ pub(crate) fn normalize_text(text: &str) -> String {
 
 fn token_aliases(token: &str) -> &'static [&'static str] {
     match token {
+        _ if [
+            "操作桌面",
+            "操控桌面",
+            "点击窗口",
+            "操作窗口",
+            "点击控件",
+            "操控浏览器",
+            "操作浏览器",
+        ]
+        .iter()
+        .any(|phrase| token.contains(phrase)) =>
+        {
+            &["computer", "window", "controls"]
+        }
         "debug" | "diagnose" | "diagnostics" | "troubleshoot" | "failure" | "error" | "broken"
         | "regression" => &[
             "diagnose",
