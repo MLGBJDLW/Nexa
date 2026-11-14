@@ -6,8 +6,7 @@ use super::super::path_utils::{resolve_path_from_base_in_sources, PathKind};
 use super::super::run_shell_contract::{
     command_args_mix_error, command_program_mix_error, program_not_allowed_message,
     shell_mix_error, shell_restricted_error, FORBIDDEN_ARG_SUBSTRINGS, GIT_FORBIDDEN_TOKENS,
-    GIT_READONLY_SUBCOMMANDS, MAX_SINGLE_ARG_BYTES, MAX_STDIN_BYTES, MAX_TOTAL_ARGV_BYTES,
-    PROGRAM_ALIASES, PROGRAM_WHITELIST,
+    GIT_READONLY_SUBCOMMANDS, MAX_STDIN_BYTES, PROGRAM_ALIASES, PROGRAM_WHITELIST,
 };
 use super::parser::{split_simple_command_string, RunShellArgs};
 use super::shell_adapter::{parse_shell_selector, shell_invocation, CommandShell};
@@ -205,24 +204,12 @@ pub(super) fn validate_args(
     program: &str,
     args: &[String],
 ) -> Result<(), String> {
-    let mut total = 0usize;
     for (i, arg) in args.iter().enumerate() {
-        if arg.len() > MAX_SINGLE_ARG_BYTES {
-            return Err(format!(
-                "argument #{i} exceeds {MAX_SINGLE_ARG_BYTES} bytes"
-            ));
-        }
         for forbidden in FORBIDDEN_ARG_SUBSTRINGS {
             if arg.contains(forbidden) {
                 return Err(format!("argument #{i} contains forbidden byte sequence"));
             }
         }
-        total = total.saturating_add(arg.len());
-    }
-    if total > MAX_TOTAL_ARGV_BYTES {
-        return Err(format!(
-            "total argv size ({total} bytes) exceeds {MAX_TOTAL_ARGV_BYTES}"
-        ));
     }
 
     if !mode.is_restricted() {

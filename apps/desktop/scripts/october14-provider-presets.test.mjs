@@ -28,6 +28,49 @@ test('November 6 routes retain endpoint capabilities and remove unavailable Mini
   assert.equal(decisions.some(row => row.id === 'cloudflare/clairic'), false, 'extraction-only routes cannot use the Decisions wire contract');
 });
 
+test('aggregators keep complete routed metadata and independent regional model access', () => {
+  for (const [id, efforts] of [
+    ['google/gemini-4-carbon', ['low', 'medium', 'high']],
+    ['google/gemini-4-hydrogen', ['low', 'medium', 'high', 'xhigh']],
+  ]) {
+    const entry = model('openrouter', id);
+    assert.equal(entry.capabilities.reasoning.mode, 'always');
+    assert.deepEqual(entry.capabilities.reasoning.effortLevels, efforts);
+    assert.equal(entry.supportsTools, true);
+    assert.equal(entry.contextTokens, 1_048_576);
+  }
+  const siliconflow = providers.find(item => item.id === 'siliconflow');
+  for (const id of ['Qwen/Qwen3.5-4B', 'Qwen/Qwen3-VL-32B-Instruct', 'deepseek-ai/DeepSeek-V4.1-Flash', 'zai-org/GLM-5.3-Flash']) {
+    const entry = siliconflow.models.find(item => item.id === id);
+    assert.ok(entry, `${id} must be available on its hosted endpoint`);
+    assert.equal(entry.supportsTools, true);
+    assert.equal(entry.capabilities.reasoning, null, 'a hosted model must not inherit native reasoning controls without hosted evidence');
+  }
+  assert.equal(model('siliconflow', 'Qwen/Qwen3-Coder-30B-A3B-Instruct').status, 'deprecated');
+  assert.equal(model('siliconflow', 'Qwen/Qwen3-Coder-30B-A3B-Instruct').deprecationDate, '2026-11-16');
+  for (const provider of ['qwen-token-plan-cn', 'qwen-token-plan-global']) {
+    const entry = model(provider, 'qwen4-max-preview');
+    assert.deepEqual(entry.capabilities.reasoning.effortLevels, ['low', 'medium', 'xhigh']);
+    assert.equal(entry.maxOutputTokens, 393_216);
+    assert.equal(entry.status, 'preview');
+  }
+  for (const provider of ['alibaba-model-studio', 'qwen-cloud-intl']) {
+    assert.equal(providers.find(item => item.id === provider).models.some(item => item.id === 'qwen4-max-preview'), false);
+  }
+  for (const [id, context, output] of [
+    ['deepseek-v4-pro-0813', 1_000_000, 393_216],
+    ['ZHIPU/GLM-5.3', 1_048_576, 131_072],
+    ['ZHIPU/GLM-5.2', 1_048_576, 131_072],
+    ['kimi/kimi-k3', 1_048_576, 1_048_576],
+  ]) {
+    const entry = model('qwen-cloud-intl', id);
+    assert.equal(entry.contextTokens, context, `${id} uses the exact Singapore specification rather than rounded 1M prose`);
+    assert.equal(entry.maxOutputTokens, output);
+    assert.equal(entry.capabilities.reasoning, null, 'numeric limits do not establish native reasoning controls');
+    assert.deepEqual(entry.regions, ['ap-southeast-1']);
+  }
+});
+
 test('October 29 catalog keeps Particle capabilities and retires unavailable free decision routes without remapping them', () => {
   const particle = model('openrouter', 'particle-ai/particle-1');
   assert.equal(particle.contextTokens, 1_048_576);
@@ -162,7 +205,9 @@ test('new native model IDs carry endpoint-specific limits and reasoning defaults
   assert.equal(qwen4.maxOutputTokens, 393_216);
   assert.equal(qwen4.capabilities.reasoning.defaultEffort, 'xhigh');
   assert.equal(qwen4.deprecationDate, '2026-11-26');
-  assert.ok(!read('provider-presets').find(row => row.id === 'qwen-token-plan-global').models.some(row => row.id === 'qwen4-max-preview'));
+  const globalQwen4 = model('qwen-token-plan-global', 'qwen4-max-preview');
+  assert.deepEqual(globalQwen4.regions, ['ap-southeast-1']);
+  assert.deepEqual(globalQwen4.capabilities.reasoning.effortLevels, ['low', 'medium', 'xhigh']);
   const carbon = model('google', 'gemini-4-carbon');
   assert.equal(carbon.maxOutputTokens, 65_536);
   assert.equal(carbon.capabilities.reasoning.defaultEffort, 'medium');
@@ -273,7 +318,7 @@ test('November 12 routed Gemini Decisions remains opt-in on the supported Decisi
   assert.equal(router.models[0].id, 'nace-ai/drex-max-finance');
   assert.equal(model.recommended, false);
   assert.equal(model.contextTokens, 262144);
-  assert.deepEqual(model.inputModalities, ['text', 'image']);
+  assert.deepEqual(model.inputModalities, ['text', 'image', 'audio', 'video', 'file']);
   assert.deepEqual(model.outputModalities, ['decisions']);
   assert.equal(decisions.some(row => row.id === 'google'), false, 'native Google needs a separate wire adapter');
   assert.equal(providers.some(row => row.models?.some(model => model.id === 'google/gemini-decision-1')), false);

@@ -13,7 +13,7 @@ test.use({
     ],
   },
 });
-async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) {
+async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0, deferConnections = false) {
   let lan = true;
   let away = true;
   let socket: WebSocketRoute | null = null;
@@ -46,6 +46,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
   const runEvents: any[] = [];
   let eventSequence = 0;
   let runStatus = 'running';
+  const connectionReplies: Array<() => void> = [];
   let finalAnswer: string | null = null;
   let resumeCalls = 0;
   let currentRunId = "run-1";
@@ -164,6 +165,7 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
           ] };
           break;
         case "connections.list":
+          if (deferConnections) await new Promise<void>(resolve => connectionReplies.push(resolve));
           value = [
             { id: "qwen", name: "Qwen", model: "qwen-vl", isDefault: true },
           ];
@@ -386,6 +388,8 @@ async function fixture(page: Page, publicProbeDelayMs = 0, audioAckDelayMs = 0) 
       );
   };
   return {
+    pendingConnections: () => connectionReplies.length,
+    releaseConnections: () => { deferConnections = false; connectionReplies.splice(0).forEach(resolve => resolve()); },
     backupRoute: () => { manifest.endpoints.push({url:'https://nexa-backup.test',kind:'tunnel'}); },
     audioDelay: (delay: number) => { audioAckDelayMs = delay; },
     skipEphemeral: () => { eventSequence++; },
@@ -515,6 +519,47 @@ test("QR pairs once and retries an uncertain chat launch with the same ID after 
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+});
+
+test('phone restores generation TPS after the resumed run precedes its connection catalog', async ({ page }) => {
+  const app = await fixture(page, 0, 0, true);
+  await page.addInitScript(() => localStorage.setItem('nexa.remote.chat.desktop-1', 'chat-1'));
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await expect.poll(() => app.pendingConnections()).toBeGreaterThan(0);
+  app.emit('outputDelta', { blockId: 'early', channel: 'answer', offset: 0, delta: 'Resumed before catalog' });
+  await expect(page.getByText('Resumed before catalog', { exact:true })).toBeVisible();
+  app.releaseConnections();
+  await expect(page.getByLabel('Model connection', { exact:true })).toBeVisible();
+  app.emit('usageUpdated', { contextBreakdown: { generation: { outputTokens: 140, requestDurationMs: 2000 } } });
+  await expect(page.getByTestId('chat-generation-tps-summary')).toHaveText('70.0 tok/s');
+});
+
+test('phone retains generation TPS through missing timing, idle and a new run', async ({ page }) => {
+  const app = await fixture(page);
+  await page.goto('/phone.html#pair=123456&server=desktop-1');
+  await selectControl(page.getByLabel('Conversation', { exact: true }), 'chat-1');
+  const speed = page.getByTestId('chat-generation-tps-summary');
+  app.emit('usageUpdated', { contextBreakdown: { generation: { outputTokens: 140, requestDurationMs: 2000 } } });
+  await expect(speed).toContainText('70.0 tok/s');
+  app.emit('usageUpdated', { usageTotal: { completionTokens: 140 } });
+  await expect(speed).toContainText('70.0 tok/s');
+  app.finishRun('Completed response', true);
+  await expect(page.getByTestId('remote-run-status')).toContainText('Completed');
+  await expect(speed).toContainText('70.0 tok/s');
+  app.nextRun();
+  app.emit('usageUpdated', { usageTotal: { completionTokens: 0 } });
+  await expect(page.getByTestId('remote-run-status')).not.toContainText('Completed');
+  await expect(speed).toContainText('70.0 tok/s');
+  app.emit('usageUpdated', { contextBreakdown: { generation: { outputTokens: 240, requestDurationMs: 2000, externalTurn: true } } });
+  await expect(speed).toContainText('120.0 tok/s');
+  await expect(speed).toHaveAttribute('title', /Agent turn throughput/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await selectControl(page.getByLabel('Model connection', { exact:true }), 'qwen-plus');
+  await expect(speed).toHaveCount(0);
+  app.emit('usageUpdated', { contextBreakdown: { generation: { outputTokens: 300, requestDurationMs: 2000 } } });
+  app.finishRun('Old model completed', true);
+  await expect(page.getByTestId('remote-run-status')).toContainText('Completed');
+  await expect(speed).toHaveCount(0);
 });
 
 test("phone resumes the latest desktop run after missing its launch while offline", async ({

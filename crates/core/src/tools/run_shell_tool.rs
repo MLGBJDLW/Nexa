@@ -79,9 +79,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
-use super::run_shell_contract::{
-    DEFAULT_TIMEOUT_SECS, MAX_OUTPUT_BYTES, MAX_SINGLE_ARG_BYTES, MAX_STDIN_BYTES,
-};
+use super::run_shell_contract::{DEFAULT_TIMEOUT_SECS, MAX_OUTPUT_BYTES, MAX_STDIN_BYTES};
 #[cfg(test)]
 use super::Tool;
 #[cfg(test)]
@@ -106,7 +104,7 @@ use serde_json::json;
 #[cfg(test)]
 use shell_adapter::{
     build_env_from, bytes_to_clamped_string, clamp_timeout, execute_inner, format_output,
-    resolve_program, RunShellOutput,
+    resolve_program, spawn_error_message, RunShellOutput,
 };
 #[cfg(test)]
 use tool_impl::{

@@ -6,6 +6,29 @@ export function modelTokensPerSecond(metrics: ContextUsageBreakdown['generation'
   return metrics.outputTokens * 1000 / metrics.requestDurationMs;
 }
 
+type GenerationMetrics = ContextUsageBreakdown['generation'];
+export interface GenerationSample {
+  scope: string;
+  observed: GenerationMetrics;
+  metrics: GenerationMetrics;
+}
+
+/** One latest measurement, scoped to the conversation and selected model route. */
+export function retainGenerationSample(
+  previous: GenerationSample | null,
+  scope: string,
+  observed: GenerationMetrics,
+): GenerationSample {
+  if (previous?.scope === scope && previous.observed === observed) return previous;
+  // A route change can leave the previous usage snapshot mounted. Do not
+  // relabel that measurement as belonging to the newly selected model.
+  const fresh = previous?.scope === scope || previous?.observed !== observed;
+  const metrics = fresh && modelTokensPerSecond(observed) != null
+    ? observed
+    : previous?.scope === scope ? previous.metrics : undefined;
+  return { scope, observed, metrics };
+}
+
 interface UsageInput {
   promptTokens: number;
   contextWindow: number;

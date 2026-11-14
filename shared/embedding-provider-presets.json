@@ -119,7 +119,7 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-14",
+        "lastVerifiedAt": "2026-11-14",
         "availableToCredential": null,
         "recommended": false,
         "inputModalities": [
@@ -127,6 +127,9 @@
         ],
         "outputModalities": [
           "embedding"
+        ],
+        "aliases": [
+          "jina-ai/jina-embeddings-v5-omni-small"
         ]
       },
       {
@@ -141,7 +144,7 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-10-14",
+        "lastVerifiedAt": "2026-11-14",
         "availableToCredential": null,
         "recommended": false,
         "inputModalities": [
@@ -149,6 +152,9 @@
         ],
         "outputModalities": [
           "embedding"
+        ],
+        "aliases": [
+          "jina-ai/jina-embeddings-v5-omni-nano"
         ]
       },
       {
@@ -156,30 +162,47 @@
         "name": "Jina Embeddings v5 Text Small",
         "dimensions": 1024,
         "supportsDimensionOverride": true,
-        "source": "curated",
+        "source": "official",
         "productReadiness": "known",
         "recommended": true,
-        "minDimensions": 32
+        "minDimensions": 32,
+        "aliases": [
+          "jina-ai/jina-embeddings-v5-text-small"
+        ],
+        "contextTokens": 32768,
+        "lastVerifiedAt": "2026-11-14"
       },
       {
         "id": "jina-embeddings-v5-text-nano",
         "name": "Jina Embeddings v5 Text Nano",
         "dimensions": 768,
         "supportsDimensionOverride": true,
-        "minDimensions": 32
+        "minDimensions": 32,
+        "aliases": [
+          "jina-ai/jina-embeddings-v5-text-nano"
+        ],
+        "contextTokens": 8192,
+        "source": "official",
+        "lastVerifiedAt": "2026-11-14"
       },
       {
         "id": "jina-embeddings-v3",
         "name": "Jina Embeddings v3",
         "dimensions": 1024,
         "supportsDimensionOverride": true,
-        "minDimensions": 32
+        "minDimensions": 32,
+        "aliases": [
+          "jina-ai/jina-embeddings-v3"
+        ],
+        "contextTokens": 8192,
+        "source": "official",
+        "lastVerifiedAt": "2026-11-14"
       },
       {
         "id": "jina-code-embeddings-0.5b",
         "name": "Jina AI: Jina Code Embeddings 0.5b",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -191,13 +214,16 @@
         "dimensions": 896,
         "supportsDimensionOverride": true,
         "minDimensions": 1,
-        "maxDimensions": 896
+        "maxDimensions": 896,
+        "aliases": [
+          "jina-ai/jina-code-embeddings-0.5b"
+        ]
       },
       {
         "id": "jina-code-embeddings-1.5b",
         "name": "Jina AI: Jina Code Embeddings 1.5b",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -209,13 +235,16 @@
         "dimensions": 1536,
         "supportsDimensionOverride": true,
         "minDimensions": 1,
-        "maxDimensions": 1536
+        "maxDimensions": 1536,
+        "aliases": [
+          "jina-ai/jina-code-embeddings-1.5b"
+        ]
       },
       {
         "id": "jina-embeddings-v4",
         "name": "Jina AI: Jina Embeddings v4",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -227,13 +256,16 @@
         "dimensions": 2048,
         "supportsDimensionOverride": true,
         "minDimensions": 1,
-        "maxDimensions": 2048
+        "maxDimensions": 2048,
+        "aliases": [
+          "jina-ai/jina-embeddings-v4"
+        ]
       },
       {
         "id": "jina-clip-v2",
         "name": "Jina AI: Jina Clip v2",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -245,13 +277,16 @@
         "dimensions": 1024,
         "supportsDimensionOverride": true,
         "minDimensions": 1,
-        "maxDimensions": 1024
+        "maxDimensions": 1024,
+        "aliases": [
+          "jina-ai/jina-clip-v2"
+        ]
       },
       {
         "id": "jina-clip-v1",
         "name": "Jina AI: Jina Clip v1",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -261,13 +296,16 @@
         ],
         "contextTokens": 8192,
         "dimensions": 768,
-        "supportsDimensionOverride": false
+        "supportsDimensionOverride": false,
+        "aliases": [
+          "jina-ai/jina-clip-v1"
+        ]
       },
       {
         "id": "jina-embeddings-v2-base-es",
         "name": "Jina AI: Jina Embeddings v2 Base ES",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -277,13 +315,16 @@
         ],
         "contextTokens": 8192,
         "dimensions": 768,
-        "supportsDimensionOverride": false
+        "supportsDimensionOverride": false,
+        "aliases": [
+          "jina-ai/jina-embeddings-v2-base-es"
+        ]
       },
       {
         "id": "jina-embeddings-v2-base-code",
         "name": "Jina AI: Jina Embeddings v2 Base Code",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -293,13 +334,16 @@
         ],
         "contextTokens": 8192,
         "dimensions": 768,
-        "supportsDimensionOverride": false
+        "supportsDimensionOverride": false,
+        "aliases": [
+          "jina-ai/jina-embeddings-v2-base-code"
+        ]
       },
       {
         "id": "jina-embeddings-v2-base-de",
         "name": "Jina AI: Jina Embeddings v2 Base DE",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -309,13 +353,16 @@
         ],
         "contextTokens": 8192,
         "dimensions": 768,
-        "supportsDimensionOverride": false
+        "supportsDimensionOverride": false,
+        "aliases": [
+          "jina-ai/jina-embeddings-v2-base-de"
+        ]
       },
       {
         "id": "jina-embeddings-v2-base-zh",
         "name": "Jina AI: Jina Embeddings v2 Base ZH",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -325,13 +372,16 @@
         ],
         "contextTokens": 8192,
         "dimensions": 768,
-        "supportsDimensionOverride": false
+        "supportsDimensionOverride": false,
+        "aliases": [
+          "jina-ai/jina-embeddings-v2-base-zh"
+        ]
       },
       {
         "id": "jina-embeddings-v2-base-en",
         "name": "Jina AI: Jina Embeddings v2 Base EN",
         "source": "official",
-        "lastVerifiedAt": "2026-11-06",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://api.jina.ai/docs",
         "inputModalities": [
           "text"
@@ -341,7 +391,32 @@
         ],
         "contextTokens": 8192,
         "dimensions": 768,
-        "supportsDimensionOverride": false
+        "supportsDimensionOverride": false,
+        "aliases": [
+          "jina-ai/jina-embeddings-v2-base-en"
+        ]
+      },
+      {
+        "id": "jina-embedding-b-en-v1",
+        "name": "Jina Embedding B EN v1",
+        "dimensions": 768,
+        "contextTokens": 512,
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "legacy",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://api.jina.ai/v1/models",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ],
+        "aliases": [
+          "jina-ai/jina-embedding-b-en-v1"
+        ]
       }
     ],
     "apiStyle": "jina_embeddings",
@@ -460,6 +535,82 @@
         "source": "official",
         "productReadiness": "known",
         "lastVerifiedAt": "2026-09-26"
+      },
+      {
+        "id": "BAAI/bge-m3",
+        "name": "BGE M3",
+        "dimensions": 1024,
+        "contextTokens": 8192,
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://docs.siliconflow.cn/docs/api/embeddings-post",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "Pro/BAAI/bge-m3",
+        "name": "BGE M3 Pro",
+        "dimensions": 1024,
+        "contextTokens": 8192,
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://docs.siliconflow.cn/docs/api/embeddings-post",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "BAAI/bge-large-en-v1.5",
+        "name": "BGE Large English v1.5",
+        "dimensions": 1024,
+        "contextTokens": 512,
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://docs.siliconflow.cn/docs/api/embeddings-post",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
+      },
+      {
+        "id": "Qwen/Qwen3-VL-Embedding-8B",
+        "name": "Qwen3 VL Embedding 8B",
+        "dimensions": 4096,
+        "contextTokens": 32768,
+        "supportsDimensionOverride": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://docs.siliconflow.cn/docs/api/embeddings-post",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "embedding"
+        ]
       }
     ],
     "documentationUrl": "https://docs.siliconflow.cn/docs/api/embeddings-post"
@@ -996,7 +1147,8 @@
         "recommended": true,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26"
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 8192
       },
       {
         "id": "openai/text-embedding-3-large",
@@ -1006,7 +1158,8 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26"
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 8192
       },
       {
         "id": "qwen/qwen3-embedding-8b",
@@ -1016,7 +1169,8 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26"
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 40960
       },
       {
         "id": "liquid/lfm-2.5-embedding-350m:free",
@@ -1279,7 +1433,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/cohere/embed-5-fast",
         "dimensions": 2048,
         "effectiveInputTokens": 128000,
@@ -1297,7 +1451,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 128000
       },
       {
         "id": "cohere/embed-5-pro",
@@ -1306,7 +1461,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/cohere/embed-5-pro",
         "dimensions": 2048,
         "effectiveInputTokens": 128000,
@@ -1324,7 +1479,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 128000
       },
       {
         "id": "thenlper/gte-base",
@@ -1333,7 +1489,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/thenlper/gte-base",
         "dimensions": 768,
         "effectiveInputTokens": 512,
@@ -1343,7 +1499,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "thenlper/gte-large",
@@ -1352,7 +1509,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/thenlper/gte-large",
         "dimensions": 1024,
         "effectiveInputTokens": 512,
@@ -1362,7 +1519,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "intfloat/e5-large-v2",
@@ -1371,7 +1529,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/intfloat/e5-large-v2",
         "dimensions": 1024,
         "effectiveInputTokens": 512,
@@ -1381,7 +1539,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "intfloat/e5-base-v2",
@@ -1390,7 +1549,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/intfloat/e5-base-v2",
         "dimensions": 768,
         "effectiveInputTokens": 512,
@@ -1400,7 +1559,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "intfloat/multilingual-e5-large",
@@ -1409,7 +1569,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/intfloat/multilingual-e5-large",
         "dimensions": 1024,
         "effectiveInputTokens": 512,
@@ -1419,7 +1579,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "sentence-transformers/paraphrase-minilm-l6-v2",
@@ -1428,7 +1589,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/sentence-transformers/paraphrase-minilm-l6-v2",
         "dimensions": 384,
         "effectiveInputTokens": 128,
@@ -1438,7 +1599,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "sentence-transformers/all-minilm-l12-v2",
@@ -1447,7 +1609,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/sentence-transformers/all-minilm-l12-v2",
         "dimensions": 384,
         "effectiveInputTokens": 256,
@@ -1457,7 +1619,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "baai/bge-base-en-v1.5",
@@ -1466,7 +1629,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/baai/bge-base-en-v1.5",
         "dimensions": 768,
         "effectiveInputTokens": 512,
@@ -1476,7 +1639,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
@@ -1485,7 +1649,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/sentence-transformers/multi-qa-mpnet-base-dot-v1",
         "dimensions": 768,
         "effectiveInputTokens": 512,
@@ -1495,7 +1659,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "baai/bge-large-en-v1.5",
@@ -1504,7 +1669,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/baai/bge-large-en-v1.5",
         "dimensions": 1024,
         "effectiveInputTokens": 512,
@@ -1514,7 +1679,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "baai/bge-m3",
@@ -1523,7 +1689,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/baai/bge-m3",
         "dimensions": 1024,
         "effectiveInputTokens": 8192,
@@ -1533,7 +1699,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 8194
       },
       {
         "id": "sentence-transformers/all-mpnet-base-v2",
@@ -1542,7 +1709,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/sentence-transformers/all-mpnet-base-v2",
         "dimensions": 768,
         "effectiveInputTokens": 384,
@@ -1552,7 +1719,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "sentence-transformers/all-minilm-l6-v2",
@@ -1561,7 +1729,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/sentence-transformers/all-minilm-l6-v2",
         "dimensions": 384,
         "effectiveInputTokens": 256,
@@ -1571,7 +1739,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 512
       },
       {
         "id": "google/gemini-embedding-001",
@@ -1580,7 +1749,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/google/gemini-embedding-001",
         "dimensions": 3072,
         "effectiveInputTokens": 2048,
@@ -1590,7 +1759,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 20000
       },
       {
         "id": "openai/text-embedding-ada-002",
@@ -1599,7 +1769,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/openai/text-embedding-ada-002",
         "dimensions": 1536,
         "effectiveInputTokens": 8191,
@@ -1609,7 +1779,8 @@
         ],
         "outputModalities": [
           "embedding"
-        ]
+        ],
+        "contextTokens": 8192
       },
       {
         "id": "amazon/titan-embed-image-v1",

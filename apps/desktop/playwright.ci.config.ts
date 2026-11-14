@@ -81,6 +81,8 @@ export default defineConfig({
         "preserves multiple thinking and tool rounds",
         "wraps an unbroken live thinking token",
         "context HUD refreshes confirmed",
+        "generation TPS remains",
+        "generation TPS resets",
         "live conversation cache totals",
         "live cache refresh",
         "Git capsule",
