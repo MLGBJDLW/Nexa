@@ -86,6 +86,25 @@ were not exercised by the public audit.
 [OpenRouter inventories](https://openrouter.ai/api/v1/models), and
 [SiliconFlow lifecycle notices](https://docs.siliconflow.cn/docs/release-notes/overview).
 
+The November 14 review adds Ling 3.2 Flash (free) to Chat, Recraft V4.1 Flash V2
+and HY-World 2.1 Panorama to Images, and the paid Parallel Decisions Fast route
+to Structured decisions. The previous free Parallel route and three LFM2.5
+chat and embedding routes have no serving endpoints. Their saved IDs remain
+identifiable. The shared catalog validator also checks for replacements that
+have themselves retired. [OpenRouter model inventory](https://openrouter.ai/api/v1/models),
+[image endpoints](https://openrouter.ai/api/v1/images/models) and
+[Decisions endpoints](https://openrouter.ai/api/v1/models?endpoints=/api/alpha/decisions).
+
+Bedrock connections can select GPT-6.1 Terra in US or global profiles and
+Kimi K3.1 Pro Highspeed in US, India or global profiles. Nexa preserves prior
+tool calls while omitting reasoning blocks that Kimi's Converse endpoint rejects.
+Meta connections include Muse Spark 1.1 and 1.2 and the separately selectable
+1.2 and 1.3 Contributor variants. Meta may use content sent to a Contributor
+model for training. These variants expose thinking levels through `xhigh`.
+[AWS Terra](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-terra.html),
+[AWS Kimi](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k3-1-highspeed.html)
+and [Meta Muse Spark](https://dev.meta.ai/docs/muse-spark).
+
 ## Usage statistics
 
 Settings → AI Usage shows a daily contribution heatmap for the past 365 days.
@@ -584,6 +603,16 @@ DeepSeek Search and Fetch are configured in the existing web-search
 settings, using their own saved bearer key and the existing provider priority.
 See [DeepSeek's model contract](https://api-docs.deepseek.com/quick_start/pricing/)
 and [Search/Fetch guide](https://api-docs.deepseek.com/guides/search/).
+
+On the official DeepSeek connection, desktop and mobile can also use native
+search inside a chat request. Flash declares `deepseek_web_search` and
+`deepseek_read_url` on the Responses API. DeepSeek runs the operations on its
+servers and includes their results in the model context, the same execution
+model its chat demo uses through the Messages API. V4 Pro accepts the distinct
+Responses tool `web_search`. [DeepSeek chat demo](https://github.com/deepseek-ai/chat-demo),
+[Web Tools](https://api-docs.deepseek.com/guides/web_tools/) and
+[Responses tool compatibility](https://api-docs.deepseek.com/guides/responses_api/).
+
 SiliconFlow's retired `diffusiongemma` decision route is no longer selectable;
 saved selections produce a migration error instead of silently choosing a
 different model. Deprecation notices with a future shutdown date do not remove

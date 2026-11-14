@@ -19364,7 +19364,7 @@
       {
         "id": "liquid/lfm-2.5-2.6b:free",
         "name": "LiquidAI: LFM2.5-2.6B (free)",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19398,8 +19398,8 @@
           "top_logprobs"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-07",
-        "documentationRef": "https://openrouter.ai/liquid/lfm-2.5-2.6b:free",
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://openrouter.ai/api/v1/models/liquid/lfm-2.5-2.6b:free/endpoints",
         "maxOutputTokens": 8192,
         "capabilities": {
           "vision": false,
@@ -19417,7 +19417,7 @@
       {
         "id": "liquid/lfm-2.5-2.6b",
         "name": "LiquidAI: LFM2.5-2.6B",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -19452,8 +19452,8 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-07",
-        "documentationRef": "https://openrouter.ai/liquid/lfm-2.5-2.6b",
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://openrouter.ai/api/v1/models/liquid/lfm-2.5-2.6b/endpoints",
         "maxOutputTokens": 8192,
         "capabilities": {
           "vision": false,
@@ -23103,6 +23103,56 @@
             "effortBudgetExclusive": true
           }
         }
+      },
+      {
+        "id": "inclusionai/ling-3.2-flash:free",
+        "name": "inclusionAI: Ling 3.2 Flash (free)",
+        "status": "active",
+        "recommended": false,
+        "source": "official",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://openrouter.ai/inclusionai/ling-3.2-flash:free",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 262144,
+        "maxImages": 200,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "max_tokens",
+          "presence_penalty",
+          "reasoning",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_p"
+        ]
       }
     ]
   },
@@ -25069,6 +25119,123 @@
           "text"
         ],
         "supportsTools": true
+      },
+      {
+        "id": "global.openai.gpt-6.1-terra",
+        "name": "GPT-6.1 Terra (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-terra.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "us.openai.gpt-6.1-terra",
+        "name": "GPT-6.1 Terra (US)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-1-terra.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "global.moonshotai.kimi-k3.1",
+        "name": "Kimi K3.1 Pro Highspeed (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 1000000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k3-1-highspeed.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "us.moonshotai.kimi-k3.1",
+        "name": "Kimi K3.1 Pro Highspeed (US)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 1000000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k3-1-highspeed.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "in.moonshotai.kimi-k3.1",
+        "name": "Kimi K3.1 Pro Highspeed (India)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "contextTokens": 1000000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k3-1-highspeed.html",
+        "capabilities": {
+          "vision": true
+        }
       }
     ]
   },
@@ -25819,7 +25986,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-10-18",
+        "lastVerifiedAt": "2026-11-14",
         "releaseDate": "2026-10-17",
         "inputModalities": [
           "text",
@@ -25850,7 +26017,17 @@
             }
           }
         },
-        "documentationRef": "https://api-docs.deepseek.com/quick_start/pricing/"
+        "documentationRef": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "nativeWebSearch": {
+          "dialect": "deepSeekResponses",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        }
       },
       {
         "id": "deepseek-v4-pro",
@@ -25865,7 +26042,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-09-12",
+        "lastVerifiedAt": "2026-11-14",
         "releaseDate": "2026-08-13",
         "inputModalities": [
           "text"
@@ -25893,7 +26070,17 @@
             }
           }
         },
-        "documentationRef": "https://api-docs.deepseek.com/quick_start/pricing/"
+        "documentationRef": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "nativeWebSearch": {
+          "dialect": "deepSeekResponses",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": false,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        }
       },
       {
         "id": "deepseek-v4-flash",
@@ -26475,7 +26662,7 @@
         "access": "public",
         "productReadiness": "product_ready",
         "recommended": true,
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-14",
         "releaseDate": "2026-09-02",
         "modalities": [
           "text",
@@ -26506,10 +26693,11 @@
             ],
             "thinkingBudget": {
               "enabled": false
-            }
+            },
+            "defaultEffort": "high"
           }
         },
-        "documentationRef": "https://dev.meta.ai/docs/models/muse-spark-1.3"
+        "documentationRef": "https://dev.meta.ai/docs/muse-spark"
       },
       {
         "id": "muse-wonder-1.0",
@@ -26555,6 +26743,182 @@
           }
         },
         "documentationRef": "https://dev.meta.ai/docs/models"
+      },
+      {
+        "id": "muse-spark-1.2",
+        "name": "Muse Spark 1.2",
+        "contextTokens": 1048576,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "parallelToolCalling": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "high"
+          }
+        },
+        "documentationRef": "https://dev.meta.ai/docs/muse-spark"
+      },
+      {
+        "id": "muse-spark-1.1",
+        "name": "Muse Spark 1.1",
+        "contextTokens": 1048576,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "parallelToolCalling": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "high"
+          }
+        },
+        "documentationRef": "https://dev.meta.ai/docs/muse-spark"
+      },
+      {
+        "id": "muse-spark-1.3-contributor",
+        "name": "Muse Spark 1.3 Contributor (training data sharing)",
+        "contextTokens": 1048576,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "parallelToolCalling": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "high"
+          }
+        },
+        "documentationRef": "https://dev.meta.ai/docs/muse-spark"
+      },
+      {
+        "id": "muse-spark-1.2-contributor",
+        "name": "Muse Spark 1.2 Contributor (training data sharing)",
+        "contextTokens": 1048576,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "parallelToolCalling": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "high"
+          }
+        },
+        "documentationRef": "https://dev.meta.ai/docs/muse-spark"
       }
     ]
   },
@@ -28223,10 +28587,9 @@
         "productReadiness": "known",
         "recommended": false,
         "status": "removed",
-        "lastVerifiedAt": "2026-09-12",
+        "lastVerifiedAt": "2026-11-14",
         "deprecationDate": "2026-06-11",
-        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
-        "replacementModelId": "Pro/zai-org/GLM-5.1"
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview"
       },
       {
         "id": "Pro/zai-org/GLM-4.7",
@@ -28234,10 +28597,9 @@
         "status": "removed",
         "recommended": false,
         "source": "official",
-        "lastVerifiedAt": "2026-09-12",
+        "lastVerifiedAt": "2026-11-14",
         "deprecationDate": "2026-06-11",
-        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
-        "replacementModelId": "Pro/zai-org/GLM-5.1"
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview"
       },
       {
         "id": "deepseek-ai/DeepSeek-V3.2",
@@ -28657,6 +29019,9 @@
       {
         "id": "qwen4-max-preview",
         "name": "Qwen4 Max Preview",
+        "aliases": [
+          "qwen4.0-max-preview"
+        ],
         "tagKey": "providers.tagLatest",
         "recommended": false,
         "status": "preview",

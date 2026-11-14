@@ -12,7 +12,7 @@ use super::provider_boundary::{
     endpoint_id, is_alibaba_chat_endpoint, is_alibaba_coding_chat_endpoint,
     is_anthropic_public_endpoint, is_azure_openai_endpoint, is_deepseek_anthropic_endpoint,
     is_deepseek_public_endpoint, is_doubao_public_endpoint, is_google_public_endpoint,
-    is_meta_model_api_endpoint, is_mimo_public_endpoint, is_minimax_public_endpoint,
+    is_meta_model_api_model, is_mimo_public_endpoint, is_minimax_public_endpoint,
     is_mistral_public_endpoint, is_moonshot_public_endpoint, is_openai_public_endpoint,
     is_openrouter_public_endpoint, is_siliconflow_public_endpoint, is_xai_public_endpoint,
     is_zhipu_model_api_endpoint, provider_id,
@@ -939,12 +939,7 @@ pub fn resolve_reasoning_profile(
         return value;
     }
 
-    if is_meta_model_api_endpoint(provider, base_url)
-        && matches!(
-            model.as_str(),
-            "muse-spark-1.3" | "muse-wonder-1.0" | "muse-ember-1.0"
-        )
-    {
+    if is_meta_model_api_model(provider, base_url, &model) {
         let Some((accepted_efforts, default_effort, mandatory)) =
             catalog_reasoning_effort_policy(provider, &model)
         else {
@@ -964,8 +959,7 @@ pub fn resolve_reasoning_profile(
             ReasoningBudgetField::None,
         );
         // Meta documents `stop` as unsupported while Muse Spark reasons. The
-        // Effort choices come from the standard-tier endpoint catalog; never
-        // inherit them for a separately configured Contributor model.
+        // Contributor variants have their own accepted efforts in the catalog.
         value.omit_stop_when_reasoning = true;
         return value;
     }
@@ -1453,7 +1447,7 @@ pub fn resolve_reasoning_profile(
         }
 
         let qwen4_token_plan = token_plan
-            && model == "qwen4-max-preview"
+            && matches!(model.as_str(), "qwen4-max-preview" | "qwen4.0-max-preview")
             && find_provider_preset("qwen", base_url)
                 .is_some_and(|preset| preset.id == "qwen-token-plan-cn");
         if qwen4_token_plan
@@ -2113,6 +2107,14 @@ mod tests {
             Some("max")
         );
         assert!(meta.omit_stop_when_reasoning);
+        let contributor = resolve_reasoning_profile(
+            ProviderType::OpenAi,
+            Some("https://api.meta.ai/v1"),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            "muse-spark-1.3-contributor",
+        );
+        assert_eq!(contributor.mode_control, ThinkingModeControl::AlwaysOn);
+        assert!(!contributor.accepted_efforts.contains(&ReasoningEffort::Max));
 
         for endpoint in [
             "https://api.x.ai/v2",

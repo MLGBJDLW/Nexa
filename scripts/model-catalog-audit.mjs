@@ -54,7 +54,7 @@ const publicRequiredModelIds = new Map([
 const publicCatalogPaths = new Map([
   ['text:openrouter', '/models'],
   ['image:openrouter-images', '/images/models'],
-  ['decision:openrouter', '/models?output_modalities=decisions'],
+  ['decision:openrouter', '/models?output_modalities=decisions&endpoints=/api/alpha/decisions'],
   ['embedding:openrouter', '/embeddings/models'],
   ['embedding:jina', '/models'],
   ['video:openrouter-video', '/videos/models'],
@@ -116,12 +116,18 @@ async function buildStaticCatalog() {
       if (endpointIds.has(endpointId)) errors.push(`duplicate endpoint id: ${endpointId}`);
       endpointIds.add(endpointId);
       const seenModels = new Set();
+      const normalizedModels = (preset.models ?? []).map(model => normalizeCatalogModel(surface, model));
+      const removedIds = new Set(normalizedModels
+        .filter(model => inferredLifecycle(model) === 'removed')
+        .map(model => model.id));
       const models = [];
-      for (const rawModel of preset.models ?? []) {
-        const model = normalizeCatalogModel(surface, rawModel);
+      for (const model of normalizedModels) {
         if (!model.id || !model.name) errors.push(`${endpointId}: model id and name are required`);
         if (seenModels.has(model.id)) errors.push(`${endpointId}: duplicate model id ${model.id}`);
         seenModels.add(model.id);
+        if (removedIds.has(model.replacementModelId)) {
+          errors.push(`${endpointId}/${model.id}: replacement ${model.replacementModelId} has been removed`);
+        }
         const lifecycle = inferredLifecycle(model);
         const access = inferredAccess(model, lifecycle);
         const productReadiness = inferredReadiness(model);

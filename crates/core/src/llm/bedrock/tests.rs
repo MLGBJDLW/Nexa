@@ -321,6 +321,52 @@ fn reasoning_replay_tracks_prefix_and_cloud_thinking_controls() {
 }
 
 #[test]
+fn kimi_k31_converse_replays_tool_calls_without_prior_reasoning() {
+    let provider = BedrockProvider::new(config(
+        "https://bedrock-runtime.us-east-1.amazonaws.com".into(),
+    ))
+    .unwrap();
+    let mut request = CompletionRequest {
+        model: "global.moonshotai.kimi-k3.1".into(),
+        messages: vec![Message::text(Role::User, "task")],
+        ..Default::default()
+    };
+    let route = provider.route_snapshot(&request);
+    let tool = json!({"toolUse":{"toolUseId":"1","name":"read_file","input":{}}});
+    let replay = ProviderReplayPayload::BedrockAssistantBlocks(BedrockAssistantReplay {
+        request_prefix: request_prefix(&body(&request, &route).unwrap()),
+        content: vec![
+            json!({"reasoningContent":{"reasoningText":{"text":"summary"}}}),
+            tool.clone(),
+        ],
+    });
+    let calls = vec![ToolCallRequest {
+        id: "1".into(),
+        name: "read_file".into(),
+        arguments: "{}".into(),
+        thought_signature: None,
+    }];
+    let envelope = super::super::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
+        "turn",
+        "sample",
+        route.clone(),
+        "",
+        Some("summary"),
+        None,
+        calls,
+        true,
+        Some(replay),
+    );
+    let mut assistant = Message::text(Role::Assistant, "");
+    assistant.set_provider_turn(envelope);
+    request.messages.push(assistant);
+    assert_eq!(
+        body(&request, &route).unwrap()["messages"][1]["content"],
+        json!([tool])
+    );
+}
+
+#[test]
 fn unsigned_summaries_and_empty_guardrail_outcomes_are_not_transport_failures() {
     let value = json!({"output":{"message":{"content":[{"reasoningContent":{"reasoningText":{"text":"summary"}}},{"text":"answer"}]}},"stopReason":"end_turn","usage":{"inputTokens":2,"outputTokens":3,"totalTokens":5}});
     assert_eq!(

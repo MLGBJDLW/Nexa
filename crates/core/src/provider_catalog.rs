@@ -1130,12 +1130,12 @@ mod tests {
             .expect("deepseek-v4-flash-vision-exp should be listed");
         assert!(
             deepseek.native_web_search.is_none(),
-            "Flash-only search must not leak through the provider preset"
+            "Native search is defined on exact model selections"
         );
-        for model in [pro, flash, vision] {
+        for model in [flash, vision] {
             assert!(
                 model.native_web_search.is_none(),
-                "Responses built-in tools are no longer supported"
+                "Historical selections do not advertise current tool contracts"
             );
         }
         let current = deepseek
@@ -1144,6 +1144,15 @@ mod tests {
             .find(|model| model.id == "deepseek-flash")
             .unwrap();
         assert_eq!(current.capabilities.as_ref().unwrap().vision, Some(true));
+        for model in [current, pro] {
+            let search = model.native_web_search.as_ref().unwrap();
+            assert_eq!(
+                search.dialect,
+                crate::model_catalog::NativeSearchDialect::DeepSeekResponses
+            );
+            assert!(search.supports_stream_events && search.can_mix_client_tools);
+            assert_eq!(search.supports_citations, model.id == "deepseek-flash");
+        }
         assert_eq!(current.status, Some(ModelLifecycleStatus::Active));
         let reasoning = pro
             .capabilities

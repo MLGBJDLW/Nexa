@@ -125,8 +125,16 @@ fn body(request: &CompletionRequest, route: &RouteSnapshot) -> Result<Value, Cor
                 || request.model.contains("claude-haiku-5-5"))
                 && (request.reasoning_enabled == Some(false)
                     || request.reasoning_effort == Some(ReasoningEffort::None));
-            if disabled_bound_model
-                && replay.request_prefix != prefix(&system, tool_config.as_ref(), &messages)
+            // Kimi K3.1 Converse rejects prior turns' reasoning blocks, including
+            // when they accompany tool calls that must remain in the history.
+            if matches!(
+                request.model.as_str(),
+                "moonshotai.kimi-k3.1"
+                    | "global.moonshotai.kimi-k3.1"
+                    | "us.moonshotai.kimi-k3.1"
+                    | "in.moonshotai.kimi-k3.1"
+            ) || (disabled_bound_model
+                && replay.request_prefix != prefix(&system, tool_config.as_ref(), &messages))
             {
                 content.retain(|block| block.get("reasoningContent").is_none());
             }

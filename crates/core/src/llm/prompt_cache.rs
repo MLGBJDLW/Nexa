@@ -12,7 +12,7 @@ use sha2::Sha256;
 
 use super::provider_boundary::{
     endpoint_id, is_alibaba_chat_endpoint, is_anthropic_public_endpoint, is_azure_openai_endpoint,
-    is_deepseek_public_endpoint, is_google_public_endpoint, is_meta_model_api_endpoint,
+    is_deepseek_public_endpoint, is_google_public_endpoint, is_meta_model_api_model,
     is_openai_public_endpoint, is_openrouter_public_endpoint, provider_id,
 };
 use super::{Message, ProviderType, Role, ToolDefinition};
@@ -197,11 +197,7 @@ pub fn resolve_prompt_cache_profile(
     }
 
     if api_style == PromptCacheApiStyle::OpenAiCompatible
-        && is_meta_model_api_endpoint(provider_type, base_url)
-        && matches!(
-            model.trim().to_ascii_lowercase().as_str(),
-            "muse-spark-1.3" | "muse-wonder-1.0" | "muse-ember-1.0"
-        )
+        && is_meta_model_api_model(provider_type, base_url, model)
     {
         return PromptCacheProfile {
             id: "meta-model-api-automatic-v1".to_string(),
