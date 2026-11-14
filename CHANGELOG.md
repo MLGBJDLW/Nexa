@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12) (2026-11-14)
+
+
+### Features
+
+* **runtime:** refresh model catalogs, retain TPS, and allow long shell arguments ([#562](https://github.com/MLGBJDLW/Nexa/issues/562)) ([16b9f8f](https://github.com/MLGBJDLW/Nexa/commit/16b9f8f78eae82609308ff0d194cd1f7c888d621))
+
 ## [0.19.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.10...nexa-monorepo-v0.19.11) (2026-11-14)
 
 
