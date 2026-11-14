@@ -166,6 +166,16 @@ for (const mode of ['compact', 'trace']) test(`${mode} tool card displays captur
   await expect(page.getByTestId('image-lightbox')).toBeVisible();
 });
 
+test('parent and menu screenshots stay together after receipt reconciliation', async ({ page }) => {
+  await page.goto('/e2e/fixtures/chat-image-preview.html?menu=1');
+  await page.getByRole('button', { name: 'Reconcile durable tool result' }).click();
+  const images = page.getByTestId('tool-visual-evidence');
+  await expect(images).toHaveCount(2);
+  await expect(images.nth(1)).toContainText('menu-1.png');
+  await images.nth(1).getByRole('img').click();
+  await expect(page.getByTestId('image-lightbox')).toBeVisible();
+});
+
 test('Done keeps a screenshot visible through saved-message hydration without persisting pixels across reload', async ({ page }) => {
   await page.goto('/e2e/fixtures/chat-image-preview.html?session=1');
   await expect(page.getByTestId('session-status')).toHaveText('settled / loaded');

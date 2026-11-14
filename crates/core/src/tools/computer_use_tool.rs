@@ -250,6 +250,25 @@ struct UiElementSnapshot {
     state: UiElementState,
     #[serde(skip)]
     screen_bounds: ElementBounds,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    menu_image: Option<usize>,
+    #[serde(skip)]
+    menu_target: Option<MenuTarget>,
+}
+
+/// Native identity used only to revalidate an observation-scoped menu item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MenuTarget {
+    surface: WindowSnapshot,
+    native: Option<NativeMenuItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeMenuItem {
+    handle: u64,
+    position: u32,
+    command: u32,
+    submenu: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
@@ -881,6 +900,8 @@ struct ControlArgs {
     capture_mode: Option<String>,
     #[serde(default)]
     wait_for_previous: Option<bool>,
+    #[serde(default)]
+    expected_window_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1061,6 +1082,8 @@ enum ControlAction {
     TypeText,
     Key,
     Invoke,
+    Expand,
+    Collapse,
     SetValue,
 }
 
@@ -1074,6 +1097,8 @@ impl ControlAction {
             "scroll" => Ok(Self::Scroll),
             "type_text" => Ok(Self::TypeText),
             "key" => Ok(Self::Key),
+            "expand" => Ok(Self::Expand),
+            "collapse" => Ok(Self::Collapse),
             "invoke" => Ok(Self::Invoke),
             "set_value" => Ok(Self::SetValue),
             other => Err(CoreError::InvalidInput(format!(
@@ -1091,6 +1116,8 @@ impl ControlAction {
             Self::Scroll => "scroll",
             Self::TypeText => "type_text",
             Self::Key => "key",
+            Self::Expand => "expand",
+            Self::Collapse => "collapse",
             Self::Invoke => "invoke",
             Self::SetValue => "set_value",
         }
@@ -1150,7 +1177,7 @@ fn computer_observe_approval_message(
         args.window_id,
     )?;
     Ok(Some(format!(
-        "Allow a screenshot and accessibility text from verified app '{}' window '{}' (window {}) to enter the configured model context? Screen content may be sensitive.",
+        "Allow a screenshot and accessibility text from verified app '{}' window '{}' (window {}) and its open menus to enter the configured model context? Screen content may be sensitive.",
         approval_label(&observed.snapshot.app_name),
         approval_label(&observed.snapshot.title),
         observed.snapshot.id,
@@ -1178,7 +1205,7 @@ fn computer_observe_persistent_approval_message(
         args.window_id,
     )?;
     Ok(Some(format!(
-        "Allow a screenshot and accessibility text from verified app '{}' ({}, window {}) to enter the configured model context? Screen content may be sensitive.",
+        "Allow a screenshot and accessibility text from verified app '{}' ({}, window {}) and its open menus to enter the configured model context? Screen content may be sensitive.",
         approval_label(&observed.snapshot.app_name),
         redacted_approval_text("window title", &observed.snapshot.title),
         observed.snapshot.id,
@@ -1276,7 +1303,7 @@ fn computer_control_approval_message(
         details.push(format!("Key sequence: '{}'.", approval_label(sequence)));
     }
     Ok(format!(
-        "Allow one '{}' action in verified app '{}' window '{}' (window {})? After delivery, a fresh screenshot and accessibility observation will enter the configured model context. {}",
+        "Allow one '{}' action in verified app '{}' window '{}' (window {})? After delivery, a fresh observation of the window and its open menus will enter the configured model context. {}",
         action.label(),
         approval_label(&observed.snapshot.app_name),
         approval_label(&observed.snapshot.title),
@@ -1336,7 +1363,7 @@ fn computer_control_persistent_approval_message(
         details.push(format!("Key sequence is redacted; {key_count} key(s)."));
     }
     Ok(format!(
-        "Allow one '{}' action in verified app '{}' ({}, window {})? After delivery, a fresh screenshot and accessibility observation will enter the configured model context. {}",
+        "Allow one '{}' action in verified app '{}' ({}, window {})? After delivery, a fresh observation of the window and its open menus will enter the configured model context. {}",
         action.label(),
         approval_label(&observed.snapshot.app_name),
         redacted_approval_text("window title", &observed.snapshot.title),
@@ -1346,7 +1373,16 @@ fn computer_control_persistent_approval_message(
 }
 
 #[derive(Debug)]
+struct MenuImage {
+    origin: ElementBounds,
+    png: Vec<u8>,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Debug)]
 struct CapturedWindow {
+    menu_images: Vec<MenuImage>,
     started_at: Instant,
     snapshot: WindowSnapshot,
     png: Vec<u8>,
@@ -1386,6 +1422,7 @@ struct ControlOutcome {
     route: &'static str,
     delivery: &'static str,
     effect: &'static str,
+    condition: crate::observed_interaction::RequestedCondition,
     window_closed: bool,
     modal_owner_handoff: Option<ModalOwnerHandoff>,
 }
@@ -1395,7 +1432,7 @@ impl ControlOutcome {
         &self,
         commit: &crate::observed_interaction::InteractionCommit,
     ) -> crate::observed_interaction::InteractionReceipt {
-        use crate::observed_interaction::{ObservedEvidence, RequestedCondition};
+        use crate::observed_interaction::ObservedEvidence;
         let evidence = if self.window_closed {
             ObservedEvidence::TargetClosed
         } else if self.capture.is_none() {
@@ -1407,7 +1444,7 @@ impl ControlOutcome {
         } else {
             ObservedEvidence::Unavailable
         };
-        commit.completed(evidence, RequestedCondition::NotRequested)
+        commit.completed(evidence, self.condition)
     }
 }
 
@@ -1965,6 +2002,32 @@ fn screenshot_attachment(capture: &CapturedWindow) -> ToolOutputAttachment {
     }
 }
 
+fn screenshot_attachments(capture: &CapturedWindow) -> Vec<ToolOutputAttachment> {
+    let mut images = vec![screenshot_attachment(capture)];
+    for (index, menu) in capture.menu_images.iter().enumerate() {
+        images.push(ToolOutputAttachment {
+            name: format!("menu-{}.png", index + 1),
+            mime_type: "image/png".into(),
+            data: serde_json::json!({"base64": STANDARD.encode(&menu.png)}),
+        });
+    }
+    images
+}
+
+fn menu_images(capture: &CapturedWindow) -> Vec<serde_json::Value> {
+    capture
+        .menu_images
+        .iter()
+        .enumerate()
+        .map(|(index, image)| {
+            serde_json::json!({
+                "image": index+1, "attachment": format!("menu-{}.png", index+1),
+                "screenBounds": image.origin, "width": image.width, "height": image.height,
+            })
+        })
+        .collect()
+}
+
 fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::Value {
     let screenshot_hash = blake3::hash(&capture.png).to_hex().to_string();
     let semantic_hash = blake3::hash(
@@ -2027,6 +2090,7 @@ fn capture_data(observation_id: &str, capture: &CapturedWindow) -> serde_json::V
         "semanticHash": semantic_hash,
         "stateFingerprint": state_fingerprint,
         "captureMode": if capture.annotated_png.is_some() { "som" } else { "raw" },
+        "menuImages": menu_images(capture),
         "elements": capture.elements,
         "semanticObservation": {
             "status": if !capture.semantic_enabled { "disabled" } else if capture.semantic_error.is_some() { "error" } else { "available" },
@@ -2077,6 +2141,7 @@ fn semantic_observation_for_llm(observation_id: &str, capture: &CapturedWindow) 
             "height": capture.image_height
         },
         "coordinateSpaces": [CAPTURED_IMAGE_COORDINATE_SPACE, "normalized_0_1"],
+        "menuImages": menu_images(capture),
         "elements": capture.elements,
         "semanticStatus": if !capture.semantic_enabled { "disabled" } else if capture.semantic_error.is_some() { "error" } else { "available" },
         "semanticTruncated": capture.semantic_truncated,
@@ -2207,15 +2272,31 @@ fn validate_control_args(args: &ControlArgs, action: ControlAction) -> Result<()
         ));
     }
     if args.delivery == Some(ControlDelivery::Background)
-        && !(matches!(action, ControlAction::Invoke | ControlAction::SetValue)
-            || (action == ControlAction::Click && permits_semantic_click(args)))
+        && !(matches!(
+            action,
+            ControlAction::Invoke
+                | ControlAction::Expand
+                | ControlAction::Collapse
+                | ControlAction::SetValue
+        ) || (action == ControlAction::Click && permits_semantic_click(args)))
     {
-        return Err(CoreError::InvalidInput("Background delivery requires invoke, set_value, or a single left click on an invokable element; it never falls back to foreground input".into()));
+        return Err(CoreError::InvalidInput("Background delivery requires expand, collapse, invoke, set_value, or a single left click on an invokable element; it never falls back to foreground input".into()));
     }
     if args.delivery == Some(ControlDelivery::Foreground)
-        && matches!(action, ControlAction::Invoke | ControlAction::SetValue)
+        && matches!(
+            action,
+            ControlAction::Invoke
+                | ControlAction::Expand
+                | ControlAction::Collapse
+                | ControlAction::SetValue
+        )
     {
-        return Err(CoreError::InvalidInput("invoke and set_value use background UI Automation; select a pointer or keyboard action for foreground input".into()));
+        return Err(CoreError::InvalidInput("expand, collapse, invoke and set_value use background UI Automation; select a pointer or keyboard action for foreground input".into()));
+    }
+    if args.expected_window_title.as_ref().is_some_and(|title| {
+        action != ControlAction::Click || title.trim().is_empty() || title.chars().count() > 256
+    }) {
+        return Err(CoreError::InvalidInput("expected_window_title requires a click and a nonempty title of at most 256 characters.".into()));
     }
     let _scheduler_barrier = args.wait_for_previous.unwrap_or(false);
     if args.window_id == 0 {
@@ -2316,11 +2397,12 @@ fn validate_control_args(args: &ControlArgs, action: ControlAction) -> Result<()
                 ));
             }
         }
-        ControlAction::Invoke => {
+        ControlAction::Invoke | ControlAction::Expand | ControlAction::Collapse => {
             if args.element_id.is_none() {
-                return Err(CoreError::InvalidInput(
-                    "invoke requires an observation-scoped element_id.".to_string(),
-                ));
+                return Err(CoreError::InvalidInput(format!(
+                    "{} requires an observation-scoped element_id.",
+                    action.label()
+                )));
             }
         }
         ControlAction::Key => {
@@ -2516,7 +2598,7 @@ fn validate_control_args(args: &ControlArgs, action: ControlAction) -> Result<()
                 ));
             }
         }
-        ControlAction::Invoke => {
+        ControlAction::Invoke | ControlAction::Expand | ControlAction::Collapse => {
             if args.to_element_id.is_some()
                 || source_coordinates_present
                 || destination_coordinates_present
@@ -2525,9 +2607,10 @@ fn validate_control_args(args: &ControlArgs, action: ControlAction) -> Result<()
                 || has_text
                 || has_key
             {
-                return Err(CoreError::InvalidInput(
-                    "invoke accepts element_id and capture options only.".to_string(),
-                ));
+                return Err(CoreError::InvalidInput(format!(
+                    "{} accepts element_id and capture options only.",
+                    action.label()
+                )));
             }
         }
         ControlAction::SetValue => {
@@ -2589,8 +2672,24 @@ fn validate_observed_targets(
     }
     if let Some(element_id) = args.element_id.as_deref() {
         let element = semantic_element(observed, element_id, action.label())?;
+        if element.menu_target.is_some()
+            && (action != ControlAction::Click
+                || args.delivery == Some(ControlDelivery::Background)
+                || args.click_count.unwrap_or(1) != 1
+                || !args
+                    .button
+                    .as_deref()
+                    .unwrap_or("left")
+                    .eq_ignore_ascii_case("left"))
+        {
+            return Err(CoreError::InvalidInput(
+                "Menu items require a single left click on their observed element_id.".into(),
+            ));
+        }
         let required_capability = match action {
-            ControlAction::Invoke => Some("invoke"),
+            ControlAction::Invoke | ControlAction::Expand | ControlAction::Collapse => {
+                Some(action.label())
+            }
             ControlAction::SetValue => Some("set_value"),
             ControlAction::Click => Some("click"),
             _ => None,
@@ -2614,7 +2713,14 @@ fn validate_observed_targets(
         }
     }
     if let Some(element_id) = args.to_element_id.as_deref() {
-        let _ = semantic_element(observed, element_id, "drag destination")?;
+        if semantic_element(observed, element_id, "drag destination")?
+            .menu_target
+            .is_some()
+        {
+            return Err(CoreError::InvalidInput(
+                "A popup menu item cannot be a drag destination.".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -3071,7 +3177,7 @@ impl Tool for ComputerObserveTool {
                                 "kind": "computerObservation",
                                 "trustBoundary": desktop_observation_trust_boundary()
                             })),
-                            attachments: vec![screenshot_attachment(&capture)],
+                            attachments: screenshot_attachments(&capture),
                         },
                     ))
                 }
@@ -3158,7 +3264,7 @@ impl Tool for ComputerObserveTool {
                                 "kind": "computerObservation",
                                 "trustBoundary": desktop_observation_trust_boundary()
                             })),
-                            attachments: vec![screenshot_attachment(&outcome.capture)],
+                            attachments: screenshot_attachments(&outcome.capture),
                         },
                     ))
                 }
@@ -3601,7 +3707,7 @@ impl Tool for ComputerControlTool {
                     (
                         Some(observation_id.clone()),
                         Some(capture_data(&observation_id, capture)),
-                        vec![screenshot_attachment(capture)],
+                        screenshot_attachments(capture),
                     )
                 } else {
                     (None, None, Vec::new())

@@ -35,9 +35,11 @@ function boundMessageVisualEvidence(messages: ConversationMessage[]): Conversati
     if (!record(evidence) || typeof evidence.base64 !== 'string' || !record(message.artifacts)) continue;
     const budget = budgets.get(message.conversationId) ?? { count: 0, bytes: 0 };
     budgets.set(message.conversationId, budget);
-    const bytes = evidence.base64.length;
-    if (budget.count < MAX_RETAINED_IMAGES_PER_CONVERSATION && budget.bytes + bytes <= MAX_RETAINED_IMAGE_BASE64_BYTES) {
-      budget.count += 1;
+    const extra = Array.isArray(payload?.additionalImages) ? payload.additionalImages : [];
+    const bytes = extra.reduce<number>((size, image) => size + (record(image) && typeof image.base64 === 'string' ? image.base64.length : 0), evidence.base64.length);
+    const count = 1 + extra.length;
+    if (budget.count + count <= MAX_RETAINED_IMAGES_PER_CONVERSATION && budget.bytes + bytes <= MAX_RETAINED_IMAGE_BASE64_BYTES) {
+      budget.count += count;
       budget.bytes += bytes;
       continue;
     }
@@ -45,7 +47,7 @@ function boundMessageVisualEvidence(messages: ConversationMessage[]): Conversati
     const artifacts = { ...message.artifacts };
     // Current messages use a nested visualEvidence field. Also support a raw
     // ephemeral envelope without removing its remaining receipt metadata.
-    if (message.artifacts === payload) delete artifacts.evidence;
+    if (message.artifacts === payload) { delete artifacts.evidence; delete artifacts.additionalImages; }
     else delete artifacts.visualEvidence;
     bounded[index] = { ...message, artifacts };
   }
@@ -55,6 +57,15 @@ function boundMessageVisualEvidence(messages: ConversationMessage[]): Conversati
 export function extractToolVisualEvidence(artifacts: ArtifactPayload | undefined): ToolVisualEvidence | null {
   const payload = visualPayload(artifacts);
   const evidence = payload?.evidence;
+  return parseImage(evidence);
+}
+
+export function extractAdditionalToolImages(artifacts: ArtifactPayload | undefined): ToolVisualEvidence[] {
+  const images = visualPayload(artifacts)?.additionalImages;
+  return Array.isArray(images) ? images.map(parseImage).filter((image): image is ToolVisualEvidence => image !== null) : [];
+}
+
+function parseImage(evidence: unknown): ToolVisualEvidence | null {
   if (!record(evidence)) return null;
   const { mimeType, base64 } = evidence;
   if (mimeType !== 'image/png' && mimeType !== 'image/jpeg' && mimeType !== 'image/webp') return null;

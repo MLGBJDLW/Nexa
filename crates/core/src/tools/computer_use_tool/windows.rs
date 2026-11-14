@@ -68,6 +68,8 @@ use windows_capture::window::Window;
 
 #[path = "windows/capture.rs"]
 mod capture;
+#[path = "windows/menus.rs"]
+mod menus;
 use capture::capture_rgba;
 
 use super::{
@@ -867,7 +869,7 @@ fn cached_element_snapshot(
             || toggle_state.is_some()
             || selected.is_some()
             || expand_collapse_state.is_some_and(|state| state != "leaf");
-    let actions = element_actions(
+    let mut actions = element_actions(
         control_type,
         enabled,
         keyboard_focusable,
@@ -875,6 +877,9 @@ fn cached_element_snapshot(
         invokable,
         read_only,
     );
+    if enabled && expand_collapse_state.is_some_and(|state| state != "leaf") {
+        actions.extend(["expand".to_owned(), "collapse".to_owned()]);
+    }
     let interactive = !actions.is_empty();
     if !focused
         && !interactive
@@ -885,6 +890,8 @@ fn cached_element_snapshot(
         return None;
     }
     Some(UiElementSnapshot {
+        menu_image: None,
+        menu_target: None,
         id: String::new(),
         role: control_role(control_type).to_string(),
         name,
@@ -1252,7 +1259,11 @@ pub(super) fn capture_window(
     expected: &WindowSnapshot,
     options: CaptureOptions,
 ) -> Result<CapturedWindow, CoreError> {
-    capture_window_with_elements(expected, options, collect_elements)
+    let mut capture = capture_window_with_elements(expected, options, collect_elements)?;
+    if options.include_elements {
+        menus::observe(&mut capture, options)?;
+    }
+    Ok(capture)
 }
 
 fn capture_window_with_elements(
@@ -1356,6 +1367,7 @@ fn capture_window_with_elements(
         None
     };
     Ok(CapturedWindow {
+        menu_images: Vec::new(),
         started_at,
         snapshot: final_snapshot,
         png,
@@ -1423,6 +1435,15 @@ fn resolve_live_element(
         .image_width
         .zip(observed.image_height)
         .ok_or_else(|| invalid("Semantic actions require a captured-window observation."))?;
+    resolve_element_on_surface(window, expected, image_width, image_height)
+}
+
+fn resolve_element_on_surface(
+    window: &WindowSnapshot,
+    expected: &UiElementSnapshot,
+    image_width: u32,
+    image_height: u32,
+) -> Result<LiveElement, CoreError> {
     let apartment = ComApartment::initialize()?;
     let automation = create_automation()?;
     let request = semantic_cache_request(&automation)?;
@@ -2960,7 +2981,13 @@ pub(super) fn control_window(
     // A semantic single click can run without activating the window. Probe
     // the actual pattern first; only auto mode may fall back before input.
     let mut effective_action = action;
-    if action == ControlAction::Click && permits_semantic_click(args) {
+    let menu_item = args.element_id.as_deref().and_then(|id| {
+        observed
+            .elements
+            .iter()
+            .find(|e| e.id == id && e.menu_target.is_some())
+    });
+    if action == ControlAction::Click && menu_item.is_none() && permits_semantic_click(args) {
         let element_id = args.element_id.as_deref().expect("semantic click target");
         let expected =
             before_control_commit(super::semantic_element(observed, element_id, "click"))?;
@@ -2993,7 +3020,10 @@ pub(super) fn control_window(
 
     let foreground = !matches!(
         effective_action,
-        ControlAction::Invoke | ControlAction::SetValue
+        ControlAction::Expand
+            | ControlAction::Collapse
+            | ControlAction::Invoke
+            | ControlAction::SetValue
     );
     commit_tracker.result(commit_tracker.begin_input_watch(
         observed.snapshot.id,
@@ -3004,10 +3034,15 @@ pub(super) fn control_window(
         current.id,
         !matches!(
             effective_action,
-            ControlAction::Invoke | ControlAction::SetValue
+            ControlAction::Expand
+                | ControlAction::Collapse
+                | ControlAction::Invoke
+                | ControlAction::SetValue
         ),
     );
     commit_tracker.result(commit_tracker.ensure_running())?;
+    use crate::observed_interaction::RequestedCondition;
+    let mut condition = RequestedCondition::NotRequested;
     let summary = match effective_action {
         ControlAction::FocusWindow => {
             route = "window_focus";
@@ -3050,6 +3085,75 @@ pub(super) fn control_window(
             });
             format!(
                 "Invoked semantic element {element_id} in window {}.",
+                current.id
+            )
+        }
+        ControlAction::Expand | ControlAction::Collapse => {
+            delivery = "background";
+            let id = args.element_id.as_deref().expect("validated element id");
+            let expected =
+                before_control_commit(super::semantic_element(observed, id, action.label()))?;
+            let live = commit_tracker.result_as(
+                PreCommitFailureKind::ObservationStale,
+                resolve_live_element(&current, observed, expected),
+            )?;
+            let pattern = commit_tracker.result(
+                unsafe {
+                    live.element
+                        .GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(
+                            UIA_ExpandCollapsePatternId,
+                        )
+                }
+                .map_err(|e| platform_error("resolve expand/collapse pattern", e)),
+            )?;
+            let expand = action == ControlAction::Expand;
+            let desired = if expand {
+                ExpandCollapseState_Expanded
+            } else {
+                ExpandCollapseState_Collapsed
+            };
+            let state = || {
+                unsafe { pattern.CurrentExpandCollapseState() }
+                    .map_err(|e| platform_error("read expansion state", e))
+            };
+            let before = commit_tracker.result(state())?;
+            if before == ExpandCollapseState_LeafNode {
+                return Err(
+                    commit_tracker.failure(invalid("The control has no expandable children."))
+                );
+            }
+            route = if expand {
+                "expand_pattern"
+            } else {
+                "collapse_pattern"
+            };
+            if before != desired {
+                commit_tracker.result(commit_tracker.mark())?;
+                commit_tracker.delivered(
+                    unsafe {
+                        if expand {
+                            pattern.Expand()
+                        } else {
+                            pattern.Collapse()
+                        }
+                    }
+                    .map_err(|e| platform_error("set expansion state", e)),
+                )?;
+            }
+            let deadline = Instant::now() + Duration::from_millis(800);
+            condition = loop {
+                commit_tracker.result(commit_tracker.ensure_running())?;
+                if state().ok() == Some(desired) {
+                    break RequestedCondition::Matched;
+                }
+                if Instant::now() >= deadline {
+                    break RequestedCondition::Pending;
+                }
+                thread::sleep(Duration::from_millis(25));
+            };
+            format!(
+                "Requested {} on element {id} in window {}.",
+                action.label(),
                 current.id
             )
         }
@@ -3130,6 +3234,15 @@ pub(super) fn control_window(
                 commit_tracker.result(ensure_point_matches_live_element(live, target.point))?;
             }
             format!("Moved the cursor inside window {}.", current.id)
+        }
+        ControlAction::Click if menu_item.is_some() => {
+            let item = menu_item.expect("observed menu item");
+            menus::click(&current, item, commit_tracker)?;
+            route = "menu_item_click";
+            format!(
+                "Clicked menu item {} belonging to window {}.",
+                item.id, current.id
+            )
         }
         ControlAction::Click => {
             commit_tracker.result_as(
@@ -3550,6 +3663,16 @@ pub(super) fn control_window(
         Ok(capture) => (Some(capture), None),
         Err(error) => (None, Some(error.to_string())),
     };
+    if let Some(title) = args.expected_window_title.as_deref() {
+        condition = if capture
+            .as_ref()
+            .is_some_and(|frame| frame.snapshot.title == title)
+        {
+            RequestedCondition::Matched
+        } else {
+            RequestedCondition::Pending
+        };
+    }
     let window_closed = capture.is_none() && !unsafe { IsWindow(Some(hwnd(current.id))).as_bool() };
     let modal_owner_handoff = window_closed
         .then(|| recovered_modal_owner(&observed.snapshot))
@@ -3611,6 +3734,7 @@ pub(super) fn control_window(
         route,
         delivery,
         effect,
+        condition,
         window_closed,
         modal_owner_handoff,
     })

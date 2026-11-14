@@ -228,6 +228,8 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
                     | "scroll"
                     | "type_text"
                     | "key"
+                    | "expand"
+                    | "collapse"
                     | "invoke"
                     | "set_value"
             )
@@ -318,12 +320,14 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
             );
         }
     }
-    if let Some(raw) = object.get("text") {
-        let value = raw
-            .as_str()
-            .map(text_summary)
-            .unwrap_or_else(|| redacted_invalid_value("text", raw));
-        projected.insert("text".to_string(), value);
+    for key in ["text", "expected_window_title"] {
+        if let Some(raw) = object.get(key) {
+            let value = raw
+                .as_str()
+                .map(text_summary)
+                .unwrap_or_else(|| redacted_invalid_value(key, raw));
+            projected.insert(key.to_string(), value);
+        }
     }
     for key in ["key_sequence", "keySequence"] {
         if let Some(raw) = object.get(key) {
@@ -367,6 +371,7 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
         "text",
         "key_sequence",
         "keySequence",
+        "expected_window_title",
         "reason",
         "include_elements",
         "max_elements",

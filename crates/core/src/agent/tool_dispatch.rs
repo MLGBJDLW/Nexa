@@ -50,29 +50,32 @@ fn ephemeral_tool_visual_evidence(
     ) {
         return None;
     }
-    let attachment = attachments.iter().find(|attachment| {
-        matches!(
+    let mut images = attachments.iter().filter_map(|attachment| {
+        if !matches!(
             attachment.mime_type.as_str(),
             "image/png" | "image/jpeg" | "image/webp"
-        ) && attachment
-            .data
-            .get("base64")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|data| {
-                !data.is_empty() && data.len() <= MAX_EPHEMERAL_UI_IMAGE_BASE64_BYTES
-            })
-    })?;
-    let base64 = attachment.data.get("base64")?.as_str()?;
-    Some(serde_json::json!({
-        "kind": "toolVisualEvidence",
-        "persistence": "currentTurnOnly",
-        "evidence": {
-            "name": attachment.name,
-            "mimeType": attachment.mime_type,
-            "base64": base64,
-            "contentHash": blake3::hash(base64.as_bytes()).to_hex().to_string(),
+        ) {
+            return None;
         }
-    }))
+        let base64 = attachment.data.get("base64")?.as_str()?;
+        if base64.is_empty() || base64.len() > MAX_EPHEMERAL_UI_IMAGE_BASE64_BYTES {
+            return None;
+        }
+        Some(serde_json::json!({
+            "name": attachment.name, "mimeType": attachment.mime_type, "base64": base64,
+            "contentHash": blake3::hash(base64.as_bytes()).to_hex().to_string(),
+        }))
+    });
+    let mut payload = serde_json::json!({
+        "kind": "toolVisualEvidence", "persistence": "currentTurnOnly", "evidence": images.next()?
+    });
+    if matches!(tool_name, "computer_observe" | "computer_control") {
+        let menus: Vec<_> = images.collect();
+        if !menus.is_empty() {
+            payload["additionalImages"] = serde_json::Value::Array(menus);
+        }
+    }
+    Some(payload)
 }
 
 fn normalize_ephemeral_tool_attachments(

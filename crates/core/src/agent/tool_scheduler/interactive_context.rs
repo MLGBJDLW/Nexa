@@ -61,6 +61,7 @@ pub(super) fn project_observation(tool_name: &str, content: &str, budget: usize)
         // Windows UIA also reports static text; leave room for actionable controls.
         elements.sort_by_key(|element| {
             (
+                element.get("menuImage").is_none(),
                 element["focused"] != true,
                 element.pointer("/state/textRanges").is_none(),
                 element.pointer("/state/selected") != Some(&Value::Bool(true)),
@@ -284,6 +285,7 @@ fn protected_metadata(key: &str) -> bool {
             | "contentHash"
             | "controlOwner"
             | "readyState"
+            | "menuImages"
             | "imageSize"
             | "imageWidth"
             | "imageHeight"

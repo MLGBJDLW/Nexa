@@ -1,6 +1,6 @@
 {
   "name": "computer_control",
-  "description": "Perform one approved Windows action against a fresh, single-use observation. Target either captured-image coordinates or observation-scoped UI Automation element ids. Identity, visual/semantic freshness and input ownership are revalidated. A successful result separates input delivery, observed change and any matched condition, and includes a new observation. A visual change alone does not prove the user goal: inspect it and reuse its observationId without another capture. If capture is missing or effects uncertain, observe before further input.\n\ninvoke/set_value use semantic patterns without moving the pointer; type_text uses keyboard input. Auto delivery prefers UI Automation for supported element clicks. set_value requires an advertised writable Value pattern and supports replacement, clearing and multiline text. Background delivery never falls back to foreground input.",
+  "description": "Perform one approved Windows action against a fresh, single-use observation. Target either captured-image coordinates or observation-scoped UI Automation element ids. Identity, visual/semantic freshness and input ownership are revalidated. A successful result separates input delivery, observed change and any matched condition, and includes a new observation. A visual change alone does not prove the user goal: inspect it and reuse its observationId without another capture. If capture is missing or effects uncertain, observe before further input.\n\nexpand/collapse/invoke/set_value use semantic patterns without moving the pointer; type_text uses keyboard input. Auto delivery prefers UI Automation for supported element clicks. set_value requires an advertised writable Value pattern and supports replacement, clearing and multiline text. Background delivery never falls back to foreground input.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -14,6 +14,8 @@
           "scroll",
           "type_text",
           "key",
+          "expand",
+          "collapse",
           "invoke",
           "set_value"
         ],
@@ -31,7 +33,7 @@
       "element_id": {
         "type": "string",
         "pattern": "^e[1-9][0-9]{0,3}$",
-        "description": "Observation-scoped semantic element id. Preferred over x/y for click, move_mouse, scroll, invoke, set_value, and exact-target type_text."
+        "description": "Observation-scoped semantic element id. Preferred over x/y for click, move_mouse, scroll, expand, collapse, invoke, set_value, and exact-target type_text."
       },
       "to_element_id": {
         "type": "string",
@@ -105,6 +107,12 @@
         "maxLength": 120,
         "description": "One chord such as ctrl+s, shift+tab, escape, or f5. Non-final keys must be modifiers; bare text-producing keys are rejected. Required for key."
       },
+      "expected_window_title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "Optional click postcondition. Match the exact parent window title in the fresh post-action observation."
+      },
       "reason": {
         "type": "string",
         "maxLength": 240,
@@ -143,7 +151,7 @@
           "background",
           "foreground"
         ],
-        "description": "auto prefers UI Automation for supported element clicks. background requires a semantic pattern; no foreground fallback. The application may activate itself. foreground forces pointer/keyboard input; invoke/set_value remain background."
+        "description": "auto prefers UI Automation for supported element clicks. background requires a semantic pattern; no foreground fallback. The application may activate itself. foreground forces pointer/keyboard input; expand/collapse/invoke/set_value remain background."
       },
       "drag_duration_ms": {
         "type": "integer",
