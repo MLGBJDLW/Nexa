@@ -1040,6 +1040,30 @@ fn visit_controls(
     Ok(true)
 }
 
+fn text_context_target<'a>(
+    controls: impl Iterator<Item = (bool, bool, &'a str)>,
+    truncated: bool,
+) -> Option<usize> {
+    let mut documents = 0;
+    let mut document = None;
+    for (index, (focused, password, role)) in controls.enumerate() {
+        if focused && password {
+            return None;
+        }
+        if focused && matches!(role, "edit" | "document") {
+            return Some(index);
+        }
+        if role == "document" {
+            documents += 1;
+            document = (!password).then_some(index);
+        }
+    }
+    if truncated || documents != 1 {
+        return None;
+    }
+    document
+}
+
 fn collect_elements(
     window: &WindowSnapshot,
     image_width: u32,
@@ -1092,19 +1116,14 @@ fn collect_elements(
     if let Some(kind) = options.text_context {
         // Prefer the focused editor. Otherwise only a unique document gives a
         // definite target. Never substitute another field for a protected one.
-        let target = projected.iter().position(|(s, _)| s.focused);
-        let target = target.or_else(|| {
-            let mut documents = projected
+        let target = text_context_target(
+            projected
                 .iter()
-                .enumerate()
-                .filter(|(_, (s, _))| s.role == "document");
-            let (index, _) = documents.next()?;
-            (!truncated && documents.next().is_none()).then_some(index)
-        });
+                .map(|(s, _)| (s.focused, s.password, s.role.as_str())),
+            truncated,
+        );
         if let Some((s, element)) = target.and_then(|index| projected.get_mut(index)) {
-            if !s.password && matches!(s.role.as_str(), "edit" | "document") {
-                s.state.text_ranges = read_text_ranges(element, kind);
-            }
+            s.state.text_ranges = read_text_ranges(element, kind);
         }
     }
     Ok((
@@ -3600,6 +3619,34 @@ pub(super) fn control_window(
 #[cfg(test)]
 mod native_input_tests {
     use super::*;
+
+    #[test]
+    fn text_context_requires_a_focused_editor_or_one_unambiguous_document() {
+        let toolbar = (true, false, "button");
+        let document = (false, false, "document");
+        let editor = (true, false, "edit");
+        let protected = (true, true, "edit");
+        assert_eq!(
+            text_context_target([toolbar, document].into_iter(), false),
+            Some(1)
+        );
+        assert_eq!(
+            text_context_target([toolbar, document].into_iter(), true),
+            None
+        );
+        assert_eq!(
+            text_context_target([document, toolbar, document].into_iter(), false),
+            None
+        );
+        assert_eq!(
+            text_context_target([document, protected].into_iter(), false),
+            None
+        );
+        assert_eq!(
+            text_context_target([document, editor, document].into_iter(), true),
+            Some(1)
+        );
+    }
 
     #[test]
     #[ignore = "requires an interactive Windows desktop; launches a disposable hover target and clicks it"]
