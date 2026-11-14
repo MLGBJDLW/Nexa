@@ -570,7 +570,7 @@ mod tests {
                     context.call_id,
                     false,
                     crate::tools::ToolOutput {
-                        llm_content: "Fresh target capture".into(),
+                        llm_content: "Fresh target capture with scoped editor e7".into(),
                         display_content: "Fresh target capture".into(),
                         data: Some(
                             serde_json::json!({"windowId":window,"targetIdentity":format!("target-{window}"),"observationId":format!("after-{window}"),"screenshotHash":"host-capture"}),
@@ -712,14 +712,18 @@ mod tests {
         );
         assert!(matches!(session.persist_answer("Premature success").await,
             Err(CoreError::LocalVerificationRequired { targets, .. }) if targets[0].window_id == 42));
-        assert!(
-            !session
-                .execute(unified_window_call("right-window", "observe", 42))
-                .await
-                .unwrap()
-                .result
-                .is_error
-        );
+        let observed = unified_window_call("right-window", "observe", 42);
+        let first = session.execute(observed.clone()).await.unwrap().result;
+        assert!(!first.is_error);
+        assert!(first.content.contains("scoped editor e7"));
+        // Replay carries the receipt only; it cannot present old evidence as fresh.
+        assert!(!session
+            .execute(observed)
+            .await
+            .unwrap()
+            .result
+            .content
+            .contains("scoped editor e7"));
         session
             .persist_answer("Exact target observed; requested work can continue.")
             .await
@@ -729,6 +733,9 @@ mod tests {
             .db
             .get_messages(&session.input.conversation_id)
             .unwrap();
+        assert!(messages
+            .iter()
+            .all(|message| !message.content.contains("scoped editor e7")));
         let calls = messages
             .iter()
             .flat_map(|message| &message.tool_calls)
@@ -1925,12 +1932,26 @@ impl ExternalToolSession {
             .into_iter()
             .next()
             .ok_or_else(|| CoreError::Internal("Tool dispatcher returned no result".into()))?;
+        // The summary is the redacted transcript/idempotency receipt. Only the
+        // live callback gets the same approved, bounded evidence as a local model.
+        let interactive_text = execution_calls
+            .first()
+            .filter(|c| {
+                crate::tools::unified_control::is_backend(&c.name) || c.name == "phone_control"
+            })
+            .and_then(|_| {
+                messages
+                    .iter()
+                    .find(|m| m.role == Role::Tool && m.name.as_deref() == Some(call.id.as_str()))
+            })
+            .map(|m| m.text_content());
         let mut result = ToolResult {
             call_id: summary.call_id,
             content: summary.content,
             is_error: summary.is_error,
             artifacts: summary.artifacts,
         };
+        let display_length = result.content.len();
         // Keep continuation advice in the callback result and idempotency
         // cache, but never turn internal controller state into chat history.
         if let Some(guidance) = outcome.continuation_guidance.or(pre_tool_guidance) {
@@ -1970,6 +1991,10 @@ impl ExternalToolSession {
         }
         if let Some(reason) = outcome.terminal_loop_guard_reason {
             return Err(CoreError::Agent(reason));
+        }
+        if let Some(mut evidence) = interactive_text {
+            evidence.push_str(&result.content[display_length..]);
+            result.content = evidence;
         }
         let visual_parts: Vec<ContentPart> = messages
             .into_iter()

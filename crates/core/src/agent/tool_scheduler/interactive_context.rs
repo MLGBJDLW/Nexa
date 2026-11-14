@@ -4,6 +4,9 @@
 use serde_json::{json, Map, Value};
 
 pub(super) fn project_observation(tool_name: &str, content: &str, budget: usize) -> Option<String> {
+    if tool_name == "phone_control" && content.len() > budget {
+        return project_phone_nodes(content, budget);
+    }
     let browser = tool_name == "browser_session";
     if !browser && !matches!(tool_name, "computer_observe" | "computer_control") {
         return None;
@@ -56,7 +59,14 @@ pub(super) fn project_observation(tool_name: &str, content: &str, budget: usize)
     }
     if !browser {
         // Windows UIA also reports static text; leave room for actionable controls.
-        elements.sort_by_key(|element| !is_interactive(element));
+        elements.sort_by_key(|element| {
+            (
+                element["focused"] != true,
+                element.pointer("/state/textRanges").is_none(),
+                element.pointer("/state/selected") != Some(&Value::Bool(true)),
+                !is_interactive(element),
+            )
+        });
     }
     let mut omitted_fields = Vec::new();
     let text_truncated = if let Some(Value::String(text)) = root.get_mut("text") {
@@ -181,6 +191,72 @@ pub(super) fn project_observation(tool_name: &str, content: &str, budget: usize)
     }));
     let projected = render(prefix, &unavailable, "");
     (projected.len() <= budget).then_some(projected)
+}
+
+// Native phone results contain complete nodes and a host observation token.
+// A string head/tail excerpt can split JSON and detach a node ID from its state.
+fn project_phone_nodes(content: &str, budget: usize) -> Option<String> {
+    let Value::Object(mut root) = serde_json::from_str(content).ok()? else {
+        return None;
+    };
+    if !valid_handle(root.get("observationId")) || !valid_handle(root.get("packageName")) {
+        return None;
+    }
+    let Value::Array(mut nodes) = root.remove("nodes")? else {
+        return None;
+    };
+    let total = nodes.len();
+    nodes.sort_by_key(|n| {
+        (
+            n["focused"] != true,
+            n["clickable"] != true && n["editable"] != true && n["scrollable"] != true,
+        )
+    });
+    root.insert("nodes".into(), json!([]));
+    root.insert(
+        "contextProjection".into(),
+        json!({"inputNodes":total, "omittedNodes":total}),
+    );
+    let mut used = serialized_len(&root);
+    if used > budget {
+        // Input may contain large diagnostics unrelated to the node list. An
+        // incomplete/error receipt must still be intelligible and valid JSON.
+        root.retain(|key, _| {
+            matches!(
+                key.as_str(),
+                "observationId"
+                    | "packageName"
+                    | "nodes"
+                    | "truncated"
+                    | "sensitiveFieldsOmitted"
+                    | "containsSensitiveFields"
+                    | "contextProjection"
+                    | "actionReceiptId"
+                    | "actionAccepted"
+                    | "actionPerformed"
+                    | "actionOutcomeUnknown"
+                    | "effectMayHaveOccurred"
+                    | "code"
+                    | "retryable"
+            )
+        });
+        root.get_mut("contextProjection")?["metadataOmitted"] = json!(true);
+        used = serialized_len(&root);
+        if used > budget {
+            return Some(json!({"code":"phone_observation_too_large","recovery":"Observe the phone again before any input."}).to_string());
+        }
+    }
+    let output = root.get_mut("nodes")?.as_array_mut()?;
+    for node in nodes {
+        let cost = node.to_string().len() + usize::from(!output.is_empty());
+        if used + cost <= budget {
+            used += cost;
+            output.push(node);
+        }
+    }
+    let omitted = total - output.len();
+    root.get_mut("contextProjection")?["omittedNodes"] = json!(omitted);
+    Some(Value::Object(root).to_string())
 }
 
 fn valid_handle(value: Option<&Value>) -> bool {
@@ -360,6 +436,28 @@ fn update_counts(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_phone_capture_keeps_complete_nodes_and_native_privacy_flags() {
+        let nodes = (0..40)
+            .map(|id| json!({"nodeId":id,"focused":id==39,"text":"屏幕🙂".repeat(100)}))
+            .collect::<Vec<_>>();
+        let input = json!({"observationId":"obs", "packageName":"app.test", "sensitiveFieldsOmitted":true, "truncated":false, "nodes":nodes}).to_string();
+        let projected = super::project_observation("phone_control", &input, 2400).unwrap();
+        assert!(projected.len() <= 2400);
+        let result: Value = serde_json::from_str(&projected).unwrap();
+        assert_eq!(result["nodes"][0]["nodeId"], 39);
+        assert_eq!(result["nodes"][0]["text"], "屏幕🙂".repeat(100));
+        assert_eq!(result["sensitiveFieldsOmitted"], true);
+        assert_eq!(result["truncated"], false);
+        assert_eq!(
+            result["contextProjection"]["omittedNodes"]
+                .as_u64()
+                .unwrap() as usize
+                + result["nodes"].as_array().unwrap().len(),
+            40
+        );
+    }
 
     #[test]
     fn projection_keeps_suffix_receipts_exact_and_does_not_intercept_error_results() {
