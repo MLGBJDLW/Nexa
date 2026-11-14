@@ -1735,13 +1735,13 @@ fn parse_responses_completion_with_copilot(
                 // Responses dialects; retain every recognized built-in item in
                 // native order so adding a non-search ToolCard cannot silently
                 // invalidate a later client-tool replay envelope.
-                let item_completed = item
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| !id.trim().is_empty())
-                    && item.get("status").and_then(serde_json::Value::as_str) == Some("completed");
-                replay_sequence_valid &= item_completed;
-                if item_completed {
+                let terminal = super::provider_turn::ResponsesReplayPayload::completed_item(item)
+                    || (dialect == super::native_search::NativeSearchDialect::DeepSeekResponses
+                        && super::provider_turn::ResponsesReplayPayload::failed_deepseek_web_item(
+                            item,
+                        ));
+                replay_sequence_valid &= terminal;
+                if terminal {
                     reasoning_replay.push(item.clone());
                 }
             }
@@ -9228,7 +9228,8 @@ data: [DONE]
     fn deepseek_read_link_without_thinking_retains_the_signed_web_item() {
         let web = serde_json::json!({"type":"web_search_call","id":"read","status":"completed","kind":"read_link","action":{"type":"open_page","url":"https://example.com"},"page":{"title":"Example","url":"https://example.com"},"signature":"signed-link"});
         let answer = serde_json::json!({"type":"message","id":"msg","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Example."}]});
-        let output = vec![web.clone(), answer];
+        let failed = serde_json::json!({"type":"web_search_call","id":"other","kind":"read_link","status":"failed","action":{"type":"open_page","url":"https://example.net"},"error":{"code":"unavailable"}});
+        let output = vec![web.clone(), failed, answer];
         let dialect = super::super::native_search::NativeSearchDialect::DeepSeekResponses;
         let response = parse_responses_completion(
             serde_json::json!({"status":"completed","output":output}),
@@ -9264,7 +9265,7 @@ data: [DONE]
         let projected =
             super::super::reasoning_replay::prepare_provider_replay_history(&history, &route);
         let input = responses_input_items(&projected.messages).unwrap();
-        assert_eq!(&input[..2], output.as_slice());
+        assert_eq!(&input[..output.len()], output.as_slice());
         request.model = "deepseek-v4-pro".into();
         let projected = super::super::reasoning_replay::prepare_provider_replay_history(
             &history,

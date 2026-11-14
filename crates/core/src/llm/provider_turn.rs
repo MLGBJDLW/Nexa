@@ -196,11 +196,23 @@ impl ResponsesReplayPayload {
         }
         has_reasoning
     }
-    fn completed_item(item: &serde_json::Value) -> bool {
+    pub(super) fn completed_item(item: &serde_json::Value) -> bool {
         item.get("id")
             .and_then(serde_json::Value::as_str)
             .is_some_and(|id| !id.trim().is_empty())
             && item.get("status").and_then(serde_json::Value::as_str) == Some("completed")
+    }
+
+    /// DeepSeek returns failed page reads alongside successful signed pages in
+    /// completed turns. Both are terminal web results in its input contract.
+    pub(super) fn failed_deepseek_web_item(item: &serde_json::Value) -> bool {
+        item["type"] == "web_search_call"
+            && item["status"] == "failed"
+            && item["id"].as_str().is_some_and(|id| !id.trim().is_empty())
+            && item
+                .pointer("/error/code")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|code| !code.trim().is_empty())
     }
 
     fn is_structurally_complete(&self, encrypted_reasoning_required: bool) -> bool {
@@ -247,7 +259,10 @@ impl ResponsesReplayPayload {
                     saw_reasoning = true;
                 }
                 Some("web_search_call") => {
-                    if !Self::completed_item(item) {
+                    if !(Self::completed_item(item)
+                        || (contract == ResponsesReplayContract::DeepSeek
+                            && Self::failed_deepseek_web_item(item)))
+                    {
                         return false;
                     }
                 }
