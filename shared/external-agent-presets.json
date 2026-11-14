@@ -234,53 +234,53 @@
     "env": {},
     "docsUrl": "https://github.com/agentclientprotocol/claude-agent-acp",
     "registryId": "claude-acp",
-    "registryVersion": "0.106.0",
+    "registryVersion": "0.107.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-darwin-arm64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-darwin-arm64.zip",
           "cmd": "./claude-agent-acp",
-          "sha256": "446c5ff8303c1fb0caaa5b047566ce4f88c5a70d188ed798d236cfc68f875f9e"
+          "sha256": "ba106984d2d89b4e260ac0648e354c924a1a1545392929b1e27700615d7ba9b3"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-darwin-x64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-darwin-x64.zip",
           "cmd": "./claude-agent-acp",
-          "sha256": "a6fbfc9814e176615d68fd58dda1887ae2b9ff00a18c9e8b9d75352ce7bd0fba"
+          "sha256": "79d46ef951ad359776022c2cf3f85bb17cf16c1aedee68e8236370a6b15f1367"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-linux-arm64.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-arm64.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "04390d95545916b21df886e92ff24538f7d71a86f657556704747f07de18422d"
+          "sha256": "b63b7e5164a0585bdc4837943238170f156daed0d3a9effb093f7d93da206d7d"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-linux-x64.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-x64.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "7d27db341f2a09bd64e54465de8409c624c92827d19f2065f32c599377727c6e"
+          "sha256": "768f0c910587b8c2a8c3a96aedd5a8876128277f6d633bbcd52092b229e056a9"
         },
         "linux-aarch64-musl": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-linux-arm64-musl.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-arm64-musl.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "1aa97d8935b5683066577e59e5157aa479a5b0596abb6f7c34cd4ac8b94cc88e"
+          "sha256": "151d2b9eb467d32493614249f2574dd9f164064ad956cc777ae44bcb675d652f"
         },
         "linux-x86_64-musl": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-linux-x64-musl.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-x64-musl.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "7fdddbe5fd16d4eb753586b294233b391eedf722a8fa5513e40c6280c27e0a1f"
+          "sha256": "b0a15ea0e40205ad63279b46a4b10ec8acd9f3e653f202cf0c3804e98a7649bb"
         },
         "windows-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-windows-arm64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-windows-arm64.zip",
           "cmd": "./claude-agent-acp.exe",
-          "sha256": "ffc36b8e00b23942f8214e1f70606a77c1c4d90ef3a366422a093f728e59454c"
+          "sha256": "92be1f854b13d4ceb133dbec69bf3fbcdb86d9807a583d45cbd6cddf29f76307"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.106.0/claude-agent-acp-windows-x64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-windows-x64.zip",
           "cmd": "./claude-agent-acp.exe",
-          "sha256": "5de09fe80ac78260eb56964b92e698bd4c467092f0c88e042438a8e05974903c"
+          "sha256": "bb406522d6341b3b9aa1b9bfcaa996ddf8cd53b91512f92b111a8414a049775f"
         }
       },
       "npx": {
-        "package": "@agentclientprotocol/claude-agent-acp@0.106.0"
+        "package": "@agentclientprotocol/claude-agent-acp@0.107.0"
       }
     }
   },
@@ -569,47 +569,47 @@
     "env": {},
     "docsUrl": "https://cursor.com/docs/cli/acp",
     "registryId": "cursor",
-    "registryVersion": "2026.11.11",
+    "registryVersion": "2026.11.13",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://downloads.cursor.com/lab/2026.11.11-b912975/darwin/arm64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.11.13-eacade1/darwin/arm64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
           ]
         },
         "darwin-x86_64": {
-          "archive": "https://downloads.cursor.com/lab/2026.11.11-b912975/darwin/x64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.11.13-eacade1/darwin/x64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
           ]
         },
         "linux-aarch64": {
-          "archive": "https://downloads.cursor.com/lab/2026.11.11-b912975/linux/arm64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.11.13-eacade1/linux/arm64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
           ]
         },
         "linux-x86_64": {
-          "archive": "https://downloads.cursor.com/lab/2026.11.11-b912975/linux/x64/agent-cli-package.tar.gz",
+          "archive": "https://downloads.cursor.com/lab/2026.11.13-eacade1/linux/x64/agent-cli-package.tar.gz",
           "cmd": "./dist-package/cursor-agent",
           "args": [
             "acp"
           ]
         },
         "windows-aarch64": {
-          "archive": "https://downloads.cursor.com/lab/2026.11.11-b912975/windows/arm64/agent-cli-package.zip",
+          "archive": "https://downloads.cursor.com/lab/2026.11.13-eacade1/windows/arm64/agent-cli-package.zip",
           "cmd": "./dist-package\\cursor-agent.cmd",
           "args": [
             "acp"
           ]
         },
         "windows-x86_64": {
-          "archive": "https://downloads.cursor.com/lab/2026.11.11-b912975/windows/x64/agent-cli-package.zip",
+          "archive": "https://downloads.cursor.com/lab/2026.11.13-eacade1/windows/x64/agent-cli-package.zip",
           "cmd": "./dist-package\\cursor-agent.cmd",
           "args": [
             "acp"
@@ -724,17 +724,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "dimcode@0.5.27",
+      "dimcode@0.5.28",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://dimagent.cn/",
     "registryId": "dimcode",
-    "registryVersion": "0.5.27",
+    "registryVersion": "0.5.28",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "dimcode@0.5.27",
+        "package": "dimcode@0.5.28",
         "args": [
           "acp"
         ]
@@ -754,17 +754,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "dirac-cli@0.5.24",
+      "dirac-cli@0.6.0",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://dirac.run",
     "registryId": "dirac",
-    "registryVersion": "0.5.24",
+    "registryVersion": "0.6.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "dirac-cli@0.5.24",
+        "package": "dirac-cli@0.6.0",
         "args": [
           "--acp"
         ]
@@ -784,7 +784,7 @@
     "command": "npx",
     "args": [
       "--yes",
-      "droid@1.10.0",
+      "droid@1.11.0",
       "exec",
       "--output-format",
       "acp-daemon"
@@ -795,11 +795,11 @@
     },
     "docsUrl": "https://factory.ai/product/cli",
     "registryId": "factory-droid",
-    "registryVersion": "1.10.0",
+    "registryVersion": "1.11.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "droid@1.10.0",
+        "package": "droid@1.11.0",
         "args": [
           "exec",
           "--output-format",
@@ -891,11 +891,11 @@
     "env": {},
     "docsUrl": "https://github.com/features/copilot/cli/",
     "registryId": "github-copilot-cli",
-    "registryVersion": "1.0.110",
+    "registryVersion": "1.0.112",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@github/copilot@1.0.110",
+        "package": "@github/copilot@1.0.112",
         "args": [
           "--acp"
         ]
@@ -1021,18 +1021,18 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@xai-official/grok@1.0.84",
+      "@xai-official/grok@1.0.85",
       "agent",
       "stdio"
     ],
     "env": {},
     "docsUrl": "https://x.ai/cli",
     "registryId": "grok-build",
-    "registryVersion": "1.0.84",
+    "registryVersion": "1.0.85",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@xai-official/grok@1.0.84",
+        "package": "@xai-official/grok@1.0.85",
         "args": [
           "agent",
           "stdio"
@@ -1127,47 +1127,47 @@
     "env": {},
     "docsUrl": "https://junie.jetbrains.com",
     "registryId": "junie",
-    "registryVersion": "4020.7.0",
+    "registryVersion": "4020.10.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.7/junie-release-4020.7-macos-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-macos-aarch64.zip",
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
           ]
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.7/junie-release-4020.7-macos-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-macos-amd64.zip",
           "cmd": "./Applications/junie.app/Contents/MacOS/junie",
           "args": [
             "--acp=true"
           ]
         },
         "linux-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.7/junie-release-4020.7-linux-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-linux-aarch64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
           ]
         },
         "linux-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.7/junie-release-4020.7-linux-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-linux-amd64.zip",
           "cmd": "./junie-app/bin/junie",
           "args": [
             "--acp=true"
           ]
         },
         "windows-x86_64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.7/junie-release-4020.7-windows-amd64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-windows-amd64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
           ]
         },
         "windows-aarch64": {
-          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.7/junie-release-4020.7-windows-aarch64.zip",
+          "archive": "https://github.com/JetBrains/junie-acp-release/releases/download/4020.10/junie-release-4020.10-windows-aarch64.zip",
           "cmd": "./junie/junie.exe",
           "args": [
             "--acp=true"
@@ -1347,17 +1347,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@moonshot-ai/kimi-code@2.6.1",
+      "@moonshot-ai/kimi-code@2.6.2",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://moonshotai.github.io/kimi-code/",
     "registryId": "kimi-code",
-    "registryVersion": "2.6.1",
+    "registryVersion": "2.6.2",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@moonshot-ai/kimi-code@2.6.1",
+        "package": "@moonshot-ai/kimi-code@2.6.2",
         "args": [
           "acp"
         ]
@@ -1556,6 +1556,98 @@
     }
   },
   {
+    "id": "acp-muse-code",
+    "name": "Muse Code",
+    "provider": "acp_muse_code",
+    "runtime": "acp",
+    "baseUrl": "",
+    "requiresApiKey": false,
+    "models": [],
+    "icon": "/provider-icons/agents/custom.svg",
+    "description": "Meta's coding agent, built for Muse Spark",
+    "command": "muse",
+    "args": [
+      "acp"
+    ],
+    "env": {
+      "MUSE_EXPERIMENTAL_ACP": "on"
+    },
+    "docsUrl": "https://dev.meta.ai/docs/muse-code",
+    "registryId": "muse-code",
+    "registryVersion": "1.4.14",
+    "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
+    "distribution": {
+      "binary": {
+        "darwin-aarch64": {
+          "archive": "https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.14-R7309.1&file=muse-aarch64-macos",
+          "sha256": "1c96114408acbeade9a8fb79e3b4425e5b64d50425938568aef01bdc04ce2e03",
+          "cmd": "./muse",
+          "args": [
+            "acp"
+          ],
+          "env": {
+            "MUSE_EXPERIMENTAL_ACP": "on"
+          }
+        },
+        "darwin-x86_64": {
+          "archive": "https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.14-R7309.1&file=muse-x86-macos",
+          "sha256": "6da5a12d3298afba45afec929fc385b516084ed28e9504ae29354dbcdfc4089d",
+          "cmd": "./muse",
+          "args": [
+            "acp"
+          ],
+          "env": {
+            "MUSE_EXPERIMENTAL_ACP": "on"
+          }
+        },
+        "linux-aarch64": {
+          "archive": "https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.14-R7309.1&file=muse-aarch64-linux",
+          "sha256": "3dc39b8fa26f9963cc2038f2966c0932ed5a39f0f9efb39cc0266a261cbbcf76",
+          "cmd": "./muse",
+          "args": [
+            "acp"
+          ],
+          "env": {
+            "MUSE_EXPERIMENTAL_ACP": "on"
+          }
+        },
+        "linux-x86_64": {
+          "archive": "https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.14-R7309.1&file=muse-x86-linux",
+          "sha256": "0809aac7cb58d18f5022b6d05e02aa1974683c0ec430e5f04d25b60ed17de2da",
+          "cmd": "./muse",
+          "args": [
+            "acp"
+          ],
+          "env": {
+            "MUSE_EXPERIMENTAL_ACP": "on"
+          }
+        },
+        "windows-aarch64": {
+          "archive": "https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.14-R7309.1&file=muse-aarch64-windows.exe",
+          "sha256": "64cef76cb210de993d31478ee582ef4639bbb212df8912b74f45d40431e66e82",
+          "cmd": "./muse.exe",
+          "args": [
+            "acp"
+          ],
+          "env": {
+            "MUSE_EXPERIMENTAL_ACP": "on"
+          }
+        },
+        "windows-x86_64": {
+          "archive": "https://lookaside.facebook.com/lookaside/muse/download/?channel=muse&version=1.4.14-R7309.1&file=muse-x86-windows.exe",
+          "sha256": "20d18c426cc26e9e4b3cc07008ec07ec97e12e466a2be8cd2797b2e0e2018382",
+          "cmd": "./muse.exe",
+          "args": [
+            "acp"
+          ],
+          "env": {
+            "MUSE_EXPERIMENTAL_ACP": "on"
+          }
+        }
+      }
+    }
+  },
+  {
     "id": "acp-nova",
     "name": "Nova",
     "provider": "acp_nova",
@@ -1602,73 +1694,73 @@
     "env": {},
     "docsUrl": "https://opencode.ai",
     "registryId": "opencode",
-    "registryVersion": "2.2.7",
+    "registryVersion": "2.3.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-darwin-arm64.zip",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-darwin-arm64.zip",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "811c42be9cad489ea8c411ead49e06f691deee4957ba9a0a56a159a7d6c1abdc"
+          "sha256": "7907df2b12720a840fbb49c5b978b9b82925b6bf75479a5fd216afa8932b6702"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-darwin-x64.zip",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-darwin-x64.zip",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "3e4ea96ece041218cc74bc7c7d5cd202ff1f7983e32fc7ab6c58d532445e7961"
+          "sha256": "79a4841925e3344d5bb4b000acf6c50b11de301e9047aa9bea9e288e77fe4249"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64.tar.gz",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-linux-arm64.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7"
+          "sha256": "3207fb5cdec448d479242c0f1a14f4f7bdfcad3a79209b5eb8f9003725e93711"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-x64.tar.gz",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-linux-x64.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7"
+          "sha256": "fc0f81522aceeabac47693d88389efa2bc517ce74c2c38fd6967819fcc6e4d3b"
         },
         "linux-aarch64-musl": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64-musl.tar.gz",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-linux-arm64-musl.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "a03405f94ae02db7acb0870cf32030bab86460dc7faf524780e9cae305526b96"
+          "sha256": "a0c7a2cbde0f888fe784e31170332f738db1f110509dc3981f5a2760c6323c40"
         },
         "linux-x86_64-musl": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-x64-musl.tar.gz",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-linux-x64-musl.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "c1801a36bf61e03eafac8d7f4521a200e4d3cd76cf43b36621cb78b460b851ee"
+          "sha256": "dcefa5e90cbd3dc37f7d9741854854021b4b4d495644a6c2bfaf5b0c1634c986"
         },
         "windows-aarch64": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-windows-arm64.zip",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-windows-arm64.zip",
           "cmd": "./opencode.exe",
           "args": [
             "acp"
           ],
-          "sha256": "4b2b22b4da843d126182853847974e02d7729e51046b396352cfe651fafb08d6"
+          "sha256": "86217da9616447404b96c599bee08a1c2d932c92fb58b0f60cfe835e2b61926a"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-windows-x64.zip",
+          "archive": "https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-windows-x64.zip",
           "cmd": "./opencode.exe",
           "args": [
             "acp"
           ],
-          "sha256": "91398e0e2c2bc72f6c93dbdae426a0710884ed3277a08558200753c7a995daa8"
+          "sha256": "2e14eee53f4abad803d55fdc472c1b12dc3802d687ae204f81e7908bd2ab1895"
         }
       }
     }
@@ -1690,73 +1782,73 @@
     "env": {},
     "docsUrl": "https://opencode.ai",
     "registryId": "opencode-v2",
-    "registryVersion": "2.2.7",
+    "registryVersion": "2.3.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-darwin-arm64.zip",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-darwin-arm64.zip",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "811c42be9cad489ea8c411ead49e06f691deee4957ba9a0a56a159a7d6c1abdc"
+          "sha256": "7907df2b12720a840fbb49c5b978b9b82925b6bf75479a5fd216afa8932b6702"
         },
         "darwin-x86_64": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-darwin-x64.zip",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-darwin-x64.zip",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "3e4ea96ece041218cc74bc7c7d5cd202ff1f7983e32fc7ab6c58d532445e7961"
+          "sha256": "79a4841925e3344d5bb4b000acf6c50b11de301e9047aa9bea9e288e77fe4249"
         },
         "linux-aarch64": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-linux-arm64.tar.gz",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-linux-arm64.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "c1682057f0815cb2abdd6e00305f1146ebaf1c167f0335cdb74ddc80008120e7"
+          "sha256": "3207fb5cdec448d479242c0f1a14f4f7bdfcad3a79209b5eb8f9003725e93711"
         },
         "linux-x86_64": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-linux-x64.tar.gz",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-linux-x64.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "89a6cee227b54bc011179c528a5e63176032462b1a5e21723b616801cddc2ca7"
+          "sha256": "fc0f81522aceeabac47693d88389efa2bc517ce74c2c38fd6967819fcc6e4d3b"
         },
         "linux-aarch64-musl": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-linux-arm64-musl.tar.gz",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-linux-arm64-musl.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "a03405f94ae02db7acb0870cf32030bab86460dc7faf524780e9cae305526b96"
+          "sha256": "a0c7a2cbde0f888fe784e31170332f738db1f110509dc3981f5a2760c6323c40"
         },
         "linux-x86_64-musl": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-linux-x64-musl.tar.gz",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-linux-x64-musl.tar.gz",
           "cmd": "./opencode",
           "args": [
             "acp"
           ],
-          "sha256": "c1801a36bf61e03eafac8d7f4521a200e4d3cd76cf43b36621cb78b460b851ee"
+          "sha256": "dcefa5e90cbd3dc37f7d9741854854021b4b4d495644a6c2bfaf5b0c1634c986"
         },
         "windows-aarch64": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-windows-arm64.zip",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-windows-arm64.zip",
           "cmd": "./opencode.exe",
           "args": [
             "acp"
           ],
-          "sha256": "4b2b22b4da843d126182853847974e02d7729e51046b396352cfe651fafb08d6"
+          "sha256": "86217da9616447404b96c599bee08a1c2d932c92fb58b0f60cfe835e2b61926a"
         },
         "windows-x86_64": {
-          "archive": "https://opencode.ai/files/bin/2.2.7/opencode-windows-x64.zip",
+          "archive": "https://opencode.ai/files/bin/2.3.0/opencode-windows-x64.zip",
           "cmd": "./opencode.exe",
           "args": [
             "acp"
           ],
-          "sha256": "91398e0e2c2bc72f6c93dbdae426a0710884ed3277a08558200753c7a995daa8"
+          "sha256": "2e14eee53f4abad803d55fdc472c1b12dc3802d687ae204f81e7908bd2ab1895"
         }
       }
     }
@@ -1872,17 +1964,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@qoder-ai/qodercli@1.1.88",
+      "@qoder-ai/qodercli@1.1.89",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://qoder.com",
     "registryId": "qoder",
-    "registryVersion": "1.1.88",
+    "registryVersion": "1.1.89",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@qoder-ai/qodercli@1.1.88",
+        "package": "@qoder-ai/qodercli@1.1.89",
         "args": [
           "--acp"
         ]
