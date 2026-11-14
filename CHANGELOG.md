@@ -2,6 +2,15 @@
 
 ## [0.19.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12) (2026-11-14)
 
+### Improvements
+
+- Keep generation speed visible in desktop and phone chat between responses, during tools and while timing is unavailable. Clear the previous measurement when the conversation, connection or model changes.
+- Run longer inline scripts and argument lists without the former 8 KiB per-argument and 32 KiB aggregate restrictions. Keep exact arguments, preserve access checks, and explain recovery when the operating system rejects a command's size.
+- Add 60 compatible model records, including missing SiliconFlow chat and embedding models, Singapore Qwen4 Token Plan access, and regional Alibaba and Ark routes.
+- Refresh OpenRouter Gemini 4 reasoning controls, tool support, modalities and model limits. Preserve endpoint-specific settings and verified retirement records.
+- Discover current OpenRouter capabilities with isolated account caches and retain the last successful catalog when a refresh fails.
+- Check provider and aggregator inventories daily, report credential gaps explicitly, and avoid treating Google's text listings as image or speech catalogs.
+
 
 ### Features
 
