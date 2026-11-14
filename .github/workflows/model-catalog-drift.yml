@@ -2,7 +2,7 @@ name: Model catalog drift
 
 on:
   schedule:
-    - cron: "23 3 * * 1,4"
+    - cron: "23 3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,6 +15,7 @@ env:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
@@ -26,6 +27,7 @@ jobs:
         id: catalog_audit
         continue-on-error: true
         env:
+          NEXA_MODEL_CATALOG_CREDENTIALS: ${{ secrets.NEXA_MODEL_CATALOG_CREDENTIALS }}
           NEXA_OPENAI_CATALOG_API_KEY: ${{ secrets.NEXA_OPENAI_CATALOG_API_KEY }}
           NEXA_OPENROUTER_CATALOG_API_KEY: ${{ secrets.NEXA_OPENROUTER_CATALOG_API_KEY }}
           NEXA_DEEPSEEK_CATALOG_API_KEY: ${{ secrets.NEXA_DEEPSEEK_CATALOG_API_KEY }}
@@ -39,6 +41,7 @@ jobs:
           name: model-catalog-drift
           path: .artifacts/model-catalog-drift
           if-no-files-found: error
+          retention-days: 7
 
       - name: Open, update, or close drift issue
         if: ${{ always() && hashFiles('.artifacts/model-catalog-drift/report.json') != '' }}
@@ -49,7 +52,7 @@ jobs:
             const report = JSON.parse(fs.readFileSync('.artifacts/model-catalog-drift/report.json', 'utf8'));
             const body = fs.readFileSync('.artifacts/model-catalog-drift/report.md', 'utf8');
             const title = 'Model catalog drift report';
-            const { data: issues } = await github.rest.issues.listForRepo({
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'all',

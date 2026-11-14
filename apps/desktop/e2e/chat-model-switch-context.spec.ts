@@ -259,6 +259,7 @@ test.beforeEach(async ({ page }) => {
           return [];
         case 'get_conversation_usage_snapshot_cmd':
           return {
+            ...(localStorage.getItem('e2e-generation-usage') ? { contextBreakdown: { totalTokens: 10000, segments: [], generation: { outputTokens: 140, requestDurationMs: 2000 } } } : {}),
             ...(localStorage.getItem('e2e-runtime-usage') ? { contextBreakdown: { totalTokens: 10000, segments: [], contextWindow: 200000, runtimeProvider: 'github_copilot', runtimeModel: 'gpt-native' } } : {}),
             source: 'provider',
             promptTokens: 10000,
@@ -993,6 +994,18 @@ test('a stalled account read settles visibly and Refresh can recover', async ({ 
   await page.evaluate(() => { (window as any).__quotaDelay = 0; });
   await panel.getByRole('button', { name: 'Refresh' }).click();
   await expect(panel).toContainText('82% remaining');
+});
+
+test('generation TPS resets when the selected model changes', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('e2e-generation-usage', '1'));
+  await page.goto('/chat/conv-model-switch');
+  const speed = page.getByTestId('chat-generation-tps-summary');
+  await expect(speed).toHaveText('70.0 tok/s');
+  await openProviderModels(page, 'cfg-large');
+  await page.getByTestId('agent-model-option-cfg-large-large-context').click();
+  await expect(speed).toHaveCount(0);
+  await page.getByTestId('chat-context-trigger').hover();
+  await expect(page.getByTestId('chat-generation-tps')).toHaveText('—');
 });
 
 test('context occupancy keeps the recorded runtime after selecting another model', async ({ page }) => {

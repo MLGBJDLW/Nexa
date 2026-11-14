@@ -1283,27 +1283,89 @@ fn test_reject_program_with_path_separator() {
 #[test]
 fn test_reject_null_byte_in_args() {
     let args = vec!["hello\0world".to_string()];
-    assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_err());
+    for mode in [
+        ShellAccessMode::Restricted,
+        ShellAccessMode::ConfirmAll,
+        ShellAccessMode::Open,
+    ] {
+        assert!(validate_args(mode, "python", &args).is_err());
+    }
 }
 
 #[test]
-fn test_reject_oversized_arg() {
-    let big = "x".repeat(MAX_SINGLE_ARG_BYTES + 1);
-    let args = vec![big];
-    assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_err());
+fn argv_policy_accepts_large_scripts_and_argument_vectors() {
+    // Both payloads fit ordinary host argv limits, including Windows UTF-16,
+    // but exceed the old UTF-8 quotas on a single argument and the whole list.
+    let script = format!("#{}\nprint('ok')", "资料".repeat(2048));
+    let vectors = [
+        vec!["-c".to_string(), script],
+        vec!["资料".repeat(1024); 10],
+    ];
+    for mode in [
+        ShellAccessMode::Restricted,
+        ShellAccessMode::ConfirmAll,
+        ShellAccessMode::Open,
+    ] {
+        for args in &vectors {
+            assert!(
+                validate_args(mode, "python", args).is_ok(),
+                "{:?}: {:?}",
+                mode,
+                validate_args(mode, "python", args)
+            );
+        }
+    }
 }
 
 #[test]
-fn test_reject_total_argv_too_large() {
-    // Many args just under the single-arg limit, totalling > 32 KB.
-    let chunk = "x".repeat(4 * 1024);
-    let args: Vec<String> = (0..10).map(|_| chunk.clone()).collect();
-    assert!(validate_args(ShellAccessMode::Restricted, "python", &args).is_err());
+fn os_argv_limit_errors_preserve_the_cause_and_explain_recovery() {
+    let cause = std::io::Error::from(std::io::ErrorKind::ArgumentListTooLong);
+    for action in ["spawn", "start background service"] {
+        let message = spawn_error_message(action, "python", &cause);
+        assert!(message.contains(&cause.to_string()));
+        assert!(message.contains("run_shell.stdin"));
+        assert!(message.contains("not truncated or split"));
+    }
+    let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+    assert_eq!(
+        spawn_error_message("spawn", "python", &missing),
+        format!("failed to spawn 'python': {missing}")
+    );
+    #[cfg(windows)]
+    assert!(
+        spawn_error_message("spawn", "python", &std::io::Error::from_raw_os_error(206))
+            .contains("executable path")
+    );
+}
+
+#[tokio::test]
+async fn run_shell_executes_inline_scripts_beyond_the_old_single_argument_quota() {
+    let tmp = tempfile::tempdir().unwrap();
+    let db = db_with_source(tmp.path());
+    let script = format!("#{}\nprint('long-argv-ok')", "资料".repeat(2048));
+    let args =
+        json!({ "program": "python", "args": ["-c", script], "cwd": tmp.path(), "stdin": "" })
+            .to_string();
+    let result = RunShellTool
+        .execute(crate::tools::ToolExecutionContext::new(
+            "long-script",
+            &args,
+            &db,
+            &[],
+        ))
+        .await
+        .unwrap();
+    assert!(!result.is_error, "{}", result.content);
+    assert!(
+        result.content.contains("long-argv-ok"),
+        "{}",
+        result.content
+    );
 }
 
 #[test]
 fn test_stdin_cap_allows_larger_than_single_argv() {
-    let input = "x".repeat(MAX_SINGLE_ARG_BYTES + 1);
+    let input = "x".repeat(8 * 1024 + 1);
     assert!(validate_stdin(Some(&input)).is_ok());
 }
 

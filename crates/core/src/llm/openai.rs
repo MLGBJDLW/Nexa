@@ -20,12 +20,12 @@ use super::reasoning_profile::{
 };
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
-    configured_request_timeout, next_stream_item_with_idle_timeout, send_stream_start_request,
-    serialized_json_body, streaming::parse_sse_events_with_idle_timeout, with_request_timeout,
-    CompletionRequest, CompletionResponse, ContentPart, FinishReason, LlmProvider, Message,
-    ProviderConfig, ProviderHostedToolEvent, ProviderHostedToolKind, ProviderHostedToolStatus,
-    ProviderStreamEvent, ProviderType, ReasoningEffort, ReplayHistoryProjection, Role, StreamChunk,
-    ToolCallRequest, ToolDefinition, Usage,
+    next_stream_item_with_idle_timeout, send_stream_start_request, serialized_json_body,
+    streaming::parse_sse_events_with_idle_timeout, with_request_timeout, CompletionRequest,
+    CompletionResponse, ContentPart, FinishReason, LlmProvider, Message, ProviderConfig,
+    ProviderHostedToolEvent, ProviderHostedToolKind, ProviderHostedToolStatus, ProviderStreamEvent,
+    ProviderType, ReasoningEffort, ReplayHistoryProjection, Role, StreamChunk, ToolCallRequest,
+    ToolDefinition, Usage,
 };
 #[cfg(test)]
 use super::{CacheBoundaryHint, PromptStability};
@@ -35,6 +35,7 @@ use std::sync::Arc;
 
 mod responses_input;
 use responses_input::responses_input_items;
+mod model_discovery;
 
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_TIMEOUT_SECS: u64 = 600;
@@ -425,16 +426,6 @@ fn usage_from_oai_usage_with_route(
             "openrouterMetadata": openrouter_metadata,
         })),
     }
-}
-
-#[derive(Deserialize)]
-struct ModelsResponse {
-    data: Vec<ModelEntry>,
-}
-
-#[derive(Deserialize)]
-struct ModelEntry {
-    id: String,
 }
 
 #[derive(Deserialize)]
@@ -2957,21 +2948,17 @@ async fn parse_responses_sse_stream(
 pub struct OpenAiProvider {
     transport: Arc<HttpTransport>,
     config: ProviderConfig,
-    request_timeout: Option<Duration>,
     copilot_model: Option<Arc<super::copilot::Model>>,
 }
 
 impl OpenAiProvider {
     /// Create a new provider with an async reqwest client.
     pub fn new(config: ProviderConfig) -> Result<Self, CoreError> {
-        let timeout = config.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
-        let request_timeout = configured_request_timeout(timeout);
         let transport = shared_http_transport(&config)?;
 
         Ok(Self {
             transport,
             config,
-            request_timeout,
             copilot_model: None,
         })
     }
@@ -3367,39 +3354,18 @@ impl LlmProvider for OpenAiProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
-        let transport = self.transport.for_request()?;
-        let url = format!("{}/models", self.base_url());
-        let api_key = self.api_key()?;
+        Ok(self
+            .discover_model_entries()
+            .await?
+            .into_iter()
+            .map(|model| model.id)
+            .collect())
+    }
 
-        let response = with_request_timeout(
-            self.request_headers(
-                transport
-                    .client()
-                    .get(&url)
-                    .header("Authorization", format!("Bearer {api_key}")),
-                None,
-            ),
-            self.request_timeout,
-        )
-        .send()
-        .await
-        .map_err(|e| {
-            CoreError::Llm(format!(
-                "Request failed: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
-
-        let response = self.check_response(response).await?;
-
-        let models: ModelsResponse = response.json().await.map_err(|e| {
-            CoreError::Llm(format!(
-                "Failed to parse models response: {}",
-                super::transport::describe_http_error(&e)
-            ))
-        })?;
-
-        Ok(models.data.into_iter().map(|m| m.id).collect())
+    async fn model_catalog_snapshot(
+        &self,
+    ) -> Result<Option<crate::provider_catalog::ProviderModelCatalogSnapshot>, CoreError> {
+        Ok(self.openrouter_catalog_snapshot().await)
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
@@ -6235,6 +6201,27 @@ data: [DONE]
     }
 
     #[test]
+    fn qwen4_global_token_plan_uses_only_documented_efforts_and_shared_output_budget() {
+        let config = endpoint_config(
+            ProviderType::Qwen,
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        );
+        let mut request = endpoint_reasoning_request("qwen4-max-preview");
+        request.reasoning_effort = Some(ReasoningEffort::Max);
+        request.max_tokens = Some(393_216);
+        let body = serde_json::to_value(build_request_body_with_config(
+            &request,
+            false,
+            Some(&config),
+        ))
+        .unwrap();
+        assert_eq!(body["reasoning_effort"], "xhigh");
+        assert_eq!(body["max_completion_tokens"], 393_216);
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("thinking_budget").is_none());
+    }
+
+    #[test]
     fn qwen38_headless_defaults_explicitly_to_low_instead_of_provider_xhigh() {
         let request = endpoint_reasoning_request("qwen3.8-max");
         let config = endpoint_config(
@@ -8190,7 +8177,7 @@ data: [DONE]
 
     #[test]
     fn openrouter_kimi_k3_headless_defaults_to_nested_low_effort() {
-        let request = CompletionRequest {
+        let mut request = CompletionRequest {
             model: "moonshotai/kimi-k3".to_string(),
             messages: vec![Message::text(Role::User, "hello")],
             temperature: Some(0.4),
@@ -8209,35 +8196,37 @@ data: [DONE]
 
         assert_eq!(body["reasoning"]["effort"], "low");
         assert!(body.get("reasoning_effort").is_none());
+        request.reasoning_effort = Some(ReasoningEffort::Max);
+        let explicit = serde_json::to_value(build_request_body(&request, false)).unwrap();
+        assert_eq!(explicit["reasoning"]["effort"], "max");
     }
 
     #[test]
-    fn openrouter_kimi_k3_replays_raw_reasoning_details_without_text_rewrite() {
-        let details = vec![
-            serde_json::json!({"type": "reasoning.text", "text": "inspect"}),
-            serde_json::json!({"type": "reasoning.summary", "summary": "act"}),
-        ];
-        let tool_call = ToolCallRequest {
-            id: "call_0".to_string(),
-            name: "read_file".to_string(),
-            arguments: "{\"path\":\"README.md\"}".to_string(),
-            thought_signature: None,
-        };
-        let mut assistant = Message::text(Role::Assistant, "");
-        assistant.tool_calls = Some(vec![tool_call.clone()]);
-        assistant.set_provider_turn(
+    fn openrouter_models_replay_raw_reasoning_details_without_text_rewrite() {
+        for model in [
+            "moonshotai/kimi-k3",
+            "google/gemini-4-carbon",
+            "google/gemini-4-hydrogen",
+            "google/gemini-4-argon",
+        ] {
+            let details = vec![
+                serde_json::json!({"type": "reasoning.text", "text": "inspect"}),
+                serde_json::json!({"type": "reasoning.summary", "summary": "act"}),
+                serde_json::json!({"type": "reasoning.encrypted", "data": "opaque-signature", "format":"google-gemini-v1", "index":0}),
+            ];
+            let tool_call = ToolCallRequest {
+                id: "call_0".to_string(),
+                name: "read_file".to_string(),
+                arguments: "{\"path\":\"README.md\"}".to_string(),
+                thought_signature: None,
+            };
+            let mut assistant = Message::text(Role::Assistant, "");
+            assistant.tool_calls = Some(vec![tool_call.clone()]);
+            assistant.set_provider_turn(
             super::super::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
                 "turn-item",
                 "sample",
-                super::super::provider_turn::RouteSnapshot {
-                    provider_endpoint_id: "openrouter-public".to_string(),
-                    provider_family: "openrouter".to_string(),
-                    api_style: ReasoningApiStyle::OpenAiChatCompletions,
-                    model_id: "moonshotai/kimi-k3".to_string(),
-                    reasoning_profile_id: "openrouter-normalized-reasoning-v1".to_string(),
-                    reasoning_profile_version: 1,
-                    replay_policy: ReasoningReplayPolicy::RequiredOnToolCall,
-                },
+                super::super::provider_turn::RouteSnapshot::from_profile(&resolve_reasoning_profile(ProviderType::OpenRouter,None,ReasoningApiStyle::OpenAiChatCompletions,model)),
                 "",
                 Some("display only"),
                 None,
@@ -8250,29 +8239,30 @@ data: [DONE]
                 ),
             ),
         );
-        let request = CompletionRequest {
-            model: "moonshotai/kimi-k3".to_string(),
-            messages: vec![
-                assistant,
-                Message::text_with_name(Role::Tool, "contents", "call_0"),
-            ],
-            temperature: None,
-            max_tokens: Some(100),
-            tools: None,
-            stop: None,
-            thinking_budget: None,
-            reasoning_enabled: Some(true),
-            reasoning_effort: Some(ReasoningEffort::Low),
-            provider_type: Some(ProviderType::OpenRouter),
-            routing_session_id: None,
-            parallel_tool_calls: true,
-        };
+            let request = CompletionRequest {
+                model: model.to_string(),
+                messages: vec![
+                    assistant,
+                    Message::text_with_name(Role::Tool, "contents", "call_0"),
+                ],
+                temperature: None,
+                max_tokens: Some(100),
+                tools: None,
+                stop: None,
+                thinking_budget: None,
+                reasoning_enabled: Some(true),
+                reasoning_effort: Some(ReasoningEffort::Low),
+                provider_type: Some(ProviderType::OpenRouter),
+                routing_session_id: None,
+                parallel_tool_calls: true,
+            };
 
-        let body = serde_json::to_value(build_request_body(&request, false)).unwrap();
-        assert_eq!(
-            body["messages"][0]["reasoning_details"],
-            serde_json::Value::Array(details)
-        );
+            let body = serde_json::to_value(build_request_body(&request, false)).unwrap();
+            assert_eq!(
+                body["messages"][0]["reasoning_details"],
+                serde_json::Value::Array(details)
+            );
+        }
     }
 
     #[test]

@@ -13,8 +13,6 @@ pub(crate) const TOOL_NAME: &str = "run_shell";
 pub(crate) const DEFAULT_TIMEOUT_SECS: u64 = 30;
 pub(crate) const MIN_TIMEOUT_SECS: u64 = 1;
 pub(crate) const MAX_OUTPUT_BYTES: usize = 64 * 1024;
-pub(crate) const MAX_SINGLE_ARG_BYTES: usize = 8 * 1024;
-pub(crate) const MAX_TOTAL_ARGV_BYTES: usize = 32 * 1024;
 pub(crate) const MAX_STDIN_BYTES: usize = 1024 * 1024;
 
 pub(crate) const PROGRAM_WHITELIST: &[&str] = &[
@@ -123,7 +121,7 @@ pub(crate) fn parameters_schema() -> Value {
                 "items": { "type": "string" },
                 "default": [],
                 "description": format!(
-                    "Exact argv for program, without shell interpretation; do not combine with command. Pass generated HTML/PPTX JSON through stdin with --spec -. In restricted mode, git first arg must be a read-only subcommand ({git_subcommands}); filesystem-command paths resolve from cwd and must stay inside registered source roots.",
+                    "Exact argv for program, without shell interpretation; do not combine with command. No application-specific argument size quota is imposed; operating-system and interpreter command-line limits still apply. Pass generated HTML/PPTX JSON through stdin with --spec -. In restricted mode, git first arg must be a read-only subcommand ({git_subcommands}); filesystem-command paths resolve from cwd and must stay inside registered source roots.",
                     git_subcommands = GIT_READONLY_SUBCOMMANDS.join(", ")
                 )
             },
@@ -167,7 +165,7 @@ pub(crate) fn parameters_schema() -> Value {
             },
             "stdin": {
                 "type": "string",
-                "description": "Optional text written to the child process stdin. Use this for scripts or generated content that would exceed argv limits, e.g. program python with args [\"-\"] and stdin containing the script. For HTML-first PPTX generation, pass the JSON deck spec here while using --spec - in args. The payload is bounded and is not logged. Native filesystem commands do not accept stdin."
+                "description": "Optional text written to the child process stdin. Use this for scripts or generated content that would exceed operating-system or interpreter command-line limits, e.g. program python with args [\"-\"] and stdin containing the script. For HTML-first PPTX generation, pass the JSON deck spec here while using --spec - in args. The payload is bounded and is not logged. Native filesystem commands do not accept stdin."
             }
         },
         "required": [],
@@ -287,7 +285,7 @@ pub(crate) fn expected_format() -> Value {
             "Do not send command together with program or args.",
             "args must be an array of argv strings.",
             "For generated HTML/PPTX specs or large scripts, pass the payload in stdin and use --spec - or a stdin-reading program.",
-            "Do not put raw HTML, JSON specs, or multiline scripts inside args or python -c.",
+            "Exact argv is passed unchanged. Prefer stdin or a script file for bulk content that may exceed the target operating system or interpreter command-line limit.",
             "Every external command without stdin is observed briefly and automatically detached if it is still running. Never predict duration and never wait by sleeping. For builds/tests continue with the exact returned activityId/cursor via activity_observe(waitFor=completion, waitUpToMs=30000); progress remains visible during the wait. For persistent servers use waitFor=output and begin browser work at the verified readyUrl without waiting for process exit. Do not restart a running command. service_action=status/wait/stop remains available for compatibility."
         ]
     })
@@ -390,7 +388,11 @@ fn plain_text_tools_sentence() -> &'static str {
 }
 
 fn large_payload_sentence() -> &'static str {
-    "For large scripts or generated text, pass the content through `stdin` and use a program form that reads stdin (for example python with args [\"-\"]); do not stuff large content into argv. If a disposable script or intermediate file must be saved, place it under <active-workspace>/.nexa/tmp/<task>/, even when cwd is a nested directory. Keep maintained source and user deliverables at their intended paths; honor explicit user paths."
+    "Argument sizes follow the target operating system and interpreter; Nexa does not impose per-argument or total-argv byte quotas. For large scripts or generated text, prefer `stdin` with a program that reads it (for example python with args [\"-\"]) or a script file. If a disposable script or intermediate file must be saved, place it under <active-workspace>/.nexa/tmp/<task>/, even when cwd is a nested directory. Keep maintained source and user deliverables at their intended paths; honor explicit user paths."
+}
+
+pub(crate) fn os_command_line_limit_guidance() -> &'static str {
+    "The command line, executable path, or inherited environment exceeds an operating-system limit. Use shorter paths, a smaller environment, a script/response file supported by the target program, or run_shell.stdin with a program that reads it (for example program=python, args=[\"-\"]). Exact arguments were not truncated or split."
 }
 
 fn html_pptx_sentence() -> &'static str {

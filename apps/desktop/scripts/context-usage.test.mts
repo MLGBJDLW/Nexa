@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { modelTokensPerSecond, resolveContextUsage } from '../src/lib/contextUsage.ts';
+import { modelTokensPerSecond, resolveContextUsage, retainGenerationSample } from '../src/lib/contextUsage.ts';
+
+test('latest valid generation survives missing timing and resets on model, endpoint or conversation changes', () => {
+  const measured = { outputTokens: 1400, requestDurationMs: 20000 };
+  let sample = retainGenerationSample(null, 'conversation:connection:model', measured);
+  sample = retainGenerationSample(sample, sample.scope, undefined);
+  sample = retainGenerationSample(sample, sample.scope, { outputTokens: 1, requestDurationMs: 0 });
+  assert.equal(modelTokensPerSecond(sample.metrics), 70);
+  const external = { outputTokens: 100, requestDurationMs: 2000, externalTurn: true };
+  sample = retainGenerationSample(sample, sample.scope, external);
+  assert.equal(sample.metrics?.externalTurn, true);
+  for (const scope of ['conversation:connection:other-model', 'conversation:other-connection:model', 'other-conversation:connection:model']) {
+    const switched = retainGenerationSample(sample, scope, external);
+    assert.equal(switched.metrics, undefined);
+    assert.equal(retainGenerationSample(switched, scope, external).metrics, undefined);
+    const next = retainGenerationSample(switched, scope, { outputTokens: 240, requestDurationMs: 2000 });
+    assert.equal(modelTokensPerSecond(next.metrics), 120);
+  }
+});
 
 test('generation speed uses one model request and rejects unavailable or invalid timing', () => {
   assert.equal(modelTokensPerSecond({outputTokens: 120, requestDurationMs: 2000}), 60);

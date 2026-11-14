@@ -515,7 +515,7 @@ pub(super) fn spawn_background_process(
     apply_os_options(&mut cmd);
     let mut child = cmd
         .spawn()
-        .map_err(|error| format!("failed to start background service '{program}': {error}"))?;
+        .map_err(|error| spawn_error_message("start background service", program, &error))?;
     match attach_process_tree(&mut child) {
         Ok(mut process_tree) => {
             process_tree.wsl = wsl;
@@ -525,6 +525,20 @@ pub(super) fn spawn_background_process(
             let _ = child.start_kill();
             Err(error)
         }
+    }
+}
+
+pub(super) fn spawn_error_message(action: &str, program: &str, error: &std::io::Error) -> String {
+    let message = format!("failed to {action} '{program}': {error}");
+    if error.kind() == std::io::ErrorKind::ArgumentListTooLong
+        || (cfg!(windows) && error.raw_os_error() == Some(206))
+    {
+        format!(
+            "{message}. {}",
+            super::super::run_shell_contract::os_command_line_limit_guidance()
+        )
+    } else {
+        message
     }
 }
 
@@ -556,7 +570,7 @@ pub(super) async fn execute_inner(
     let started = Instant::now();
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("failed to spawn '{program}': {e}"))?;
+        .map_err(|error| spawn_error_message("spawn", program, &error))?;
     let mut process_tree = attach_process_tree(&mut child).inspect_err(|_| {
         let _ = child.start_kill();
     })?;

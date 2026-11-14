@@ -18,6 +18,7 @@ import type {
 import { useAgentStream, useRunningConversationIds } from './useAgentStream';
 import { streamStore } from './streamStore';
 import { replaceRunUsage } from './liveUsageAggregate';
+import { useGenerationMetrics } from './useGenerationMetrics';
 import { findProviderPreset } from './providerPresets';
 import { loadSubscriptionModels } from './subscriptionModelCatalog';
 import { mergeCurrentTurnVisualEvidence, retainMessageVisualEvidence } from './toolVisualEvidence';
@@ -1689,6 +1690,10 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
   const runtimeProvider = usageForView?.contextBreakdown?.runtimeProvider ?? contextRun?.provider ?? activeConversation?.provider ?? agentConfig?.provider;
   const runtimeModel = usageForView?.contextBreakdown?.runtimeModel ?? contextRun?.model ?? activeConversation?.model ?? agentConfig?.model;
   const selectedRouteMatches = runtimeProvider === agentConfig?.provider && runtimeModel === agentConfig?.model;
+  const generationMetrics = useGenerationMetrics(
+    JSON.stringify([activeId, agentConfig?.id, agentConfig?.provider, agentConfig?.baseUrl, agentConfig?.model]),
+    selectedRouteMatches ? usageForView?.contextBreakdown?.generation : undefined,
+  );
   const durableContextAuthority = !isUsingLiveUsage && !awaitingActiveUsage ? usageSnapshot?.contextAuthority : null;
   const nativeCapacity = usageForView?.contextBreakdown?.contextWindow;
   const localCapacity = usageForView?.contextBreakdown?.budget?.capacityTokens;
@@ -1773,7 +1778,7 @@ export function useChatSession(options: UseChatSessionOptions = {}): UseChatSess
     loadingConfig: loadingConfig || loadingConvos,
     agentConfig,
     contextWindow,
-    generationMetrics: usageForView?.contextBreakdown?.generation,
+    generationMetrics,
     runtimeProfile,
     lastUsage: scopedLastUsage,
     tokenUsage,
