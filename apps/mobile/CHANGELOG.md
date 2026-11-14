@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.9...nexa-mobile-v0.3.10) (2026-11-14)
+
+
+### Improvements
+
+- Keep complete Android accessibility nodes, original IDs and the current package in large phone observations.
+- Prioritize focused and actionable controls, preserve native sensitivity flags and report how many nodes were omitted from model context.
+
+### Features
+
+* **computer-use:** improve cross-platform observation and verified input ([#557](https://github.com/MLGBJDLW/Nexa/issues/557)) ([43ca435](https://github.com/MLGBJDLW/Nexa/commit/43ca4359d5bd242bedd5cd35f86acf012aaf0f3a))
+
 ## [0.3.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.8...nexa-mobile-v0.3.9) (2026-11-14)
 
 
