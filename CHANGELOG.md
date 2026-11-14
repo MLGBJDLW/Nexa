@@ -3,6 +3,12 @@
 ## [0.19.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.10...nexa-monorepo-v0.19.11) (2026-11-14)
 
 
+### Improvements
+
+- Ask for a Windows control to expand or collapse explicitly. Nexa reads its expansion state and avoids sending input when the requested state already holds.
+- Observe a window and its open native or accessible popup menus together, including items outside the parent frame. Click an observation-scoped menu item after checking its live owner and hit target.
+- Verify a menu command against an expected parent window title or inspect the fresh parent capture. Open the parent and menu screenshots separately in desktop chat.
+
 ### Features
 
 * **computer-use:** verify Windows expansion and owned popup menu actions ([#560](https://github.com/MLGBJDLW/Nexa/issues/560)) ([45b52c0](https://github.com/MLGBJDLW/Nexa/commit/45b52c06dbc93bcac44e598243c8775d9606373f))
