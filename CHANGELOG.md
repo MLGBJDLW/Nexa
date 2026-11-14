@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.19.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12) (2026-11-14)
+
+### Improvements
+
+- Keep generation speed visible in desktop and phone chat between responses, during tools and while timing is unavailable. Clear the previous measurement when the conversation, connection or model changes.
+- Run longer inline scripts and argument lists without the former 8 KiB per-argument and 32 KiB aggregate restrictions. Keep exact arguments, preserve access checks, and explain recovery when the operating system rejects a command's size.
+- Add 60 compatible model records, including missing SiliconFlow chat and embedding models, Singapore Qwen4 Token Plan access, and regional Alibaba and Ark routes.
+- Refresh OpenRouter Gemini 4 reasoning controls, tool support, modalities and model limits. Preserve endpoint-specific settings and verified retirement records.
+- Discover current OpenRouter capabilities with isolated account caches and retain the last successful catalog when a refresh fails.
+- Check provider and aggregator inventories daily, report credential gaps explicitly, and avoid treating Google's text listings as image or speech catalogs.
+
+
+### Features
+
+* **runtime:** refresh model catalogs, retain TPS, and allow long shell arguments ([#562](https://github.com/MLGBJDLW/Nexa/issues/562)) ([16b9f8f](https://github.com/MLGBJDLW/Nexa/commit/16b9f8f78eae82609308ff0d194cd1f7c888d621))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 16b9f8f78eae82609308ff0d194cd1f7c888d621 -->
+
+### What's Changed
+* feat(runtime): refresh model catalogs, retain TPS, and allow long shell arguments by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/562
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.10...nexa-monorepo-v0.19.11) (2026-11-14)
 
 
