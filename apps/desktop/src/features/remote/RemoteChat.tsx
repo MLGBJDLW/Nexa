@@ -1,3 +1,4 @@
+import { modelTokensPerSecond } from '../../lib/contextUsage';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ListChecks, Trash2, ArrowUp, ChevronDown, CircleStop, CornerDownRight, FolderOpen, Loader2, Plus, Send, Shield, ShieldCheck, SquarePen } from "lucide-react";
 import { MobileConversationRow } from './MobileConversationRow';
@@ -207,6 +208,7 @@ export function RemoteChat({
     };
   }, [markReplyRead, conversationId, timelineRunId, finalMessageId, renderedReply, drawerOpen]);
   const [runStatus, setRunStatus] = useState('');
+  const [generation, setGeneration] = useState<{ tps: number; external: boolean } | null>(null);
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
@@ -361,7 +363,7 @@ export function RemoteChat({
     let paint: ReturnType<typeof setTimeout> | null = null;
     const retired = new Set<string>();
     const terminal = new Set<string>();
-    setTimeline([]); setTimelineRunId(null); setRunUserId(null); setFinalMessageId(null); setRunStatus('');
+    setGeneration(null); setTimeline([]); setTimelineRunId(null); setRunUserId(null); setFinalMessageId(null); setRunStatus('');
     setProgress(''); setRunning(false); setMessages([]); setPendingSteers([]); setDismissedFollowup('');
     setApprovals([]); setInteractions([]); setBeforeOrder(null);
     if (!conversationId) return;
@@ -380,7 +382,7 @@ export function RemoteChat({
       runId = id; finalId = null; status = ''; textReplayAttempts = 0;
       ordering._orderedRunId = id; ordering._lastEventSeq = 0; ordering._pendingRunEvents.clear();
       blocks.clear(); items.clear(); readNeeded = true;
-      setTimeline([]); setTimelineRunId(id); setRunUserId(null); setFinalMessageId(null); setProgress('');
+      setGeneration(null); setTimeline([]); setTimelineRunId(id); setRunUserId(null); setFinalMessageId(null); setProgress('');
     };
     const updateStatus = (next: string, phase?: string) => {
       if (runId && terminal.has(runId) && !['completed', 'cancelled', 'failed', 'timed_out'].includes(next)) return;
@@ -431,6 +433,11 @@ export function RemoteChat({
       }
       if (event.visibility === 'user' && event.label) setProgress(event.label);
       const payload = (event.payload ?? {}) as Record<string, any>;
+      if (event.kind === 'usageUpdated' || event.kind === 'done') {
+        const metrics = (payload.contextBreakdown ?? payload.usageTotal?.contextBreakdown)?.generation;
+        const tps = modelTokensPerSecond(metrics);
+        setGeneration(tps == null ? null : { tps, external: metrics.externalTurn === true });
+      }
       if (event.visibility === 'user' && event.kind.startsWith('tool') && payload.run?.callId) {
         const id = `tool:${payload.run.callId}`;
         const previous = items.get(id);
@@ -970,6 +977,9 @@ export function RemoteChat({
                       : runStatus === 'waiting_approval' ? t('remote.runWaitingApproval')
                         : t('remote.runRunning')
           }</span>
+          {generation && <span className="text-xs tabular-nums" title={t(generation.external ? 'chat.externalTurnSpeedHint' : 'chat.generationSpeedHint')}>
+            {t(generation.external ? 'chat.externalTurnSpeed' : 'chat.generationSpeed')} · {generation.tps.toFixed(1)} tok/s
+          </span>}
           {running && progress && progress !== t('remote.runRunning') && <span className="min-w-0 flex-1 truncate text-text-tertiary">{progress}</span>}
           {runStatus === 'paused' && client.resumeAvailable && <button className={remoteButton} onClick={() => void act('chat.continue', { conversationId, connectionId, modelSelection, ...composerSettings })}>{t('chat.resumeTask')}</button>}
         </div>

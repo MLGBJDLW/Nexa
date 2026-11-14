@@ -296,16 +296,44 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             tokio::pin!(operation);
             let mut completed = None;
             let mut idle_observed = false;
+            let mut native_active = false;
+            // A late immediate send may arrive just after native idle and start a
+            // new exchange. Wait for its user.message and subsequent idle as well.
+            let mut immediate_receipts = VecDeque::new();
+            let mut idle_receipt_deadline = None;
             loop {
-                if completed.is_some() && idle_observed { break; }
+                if completed.is_some() && idle_observed && immediate_receipts.is_empty() { break; }
                 tokio::select! {
                     biased;
                     _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped by user".into())),
                     error = fatal_rx.recv() => if let Some(error) = error { return Err(error); },
                     message = turn.steering.recv(), if !steering_closed => match message {
                         Some(message) => {
-                            if steering.len() >= 64 || message.content.len() > 256 * 1024 { return Err(protocol_error("Copilot steering input budget exceeded")); }
-                            steering.push_back(message);
+                            if message.recovery_control.is_some() { return Err(protocol_error("Copilot manages its own recovery. Stop and start a new turn to change reasoning.")); }
+                            let has_images = message.parts.iter().any(|part| matches!(part, ContentPart::Image { .. }));
+                            if has_images && !native_vision {
+                                turn.transcript.persist_steering(&message).await?;
+                                turn.events.send(AgentEvent::ControllerStatus { code:"external_agent_warning".into(), content:"The selected Copilot model cannot receive these images. They were saved in the chat; send them with an image-capable model.".into(), tone:None }).await.map_err(protocol_error)?;
+                                continue;
+                            }
+                            // The SDK waiter disallows a second Session::send. Its typed
+                            // session.send RPC exposes the pinned CLI's immediate delivery.
+                            if native_active && completed.is_none() && steering.is_empty() && !has_images {
+                                let text = redact_user_text(&message.content, &turn.privacy);
+                                let mut input = github_copilot_sdk::rpc::SendRequest::default();
+                                input.prompt = text.clone();
+                                input.mode = Some(github_copilot_sdk::rpc::SendMode::Immediate);
+                                let rpc = session.rpc();
+                                let receipt = tokio::select! {
+                                    _ = turn.cancellation.cancelled() => return Err(CoreError::Cancelled("Stopped by user".into())),
+                                    receipt = rpc.send(input) => receipt.map_err(sdk_error)?,
+                                };
+                                immediate_receipts.push_back((receipt.message_id, text));
+                                turn.transcript.persist_steering(&message).await?;
+                                turn.events.send(AgentEvent::Steering { content: message.content }).await.map_err(protocol_error)?;
+                            } else {
+                                steering.push_back(message);
+                            }
                         },
                         None => steering_closed = true,
                     },
@@ -313,13 +341,26 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
                         if result.is_err() { completed = Some(result); break; }
                         completed = Some(result);
                     },
+                    _ = async { if let Some(deadline) = idle_receipt_deadline { tokio::time::sleep_until(deadline).await; } }, if idle_receipt_deadline.is_some() => {
+                        return Err(protocol_error("Copilot went idle without confirming the steering message. Check the session before resending."));
+                    },
                     event = events.recv() => {
                         let event = event?;
                         if event.agent_id.as_deref().is_none_or(str::is_empty) {
                             if event.event_type == "session.idle" {
                                 if event.data["aborted"] == true { return Err(CoreError::Cancelled("Copilot turn was aborted".into())); }
                                 idle_observed = true;
-                            } else if matches!(event.event_type.as_str(), "assistant.turn_start" | "tool.execution_start") { idle_observed = false; }
+                                native_active = false;
+                                if !immediate_receipts.is_empty() { idle_receipt_deadline = Some(tokio::time::Instant::now() + Duration::from_secs(25)); }
+                            } else if event.event_type == "user.message" && immediate_receipts.front().is_some_and(|(id, text)| event.id == *id || event.data["content"].as_str() == Some(text)) {
+                                immediate_receipts.pop_front();
+                                idle_receipt_deadline = None;
+                                idle_observed = false;
+                                native_active = true;
+                            } else if matches!(event.event_type.as_str(), "assistant.turn_start" | "tool.execution_start" | "assistant.message_delta") {
+                                idle_observed = false;
+                                native_active = true;
+                            }
                         }
                         project_event(&mut projection, &mut response, &turn.events, &mut seen, &event).await?;
                         projection.persist_settled(&turn, response.take_settled()).await?;
@@ -362,7 +403,6 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             let Some(message) = steering.pop_front() else { return Ok(()); };
             if message.recovery_control.is_some() { return Err(protocol_error("Copilot manages its own recovery. Stop and start a new turn to change reasoning.")); }
             let attachments = message.parts.iter().filter_map(|part| match part { ContentPart::Image {media_type,data} => Some(Attachment::Blob{data:data.clone(),mime_type:media_type.clone(),display_name:None}),_=>None }).collect::<Vec<_>>();
-            if !native_vision && !attachments.is_empty() { return Err(protocol_error("the selected Copilot model does not accept steering images")); }
             projection.persist_completed_answer(&turn).await?;
             turn.transcript.persist_steering(&message).await?;
             if turn.cancellation.is_cancelled() { return Err(CoreError::Cancelled("Stopped by user".into())); }
@@ -594,6 +634,17 @@ async fn project_event(
                 if let Some(model) = data["model"].as_str() {
                     projection.observe_runtime_model(model);
                 }
+                projection.generation = data["outputTokens"]
+                    .as_u64()
+                    .and_then(|value| u32::try_from(value).ok())
+                    .zip(data["duration"].as_u64().filter(|ms| *ms > 0))
+                    .map(|(output_tokens, request_duration_ms)| {
+                        nexa_core::agent::context::GenerationMetrics {
+                            output_tokens,
+                            request_duration_ms,
+                            external_turn: false,
+                        }
+                    });
             }
             let tokens = |key: &str| {
                 data.get(key)

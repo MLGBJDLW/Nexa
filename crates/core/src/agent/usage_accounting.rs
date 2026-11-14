@@ -190,6 +190,7 @@ impl AgentExecutor {
                 .map(|usage| context::GenerationMetrics {
                     output_tokens: usage.completion_tokens,
                     request_duration_ms: request_latency_ms,
+                    external_turn: false,
                 });
         let (prompt_tokens, completion_tokens, _has_actual_usage) =
             model_step_accounting_tokens(chunk_usage.as_ref(), context_breakdown.total_tokens);

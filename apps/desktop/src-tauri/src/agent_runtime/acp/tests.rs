@@ -34,6 +34,30 @@ async fn discovery_does_not_advertise_unavailable_file_or_terminal_services() {
 }
 
 #[tokio::test]
+async fn cursor_catalog_exposes_other_models_efforts_without_switching() {
+    let mut wire = wire("cursor_catalog");
+    let initialized = Session::initialize(&mut wire).await.unwrap();
+    let catalog = auth::catalog(
+        &mut wire,
+        &ExternalAgentLaunch::default(),
+        None,
+        &[],
+        initialized,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        catalog
+            .models
+            .iter()
+            .find(|m| m.id.starts_with("vendor/"))
+            .unwrap()
+            .reasoning_efforts,
+        ["low", "high"]
+    );
+}
+
+#[tokio::test]
 async fn native_setup_remains_available_after_a_non_authentication_session_error() {
     let mut wire = wire("setup_error");
     let initialized = Session::initialize(&mut wire).await.unwrap();
@@ -1241,6 +1265,63 @@ async fn external_protocol_rejects_false_success_and_unconfirmed_model_changes()
                 "{mode} must not finish successfully"
             );
         }
+    }
+}
+
+#[tokio::test]
+async fn steering_during_streaming_reaches_the_same_session_once() {
+    for mode in ["steer_live", "steer_race", "steer_baseline"] {
+        let (mut request, mut rx, _, _) = super::super::tests::fixture(
+            super::super::AgentRuntimeKind::Acp("opencode".into()),
+            "first",
+        );
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        request.steering = receiver;
+        let db = request.db.clone();
+        let conversation = request.conversation_id.clone();
+        let events = tokio::spawn(async move {
+            let mut sent = false;
+            let mut acknowledged = 0;
+            let mut speed = None;
+            while let Some(event) = rx.recv().await {
+                match event {
+                    AgentEvent::StreamBlockDelta { .. } if !sent => {
+                        sender
+                            .send(AgentSteeringMessage::text("corrected"))
+                            .unwrap();
+                        sent = true;
+                    }
+                    AgentEvent::Steering { .. } => acknowledged += 1,
+                    AgentEvent::Done {
+                        context_breakdown, ..
+                    } => speed = context_breakdown.and_then(|b| b.generation),
+                    _ => {}
+                }
+            }
+            (acknowledged, speed.unwrap())
+        });
+        let answer = tokio::time::timeout(
+            Duration::from_secs(8),
+            run_connected("opencode", request, wire(mode), "fixture"),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            answer.text_content().ends_with("corrected answer"),
+            "{mode}"
+        );
+        let (acknowledged, speed) = events.await.unwrap();
+        assert_eq!(acknowledged, 1);
+        assert!(speed.external_turn && speed.output_tokens == 3 && speed.request_duration_ms > 0);
+        assert_eq!(
+            db.get_messages(&conversation)
+                .unwrap()
+                .iter()
+                .filter(|m| m.content == "corrected")
+                .count(),
+            1
+        );
     }
 }
 

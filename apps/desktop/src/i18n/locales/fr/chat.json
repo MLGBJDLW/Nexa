@@ -989,5 +989,8 @@
   "imageEditSubmit": "Envoyer la modification",
   "imageEditSending": "Envoi…",
   "generationSpeed": "Vitesse de génération (TPS)",
+  "externalTurnSpeed": "Débit du tour de l’agent",
+  "externalTurnSpeedHint": "Nombre de jetons de sortie divisé par la durée du tour, outils et attentes compris.",
+  "generationSpeedUnavailable": "Le moteur n’a pas encore fourni le nombre de jetons de sortie et la durée nécessaires au calcul du débit.",
   "generationSpeedHint": "Dernière requête au modèle : tokens de sortie / durée, latence du premier token incluse, hors outils et attente utilisateur."
 }

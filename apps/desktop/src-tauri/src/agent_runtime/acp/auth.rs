@@ -204,6 +204,42 @@ pub(super) async fn catalog(
             super::catalog::ConfigurationUse::Discovery,
         )
         .await?;
+    if auth_methods
+        .iter()
+        .any(|method| method.id == "cursor_login")
+    {
+        // Cursor can enumerate per-model controls without switching the active runtime
+        // model or starting one discovery process per row in the picker.
+        let response = wire
+            .request_response("cursor/list_available_models", json!({}))
+            .await
+            .ok();
+        if let Some(models) = response
+            .as_ref()
+            .and_then(|r| r.pointer("/result/models"))
+            .and_then(Value::as_array)
+        {
+            let by_id: std::collections::HashMap<_, _> = models
+                .iter()
+                .filter_map(|entry| Some((entry["value"].as_str()?, entry)))
+                .collect();
+            for model in &mut session.models {
+                if let Some(entry) = by_id.get(model.id.as_str()) {
+                    if let Some(thought) = super::config::parse(entry)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(super::config::is_thought)
+                    {
+                        model.reasoning_efforts = thought
+                            .options
+                            .iter()
+                            .map(|choice| choice.value.clone())
+                            .collect();
+                    }
+                }
+            }
+        }
+    }
     Ok(Catalog {
         models: session.models,
         config_options: session.config_options,

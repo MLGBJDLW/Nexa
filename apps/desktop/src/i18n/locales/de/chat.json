@@ -989,5 +989,8 @@
   "imageEditSubmit": "Änderung senden",
   "imageEditSending": "Wird gesendet…",
   "generationSpeed": "Generierungsgeschwindigkeit (TPS)",
+  "externalTurnSpeed": "Durchsatz des Agentenschritts",
+  "externalTurnSpeedHint": "Ausgabetokens geteilt durch die Dauer des Agentenschritts einschließlich Werkzeugen und Wartezeiten.",
+  "generationSpeedUnavailable": "Die Laufzeit hat die für die Berechnung nötige Anzahl der Ausgabetokens und die Dauer noch nicht gemeldet.",
   "generationSpeedHint": "Letzte Modellanfrage: Ausgabetokens / Anfragezeit, einschließlich Wartezeit auf das erste Token, ohne Werkzeug- und Benutzerwartezeiten."
 }
