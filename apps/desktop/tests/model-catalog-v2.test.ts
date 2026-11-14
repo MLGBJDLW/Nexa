@@ -330,6 +330,10 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
     assertEqual(candidate.descriptor.limits.contextTokens, 1_048_576, `${id} safe route context`);
     assertEqual(candidate.descriptor.limits.maxOutputTokens, expectedOutput, `${id} current OpenRouter output`);
     assertEqual(candidate.descriptor.capabilities.vision, expectedVision, `${id} vision`);
+    if (id === 'z-ai/glm-5.3-flash') {
+      assertEqual(candidate.descriptor.inputModalities.join(','), 'text,image,video', 'OpenRouter advertised modalities');
+      assertEqual(candidate.descriptor.capabilities.videoInput, undefined, 'advertised modalities do not promote an unverified application wire flag');
+    }
     const candidateReasoning = candidate.capabilities?.reasoning as {
       mode?: string;
       effortLevels?: string[];

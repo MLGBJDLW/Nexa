@@ -542,9 +542,15 @@ fn builtin_catalog_tracks_exact_glm53_provider_routes_and_verified_hosted_routes
         assert_eq!(reasoning.default_effort.as_deref(), Some("max"));
     }
     let openrouter_flash = find("z-ai/glm-5.3-flash", "text:openrouter");
+    // The gateway advertises video independently of the direct GLM API.
+    // Advertised modalities do not promote an unverified application wire flag.
     assert_eq!(
         openrouter_flash.input_modalities,
-        vec![ModelModality::Text, ModelModality::Image]
+        vec![
+            ModelModality::Text,
+            ModelModality::Image,
+            ModelModality::Video
+        ]
     );
     assert!(!openrouter_flash.capabilities.video_input);
 
