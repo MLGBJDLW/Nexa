@@ -7,6 +7,16 @@
 
 * **chat:** improve cross-platform previews, web tools, and agent controls ([#554](https://github.com/MLGBJDLW/Nexa/issues/554)) ([5aa645d](https://github.com/MLGBJDLW/Nexa/commit/5aa645dbddd3de1fc2fad729228af50320c7bd28))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 5aa645dbddd3de1fc2fad729228af50320c7bd28 -->
+
+### What's Changed
+* feat(chat): improve cross-platform previews, web tools, and agent controls by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/554
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.8...nexa-monorepo-v0.19.9
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.7...nexa-monorepo-v0.19.8) (2026-11-13)
 
 ### Improvements
