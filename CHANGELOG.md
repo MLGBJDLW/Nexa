@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.19.9](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.8...nexa-monorepo-v0.19.9) (2026-11-14)
+
+
+### Improvements
+
+- Keep HTML, Nexa UI and Mermaid previews interactive when chat activity is folded, including after reopening a conversation.
+- Use DeepSeek's hosted search on supported Responses models. Flash can also read URLs and carry signed page results into follow-up questions, even when one page fails.
+- Apply Cursor reasoning effort through its model picker. Deliver steering during active external-agent turns and distinguish measured generation speed from whole-turn throughput.
+- Bundle the Computer Use skill for Windows desktop actions, report incomplete accessibility scans, and reuse captured frames when waiting for a screen change.
+- Refresh model and ACP adapter catalogs, hide retired routes from new selections, and preserve saved configurations.
+
+### Features
+
+* **chat:** improve cross-platform previews, web tools, and agent controls ([#554](https://github.com/MLGBJDLW/Nexa/issues/554)) ([5aa645d](https://github.com/MLGBJDLW/Nexa/commit/5aa645dbddd3de1fc2fad729228af50320c7bd28))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 5aa645dbddd3de1fc2fad729228af50320c7bd28 -->
+
+### What's Changed
+* feat(chat): improve cross-platform previews, web tools, and agent controls by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/554
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.8...nexa-monorepo-v0.19.9
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.8](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.7...nexa-monorepo-v0.19.8) (2026-11-13)
 
 ### Improvements
