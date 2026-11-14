@@ -213,6 +213,9 @@ export function RemoteChat({
     modelSelection?.model ?? connections.find(item => item.id === connectionId)?.model]);
   const generationScopeRef = useRef(generationScope);
   generationScopeRef.current = generationScope;
+  const generationRouteReadyRef = useRef(false);
+  generationRouteReadyRef.current = Boolean(connectionId &&
+    (modelSelection?.model ?? connections.find(item => item.id === connectionId)?.model));
   const [observedGeneration, setGeneration] = useState<ContextUsageBreakdown['generation']>();
   const generation = useGenerationMetrics(
     generationScope,
@@ -391,7 +394,7 @@ export function RemoteChat({
       if (runId === id) return;
       if (runId) retired.add(runId);
       runId = id; finalId = null; status = ''; textReplayAttempts = 0;
-      runGenerationScope = generationScopeRef.current;
+      runGenerationScope = generationRouteReadyRef.current ? generationScopeRef.current : null;
       ordering._orderedRunId = id; ordering._lastEventSeq = 0; ordering._pendingRunEvents.clear();
       blocks.clear(); items.clear(); readNeeded = true;
       setTimeline([]); setTimelineRunId(id); setRunUserId(null); setFinalMessageId(null); setProgress('');
@@ -447,6 +450,9 @@ export function RemoteChat({
       const payload = (event.payload ?? {}) as Record<string, any>;
       if (event.kind === 'usageUpdated' || event.kind === 'done') {
         const metrics = (payload.contextBreakdown ?? payload.usageTotal?.contextBreakdown)?.generation;
+        // Resume can beat connection hydration. Bind once the route is known,
+        // then keep that identity even when the next-turn picker changes.
+        if (runGenerationScope == null && generationRouteReadyRef.current) runGenerationScope = generationScopeRef.current;
         if (runGenerationScope === generationScopeRef.current && modelTokensPerSecond(metrics) != null) setGeneration(metrics);
       }
       if (event.visibility === 'user' && event.kind.startsWith('tool') && payload.run?.callId) {
