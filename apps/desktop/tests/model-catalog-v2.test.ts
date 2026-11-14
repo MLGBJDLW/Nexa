@@ -444,9 +444,11 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
     assertEqual(candidate.descriptor.capabilities.structuredOutput, true, `${id} JSON`);
     assertEqual(
       candidate.descriptor.capabilities.nativeWebSearch?.dialect,
-      undefined,
-      `${id} uses Nexa search tools because hosted web_search is ignored`,
+      'deepSeekResponses',
+      `${id} supports hosted search on the official Responses endpoint`,
     );
+    assertEqual(candidate.descriptor.capabilities.nativeWebSearch?.supportsCitations,
+      id === 'deepseek-flash', `${id} citation capability`);
   }
   const vision = deepseekModels.find(model => model.id === 'deepseek-flash');
   assert(vision, 'DeepSeek vision model');
