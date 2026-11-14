@@ -24,6 +24,20 @@ On November 14, 2026, we compared the Windows window API and browser contracts i
 4. **Rich text and popup evidence.** Document ranges, selected text and a separately rendered popup each need explicit source identity. Capturing text for every control or reading pixels outside a shared window could disclose unrelated content. Representative acceptance cases are a focused rich editor with a selection, a password editor, an owned transient and an overlapping unrelated window. [Windows observation](../../crates/core/src/tools/computer_use_tool/windows.rs), [paired-window grant](../../apps/desktop/src-tauri/src/remote_screen.rs)
 5. **What the model receives.** The internal model received a bounded projection of complete Windows controls. External agents received the display summary from the shared dispatcher, losing semantic element IDs and state even when the window capture held them. Separately, large Android node arrays went through generic text truncation, which could split JSON between nodes. Both paths need the same observation handles and explicit omission information as their source, within the model's budget. [Tool dispatcher](../../crates/core/src/agent/tool_dispatch.rs), [external callbacks](../../crates/core/src/agent/external_tools.rs), [interactive projection](../../crates/core/src/agent/tool_scheduler/interactive_context.rs), [phone result](../../crates/core/src/tools/phone_control_tool.rs)
 
+## Changes following the baseline review
+
+- Window observations check their lifetime at read, approval and dispatch. A newer capture of the same window supersedes earlier input tokens independently of callback completion order. An unexpired historical token can still identify the window for a fresh observation. [Observation store](../../crates/core/src/tools/computer_use_tool.rs)
+- Window observation and semantic target resolution walk the control view incrementally. When the walk ends early, observation reports incomplete coverage and a semantic input cannot rely on an unproven unique match. Native input requires a working physical-input monitor. Approved observation remains available during monitor recovery. [Windows implementation](../../crates/core/src/tools/computer_use_tool/windows.rs)
+- A Windows observation can request bounded selection or visible text from an editor or document through UI Automation. The evidence identifies its source element. Actual availability depends on the application's text provider. [Computer Use guide](COMPUTER_USE.md)
+- The live external-agent callback now receives the model-facing observation text. The desktop transcript and duplicate-call receipt retain their display summary. Large Android results preserve complete node IDs, native sensitivity flags and an explicit count of nodes omitted from model context. [External callbacks](../../crates/core/src/agent/external_tools.rs), [context projection](../../crates/core/src/agent/tool_scheduler/interactive_context.rs)
+- Native macOS and Linux app-window control, iOS cross-app input, named secondary actions and multi-image transient-window capture remain platform or adapter differences. The Windows unified reference client describes a single-image limit even though the lower-level window API supports multiple images.
+
+The Windows acceptance test exercised a real WPF text editor and password field.
+It read the fixture's selected substring and visible text through the window
+capture path. A native Win32 EDIT control tested on this machine did not expose
+TextPattern. Applications that only expose ValuePattern still return their
+existing value evidence. [Native fixtures](../../crates/core/src/tools/computer_use_tool/windows.rs)
+
 ## Evidence and replay
 
 Reference archive locations below are relative to its root. The bundled API and skill describe what a client can request. The reverse-engineering reports describe a particular build. The fixture implements selected behaviors independently.

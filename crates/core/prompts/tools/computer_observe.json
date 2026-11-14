@@ -55,7 +55,12 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 300,
-        "description": "Maximum semantic elements returned. Defaults to 120; interactive elements are prioritized."
+        "description": "Maximum semantic elements returned. Defaults to 120; focused and selected controls are prioritized."
+      },
+      "text_context": {
+        "type": "string",
+        "enum": ["selection", "visible"],
+        "description": "Optional on a Windows observation. Return bounded text ranges for the focused editor or a unique document via state.textRanges, when available. An empty ranges list means a successful empty read. Omitted means unavailable. Requires include_elements."
       },
       "capture_mode": {
         "type": "string",
