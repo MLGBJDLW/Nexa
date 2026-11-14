@@ -1448,8 +1448,10 @@ pub fn resolve_reasoning_profile(
 
         let qwen4_token_plan = token_plan
             && matches!(model.as_str(), "qwen4-max-preview" | "qwen4.0-max-preview")
-            && find_provider_preset("qwen", base_url)
-                .is_some_and(|preset| preset.id == "qwen-token-plan-cn");
+            && find_provider_preset("qwen", base_url).is_some_and(|preset| {
+                preset.id == "qwen-token-plan-cn"
+                    || (preset.id == "qwen-token-plan-global" && model == "qwen4-max-preview")
+            });
         if qwen4_token_plan
             || matches!(
                 model.as_str(),

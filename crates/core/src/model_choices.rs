@@ -72,7 +72,9 @@ pub async fn cloud_model_choices(
     .await
     .ok()
     .and_then(Result::ok);
-    let succeeded = discovered.is_some();
+    let succeeded = discovered
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.live_discovery_succeeded);
     let retirement = crate::provider_catalog::ModelRetirementPolicy::for_endpoint(
         provider_key,
         base_url.as_deref(),
