@@ -108,3 +108,79 @@ export function driftDetected(comparison) {
     || comparison.expirationChanged.length > 0
     || comparison.regionChanged.length > 0;
 }
+
+/** Validate one response page; never mistake an error object for an empty catalog.
+ * Do not follow arbitrary next URLs with credentials. Incomplete pages remain explicit. */
+export function inspectCatalogPage(payload) {
+  const rows = Array.isArray(payload?.data) ? payload.data : payload?.models;
+  if (!Array.isArray(rows) || rows.some(row => typeof row?.id !== 'string' || !row.id.trim())) {
+    throw new Error('invalid_catalog_payload');
+  }
+  const uniqueCount = new Set(rows.map(row => row.id.trim().toLowerCase())).size;
+  if (uniqueCount !== rows.length) throw new Error('duplicate_catalog_ids');
+  const total = payload.total_count;
+  if (total !== undefined && (!Number.isInteger(total) || total < rows.length)) {
+    throw new Error('invalid_catalog_total');
+  }
+  const next = payload.links?.next ?? payload.next ?? payload.next_cursor;
+  const hasNext = Boolean(next) || payload.has_more === true;
+  return {
+    rows,
+    pagination: {
+      receivedCount: rows.length,
+      uniqueCount,
+      totalCount: total ?? null,
+      pagesFetched: 1,
+      hasNext,
+      completeness: hasNext || (total !== undefined && total > uniqueCount)
+        ? 'partial' : total === uniqueCount ? 'complete' : 'unknown',
+    },
+  };
+}
+
+/** Inventory candidates are not approved integrations. Preserve unknown metadata
+ * from non-OpenRouter catalogs instead of assuming OpenRouter's architecture schema. */
+export function inventoryCandidates(endpoint, rows) {
+  const accepted = [];
+  const excluded = [];
+  const unknownMetadataIds = [];
+  const modalityCounts = {};
+  const isRouter = endpoint.endpointId === 'text:openrouter' || endpoint.endpointId === 'image:openrouter-images';
+  const expected = endpoint.endpointId.startsWith('image:') ? 'image' : 'text';
+  for (const row of rows) {
+    const modalities = row.architecture?.output_modalities ?? row.output_modalities;
+    for (const modality of new Set(Array.isArray(modalities) ? modalities : ['unspecified'])) {
+      modalityCounts[modality] = (modalityCounts[modality] ?? 0) + 1;
+    }
+    let reason;
+    if (isRouter && row.id.endsWith(':batch')) reason = 'batch_only';
+    else if (isRouter && Array.isArray(modalities) && !modalities.includes(expected)) reason = 'other_modality';
+    else if (endpoint.endpointId === 'text:openrouter' && Array.isArray(row.endpoints)
+      && !row.endpoints.includes('/api/v1/chat/completions')) reason = 'no_chat_endpoint';
+    if (reason) excluded.push({ id: row.id, reason });
+    else {
+      accepted.push(row);
+      if (!Array.isArray(modalities)) unknownMetadataIds.push(row.id);
+    }
+  }
+  return { ...compareEndpointModels(endpoint, accepted), receivedCount: rows.length,
+    eligibleCount: accepted.length, excluded, unknownMetadataIds, modalityCounts };
+}
+
+/** Keep availability contracts distinct from advisory inventory review. */
+export function summarizeDiscovery(probes) {
+  const inventoryCandidateCount = probes.reduce((sum, p) => sum + (p.inventory?.newIds.length ?? 0), 0);
+  const incompleteCatalogEndpoints = probes.filter(p => p.status === 'ok'
+    && p.pagination?.completeness !== 'complete').map(p => p.endpointId);
+  const unassessedInventoryEndpoints = probes.filter(p => p.status !== 'ok').map(p => p.endpointId);
+  const observedCatalogCount = probes.filter(p => p.status === 'ok').length;
+  return {
+    inventoryStatus: probes.length === 0 ? 'not_requested' : observedCatalogCount === 0 ? 'unavailable' : 'observed_catalogs_only',
+    observedCatalogCount,
+    unassessedInventoryEndpoints,
+    inventoryCandidateCount,
+    hasInventoryCandidates: inventoryCandidateCount > 0,
+    incompleteCatalogEndpoints,
+    requiresInventoryReview: inventoryCandidateCount > 0 || incompleteCatalogEndpoints.length > 0 || unassessedInventoryEndpoints.length > 0,
+  };
+}
