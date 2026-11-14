@@ -28,9 +28,9 @@ use windows::Win32::{
             ExpandCollapseState_LeafNode, ExpandCollapseState_PartiallyExpanded, IUIAutomation,
             IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
             IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
-            IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern,
-            IUIAutomationValuePattern, ToggleState_Indeterminate, ToggleState_Off, ToggleState_On,
-            TreeScope_Descendants, TreeScope_Element, UIA_AutomationIdPropertyId,
+            IUIAutomationSelectionItemPattern, IUIAutomationTextPattern,
+            IUIAutomationTogglePattern, IUIAutomationValuePattern, ToggleState_Indeterminate,
+            ToggleState_Off, ToggleState_On, TreeScope_Element, UIA_AutomationIdPropertyId,
             UIA_BoundingRectanglePropertyId, UIA_ButtonControlTypeId, UIA_CheckBoxControlTypeId,
             UIA_ComboBoxControlTypeId, UIA_ControlTypePropertyId, UIA_DataItemControlTypeId,
             UIA_DocumentControlTypeId, UIA_EditControlTypeId,
@@ -41,9 +41,10 @@ use windows::Win32::{
             UIA_NamePropertyId, UIA_PaneControlTypeId, UIA_RadioButtonControlTypeId,
             UIA_SelectionItemIsSelectedPropertyId, UIA_SelectionItemPatternId,
             UIA_SliderControlTypeId, UIA_SpinnerControlTypeId, UIA_TabItemControlTypeId,
-            UIA_TextControlTypeId, UIA_TogglePatternId, UIA_ToggleToggleStatePropertyId,
-            UIA_TreeItemControlTypeId, UIA_ValueIsReadOnlyPropertyId, UIA_ValuePatternId,
-            UIA_ValueValuePropertyId, UIA_WindowControlTypeId, UIA_CONTROLTYPE_ID,
+            UIA_TextControlTypeId, UIA_TextPatternId, UIA_TogglePatternId,
+            UIA_ToggleToggleStatePropertyId, UIA_TreeItemControlTypeId,
+            UIA_ValueIsReadOnlyPropertyId, UIA_ValuePatternId, UIA_ValueValuePropertyId,
+            UIA_WindowControlTypeId, UIA_CONTROLTYPE_ID,
         },
         Input::KeyboardAndMouse::{
             GetAsyncKeyState, IsWindowEnabled, SendInput, VkKeyScanW, INPUT, INPUT_0,
@@ -74,8 +75,8 @@ use super::{
     screenshot_guard_patch_matches, screenshot_signature, screenshot_signatures_match, CaptureMode,
     CaptureOptions, CapturedWindow, ControlAction, ControlArgs, ControlCommitTracker,
     ControlFailure, ControlOutcome, CoordinateSpace, CoreError, ElementBounds, ModalOwnerHandoff,
-    ObservedWindow, PreCommitFailureKind, UiElementSnapshot, UiElementState, UiElementValue,
-    VisualVerification, WindowSnapshot,
+    ObservedWindow, PreCommitFailureKind, TextRangeEvidence, TextRangeKind, UiElementSnapshot,
+    UiElementState, UiElementValue, VisualVerification, WindowSnapshot,
 };
 
 // Coordinate-bearing screenshots must already fit the same pixel envelope
@@ -875,7 +876,12 @@ fn cached_element_snapshot(
         read_only,
     );
     let interactive = !actions.is_empty();
-    if !interactive && name.trim().is_empty() && read_only.is_none() {
+    if !focused
+        && !interactive
+        && control_type != UIA_DocumentControlTypeId
+        && name.trim().is_empty()
+        && read_only.is_none()
+    {
         return None;
     }
     Some(UiElementSnapshot {
@@ -896,49 +902,205 @@ fn cached_element_snapshot(
             toggle_state,
             selected,
             expand_collapse_state,
+            text_ranges: None,
         },
         screen_bounds,
     })
+}
+
+/// Read only the requested range type from one retained editor/document. The
+/// bounded GetText call applies inside the provider, before crossing COM.
+fn read_text_ranges(
+    element: &IUIAutomationElement,
+    kind: TextRangeKind,
+) -> Option<TextRangeEvidence> {
+    const MAX_RANGES: i32 = 8;
+    const MAX_UNITS: usize = 1024;
+    unsafe {
+        if element.CurrentIsPassword().ok()?.as_bool() {
+            return None;
+        }
+        let pattern = element
+            .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+            .ok()?;
+        let ranges = match kind {
+            TextRangeKind::Selection => pattern.GetSelection(),
+            TextRangeKind::Visible => pattern.GetVisibleRanges(),
+        }
+        .ok()?;
+        let count = ranges.Length().ok()?;
+        let mut evidence = TextRangeEvidence {
+            kind,
+            ranges: Vec::new(),
+            truncated: count > MAX_RANGES,
+        };
+        let mut remaining = MAX_UNITS;
+        for index in 0..count.min(MAX_RANGES) {
+            if remaining == 0 {
+                evidence.truncated = true;
+                break;
+            }
+            let range = ranges.GetElement(index).ok()?;
+            // A document can contain nested editors. Don't return text from
+            // embedded controls or from a password/unknown enclosing element.
+            if range
+                .GetEnclosingElement()
+                .ok()?
+                .CurrentIsPassword()
+                .ok()?
+                .as_bool()
+                || range.GetChildren().ok()?.Length().ok()? != 0
+            {
+                return None;
+            }
+            let raw = range.GetText((remaining + 1) as i32).ok()?;
+            let mut units: &[u16] = &raw;
+            if units.len() > remaining {
+                units = &units[..remaining];
+                if units
+                    .last()
+                    .is_some_and(|last| (0xD800..=0xDBFF).contains(last))
+                {
+                    units = &units[..units.len() - 1];
+                }
+                evidence.truncated = true;
+                remaining = 0;
+            } else {
+                remaining -= units.len();
+            }
+            if !units.is_empty() {
+                evidence.ranges.push(String::from_utf16_lossy(units));
+            }
+        }
+        if element.CurrentIsPassword().ok()?.as_bool() {
+            return None;
+        }
+        Some(evidence)
+    }
+}
+
+// UIA returns S_OK and a null element at the end of a branch. windows-rs
+// represents that result as Error::empty(). Preserve actual provider failures.
+fn walk_neighbor(
+    result: windows::core::Result<IUIAutomationElement>,
+) -> Result<Option<IUIAutomationElement>, CoreError> {
+    match result {
+        Ok(element) => Ok(Some(element)),
+        Err(error) if error.code() == windows::core::Error::empty().code() => Ok(None),
+        Err(error) => Err(platform_error(
+            "walk the target window accessibility tree",
+            error,
+        )),
+    }
+}
+
+/// Traverse the selected window's control view depth first. Cache just the
+/// current node; FindAllBuildCache(Descendants) can materialize the entire UI
+/// before a local output limit has a chance to take effect.
+fn visit_controls(
+    automation: &IUIAutomation,
+    root: &IUIAutomationElement,
+    request: &IUIAutomationCacheRequest,
+    limit: usize,
+    mut visit: impl FnMut(&IUIAutomationElement) -> Result<(), CoreError>,
+) -> Result<bool, CoreError> {
+    let walker = unsafe { automation.ControlViewWalker() }
+        .map_err(|error| platform_error("open the control-view walker", error))?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut next = walk_neighbor(unsafe { walker.GetFirstChildElementBuildCache(root, request) })?;
+    let mut parents = Vec::new();
+    let mut visited = 0;
+    while let Some(mut current) = next.take() {
+        if visited >= limit || Instant::now() >= deadline {
+            return Ok(false);
+        }
+        visit(&current)?;
+        visited += 1;
+        next = walk_neighbor(unsafe { walker.GetFirstChildElementBuildCache(&current, request) })?;
+        if next.is_some() {
+            parents.push(current);
+            continue;
+        }
+        loop {
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+            next = walk_neighbor(unsafe {
+                walker.GetNextSiblingElementBuildCache(&current, request)
+            })?;
+            if next.is_some() {
+                break;
+            }
+            let Some(parent) = parents.pop() else {
+                return Ok(true);
+            };
+            current = parent;
+        }
+    }
+    Ok(true)
+}
+
+fn text_context_target<'a>(
+    controls: impl Iterator<Item = (bool, bool, &'a str)>,
+    truncated: bool,
+) -> Option<usize> {
+    let mut documents = 0;
+    let mut document = None;
+    for (index, (focused, password, role)) in controls.enumerate() {
+        if focused && password {
+            return None;
+        }
+        if focused && matches!(role, "edit" | "document") {
+            return Some(index);
+        }
+        if role == "document" {
+            documents += 1;
+            document = (!password).then_some(index);
+        }
+    }
+    if truncated || documents != 1 {
+        return None;
+    }
+    document
 }
 
 fn collect_elements(
     window: &WindowSnapshot,
     image_width: u32,
     image_height: u32,
-    max_elements: usize,
+    options: CaptureOptions,
 ) -> Result<(Vec<UiElementSnapshot>, bool), CoreError> {
+    let max_elements = options.max_elements;
     let _apartment = ComApartment::initialize()?;
     let automation = create_automation()?;
     let request = semantic_cache_request(&automation)?;
     let root = unsafe { automation.ElementFromHandle(hwnd(window.id)) }
         .map_err(|error| platform_error("inspect target window with UI Automation", error))?;
-    let condition = unsafe { automation.ControlViewCondition() }
-        .map_err(|error| platform_error("create UI Automation control-view condition", error))?;
-    let elements = unsafe { root.FindAllBuildCache(TreeScope_Descendants, &condition, &request) }
-        .map_err(|error| platform_error("enumerate UI Automation controls", error))?;
-    let length = unsafe { elements.Length() }
-        .map_err(|error| platform_error("count UI Automation controls", error))?
-        .max(0) as usize;
-    let scan_limit = length.min(max_elements.saturating_mul(8).clamp(100, 2_000));
     let mut projected = Vec::new();
-    for index in 0..scan_limit {
-        let Ok(element) = (unsafe { elements.GetElement(index as i32) }) else {
-            continue;
-        };
-        if let Some(snapshot) = cached_element_snapshot(&element, window, image_width, image_height)
-        {
-            projected.push((snapshot, element));
-        }
-    }
+    let complete = visit_controls(
+        &automation,
+        &root,
+        &request,
+        max_elements.saturating_mul(8).clamp(100, 2_000),
+        |element| {
+            if let Some(snapshot) =
+                cached_element_snapshot(element, window, image_width, image_height)
+            {
+                projected.push((snapshot, element.clone()));
+            }
+            Ok(())
+        },
+    )?;
     projected.sort_by_key(|(element, _)| {
         (
+            !element.focused,
+            element.state.selected != Some(true),
             !element.interactive,
             element.bounds.y,
             element.bounds.x,
-            element.role.clone(),
         )
     });
-    let truncated = scan_limit < length || projected.len() > max_elements;
+    let truncated = !complete || projected.len() > max_elements;
     projected.truncate(max_elements);
     let value_request = value_cache_request(&automation)?;
     let mut remaining_value_characters = 8_192;
@@ -950,6 +1112,19 @@ fn collect_elements(
             &value_request,
             &mut remaining_value_characters,
         );
+    }
+    if let Some(kind) = options.text_context {
+        // Prefer the focused editor. Otherwise only a unique document gives a
+        // definite target. Never substitute another field for a protected one.
+        let target = text_context_target(
+            projected
+                .iter()
+                .map(|(s, _)| (s.focused, s.password, s.role.as_str())),
+            truncated,
+        );
+        if let Some((s, element)) = target.and_then(|index| projected.get_mut(index)) {
+            s.state.text_ranges = read_text_ranges(element, kind);
+        }
     }
     Ok((
         projected
@@ -1087,12 +1262,13 @@ fn capture_window_with_elements(
         &WindowSnapshot,
         u32,
         u32,
-        usize,
+        CaptureOptions,
     ) -> Result<(Vec<UiElementSnapshot>, bool), CoreError>,
 ) -> Result<CapturedWindow, CoreError> {
     let _physical_pixels = PhysicalPixels::enter()?;
     // Stamp the beginning, not completion: an older in-flight capture must
     // not become fresh evidence merely because its provider returned late.
+    let started_at = Instant::now();
     let observation_captured_at_ms = observation_time_ms();
     let (window, current) = current_window_for_access(expected, true)?;
     let modal_owner = observed_modal_owner(&current);
@@ -1115,12 +1291,7 @@ fn capture_window_with_elements(
     let (png, image_width, image_height, native_image_width, native_image_height) =
         resized_png(image)?;
     let (mut elements, truncated, mut semantic_error) = if options.include_elements {
-        match collect(
-            &post_capture,
-            image_width,
-            image_height,
-            options.max_elements,
-        ) {
+        match collect(&post_capture, image_width, image_height, options) {
             Ok((elements, truncated)) => (elements, truncated, None),
             Err(error) => (Vec::new(), false, Some(error.to_string())),
         }
@@ -1185,6 +1356,7 @@ fn capture_window_with_elements(
         None
     };
     Ok(CapturedWindow {
+        started_at,
         snapshot: final_snapshot,
         png,
         capture_backend,
@@ -1256,21 +1428,11 @@ fn resolve_live_element(
     let request = semantic_cache_request(&automation)?;
     let root = unsafe { automation.ElementFromHandle(hwnd(window.id)) }
         .map_err(|error| platform_error("open target window UI Automation root", error))?;
-    let condition = unsafe { automation.ControlViewCondition() }
-        .map_err(|error| platform_error("create UI Automation action condition", error))?;
-    let elements = unsafe { root.FindAllBuildCache(TreeScope_Descendants, &condition, &request) }
-        .map_err(|error| platform_error("resolve UI Automation target", error))?;
-    let length = (unsafe { elements.Length() }
-        .map_err(|error| platform_error("count UI Automation action targets", error))?)
-    .clamp(0, 2_000);
     let mut matched = None;
-    for index in 0..length {
-        let Ok(element) = (unsafe { elements.GetElement(index) }) else {
-            continue;
-        };
-        let Some(current) = cached_element_snapshot(&element, window, image_width, image_height)
+    let complete = visit_controls(&automation, &root, &request, 2_000, |element| {
+        let Some(current) = cached_element_snapshot(element, window, image_width, image_height)
         else {
-            continue;
+            return Ok(());
         };
         if semantic_identity_matches(expected, &current) {
             if !current.enabled {
@@ -1285,8 +1447,12 @@ fn resolve_live_element(
                     expected.id
                 )));
             }
-            matched = Some((element, current));
+            matched = Some((element.clone(), current));
         }
+        Ok(())
+    })?;
+    if !complete {
+        return Err(invalid("Cannot establish a unique semantic target in the incomplete accessibility tree. Inspect fresh pixels and use a verified coordinate if appropriate."));
     }
     let Some((element, mut snapshot)) = matched else {
         return Err(invalid(format!(
@@ -3455,6 +3621,34 @@ mod native_input_tests {
     use super::*;
 
     #[test]
+    fn text_context_requires_a_focused_editor_or_one_unambiguous_document() {
+        let toolbar = (true, false, "button");
+        let document = (false, false, "document");
+        let editor = (true, false, "edit");
+        let protected = (true, true, "edit");
+        assert_eq!(
+            text_context_target([toolbar, document].into_iter(), false),
+            Some(1)
+        );
+        assert_eq!(
+            text_context_target([toolbar, document].into_iter(), true),
+            None
+        );
+        assert_eq!(
+            text_context_target([document, toolbar, document].into_iter(), false),
+            None
+        );
+        assert_eq!(
+            text_context_target([document, protected].into_iter(), false),
+            None
+        );
+        assert_eq!(
+            text_context_target([document, editor, document].into_iter(), true),
+            Some(1)
+        );
+    }
+
+    #[test]
     #[ignore = "requires an interactive Windows desktop; launches a disposable hover target and clicks it"]
     fn windows_coordinate_click_survives_its_own_hover_feedback() {
         use std::os::windows::process::CommandExt;
@@ -3720,6 +3914,109 @@ $form.Controls.Add($panel)
     }
 
     #[test]
+    #[ignore = "requires a Windows desktop; reads text from isolated test editors"]
+    fn windows_editor_ranges_distinguish_selection_pixels_and_passwords() {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        let script = r#"
+Add-Type -AssemblyName PresentationFramework
+$window = [Windows.Window]::new()
+$window.Title = 'Nexa text range fixture'
+$panel = [Windows.Controls.StackPanel]::new()
+$editor = [Windows.Controls.TextBox]::new()
+$editor.Text = 'First selected last'
+$password = [Windows.Controls.PasswordBox]::new()
+$password.Password = 'fixture password'
+[void]$panel.Children.Add($editor)
+[void]$panel.Children.Add($password)
+$window.Content = $panel
+$window.Width = 420
+$window.Height = 160
+$window.Add_ContentRendered({ $editor.Focus() | Out-Null; $editor.Select(6,8) })
+$window.ShowDialog() | Out-Null
+"#;
+        struct Fixture(std::process::Child);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let fixture = Fixture(
+            Command::new("powershell.exe")
+                .args(["-NoProfile", "-STA", "-Command", script])
+                .creation_flags(0x08000000)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let options = CaptureOptions {
+            text_context: Some(TextRangeKind::Selection),
+            include_elements: true,
+            max_elements: 20,
+            mode: CaptureMode::Raw,
+        };
+        let (target, selected) = loop {
+            let window = list_windows()
+                .unwrap()
+                .into_iter()
+                .find(|w| w.pid == fixture.0.id() && w.title == "Nexa text range fixture");
+            if let Some(window) = window {
+                if let Ok(capture) = capture_window(&window, options) {
+                    if capture.elements.iter().any(|e| {
+                        e.state
+                            .text_ranges
+                            .as_ref()
+                            .is_some_and(|t| t.ranges == ["selected"])
+                    }) {
+                        break (window, capture);
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "selection not returned: {:?} {:?}",
+                        capture.semantic_error,
+                        capture
+                            .elements
+                            .iter()
+                            .map(|e| (&e.role, e.focused, e.password, &e.state.text_ranges))
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "native editor did not become observable"
+            );
+            thread::sleep(Duration::from_millis(80));
+        };
+        assert!(selected
+            .elements
+            .iter()
+            .any(|e| e.password && e.state.text_ranges.is_none()));
+        let visible = capture_window(
+            &target,
+            CaptureOptions {
+                text_context: Some(TextRangeKind::Visible),
+                ..options
+            },
+        )
+        .unwrap();
+        let text = visible
+            .elements
+            .iter()
+            .find_map(|e| e.state.text_ranges.as_ref())
+            .expect("visible range");
+        assert!(!text.truncated);
+        assert!(text.ranges.concat().contains("First selected last"));
+        assert!(!serde_json::to_string(&visible.elements)
+            .unwrap()
+            .contains("fixture password"));
+    }
+
+    #[test]
     #[ignore = "requires an interactive Windows desktop; captures a real same-process UIA window"]
     fn windows_same_process_host_observation_keeps_pixels_when_semantics_change() {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
@@ -3735,6 +4032,7 @@ $form.Controls.Add($panel)
         assert_eq!(target.pid, std::process::id());
         assert!(target.observation_only);
         let options = CaptureOptions {
+            text_context: None,
             include_elements: true,
             max_elements: 120,
             mode: CaptureMode::SetOfMarks,

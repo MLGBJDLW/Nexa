@@ -215,8 +215,7 @@ pub async fn observe_user_share_window(
     let capture =
         blocking(move || platform::capture_window(&expected, CaptureOptions::pixels_only()))
             .await?;
-    let observation_id =
-        remember_observation(Some(scope), vec![ObservedWindow::from_capture(&capture)])?;
+    let observation_id = remember_capture(Some(scope), &capture)?;
     Ok(
         serde_json::json!({"observationId": observation_id, "windowId": capture.snapshot.id,
         "title": capture.snapshot.title, "controlAvailable": !capture.snapshot.observation_only,
@@ -266,6 +265,23 @@ struct UiElementState {
     selected: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     expand_collapse_state: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text_ranges: Option<TextRangeEvidence>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum TextRangeKind {
+    Selection,
+    Visible,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct TextRangeEvidence {
+    kind: TextRangeKind,
+    ranges: Vec<String>,
+    truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -352,7 +368,15 @@ impl ObservedWindow {
             native_image_height: Some(capture.native_image_height),
             screenshot_signature: rgb.as_ref().map(frame_signature),
             screenshot_guard: rgb.as_ref().map(frame_guard),
-            elements: capture.elements.clone(),
+            elements: capture
+                .elements
+                .iter()
+                .cloned()
+                .map(|mut element| {
+                    element.state.text_ranges = None;
+                    element
+                })
+                .collect(),
         }
     }
 }
@@ -487,6 +511,8 @@ struct ObservationRecord {
     conversation_id: Option<String>,
     windows: Vec<ObservedWindow>,
     claimed_for_control: bool,
+    capture_started: Option<Instant>,
+    superseded: bool,
 }
 
 fn observation_store() -> &'static Mutex<VecDeque<ObservationRecord>> {
@@ -587,13 +613,51 @@ fn remember_observation(
     conversation_id: Option<&str>,
     windows: Vec<ObservedWindow>,
 ) -> Result<String, CoreError> {
+    store_observation(conversation_id, windows, None)
+}
+
+fn remember_capture(
+    conversation_id: Option<&str>,
+    capture: &CapturedWindow,
+) -> Result<String, CoreError> {
+    store_observation(
+        conversation_id,
+        vec![ObservedWindow::from_capture(capture)],
+        Some(capture.started_at),
+    )
+}
+
+fn store_observation(
+    conversation_id: Option<&str>,
+    windows: Vec<ObservedWindow>,
+    capture_started: Option<Instant>,
+) -> Result<String, CoreError> {
     let id = uuid::Uuid::new_v4().to_string();
-    let now = Instant::now();
     let mut store = observation_store()
         .lock()
         .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
+    let now = Instant::now();
     // A busy conversation must not evict every other conversation's current target.
     store.retain(|record| now.duration_since(record.created_at) <= OBSERVATION_TTL);
+    let mut superseded = false;
+    if let Some(started) = capture_started {
+        // A late readback must not replace a newer frame just because it finished last.
+        let window_id = windows[0].snapshot.id;
+        for record in store
+            .iter_mut()
+            .filter(|r| r.conversation_id.as_deref() == conversation_id)
+        {
+            if let Some(previous) = record.capture_started {
+                if record.windows[0].snapshot.id == window_id {
+                    if previous > started {
+                        superseded = true;
+                    } else {
+                        record.superseded = true;
+                    }
+                }
+            }
+        }
+    }
     while store
         .iter()
         .filter(|record| record.conversation_id.as_deref() == conversation_id)
@@ -616,12 +680,68 @@ fn remember_observation(
     }
     store.push_back(ObservationRecord {
         id: id.clone(),
-        created_at: now,
+        created_at: capture_started.unwrap_or(now),
         conversation_id: conversation_id.map(str::to_string),
         windows,
         claimed_for_control: false,
+        capture_started,
+        superseded,
     });
     Ok(id)
+}
+
+impl ObservationRecord {
+    fn window(
+        &self,
+        conversation_id: Option<&str>,
+        window_id: u64,
+        for_control: bool,
+    ) -> Result<ObservedWindow, CoreError> {
+        if self.conversation_id.as_deref() != conversation_id {
+            return Err(CoreError::InvalidInput("Computer observation belongs to a different conversation. Observe the window again before acting.".into()));
+        }
+        if self.created_at.elapsed() > OBSERVATION_TTL {
+            return Err(CoreError::InvalidInput(
+                "Computer observation expired. List windows and observe the target again.".into(),
+            ));
+        }
+        if for_control && self.claimed_for_control {
+            return Err(CoreError::InvalidInput("Computer observation was already used for desktop input. Use the fresh post-action observation or capture the window again.".into()));
+        }
+        if for_control && self.superseded {
+            return Err(CoreError::InvalidInput("A newer capture superseded this window observation. Use its observationId or observe again.".into()));
+        }
+        self.windows
+            .iter()
+            .find(|w| w.snapshot.id == window_id)
+            .cloned()
+            .ok_or_else(|| {
+                CoreError::InvalidInput(format!(
+                    "Window {window_id} was not present in observation {}.",
+                    self.id
+                ))
+            })
+    }
+}
+
+fn lookup_window(
+    conversation_id: Option<&str>,
+    observation_id: &str,
+    window_id: u64,
+    for_control: bool,
+) -> Result<ObservedWindow, CoreError> {
+    let store = observation_store()
+        .lock()
+        .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
+    let record = store
+        .iter()
+        .find(|r| r.id == observation_id)
+        .ok_or_else(|| {
+            CoreError::InvalidInput(
+                "Unknown computer observation. List windows and observe the target again.".into(),
+            )
+        })?;
+    record.window(conversation_id, window_id, for_control)
 }
 
 fn observed_window(
@@ -629,35 +749,15 @@ fn observed_window(
     observation_id: &str,
     window_id: u64,
 ) -> Result<ObservedWindow, CoreError> {
-    let store = observation_store()
-        .lock()
-        .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
-    let record = store
-        .iter()
-        .find(|record| record.id == observation_id)
-        .ok_or_else(|| {
-            CoreError::InvalidInput(
-                "Unknown computer observation. Run computer_observe list_windows again."
-                    .to_string(),
-            )
-        })?;
+    lookup_window(conversation_id, observation_id, window_id, false)
+}
 
-    if record.conversation_id.as_deref() != conversation_id {
-        return Err(CoreError::InvalidInput(
-            "Computer observation belongs to a different conversation. Observe the window again before acting."
-                .to_string(),
-        ));
-    }
-    record
-        .windows
-        .iter()
-        .find(|window| window.snapshot.id == window_id)
-        .cloned()
-        .ok_or_else(|| {
-            CoreError::InvalidInput(format!(
-                "Window {window_id} was not present in observation {observation_id}."
-            ))
-        })
+fn observed_window_for_approval(
+    conversation_id: Option<&str>,
+    observation_id: &str,
+    window_id: u64,
+) -> Result<ObservedWindow, CoreError> {
+    lookup_window(conversation_id, observation_id, window_id, true)
 }
 
 fn claim_observed_window(
@@ -670,82 +770,18 @@ fn claim_observed_window(
         .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
     let record = store
         .iter_mut()
-        .find(|record| record.id == observation_id)
+        .find(|r| r.id == observation_id)
         .ok_or_else(|| {
             CoreError::InvalidInput(
-                "Unknown computer observation. Capture the window again before acting.".to_string(),
+                "Unknown computer observation. Capture the window again before acting.".into(),
             )
         })?;
-
-    if record.conversation_id.as_deref() != conversation_id {
-        return Err(CoreError::InvalidInput(
-            "Computer observation belongs to a different conversation. Observe the window again before acting."
-                .to_string(),
-        ));
-    }
-    if record.claimed_for_control {
-        return Err(CoreError::InvalidInput(
-            "Computer observation was already used for desktop input. Use the fresh post-action observation or capture the window again."
-                .to_string(),
-        ));
-    }
-    let window = record
-        .windows
-        .iter()
-        .find(|window| window.snapshot.id == window_id)
-        .cloned()
-        .ok_or_else(|| {
-            CoreError::InvalidInput(format!(
-                "Window {window_id} was not present in observation {observation_id}."
-            ))
-        })?;
+    let window = record.window(conversation_id, window_id, true)?;
     if window.snapshot.input_epoch != super::computer_input::window_epoch(window_id) {
         return Err(CoreError::InvalidInput("The user interacted with this window after observation. Observe it again before acting.".into()));
     }
     record.claimed_for_control = true;
     Ok(window)
-}
-
-fn observed_window_for_approval(
-    conversation_id: Option<&str>,
-    observation_id: &str,
-    window_id: u64,
-) -> Result<ObservedWindow, CoreError> {
-    let store = observation_store()
-        .lock()
-        .map_err(|_| CoreError::Internal("Computer observation store is unavailable.".into()))?;
-    let record = store
-        .iter()
-        .find(|record| record.id == observation_id)
-        .ok_or_else(|| {
-            CoreError::InvalidInput(
-                "Unknown computer observation. Capture the target again before approval."
-                    .to_string(),
-            )
-        })?;
-
-    if record.conversation_id.as_deref() != conversation_id {
-        return Err(CoreError::InvalidInput(
-            "Computer observation belongs to a different conversation. Capture the target again in this conversation."
-                .to_string(),
-        ));
-    }
-    if record.claimed_for_control {
-        return Err(CoreError::InvalidInput(
-            "Computer observation was already consumed. Capture the target again before approval."
-                .to_string(),
-        ));
-    }
-    record
-        .windows
-        .iter()
-        .find(|window| window.snapshot.id == window_id)
-        .cloned()
-        .ok_or_else(|| {
-            CoreError::InvalidInput(format!(
-                "Window {window_id} was not present in observation {observation_id}."
-            ))
-        })
 }
 
 fn approval_label(value: &str) -> String {
@@ -783,6 +819,8 @@ struct ObserveArgs {
     include_elements: Option<bool>,
     #[serde(default)]
     max_elements: Option<usize>,
+    #[serde(default)]
+    text_context: Option<TextRangeKind>,
     #[serde(default)]
     capture_mode: Option<String>,
     #[serde(default)]
@@ -965,12 +1003,19 @@ impl CaptureMode {
 struct CaptureOptions {
     include_elements: bool,
     max_elements: usize,
+    text_context: Option<TextRangeKind>,
     mode: CaptureMode,
 }
 
 impl CaptureOptions {
     fn from_observe(args: &ObserveArgs) -> Result<Self, CoreError> {
+        if args.text_context.is_some() && args.include_elements == Some(false) {
+            return Err(CoreError::InvalidInput(
+                "text_context requires include_elements.".into(),
+            ));
+        }
         Ok(Self {
+            text_context: args.text_context,
             include_elements: args.include_elements.unwrap_or(true),
             max_elements: bounded_max_elements(args.max_elements)?,
             mode: CaptureMode::parse(args.capture_mode.as_deref())?,
@@ -979,6 +1024,7 @@ impl CaptureOptions {
 
     fn from_control(args: &ControlArgs) -> Result<Self, CoreError> {
         Ok(Self {
+            text_context: None,
             include_elements: args.include_elements.unwrap_or(true),
             max_elements: bounded_max_elements(args.max_elements)?,
             mode: CaptureMode::parse(args.capture_mode.as_deref())?,
@@ -989,6 +1035,7 @@ impl CaptureOptions {
         Self {
             include_elements: false,
             max_elements: 0,
+            text_context: None,
             mode: CaptureMode::Raw,
         }
     }
@@ -1300,6 +1347,7 @@ fn computer_control_persistent_approval_message(
 
 #[derive(Debug)]
 struct CapturedWindow {
+    started_at: Instant,
     snapshot: WindowSnapshot,
     png: Vec<u8>,
     capture_backend: &'static str,
@@ -1639,6 +1687,11 @@ impl ControlCommitTracker {
             } else {
                 super::computer_input::window_epoch(window)
             };
+            if !current.is_monitored() && cfg!(all(windows, feature = "desktop-control")) {
+                self.monitor_interrupted
+                    .store(true, AtomicOrdering::Release);
+                return Err(CoreError::InvalidInput("Physical input monitoring is unavailable. Wait for recovery and take a fresh observation before acting.".into()));
+            }
             if current != epoch {
                 if !current.same_monitor(epoch) {
                     self.monitor_interrupted
@@ -2981,10 +3034,7 @@ impl Tool for ComputerObserveTool {
                         Ok(capture) => capture,
                         Err(error) => return Ok(capture_failure_result(call_id, window_id, error)),
                     };
-                    let fresh_observation_id = remember_observation(
-                        conversation_id,
-                        vec![ObservedWindow::from_capture(&capture)],
-                    )?;
+                    let fresh_observation_id = remember_capture(conversation_id, &capture)?;
                     let data = capture_data(&fresh_observation_id, &capture);
                     let display_content = format!(
                     "Captured verified app '{}' window {} at {}x{} with {} semantic element(s). ObservationId: {}.",
@@ -3065,10 +3115,7 @@ impl Tool for ComputerObserveTool {
                         },
                     )
                     .await?;
-                    let fresh_observation_id = remember_observation(
-                        conversation_id,
-                        vec![ObservedWindow::from_capture(&outcome.capture)],
-                    )?;
+                    let fresh_observation_id = remember_capture(conversation_id, &outcome.capture)?;
                     let mut data = capture_data(&fresh_observation_id, &outcome.capture);
                     if let Some(object) = data.as_object_mut() {
                         object.insert("changed".to_string(), outcome.changed.into());
@@ -3276,7 +3323,7 @@ impl Tool for ComputerControlTool {
             let capture_options = before_control_commit(CaptureOptions::from_control(&args))?;
             let preflight_observation = before_control_commit_as(
                 PreCommitFailureKind::ObservationStale,
-                observed_window(conversation_id, &args.observation_id, args.window_id),
+                observed_window_for_approval(conversation_id, &args.observation_id, args.window_id),
             )?;
             let target_identity = desktop_target_identity(&preflight_observation.snapshot);
             before_control_commit_as(
@@ -3549,10 +3596,8 @@ impl Tool for ComputerControlTool {
 
             let (fresh_observation_id, capture_data_value, attachments) =
                 if let Some(capture) = outcome.capture.as_ref() {
-                    let observation_id = commit_tracker.result(remember_observation(
-                        conversation_id,
-                        vec![ObservedWindow::from_capture(capture)],
-                    ))?;
+                    let observation_id =
+                        commit_tracker.result(remember_capture(conversation_id, capture))?;
                     (
                         Some(observation_id.clone()),
                         Some(capture_data(&observation_id, capture)),

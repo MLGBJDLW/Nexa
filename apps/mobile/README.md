@@ -21,6 +21,11 @@ collapsed. With an official DeepSeek Flash connection, Auto web search streams
 hosted searches and URL reads in the phone chat. Nexa Router uses the search
 providers configured in phone settings.
 
+On screens with many Android accessibility nodes, model context keeps complete
+nodes and their original IDs. Focused and actionable controls are shown first.
+The observation identifies the current package and reports how many nodes were
+omitted from model context.
+
 Desktop 0.19 or later can also operate the phone after **Allow this computer to
 control this phone** is enabled in phone settings. The existing foreground-task
 notification provides Stop. Reconnection retains an enabled session but never

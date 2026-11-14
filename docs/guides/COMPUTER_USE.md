@@ -1,6 +1,6 @@
 # Computer Use and local visual evidence
 
-[Documentation](../README.md) / [Category overview](README.md)
+[Documentation](../README.md) / [Category overview](README.md) / [Computer Use capability review](COMPUTER_USE_PARITY.md)
 
 The paired-device Screen viewer reuses these observation, target-validation and
 action-receipt paths. A local user grants one Windows window, with a separate
@@ -52,6 +52,20 @@ to action receipts without claiming that a requested condition was satisfied.
 Browser frame coordinates share one forward/inverse conversion for borders,
 padding and positive axis-aligned scaling. Rotated, skewed, mirrored or perspective
 frames reject trusted pointer positioning rather than sending guessed coordinates.
+
+Windows observations can request `text_context: "selection"` or `"visible"`.
+The focused editor or unique visible document can return `state.textRanges` on
+its element. A successful empty list distinguishes a caret from an unavailable
+provider. Each observation reads up to eight ranges and 1,024 UTF-16 units in
+total. Password fields and ranges containing embedded controls are excluded.
+[Selection](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationtextpattern-getselection)
+and [visible text ranges](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationtextpattern-getvisibleranges)
+use the Windows UI Automation TextPattern.
+
+The newest capture of a window supersedes its previous input token within the
+same conversation. Capture start order also applies to overlapping reads. An
+older unexpired token can still identify the window for a separately approved
+read. The 30-minute retention limit is checked on lookup and claim.
 
 ## Coordinates and recovery
 
@@ -168,10 +182,9 @@ Existing focus, target, cursor and button checks remain in force.
 
 The monitor reports readiness and checks its message-loop heartbeat. Startup or
 thread failure permits a bounded later retry; it cannot permanently cache success.
-Capture and control receipts expose `inputGuards`: while monitoring is unavailable,
-physical Escape and retained input revisions are unavailable, while instantaneous
-input checks and the Stop control remain active. Recovery changes the monitor
-generation, invalidating observations captured during the gap.
+Capture and control receipts expose `inputGuards`. Observation remains available
+while the physical-input monitor is offline. Native input returns a recoverable
+error. Once monitoring resumes, take a fresh observation before acting.
 
 Physical Escape stops only the Computer Use turn whose worker currently owns
 desktop input. Queued calls and other chats do not acquire a stop signal. The

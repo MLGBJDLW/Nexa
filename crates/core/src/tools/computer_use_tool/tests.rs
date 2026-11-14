@@ -46,6 +46,42 @@ fn consumed_control_observation_can_authorize_only_a_fresh_capture() {
 }
 
 #[test]
+fn capture_order_and_expiry_are_checked_at_read_approval_and_input() {
+    let scope = format!("capture-order-{}", uuid::Uuid::new_v4());
+    let mut early = wait_capture_fixture(0);
+    early.snapshot.input_epoch = super::super::computer_input::window_epoch(42);
+    let mut late = wait_capture_fixture(1);
+    late.snapshot.input_epoch = early.snapshot.input_epoch;
+    early.started_at = late.started_at - Duration::from_secs(1);
+    let older = remember_capture(Some(&scope), &early).unwrap();
+    let latest = remember_capture(Some(&scope), &late).unwrap();
+    let delayed = remember_capture(Some(&scope), &early).unwrap();
+    for id in [&older, &delayed] {
+        assert!(
+            observed_window(Some(&scope), id, 42).is_ok(),
+            "read-only recapture remains possible"
+        );
+        assert!(observed_window_for_approval(Some(&scope), id, 42).is_err());
+        assert!(claim_observed_window(Some(&scope), id, 42).is_err());
+    }
+    // A new inventory page or an unrelated window does not replace this frame.
+    remember_observation(Some(&scope), vec![wait_observed_fixture()]).unwrap();
+    late.snapshot.id = 43;
+    remember_capture(Some(&scope), &late).unwrap();
+    assert!(observed_window_for_approval(Some(&scope), &latest, 42).is_ok());
+    let mut store = observation_store().lock().unwrap();
+    store
+        .iter_mut()
+        .find(|r| r.id == latest)
+        .unwrap()
+        .created_at = Instant::now() - OBSERVATION_TTL - Duration::from_secs(1);
+    drop(store);
+    assert!(observed_window(Some(&scope), &latest, 42).is_err());
+    assert!(observed_window_for_approval(Some(&scope), &latest, 42).is_err());
+    assert!(claim_observed_window(Some(&scope), &latest, 42).is_err());
+}
+
+#[test]
 fn background_input_watch_ignores_other_windows_but_keeps_same_target_takeover() {
     let target = 0x10010;
     let other = 0x11000;
@@ -112,6 +148,7 @@ fn wait_capture_fixture(level: u8) -> CapturedWindow {
     let mut png = std::io::Cursor::new(Vec::new());
     image.write_to(&mut png, image::ImageFormat::Png).unwrap();
     CapturedWindow {
+        started_at: Instant::now(),
         snapshot: serde_json::from_value(serde_json::json!({
             "id":42,"pid":7,"processStartedAt100ns":123,"executablePathHash":"fixture",
             "windowClass":"Editor","sessionId":1,"appName":"Editor","title":"Document",
@@ -275,6 +312,7 @@ async fn computer_wait_change_is_proved_by_the_returned_frame() {
     let mut probes = 0;
     let mut finals = 0;
     let options = CaptureOptions {
+        text_context: None,
         include_elements: true,
         max_elements: 20,
         mode: CaptureMode::Raw,
@@ -335,6 +373,7 @@ async fn computer_wait_cancellation_stops_new_probes_and_final_capture() {
     let finals = AtomicUsize::new(0);
     let observed = wait_observed_fixture();
     let options = CaptureOptions {
+        text_context: None,
         include_elements: true,
         max_elements: 20,
         mode: CaptureMode::Raw,
@@ -1685,6 +1724,7 @@ fn windows_owned_modal_handoff_smoke_test() {
             std::thread::sleep(Duration::from_millis(50));
         };
         let options = CaptureOptions {
+            text_context: None,
             include_elements: true,
             max_elements: 120,
             mode: CaptureMode::Raw,
@@ -2009,6 +2049,7 @@ fn windows_control_smoke(
         let mut capture = platform::capture_window(
             &target,
             CaptureOptions {
+                text_context: None,
                 include_elements: true,
                 max_elements: 120,
                 mode: CaptureMode::SetOfMarks,
@@ -2630,6 +2671,7 @@ fn windows_window_capture_smoke_test() {
     let capture = platform::capture_window(
         &target,
         CaptureOptions {
+            text_context: None,
             include_elements: true,
             max_elements: 120,
             mode: CaptureMode::SetOfMarks,
@@ -2687,6 +2729,7 @@ fn windows_host_window_observation_smoke_test() {
         let capture = platform::capture_window(
             &target,
             CaptureOptions {
+                text_context: None,
                 include_elements: true,
                 max_elements: 120,
                 mode: CaptureMode::SetOfMarks,

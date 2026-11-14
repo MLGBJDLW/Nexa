@@ -87,6 +87,9 @@ pub(super) struct InputEpoch {
 }
 
 impl InputEpoch {
+    pub(super) fn is_monitored(self) -> bool {
+        self.monitored
+    }
     pub(super) fn same_monitor(self, other: Self) -> bool {
         self.generation == other.generation && self.monitored == other.monitored
     }
