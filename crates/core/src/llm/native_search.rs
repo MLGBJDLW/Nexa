@@ -622,12 +622,16 @@ mod tests {
         );
         assert_eq!(plan.dialect, None);
 
-        for model in [
-            "deepseek-flash",
-            "deepseek-v4-pro",
-            "deepseek-v4-flash",
-            "deepseek-v4-flash-vision-exp",
-        ] {
+        for model in ["deepseek-flash", "deepseek-v4-pro"] {
+            let plan = NativeSearchPlan::resolve(
+                SearchExecutionMode::Auto,
+                ProviderType::DeepSeek,
+                Some("https://api.deepseek.com"),
+                model,
+            );
+            assert_eq!(plan.dialect, Some(NativeSearchDialect::DeepSeekResponses));
+        }
+        for model in ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"] {
             let plan = NativeSearchPlan::resolve(
                 SearchExecutionMode::Auto,
                 ProviderType::DeepSeek,
@@ -636,7 +640,7 @@ mod tests {
             );
             assert_eq!(
                 plan.dialect, None,
-                "DeepSeek now ignores built-in web_search: {model}"
+                "unverified DeepSeek model must keep the local router: {model}"
             );
             assert!(plan.marker().is_none());
         }

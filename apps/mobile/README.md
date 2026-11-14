@@ -16,6 +16,11 @@ applying updated attachment and steering-message metadata. Earlier turns remain
 stable as new output streams, so long conversations avoid repeatedly processing
 the same saved replies. These behaviors are shared with the browser companion.
 
+Interactive reply previews stay visible when their activity details are
+collapsed. With an official DeepSeek Flash connection, Auto web search streams
+hosted searches and URL reads in the phone chat. Nexa Router uses the search
+providers configured in phone settings.
+
 Desktop 0.19 or later can also operate the phone after **Allow this computer to
 control this phone** is enabled in phone settings. The existing foreground-task
 notification provides Stop. Reconnection retains an enabled session but never

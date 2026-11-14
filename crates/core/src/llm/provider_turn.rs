@@ -216,6 +216,12 @@ impl ResponsesReplayPayload {
             return false;
         }
         let mut saw_reasoning = false;
+        let deepseek_web_without_thinking = contract == ResponsesReplayContract::DeepSeek
+            && self
+                .items
+                .iter()
+                .any(|item| item["type"] == "web_search_call")
+            && !self.items.iter().any(|item| item["type"] == "reasoning");
         for item in &self.items {
             match item.get("type").and_then(serde_json::Value::as_str) {
                 Some("reasoning") => {
@@ -271,7 +277,9 @@ impl ResponsesReplayPayload {
                             serde_json::from_str::<serde_json::Value>(arguments).ok()
                         })
                         .is_some_and(|arguments| arguments.is_object());
-                    if (!saw_reasoning && contract != ResponsesReplayContract::Copilot)
+                    if (!saw_reasoning
+                        && contract != ResponsesReplayContract::Copilot
+                        && !deepseek_web_without_thinking)
                         || !Self::completed_item(item)
                         || !call_id
                         || !name
@@ -283,7 +291,9 @@ impl ResponsesReplayPayload {
                 _ => return false,
             }
         }
-        saw_reasoning || contract == ResponsesReplayContract::Copilot
+        saw_reasoning
+            || deepseek_web_without_thinking
+            || contract == ResponsesReplayContract::Copilot
     }
 
     fn authorizes_tool_calls(
@@ -653,7 +663,9 @@ impl ProviderReplayPayload {
                         || super::bedrock::signed_reasoning_complete(&payload.content))
             }
             Self::DeepSeekResponseItems(payload) => {
-                payload.authorizes_tool_calls(tool_calls, false)
+                (!route.replay_policy.requires_tool_call_payload()
+                    || payload.items.iter().any(|item| item["type"] == "reasoning"))
+                    && payload.authorizes_tool_calls(tool_calls, false)
             }
             Self::OpenAiResponseItems(payload) => payload.authorizes_tool_calls(tool_calls, true),
             Self::CopilotResponseItems(payload) => {
