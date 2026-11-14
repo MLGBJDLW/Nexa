@@ -7,6 +7,9 @@ import {
   compareRequiredModelIds,
   driftDetected,
   normalizeCatalogModel,
+  inspectCatalogPage,
+  inventoryCandidates,
+  summarizeDiscovery,
 } from './model-catalog-audit-lib.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,6 +36,7 @@ const discoveryCredentials = new Map([
   ['text:openai', 'NEXA_OPENAI_CATALOG_API_KEY'],
   ['text:openrouter', 'NEXA_OPENROUTER_CATALOG_API_KEY'],
   ['text:deepseek', 'NEXA_DEEPSEEK_CATALOG_API_KEY'],
+  ['text:siliconflow', 'NEXA_SILICONFLOW_CN_CATALOG_API_KEY'],
   ['text:alibaba-model-studio', 'NEXA_ALIBABA_CATALOG_API_KEY'],
   ['text:qwen-cloud-intl', 'NEXA_ALIBABA_INTL_CATALOG_API_KEY'],
 ]);
@@ -52,7 +56,7 @@ const publicRequiredModelIds = new Map([
   ]],
 ]);
 const publicCatalogPaths = new Map([
-  ['text:openrouter', '/models'],
+  ['text:openrouter', '/models?output_modalities=all'],
   ['image:openrouter-images', '/images/models'],
   ['decision:openrouter', '/models?output_modalities=decisions&endpoints=/api/alpha/decisions'],
   ['embedding:openrouter', '/embeddings/models'],
@@ -170,8 +174,10 @@ async function probeEndpoint(endpoint) {
     return { endpointId: endpoint.endpointId, status: 'skipped', reason: 'discovery_not_supported' };
   }
 
+  const catalogPath = endpoint.endpointId === 'text:siliconflow' ? '/models?sub_type=chat' : publicPath ?? '/models';
+  const sourceUrl = `${endpoint.baseUrl}${catalogPath}`;
   try {
-    const response = await fetch(`${endpoint.baseUrl}${publicPath ?? '/models'}`, {
+    const response = await fetch(sourceUrl, {
       headers: credential ? { Authorization: `Bearer ${credential}` } : undefined,
       signal: AbortSignal.timeout(15_000),
     });
@@ -179,11 +185,7 @@ async function probeEndpoint(endpoint) {
       return { endpointId: endpoint.endpointId, status: 'error', reason: `http_${response.status}` };
     }
     const payload = await response.json();
-    const rows = Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload?.models)
-        ? payload.models
-        : [];
+    const { rows, pagination } = inspectCatalogPage(payload);
     // Jina lists its whole product line with namespaced IDs, while the
     // embeddings operation takes the short wire ID from its request schema.
     const liveModels = endpoint.endpointId === 'embedding:jina'
@@ -204,21 +206,21 @@ async function probeEndpoint(endpoint) {
     return {
       endpointId: endpoint.endpointId,
       status: 'ok',
+      sourceUrl,
+      fetchedAt: new Date().toISOString(),
+      pagination,
       ...(anonymousRequiredIdsOnly ? { probeMode: 'required_ids', requiredIds } : {}),
       discoveredCount: liveModels.length,
       discoveryScope: credential ? 'credential_catalog' : 'public_catalog',
       unavailableCandidates: active.missingIds,
       // Inventory differences are candidates for protocol review. A missing
       // listing is not a retirement notice or authority to change saved models.
-      inventory: compareEndpointModels(endpoint, liveModels.filter(model => {
-        if (endpoint.endpointId.startsWith('image:')) return model.architecture?.output_modalities?.includes('image');
-        if (endpoint.endpointId.startsWith('text:')) return !model.id?.endsWith(':batch') && model.architecture?.output_modalities?.includes('text');
-        return true;
-      })),
+      inventory: inventoryCandidates(endpoint, liveModels),
       ...comparison,
     };
   } catch (error) {
-    const reason = error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'request_failed';
+    const reason = ['invalid_catalog_payload', 'duplicate_catalog_ids', 'invalid_catalog_total'].includes(error?.message)
+      ? error.message : error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'request_failed';
     return { endpointId: endpoint.endpointId, status: 'error', reason };
   }
 }
@@ -235,7 +237,11 @@ function markdownReport(report) {
   if (report.staticValidation.errors.length) {
     lines.push('## Static validation errors', '', ...report.staticValidation.errors.map((error) => `- ${error}`), '');
   }
-  lines.push('## Discovery probes', '');
+  lines.push(`Inventory assessment: ${report.discovery.inventoryStatus}; observed catalogs: ${report.discovery.observedCatalogCount}.`,
+    `Inventory unavailable/skipped: ${report.discovery.unassessedInventoryEndpoints.join(', ') || 'none among configured probes'}.`,
+    `Inventory review: ${report.discovery.inventoryCandidateCount} candidates (not verified support).`,
+    `Catalog completeness unknown/partial: ${report.discovery.incompleteCatalogEndpoints.join(', ') || 'none among successful probes'}.`,
+    'Availability drift and inventory review are separate results; neither proves account or inference coverage.', '', '## Discovery probes', '');
   for (const probe of report.probes) {
     lines.push(`### ${probe.endpointId}`, '', `Status: ${probe.status}`);
     if (probe.reason) lines.push(`Reason: ${probe.reason}`);
@@ -252,6 +258,10 @@ function markdownReport(report) {
         `Expiration changes: ${probe.expirationChanged.length ? probe.expirationChanged.map(item => `${item.id} (${item.curated ?? 'unspecified'} → ${item.discovered})`).join('; ') : 'none'}`,
         `Region changes: ${probe.regionChanged.length ? probe.regionChanged.map((item) => `${item.id} (${item.curated.join('+')} → ${item.discovered.join('+')})`).join('; ') : 'none'}`,
       );
+      lines.push(`Page coverage: ${probe.pagination.uniqueCount}/${probe.pagination.totalCount ?? 'unknown'}; ${probe.pagination.completeness}; pages fetched: ${probe.pagination.pagesFetched}.`);
+      if (probe.inventory) lines.push(`Excluded from this surface: ${probe.inventory.excluded.map(item => `${item.id} (${item.reason})`).join(', ') || 'none'}`,
+        `Output modality counts: ${JSON.stringify(probe.inventory.modalityCounts)}`,
+        `Unknown modality metadata: ${probe.inventory.unknownMetadataIds.join(', ') || 'none'}`);
       if (probe.inventory) lines.push(`Inventory candidates (not verified integration support): ${probe.inventory.newIds.join(', ') || 'none'}`);
       lines.push(`Unavailable candidates (not verified retirements): ${probe.unavailableCandidates.join(', ') || 'none'}`);
     }
@@ -288,7 +298,9 @@ const report = {
   attemptedProbeCount,
   failedProbeCount,
   allAttemptedProbesSucceeded,
+  discovery: summarizeDiscovery(probes),
   coverage: {
+    completeCatalogEndpoints: probes.filter(p => p.status === 'ok' && p.pagination.completeness === 'complete').map(p => p.endpointId),
     probedEndpoints: completedProbeCount,
     unprobedEndpoints: staticCatalog.endpoints.filter(endpoint => !probes.some(probe => probe.endpointId === endpoint.endpointId && probe.status === 'ok')).map(endpoint => endpoint.endpointId),
     authenticatedInference: false,
@@ -306,5 +318,5 @@ await Promise.all([
   writeFile(path.join(outputDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`),
   writeFile(path.join(outputDir, 'report.md'), markdownReport(report)),
 ]);
-process.stdout.write(`${JSON.stringify({ outputDir, hasDrift, staticErrors: staticCatalog.errors.length })}\n`);
+process.stdout.write(`${JSON.stringify({ outputDir, hasDrift, ...report.discovery, staticErrors: staticCatalog.errors.length })}\n`);
 if (staticCatalog.errors.length) process.exitCode = 1;
