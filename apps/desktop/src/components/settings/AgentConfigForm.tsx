@@ -23,15 +23,14 @@ import type {
 } from "../../types/conversation";
 import type { Skill } from "../../types/extensions";
 import {
+  catalogModelsForSnapshot,
   findProviderPreset,
-  isRemovedProviderModel,
   removedProviderModel,
   getReasoningCapability,
   type ProviderPreset,
 } from "../../lib/providerPresets";
 import {
   bindProviderModelCatalogCredential,
-  catalogModelsForSnapshot,
   catalogMatchesProvider,
   isProviderModelCatalogStale,
   loadProviderModelCatalog,
@@ -354,8 +353,7 @@ export function AgentConfigForm({
   const activePreset = useMemo(() => {
     if (!matchingModelCatalog) return curatedPreset;
     if (curatedPreset) {
-      return { ...curatedPreset, models: catalogModelsForSnapshot(matchingModelCatalog)
-        .filter(model => !isRemovedProviderModel(curatedPreset.id, model.id)) };
+      return { ...curatedPreset, models: catalogModelsForSnapshot(matchingModelCatalog) };
     }
     return {
       id: `discovered-${provider}`,

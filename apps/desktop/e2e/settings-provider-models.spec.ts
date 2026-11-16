@@ -1560,7 +1560,7 @@ test("provider refresh keeps account-discovered models selectable and cached", a
   await page.goto("/settings");
   await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
-  await page.getByRole("button", { name: /^Alibaba Cloud Model Studio/ }).click();
+  await page.getByRole("button", { name: /^OpenRouter/ }).click();
 
   await page.locator('input[placeholder="sk-..."]').fill("sk-account");
   await page.getByRole("button", { name: "Refresh models" }).click();
@@ -1572,6 +1572,14 @@ test("provider refresh keeps account-discovered models selectable and cached", a
   await expectNexaOption(modelSelect, "account-only-model", "visible", "Discovered");
   await selectControl(modelSelect, "account-only-model");
   await expectNexaValue(modelSelect, "account-only-model");
+  await modelSelect.click();
+  await page.locator('[cmdk-input]').fill('Gemini 4');
+  for (const variant of ['argon', 'carbon', 'hydrogen']) {
+    await expect(page.locator(`[role="option"][data-value="google/gemini-4-${variant}"]`)).toBeVisible();
+  }
+  await page.locator('[cmdk-input]').fill('Fable 5.2');
+  await page.locator('[role="option"][data-value="anthropic/claude-fable-5.2"]').click();
+  await expectNexaValue(modelSelect, 'anthropic/claude-fable-5.2');
 
   await expect.poll(() => page.evaluate(() => Object.keys(localStorage)
     .some((key) => key.startsWith("nexa-provider-model-catalog-v1:")))).toBe(true);

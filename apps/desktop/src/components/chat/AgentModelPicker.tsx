@@ -13,6 +13,7 @@ import { Check, ChevronDown, ChevronLeft, Loader2, RefreshCw, Search, SlidersHor
 import { useTranslation, type TranslationKey } from '../../i18n';
 import {
   PROVIDER_PRESETS,
+  catalogModelsForSnapshot,
   findProviderPreset,
   isRemovedProviderModel,
   type ProviderModelPreset,
@@ -35,7 +36,7 @@ import {
 import type { AgentConfig } from '../../types/conversation';
 import { useOverlayRoot } from '../ui/overlay';
 import { getSubscriptionCatalogs, invalidateSubscriptionModels, loadSubscriptionModels, runtimeCatalogKey, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
-import { catalogModelsForSnapshot, loadProviderModelCatalog } from '../../lib/providerModelCatalog';
+import { loadProviderModelCatalog } from '../../lib/providerModelCatalog';
 import { useAppCommand } from '../../lib/appCommands';
 import { ReasoningIntensity } from './ReasoningIntensity';
 import { SubscriptionUsagePopover } from './SubscriptionUsagePopover';
@@ -264,8 +265,10 @@ export function AgentModelPicker({
           : originalPreset;
         if (!originalPreset?.runtime) {
           const cached = loadProviderModelCatalog(config.provider, config.baseUrl, config.apiKey ?? '');
-          if (cached && preset) preset = { ...preset, models: catalogModelsForSnapshot(cached)
-            .filter(model => !isRemovedProviderModel(preset!.id, model.id)) };
+          if (cached) preset = { ...(preset ?? {
+            id: config.provider, name: config.name || config.provider, provider: config.provider,
+            baseUrl: config.baseUrl ?? '', requiresApiKey: Boolean(config.apiKey), icon: '', description: '',
+          }), models: catalogModelsForSnapshot(cached) };
         }
         return {
           config,

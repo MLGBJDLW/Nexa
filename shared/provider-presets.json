@@ -4785,8 +4785,10 @@
           "include_reasoning",
           "logit_bias",
           "logprobs",
+          "max_completion_tokens",
           "max_tokens",
           "min_p",
+          "parallel_tool_calls",
           "presence_penalty",
           "reasoning",
           "reasoning_effort",
@@ -4803,7 +4805,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/moonshotai/kimi-k3"
       },
       {
@@ -6447,8 +6449,10 @@
           "include_reasoning",
           "logit_bias",
           "logprobs",
+          "max_completion_tokens",
           "max_tokens",
           "min_p",
+          "parallel_tool_calls",
           "presence_penalty",
           "reasoning",
           "reasoning_effort",
@@ -6465,7 +6469,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/~moonshotai/kimi-latest",
         "maxOutputTokens": 943718
       },
@@ -7687,9 +7691,11 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/z-ai/glm-5.1",
-        "maxOutputTokens": 131072
+        "maxOutputTokens": 182476,
+        "status": "deprecated",
+        "deprecationDate": "2026-11-20"
       },
       {
         "id": "google/gemma-4-26b-a4b-it:free",
@@ -9640,9 +9646,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-397b-a17b",
-        "maxOutputTokens": 64000
+        "maxOutputTokens": 81920
       },
       {
         "id": "minimax/minimax-m2.5:free",
@@ -9717,9 +9723,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/minimax/minimax-m2.5",
-        "maxOutputTokens": 32768
+        "maxOutputTokens": 176947
       },
       {
         "id": "z-ai/glm-5",
@@ -9996,10 +10002,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://openrouter.ai/api/v1/models/stepfun/step-3.5-flash/endpoints",
         "maxOutputTokens": 65536,
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-11-15"
       },
       {
@@ -12457,10 +12463,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://openrouter.ai/api/v1/models/qwen/qwen3-vl-30b-a3b-thinking/endpoints",
         "maxOutputTokens": 235929,
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-11-15"
       },
       {
@@ -13961,9 +13967,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/openai/gpt-oss-20b",
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 65536
       },
       {
         "id": "anthropic/claude-opus-4.1",
@@ -14060,13 +14066,10 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true,
+        "supportsStructuredOutput": false,
         "supportedParameters": [
-          "frequency_penalty",
           "max_tokens",
-          "response_format",
           "stop",
-          "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
@@ -14074,7 +14077,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/qwen/qwen3-coder-30b-a3b-instruct",
         "maxOutputTokens": 235929
       },
@@ -14585,10 +14588,10 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-13",
-        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://openrouter.ai/api/v1/models/tencent/hunyuan-a13b-instruct/endpoints",
         "maxOutputTokens": 117964,
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-11-15"
       },
       {
@@ -20363,9 +20366,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/deepseek/deepseek-v4-flash-0731",
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 384000,
         "capabilities": {
           "vision": false,
           "reasoning": {
@@ -21125,10 +21128,8 @@
         "supportedParameters": [
           "frequency_penalty",
           "include_reasoning",
-          "logit_bias",
           "max_completion_tokens",
           "max_tokens",
-          "min_p",
           "presence_penalty",
           "reasoning",
           "reasoning_effort",
@@ -21144,7 +21145,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-08",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://openrouter.ai/tencent/hy3",
         "maxOutputTokens": 128000,
         "capabilities": {
@@ -22022,7 +22023,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "inputModalities": [
           "text",
           "image",
@@ -22065,7 +22066,7 @@
           }
         },
         "documentationRef": "https://openrouter.ai/nvidia/nemotron-3.5-super-vl",
-        "maxOutputTokens": 943718
+        "maxOutputTokens": 235929
       },
       {
         "id": "nvidia/nemotron-3.5-super-vl:free",
@@ -22376,7 +22377,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-16",
         "releaseDate": "2026-10-17",
         "inputModalities": [
           "text",
@@ -22388,7 +22389,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 943718,
+        "maxOutputTokens": 393216,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -23731,6 +23732,66 @@
           "top_k",
           "top_p"
         ]
+      },
+      {
+        "id": "qwen/qwen4-max",
+        "name": "Qwen: Qwen4 Max",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://openrouter.ai/qwen/qwen4-max",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_tokens",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
       }
     ]
   },
@@ -27805,15 +27866,12 @@
         "capabilities": {
           "vision": true,
           "reasoning": {
+            "mode": "optional",
             "effortLevels": [
               "none",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh"
+              "high"
             ],
-            "defaultEffort": "medium",
+            "defaultEffort": "high",
             "thinkingBudget": {
               "enabled": false
             }
@@ -27821,10 +27879,14 @@
         },
         "status": "deprecated",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-16",
         "documentationRef": "https://docs.mistral.ai/models/mistral-medium-3-5-26-04",
         "replacementModelId": "mistral-large-4",
-        "deprecationDate": "2026-10-31"
+        "deprecationDate": "2026-10-31",
+        "aliases": [
+          "mistral-medium-3",
+          "mistral-medium-latest"
+        ]
       },
       {
         "id": "zai-glm-5-2",
@@ -27918,7 +27980,26 @@
       {
         "id": "mistral-small-2603",
         "name": "Mistral Small 4",
-        "tagKey": "providers.tagFast"
+        "tagKey": "providers.tagFast",
+        "aliases": [
+          "mistral-small-latest"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://docs.mistral.ai/models/mistral-small-4-0-26-03"
       },
       {
         "id": "ministral-14b-2512",
@@ -28007,7 +28088,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-10-23",
+        "lastVerifiedAt": "2026-11-16",
         "contextTokens": 1000000,
         "maxOutputTokens": 128000,
         "inputModalities": [
@@ -28021,7 +28102,17 @@
         "supportsStructuredOutput": true,
         "capabilities": {
           "vision": true,
-          "reasoning": null
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
         },
         "documentationRef": "https://docs.mistral.ai/models/zai-glm-5-3-flash"
       }
@@ -32574,6 +32665,50 @@
           "reasoning": null
         },
         "maxOutputTokens": 1048576
+      },
+      {
+        "id": "qwen4-max",
+        "name": "Qwen4 Max",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen4-max",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
+        }
       }
     ]
   },
@@ -34118,6 +34253,50 @@
         "capabilities": {
           "vision": true,
           "videoInput": true
+        }
+      },
+      {
+        "id": "qwen4-max",
+        "name": "Qwen4 Max",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen4-max",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
         }
       }
     ]
