@@ -20,7 +20,8 @@ use nexa_core::{
     tools::{
         create_file_tool::CreateFileTool, edit_file_tool::EditFileTool,
         fetch_url_tool::FetchUrlTool, file_tool::FileTool, list_dir_tool::ListDirTool,
-        web_search_tool::WebSearchTool, ToolRegistry,
+        web_research_context_tool::WebResearchContextTool, web_search_tool::WebSearchTool,
+        ToolRegistry,
     },
     workspace::Workspace,
 };
@@ -430,6 +431,7 @@ impl LocalRuntime {
         ));
         tools.register(Box::new(WebSearchTool));
         tools.register(Box::new(FetchUrlTool));
+        tools.register(Box::new(WebResearchContextTool));
         if let Some(allowed) = &execution_tools {
             tools = tools.filtered(allowed);
         } else {

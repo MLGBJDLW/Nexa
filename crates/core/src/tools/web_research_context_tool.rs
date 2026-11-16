@@ -1,14 +1,16 @@
 //! WebResearchContextTool — search + fetch + source-quality context packing.
 
+use std::future::Future;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
+use futures::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::error::CoreError;
 use crate::web_search::{
-    SearchLanguage, SearchRegion, TimeRange, WebSearchArgs, WebSearchProviderProfile,
-    WebSearchReranker,
+    SearchLanguage, SearchRegion, SearchResultItem, TimeRange, WebSearchArgs,
+    WebSearchProviderProfile, WebSearchReranker,
 };
 
 use super::fetch_url_tool::FetchUrlTool;
@@ -19,6 +21,7 @@ static DEF: OnceLock<ToolDef> = OnceLock::new();
 const DEF_JSON: &str = include_str!("../../prompts/tools/web_research_context.json");
 const DEFAULT_CONTEXT_SEARCH_LIMIT: usize = 8;
 const DEFAULT_MAX_SOURCES: usize = 4;
+const MAX_CONCURRENT_PAGE_READS: usize = 3;
 const DEFAULT_MAX_CHARS_PER_SOURCE: usize = 1800;
 
 pub struct WebResearchContextTool;
@@ -246,6 +249,80 @@ fn render_context(query: &str, sources: &[ResearchSource], warnings: &[String]) 
     context
 }
 
+async fn collect_sources<F>(
+    results: &[SearchResultItem],
+    max_chars: usize,
+    fetch: impl Fn(usize) -> F,
+) -> Vec<ResearchSource>
+where
+    F: Future<Output = Option<Result<ToolResult, CoreError>>>,
+{
+    let fetch = &fetch;
+    let mut sources: Vec<_> = stream::iter(0..results.len())
+        .map(|source_index| async move {
+            let result = &results[source_index];
+            let mut title = result.title.clone();
+            let mut final_url = result.url.clone();
+            let mut excerpt = result.snippet.clone();
+            let mut fetched = false;
+            let mut extraction_method = None;
+            let mut fetch_error = None;
+
+            if let Some(response) = fetch(source_index).await {
+                match response {
+                    Ok(fetch_result) if !fetch_result.is_error => {
+                        fetched = true;
+                        let artifacts = fetch_result.artifacts.as_ref();
+                        final_url = artifact_string(artifacts, "finalUrl")
+                            .unwrap_or_else(|| result.url.clone());
+                        title = artifact_string(artifacts, "title").unwrap_or(title);
+                        extraction_method = artifact_string(artifacts, "extractionMethod");
+                        excerpt = fetch_excerpt(&fetch_result.content, max_chars);
+                    }
+                    Ok(fetch_result) => {
+                        fetch_error = Some(truncate_chars(&fetch_result.content, 300));
+                        if excerpt.is_empty() {
+                            excerpt =
+                                "(Search result had no snippet and page fetch failed.)".to_string();
+                        }
+                    }
+                    Err(error) => {
+                        fetch_error = Some(error.to_string());
+                        if excerpt.is_empty() {
+                            excerpt =
+                                "(Search result had no snippet and page fetch failed.)".to_string();
+                        }
+                    }
+                }
+            }
+
+            let citation_title = if title.trim().is_empty() {
+                "web page".to_string()
+            } else {
+                title.clone()
+            };
+            let source_quality = assess_source_quality(&result.source, &final_url, &title);
+            ResearchSource {
+                index: source_index + 1,
+                title,
+                url: result.url.clone(),
+                final_url: final_url.clone(),
+                source: result.source.clone(),
+                citation: format!("[url:{final_url}|{citation_title}]"),
+                source_quality,
+                fetched,
+                extraction_method,
+                fetch_error,
+                excerpt: truncate_chars(&excerpt, max_chars),
+            }
+        })
+        .buffer_unordered(MAX_CONCURRENT_PAGE_READS)
+        .collect()
+        .await;
+    sources.sort_unstable_by_key(|source| source.index);
+    sources
+}
+
 #[async_trait]
 impl Tool for WebResearchContextTool {
     fn name(&self) -> &str {
@@ -333,7 +410,6 @@ impl Tool for WebResearchContextTool {
         let search = execution.response;
         let max_sources = args.max_sources.clamp(1, 6);
         let max_chars = args.max_chars_per_source.clamp(500, 4000);
-        let fetch_tool = FetchUrlTool;
         let mut warnings = search
             .engines_failed
             .iter()
@@ -346,26 +422,22 @@ impl Tool for WebResearchContextTool {
                 )
             })
             .collect::<Vec<_>>();
-        let mut sources = Vec::new();
-
-        for (source_index, result) in search.results.iter().take(max_sources).enumerate() {
-            let mut title = result.title.clone();
-            let mut final_url = result.url.clone();
-            let mut excerpt = result.snippet.clone();
-            let mut fetched = false;
-            let mut extraction_method = None;
-            let mut fetch_error = None;
-
-            if args.fetch_pages {
-                let fetch_args = serde_json::json!({
-                    "url": result.url.as_str(),
-                    "max_length": max_chars,
-                    "mode": "auto",
-                    "include_assets": false,
-                })
-                .to_string();
-                let fetch_call_id = format!("{call_id}:fetch:{}", source_index + 1);
-                match fetch_tool
+        let candidates = &search.results[..search.results.len().min(max_sources)];
+        let sources = collect_sources(candidates, max_chars, |source_index| async move {
+            if !args.fetch_pages {
+                return None;
+            }
+            let result = &candidates[source_index];
+            let fetch_args = serde_json::json!({
+                "url": result.url.as_str(),
+                "max_length": max_chars,
+                "mode": "auto",
+                "include_assets": false,
+            })
+            .to_string();
+            let fetch_call_id = format!("{call_id}:fetch:{}", source_index + 1);
+            Some(
+                FetchUrlTool
                     .execute(crate::tools::ToolExecutionContext {
                         workspace,
                         file_change_owner: None,
@@ -381,54 +453,10 @@ impl Tool for WebResearchContextTool {
                         activity_runtime,
                         event_tx,
                     })
-                    .await
-                {
-                    Ok(fetch_result) if !fetch_result.is_error => {
-                        fetched = true;
-                        let artifacts = fetch_result.artifacts.as_ref();
-                        final_url = artifact_string(artifacts, "finalUrl")
-                            .unwrap_or_else(|| result.url.clone());
-                        title = artifact_string(artifacts, "title").unwrap_or(title);
-                        extraction_method = artifact_string(artifacts, "extractionMethod");
-                        excerpt = fetch_excerpt(&fetch_result.content, max_chars);
-                    }
-                    Ok(fetch_result) => {
-                        fetch_error = Some(truncate_chars(&fetch_result.content, 300));
-                        if excerpt.is_empty() {
-                            excerpt =
-                                "(Search result had no snippet and page fetch failed.)".to_string();
-                        }
-                    }
-                    Err(error) => {
-                        fetch_error = Some(error.to_string());
-                        if excerpt.is_empty() {
-                            excerpt =
-                                "(Search result had no snippet and page fetch failed.)".to_string();
-                        }
-                    }
-                }
-            }
-
-            let citation_title = if title.trim().is_empty() {
-                "web page".to_string()
-            } else {
-                title.clone()
-            };
-            let source_quality = assess_source_quality(&result.source, &final_url, &title);
-            sources.push(ResearchSource {
-                index: source_index + 1,
-                title,
-                url: result.url.clone(),
-                final_url: final_url.clone(),
-                source: result.source.clone(),
-                citation: format!("[url:{final_url}|{citation_title}]"),
-                source_quality,
-                fetched,
-                extraction_method,
-                fetch_error,
-                excerpt: truncate_chars(&excerpt, max_chars),
-            });
-        }
+                    .await,
+            )
+        })
+        .await;
 
         if sources.is_empty() {
             warnings.push("No candidate sources were returned by web_search.".to_string());
@@ -470,6 +498,59 @@ impl Tool for WebResearchContextTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn page_reads_overlap_without_changing_citation_order_or_losing_failures() {
+        use std::cell::Cell;
+        use std::time::Duration;
+
+        let delays = [400, 100, 200, 100, 100, 100];
+        let candidates: Vec<_> = (0..delays.len())
+            .map(|index| SearchResultItem {
+                rank: index + 1,
+                title: format!("Page {index}"),
+                url: format!("https://example.org/{index}"),
+                display_url: String::new(),
+                snippet: format!("Snippet {index}"),
+                source: "example.org".into(),
+                engine: crate::web_search::SearchEngine::Bing,
+                provider_rank: index + 1,
+                resolved: true,
+                confidence: "high".into(),
+            })
+            .collect();
+        let active = Cell::new(0);
+        let peak = Cell::new(0);
+        let started = tokio::time::Instant::now();
+        let sources = collect_sources(&candidates, 1800, |index| {
+            let (active, peak) = (&active, &peak);
+            async move {
+                active.set(active.get() + 1);
+                peak.set(peak.get().max(active.get()));
+                tokio::time::sleep(Duration::from_millis(delays[index])).await;
+                active.set(active.get() - 1);
+                Some(Ok(ToolResult {
+                    call_id: index.to_string(),
+                    content: format!("Page body {index}"),
+                    is_error: index == 1,
+                    artifacts: None,
+                }))
+            }
+        })
+        .await;
+
+        assert_eq!(started.elapsed(), Duration::from_millis(400));
+        assert_eq!(peak.get(), MAX_CONCURRENT_PAGE_READS);
+        assert_eq!(sources.len(), candidates.len());
+        for (index, source) in sources.iter().enumerate() {
+            assert_eq!(source.index, index + 1);
+            assert_eq!(source.url, candidates[index].url);
+            assert!(source.citation.contains(&source.url));
+            assert_eq!(source.fetched, index != 1);
+        }
+        assert_eq!(sources[1].excerpt, "Snippet 1");
+        assert!(sources[1].fetch_error.is_some());
+    }
 
     #[test]
     fn source_quality_promotes_public_institution_domains() {

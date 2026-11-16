@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use reqwest::header::HeaderMap;
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, LOCATION, RANGE, REFERER, RETRY_AFTER};
 use reqwest::Url;
@@ -151,8 +152,7 @@ pub(crate) fn parse_results(html: &str, config: ParserConfig<'_>) -> Vec<SearchR
             let Some(url_info) = public_url_info(&url) else {
                 continue;
             };
-            let dedupe_key = dedupe_key(&url_info.url);
-            if !seen.insert(dedupe_key) {
+            if !seen.insert(url_info.url.clone()) {
                 continue;
             }
             let provider_rank = results.len() + 1;
@@ -328,16 +328,22 @@ pub(crate) async fn resolve_search_redirect_target(
 }
 
 fn extract_known_redirect_target(url: &Url) -> Option<String> {
-    let host = url.host_str()?.to_ascii_lowercase();
-    let known_host = host.ends_with("duckduckgo.com")
-        || host.ends_with("sogou.com")
-        || host.ends_with("bing.com");
-    if !known_host {
+    let host = url.host_str()?;
+    if !["duckduckgo.com", "sogou.com", "bing.com"]
+        .iter()
+        .any(|domain| is_engine_host(host, domain))
+    {
         return None;
     }
 
     for (key, value) in url.query_pairs() {
         let key = key.to_ascii_lowercase();
+        if key == "u" && is_engine_host(host, "bing.com") && url.path() == "/ck/a" {
+            if let Some(encoded) = value.strip_prefix("a1") {
+                let target = URL_SAFE_NO_PAD.decode(encoded.trim_end_matches('=')).ok()?;
+                return public_url_info(std::str::from_utf8(&target).ok()?).map(|info| info.url);
+            }
+        }
         if matches!(key.as_str(), "uddg" | "url" | "u" | "target" | "to" | "r")
             && (value.starts_with("http://") || value.starts_with("https://"))
         {
@@ -350,14 +356,21 @@ fn extract_known_redirect_target(url: &Url) -> Option<String> {
     None
 }
 
+fn is_engine_host(host: &str, domain: &str) -> bool {
+    host == domain
+        || host
+            .strip_suffix(domain)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
 fn is_known_search_redirect(url: &Url) -> bool {
-    let Some(host) = url.host_str().map(|host| host.to_ascii_lowercase()) else {
+    let Some(host) = url.host_str() else {
         return false;
     };
-    (host.ends_with("baidu.com") && url.path().starts_with("/link"))
-        || (host.ends_with("sogou.com") && url.path().contains("link"))
-        || (host.ends_with("bing.com") && url.path().contains("/ck/"))
-        || (host.ends_with("duckduckgo.com") && url.path().starts_with("/l/"))
+    (is_engine_host(host, "baidu.com") && url.path().starts_with("/link"))
+        || (is_engine_host(host, "sogou.com") && url.path().contains("link"))
+        || (is_engine_host(host, "bing.com") && url.path().contains("/ck/"))
+        || (is_engine_host(host, "duckduckgo.com") && url.path().starts_with("/l/"))
 }
 
 #[derive(Debug)]
@@ -378,7 +391,7 @@ pub(crate) fn public_url_info(value: &str) -> Option<UrlInfo> {
     if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
         return None;
     }
-    if let Ok(ip) = host.parse::<IpAddr>() {
+    if let Ok(ip) = host.trim_matches(['[', ']']).parse::<IpAddr>() {
         if is_private_or_local_ip(&ip) {
             return None;
         }
@@ -440,20 +453,6 @@ pub(crate) fn is_private_or_local_ip(ip: &IpAddr) -> bool {
                 || ((v6.segments()[0] & 0xffc0) == 0xfe80)
         }
     }
-}
-
-fn dedupe_key(url: &str) -> String {
-    Url::parse(url)
-        .ok()
-        .map(|mut parsed| {
-            parsed.set_fragment(None);
-            parsed.set_query(None);
-            parsed
-                .to_string()
-                .trim_end_matches('/')
-                .to_ascii_lowercase()
-        })
-        .unwrap_or_else(|| url.trim_end_matches('/').to_ascii_lowercase())
 }
 
 pub(crate) fn normalize_space(value: &str) -> String {

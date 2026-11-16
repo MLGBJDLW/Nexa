@@ -155,7 +155,7 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
         AgentRouteKind::WebLookup => "## Route Pack: Web Lookup\n\
              - Use fetch_url for ordinary static page text. Use computer_use with target.kind=browser for JavaScript apps, authenticated flows, interaction, localhost, or page-state debugging; use its atomic observations and never reuse a DOM ref after the page changes.\n\
              - action=create_session with url returns the initial screenshot and usable refs. Recover existing work with list_sessions/list_tabs and a fresh observe of target.session_id/target.tab_id; follow an observationPending receipt's observe recovery without repeating create_session/open_tab.\n\
-             - Use web_search for external facts that may have changed or when the knowledge base is insufficient.\n\
+             - Use web_search for current facts. When you need a public-web search and page excerpts together, web_research_context can retrieve both in one call. Issue independent queries or page reads in the same tool round when available.\n\
              - Prefer authoritative sources and fetch full pages before citing; do not cite search snippets as evidence.\n\
              - Use the user's language for queries when appropriate, and use 1 focused query for simple lookups or 2-3 distinct angles for broad research.\n\
              - Cite fetched web evidence with real URL identifiers and distinguish web evidence from local knowledge-base evidence."
