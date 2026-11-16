@@ -22,6 +22,16 @@
 
 * **search:** overlap ranked page reads on desktop and mobile ([6961187](https://github.com/MLGBJDLW/Nexa/commit/696118720ee9e71db4d1132ed8268412d96f0c47))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 043bde367298dd80b7c04056132752920a1519ad -->
+
+### What's Changed
+* feat(runtime): stream OpenRouter reasoning, refresh model choices and accelerate web research by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/564
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.12...nexa-monorepo-v0.19.13
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12) (2026-11-14)
 
 ### Improvements
