@@ -216,7 +216,13 @@ test('phone model defaults skip gated models and preserve saved selections', asy
   // No native Anthropic model is marked product-ready in the current catalog;
   // require an explicit choice instead of silently selecting a restricted model.
   await expect(model).toHaveAttribute('data-value','');
-  await expect(page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true})).toBeDisabled();
+  const save = page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true});
+  await expect(save).toBeDisabled();
+  await page.getByRole('button', {name:'Use custom model ID', exact:true}).click();
+  await page.getByRole('textbox', {name:'Model connection', exact:true}).fill('tenant-only-model');
+  await expect(save).toBeEnabled();
+  await page.getByRole('button', {name:'Choose from preset models', exact:true}).click();
+  await expect(save).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.some((call: any) => call.command === 'mobile_save_settings'))).toBe(false);
   await model.click();
   await page.locator('[cmdk-input]').fill('Fable 5.2');

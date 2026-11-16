@@ -3,6 +3,7 @@ import { expect, test } from './timeline-test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
+import { providerModelCatalogCacheKey } from '../src/lib/providerModelCatalog';
 
 async function openProviderModels(page: Page, configId: string) {
   await page.getByTestId('agent-provider-picker-trigger').click();
@@ -200,6 +201,10 @@ test.beforeEach(async ({ page }) => {
           return models;
         }
         case 'list_agent_configs_cmd':
+          if (localStorage.getItem('e2e-custom-router')) return [...configs.map(clone), {
+            ...configs[0], id: 'private-router', isDefault: false, provider: 'openrouter',
+            baseUrl: 'https://tenant.example/v1', model: 'stepfun/step-3.5-flash',
+          }];
           return configs.map(clone);
         case 'set_default_agent_config_cmd': {
           const id = String(args.id ?? '');
@@ -512,6 +517,30 @@ test('model search excludes provider metadata in global and provider results', a
   await search.fill(' glm 4.7 ');
   await expect(page.getByTestId('agent-model-option-cfg-glm-glm-4.7')).toBeVisible();
   await expect(page.getByTestId('agent-model-option-cfg-glm-gpt-5.5')).toHaveCount(0);
+});
+
+test('saved retired models stay visible only as status and private endpoints retain their own choices', async ({ page }) => {
+  const privateUrl = 'https://tenant.example/v1';
+  const rows = [
+    { provider: 'open_ai', baseUrl: null, models: [{ id: 'old-route', status: 'removed', aliases: ['tiny-context'] }] },
+    { provider: 'openrouter', baseUrl: privateUrl, models: [] },
+  ].map(snapshot => [providerModelCatalogCacheKey(snapshot.provider, snapshot.baseUrl, ''), JSON.stringify({ version: 3,
+    snapshot: { ...snapshot, credentialFingerprint: 'anonymous', refreshedAt: '2026-11-16', liveDiscoverySucceeded: true } })]);
+  await page.addInitScript(rows => {
+    localStorage.setItem('e2e-custom-router','1');
+    for (const [key,value] of rows) localStorage.setItem(key,value);
+  }, rows);
+  await page.goto('/chat/conv-model-switch');
+  const trigger = page.getByTestId('agent-model-picker-trigger');
+  await expect(trigger).toContainText('tiny-context');
+  await expect(trigger).toHaveAttribute('title', /has been retired/);
+  await trigger.click();
+  await page.getByTestId('agent-model-picker-menu').getByRole('searchbox').fill('tiny-context');
+  await expect(page.getByTestId('agent-model-option-cfg-tiny-tiny-context')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.getByTestId('agent-provider-picker-trigger').click();
+  await page.getByTestId('agent-model-picker-menu').getByRole('searchbox').fill('stepfun/step-3.5-flash');
+  await expect(page.getByTestId('agent-model-option-private-router-stepfun/step-3.5-flash')).toBeVisible();
 });
 
 test('model search stays within the selected provider until returning to providers', async ({ page }) => {

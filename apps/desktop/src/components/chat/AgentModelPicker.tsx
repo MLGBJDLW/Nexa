@@ -13,7 +13,7 @@ import { Check, ChevronDown, ChevronLeft, Loader2, RefreshCw, Search, SlidersHor
 import { useTranslation, type TranslationKey } from '../../i18n';
 import {
   PROVIDER_PRESETS,
-  catalogModelsForSnapshot,
+  resolveProviderModelCatalog,
   findProviderPreset,
   isRemovedProviderModel,
   type ProviderModelPreset,
@@ -62,6 +62,7 @@ interface ProviderRow {
   preset: ProviderPreset | null;
   label: string;
   detail: string;
+  savedModelRetired: boolean;
 }
 
 interface ModelRow {
@@ -148,8 +149,8 @@ function makeModelRows(
     modelMap.set(model.id, model);
   }
   if (!providerRow.preset?.runtime && providerRow.config.model && !modelMap.has(providerRow.config.model)
-      && !(providerRow.preset && isRemovedProviderModel(providerRow.preset.id, providerRow.config.model))) {
-    const presetId = providerRow.preset?.id ?? providerRow.config.provider;
+      && !providerRow.savedModelRetired) {
+    const presetId = providerRow.preset?.id ?? `custom-${providerRow.config.id}`;
     const fallbackModel = {
       id: providerRow.config.model,
       name: providerRow.config.model,
@@ -263,16 +264,22 @@ export function AgentModelPicker({
         let preset = originalPreset?.runtime && subscriptionModels[catalogKey]
           ? { ...originalPreset, models: subscriptionModels[catalogKey] }
           : originalPreset;
+        let savedModelRetired = Boolean(originalPreset && isRemovedProviderModel(originalPreset.id, config.model));
         if (!originalPreset?.runtime) {
           const cached = loadProviderModelCatalog(config.provider, config.baseUrl, config.apiKey ?? '');
-          if (cached) preset = { ...(preset ?? {
-            id: config.provider, name: config.name || config.provider, provider: config.provider,
-            baseUrl: config.baseUrl ?? '', requiresApiKey: Boolean(config.apiKey), icon: '', description: '',
-          }), models: catalogModelsForSnapshot(cached) };
+          if (cached) {
+            const catalog = resolveProviderModelCatalog(cached);
+            savedModelRetired = catalog.isRemoved(config.model);
+            preset = { ...(preset ?? {
+              id: `custom-${config.id}`, name: config.name || config.provider, provider: config.provider,
+              baseUrl: config.baseUrl ?? '', requiresApiKey: Boolean(config.apiKey), icon: '', description: '',
+            }), models: catalog.models };
+          }
         }
         return {
           config,
           preset,
+          savedModelRetired,
           label: makeProviderLabel(config, preset),
           detail: preset?.name
             ? `${preset.name} / ${config.model}`
@@ -331,10 +338,13 @@ export function AgentModelPicker({
       (row) => row.providerRow.config.id === selectedConfig.id && row.model.id === selectedConfig.model,
     ) ?? null
     : null;
-  const selectedTitle = selectedConfig
+  const selectedRetired = providerRows.find(row => row.config.id === selectedConfig?.id)?.savedModelRetired;
+  const selectedTitle = selectedRetired && selectedConfig
+    ? t('settings.retiredModelSelection', { model: selectedConfig.model })
+    : selectedConfig
     ? `${selectedConfig.name || selectedConfig.provider} · ${selectedConfig.provider} / ${selectedConfig.model}`
     : t('settings.defaultModel');
-  const canChangeReasoning = Boolean(selectedConfig && (!findPresetForConfig(selectedConfig)?.runtime || selectedModelRow?.reasoning));
+  const canChangeReasoning = Boolean(selectedConfig && !selectedRetired && (!findPresetForConfig(selectedConfig)?.runtime || selectedModelRow?.reasoning));
   useAppCommand({ id: 'chat.reasoning', label: 'settings.reasoningEffort', keywords: 'reasoning thinking 推理 思考', enabled: canChangeReasoning, run: () => {
     if (!selectedConfig) return;
     setPendingProvider(null);
@@ -803,7 +813,7 @@ export function AgentModelPicker({
                             const catalog = row.preset?.runtime ? subscriptionCatalogs[runtimeCatalogKey(row.config.provider, row.preset.runtime === 'acp' ? row.config.id : undefined)] : null;
                             const remembered = models.find(model => model.model.id === row.config.model)
                               ?? models.find(model => model.model.recommended) ?? models[0];
-                            if (remembered && (!row.preset?.runtime || catalog?.models)) {
+                            if (remembered && !row.savedModelRetired && (!row.preset?.runtime || catalog?.models)) {
                               applyModelSelection(remembered);
                               return;
                             }

@@ -284,7 +284,7 @@ export function getReasoningCapability(input: {
 
 /** A persisted discovery may predate the installed bundle. Preserve its account
  * evidence while exposing new bundled models with their original access status. */
-export function catalogModelsForSnapshot(snapshot: ProviderModelCatalogSnapshot): ProviderModelPreset[] {
+export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapshot) {
   const observed = projectSnapshotModels(snapshot);
   const preset = findProviderPreset(snapshot);
   const bundled = new Map(preset?.models.map(model => [model.id.trim().toLowerCase(), model]));
@@ -298,11 +298,16 @@ export function catalogModelsForSnapshot(snapshot: ProviderModelCatalogSnapshot)
   for (const model of snapshot.models) {
     if (model.status === 'removed') markRemoved(model.id, model.aliases);
   }
+  const isRemoved = (id: string) => tombstones.has(normalizeModelId(id))
+    || Boolean(preset && isRemovedProviderModel(preset.id, id));
   const byId = new Map<string, ProviderModelPreset>();
   for (const model of [...observed, ...(preset?.models ?? [])]) {
     const id = model.id.trim().toLowerCase();
-    if (byId.has(id) || [id, ...model.descriptor.aliases].some(alias =>
-      tombstones.has(alias.trim().toLowerCase()) || (preset && isRemovedProviderModel(preset.id, alias)))) continue;
+    if ([id, ...model.descriptor.aliases].some(isRemoved)) {
+      markRemoved(id, model.descriptor.aliases);
+      continue;
+    }
+    if (byId.has(id)) continue;
     const current = bundled.get(id);
     const verified = Date.parse(model.descriptor.lastVerifiedAt ?? '');
     // A previous release may have cached the model before its contract changed.
@@ -315,5 +320,9 @@ export function catalogModelsForSnapshot(snapshot: ProviderModelCatalogSnapshot)
       } });
     } else byId.set(id, model);
   }
-  return [...byId.values()];
+  return { models: [...byId.values()].filter(model => !isRemoved(model.id)), isRemoved };
+}
+
+export function catalogModelsForSnapshot(snapshot: ProviderModelCatalogSnapshot): ProviderModelPreset[] {
+  return resolveProviderModelCatalog(snapshot).models;
 }

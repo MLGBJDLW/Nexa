@@ -133,6 +133,8 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   if (!choices.some(item => item.id === savedPreset.id)) choices.push(savedPreset);
   const preset = choices.find(item => item.id === provider) ?? savedPreset;
   const catalogModels = findProviderPreset({ provider: preset.provider, baseUrl })?.models ?? [];
+  const catalogSelection = catalogModels.find(item => item.id === model || item.descriptor.aliases.includes(model));
+  const modelToSave = customModel || !catalogModels.length || catalogSelection ? model.trim() : '';
   const loadRecord = (record?: PhoneConnection) => {
     const preset = presetFor(record);
     setSelectedId(record?.id ?? ''); setName(record?.name ?? ''); setProvider(preset.id);
@@ -186,8 +188,8 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
       <summary hidden={!selectedId} onClick={event => { event.preventDefault(); setEditingConnection(!editorOpen); }}>
         {t('common.edit')}<ChevronRight size={16}/>
       </summary>
-      <form className="mobile-settings-form" onSubmit={event => { event.preventDefault(); void action(async () => {
-        await invoke('mobile_save_settings', { settings: { connectionId: selectedId || null, providerType: preset.provider, baseUrl: baseUrl.trim() || null, model: model.trim() }, apiKey, name: name.trim() || model.trim(), createNew: !selectedId });
+      <form className="mobile-settings-form" onSubmit={event => { event.preventDefault(); if (!modelToSave) return; void action(async () => {
+        await invoke('mobile_save_settings', { settings: { connectionId: selectedId || null, providerType: preset.provider, baseUrl: baseUrl.trim() || null, model: modelToSave }, apiKey, name: name.trim() || modelToSave, createNew: !selectedId });
         setApiKey(''); onClose();
       }); }}>
         <label>{t('settings.providerName')}<input aria-label={t('settings.providerName')} value={name} onChange={event => setName(event.target.value)} placeholder={model}/></label>
@@ -196,14 +198,14 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
           {customModel || !catalogModels.length
             ? <input aria-label={t('remote.model')} value={model} required pattern=".*\S.*" onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/>
             : <NexaCombobox ariaLabel={t('remote.model')} disabled={busy} onValueChange={setModel}
-                value={catalogModels.find(item => item.descriptor.aliases.includes(model))?.id ?? model}
+                value={catalogSelection?.id ?? ''}
                 placeholder={t('settings.selectModel')} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}
                 options={catalogModels.map(item => ({ value: item.id, label: item.name, description: item.id, keywords: item.descriptor.aliases }))}/>}
         </label>
         {!!catalogModels.length && <button type="button" disabled={busy} onClick={() => setCustomModel(!customModel)}>{t(customModel ? 'settings.usePresetModels' : 'settings.useCustomModel')}</button>}
         <label>{t('settings.apiKey')}<input aria-label={t('settings.apiKey')} type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={selectedId ? '••••••••' : ''} autoComplete="off"/></label>
         <details className="mobile-advanced" open={baseUrl !== preset.baseUrl || undefined}><summary>{t('remote.advancedOptions')}</summary><label>{t('settings.baseUrl')}<input aria-label={t('settings.baseUrl')} type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} autoCapitalize="none" spellCheck={false}/></label></details>
-        <p className="mobile-section-hint">{t('remote.mobileCredentials')}</p><button className="mobile-primary" disabled={busy || !model.trim()}>{busy && <Loader2 size={16} className="animate-spin"/>}{t('common.save')}</button>
+        <p className="mobile-section-hint">{t('remote.mobileCredentials')}</p><button className="mobile-primary" disabled={busy || !modelToSave}>{busy && <Loader2 size={16} className="animate-spin"/>}{t('common.save')}</button>
       </form>
       {selectedId && <button className="mobile-forget" disabled={busy} onClick={() => setRemoveTarget(state.connections?.find(record => record.id === selectedId) ?? null)}>{t('remote.mobileRemoveConnection')}</button>}
       </details>
