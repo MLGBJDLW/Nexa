@@ -10,6 +10,7 @@ import {
 } from './modelCatalog';
 
 export interface ProviderModelCatalogEntry extends Omit<ProviderModelPreset, 'descriptor'> {
+  aliases?: string[];
   source: 'official' | 'discovered' | 'curated';
   status: 'active' | 'preview' | 'gated' | 'legacy' | 'deprecated' | 'removed';
   recommended: boolean;
@@ -114,15 +115,13 @@ export function saveProviderModelCatalog(
   }
 }
 
-export function catalogModelsForSnapshot(
+export function projectSnapshotModels(
   snapshot: ProviderModelCatalogSnapshot,
 ): ProviderModelPreset[] {
-  const selectable = (_id: string, status: string | undefined) => status !== 'removed';
   if (snapshot.descriptors?.length) {
-    return snapshot.descriptors.filter(descriptor => selectable(descriptor.id, descriptor.lifecycle)).map((descriptor) => {
-      const legacy = snapshot.models.find(
-        (candidate) => candidate.id.trim().toLowerCase() === descriptor.id.trim().toLowerCase(),
-      );
+    const byId = new Map(snapshot.models.map(model => [model.id.trim().toLowerCase(), model]));
+    return snapshot.descriptors.filter(descriptor => descriptor.lifecycle !== 'removed').map((descriptor) => {
+      const legacy = byId.get(descriptor.id.trim().toLowerCase());
       return {
         ...legacy,
         id: descriptor.id,
@@ -136,13 +135,13 @@ export function catalogModelsForSnapshot(
         supportsTools: descriptor.capabilities.toolCalling ?? null,
         supportsStructuredOutput: descriptor.capabilities.structuredOutput ?? null,
         reasoningEfforts: (descriptor.capabilities.reasoning?.effortLevels ?? []) as ReasoningEffortLevel[],
-        descriptor,
+        descriptor: { ...descriptor, aliases: descriptor.aliases ?? [] },
       };
     });
   }
 
   const endpointId = snapshot.endpointId ?? modelEndpointId('text', snapshot.provider);
-  return attachModelDescriptors(snapshot.models.filter(model => selectable(model.id, model.status)), {
+  return attachModelDescriptors(snapshot.models.filter(model => model.status !== 'removed'), {
     surface: 'text',
     providerId: snapshot.provider,
     endpointId,

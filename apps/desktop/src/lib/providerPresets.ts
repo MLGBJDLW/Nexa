@@ -2,6 +2,7 @@ import providerPresets from "../../../../shared/provider-presets.json";
 import subscriptionPresets from "../../../../shared/subscription-runtime-presets.json";
 import externalAgentPresets from "../../../../shared/external-agent-presets.json";
 import retiredExternalAgents from "../../../../shared/retired-external-agents.json";
+import { projectSnapshotModels, type ProviderModelCatalogSnapshot } from './providerModelCatalog';
 import type { ProviderStreamingConfig } from '../types/conversation';
 import type {
   ProviderCapabilities,
@@ -57,12 +58,18 @@ export interface ProviderPreset {
 
 type RawProviderPreset = Omit<ProviderPreset, 'models'> & { models: LegacyCatalogModel[] };
 
+const retiredModels = new Map((providerPresets as RawProviderPreset[]).map(preset => {
+  const index = new Map<string, LegacyCatalogModel>();
+  for (const model of preset.models.filter(model => model.status === 'removed')) {
+    for (const id of [model.id, ...(model.aliases ?? [])]) index.set(normalizeModelId(id), model);
+  }
+  return [preset.id, index] as const;
+}));
+
 export function removedProviderModel(presetId: string, modelId: string): LegacyCatalogModel | undefined {
-  const preset = (providerPresets as RawProviderPreset[]).find(preset => preset.id === presetId);
   const normalized = normalizeModelId(modelId);
-  const id = preset?.provider === 'google' ? normalized.replace(/^models\//, '') : normalized;
-  return preset?.models.find(model => model.status === 'removed'
-    && [model.id, ...(model.aliases ?? [])].some(alias => normalizeModelId(alias) === id));
+  const id = presetId === 'google' ? normalized.replace(/^models\//, '') : normalized;
+  return retiredModels.get(presetId)?.get(id);
 }
 
 export function isRemovedProviderModel(presetId: string, modelId: string): boolean {
@@ -273,4 +280,40 @@ export function getReasoningCapability(input: {
   model?: string | null;
 }): ReasoningCapability | null {
   return getProviderModelCapabilities(input)?.reasoning ?? null;
+}
+
+/** A persisted discovery may predate the installed bundle. Preserve its account
+ * evidence while exposing new bundled models with their original access status. */
+export function catalogModelsForSnapshot(snapshot: ProviderModelCatalogSnapshot): ProviderModelPreset[] {
+  const observed = projectSnapshotModels(snapshot);
+  const preset = findProviderPreset(snapshot);
+  const bundled = new Map(preset?.models.map(model => [model.id.trim().toLowerCase(), model]));
+  const tombstones = new Set<string>();
+  const markRemoved = (id: string, aliases: readonly string[] = []) => {
+    for (const name of [id, ...aliases]) tombstones.add(name.trim().toLowerCase());
+  };
+  for (const descriptor of [...(snapshot.tombstones ?? []), ...(snapshot.descriptors ?? []).filter(model => model.lifecycle === 'removed')]) {
+    markRemoved(descriptor.id, descriptor.aliases);
+  }
+  for (const model of snapshot.models) {
+    if (model.status === 'removed') markRemoved(model.id, model.aliases);
+  }
+  const byId = new Map<string, ProviderModelPreset>();
+  for (const model of [...observed, ...(preset?.models ?? [])]) {
+    const id = model.id.trim().toLowerCase();
+    if (byId.has(id) || [id, ...model.descriptor.aliases].some(alias =>
+      tombstones.has(alias.trim().toLowerCase()) || (preset && isRemovedProviderModel(preset.id, alias)))) continue;
+    const current = bundled.get(id);
+    const verified = Date.parse(model.descriptor.lastVerifiedAt ?? '');
+    // A previous release may have cached the model before its contract changed.
+    // Account availability and inference receipts are independent of that contract.
+    if (current && Date.parse(current.descriptor.lastVerifiedAt ?? '') > (Number.isFinite(verified) ? verified : Date.parse(snapshot.refreshedAt))) {
+      byId.set(id, { ...current, descriptor: { ...current.descriptor,
+        availableToCredential: model.descriptor.availableToCredential,
+        productReadiness: model.descriptor.productReadiness === 'callable' && current.descriptor.productReadiness !== 'product_ready'
+          ? 'callable' : current.descriptor.productReadiness,
+      } });
+    } else byId.set(id, model);
+  }
+  return [...byId.values()];
 }

@@ -290,7 +290,7 @@ test('routed aliases retain compatibility and new embedding routes use supported
   const embeddings = read('embedding-provider-presets').find(row => row.id === 'openrouter').models;
   for (const [id, dimensions, context] of [
     ['liquid/lfm-2.5-embedding-350m:free', 1024, 512],
-    ['nvidia/nemotron-3-embed-1b:free', 2048, 32768],
+    ['nvidia/nemotron-3-embed-1b:free', 2048, 4096],
     ['google/gemini-embedding-2', 3072, 8192],
     ['mongodb/voyage-multimodal-3.5', 1024, 32000],
   ]) {
@@ -350,7 +350,7 @@ test('November 13 Decider v1.3 routes stay unique and opt-in on the Decisions pr
   }
 });
 
-test('HeyGen Decisions routes remain opt-in and upcoming router retirements retain saved IDs', () => {
+test('HeyGen Decisions routes remain opt-in and retired router models retain saved IDs', () => {
   const router = read('system-one-provider-presets').find(row => row.id === 'openrouter');
   for (const [id, context] of [
     ['heygen/heygen-decision-1', 131072],
@@ -369,7 +369,7 @@ test('HeyGen Decisions routes remain opt-in and upcoming router retirements reta
   assert.equal(router.models.some(row => row.id === 'cloudflare/clairic'), false);
   for (const id of ['stepfun/step-3.5-flash', 'qwen/qwen3-vl-30b-a3b-thinking', 'tencent/hunyuan-a13b-instruct']) {
     const entry = model('openrouter', id);
-    assert.equal(entry.status, 'deprecated');
+    assert.equal(entry.status, 'removed');
     assert.equal(entry.deprecationDate, '2026-11-15');
     assert.equal(entry.replacementModelId, undefined);
   }

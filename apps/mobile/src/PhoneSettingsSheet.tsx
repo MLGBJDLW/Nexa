@@ -117,6 +117,7 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const [name, setName] = useState(initialRecord?.name ?? '');
   const [provider, setProvider] = useState(initial.id);
   const [model, setModel] = useState(initialRecord?.model ?? selectImplicitDefault(initial.models)?.id ?? '');
+  const [customModel, setCustomModel] = useState(false);
   const [baseUrl, setBaseUrl] = useState(initialRecord ? initialRecord.baseUrl ?? '' : initial.baseUrl);
   const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState('');
@@ -131,9 +132,11 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
   const choices: PhonePreset[] = presets.filter(item => !item.retired || item.id === savedPreset.id);
   if (!choices.some(item => item.id === savedPreset.id)) choices.push(savedPreset);
   const preset = choices.find(item => item.id === provider) ?? savedPreset;
+  const catalogModels = findProviderPreset({ provider: preset.provider, baseUrl })?.models ?? [];
   const loadRecord = (record?: PhoneConnection) => {
     const preset = presetFor(record);
     setSelectedId(record?.id ?? ''); setName(record?.name ?? ''); setProvider(preset.id);
+    setCustomModel(Boolean(record && !preset.models.some(item => item.id === record.model || item.descriptor.aliases.includes(record.model))));
     setModel(record?.model ?? selectImplicitDefault(preset.models)?.id ?? ''); setBaseUrl(record ? record.baseUrl ?? '' : preset.baseUrl); setApiKey(''); setError('');
   };
   // Preserve an in-progress form while background sync updates the library.
@@ -188,11 +191,19 @@ export default function PhoneSettingsSheet({ open, state, host, syncBusy, syncEr
         setApiKey(''); onClose();
       }); }}>
         <label>{t('settings.providerName')}<input aria-label={t('settings.providerName')} value={name} onChange={event => setName(event.target.value)} placeholder={model}/></label>
-        <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={choices.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = choices.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(selectImplicitDefault(next.models)?.id ?? ''); setApiKey(''); }}/></label>
-        <label>{t('remote.model')}<input aria-label={t('remote.model')} list="phone-models" value={model} required pattern=".*\S.*" onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/></label><datalist id="phone-models">{preset.models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist>
+        <label>{t('settings.provider')}<NexaCombobox ariaLabel={t('settings.provider')} value={provider} disabled={busy} options={choices.map(item => ({value:item.id,label:item.name,description:item.baseUrl,keywords:[item.provider]}))} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')} onValueChange={value => { const next = choices.find(item => item.id === value)!; setProvider(next.id); setBaseUrl(next.baseUrl); setModel(selectImplicitDefault(next.models)?.id ?? ''); setCustomModel(false); setApiKey(''); }}/></label>
+        <label>{t('remote.model')}
+          {customModel || !catalogModels.length
+            ? <input aria-label={t('remote.model')} value={model} required pattern=".*\S.*" onChange={event => setModel(event.target.value)} autoCapitalize="none" spellCheck={false}/>
+            : <NexaCombobox ariaLabel={t('remote.model')} disabled={busy} onValueChange={setModel}
+                value={catalogModels.find(item => item.descriptor.aliases.includes(model))?.id ?? model}
+                placeholder={t('settings.selectModel')} searchPlaceholder={t('settings.modelSearchPlaceholder')} emptyLabel={t('settings.modelSearchNoResults')}
+                options={catalogModels.map(item => ({ value: item.id, label: item.name, description: item.id, keywords: item.descriptor.aliases }))}/>}
+        </label>
+        {!!catalogModels.length && <button type="button" disabled={busy} onClick={() => setCustomModel(!customModel)}>{t(customModel ? 'settings.usePresetModels' : 'settings.useCustomModel')}</button>}
         <label>{t('settings.apiKey')}<input aria-label={t('settings.apiKey')} type="password" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={selectedId ? '••••••••' : ''} autoComplete="off"/></label>
         <details className="mobile-advanced" open={baseUrl !== preset.baseUrl || undefined}><summary>{t('remote.advancedOptions')}</summary><label>{t('settings.baseUrl')}<input aria-label={t('settings.baseUrl')} type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} autoCapitalize="none" spellCheck={false}/></label></details>
-        <p className="mobile-section-hint">{t('remote.mobileCredentials')}</p><button className="mobile-primary" disabled={busy}>{busy && <Loader2 size={16} className="animate-spin"/>}{t('common.save')}</button>
+        <p className="mobile-section-hint">{t('remote.mobileCredentials')}</p><button className="mobile-primary" disabled={busy || !model.trim()}>{busy && <Loader2 size={16} className="animate-spin"/>}{t('common.save')}</button>
       </form>
       {selectedId && <button className="mobile-forget" disabled={busy} onClick={() => setRemoveTarget(state.connections?.find(record => record.id === selectedId) ?? null)}>{t('remote.mobileRemoveConnection')}</button>}
       </details>

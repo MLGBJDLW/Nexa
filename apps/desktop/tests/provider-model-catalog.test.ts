@@ -1,3 +1,4 @@
+import { catalogModelsForSnapshot } from '../src/lib/providerPresets';
 import {
   bindProviderModelCatalogCredential,
   catalogMatchesProvider,
@@ -105,3 +106,32 @@ function testCatalogFreshness(): void {
 
 testCatalogCache();
 testCatalogFreshness();
+
+function testPreviousReleaseCatalog(): void {
+  const previous = snapshot();
+  previous.provider = 'openrouter';
+  previous.baseUrl = 'https://openrouter.ai/api/v1';
+  const models = catalogModelsForSnapshot(previous);
+  for (const id of ['google/gemini-4-carbon', 'google/gemini-4-argon', 'google/gemini-4-hydrogen', 'anthropic/claude-fable-5.2']) {
+    const model = models.find(model => model.id === id);
+    assert(model, `an old account snapshot must not hide bundled ${id}`);
+    assertEqual(model.descriptor.availableToCredential, null, 'new bundled IDs have unknown account access');
+  }
+  assert(models.some(model => model.id === 'account-model'), 'retain account-discovered IDs through upgrades');
+  const carbon = models.find(model => model.id === 'google/gemini-4-carbon')!;
+  const oldDescriptor = { ...carbon.descriptor, availableToCredential: false, lastVerifiedAt: '2026-07-30',
+    capabilities: {}, aliases: undefined } as unknown as typeof carbon.descriptor;
+  previous.descriptors = [oldDescriptor];
+  const upgraded = catalogModelsForSnapshot(previous).find(model => model.id === carbon.id)!;
+  assert(upgraded.capabilities?.reasoning, 'a newer bundled contract supersedes stale reasoning metadata');
+  assertEqual(upgraded.descriptor.availableToCredential, false, 'retain account-specific availability');
+  previous.descriptors = [{ ...oldDescriptor, lifecycle: 'removed' }];
+  assert(!catalogModelsForSnapshot(previous).some(model => model.id === carbon.id), 'legacy descriptors can contain retirement evidence');
+  previous.descriptors = undefined;
+  previous.baseUrl = 'https://tenant.example/v1';
+  assertEqual(catalogModelsForSnapshot(previous).length, 1, 'never borrow official models for a custom endpoint');
+  previous.models.push({ ...previous.models[0], id: 'retired', aliases: ['account-model'], status: 'removed' });
+  assertEqual(catalogModelsForSnapshot(previous).length, 0, 'legacy custom-endpoint tombstones exclude retired aliases');
+}
+
+testPreviousReleaseCatalog();
