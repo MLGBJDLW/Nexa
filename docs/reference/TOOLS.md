@@ -92,7 +92,7 @@ and [subscription execution](../guides/SUBSCRIPTION_AGENTS.md).
 | [`update_goal`](../../crates/core/prompts/tools/update_goal.json) | Update the durable execution goal for the current conversation |
 | [`update_plan`](../../crates/core/prompts/tools/update_plan.json) | Create or update a short execution plan for the current task |
 | [`update_scratchpad`](../../crates/core/prompts/tools/update_scratchpad.json) | Update the per-conversation agent scratchpad — a small self-maintained notebook visible at the start of every turn via the system prompt |
-| [`web_research_context`](../../crates/core/prompts/tools/web_research_context.json) | Build a compact model-ready web research context pack |
+| [`web_research_context`](../../crates/core/prompts/tools/web_research_context.json) | Search with the configured web providers and optionally read the top pages in parallel |
 | [`web_search`](../../crates/core/prompts/tools/web_search.json) | Search the public web through Nexa's built-in no-key providers |
 | [`workspace_rules`](../../crates/core/prompts/tools/workspace_rules.json) | Read the user-owned AGENTS.md/AGENTS.override.md rules applying to a workspace file or directory |
 | [`write_note`](../../crates/core/prompts/tools/write_note.json) | Create or update a note file in the knowledge base |
