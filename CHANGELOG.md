@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.19.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.12...nexa-monorepo-v0.19.13) (2026-11-16)
+
+
+### Features
+
+* **catalog:** reconcile account discoveries with current provider models ([2d3d92c](https://github.com/MLGBJDLW/Nexa/commit/2d3d92c52f2b9c04f477a497cddb13a8d69bab49))
+
+
+### Bug Fixes
+
+* **catalog:** honor endpoint retirements when selecting saved models ([3200739](https://github.com/MLGBJDLW/Nexa/commit/3200739d4568aa085990c7996714597855b90771))
+* **delegation:** explain how to clear an explicit call limit ([788d6b0](https://github.com/MLGBJDLW/Nexa/commit/788d6b08cbbd44355ffff697170cca21e70fe412))
+* **delegation:** inherit automatic budgets across orchestration profiles ([e97f911](https://github.com/MLGBJDLW/Nexa/commit/e97f911c87b9a9625989759368b21280c8027af5))
+* **delegation:** retain the reserved-credit diagnostic contract ([043bde3](https://github.com/MLGBJDLW/Nexa/commit/043bde367298dd80b7c04056132752920a1519ad))
+* **providers:** stream OpenRouter reasoning and preserve model replay contracts ([8014391](https://github.com/MLGBJDLW/Nexa/commit/80143912a3b73c94b009cdd73ce24c1e6a747b5f))
+* **streaming:** surface OpenRouter Responses reasoning during hosted search ([20e0674](https://github.com/MLGBJDLW/Nexa/commit/20e06746c3b1b52f46bb4c6296f446dab79cd6bd))
+
+
+### Performance Improvements
+
+* **search:** overlap ranked page reads on desktop and mobile ([6961187](https://github.com/MLGBJDLW/Nexa/commit/696118720ee9e71db4d1132ed8268412d96f0c47))
+
 ## [0.19.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12) (2026-11-14)
 
 ### Improvements
