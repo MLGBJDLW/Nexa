@@ -458,7 +458,10 @@ pub(super) fn subagent_preflight_failure_from_error(
     serde_json::from_str(encoded).ok()
 }
 pub(super) fn subagent_admission_failure(error: &CoreError) -> CoreError {
-    let message = error.to_string();
+    let message = match error {
+        CoreError::InvalidInput(reason) => reason.clone(),
+        _ => error.to_string(),
+    };
     if message.contains("queue deadline") {
         subagent_preflight_failure(
             SubagentPreflightStage::Timeout,
