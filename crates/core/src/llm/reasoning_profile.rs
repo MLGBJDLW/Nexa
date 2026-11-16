@@ -66,6 +66,7 @@ pub enum ReasoningEffortMapping {
     Exact,
     OpenAiCompatible,
     Qwen38Chat,
+    Qwen4Max,
     ArkSeed,
     ArkGlm,
     ArkDeepSeek,
@@ -263,6 +264,14 @@ impl ReasoningProfile {
                 // Omni uses this value to disable thinking; Max/Flash use
                 // enable_thinking and do not accept it in this profile.
                 ReasoningEffort::None => ReasoningEffort::None,
+            },
+            ReasoningEffortMapping::Qwen4Max => match effort {
+                ReasoningEffort::None => ReasoningEffort::None,
+                ReasoningEffort::Minimal | ReasoningEffort::Low => ReasoningEffort::Low,
+                ReasoningEffort::Medium | ReasoningEffort::High => ReasoningEffort::High,
+                ReasoningEffort::Max | ReasoningEffort::XHigh | ReasoningEffort::Ultra => {
+                    ReasoningEffort::XHigh
+                }
             },
             ReasoningEffortMapping::OpenAiCompatible | ReasoningEffortMapping::Exact => {
                 effort.clone()
@@ -879,7 +888,7 @@ pub fn resolve_reasoning_profile(
                 ),
                 ReasoningBudgetField::None,
             ),
-            "zai-glm-5-3" => profile(
+            "zai-glm-5-3" | "zai-glm-5-3-flash" => profile(
                 key,
                 "mistral-hosted-glm53-v1",
                 ThinkingModeControl::AlwaysOn,
@@ -895,7 +904,7 @@ pub fn resolve_reasoning_profile(
                 ),
                 ReasoningBudgetField::None,
             ),
-            "zai-glm-5-3-flash" | "zai-glm-5-2" => profile(
+            "zai-glm-5-2" => profile(
                 key,
                 "mistral-hosted-glm-v1",
                 ThinkingModeControl::ProviderDefault,
@@ -904,22 +913,19 @@ pub fn resolve_reasoning_profile(
                 (&[], None),
                 ReasoningBudgetField::None,
             ),
-            "mistral-medium-3-5" => profile(
+            "mistral-medium-3-5"
+            | "mistral-medium-3"
+            | "mistral-medium-latest"
+            | "mistral-small-2603"
+            | "mistral-small-latest" => profile(
                 key,
                 "mistral-adjustable-reasoning-v1",
                 ThinkingModeControl::ProviderDefault,
                 ReasoningEffortField::TopLevel,
                 ReasoningEffortMapping::Exact,
                 (
-                    &[
-                        ReasoningEffort::None,
-                        ReasoningEffort::Minimal,
-                        ReasoningEffort::Low,
-                        ReasoningEffort::Medium,
-                        ReasoningEffort::High,
-                        ReasoningEffort::XHigh,
-                    ],
-                    Some(ReasoningEffort::Medium),
+                    &[ReasoningEffort::None, ReasoningEffort::High],
+                    Some(ReasoningEffort::High),
                 ),
                 ReasoningBudgetField::None,
             ),
@@ -1032,6 +1038,9 @@ pub fn resolve_reasoning_profile(
         );
         value.effort_budget_exclusive = true;
         value.confidence = CapabilityConfidence::CuratedCompatibility;
+        // Live-discovered models can return the same normalized signed details
+        // as bundled models, including when the gateway omits control metadata.
+        value.preserve_reasoning_history = true;
         value.default_enabled = catalog_model
             .and_then(|entry| entry.capabilities.as_ref())
             .and_then(|caps| caps.reasoning.as_ref())
@@ -1048,7 +1057,6 @@ pub fn resolve_reasoning_profile(
             if !supports_budget {
                 value.budget_field = ReasoningBudgetField::None;
             }
-            value.preserve_reasoning_history = true;
         }
         if matches!(
             model.as_str(),
@@ -1454,6 +1462,30 @@ pub fn resolve_reasoning_profile(
             return value;
         }
 
+        if qwen_payg && model == "qwen4-max" {
+            let mut value = profile(
+                key,
+                "alibaba-qwen4-max-chat-v1",
+                ThinkingModeControl::EnableThinking,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Qwen4Max,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::High,
+                        ReasoningEffort::XHigh,
+                    ],
+                    Some(ReasoningEffort::High),
+                ),
+                ReasoningBudgetField::ThinkingBudget,
+            );
+            value.default_enabled = Some(true);
+            value.max_budget_tokens = Some(262_144);
+            value.use_max_completion_tokens = true;
+            value.preserve_reasoning_history = true;
+            value.send_preserve_thinking = true;
+            return value;
+        }
         let qwen4_token_plan = token_plan
             && matches!(model.as_str(), "qwen4-max-preview" | "qwen4.0-max-preview")
             && find_provider_preset("qwen", base_url).is_some_and(|preset| {
@@ -2082,25 +2114,21 @@ mod tests {
                 hosted_glm.reasoning_history_encoding,
                 ReasoningHistoryEncoding::MistralContentChunks
             );
-            if model == "zai-glm-5-3" {
-                assert_eq!(hosted_glm.effort_field, ReasoningEffortField::TopLevel);
-                assert_eq!(
-                    hosted_glm.accepted_efforts,
-                    [
-                        ReasoningEffort::Low,
-                        ReasoningEffort::High,
-                        ReasoningEffort::Max
-                    ]
-                );
-                assert_eq!(
-                    hosted_glm
-                        .wire_effort(Some(&ReasoningEffort::Max))
-                        .as_deref(),
-                    Some("max")
-                );
-            } else {
-                assert_eq!(hosted_glm.effort_field, ReasoningEffortField::None);
-            }
+            assert_eq!(hosted_glm.effort_field, ReasoningEffortField::TopLevel);
+            assert_eq!(
+                hosted_glm.accepted_efforts,
+                [
+                    ReasoningEffort::Low,
+                    ReasoningEffort::High,
+                    ReasoningEffort::Max
+                ]
+            );
+            assert_eq!(
+                hosted_glm
+                    .wire_effort(Some(&ReasoningEffort::Max))
+                    .as_deref(),
+                Some("max")
+            );
         }
         assert_eq!(meta.key.endpoint_id, "meta-model-api-public");
         assert_eq!(meta.mode_control, ThinkingModeControl::AlwaysOn);
@@ -2412,6 +2440,29 @@ mod tests {
             ReasoningReplayPolicy::RequiredOnToolCall
         );
     }
+    #[test]
+    fn qwen4_ga_keeps_the_payg_effort_and_budget_contract() {
+        let profile = resolve_reasoning_profile(
+            ProviderType::AlibabaModelStudio,
+            Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            ReasoningApiStyle::OpenAiChatCompletions,
+            "qwen4-max",
+        );
+        assert_eq!(profile.default_effort, Some(ReasoningEffort::High));
+        assert_eq!(
+            profile
+                .wire_effort(Some(&ReasoningEffort::Medium))
+                .as_deref(),
+            Some("high")
+        );
+        assert_eq!(
+            profile.wire_effort(Some(&ReasoningEffort::Max)).as_deref(),
+            Some("xhigh")
+        );
+        assert_eq!(profile.wire_budget(Some(300_000), false), Some(262_144));
+        assert!(profile.use_max_completion_tokens && profile.send_preserve_thinking);
+    }
+
     #[test]
     fn muse_wonder_reasoning_is_exact_endpoint_scoped_and_has_no_fabricated_default() {
         let ember = resolve_reasoning_profile(
