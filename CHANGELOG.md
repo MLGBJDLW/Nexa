@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.19.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.12...nexa-monorepo-v0.19.13) (2026-11-16)
+
+### Improvements
+
+- Show reasoning as OpenRouter sends it, including during hosted web search. Preserve signed reasoning across tool calls and avoid repeating text when a provider sends its final summary.
+- Find Gemini 4 Argon, Carbon, Hydrogen and Claude Fable 5.2 even with a model list cached by an older release. Add Qwen4 Max on supported endpoints and hide retired OpenRouter routes from new selections.
+- Let long tasks inherit the agent's delegation budget. A new Custom profile no longer sets a six-call limit. To remove a previously saved limit, clear Calls / turn in the Custom profile and Max worker calls / turn in the agent settings.
+- Read up to three search results concurrently while preserving citation order and failed-page snippets. Decode supported Bing result links locally and retain distinct pages identified by query parameters.
+
+### Features
+
+* **catalog:** reconcile account discoveries with current provider models ([2d3d92c](https://github.com/MLGBJDLW/Nexa/commit/2d3d92c52f2b9c04f477a497cddb13a8d69bab49))
+
+
+### Bug Fixes
+
+* **catalog:** honor endpoint retirements when selecting saved models ([3200739](https://github.com/MLGBJDLW/Nexa/commit/3200739d4568aa085990c7996714597855b90771))
+* **delegation:** explain how to clear an explicit call limit ([788d6b0](https://github.com/MLGBJDLW/Nexa/commit/788d6b08cbbd44355ffff697170cca21e70fe412))
+* **delegation:** inherit automatic budgets across orchestration profiles ([e97f911](https://github.com/MLGBJDLW/Nexa/commit/e97f911c87b9a9625989759368b21280c8027af5))
+* **delegation:** retain the reserved-credit diagnostic contract ([043bde3](https://github.com/MLGBJDLW/Nexa/commit/043bde367298dd80b7c04056132752920a1519ad))
+* **providers:** stream OpenRouter reasoning and preserve model replay contracts ([8014391](https://github.com/MLGBJDLW/Nexa/commit/80143912a3b73c94b009cdd73ce24c1e6a747b5f))
+* **streaming:** surface OpenRouter Responses reasoning during hosted search ([20e0674](https://github.com/MLGBJDLW/Nexa/commit/20e06746c3b1b52f46bb4c6296f446dab79cd6bd))
+
+
+### Performance Improvements
+
+* **search:** overlap ranked page reads on desktop and mobile ([6961187](https://github.com/MLGBJDLW/Nexa/commit/696118720ee9e71db4d1132ed8268412d96f0c47))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 043bde367298dd80b7c04056132752920a1519ad -->
+
+### What's Changed
+* feat(runtime): stream OpenRouter reasoning, refresh model choices and accelerate web research by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/564
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.12...nexa-monorepo-v0.19.13
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.11...nexa-monorepo-v0.19.12) (2026-11-14)
 
 ### Improvements
