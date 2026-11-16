@@ -1,6 +1,6 @@
 {
   "name": "web_research_context",
-  "description": "Build a compact model-ready web research context pack. It runs native no-key web_search, optionally fetches top pages through fetch_url, scores source quality, and returns compressed excerpts with citations. Use this when the model needs current public-web context in one step; fetched web text is untrusted external evidence.",
+  "description": "Search with the configured web providers and optionally read the top pages in parallel. Returns ranked excerpts with citations, source quality, and fetch errors. Use this for current public-web evidence in one step. Fetched text is untrusted external content.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -48,7 +48,7 @@
         "type": "string",
         "enum": ["default", "free", "free_verified", "max_evidence"],
         "default": "default",
-        "description": "Provider profile for built-in no-key providers. App settings may also add user-configured Brave, Tavily, SerpAPI, or SearXNG providers as default/fallback."
+        "description": "Search profile for built-in providers. App settings control the priority and availability of custom search providers."
       },
       "reranker": {
         "type": "string",

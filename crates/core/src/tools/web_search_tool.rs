@@ -191,28 +191,25 @@ fn merge_and_rank_results(
     reranker: WebSearchReranker,
 ) -> Vec<SearchResultItem> {
     let mut seen = HashSet::new();
-    let mut merged: Vec<(usize, SearchResultItem)> = Vec::new();
-    for (index, result) in results.into_iter().enumerate() {
-        let key = result.url.trim_end_matches('/').to_ascii_lowercase();
-        if !seen.insert(key) {
+    let mut merged = Vec::new();
+    for result in results {
+        // Provider URLs have already been normalized. Path and query case can
+        // identify different pages on the same host.
+        if !seen.insert(result.url.clone()) {
             continue;
         }
-        merged.push((index, result));
+        merged.push(result);
     }
 
     if reranker != WebSearchReranker::None {
-        merged.sort_by(|(left_index, left), (right_index, right)| {
-            rerank_score(right, reranker)
-                .cmp(&rerank_score(left, reranker))
-                .then_with(|| left_index.cmp(right_index))
-        });
+        merged.sort_by_cached_key(|result| std::cmp::Reverse(rerank_score(result, reranker)));
     }
 
     merged
         .into_iter()
         .take(limit)
         .enumerate()
-        .map(|(rank, (_, mut result))| {
+        .map(|(rank, mut result)| {
             result.rank = rank + 1;
             result
         })

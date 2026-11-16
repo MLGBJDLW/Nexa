@@ -87,4 +87,26 @@ mod tests {
 
         assert!(blocked_by_challenge(html, CAPTCHA_NEEDLES));
     }
+
+    #[test]
+    fn reads_bing_destinations_without_network_and_keeps_distinct_pages() {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let links = [
+            "https://example.org/view?id=A",
+            "https://example.org/view?id=B",
+        ];
+        let html: String = links.iter().map(|url| format!(
+            "<li class='b_algo'><h2><a href='https://www.bing.com/ck/a?u=a1{}'>Document</a></h2></li>",
+            URL_SAFE_NO_PAD.encode(url)
+        )).collect();
+        let results = parse_bing_results(&html);
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.url.as_str())
+                .collect::<Vec<_>>(),
+            links
+        );
+        assert!(results.iter().all(|result| result.resolved));
+    }
 }
