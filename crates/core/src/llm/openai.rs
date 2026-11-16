@@ -21,11 +21,11 @@ use super::reasoning_profile::{
 use super::transport::{shared_http_transport, HttpTransport};
 use super::{
     next_stream_item_with_idle_timeout, send_stream_start_request, serialized_json_body,
-    streaming::parse_sse_events_with_idle_timeout, with_request_timeout, CompletionRequest,
-    CompletionResponse, ContentPart, FinishReason, LlmProvider, Message, ProviderConfig,
-    ProviderHostedToolEvent, ProviderHostedToolKind, ProviderHostedToolStatus, ProviderStreamEvent,
-    ProviderType, ReasoningEffort, ReplayHistoryProjection, Role, StreamChunk, ToolCallRequest,
-    ToolDefinition, Usage,
+    streaming::{parse_sse_events_with_idle_timeout, SseReplayCapture},
+    with_request_timeout, CompletionRequest, CompletionResponse, ContentPart, FinishReason,
+    LlmProvider, Message, ProviderConfig, ProviderHostedToolEvent, ProviderHostedToolKind,
+    ProviderHostedToolStatus, ProviderStreamEvent, ProviderType, ReasoningEffort,
+    ReplayHistoryProjection, Role, StreamChunk, ToolCallRequest, ToolDefinition, Usage,
 };
 #[cfg(test)]
 use super::{CacheBoundaryHint, PromptStability};
@@ -1013,6 +1013,16 @@ fn build_request_body_with_config(
         } else {
             request.reasoning_effort.as_ref()
         }
+    } else if reasoning_profile.id == "mistral-adjustable-reasoning-v1" {
+        // Older saved presets offered intermediate efforts. On these models
+        // high is the documented setting for all enabled thinking requests.
+        requested_reasoning_mode.map(|enabled| {
+            if enabled {
+                &ReasoningEffort::High
+            } else {
+                &ReasoningEffort::None
+            }
+        })
     } else if reasoning_profile.id == "alibaba-qwen3.8-omni-chat-v1"
         && requested_reasoning_mode == Some(false)
     {
@@ -1111,6 +1121,7 @@ fn build_request_body_with_config(
                             "openrouter-normalized-reasoning-v1" | "openrouter-retained-history-v1"
                         ) =>
                         {
+                            wire.reasoning_content = None;
                             wire.reasoning_details = Some(serde_json::Value::Array(details.clone()))
                         }
                         _ => {}
@@ -3799,21 +3810,32 @@ impl LlmProvider for OpenAiProvider {
             .config
             .streaming
             .stream_idle_timeout_for_model(&request.model);
-        let capture_ark = resolve_reasoning_profile(
+        let replay = if self.copilot_model.is_some() {
+            SseReplayCapture::Copilot {
+                opaque: None,
+                text: String::new(),
+            }
+        } else if self.config.provider_type == ProviderType::OpenRouter {
+            SseReplayCapture::OpenRouter(Vec::new())
+        } else if resolve_reasoning_profile(
             self.config.provider_type,
             self.config.base_url.as_deref(),
             ReasoningApiStyle::OpenAiChatCompletions,
             &request.model,
         )
         .reasoning_history_encoding
-            == ReasoningHistoryEncoding::ArkEncryptedContent;
-        let capture_copilot = self.copilot_model.is_some();
+            == ReasoningHistoryEncoding::ArkEncryptedContent
+        {
+            SseReplayCapture::Ark(None)
+        } else {
+            SseReplayCapture::None
+        };
         tokio::spawn(async move {
             let parser_tx = tx.clone();
             let result = tokio::select! {
                 biased;
                 _ = tx.closed() => return,
-                result = parse_sse_events_with_idle_timeout(response, parser_tx, stream_idle_timeout, capture_ark, capture_copilot) => result,
+                result = parse_sse_events_with_idle_timeout(response, parser_tx, stream_idle_timeout, replay) => result,
             };
             if let Err(e) = result {
                 transport.record_transport_failure(&e);
@@ -4920,7 +4942,7 @@ mod tests {
             assert_eq!(
                 body.get("reasoning_effort")
                     .and_then(|value| value.as_str()),
-                (model == "zai-glm-5-3").then_some("max")
+                (model != "zai-glm-5-2").then_some("max")
             );
             assert_eq!(
                 provider.route_snapshot(&request).replay_policy,
@@ -6397,16 +6419,26 @@ data: [DONE]
         .unwrap();
         assert_eq!(body["reasoning_effort"], "none");
 
-        let mut mistral_request = endpoint_reasoning_request("mistral-medium-3-5");
-        mistral_request.reasoning_effort = Some(ReasoningEffort::High);
         let mistral = endpoint_config(ProviderType::OpenAi, "https://api.mistral.ai/v1");
-        let body = serde_json::to_value(build_request_body_with_config(
-            &mistral_request,
-            false,
-            Some(&mistral),
-        ))
-        .unwrap();
-        assert_eq!(body["reasoning_effort"], "high");
+        for model in [
+            "mistral-medium-3-5",
+            "mistral-medium-latest",
+            "mistral-small-2603",
+            "mistral-small-latest",
+        ] {
+            for (enabled, expected) in [(true, "high"), (false, "none")] {
+                let mut request = endpoint_reasoning_request(model);
+                request.reasoning_enabled = Some(enabled);
+                request.reasoning_effort = Some(ReasoningEffort::Medium);
+                let body = serde_json::to_value(build_request_body_with_config(
+                    &request,
+                    true,
+                    Some(&mistral),
+                ))
+                .unwrap();
+                assert_eq!(body["reasoning_effort"], expected, "{model}");
+            }
+        }
 
         let mut meta_request = endpoint_reasoning_request("muse-spark-1.3");
         meta_request.reasoning_effort = Some(ReasoningEffort::High);
@@ -6641,6 +6673,80 @@ data: [DONE]
             CoreError::ProviderUnavailable { status: 503, ref message } if message == "temporary upstream failure"
         ));
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn openrouter_streams_thinking_before_terminal_and_retains_signed_blocks() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (resume, wait_for_thought) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = read_json_request(&mut socket).await.unwrap();
+            assert_eq!(request["stream"], true);
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n").await.unwrap();
+            socket.write_all(br#"data: {"choices":[{"delta":{"reasoning":"First","reasoning_details":[{"type":"reasoning.text","index":0,"text":"First"}]}}]}
+
+"#).await.unwrap();
+            wait_for_thought.await.unwrap();
+            socket.write_all(br#"data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","index":0,"text":" thought","signature":"signed","format":"provider-v1"},{"type":"reasoning.text","index":0,"text":"Next"},{"type":"reasoning.summary","id":"s","summary":"A"}]}}]}
+
+data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.summary","id":"s","summary":"B"},{"type":"reasoning.encrypted","data":"opaque1"},{"type":"reasoning.encrypted","data":"opaque2"}]}}]}
+
+data: {"choices":[{"delta":{"content":"Done"},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#).await.unwrap();
+        });
+        let provider = OpenAiProvider::new(endpoint_config(
+            ProviderType::OpenRouter,
+            &format!("http://{address}/v1"),
+        ))
+        .unwrap();
+        let request = endpoint_reasoning_request("mistralai/mistral-large-4");
+        let mut stream = provider.stream_events(&request).await.unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(3), stream.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(first, ProviderStreamEvent::Chunk { chunk } if chunk.thinking_delta.as_deref() == Some("First") && chunk.delta.is_empty())
+        );
+        resume.send(()).unwrap();
+        let mut thinking = String::new();
+        let mut answer = String::new();
+        let mut replay = None;
+        while let Some(event) = stream.next().await {
+            match event {
+                ProviderStreamEvent::Chunk { chunk } => {
+                    thinking.push_str(chunk.thinking_delta.as_deref().unwrap_or_default());
+                    answer.push_str(&chunk.delta);
+                }
+                ProviderStreamEvent::ReplayState { replay: payload } => {
+                    assert!(replay.replace(*payload).is_none());
+                }
+                other => panic!("unexpected event: {other:?}"),
+            }
+        }
+        server.await.unwrap();
+        assert_eq!(thinking, " thoughtNextAB");
+        assert_eq!(answer, "Done");
+        let Some(super::super::provider_turn::ProviderReplayPayload::OpenRouterReasoningDetails(
+            details,
+        )) = replay
+        else {
+            panic!("missing replay state")
+        };
+        assert_eq!(
+            serde_json::Value::Array(details),
+            serde_json::json!([
+                {"type":"reasoning.text","index":0,"text":"First thought","signature":"signed","format":"provider-v1"},
+                {"type":"reasoning.text","index":0,"text":"Next"},
+                {"type":"reasoning.summary","id":"s","summary":"AB"},
+                {"type":"reasoning.encrypted","data":"opaque1"}, {"type":"reasoning.encrypted","data":"opaque2"}
+            ])
+        );
     }
 
     #[tokio::test]
@@ -8205,6 +8311,7 @@ data: [DONE]
     fn openrouter_models_replay_raw_reasoning_details_without_text_rewrite() {
         for model in [
             "moonshotai/kimi-k3",
+            "future/newly-discovered-reasoner",
             "google/gemini-4-carbon",
             "google/gemini-4-hydrogen",
             "google/gemini-4-argon",
@@ -8221,6 +8328,7 @@ data: [DONE]
                 thought_signature: None,
             };
             let mut assistant = Message::text(Role::Assistant, "");
+            assistant.reasoning_content = Some("display only".into());
             assistant.tool_calls = Some(vec![tool_call.clone()]);
             assistant.set_provider_turn(
             super::super::provider_turn::ProviderTurnEnvelope::capture_with_replay_payload(
@@ -8262,6 +8370,7 @@ data: [DONE]
                 body["messages"][0]["reasoning_details"],
                 serde_json::Value::Array(details)
             );
+            assert!(body["messages"][0].get("reasoning_content").is_none());
         }
     }
 

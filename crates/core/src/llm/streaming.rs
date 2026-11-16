@@ -14,13 +14,21 @@ enum SseChannel {
     Events(mpsc::Sender<super::ProviderStreamEvent>),
 }
 
+#[derive(Default)]
+pub(crate) enum SseReplayCapture {
+    #[default]
+    None,
+    OpenRouter(Vec<serde_json::Value>),
+    Ark(Option<String>),
+    Copilot {
+        opaque: Option<String>,
+        text: String,
+    },
+}
+
 struct SseOutput {
     channel: SseChannel,
-    capture_ark: bool,
-    ark_content: Option<String>,
-    capture_copilot: bool,
-    copilot_opaque: Option<String>,
-    copilot_text: String,
+    replay: SseReplayCapture,
 }
 
 impl SseOutput {
@@ -34,81 +42,151 @@ impl SseOutput {
         }
     }
 
-    fn capture(&mut self, choice: Option<&SseChoice>) {
-        if self.capture_copilot {
-            if let Some(choice) = choice {
-                let delta = &choice.delta;
-                if let Some(opaque) = delta.reasoning_opaque.as_ref().filter(|s| !s.is_empty()) {
-                    self.copilot_opaque = Some(opaque.clone());
+    fn capture(&mut self, choice: &SseChoice) {
+        let delta = &choice.delta;
+        let message = choice.message.as_ref();
+        match &mut self.replay {
+            SseReplayCapture::None => {}
+            SseReplayCapture::OpenRouter(details) => {
+                if let Some(snapshot) = message
+                    .and_then(|message| message.reasoning_details.as_ref())
+                    .and_then(serde_json::Value::as_array)
+                {
+                    details.clone_from(snapshot);
+                } else if let Some(fragments) = delta
+                    .reasoning_details
+                    .as_ref()
+                    .and_then(serde_json::Value::as_array)
+                {
+                    for fragment in fragments {
+                        append_openrouter_reasoning_detail(details, fragment);
+                    }
                 }
-                if let Some(text) = delta
+            }
+            SseReplayCapture::Ark(content) => {
+                if let Some(value) = delta
+                    .encrypted_content
+                    .as_ref()
+                    .or_else(|| message.and_then(|message| message.encrypted_content.as_ref()))
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    *content = Some(value.clone());
+                }
+            }
+            SseReplayCapture::Copilot { opaque, text } => {
+                if let Some(value) = message
+                    .and_then(|message| message.reasoning_opaque.as_ref())
+                    .filter(|value| !value.is_empty())
+                    .or_else(|| {
+                        delta
+                            .reasoning_opaque
+                            .as_ref()
+                            .filter(|value| !value.is_empty())
+                    })
+                {
+                    *opaque = Some(value.clone());
+                }
+                if let Some(snapshot) = message
+                    .and_then(|message| message.reasoning_text.as_ref())
+                    .and_then(serde_json::Value::as_str)
+                {
+                    text.clear();
+                    text.push_str(snapshot);
+                } else if let Some(fragment) = delta
                     .reasoning_text
                     .as_ref()
                     .and_then(serde_json::Value::as_str)
                 {
-                    self.copilot_text.push_str(text);
-                }
-                if let Some(message) = &choice.message {
-                    if let Some(opaque) =
-                        message.reasoning_opaque.as_ref().filter(|s| !s.is_empty())
-                    {
-                        self.copilot_opaque = Some(opaque.clone());
-                    }
-                    if let Some(text) = message
-                        .reasoning_text
-                        .as_ref()
-                        .and_then(serde_json::Value::as_str)
-                    {
-                        self.copilot_text = text.to_owned();
-                    }
+                    text.push_str(fragment);
                 }
             }
-        }
-        if !self.capture_ark {
-            return;
-        }
-        if let Some(content) = choice
-            .and_then(|choice| {
-                choice.delta.encrypted_content.as_ref().or_else(|| {
-                    choice
-                        .message
-                        .as_ref()
-                        .and_then(|message| message.encrypted_content.as_ref())
-                })
-            })
-            .filter(|content| !content.trim().is_empty())
-        {
-            // Ark sends a complete state, including in frames with no text.
-            self.ark_content = Some(content.clone());
         }
     }
 
     async fn finish(&mut self) {
-        if self.capture_copilot && (self.copilot_opaque.is_some() || !self.copilot_text.is_empty())
-        {
-            if let SseChannel::Events(tx) = &self.channel {
-                let text =
-                    (!self.copilot_text.is_empty()).then(|| std::mem::take(&mut self.copilot_text));
-                let _ = tx
-                    .send(super::ProviderStreamEvent::ReplayState {
-                        replay: Box::new(
-                            super::provider_turn::ProviderReplayPayload::CopilotReasoning {
-                                opaque: self.copilot_opaque.take(),
-                                text,
-                            },
-                        ),
-                    })
-                    .await;
+        use super::provider_turn::ProviderReplayPayload;
+        let SseChannel::Events(tx) = &self.channel else {
+            return;
+        };
+        let replay = match std::mem::take(&mut self.replay) {
+            SseReplayCapture::OpenRouter(details) if !details.is_empty() => {
+                ProviderReplayPayload::OpenRouterReasoningDetails(details)
+            }
+            SseReplayCapture::Ark(Some(content)) => {
+                ProviderReplayPayload::ArkEncryptedContent(content)
+            }
+            SseReplayCapture::Copilot { opaque, text } if opaque.is_some() || !text.is_empty() => {
+                ProviderReplayPayload::CopilotReasoning {
+                    opaque,
+                    text: (!text.is_empty()).then_some(text),
+                }
+            }
+            _ => return,
+        };
+        let _ = tx
+            .send(super::ProviderStreamEvent::ReplayState {
+                replay: Box::new(replay),
+            })
+            .await;
+    }
+}
+
+// OpenRouter streams text and summaries in fragments. A signature closes a
+// text block; encrypted blocks are already complete and must stay discrete.
+fn append_openrouter_reasoning_detail(
+    details: &mut Vec<serde_json::Value>,
+    fragment: &serde_json::Value,
+) {
+    use serde_json::Value;
+    let content_field = match fragment.get("type").and_then(Value::as_str) {
+        Some("reasoning.text") => "text",
+        Some("reasoning.summary") => "summary",
+        _ => {
+            details.push(fragment.clone());
+            return;
+        }
+    };
+    let incoming = fragment
+        .as_object()
+        .expect("typed reasoning detail is an object");
+    let previous = details
+        .last_mut()
+        .and_then(Value::as_object_mut)
+        .filter(|last| {
+            last.get("type") == incoming.get("type")
+                && last
+                    .get("signature")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+                && incoming.iter().all(|(key, value)| {
+                    if key == content_field {
+                        (value.is_string() || value.is_null())
+                            && last
+                                .get(key)
+                                .is_none_or(|old| old.is_string() || old.is_null())
+                    } else {
+                        value.is_null()
+                            || last
+                                .get(key)
+                                .is_none_or(|old| old.is_null() || old == value)
+                    }
+                })
+        });
+    let Some(previous) = previous else {
+        details.push(fragment.clone());
+        return;
+    };
+    for (key, value) in incoming {
+        if key == content_field {
+            if let (Some(Value::String(text)), Some(piece)) =
+                (previous.get_mut(key), value.as_str())
+            {
+                text.push_str(piece);
+                continue;
             }
         }
-        if let (SseChannel::Events(tx), Some(content)) = (&self.channel, self.ark_content.take()) {
-            let _ = tx
-                .send(super::ProviderStreamEvent::ReplayState {
-                    replay: Box::new(
-                        super::provider_turn::ProviderReplayPayload::ArkEncryptedContent(content),
-                    ),
-                })
-                .await;
+        if previous.get(key).is_none_or(Value::is_null) {
+            previous.insert(key.clone(), value.clone());
         }
     }
 }
@@ -121,6 +199,7 @@ impl SseOutput {
 struct SseChunk {
     choices: Option<Vec<SseChoice>>,
     usage: Option<SseUsage>,
+    error: Option<serde_json::Value>,
 }
 
 #[derive(serde::Deserialize)]
@@ -347,6 +426,9 @@ fn parse_finish_reason(s: &str) -> Result<FinishReason, CoreError> {
         "length" => Ok(FinishReason::Length),
         "tool_calls" | "function_call" => Ok(FinishReason::ToolCalls),
         "content_filter" => Ok(FinishReason::ContentFilter),
+        "error" => Err(CoreError::StreamIncomplete(
+            "provider terminated the stream with an error".into(),
+        )),
         "insufficient_system_resource" => Err(CoreError::StreamIncomplete(
             "DeepSeek interrupted the stream because capacity was unavailable during a peak period"
                 .to_string(),
@@ -765,14 +847,38 @@ async fn process_sse_line_with_output(
     }
 
     // Parse JSON and send through channel.
-    let provider_raw = serde_json::from_str::<serde_json::Value>(data)
-        .ok()
-        .as_ref()
-        .and_then(provider_observability_fragment);
-    match serde_json::from_str::<SseChunk>(data) {
-        Ok(sse) => {
+    match serde_json::from_str::<serde_json::Value>(data).and_then(|value| {
+        let raw = value
+            .get("usage")
+            .filter(|usage| !usage.is_null())
+            .and_then(|_| provider_observability_fragment(&value));
+        serde_json::from_value::<SseChunk>(value).map(|chunk| (chunk, raw))
+    }) {
+        Ok((sse, provider_raw)) => {
+            if let Some(error) = sse.error {
+                let message = error
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| error.as_str())
+                    .unwrap_or("provider returned a streaming error")
+                    .to_owned();
+                return Err(
+                    match error.get("code").and_then(serde_json::Value::as_u64) {
+                        Some(429) => CoreError::RateLimited {
+                            retry_after_secs: 60,
+                        },
+                        Some(status @ 500..=599) => CoreError::ProviderUnavailable {
+                            status: status as u16,
+                            message,
+                        },
+                        _ => CoreError::Llm(message),
+                    },
+                );
+            }
             let choice = sse.choices.as_ref().and_then(|c| c.first());
-            tx.capture(choice);
+            if let Some(choice) = choice {
+                tx.capture(choice);
+            }
             let raw_delta = choice
                 .map(extract_text_delta_from_choice)
                 .unwrap_or_default();
@@ -800,7 +906,7 @@ async fn process_sse_line_with_output(
                     cache_creation_tokens: prompt_details
                         .as_ref()
                         .and_then(SsePromptTokensDetails::cache_creation_tokens),
-                    provider_raw: provider_raw.clone(),
+                    provider_raw,
                 }
             });
 
@@ -868,7 +974,7 @@ async fn process_sse_line_with_output(
         }
         Err(e) => {
             // Send parse error through channel but continue processing.
-            warn!("SSE JSON parse error: {e}, data: {data}");
+            warn!("SSE JSON parse error: {e}");
             if tx
                 .send(Err(CoreError::Llm(format!("SSE JSON parse error: {e}"))))
                 .await
@@ -994,11 +1100,7 @@ pub async fn parse_sse_stream_with_idle_timeout(
 ) -> Result<(), CoreError> {
     let mut output = SseOutput {
         channel: SseChannel::Chunks(tx),
-        capture_ark: false,
-        ark_content: None,
-        capture_copilot: false,
-        copilot_opaque: None,
-        copilot_text: String::new(),
+        replay: SseReplayCapture::None,
     };
     parse_sse_with_output(response, &mut output, stream_idle_timeout).await
 }
@@ -1007,16 +1109,11 @@ pub(crate) async fn parse_sse_events_with_idle_timeout(
     response: reqwest::Response,
     tx: mpsc::Sender<super::ProviderStreamEvent>,
     stream_idle_timeout: std::time::Duration,
-    capture_ark: bool,
-    capture_copilot: bool,
+    replay: SseReplayCapture,
 ) -> Result<(), CoreError> {
     let mut output = SseOutput {
         channel: SseChannel::Events(tx),
-        capture_ark,
-        ark_content: None,
-        capture_copilot,
-        copilot_opaque: None,
-        copilot_text: String::new(),
+        replay,
     };
     parse_sse_with_output(response, &mut output, stream_idle_timeout).await?;
     output.finish().await;
@@ -1033,11 +1130,7 @@ async fn process_sse_line(
 ) -> Result<bool, CoreError> {
     let mut output = SseOutput {
         channel: SseChannel::Chunks(tx.clone()),
-        capture_ark: false,
-        ark_content: None,
-        capture_copilot: false,
-        copilot_opaque: None,
-        copilot_text: String::new(),
+        replay: SseReplayCapture::None,
     };
     process_sse_line_with_output(
         line,
@@ -1419,8 +1512,11 @@ mod tests {
                 response,
                 tx,
                 std::time::Duration::from_secs(2),
-                enabled,
-                false,
+                if enabled {
+                    SseReplayCapture::Ark(None)
+                } else {
+                    SseReplayCapture::None
+                },
             )
             .await
             .unwrap();
@@ -1476,8 +1572,10 @@ mod tests {
                 response,
                 tx,
                 std::time::Duration::from_secs(2),
-                false,
-                true,
+                SseReplayCapture::Copilot {
+                    opaque: None,
+                    text: String::new(),
+                },
             )
             .await;
             assert_eq!(result.is_ok(), terminal);
@@ -1648,6 +1746,25 @@ mod tests {
             extract_reasoning_from_choice(&choice).as_deref(),
             Some("thinking from delta")
         );
+    }
+
+    #[tokio::test]
+    async fn openrouter_http_200_error_frame_preserves_provider_failure() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let line = r#"data: {"choices":[{"delta":{},"finish_reason":"error"}],"error":{"code":502,"message":"upstream disconnected"}}"#;
+        let error = process_sse_line(
+            line.to_owned(),
+            &tx,
+            &mut false,
+            &mut String::new(),
+            &mut false,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(error, CoreError::ProviderUnavailable { status: 502, message } if message == "upstream disconnected")
+        );
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]
@@ -2003,11 +2120,7 @@ mod tests {
                 &mut event_data_lines,
                 &mut SseOutput {
                     channel: SseChannel::Chunks(tx.clone()),
-                    capture_ark: false,
-                    ark_content: None,
-                    capture_copilot: false,
-                    copilot_opaque: None,
-                    copilot_text: String::new(),
+                    replay: SseReplayCapture::None,
                 },
                 &mut in_think_block,
                 &mut think_tag_buffer,
