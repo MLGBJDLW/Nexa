@@ -1541,10 +1541,9 @@ fn desktop_agent_turn_config_projects_prompt_and_executor_fields() {
 
     let mut nexus_auto_db_config = test_agent_config();
     nexus_auto_db_config.model = "qwen3.8-max".to_string();
-    nexus_auto_db_config.delegation_limits_v2 = None;
-    nexus_auto_db_config.subagent_max_parallel = None;
-    nexus_auto_db_config.subagent_max_calls_per_turn = None;
-    nexus_auto_db_config.subagent_token_budget = None;
+    // An upgraded config may retain legacy values after its V2 limits are cleared.
+    nexus_auto_db_config.delegation_limits_v2 = Some(Default::default());
+    nexus_auto_db_config.subagent_max_calls_per_turn = Some(6);
     let nexus_auto = build_desktop_agent_turn_config(DesktopAgentTurnConfigRequest {
         source_scope_override: None,
         db: &db,
@@ -1559,13 +1558,15 @@ fn desktop_agent_turn_config_projects_prompt_and_executor_fields() {
         power_mode: AgentPowerMode::Nexus,
         collaboration_mode: AgentCollaborationMode::Direct,
         moa_preset: MoaPresetId::FastReview,
-        orchestration_profile: OrchestrationProfile::Balanced,
+        orchestration_profile: OrchestrationProfile::Deep,
         custom_orchestration: None,
     })
     .executor_config;
+    assert_eq!(nexus_auto.subagent_max_calls_per_turn, None);
+    assert_eq!(nexus_auto.subagent_token_budget, None);
     let nexus_auto_limits = nexus_auto
         .delegation_limits_v2
-        .expect("Nexus creates independent auto limits even without saved V2 settings");
+        .expect("named profiles retain V2 automatic limits over legacy caps");
     assert_eq!(nexus_auto_limits.input_context_limit, None);
     assert_eq!(nexus_auto_limits.max_output_tokens_per_worker, None);
     assert_eq!(nexus_auto_limits.total_actual_tokens_soft_limit, None);

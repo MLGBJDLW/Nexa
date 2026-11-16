@@ -256,6 +256,17 @@ const budgetedBatch = extractSubagentBatchArtifact({
 });
 assert(budgetedBatch?.budgetAfter?.remainingTokens === 72000, 'authoritative post-batch token budget must project');
 assert(budgetedBatch?.budgetAfter?.remainingCalls === 3, 'authoritative post-batch call budget must project');
+const unlimitedBatch = extractSubagentBatchArtifact({
+  kind: 'subagent_batch_result',
+  budgetAfter: {
+    ...budgetedBatch!.budgetAfter,
+    maxCallsPerTurn: null, remainingCalls: null, callsStarted: 8,
+    totalActualTokensSoftLimit: null, remainingTokens: 4294967295,
+  },
+  runs: [],
+});
+assert(unlimitedBatch?.budgetAfter?.remainingCalls === null && unlimitedBatch.budgetAfter.remainingTokens === null,
+  'unlimited budgets retain usage and display without synthetic remaining limits');
 
 const batchEvents = [
   event(1, 'spawned', { task: 'Worker one', roleId: 'researcher' }, 'agent-b1'),

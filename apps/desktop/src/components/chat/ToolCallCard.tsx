@@ -1333,7 +1333,7 @@ function SubagentBudgetAfterBadge({ budget }: { budget: SubagentBudgetSnapshot }
       className="mb-1.5 inline-flex rounded-full border border-accent/25 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent"
       data-testid="subagent-budget-after"
     >
-      {t('chat.subagentBudgetAfter')}: {budget.remainingTokens.toLocaleString()} tokens · {budget.remainingCalls.toLocaleString()} calls
+      {t('chat.subagentBudgetAfter')}: {budget.remainingTokens?.toLocaleString() ?? '∞'} tokens · {budget.remainingCalls?.toLocaleString() ?? '∞'} calls
     </div>
   );
 }
