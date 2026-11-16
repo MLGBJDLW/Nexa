@@ -672,7 +672,7 @@ impl DelegationScheduler {
         if let Some(limit) = state.limits.max_calls_per_turn {
             if state.calls_started >= limit {
                 return Err(CoreError::InvalidInput(format!(
-                    "Delegated execution budget exhausted before starting {label}: the configured limit of {limit} calls for this turn has been reached. Continue in the parent or use existing worker results."
+                    "Delegated execution budget exhausted before starting {label}: the configured limit of {limit} calls for this turn has been reached. Continue in the parent using existing worker results. For future turns, the user can clear the agent's Max worker calls / turn and any Custom profile Calls / turn override."
                 )));
             }
             if limit - state.calls_started <= reserved_for_other_control_lanes {
