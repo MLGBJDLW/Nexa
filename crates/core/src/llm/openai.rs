@@ -1668,14 +1668,15 @@ fn parse_responses_completion(
     dialect: super::native_search::NativeSearchDialect,
     capability: crate::model_catalog::NativeWebSearchCapability,
 ) -> Result<CompletionResponse, CoreError> {
-    parse_responses_completion_with_copilot(value, dialect, capability, false)
+    parse_responses_output(value, dialect, capability, false, None)
 }
 
-fn parse_responses_completion_with_copilot(
+fn parse_responses_output(
     value: serde_json::Value,
     dialect: super::native_search::NativeSearchDialect,
     capability: crate::model_catalog::NativeWebSearchCapability,
     copilot: bool,
+    streamed_reasoning: Option<&HashMap<u64, ResponsesReasoningItem>>,
 ) -> Result<CompletionResponse, CoreError> {
     let response_status = value
         .get("status")
@@ -1697,7 +1698,7 @@ fn parse_responses_completion_with_copilot(
     let mut has_replay_reasoning = false;
     let mut saw_unknown_output_item = false;
 
-    for item in output {
+    for (output_index, item) in output.iter().enumerate() {
         // OpenRouter's completed Responses examples omit status on reasoning
         // items. Attest completion from that trusted dialect's outer response
         // only when the field is absent; explicit incomplete/unknown states
@@ -1890,33 +1891,41 @@ fn parse_responses_completion_with_copilot(
                     reasoning_replay.push(item.clone());
                     has_replay_reasoning = true;
                 }
-                if dialect == super::native_search::NativeSearchDialect::DeepSeekResponses {
-                    for content in item
-                        .get("content")
-                        .and_then(serde_json::Value::as_array)
-                        .into_iter()
-                        .flatten()
-                    {
-                        if content.get("type").and_then(serde_json::Value::as_str)
-                            == Some("reasoning_text")
-                        {
-                            if let Some(text) =
-                                content.get("text").and_then(serde_json::Value::as_str)
-                            {
-                                thinking.push(text.to_string());
-                            }
-                        }
+                let streamed =
+                    streamed_reasoning.and_then(|items| items.get(&(output_index as u64)));
+                let has_summary = item
+                    .get("summary")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|parts| {
+                        parts.iter().any(|part| {
+                            part.get("text")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|text| !text.is_empty())
+                        })
+                    });
+                let summary = streamed.map_or_else(
+                    || responses_reasoning_summary(dialect, has_summary),
+                    |item| item.summary,
+                );
+                let field = if summary { "summary" } else { "content" };
+                for (part_index, part) in item
+                    .get(field)
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    if !summary && part["type"] != "reasoning_text" {
+                        continue;
                     }
-                } else {
-                    for summary in item
-                        .get("summary")
-                        .and_then(serde_json::Value::as_array)
-                        .into_iter()
-                        .flatten()
-                    {
-                        if let Some(text) = summary.get("text").and_then(serde_json::Value::as_str)
-                        {
-                            thinking.push(text.to_string());
+                    if let Some(text) = part.get("text").and_then(serde_json::Value::as_str) {
+                        let shown = streamed
+                            .and_then(|stream| stream.parts.get(&(part_index as u64)))
+                            .map(String::as_str)
+                            .unwrap_or_default();
+                        let suffix = visible_completion_suffix(shown, text, "thinking");
+                        if !suffix.is_empty() {
+                            thinking.push(suffix);
                         }
                     }
                 }
@@ -2069,11 +2078,16 @@ fn responses_usage_from_value(usage_value: serde_json::Value) -> Usage {
 struct ResponsesAssembler {
     copilot: bool,
     answer: String,
-    thinking: String,
+    reasoning_items: HashMap<u64, ResponsesReasoningItem>,
     terminal_seen: bool,
     hosted_tools: HashMap<String, ProviderHostedToolEvent>,
     client_tool_item_ids: HashMap<String, String>,
     client_tools: HashMap<String, ResponsesClientToolAssembly>,
+}
+
+struct ResponsesReasoningItem {
+    summary: bool,
+    parts: HashMap<u64, String>,
 }
 
 #[derive(Default)]
@@ -2617,6 +2631,20 @@ fn project_terminal_provider_hosted_tools(
         .collect()
 }
 
+// The gateway exposes either text or summary parts depending on its upstream.
+// Bind each streamed item to the first visible representation it supplies.
+fn responses_reasoning_summary(
+    dialect: super::native_search::NativeSearchDialect,
+    has_summary: bool,
+) -> bool {
+    use super::native_search::NativeSearchDialect;
+    match dialect {
+        NativeSearchDialect::OpenRouterServerTool => has_summary,
+        NativeSearchDialect::DeepSeekResponses => false,
+        _ => true,
+    }
+}
+
 fn visible_completion_suffix(streamed: &str, completed: &str, channel: &str) -> String {
     if streamed.is_empty() {
         return completed.to_string();
@@ -2689,53 +2717,46 @@ fn project_responses_stream_event(
                 }),
             }])
         }
-        "response.reasoning_text.delta" | "response.reasoning_summary_text.delta" => {
-            let visible_reasoning_event = match dialect {
-                super::native_search::NativeSearchDialect::DeepSeekResponses => {
-                    "response.reasoning_text.delta"
-                }
-                _ => "response.reasoning_summary_text.delta",
-            };
-            if event_type != visible_reasoning_event {
+        "response.reasoning_text.delta"
+        | "response.reasoning_summary_text.delta"
+        | "response.reasoning_text.done"
+        | "response.reasoning_summary_text.done" => {
+            let summary = event_type.starts_with("response.reasoning_summary_text.");
+            let done = event_type.ends_with(".done");
+            let text = value[if done { "text" } else { "delta" }]
+                .as_str()
+                .unwrap_or_default();
+            if text.is_empty() || responses_reasoning_summary(dialect, summary) != summary {
                 return Ok(Vec::new());
             }
-            let delta = value
-                .get("delta")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
+            let output_index = value["output_index"].as_u64().unwrap_or_default();
+            let item = projection
+                .reasoning_items
+                .entry(output_index)
+                .or_insert_with(|| ResponsesReasoningItem {
+                    summary,
+                    parts: HashMap::new(),
+                });
+            if item.summary != summary {
+                return Ok(Vec::new());
+            }
+            let part_index = value[if summary {
+                "summary_index"
+            } else {
+                "content_index"
+            }]
+            .as_u64()
+            .unwrap_or_default();
+            let part = item.parts.entry(part_index).or_default();
+            let delta = if done {
+                visible_completion_suffix(part, text, "thinking")
+            } else {
+                text.to_owned()
+            };
             if delta.is_empty() {
                 return Ok(Vec::new());
             }
-            projection.thinking.push_str(delta);
-            Ok(vec![ProviderStreamEvent::Chunk {
-                chunk: Box::new(StreamChunk {
-                    delta: String::new(),
-                    tool_call_delta: None,
-                    finish_reason: None,
-                    usage: None,
-                    thinking_delta: Some(delta.to_string()),
-                }),
-            }])
-        }
-        "response.reasoning_text.done" | "response.reasoning_summary_text.done" => {
-            let visible_reasoning_event = match dialect {
-                super::native_search::NativeSearchDialect::DeepSeekResponses => {
-                    "response.reasoning_text.done"
-                }
-                _ => "response.reasoning_summary_text.done",
-            };
-            if event_type != visible_reasoning_event {
-                return Ok(Vec::new());
-            }
-            let completed = value
-                .get("text")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let delta = visible_completion_suffix(&projection.thinking, completed, "thinking");
-            if delta.is_empty() {
-                return Ok(Vec::new());
-            }
-            projection.thinking.push_str(&delta);
+            part.push_str(&delta);
             Ok(vec![ProviderStreamEvent::Chunk {
                 chunk: Box::new(StreamChunk {
                     delta: String::new(),
@@ -2754,11 +2775,12 @@ fn project_responses_stream_event(
             })?;
             let mut events = project_terminal_provider_hosted_tools(&response, projection, dialect);
             events.extend(finalize_terminal_client_tools(&mut response, projection)?);
-            let mut completed = parse_responses_completion_with_copilot(
+            let mut completed = parse_responses_output(
                 response,
                 dialect,
                 capability,
                 projection.copilot,
+                Some(&projection.reasoning_items),
             )?;
             if let Some(tool_calls) = completed.tool_calls.as_mut() {
                 for call in tool_calls {
@@ -2771,15 +2793,6 @@ fn project_responses_stream_event(
             }
             completed.content =
                 visible_completion_suffix(&projection.answer, &completed.content, "answer");
-            completed.thinking = match completed.thinking {
-                Some(thinking) => Some(visible_completion_suffix(
-                    &projection.thinking,
-                    &thinking,
-                    "thinking",
-                )),
-                None => None,
-            }
-            .filter(|thinking| !thinking.is_empty());
             projection.terminal_seen = true;
             if let Some(replay) = completed.provider_replay.take() {
                 events.push(ProviderStreamEvent::ReplayState {
@@ -3152,7 +3165,7 @@ impl OpenAiProvider {
                 }
             })?;
         let parsed = if self.copilot_model.is_some() {
-            parse_responses_completion_with_copilot(value, dialect, capability, true)?
+            parse_responses_output(value, dialect, capability, true, None)?
         } else {
             parse_responses_completion(value, dialect, capability)?
         };
@@ -3931,10 +3944,10 @@ mod tests {
         let input = responses_input_items(&[assistant, result]).unwrap();
         assert_eq!(input[0], terminal_item);
         assert_eq!(input[1]["call_id"], "call-stable");
-        let completion = parse_responses_completion_with_copilot(serde_json::json!({"status":"completed","output":[
+        let completion = parse_responses_output(serde_json::json!({"status":"completed","output":[
             {"type":"reasoning","id":"opaque-reasoning","encrypted_content":"native-state","summary":[{"type":"summary_text","text":"Visible summary"}]},
             {"type":"message","id":"opaque-answer","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Answer"}]}
-        ]}),dialect,capability,true).unwrap();
+        ]}),dialect,capability,true,None).unwrap();
         assert_eq!(completion.thinking.as_deref(), Some("Visible summary"));
         let Some(super::super::provider_turn::ProviderReplayPayload::CopilotResponseItems(payload)) =
             completion.provider_replay
@@ -4390,6 +4403,68 @@ mod tests {
         let route = provider.route_snapshot(&request);
         assert_eq!(route.api_style, ReasoningApiStyle::OpenAiResponses);
         assert_eq!(route.reasoning_profile_id, "openrouter-responses-replay-v1");
+        let dialect = NativeSearchDialect::OpenRouterServerTool;
+        let capability = generic_responses_capability(dialect);
+        for (event_type, part_field, part_type) in [
+            ("response.reasoning_text.delta", "content", "reasoning_text"),
+            (
+                "response.reasoning_summary_text.delta",
+                "summary",
+                "summary_text",
+            ),
+        ] {
+            let mut assembler = ResponsesAssembler::default();
+            let events = project_responses_stream_event(
+                serde_json::json!({"type":event_type,"delta":"Planning"}),
+                &mut assembler,
+                dialect,
+                capability,
+            )
+            .unwrap();
+            assert!(
+                matches!(events.as_slice(), [ProviderStreamEvent::Chunk { chunk }] if chunk.thinking_delta.as_deref() == Some("Planning"))
+            );
+            let other_event = if part_field == "content" {
+                "response.reasoning_summary_text.delta"
+            } else {
+                "response.reasoning_text.delta"
+            };
+            assert!(project_responses_stream_event(
+                serde_json::json!({"type":other_event,"delta":"Planning"}),
+                &mut assembler,
+                dialect,
+                capability
+            )
+            .unwrap()
+            .is_empty());
+            let done = event_type.replace(".delta", ".done");
+            let events = project_responses_stream_event(
+                serde_json::json!({"type":done,"text":"Planning "}),
+                &mut assembler,
+                dialect,
+                capability,
+            )
+            .unwrap();
+            assert!(
+                matches!(events.as_slice(), [ProviderStreamEvent::Chunk { chunk }] if chunk.thinking_delta.as_deref() == Some(" "))
+            );
+            let mut item = serde_json::json!({"type":"reasoning","id":"rs-or","encrypted_content":"opaque-OR"});
+            item["content"] = serde_json::json!([{"type":"reasoning_text","text":"already shown"}]);
+            item["summary"] = serde_json::json!([{"type":"summary_text","text":"already shown"}]);
+            item[part_field] = serde_json::json!([{"type":part_type,"text":"Planning next"}]);
+            let terminal = serde_json::json!({"type":"response.completed","response":{"status":"completed","output":[item]}});
+            let events =
+                project_responses_stream_event(terminal, &mut assembler, dialect, capability)
+                    .unwrap();
+            let remainder: String = events
+                .iter()
+                .filter_map(|event| match event {
+                    ProviderStreamEvent::Chunk { chunk } => chunk.thinking_delta.as_deref(),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(remainder, "next");
+        }
         for reasoning_status in [None, Some("completed"), Some("incomplete"), Some("unknown")] {
             let mut reasoning = serde_json::json!({"type":"reasoning","id":"rs-or","encrypted_content":"opaque-OR","summary":[]});
             if let Some(status) = reasoning_status {
