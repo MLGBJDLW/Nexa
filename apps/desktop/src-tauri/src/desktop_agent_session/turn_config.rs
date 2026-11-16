@@ -312,34 +312,26 @@ pub fn build_desktop_agent_turn_config(
             .thinking_budget
             .and_then(|value| u32::try_from(value).ok()),
         reasoning_effort: configured_reasoning_effort,
-        subagent_max_parallel: db_config
-            .delegation_limits_v2
-            .as_ref()
-            .and_then(|limits| limits.max_parallel)
-            .or_else(|| {
-                db_config
-                    .subagent_max_parallel
-                    .and_then(|value| u32::try_from(value).ok())
-            }),
-        subagent_max_calls_per_turn: db_config
-            .delegation_limits_v2
-            .as_ref()
-            .and_then(|limits| limits.max_calls_per_turn)
-            .or_else(|| {
-                db_config
-                    .subagent_max_calls_per_turn
-                    .and_then(|value| u32::try_from(value).ok())
-            }),
-        subagent_token_budget: db_config
-            .delegation_limits_v2
-            .as_ref()
-            .and_then(|limits| limits.total_actual_tokens_soft_limit)
-            .and_then(|value| u32::try_from(value).ok())
-            .or_else(|| {
-                db_config
-                    .subagent_token_budget
-                    .and_then(|value| u32::try_from(value).ok())
-            }),
+        subagent_max_parallel: match &db_config.delegation_limits_v2 {
+            Some(limits) => limits.max_parallel,
+            None => db_config
+                .subagent_max_parallel
+                .and_then(|v| v.try_into().ok()),
+        },
+        subagent_max_calls_per_turn: match &db_config.delegation_limits_v2 {
+            Some(limits) => limits.max_calls_per_turn,
+            None => db_config
+                .subagent_max_calls_per_turn
+                .and_then(|v| v.try_into().ok()),
+        },
+        subagent_token_budget: match &db_config.delegation_limits_v2 {
+            Some(limits) => limits
+                .total_actual_tokens_soft_limit
+                .map(|v| v.min(u64::from(u32::MAX)) as u32),
+            None => db_config
+                .subagent_token_budget
+                .and_then(|v| v.try_into().ok()),
+        },
     });
     let power_mode_section = power_policy.prompt_section().to_string();
     let orchestration_policy = resolve_orchestration_profile(OrchestrationProfileInput {
@@ -374,7 +366,16 @@ pub fn build_desktop_agent_turn_config(
         if profile_overrides_persisted_delegation || !had_saved_v2_limits {
             limits.max_parallel = subagent_max_parallel;
             limits.max_calls_per_turn = subagent_max_calls_per_turn;
+        }
+        if !had_saved_v2_limits {
             limits.total_actual_tokens_soft_limit = subagent_token_budget.map(u64::from);
+        } else if orchestration_profile == OrchestrationProfile::Custom {
+            if let Some(budget) = custom_orchestration
+                .as_ref()
+                .and_then(|options| options.delegated_token_budget)
+            {
+                limits.total_actual_tokens_soft_limit = Some(u64::from(budget));
+            }
         }
         // Every runtime uses the independent V2 contract. Auto context resolves
         // the selected model's capacity; output uses actual prompt headroom.

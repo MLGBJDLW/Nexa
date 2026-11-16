@@ -180,10 +180,10 @@ interface StoredOrchestrationPolicy {
 }
 
 const DEFAULT_CUSTOM_ORCHESTRATION: CustomOrchestrationOptions = {
-  maxIterations: 32,
+  maxIterations: null,
   maxParallel: 3,
-  maxCallsPerTurn: 6,
-  delegatedTokenBudget: 48_000,
+  maxCallsPerTurn: null,
+  delegatedTokenBudget: null,
   verificationReservePercent: 25,
   retryLimit: 2,
   minEvidenceSources: 2,
@@ -1798,8 +1798,8 @@ export function ChatInput({
           {([
             ["maxIterations", "chat.qualityCustomIterations", 0, 4294967295, 1],
             ["maxParallel", "chat.qualityCustomParallel", 1, 8, 1],
-            ["maxCallsPerTurn", "chat.qualityCustomCalls", 1, 24, 1],
-            ["delegatedTokenBudget", "chat.qualityCustomTokenBudget", 4096, 192000, 1024],
+            ["maxCallsPerTurn", "chat.qualityCustomCalls", 1, 4294967295, 1],
+            ["delegatedTokenBudget", "chat.qualityCustomTokenBudget", 1, 4294967295, 1],
             ["retryLimit", "chat.qualityCustomRetries", 0, 5, 1],
             ["minEvidenceSources", "chat.qualityCustomEvidence", 0, 8, 1],
             ["verificationReservePercent", "chat.qualityCustomReserve", 10, 50, 5],
@@ -1812,9 +1812,12 @@ export function ChatInput({
                 min={min}
                 max={max}
                 step={step}
-                value={customOrchestration[field] ?? min}
+                placeholder={t("chat.contextPolicyAutomatic")}
+                value={customOrchestration[field] ?? ""}
                 onChange={(event) => {
-                  const value = Math.min(max, Math.max(min, Number(event.target.value) || min));
+                  const input = event.currentTarget;
+                  const value = input.value === "" ? null :
+                    Math.min(max, Math.max(min, Math.trunc(input.valueAsNumber)));
                   persistRuntimePolicy({
                     customOrchestration: { ...customOrchestration, [field]: value },
                   });

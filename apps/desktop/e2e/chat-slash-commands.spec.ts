@@ -716,9 +716,10 @@ test('Custom orchestration exposes bounded runtime controls', async ({ page }) =
   await page.goto('/chat/conv-slash');
   await page.getByTestId('chat-more-options').click();
   await selectNexaOption(page.getByTestId('chat-quality-profile'), 'custom');
+  await expect(page.getByTestId('chat-quality-custom-maxCallsPerTurn')).toHaveValue('');
   await page.getByTestId('chat-quality-custom-maxIterations').fill('48');
   await page.getByTestId('chat-quality-custom-maxParallel').fill('8');
-  await page.getByTestId('chat-quality-custom-maxCallsPerTurn').fill('10');
+  await page.getByTestId('chat-quality-custom-maxCallsPerTurn').fill('128');
   await page.getByTestId('chat-quality-custom-delegatedTokenBudget').fill('96000');
   await page.getByTestId('chat-quality-custom-retryLimit').fill('3');
   await page.getByTestId('chat-quality-custom-minEvidenceSources').fill('4');
@@ -735,7 +736,7 @@ test('Custom orchestration exposes bounded runtime controls', async ({ page }) =
   ).toMatchObject({
     maxIterations: 48,
     maxParallel: 8,
-    maxCallsPerTurn: 10,
+    maxCallsPerTurn: 128,
     delegatedTokenBudget: 96000,
     retryLimit: 3,
     minEvidenceSources: 4,

@@ -33,12 +33,12 @@ export interface SubagentAppliedSkill {
 
 export interface SubagentBudgetSnapshot {
   maxParallel: number;
-  maxCallsPerTurn: number;
+  maxCallsPerTurn: number | null;
   callsStarted: number;
-  remainingCalls: number;
+  remainingCalls: number | null;
   tokenBudget: number;
   tokensSpent: number;
-  remainingTokens: number;
+  remainingTokens: number | null;
 }
 
 export interface SubagentContextSnapshot {
@@ -481,9 +481,9 @@ function parseBudgetSnapshot(value: unknown): SubagentBudgetSnapshot | null {
   const remainingTokens = asNumber(record.remainingTokens);
   if (
     maxParallel == null
-    || maxCallsPerTurn == null
+    || (maxCallsPerTurn == null && record.maxCallsPerTurn !== null)
     || callsStarted == null
-    || remainingCalls == null
+    || (remainingCalls == null && record.remainingCalls !== null)
     || tokenBudget == null
     || tokensSpent == null
     || remainingTokens == null
@@ -497,7 +497,7 @@ function parseBudgetSnapshot(value: unknown): SubagentBudgetSnapshot | null {
     remainingCalls,
     tokenBudget,
     tokensSpent,
-    remainingTokens,
+    remainingTokens: record.totalActualTokensSoftLimit === null ? null : remainingTokens,
   };
 }
 

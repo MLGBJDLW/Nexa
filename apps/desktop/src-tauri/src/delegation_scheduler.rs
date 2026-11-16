@@ -203,6 +203,7 @@ pub(crate) struct BudgetSnapshot {
     pub calls_started: u32,
     pub remaining_calls: Option<u32>,
     pub token_budget: u32,
+    pub total_actual_tokens_soft_limit: Option<u64>,
     pub tokens_spent: u32,
     pub tokens_reserved: u32,
     pub remaining_tokens: u32,
@@ -400,6 +401,11 @@ impl DelegationScheduler {
         let Some(prior) = binding.as_mut() else {
             return Ok(());
         };
+        // New runs have no historical workers. Live reservations already account
+        // for every worker they start, so there is no database state to reconcile.
+        if prior.ids.is_empty() {
+            return Ok(());
+        }
         let result = (|| {
             let rows = prior.db.list_agent_subtask_runs(&prior.run_id)?;
             let usage = prior.db.delegated_usage_for_run(&prior.run_id)?;
@@ -663,16 +669,17 @@ impl DelegationScheduler {
                 state.limits.verification_lane_slots > 0 && state.verification_calls_started == 0,
             ),
         };
-        let lane_call_limit = state
-            .limits
-            .max_calls_per_turn
-            .map(|limit| limit.saturating_sub(reserved_for_other_control_lanes));
-        if lane_call_limit.is_some_and(|limit| state.calls_started >= limit) {
-            return Err(CoreError::InvalidInput(format!(
-                "Delegated execution budget exhausted before starting {label}: {} call(s) started and {reserved_for_other_control_lanes} call credit(s) remain reserved for unused control lanes (maximum {} per turn).",
-                state.calls_started,
-                state.limits.max_calls_per_turn.unwrap_or_default(),
-            )));
+        if let Some(limit) = state.limits.max_calls_per_turn {
+            if state.calls_started >= limit {
+                return Err(CoreError::InvalidInput(format!(
+                    "Delegated execution budget exhausted before starting {label}: the configured limit of {limit} calls for this turn has been reached. Continue in the parent or use existing worker results."
+                )));
+            }
+            if limit - state.calls_started <= reserved_for_other_control_lanes {
+                return Err(CoreError::InvalidInput(format!(
+                    "Delegated execution budget reserved before starting {label}: the remaining calls are reserved for unused verification or judge lanes (maximum {limit} per turn)."
+                )));
+            }
         }
         let token_budget = state
             .limits
@@ -756,6 +763,7 @@ impl DelegationScheduler {
                 .max_calls_per_turn
                 .map(|limit| limit.saturating_sub(state.calls_started)),
             token_budget,
+            total_actual_tokens_soft_limit: state.limits.total_actual_tokens_soft_limit,
             tokens_spent: state.tokens_spent,
             tokens_reserved: state.tokens_reserved,
             remaining_tokens: token_budget
