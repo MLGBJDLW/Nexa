@@ -677,7 +677,7 @@ impl DelegationScheduler {
             }
             if limit - state.calls_started <= reserved_for_other_control_lanes {
                 return Err(CoreError::InvalidInput(format!(
-                    "Delegated execution budget reserved before starting {label}: the remaining calls are reserved for unused verification or judge lanes (maximum {limit} per turn)."
+                    "Delegated execution budget reserved before starting {label}: {reserved_for_other_control_lanes} call credit(s) remain reserved for unused verification or judge lanes (maximum {limit} per turn)."
                 )));
             }
         }
