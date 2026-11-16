@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.3.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.10...nexa-mobile-v0.3.11) (2026-11-16)
+
+### Improvements
+
+- Search the model list in phone connection settings for Gemini 4, Claude Fable 5.2 and other supported models. Keep a custom model ID when switching back to manual entry.
+- See OpenRouter reasoning as it arrives in local chat and when connected to a desktop, including during hosted web search. Signed reasoning is preserved for the next tool call.
+- Search and read ranked sources in one local research call. Up to three pages load concurrently, with stable citations and a snippet when a page cannot be read.
+
+### Features
+
+* **catalog:** reconcile account discoveries with current provider models ([2d3d92c](https://github.com/MLGBJDLW/Nexa/commit/2d3d92c52f2b9c04f477a497cddb13a8d69bab49))
+
+
+### Bug Fixes
+
+* **catalog:** honor endpoint retirements when selecting saved models ([3200739](https://github.com/MLGBJDLW/Nexa/commit/3200739d4568aa085990c7996714597855b90771))
+
+
+### Performance Improvements
+
+* **search:** overlap ranked page reads on desktop and mobile ([6961187](https://github.com/MLGBJDLW/Nexa/commit/696118720ee9e71db4d1132ed8268412d96f0c47))
+
 ## [0.3.10](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.9...nexa-mobile-v0.3.10) (2026-11-14)
 
 
