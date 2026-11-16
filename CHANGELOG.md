@@ -2,6 +2,12 @@
 
 ## [0.19.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.12...nexa-monorepo-v0.19.13) (2026-11-16)
 
+### Improvements
+
+- Show reasoning as OpenRouter sends it, including during hosted web search. Preserve signed reasoning across tool calls and avoid repeating text when a provider sends its final summary.
+- Find Gemini 4 Argon, Carbon, Hydrogen and Claude Fable 5.2 even with a model list cached by an older release. Add Qwen4 Max on supported endpoints and hide retired OpenRouter routes from new selections.
+- Let long tasks inherit the agent's delegation budget. A new Custom profile no longer sets a six-call limit. To remove a previously saved limit, clear Calls / turn in the Custom profile and Max worker calls / turn in the agent settings.
+- Read up to three search results concurrently while preserving citation order and failed-page snippets. Decode supported Bing result links locally and retain distinct pages identified by query parameters.
 
 ### Features
 
