@@ -6104,6 +6104,166 @@
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
         "lastVerifiedAt": "2026-10-28"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "kling_4_flash",
+        "displayName": "Kling 4 Flash",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 20,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "adaptive",
+              "16:9",
+              "9:16",
+              "1:1",
+              "21:9"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "720P": {
+                  "adaptive": "auto_720p",
+                  "16:9": "1280:720",
+                  "9:16": "720:1280",
+                  "1:1": "960:960",
+                  "21:9": "1464:628"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 11000,
+              "promptRequired": true,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-17"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "gemini_omni_flash_1.2",
+        "displayName": "Gemini Omni Flash 1.2",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "360P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "720P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "1080P",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "4K",
+                "minDurationSeconds": 3,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "16:9",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "360P": {
+                  "16:9": "640:360",
+                  "9:16": "360:640"
+                },
+                "720P": {
+                  "16:9": "1280:720",
+                  "9:16": "720:1280"
+                },
+                "1080P": {
+                  "16:9": "1920:1080",
+                  "9:16": "1080:1920"
+                },
+                "4K": {
+                  "16:9": "3840:2160",
+                  "9:16": "2160:3840"
+                }
+              },
+              "ratioField": "ratio",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 4000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "promptRequired": true
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-17"
       }
     ]
   },
