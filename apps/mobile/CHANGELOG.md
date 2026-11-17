@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.11...nexa-mobile-v0.3.12) (2026-11-17)
+
+### Improvements
+
+- In Phone Files, tap the trash button and confirm the displayed path to delete a file from the phone workspace. A failed deletion leaves the file visible for retry.
+- Find models such as Gemini 4 by typing `Gemini4` in the model picker. Web citations now show a site icon, with a globe for unavailable icons.
+- Auto search can use the connected model's hosted search for a quick lookup. Requests for multiple sources use the shared research tools and can read up to 20 ranked results per search.
+
+### Features
+
+* **agent:** improve web search, citations, model discovery and phone files ([f098798](https://github.com/MLGBJDLW/Nexa/commit/f098798c4a717af21cb8b6adbe493a2e42357c97))
+* **mobile:** delete individual files from the phone workspace ([11ca602](https://github.com/MLGBJDLW/Nexa/commit/11ca602fefdf071b4cce9faa1410ad8ed07968fe))
+
 ## [0.3.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.10...nexa-mobile-v0.3.11) (2026-11-16)
 
 ### Improvements
