@@ -20,6 +20,18 @@
         "name": "Text Embedding 3 Large",
         "dimensions": 3072,
         "supportsDimensionOverride": true
+      },
+      {
+        "id": "text-embedding-ada-002",
+        "name": "Text Embedding Ada 002",
+        "dimensions": 1536,
+        "supportsDimensionOverride": false,
+        "contextTokens": 8192,
+        "source": "official",
+        "status": "legacy",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://developers.openai.com/api/docs/guides/embeddings"
       }
     ],
     "apiStyle": "openai_embeddings",
@@ -765,13 +777,14 @@
         "recommended": true,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
+        "lastVerifiedAt": "2026-11-17",
         "allowedDimensions": [
           256,
           512,
           1024,
           2048
-        ]
+        ],
+        "contextTokens": 32000
       },
       {
         "id": "voyage-4-large",
@@ -781,13 +794,14 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
+        "lastVerifiedAt": "2026-11-17",
         "allowedDimensions": [
           256,
           512,
           1024,
           2048
-        ]
+        ],
+        "contextTokens": 32000
       },
       {
         "id": "voyage-4-lite",
@@ -797,13 +811,14 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
+        "lastVerifiedAt": "2026-11-17",
         "allowedDimensions": [
           256,
           512,
           1024,
           2048
-        ]
+        ],
+        "contextTokens": 32000
       },
       {
         "id": "voyage-code-4",
@@ -813,13 +828,14 @@
         "recommended": false,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26",
+        "lastVerifiedAt": "2026-11-17",
         "allowedDimensions": [
           256,
           512,
           1024,
           2048
-        ]
+        ],
+        "contextTokens": 32000
       },
       {
         "id": "voyage-finance-2",
@@ -828,10 +844,10 @@
         "supportsDimensionOverride": false,
         "contextTokens": 32000,
         "source": "official",
-        "status": "active",
+        "status": "legacy",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-17",
         "documentationRef": "https://docs.voyageai.com/docs/embeddings"
       },
       {
@@ -841,11 +857,95 @@
         "supportsDimensionOverride": false,
         "contextTokens": 16000,
         "source": "official",
-        "status": "active",
+        "status": "legacy",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "lastVerifiedAt": "2026-11-17",
         "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+      },
+      {
+        "id": "voyage-3-large",
+        "name": "voyage-3-large",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "contextTokens": 32000,
+        "source": "official",
+        "status": "legacy",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+      },
+      {
+        "id": "voyage-3.5",
+        "name": "voyage-3.5",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "contextTokens": 32000,
+        "source": "official",
+        "status": "legacy",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+      },
+      {
+        "id": "voyage-3.5-lite",
+        "name": "voyage-3.5-lite",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "contextTokens": 32000,
+        "source": "official",
+        "status": "legacy",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+      },
+      {
+        "id": "voyage-code-3",
+        "name": "voyage-code-3",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "allowedDimensions": [
+          256,
+          512,
+          1024,
+          2048
+        ],
+        "contextTokens": 32000,
+        "source": "official",
+        "status": "legacy",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://docs.voyageai.com/docs/embeddings"
+      },
+      {
+        "id": "voyage-code-2",
+        "name": "voyage-code-2",
+        "dimensions": 1536,
+        "supportsDimensionOverride": false,
+        "contextTokens": 16000,
+        "source": "official",
+        "status": "legacy",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://www.mongodb.com/docs/voyageai/models/"
       }
     ],
     "documentationUrl": "https://docs.voyageai.com/docs/embeddings"
@@ -1328,12 +1428,12 @@
         "dimensions": 2048,
         "contextTokens": 131072,
         "effectiveInputTokens": 4096,
-        "documentationRef": "https://docs.api.nvidia.com/nim/reference/nvidia-llama-nemotron-embed-vl-1b-v2-infer",
+        "documentationRef": "https://openrouter.ai/api/v1/models/nvidia/llama-nemotron-embed-vl-1b-v2:free/endpoints",
         "supportsDimensionOverride": false,
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-07",
+        "lastVerifiedAt": "2026-11-17",
         "availableToCredential": null,
         "recommended": false,
         "inputModalities": [

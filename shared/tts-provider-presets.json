@@ -119,7 +119,13 @@
     "description": "Speech 2.8 turbo for speed and HD for higher-fidelity output.",
     "models": [
       {"id": "speech-2.8-turbo", "name": "Speech 2.8 Turbo", "source": "official", "productReadiness": "known", "recommended": true, "lastVerifiedAt": "2026-09-29"},
-      {"id": "speech-2.8-hd", "name": "Speech 2.8 HD", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
+      {"id": "speech-2.8-hd", "name": "Speech 2.8 HD", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
+      {"id": "speech-2.6-turbo", "name": "Speech 2.6 Turbo", "source": "official", "status": "legacy", "productReadiness": "known", "lastVerifiedAt": "2026-11-17"},
+      {"id": "speech-2.6-hd", "name": "Speech 2.6 HD", "source": "official", "status": "legacy", "productReadiness": "known", "lastVerifiedAt": "2026-11-17"},
+      {"id": "speech-02-turbo", "name": "Speech 02 Turbo", "source": "official", "status": "legacy", "productReadiness": "known", "lastVerifiedAt": "2026-11-17"},
+      {"id": "speech-02-hd", "name": "Speech 02 HD", "source": "official", "status": "legacy", "productReadiness": "known", "lastVerifiedAt": "2026-11-17"},
+      {"id": "speech-01-turbo", "name": "Speech 01 Turbo", "source": "official", "status": "legacy", "productReadiness": "known", "lastVerifiedAt": "2026-11-17"},
+      {"id": "speech-01-hd", "name": "Speech 01 HD", "source": "official", "status": "legacy", "productReadiness": "known", "lastVerifiedAt": "2026-11-17"}
     ],
     "voices": [
       {"id": "male-qn-qingse", "name": "Qingse", "recommended": true}

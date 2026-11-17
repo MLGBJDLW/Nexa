@@ -29466,9 +29466,9 @@
         "capabilities": {
           "vision": true
         },
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-11-16",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
         "recommended": false,
         "contextTokens": 65536,
@@ -29840,7 +29840,7 @@
         "id": "stepfun-ai/Step-3.5-Flash",
         "name": "Step-3.5-Flash",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -29858,7 +29858,7 @@
         "contextTokens": 262144,
         "supportsTools": true,
         "supportsStructuredOutput": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "deprecationDate": "2026-11-16"
       },
       {
@@ -29965,7 +29965,7 @@
         "id": "Qwen/Qwen3.5-122B-A10B",
         "name": "Qwen3.5-122B-A10B",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -29984,7 +29984,7 @@
         "contextTokens": 262144,
         "supportsTools": true,
         "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "deprecationDate": "2026-11-16"
       },
       {
@@ -30015,7 +30015,7 @@
         "id": "inclusionAI/Ling-mini-2.0",
         "name": "Ling-mini-2.0",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -30033,7 +30033,7 @@
         "contextTokens": 131072,
         "supportsTools": true,
         "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "deprecationDate": "2026-11-16"
       },
       {
@@ -30334,7 +30334,7 @@
         "id": "Qwen/Qwen3-VL-30B-A3B-Thinking",
         "name": "Qwen3-VL-30B-A3B-Thinking",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -30353,7 +30353,7 @@
         "contextTokens": 262144,
         "supportsTools": true,
         "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "deprecationDate": "2026-11-16"
       },
       {
@@ -30549,7 +30549,7 @@
         "contextTokens": 262144,
         "supportsTools": true,
         "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "deprecationDate": "2026-11-16"
       },
       {
@@ -30604,7 +30604,7 @@
         "id": "tencent/Hunyuan-A13B-Instruct",
         "name": "Hunyuan-A13B-Instruct",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
@@ -30622,7 +30622,7 @@
         "contextTokens": 131072,
         "supportsTools": false,
         "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "deprecationDate": "2026-11-16"
       },
       {
