@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.11...nexa-mobile-v0.3.12) (2026-11-17)
+
+
+### Features
+
+* **agent:** improve web search, citations, model discovery and phone files ([f098798](https://github.com/MLGBJDLW/Nexa/commit/f098798c4a717af21cb8b6adbe493a2e42357c97))
+* **mobile:** delete individual files from the phone workspace ([11ca602](https://github.com/MLGBJDLW/Nexa/commit/11ca602fefdf071b4cce9faa1410ad8ed07968fe))
+
 ## [0.3.11](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.10...nexa-mobile-v0.3.11) (2026-11-16)
 
 ### Improvements
