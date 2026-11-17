@@ -22,6 +22,17 @@
 * **search:** honor multi-source requests and resumed evidence requirements ([18fa38c](https://github.com/MLGBJDLW/Nexa/commit/18fa38cae2510f4e3a2e4daaf45a5cc5b630c313))
 * **search:** resolve hosted tools against the physical fallback route ([89ad2f4](https://github.com/MLGBJDLW/Nexa/commit/89ad2f4af755e4ccbafa9c20eb789e13b2f9cc34))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at f098798c4a717af21cb8b6adbe493a2e42357c97 -->
+
+### What's Changed
+* chore(catalog): refresh verified November 17 model metadata by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/567
+* feat(agent): improve web search, citations, model discovery and phone files by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/569
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.13...nexa-monorepo-v0.19.14
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.12...nexa-monorepo-v0.19.13) (2026-11-16)
 
 ### Improvements
