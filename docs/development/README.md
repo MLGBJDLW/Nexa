@@ -8,6 +8,7 @@
 | [Internationalization](I18N_GUIDELINES.md) | Namespace JSON, generated files, and locale review |
 | [Agent task evaluation](AGENT_TASK_EVALUATION.md) | Contract, replay, scripted and opt-in live task evidence |
 | [Model catalog audit](MODEL_CATALOG_AUDIT.md) | Provider coverage, verified model metadata and discovery limits |
+| [Model catalog evidence: 2026-11-17](MODEL_CATALOG_EVIDENCE_2026_11_17.md) | Dated official sources, changes and endpoint coverage for the November 17 audit |
 | [Model catalog maintenance](MODEL_CATALOG_MAINTENANCE.md) | Refresh policy, aggregator monitoring, credentials and drift triage |
 | [Model catalog and TPS references](MODEL_CATALOG_AND_TPS_REFERENCES.md) | Upstream source research behind model discovery and persistent speed display |
 
