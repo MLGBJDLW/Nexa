@@ -4632,7 +4632,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-17",
         "releaseDate": "2026-08-26",
         "inputModalities": [
           "text",
@@ -4645,7 +4645,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943717,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -13965,7 +13965,7 @@
         "source": "official",
         "lastVerifiedAt": "2026-11-17",
         "documentationRef": "https://openrouter.ai/openai/gpt-oss-20b",
-        "maxOutputTokens": 117964
+        "maxOutputTokens": 65536
       },
       {
         "id": "anthropic/claude-opus-4.1",
@@ -14062,13 +14062,10 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": true,
+        "supportsStructuredOutput": false,
         "supportedParameters": [
-          "frequency_penalty",
           "max_tokens",
-          "response_format",
           "stop",
-          "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",

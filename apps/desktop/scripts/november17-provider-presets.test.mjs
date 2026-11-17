@@ -19,8 +19,12 @@ test('GPT Image 2 future shutdown remains deprecated and router scope is untouch
 test('Seedance Flash uses confirmed frame operations and explicit durations only',()=>{
  const m=read('video-provider-presets').find(x=>x.id==='openrouter-video').models.find(x=>x.modelId==='bytedance/seedance-2.5-flash');assert.equal(m.selectable,true);assert.deepEqual(m.operationCapabilities.map(x=>x.operation),['text_to_video','image_to_video','first_last_frame']);for(const op of m.operationCapabilities){assert.equal(op.supportsAudio,true);assert.equal(op.supportsSeed,true);assert.deepEqual(op.durationOptions.map(x=>x.resolution),['480p','720p']);for(const o of op.durationOptions){assert.equal(o.durationsSeconds[0],4);assert.equal(o.durationsSeconds.at(-1),30);assert.equal(o.durationsSeconds.includes(-1),false);}}
 });
-test('missing embedding inventory alone does not retire or migrate existing indexes',()=>{
- const m=read('embedding-provider-presets').find(x=>x.id==='openrouter').models.find(x=>x.id==='nvidia/llama-nemotron-embed-vl-1b-v2:free');assert.ok(m);assert.notEqual(m.status,'removed');assert.equal(m.replacementModelId,undefined);
+test('expired embedding with no routing endpoints retains its saved ID and no replacement', () => {
+  const router = read('embedding-provider-presets').find(provider => provider.id === 'openrouter');
+  const retired = router.models.find(model => model.id === 'nvidia/llama-nemotron-embed-vl-1b-v2:free');
+  assert.equal(retired.status, 'removed');
+  assert.equal(retired.deprecationDate, '2026-11-16');
+  assert.equal(retired.replacementModelId, undefined);
 });
 test('Cohere light v3 additions do not change default or existing dimensions',()=>{
  const p=read('embedding-provider-presets').find(x=>x.id==='cohere');for(const id of ['embed-english-light-v3.0','embed-multilingual-light-v3.0']){const m=p.models.find(x=>x.id===id);assert.equal(m.dimensions,384);assert.equal(m.supportsDimensionOverride,false);assert.equal(m.recommended,false);}assert.equal(p.models.find(x=>x.id==='embed-v4.0').recommended,true);assert.equal(p.models.find(x=>x.id==='embed-english-v3.0').dimensions,1024);
