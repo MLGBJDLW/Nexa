@@ -9,6 +9,7 @@ import type { RemoteConnection } from '../../desktop/src/features/remote/remoteC
 import { hostLabel, NativeClient, type NativeHost } from './nativeClient';
 import type { PhoneSettings } from './localClient';
 import { phoneChatProjects } from './phoneChatProjects';
+import { PhoneFiles } from './PhoneFiles';
 
 const LocalChat = lazy(() => import('./LocalChat').then(module => ({ default: module.LocalChat })));
 const ComputerChat = lazy(() => import('./ComputerChat'));
@@ -62,7 +63,6 @@ export function MobileApp() {
   const [pairUrl, setPairUrl] = useState('');
   const pairRequest = useRef(crypto.randomUUID());
   const [connection, setConnection] = useState<RemoteConnection>({ phase: 'connecting', endpoint: null });
-  const [files, setFiles] = useState<string[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
   // One host-wide foreground check. The Rust scheduler claims persisted
   // occurrences and admits at most one phone executor, regardless of chat.
@@ -158,7 +158,7 @@ export function MobileApp() {
     try { await run(); await refresh(); } catch (error) { setError(String(error)); } finally { setBusy(false); }
   };
   const openSettings = useCallback(() => { setSettingsLoaded(true); setSettingsOpen(true); }, []);
-  const openFiles = useCallback(() => { void invoke<string[]>('mobile_files', { action: 'list' }).then(files => { setFiles(files); setFilesOpen(true); }).catch(error => setError(String(error))); }, []);
+  const openFiles = useCallback(() => setFilesOpen(true), []);
   const targetLabel = target === 'phone' ? t('remote.mobilePhone') : t('remote.mobileComputer');
   const heading = <button className="mobile-target-button" onClick={() => setTargetsOpen(true)} aria-label={t('remote.mobileTarget')}><Logo size={26} decorative/><span><strong>Nexa</strong><small>{targetLabel}<ChevronDown size={12}/></small></span></button>;
   const drawerFooter = <><button onClick={() => setTargetsOpen(true)}><Smartphone size={18}/>{t('remote.mobileTarget')}</button><button onClick={openFiles}><FolderOpen size={18}/>{t('remote.mobileFiles')}</button><button onClick={openSettings}><Settings size={18}/>{t('remote.mobileSettings')}</button></>;
@@ -195,6 +195,6 @@ export function MobileApp() {
       <button onClick={() => { setTarget('pair'); setTargetsOpen(false); }}><Plus size={21}/><span>{t('remote.addDevice')}</span><ArrowRight size={17}/></button>
     </div></MobileDialog>
     {settingsLoaded && state && <Suspense fallback={null}><PhoneSettingsSheet open={settingsOpen} state={{ ...state, connectionSync: { ...state.connectionSync, ...syncResults } }} host={host} syncBusy={syncBusy} syncErrors={syncErrors} onSync={id => syncConnections(id)} onClose={() => setSettingsOpen(false)} onChanged={refresh} onForgot={() => { setTarget('phone'); void refresh(); }}/></Suspense>}
-    <MobileDialog open={filesOpen} title={t('remote.mobileFiles')} onClose={() => setFilesOpen(false)}><p className="mobile-section-hint">{t('remote.mobileFilesHint')}</p><div className="mobile-file-list">{files.map(path => <button key={path} onClick={() => void action(() => invoke('mobile_files', { action: 'share', relativePath: path }))}><FolderOpen size={18}/><span>{path}</span><ArrowRight size={16}/></button>)}</div></MobileDialog>
+    <MobileDialog open={filesOpen} title={t('remote.mobileFiles')} onClose={() => setFilesOpen(false)}><PhoneFiles/></MobileDialog>
   </main>;
 }

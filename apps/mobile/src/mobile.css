@@ -217,7 +217,10 @@
 .mobile-setup-choices button:not(.mobile-primary) { border: 1px solid var(--color-border); }
 .mobile-scan-button { margin-top: 22px; width: 100%; }
 .mobile-skip { display: block; min-height: 44px; margin: 16px auto 0; font-size: 13px; color: var(--color-text-secondary); }
-.mobile-file-list button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 50px; text-align: left; border-bottom: 1px solid var(--color-border); font-size: 13px; }
+.mobile-file-row { display: grid; grid-template-columns: minmax(0, 1fr) 48px; gap: 6px; border-bottom: 1px solid var(--color-border); }
+.mobile-file-row button { display: flex; align-items: center; gap: 10px; min-height: 50px; text-align: left; font-size: 13px; }
+.mobile-file-row svg { flex: none; }
+.mobile-file-delete { justify-content: center; color: var(--color-text-secondary); }
 .mobile-file-list span { flex: 1; overflow-wrap: anywhere; }
 .mobile-forget { margin: 24px 0 0; color: #b0534a; font-size: 12px; min-height: 44px; }
 .mobile-error { display: flex; justify-content: space-between; gap: 10px; flex: none; padding: 10px 14px; margin: 8px 12px; border: 1px solid #b86e6450; border-radius: 10px; font-size: 12px; line-height: 1.5; color: #a14d44; overflow-wrap: anywhere; }
