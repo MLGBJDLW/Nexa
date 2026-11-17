@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.19.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.13...nexa-monorepo-v0.19.14) (2026-11-17)
+
+### Improvements
+
+- Auto search can answer a quick lookup with the connected model's hosted search, including DeepSeek Flash. Multi-source requests use the research tools. A research pack can now include up to 20 ranked results, with at most three page reads in flight.
+- Web citations show the source site's icon when available. Search for a model by name, alias or compact spelling such as `Gemini4`.
+- The catalog includes new speech and embedding choices, updated routed model limits, and confirmed retirements on OpenRouter and SiliconFlow China. Saved configurations retain their original model IDs.
+
+### Features
+
+* **agent:** improve web search, citations, model discovery and phone files ([f098798](https://github.com/MLGBJDLW/Nexa/commit/f098798c4a717af21cb8b6adbe493a2e42357c97))
+* **catalog:** enable bounded Runway Flash text generation ([f7f2940](https://github.com/MLGBJDLW/Nexa/commit/f7f2940541fa462cd176af6cb896e23d7450c87f))
+* **catalog:** reconcile verified embedding, speech and retired chat models ([fc08f4b](https://github.com/MLGBJDLW/Nexa/commit/fc08f4b06a1c9d3be9f02593366ea2b2052d083a))
+* **chat:** show site icons alongside web citations ([7c8b8fe](https://github.com/MLGBJDLW/Nexa/commit/7c8b8fe3ffcea071fca17d59522b00ef5dd8f323))
+* **mobile:** delete individual files from the phone workspace ([11ca602](https://github.com/MLGBJDLW/Nexa/commit/11ca602fefdf071b4cce9faa1410ad8ed07968fe))
+* **models:** match compact names and aliases across model pickers ([d02ae30](https://github.com/MLGBJDLW/Nexa/commit/d02ae3090331fcbe6b577bb7b9ccc1d61bfd4076))
+* **search:** let research packs use the requested result count ([dcb1e94](https://github.com/MLGBJDLW/Nexa/commit/dcb1e94b8de2b1cf3ec4572dd8ff41c3d4a31818))
+* **search:** route quick web lookups and multi-source research ([3d86bf7](https://github.com/MLGBJDLW/Nexa/commit/3d86bf72dc492fd567e8b160e769e2f8f18a35b3))
+
+
+### Bug Fixes
+
+* **catalog:** keep a stable GLM Flash fallback across routed providers ([17a7633](https://github.com/MLGBJDLW/Nexa/commit/17a76339a3776d238bb91d600990ec50e7dde262))
+* **catalog:** refresh routed limits and verify expired embedding status ([102217f](https://github.com/MLGBJDLW/Nexa/commit/102217f3300cf70548f6a4cb903f9832a558e6c3))
+* **search:** honor multi-source requests and resumed evidence requirements ([18fa38c](https://github.com/MLGBJDLW/Nexa/commit/18fa38cae2510f4e3a2e4daaf45a5cc5b630c313))
+* **search:** resolve hosted tools against the physical fallback route ([89ad2f4](https://github.com/MLGBJDLW/Nexa/commit/89ad2f4af755e4ccbafa9c20eb789e13b2f9cc34))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at f098798c4a717af21cb8b6adbe493a2e42357c97 -->
+
+### What's Changed
+* chore(catalog): refresh verified November 17 model metadata by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/567
+* feat(agent): improve web search, citations, model discovery and phone files by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/569
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.13...nexa-monorepo-v0.19.14
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.12...nexa-monorepo-v0.19.13) (2026-11-16)
 
 ### Improvements
