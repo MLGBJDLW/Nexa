@@ -362,7 +362,7 @@ test('HeyGen Decisions routes remain opt-in and retired router models retain sav
     assert.equal(entry.contextTokens, context);
     assert.equal(entry.recommended, false);
     assert.equal(entry.status, 'active');
-    assert.deepEqual(entry.inputModalities, ['text', 'image']);
+    assert.deepEqual(entry.inputModalities, ['text', 'image', 'video']);
     assert.deepEqual(entry.outputModalities, ['decisions']);
     assert.equal(providers.some(row => row.models?.some(model => model.id === id)), false);
   }

@@ -935,6 +935,30 @@
         "source": "official",
         "productReadiness": "known",
         "lastVerifiedAt": "2026-09-26"
+      },
+      {
+        "id": "embed-english-light-v3.0",
+        "name": "embed-english-light-v3.0",
+        "dimensions": 384,
+        "supportsDimensionOverride": false,
+        "recommended": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://docs.cohere.com/docs/cohere-embed"
+      },
+      {
+        "id": "embed-multilingual-light-v3.0",
+        "name": "embed-multilingual-light-v3.0",
+        "dimensions": 384,
+        "supportsDimensionOverride": false,
+        "recommended": false,
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-17",
+        "documentationRef": "https://docs.cohere.com/docs/cohere-embed"
       }
     ],
     "documentationUrl": "https://docs.cohere.com/reference/embed"
