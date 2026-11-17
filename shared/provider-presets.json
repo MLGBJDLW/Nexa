@@ -4645,7 +4645,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 943717,
+        "maxOutputTokens": 131072,
         "capabilities": {
           "vision": true,
           "reasoning": {
