@@ -460,6 +460,13 @@ impl NativeSearchPlan {
             )
     }
 
+    pub(crate) fn for_evidence_requirement(mut self, min_sources: u8) -> Self {
+        if self.mode == SearchExecutionMode::Auto && min_sources > 1 {
+            self.mode = SearchExecutionMode::NexaRouter;
+        }
+        self
+    }
+
     pub fn marker(self) -> Option<ToolDefinition> {
         self.uses_provider_native().then(|| ToolDefinition {
             name: NATIVE_WEB_SEARCH_MARKER.to_string(),

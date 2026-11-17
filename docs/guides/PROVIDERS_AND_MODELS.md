@@ -613,6 +613,13 @@ Responses tool `web_search`. [DeepSeek chat demo streaming client](https://githu
 [Web Tools](https://api-docs.deepseek.com/guides/web_tools/) and
 [Responses tool compatibility](https://api-docs.deepseek.com/guides/responses_api/).
 
+In Auto mode, a quick lookup can use the current model's hosted search in the
+same response. Nexa keeps the configured reasoning settings. For comparisons
+and original passages, the agent can use `web_research_context` to search and
+read pages together. Profiles requiring multiple evidence sources, including
+Deep and Research Ultra, use Nexa Router for web searches. Explicit search
+modes take precedence. The same routing runs on desktop and on the phone.
+
 The demo streams search and page-read results as typed blocks on the same
 request. DeepSeek Harness also supports a standalone retrieval path. It
 deduplicates queries within a batch, starts their searches concurrently and

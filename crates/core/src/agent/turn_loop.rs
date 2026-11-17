@@ -854,6 +854,10 @@ impl AgentExecutor {
             verification_reserve_percent: self.config.subagent_verification_reserve_percent,
         });
         let requires_workspace_isolation = self.config.request_kind.requires_workspace_isolation();
+        let native_search_plan = self
+            .config
+            .native_search_plan
+            .for_evidence_requirement(orchestration_policy.min_evidence_sources);
         let mut workflow_ir = crate::workflow_ir::compile_turn_workflow_ir(
             &task_plan,
             &orchestration_policy,
@@ -1107,7 +1111,20 @@ impl AgentExecutor {
                 });
         let mut tool_defs = if !tools_allowed_initially {
             Vec::new()
-        } else if let Some(surface) = cache_stable_tool_surface {
+        } else if let Some(mut surface) = cache_stable_tool_surface {
+            if route_plan.kind == AgentRouteKind::WebLookup
+                && !route_plan.requirements.interaction.browser_observation
+                && self.config.native_search_plan.mode
+                    == crate::llm::native_search::SearchExecutionMode::Auto
+            {
+                surface.include_web_lookup_tools(
+                    model_tool_registry,
+                    model,
+                    effective_context_capacity,
+                    max_response_tokens,
+                    orchestration_policy.min_evidence_sources > 1,
+                );
+            }
             debug!(
                 mode = ?surface.mode,
                 tool_count = surface.definitions.len(),
@@ -1867,6 +1884,7 @@ impl AgentExecutor {
                 Vec::new(),
                 effective_tool_defs,
                 model_step::ModelStepRequestOptions {
+                    native_search_plan,
                     model,
                     conversation_id,
                     max_response_tokens,
@@ -1982,6 +2000,7 @@ impl AgentExecutor {
             check_delegated_action_recovery!();
             let model_step_result = self
                 .run_model_step(model_step::ModelStepContext {
+                    native_search_plan,
                     db,
                     tx: &tx,
                     conversation_id,

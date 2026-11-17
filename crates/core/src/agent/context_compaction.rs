@@ -235,6 +235,7 @@ impl AgentExecutor {
             history.clone(),
             &[],
             super::model_step::ModelStepRequestOptions {
+                native_search_plan: Default::default(),
                 model,
                 conversation_id: run.conversation_id,
                 max_response_tokens,

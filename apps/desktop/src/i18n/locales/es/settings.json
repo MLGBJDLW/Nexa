@@ -147,7 +147,7 @@
   "webSearchExecutionMode": "Ejecución de búsqueda",
   "webSearchExecutionMode.desc": "Elige quién realiza la búsqueda web. Los modos nativos solo se habilitan para endpoints de proveedor exactos y confiables.",
   "webSearchExecutionMode.auto": "Automático",
-  "webSearchExecutionMode.auto.desc": "Usa la búsqueda nativa del proveedor si el adaptador y el endpoint son confiables; de lo contrario, usa Nexa Router.",
+  "webSearchExecutionMode.auto.desc": "Las consultas rápidas dan prioridad a la búsqueda nativa del proveedor si está disponible. Los perfiles de investigación con varias fuentes usan Nexa Router.",
   "webSearchExecutionMode.providerNative": "Nativa del proveedor",
   "webSearchExecutionMode.providerNative.desc": "Exige la búsqueda del servidor del proveedor del modelo seleccionado y evita una búsqueda local duplicada.",
   "webSearchExecutionMode.nexaRouter": "Nexa Router",

@@ -147,7 +147,7 @@
   "webSearchExecutionMode": "Search execution",
   "webSearchExecutionMode.desc": "Choose who performs web search. Native modes are enabled only for exact trusted provider endpoints.",
   "webSearchExecutionMode.auto": "Auto",
-  "webSearchExecutionMode.auto.desc": "Use provider-native search when its wire adapter and endpoint are trusted; otherwise use Nexa Router.",
+  "webSearchExecutionMode.auto.desc": "Prefer supported provider-hosted search for quick facts. Multi-source research profiles use Nexa Router.",
   "webSearchExecutionMode.providerNative": "Provider native",
   "webSearchExecutionMode.providerNative.desc": "Require the selected model provider's server-side search and prevent a duplicate local search call.",
   "webSearchExecutionMode.nexaRouter": "Nexa Router",
