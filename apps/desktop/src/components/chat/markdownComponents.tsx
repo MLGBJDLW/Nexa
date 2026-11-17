@@ -4,7 +4,7 @@ import { localFileReference } from '../../features/preview/localFileReference';
 import { MAX_HIGHLIGHT_CODE_CHARS } from '../../lib/streaming/markdownPresentation';
 import { memo, useMemo, createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
-import { Copy, Check, FileText, Paperclip, ExternalLink, Maximize2, Minimize2 } from 'lucide-react';
+import { Copy, Check, FileText, Paperclip, Maximize2, Minimize2 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-shell';
 import DOMPurify from 'dompurify';
 import remarkGfm from 'remark-gfm';
@@ -19,6 +19,7 @@ import { canPreviewInApp, useFilePreview } from '../../features/preview';
 import { sourceHost } from '../../lib/sourceDisplay';
 import { FileBadge } from '../ui/FileBadge';
 import { CitationChip } from './EvidenceCard';
+import { WebSourceIcon } from './WebSourceIcon';
 import type { CitationCardData } from '../../lib/citationParser';
 import { preprocessChunkCitations, preprocessInlineCitations } from '../../lib/citationParser';
 import { transformMarkdownProse } from '../../lib/markdownCodeProtection';
@@ -253,7 +254,7 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
           active:scale-95 align-baseline leading-[1.4] mx-0.5"
         title={rawUrl}
       >
-        <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+        <WebSourceIcon source={rawUrl} className="h-3 w-3 shrink-0" />
         <span className="truncate max-w-[180px]">{displayLabel}</span>
       </button>
     );
@@ -301,6 +302,7 @@ function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>
       onClick={handleClick}
       className="text-accent hover:text-accent-hover underline underline-offset-2"
     >
+      {href && /^https?:\/\//i.test(href) && <WebSourceIcon source={href} className="mr-1 inline-block h-3 w-3 align-baseline" />}
       {children}
     </a>
   );

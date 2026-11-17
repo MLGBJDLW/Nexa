@@ -272,10 +272,17 @@ test('groups multiple cited chunks from the same file into one evidence source c
 
 
 test('keeps file and web citation badges with spaces and parentheses after reopening', async ({ page }) => {
+  const iconUrl = 'https://example.org/favicon.ico';
+  await page.route(iconUrl, route => route.fulfill({ contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8"/></svg>' }));
   await page.goto('/chat/conv-evidence-dedup');
   await expect(page.getByRole('button', { name: 'Report (final)', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Web guide · example.org', exact: true })).toBeVisible();
+  const badge = page.getByRole('button', { name: 'Web guide · example.org', exact: true });
+  await expect(badge.locator('img')).toHaveAttribute('src', iconUrl);
+  await expect.poll(() => badge.locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(16);
+  await page.route(iconUrl, route => route.abort());
   await page.reload();
+  await expect(badge.locator('svg')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Report (final)', exact: true })).toBeVisible();
   expect(decodeURI(await page.getByRole('button', { name: 'Web guide · example.org', exact: true }).getAttribute('title') ?? '')).toBe('https://example.org/docs/guide_(v2)?view=full');
   await expect(page.getByRole('button', { name: 'Report (final)', exact: true })).toHaveAttribute('title', 'D:/Notes/October Report (final).md');
