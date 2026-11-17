@@ -18,9 +18,9 @@
       "max_sources": {
         "type": "integer",
         "minimum": 1,
-        "maximum": 6,
+        "maximum": 20,
         "default": 4,
-        "description": "Maximum top results to fetch and include in the context pack."
+        "description": "Maximum top results to read and include, up to the requested search limit. Larger source sets share the excerpt budget."
       },
       "region": {
         "type": "string",
