@@ -832,6 +832,7 @@ impl AgentExecutor {
             &self.config.system_prompt,
             has_indexed_sources,
         );
+        let explicit_research = route::requests_multi_source_research(routing_objective);
         let mut loop_recorder = TurnLoopRecorder::new(route_plan.kind, self.config.max_iterations);
         let mut task_plan = resumed_execution
             .as_ref()
@@ -854,10 +855,6 @@ impl AgentExecutor {
             verification_reserve_percent: self.config.subagent_verification_reserve_percent,
         });
         let requires_workspace_isolation = self.config.request_kind.requires_workspace_isolation();
-        let native_search_plan = self
-            .config
-            .native_search_plan
-            .for_evidence_requirement(orchestration_policy.min_evidence_sources);
         let mut workflow_ir = crate::workflow_ir::compile_turn_workflow_ir(
             &task_plan,
             &orchestration_policy,
@@ -1007,6 +1004,14 @@ impl AgentExecutor {
                 workflow.apply_checkpoint_to_task_plan(&mut task_plan);
             }
         }
+        let min_evidence_sources = workflow_ir.as_ref().map_or(
+            orchestration_policy
+                .min_evidence_sources
+                .max(task_plan.evidence_policy.min_sources),
+            |workflow| workflow.min_evidence_sources,
+        );
+        let prefer_research = explicit_research || min_evidence_sources > 1;
+        let native_search_plan = self.config.native_search_plan.for_research(prefer_research);
         let mut task_plan_value = workflow_ir
             .as_ref()
             .map(|workflow| workflow.task_plan_checkpoint(&task_plan))
@@ -1112,7 +1117,12 @@ impl AgentExecutor {
         let mut tool_defs = if !tools_allowed_initially {
             Vec::new()
         } else if let Some(mut surface) = cache_stable_tool_surface {
-            if route_plan.kind == AgentRouteKind::WebLookup
+            if (route_plan.kind == AgentRouteKind::WebLookup
+                || (explicit_research
+                    && route_plan
+                        .requirements
+                        .active_categories
+                        .contains(&crate::tools::ToolCategory::Web)))
                 && !route_plan.requirements.interaction.browser_observation
                 && self.config.native_search_plan.mode
                     == crate::llm::native_search::SearchExecutionMode::Auto
@@ -1122,7 +1132,7 @@ impl AgentExecutor {
                     model,
                     effective_context_capacity,
                     max_response_tokens,
-                    orchestration_policy.min_evidence_sources > 1,
+                    prefer_research,
                 );
             }
             debug!(

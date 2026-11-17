@@ -1952,16 +1952,27 @@ mod tests {
         ] {
             let plan =
                 NativeSearchPlan::resolve(mode, ProviderType::DeepSeek, None, "deepseek-flash");
-            for min_sources in [1, 3] {
+            for (min_sources, query, research) in [
+                (1, "Quickly check the latest release online.", false),
+                (
+                    1,
+                    "Search the web and compare three independent sources.",
+                    true,
+                ),
+                (1, "请联网查三家独立来源并交叉验证。", true),
+                (3, "Look up the release online.", true),
+            ] {
+                let prefer_research =
+                    min_sources > 1 || route::requests_multi_source_research(query);
                 let projected = request_tools_with_native_search_plan(
                     &tools,
-                    plan.for_evidence_requirement(min_sources),
+                    plan.for_research(prefer_research),
                 )
                 .unwrap();
                 assert_eq!(
                     projected.iter().any(is_native_marker),
                     mode != SearchExecutionMode::NexaRouter
-                        && !(mode == SearchExecutionMode::Auto && min_sources > 1)
+                        && !(mode == SearchExecutionMode::Auto && research)
                 );
                 assert!(projected
                     .iter()

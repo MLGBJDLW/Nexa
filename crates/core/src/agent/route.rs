@@ -58,6 +58,23 @@ pub(crate) struct AgentRoutePlan {
     pub(crate) requirements: TurnCapabilityRequirements,
 }
 
+// This is a tool-selection hint. The model can also choose the research tool
+// from the substance of the question without an explicit source count.
+pub(super) fn requests_multi_source_research(query: &str) -> bool {
+    static MULTI_SOURCE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?ix)
+            \b(?:multi[-\s]source|deep\s+research|in[-\s]depth\s+research|cross[-\s]check)\b
+            |\b(?:multiple|several|independent|two|three|four|five|[2-9]|[1-9]\d+)
+                \s+(?:(?:independent|different|reliable|primary)\s+)?sources\b
+            |(?:多|兩|两|[二三四五六七八九]|[2-9]|[1-9]\d+)(?:个|個|家|种|種)?(?:独立|獨立|不同|权威|權威)?(?:来源|來源|信源)
+            |交叉(?:核对|核對|查证|查證|验证|驗證)|深入(?:研究|調查|调查)|深度(?:研究|调研|調研)
+            |複数の(?:情報源|出典)|여러\s*출처|mehrere\s+quellen|plusieurs\s+sources
+            |varias\s+fuentes|várias\s+fontes|нескольк(?:о|их)\s+источник")
+            .expect("valid research intent pattern")
+    });
+    MULTI_SOURCE.is_match(query)
+}
+
 pub(crate) fn route_user_turn(
     query: &str,
     system_prompt: &str,

@@ -481,8 +481,8 @@ impl NativeSearchPlan {
             )
     }
 
-    pub(crate) fn for_evidence_requirement(mut self, min_sources: u8) -> Self {
-        if self.mode == SearchExecutionMode::Auto && min_sources > 1 {
+    pub(crate) fn for_research(mut self, prefer_research: bool) -> Self {
+        if self.mode == SearchExecutionMode::Auto && prefer_research {
             self.mode = SearchExecutionMode::NexaRouter;
         }
         self
