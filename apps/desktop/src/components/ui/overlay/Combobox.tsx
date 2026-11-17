@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Command } from 'cmdk';
+import { Command, defaultFilter } from 'cmdk';
+import { compactModelSearch } from '../../../lib/modelSearch';
 import { Check, ChevronDown } from 'lucide-react';
 import {
   NexaPopover,
@@ -14,6 +15,12 @@ export interface NexaComboboxOption {
   keywords?: string[];
   disabled?: boolean;
   badge?: ReactNode;
+}
+
+function filterOption(value: string, search: string, keywords: string[] = []): number {
+  const query = compactModelSearch(search);
+  if (query && compactModelSearch(value) === query) return 1;
+  return defaultFilter(value, search.normalize('NFKC'), keywords);
 }
 
 export function NexaCombobox({
@@ -60,7 +67,7 @@ export function NexaCombobox({
         </button>
       </NexaPopoverTrigger>
       <NexaPopoverContent className="nexa-combobox-content min-w-[var(--radix-popover-trigger-width)] p-1">
-        <Command loop>
+        <Command loop filter={filterOption}>
           <Command.Input className="nexa-combobox-input" placeholder={searchPlaceholder} />
           <Command.List className="nexa-combobox-list p-1">
             <Command.Empty className="px-2 py-6 text-center text-xs text-text-tertiary">{emptyLabel}</Command.Empty>

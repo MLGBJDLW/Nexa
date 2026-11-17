@@ -23,6 +23,7 @@ import {
   type ProviderPreset,
 } from '../../lib/providerPresets';
 import { ProviderIcon } from '../../lib/providerIcons';
+import { compactModelSearch } from '../../lib/modelSearch';
 import type { AgentConfig, AppConfig, SaveAgentConfigInput } from '../../types/conversation';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -152,6 +153,7 @@ export function ProvidersSettingsTab({
       .filter((id): id is string => Boolean(id)),
   ), [agentConfigs]);
   const normalizedProviderQuery = normalizeProviderSearch(providerQuery);
+  const compactQuery = compactModelSearch(providerQuery);
   const providerPresetResults = useMemo(() => PROVIDER_PRESETS
     .filter((preset) => {
       if (preset.retired) return false;
@@ -163,11 +165,12 @@ export function ProvidersSettingsTab({
         preset.provider,
         preset.description,
         ...preset.models.map((model) => `${model.id} ${model.name}`),
-      ].join(' ')).includes(normalizedProviderQuery);
+      ].join(' ')).includes(normalizedProviderQuery) || Boolean(compactQuery && preset.models.some(model =>
+        [model.name, model.id, ...model.descriptor.aliases].some(name => compactModelSearch(name).includes(compactQuery))));
     })
     .sort((left, right) => (
       Number(configuredPresetIds.has(right.id)) - Number(configuredPresetIds.has(left.id))
-    )), [configuredPresetIds, normalizedProviderQuery, connectionKind, agentRegistry.snapshot]);
+    )), [configuredPresetIds, normalizedProviderQuery, compactQuery, connectionKind, agentRegistry.snapshot]);
   const showCustomProvider = connectionKind === 'api' && (!normalizedProviderQuery || normalizeProviderSearch([
     t('settings.customProvider'),
     t('settings.customProviderDesc'),

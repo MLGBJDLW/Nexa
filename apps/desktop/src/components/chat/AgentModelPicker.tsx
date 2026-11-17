@@ -37,6 +37,7 @@ import type { AgentConfig } from '../../types/conversation';
 import { useOverlayRoot } from '../ui/overlay';
 import { getSubscriptionCatalogs, invalidateSubscriptionModels, loadSubscriptionModels, runtimeCatalogKey, subscribeSubscriptionCatalogs } from '../../lib/subscriptionModelCatalog';
 import { loadProviderModelCatalog } from '../../lib/providerModelCatalog';
+import { compactModelSearch } from '../../lib/modelSearch';
 import { useAppCommand } from '../../lib/appCommands';
 import { ReasoningIntensity } from './ReasoningIntensity';
 import { SubscriptionUsagePopover } from './SubscriptionUsagePopover';
@@ -71,6 +72,7 @@ interface ModelRow {
   model: ProviderModelPreset;
   reasoning: ReasoningCapability | null;
   searchText: string;
+  compactNames: string[];
 }
 
 type PickerStep = 'providers' | 'models' | 'reasoning';
@@ -170,21 +172,20 @@ function makeModelRows(
   return Array.from(modelMap.values()).map((model) => {
     // Provider names, endpoints and descriptive tags are context, not model
     // identity. A provider named GLM must not match every model it offers.
-    const searchText = normalizeSearch([
-      model.id,
-      model.name,
-    ].filter(Boolean).join(' '));
+    const names = [model.id, model.name, ...model.descriptor.aliases];
+    const searchText = normalizeSearch(names.join(' '));
     return {
       key: `${providerRow.config.id}:${model.id}`,
       providerRow,
       model,
       reasoning: reasoningForModel(providerRow.preset, model),
       searchText,
+      compactNames: names.map(compactModelSearch),
     };
   });
 }
 
-function scoreModelRow(row: ModelRow, query: string): number {
+function scoreModelRow(row: ModelRow, query: string, compactQuery: string): number {
   if (!query) {
     return row.model.recommended ? 30 : 10;
   }
@@ -193,7 +194,10 @@ function scoreModelRow(row: ModelRow, query: string): number {
   if (modelId === query || modelName === query) return 100;
   if (modelName.startsWith(query)) return 88;
   if (modelId.startsWith(query)) return 84;
+  if (compactQuery && row.compactNames.includes(compactQuery)) return 82;
+  if (compactQuery && row.compactNames.some(name => name.startsWith(compactQuery))) return 76;
   if (row.searchText.includes(query)) return 62;
+  if (compactQuery && row.compactNames.some(name => name.includes(compactQuery))) return 58;
   const parts = query.split(/[-_:./\s]+/).filter(Boolean);
   return parts.length > 1 && parts.every((part) => row.searchText.includes(part)) ? 52 : 0;
 }
@@ -295,6 +299,7 @@ export function AgentModelPicker({
   );
 
   const normalizedQuery = normalizeSearch(query);
+  const compactQuery = compactModelSearch(normalizedQuery);
   const activeProviderModelRows = useMemo(
     () => allModelRows.filter((row) => row.providerRow.config.id === activeConfigId),
     [activeConfigId, allModelRows],
@@ -303,7 +308,7 @@ export function AgentModelPicker({
     () =>
       normalizedQuery
         ? (pickerStep === 'providers' ? allModelRows : activeProviderModelRows)
-            .map((row) => ({ row, score: scoreModelRow(row, normalizedQuery) }))
+            .map((row) => ({ row, score: scoreModelRow(row, normalizedQuery, compactQuery) }))
             .filter((entry) => entry.score > 0)
             .sort((a, b) => {
               if (b.score !== a.score) return b.score - a.score;
@@ -314,7 +319,7 @@ export function AgentModelPicker({
             })
             .map((entry) => entry.row)
         : [],
-    [allModelRows, activeProviderModelRows, normalizedQuery, pickerStep],
+    [allModelRows, activeProviderModelRows, normalizedQuery, compactQuery, pickerStep],
   );
   const visibleModelRows = normalizedQuery ? searchModelRows : activeProviderModelRows;
 

@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 
 import { useTranslation } from '../../i18n';
 import { usageModelIdentity } from '../../features/usage/modelIdentity';
+import { compactModelSearch } from '../../lib/modelSearch';
 import type { UsageBreakdownRow } from '../../lib/api';
 import { ProviderIcon, resolveProviderIconMeta } from '../../lib/providerIcons';
 
@@ -18,11 +19,13 @@ export function UsageModelBreakdown({ rows }: { rows: UsageBreakdownRow[] }) {
   const number = useMemo(() => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }), [locale]);
   const groups = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
+    const compactQuery = compactModelSearch(search);
     const grouped = new Map<string, UsageBreakdownRow[]>();
     for (const row of rows) {
       const provider = row.providerId || t('usage.unknown');
       const model = row.modelId || t('usage.unknown');
-      if (query && !`${provider} ${usageProviderLabel(provider)} ${model}`.toLocaleLowerCase().includes(query)) continue;
+      if (query && !`${provider} ${usageProviderLabel(provider)} ${model}`.toLocaleLowerCase().includes(query)
+        && !(compactQuery && compactModelSearch(model).includes(compactQuery))) continue;
       const key = groupBy === 'provider' ? provider : usageModelIdentity(model);
       const group = grouped.get(key) ?? [];
       group.push(row);
