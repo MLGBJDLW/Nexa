@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{stream::BoxStream, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use crate::error::CoreError;
 use crate::provider_catalog::model_supports_vision_from_catalog;
@@ -984,6 +985,7 @@ pub trait LlmProvider: Send + Sync {
 struct MessageValidatingProvider {
     inner: Box<dyn LlmProvider>,
     retirements: crate::provider_catalog::ModelRetirementPolicy,
+    search_preset: Option<&'static crate::provider_catalog::ProviderPreset>,
 }
 
 impl MessageValidatingProvider {
@@ -992,16 +994,53 @@ impl MessageValidatingProvider {
         provider_type: ProviderType,
         base_url: Option<String>,
     ) -> Self {
-        let catalog_provider = crate::provider_registry::provider_registry_entries()
-            .iter()
-            .find(|entry| entry.provider_type == provider_type)
-            .map(|entry| entry.canonical_key)
-            .unwrap_or("custom");
+        let catalog_provider = crate::provider_registry::canonical_provider_key(provider_type);
         let retirements = crate::provider_catalog::ModelRetirementPolicy::for_endpoint(
             catalog_provider,
             base_url.as_deref(),
         );
-        Self { inner, retirements }
+        Self {
+            inner,
+            retirements,
+            search_preset: crate::provider_catalog::find_provider_preset(
+                catalog_provider,
+                base_url.as_deref(),
+            ),
+        }
+    }
+
+    // A fallback changes the physical model and endpoint. Only the user's mode
+    // and engine carry over from a hosted search marker on the primary route.
+    fn search_projection<'a>(
+        &self,
+        request: &'a CompletionRequest,
+    ) -> (
+        Cow<'a, CompletionRequest>,
+        Option<native_search::NativeSearchPlan>,
+    ) {
+        let tools = request.tools.as_deref().unwrap_or_default();
+        let Some(mode) = native_search::marker_mode(tools) else {
+            return (Cow::Borrowed(request), None);
+        };
+        let plan = native_search::NativeSearchPlan::for_preset(
+            mode,
+            self.search_preset,
+            &request.model,
+            native_search::marker_engine(tools),
+        );
+        (plan.project_marker(request, true), Some(plan))
+    }
+
+    fn checked_request<'a>(
+        &self,
+        request: &'a CompletionRequest,
+    ) -> Result<Cow<'a, CompletionRequest>, CoreError> {
+        self.validate(request)?;
+        let (projected, plan) = self.search_projection(request);
+        if let Some(plan) = plan {
+            plan.validate()?;
+        }
+        Ok(projected)
     }
 
     fn validate(&self, request: &CompletionRequest) -> Result<(), CoreError> {
@@ -1049,7 +1088,8 @@ impl LlmProvider for MessageValidatingProvider {
         request: &CompletionRequest,
         document: &document::DocumentInput,
     ) -> bool {
-        self.inner.supports_document_input(request, document)
+        self.inner
+            .supports_document_input(&self.search_projection(request).0, document)
     }
 
     fn reasoning_replay_policy(&self, model: &str) -> reasoning_profile::ReasoningReplayPolicy {
@@ -1064,11 +1104,13 @@ impl LlmProvider for MessageValidatingProvider {
     }
 
     fn replay_history_projection(&self, request: &CompletionRequest) -> ReplayHistoryProjection {
-        self.inner.replay_history_projection(request)
+        self.inner
+            .replay_history_projection(&self.search_projection(request).0)
     }
 
     fn route_snapshot(&self, request: &CompletionRequest) -> provider_turn::RouteSnapshot {
-        self.inner.route_snapshot(request)
+        self.inner
+            .route_snapshot(&self.search_projection(request).0)
     }
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
@@ -1084,24 +1126,24 @@ impl LlmProvider for MessageValidatingProvider {
     }
 
     async fn complete(&self, request: &CompletionRequest) -> Result<CompletionResponse, CoreError> {
-        self.validate(request)?;
-        self.inner.complete(request).await
+        let projected = self.checked_request(request)?;
+        self.inner.complete(&projected).await
     }
 
     async fn complete_with_route(
         &self,
         request: &CompletionRequest,
     ) -> Result<(CompletionResponse, provider_turn::RouteSnapshot), CoreError> {
-        self.validate(request)?;
-        self.inner.complete_with_route(request).await
+        let projected = self.checked_request(request)?;
+        self.inner.complete_with_route(&projected).await
     }
 
     async fn stream_events(
         &self,
         request: &CompletionRequest,
     ) -> Result<BoxStream<'_, ProviderStreamEvent>, CoreError> {
-        self.validate(request)?;
-        self.inner.stream_events(request).await
+        let projected = self.checked_request(request)?;
+        self.inner.stream_events(&projected).await
     }
 
     async fn health_check(&self) -> Result<(), CoreError> {
@@ -1354,6 +1396,66 @@ mod tests {
     }
 
     struct NoRetiredRequests;
+
+    #[tokio::test]
+    async fn hosted_search_uses_the_physical_fallback_endpoint_and_model() {
+        use native_search::{
+            marker_dialect, NativeSearchDialect, NativeSearchPlan, SearchExecutionMode,
+        };
+        let private = MessageValidatingProvider::new(
+            Box::new(NoRetiredRequests),
+            ProviderType::OpenAi,
+            Some("https://proxy.example/v1".into()),
+        );
+        let google =
+            MessageValidatingProvider::new(Box::new(NoRetiredRequests), ProviderType::Google, None);
+        for mode in [
+            SearchExecutionMode::Auto,
+            SearchExecutionMode::Hybrid,
+            SearchExecutionMode::ProviderNative,
+        ] {
+            let marker =
+                NativeSearchPlan::resolve(mode, ProviderType::DeepSeek, None, "deepseek-flash")
+                    .marker()
+                    .unwrap();
+            let mut request = CompletionRequest {
+                model: "models/gemini-3.8-flash".into(),
+                messages: vec![Message::text(Role::User, "Look up the current release.")],
+                tools: Some(vec![
+                    ToolDefinition {
+                        name: "web_search".into(),
+                        description: "Search".into(),
+                        parameters: serde_json::json!({"type":"object"}),
+                    },
+                    marker,
+                ]),
+                ..Default::default()
+            };
+            let projected = google.checked_request(&request).unwrap();
+            assert_eq!(
+                marker_dialect(projected.tools.as_deref().unwrap()),
+                Some(NativeSearchDialect::GeminiGoogleSearch)
+            );
+            for (physical, model) in [(&private, "deepseek-flash"), (&google, "private-model")] {
+                request.model = model.into();
+                if mode == SearchExecutionMode::ProviderNative {
+                    assert!(matches!(
+                        physical.complete(&request).await,
+                        Err(CoreError::Llm(_))
+                    ));
+                    assert!(matches!(
+                        physical.stream_events(&request).await,
+                        Err(CoreError::Llm(_))
+                    ));
+                } else {
+                    let projected = physical.checked_request(&request).unwrap();
+                    let tools = projected.tools.as_deref().unwrap();
+                    assert_eq!(tools.len(), 1);
+                    assert_eq!(tools[0].name, "web_search");
+                }
+            }
+        }
+    }
     #[async_trait]
     impl LlmProvider for NoRetiredRequests {
         fn name(&self) -> &str {

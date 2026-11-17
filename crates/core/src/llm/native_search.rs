@@ -7,11 +7,12 @@
 //! fallbacks retain Nexa Router search without issuing the same query twice.
 
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use super::{ProviderType, ToolDefinition};
 use crate::error::CoreError;
 use crate::model_catalog::NativeWebSearchCapability;
-use crate::provider_catalog::find_provider_preset;
+use crate::provider_catalog::{find_provider_preset, ProviderPreset};
 use crate::provider_registry::canonical_provider_key;
 
 pub use crate::model_catalog::NativeSearchDialect;
@@ -409,16 +410,36 @@ impl NativeSearchPlan {
         model: &str,
         provider_engine: ProviderNativeSearchEngine,
     ) -> Self {
-        let capability = find_provider_preset(canonical_provider_key(provider_type), base_url)
+        Self::for_preset(
+            mode,
+            find_provider_preset(canonical_provider_key(provider_type), base_url),
+            model,
+            provider_engine,
+        )
+    }
+
+    pub(super) fn for_preset(
+        mode: SearchExecutionMode,
+        preset: Option<&ProviderPreset>,
+        model: &str,
+        provider_engine: ProviderNativeSearchEngine,
+    ) -> Self {
+        let capability = preset
             // A provider endpoint may describe the protocol, but runtime use
             // is model-gated. This prevents older models and dynamically
             // discovered IDs from inheriting a server-tool contract that was
             // never verified for them.
             .and_then(|preset| {
+                let model = model.trim();
+                let model = if matches!(preset.provider.as_str(), "google" | "vertex") {
+                    model.strip_prefix("models/").unwrap_or(model)
+                } else {
+                    model
+                };
                 let model_capability = preset
                     .models
                     .iter()
-                    .find(|candidate| candidate.id.eq_ignore_ascii_case(model.trim()))
+                    .find(|candidate| candidate.id.eq_ignore_ascii_case(model))
                     .and_then(|candidate| candidate.native_web_search);
                 model_capability.or_else(|| {
                     preset.native_web_search.filter(|capability| {
@@ -465,6 +486,34 @@ impl NativeSearchPlan {
             self.mode = SearchExecutionMode::NexaRouter;
         }
         self
+    }
+
+    /// Rebind an existing marker to the physical route. Keep local tool
+    /// definitions so adapters can honor Auto and Hybrid on a fallback.
+    pub(super) fn project_marker<'a>(
+        self,
+        request: &'a super::CompletionRequest,
+        permit_native: bool,
+    ) -> Cow<'a, super::CompletionRequest> {
+        let tools = request.tools.as_deref().unwrap_or_default();
+        let use_native = permit_native && self.uses_provider_native();
+        if use_native
+            && marker_capability(tools) == self.capability
+            && marker_dialect(tools) == self.dialect
+        {
+            return Cow::Borrowed(request);
+        }
+        let mut projected = request.clone();
+        if let Some(tools) = projected.tools.as_mut() {
+            tools.retain(|tool| !is_native_marker(tool));
+            if use_native {
+                tools.extend(self.marker());
+            }
+            if tools.is_empty() {
+                projected.tools = None;
+            }
+        }
+        Cow::Owned(projected)
     }
 
     pub fn marker(self) -> Option<ToolDefinition> {
