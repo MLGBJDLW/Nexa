@@ -2,6 +2,11 @@
 
 ## [0.19.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.13...nexa-monorepo-v0.19.14) (2026-11-17)
 
+### Improvements
+
+- Auto search can answer a quick lookup with the connected model's hosted search, including DeepSeek Flash. Multi-source requests use the research tools. A research pack can now include up to 20 ranked results, with at most three page reads in flight.
+- Web citations show the source site's icon when available. Search for a model by name, alias or compact spelling such as `Gemini4`.
+- The catalog includes new speech and embedding choices, updated routed model limits, and confirmed retirements on OpenRouter and SiliconFlow China. Saved configurations retain their original model IDs.
 
 ### Features
 
