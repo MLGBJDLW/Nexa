@@ -9,6 +9,7 @@ import { getSoftDropdownMotion } from '../../lib/uiMotion';
 import { VideoPreviewModal } from '../media/VideoPreviewModal';
 import type { CitationCardData } from '../../lib/citationParser';
 import { isWebUrl, sourceBasename, sourceHost } from '../../lib/sourceDisplay';
+import { WebSourceIcon } from './WebSourceIcon';
 import { useOverlayRoot } from '../ui/overlay/OverlayProvider';
 import { formatUserError } from '../../lib/userError';
 import { toast } from 'sonner';
@@ -143,7 +144,7 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
   const headingCtx = card.headingPath.length > 0 ? card.headingPath.join(' › ') : undefined;
   const timestamp = extractTimestamp(headingCtx);
 
-  const FileIcon = isWebSource ? ExternalLink : isVideo ? Film : isAudio ? Music : FileText;
+  const FileIcon = isVideo ? Film : isAudio ? Music : FileText;
   const iconColor = isWebSource ? 'text-accent' : isVideo ? 'text-violet-500' : isAudio ? 'text-amber-500' : 'text-accent';
 
   return (
@@ -159,7 +160,8 @@ export function EvidenceCardPopup({ card, anchorRect, onClose }: EvidenceCardPop
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-surface-2">
-          <FileIcon className={`h-3.5 w-3.5 ${iconColor} shrink-0`} />
+          {isWebSource ? <WebSourceIcon source={card.documentPath} className="h-3.5 w-3.5 shrink-0 text-accent" />
+            : <FileIcon className={`h-3.5 w-3.5 ${iconColor} shrink-0`} />}
           <span className="text-xs font-medium text-text-primary truncate flex-1" title={title}>
             {title}
           </span>
@@ -376,7 +378,7 @@ export function CitationChip({ chunkId, displayText, card }: CitationChipProps) 
           active:scale-95 align-baseline leading-[1.4]
           mx-0.5"
       >
-        {isWebSource ? <ExternalLink className="h-2.5 w-2.5 shrink-0" /> : isVideoFile(resolvedCard?.documentPath ?? '') ? <Film className="h-2.5 w-2.5 shrink-0" /> : isAudioFile(resolvedCard?.documentPath ?? '') ? <Music className="h-2.5 w-2.5 shrink-0" /> : <FileText className="h-2.5 w-2.5 shrink-0" />}
+        {isWebSource ? <WebSourceIcon source={resolvedCard?.documentPath} className="h-3 w-3 shrink-0" /> : isVideoFile(resolvedCard?.documentPath ?? '') ? <Film className="h-2.5 w-2.5 shrink-0" /> : isAudioFile(resolvedCard?.documentPath ?? '') ? <Music className="h-2.5 w-2.5 shrink-0" /> : <FileText className="h-2.5 w-2.5 shrink-0" />}
         <span className="truncate max-w-[120px]">{displayText || title}</span>
       </button>
       {popupOpen && resolvedCard && !fetching && !error && (

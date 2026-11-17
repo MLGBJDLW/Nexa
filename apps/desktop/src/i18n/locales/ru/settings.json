@@ -147,7 +147,7 @@
   "webSearchExecutionMode": "Выполнение поиска",
   "webSearchExecutionMode.desc": "Выберите, кто выполняет веб-поиск. Нативные режимы доступны только для точно совпадающих доверенных endpoint поставщика.",
   "webSearchExecutionMode.auto": "Автоматически",
-  "webSearchExecutionMode.auto.desc": "Использует нативный поиск поставщика, если адаптер и endpoint доверенные; иначе использует Nexa Router.",
+  "webSearchExecutionMode.auto.desc": "Для быстрых запросов при наличии поддержки используется встроенный поиск провайдера. Профили исследования с несколькими источниками используют Nexa Router.",
   "webSearchExecutionMode.providerNative": "Нативный поиск поставщика",
   "webSearchExecutionMode.providerNative.desc": "Требует серверный поиск выбранного поставщика модели и предотвращает повторный локальный вызов поиска.",
   "webSearchExecutionMode.nexaRouter": "Nexa Router",

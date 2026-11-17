@@ -3,6 +3,7 @@
 use super::final_answer_hygiene::FinalAnswerHygieneScope;
 use super::steering::SteeringDrainContext;
 use super::*;
+use crate::llm::native_search::NativeSearchPlan;
 use crate::llm::FinishReason;
 
 fn request_tools_with_native_search_plan(
@@ -76,6 +77,7 @@ enum ModelStepWaitSignal {
 
 #[derive(Clone, Copy)]
 pub(super) struct ModelStepRequestOptions<'a> {
+    pub(super) native_search_plan: NativeSearchPlan,
     pub(super) model: &'a str,
     pub(super) conversation_id: Option<&'a str>,
     pub(super) max_response_tokens: u32,
@@ -85,6 +87,7 @@ pub(super) struct ModelStepRequestOptions<'a> {
 }
 
 pub(super) struct ModelStepContext<'a> {
+    pub(super) native_search_plan: NativeSearchPlan,
     pub(super) db: &'a Database,
     pub(super) tx: &'a mpsc::Sender<AgentEvent>,
     pub(super) conversation_id: Option<&'a str>,
@@ -209,6 +212,7 @@ impl AgentExecutor {
         options: ModelStepRequestOptions<'_>,
     ) -> Result<CompletionRequest, CoreError> {
         let ModelStepRequestOptions {
+            native_search_plan,
             model,
             conversation_id,
             max_response_tokens,
@@ -216,8 +220,7 @@ impl AgentExecutor {
             force_answer_only,
             reasoning_disabled_for_tool_loop,
         } = options;
-        let request_tools =
-            request_tools_with_native_search_plan(tool_defs, self.config.native_search_plan)?;
+        let request_tools = request_tools_with_native_search_plan(tool_defs, native_search_plan)?;
         let cumulative_budget_requires_low_reasoning =
             self.config.max_actual_tokens_per_run.is_some() && max_response_tokens <= 4_096;
         let forced_progress_controls = (force_answer_only
@@ -404,6 +407,7 @@ impl AgentExecutor {
         ctx: ModelStepContext<'_>,
     ) -> Result<ModelStepOutcome, CoreError> {
         let ModelStepContext {
+            native_search_plan,
             db,
             tx,
             conversation_id,
@@ -442,6 +446,7 @@ impl AgentExecutor {
             request_messages,
             if suppress_tools { &[] } else { tool_defs },
             ModelStepRequestOptions {
+                native_search_plan,
                 model,
                 conversation_id,
                 max_response_tokens,
@@ -1932,5 +1937,47 @@ mod tests {
         assert!(visible
             .iter()
             .any(crate::llm::native_search::is_native_marker));
+    }
+
+    #[test]
+    fn multiple_source_turns_prefer_router_search_only_in_auto_mode() {
+        use crate::llm::native_search::{is_native_marker, SearchExecutionMode};
+
+        let tools = [tool("web_search"), tool("web_research_context")];
+        for mode in [
+            SearchExecutionMode::Auto,
+            SearchExecutionMode::ProviderNative,
+            SearchExecutionMode::NexaRouter,
+            SearchExecutionMode::Hybrid,
+        ] {
+            let plan =
+                NativeSearchPlan::resolve(mode, ProviderType::DeepSeek, None, "deepseek-flash");
+            for (min_sources, query, research) in [
+                (1, "Quickly check the latest release online.", false),
+                (
+                    1,
+                    "Search the web and compare three independent sources.",
+                    true,
+                ),
+                (1, "请联网查三家独立来源并交叉验证。", true),
+                (3, "Look up the release online.", true),
+            ] {
+                let prefer_research =
+                    min_sources > 1 || route::requests_multi_source_research(query);
+                let projected = request_tools_with_native_search_plan(
+                    &tools,
+                    plan.for_research(prefer_research),
+                )
+                .unwrap();
+                assert_eq!(
+                    projected.iter().any(is_native_marker),
+                    mode != SearchExecutionMode::NexaRouter
+                        && !(mode == SearchExecutionMode::Auto && research)
+                );
+                assert!(projected
+                    .iter()
+                    .any(|tool| tool.name == "web_research_context"));
+            }
+        }
     }
 }

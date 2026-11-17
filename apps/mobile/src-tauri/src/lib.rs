@@ -11,6 +11,7 @@ mod remote;
 mod speech;
 mod speech_connections;
 mod web_settings;
+mod workspace_files;
 
 use local::{LocalRuntime, LocalSettings};
 
@@ -741,48 +742,36 @@ async fn mobile_files(
     relative_path: Option<String>,
 ) -> Result<Value, String> {
     let state = runtime.get(&app).await?;
-    let root = state
-        .workspace_dir()
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
     match action.as_str() {
         "preview" | "data" => {
             file_preview::read(
-                &root,
+                &state.workspace_dir(),
                 relative_path.as_deref().ok_or("Choose a file")?,
                 action == "data",
             )
             .await
         }
-        "list" => {
-            let mut paths = Vec::new();
-            let mut directories = vec![root.clone()];
-            while let Some(directory) = directories.pop() {
-                for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
-                    let entry = entry.map_err(|e| e.to_string())?;
-                    let kind = entry.file_type().map_err(|e| e.to_string())?;
-                    if kind.is_symlink() {
-                        continue;
-                    }
-                    if kind.is_dir() {
-                        directories.push(entry.path());
-                    }
-                    if kind.is_file() {
-                        paths.push(
-                            entry
-                                .path()
-                                .strip_prefix(&root)
-                                .map_err(|e| e.to_string())?
-                                .to_string_lossy()
-                                .into_owned(),
-                        );
-                    }
+        "list" | "delete" => {
+            let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+            tokio::task::spawn_blocking(move || {
+                let root = workspace_files::open(&data).map_err(|e| e.to_string())?;
+                if action == "list" {
+                    return workspace_files::list(&root)
+                        .map(|paths| json!(paths))
+                        .map_err(|e| e.to_string());
                 }
-            }
-            paths.sort();
-            Ok(json!(paths))
+                let path = relative_path.as_deref().ok_or("Choose a phone file.")?;
+                workspace_files::delete(&root, path.as_ref()).map_err(|e| e.to_string())?;
+                Ok(Value::Null)
+            })
+            .await
+            .map_err(|e| e.to_string())?
         }
         "share" => {
+            let root = state
+                .workspace_dir()
+                .canonicalize()
+                .map_err(|e| e.to_string())?;
             let requested = relative_path.ok_or("Choose a phone file.")?;
             let source = root
                 .join(requested)

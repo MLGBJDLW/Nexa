@@ -42,6 +42,47 @@ impl CacheStableToolSurface {
     pub(super) fn uses_dynamic_discovery(&self) -> bool {
         self.mode == CacheStableToolSurfaceMode::StableResidentDynamic
     }
+
+    // On an admitted web lookup, avoid a tool-discovery round before the
+    // actual search. Keep the existing surface intact when a schema won't fit.
+    pub(super) fn include_web_lookup_tools(
+        &mut self,
+        registry: &ToolRegistry,
+        model: &str,
+        context_window: Option<u32>,
+        max_response_tokens: u32,
+        prefer_research: bool,
+    ) {
+        if !self.uses_dynamic_discovery() {
+            return;
+        }
+        let (max_definitions, max_tokens) =
+            cache_stable_tool_surface_limits(model, context_window, max_response_tokens);
+        let candidates = if prefer_research {
+            ["web_research_context", "web_search"]
+        } else {
+            ["web_search", "web_research_context"]
+        };
+        for name in candidates {
+            if self.definitions.len() >= max_definitions
+                || self.definitions.iter().any(|tool| tool.name == name)
+            {
+                continue;
+            }
+            if let Some(tool) = registry.definition(name) {
+                self.definitions.push(tool);
+                if !tool_surface_fits_cache_stable_limits(
+                    model,
+                    &self.definitions,
+                    max_definitions,
+                    max_tokens,
+                ) {
+                    self.definitions.pop();
+                }
+            }
+        }
+        self.definitions.sort_by(|a, b| a.name.cmp(&b.name));
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -489,6 +530,41 @@ mod tests {
             &names
         )
         .is_none());
+    }
+
+    #[test]
+    fn web_lookup_can_offer_authorized_search_on_the_first_cached_sample() {
+        let registry = crate::tools::default_tool_registry();
+        let restored = CacheStableToolSurface {
+            mode: CacheStableToolSurfaceMode::StableResidentDynamic,
+            definitions: vec![registry.definition("tool_search").unwrap()],
+        };
+        let mut lookup = restored.clone();
+        lookup.include_web_lookup_tools(&registry, "deepseek-flash", Some(100_000), 4096, false);
+        lookup.include_web_lookup_tools(&registry, "deepseek-flash", Some(100_000), 4096, true);
+        let names: Vec<_> = lookup
+            .definitions
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect();
+        assert_eq!(names, ["tool_search", "web_research_context", "web_search"]);
+
+        let mut restricted = restored.clone();
+        restricted.include_web_lookup_tools(
+            &registry.without_names(&["web_search"]),
+            "deepseek-flash",
+            Some(100_000),
+            4096,
+            true,
+        );
+        assert!(!restricted
+            .definitions
+            .iter()
+            .any(|tool| tool.name == "web_search"));
+
+        let mut tiny = restored;
+        tiny.include_web_lookup_tools(&registry, "deepseek-flash", Some(4096), 4096, false);
+        assert_eq!(tiny.definitions.len(), 1);
     }
 
     #[test]

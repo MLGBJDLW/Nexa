@@ -147,7 +147,7 @@
   "webSearchExecutionMode": "検索の実行方法",
   "webSearchExecutionMode.desc": "Web 検索の実行元を選択します。ネイティブモードは、完全一致する信頼済みプロバイダーのエンドポイントでのみ有効です。",
   "webSearchExecutionMode.auto": "自動",
-  "webSearchExecutionMode.auto.desc": "アダプターとエンドポイントが信頼済みならプロバイダーのネイティブ検索を使い、それ以外は Nexa Router を使います。",
+  "webSearchExecutionMode.auto.desc": "簡単な事実確認では、利用可能な場合はプロバイダーのネイティブ検索を優先します。複数の情報源を使う調査プロファイルでは Nexa Router を使用します。",
   "webSearchExecutionMode.providerNative": "プロバイダーのネイティブ検索",
   "webSearchExecutionMode.providerNative.desc": "選択したモデルプロバイダーのサーバー側検索を必須にし、ローカル検索の重複呼び出しを防ぎます。",
   "webSearchExecutionMode.nexaRouter": "Nexa Router",

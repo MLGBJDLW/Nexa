@@ -306,7 +306,7 @@ test('November 4 hosted reasoning and Voyage aliases follow their endpoint contr
   for(const id of ['mistral-large-4','mistral-large-4-0']) assert.deepEqual(model('mistral',id).capabilities.reasoning.effortLevels,['low','medium','high']);
   assert.deepEqual(model('mistral','zai-glm-5-3').capabilities.reasoning.effortLevels,['low','high','max']);
   assert.equal(model('mistral','deepseek-v4-1-flash-1017').status,'preview');
-  assert.equal(model('siliconflow','zai-org/GLM-4.5V').status,'deprecated');
+  assert.equal(model('siliconflow','zai-org/GLM-4.5V').status,'removed');
   for(const row of read('embedding-provider-presets').find(x=>x.id==='openrouter').models.filter(x=>x.id.startsWith('mongodb/'))) assert(row.aliases.includes(row.id.replace('mongodb/','voyageai/')));
 });
 

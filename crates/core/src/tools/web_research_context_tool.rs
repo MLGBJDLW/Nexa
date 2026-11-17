@@ -23,6 +23,7 @@ const DEFAULT_CONTEXT_SEARCH_LIMIT: usize = 8;
 const DEFAULT_MAX_SOURCES: usize = 4;
 const MAX_CONCURRENT_PAGE_READS: usize = 3;
 const DEFAULT_MAX_CHARS_PER_SOURCE: usize = 1800;
+const PACK_EXCERPT_CHAR_BUDGET: usize = 24_000;
 
 pub struct WebResearchContextTool;
 
@@ -97,7 +98,7 @@ fn web_research_context_expected_format() -> serde_json::Value {
     serde_json::json!({
         "query": "focused research question",
         "limit": "integer from 1 to 20",
-        "max_sources": "integer from 1 to 6",
+        "max_sources": "integer from 1 to 20, up to the requested search limit",
         "region": "auto | mainland_cn | global",
         "language": "auto | zh | en",
         "time_range": "any | day | week | month | year",
@@ -382,9 +383,10 @@ impl Tool for WebResearchContextTool {
             ));
         }
 
+        let search_limit = args.limit.clamp(1, 20);
         let search_args = WebSearchArgs {
             query: query.to_string(),
-            limit: args.limit.clamp(1, 20),
+            limit: search_limit,
             region: args.region,
             language: args.language,
             engines: Vec::new(),
@@ -408,8 +410,7 @@ impl Tool for WebResearchContextTool {
         };
 
         let search = execution.response;
-        let max_sources = args.max_sources.clamp(1, 6);
-        let max_chars = args.max_chars_per_source.clamp(500, 4000);
+        let max_sources = args.max_sources.clamp(1, search_limit);
         let mut warnings = search
             .engines_failed
             .iter()
@@ -423,6 +424,10 @@ impl Tool for WebResearchContextTool {
             })
             .collect::<Vec<_>>();
         let candidates = &search.results[..search.results.len().min(max_sources)];
+        let max_chars = args
+            .max_chars_per_source
+            .clamp(500, 4000)
+            .min(PACK_EXCERPT_CHAR_BUDGET / candidates.len().max(1));
         let sources = collect_sources(candidates, max_chars, |source_index| async move {
             if !args.fetch_pages {
                 return None;

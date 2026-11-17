@@ -516,6 +516,8 @@ test('model search excludes provider metadata in global and provider results', a
   await openProviderModels(page, 'cfg-glm');
   await search.fill(' glm 4.7 ');
   await expect(page.getByTestId('agent-model-option-cfg-glm-glm-4.7')).toBeVisible();
+  await search.fill('ＧＬＭ４７');
+  await expect(page.getByTestId('agent-model-option-cfg-glm-glm-4.7')).toBeVisible();
   await expect(page.getByTestId('agent-model-option-cfg-glm-gpt-5.5')).toHaveCount(0);
 });
 

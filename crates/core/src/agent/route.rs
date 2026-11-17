@@ -58,6 +58,23 @@ pub(crate) struct AgentRoutePlan {
     pub(crate) requirements: TurnCapabilityRequirements,
 }
 
+// This is a tool-selection hint. The model can also choose the research tool
+// from the substance of the question without an explicit source count.
+pub(super) fn requests_multi_source_research(query: &str) -> bool {
+    static MULTI_SOURCE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?ix)
+            \b(?:multi[-\s]source|deep\s+research|in[-\s]depth\s+research|cross[-\s]check)\b
+            |\b(?:multiple|several|independent|two|three|four|five|[2-9]|[1-9]\d+)
+                \s+(?:(?:independent|different|reliable|primary)\s+)?sources\b
+            |(?:多|兩|两|[二三四五六七八九]|[2-9]|[1-9]\d+)(?:个|個|家|种|種)?(?:独立|獨立|不同|权威|權威)?(?:来源|來源|信源)
+            |交叉(?:核对|核對|查证|查證|验证|驗證)|深入(?:研究|調查|调查)|深度(?:研究|调研|調研)
+            |複数の(?:情報源|出典)|여러\s*출처|mehrere\s+quellen|plusieurs\s+sources
+            |varias\s+fuentes|várias\s+fontes|нескольк(?:о|их)\s+источник")
+            .expect("valid research intent pattern")
+    });
+    MULTI_SOURCE.is_match(query)
+}
+
 pub(crate) fn route_user_turn(
     query: &str,
     system_prompt: &str,
@@ -155,8 +172,8 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
         AgentRouteKind::WebLookup => "## Route Pack: Web Lookup\n\
              - Use fetch_url for ordinary static page text. Use computer_use with target.kind=browser for JavaScript apps, authenticated flows, interaction, localhost, or page-state debugging; use its atomic observations and never reuse a DOM ref after the page changes.\n\
              - action=create_session with url returns the initial screenshot and usable refs. Recover existing work with list_sessions/list_tabs and a fresh observe of target.session_id/target.tab_id; follow an observationPending receipt's observe recovery without repeating create_session/open_tab.\n\
-             - Use web_search for current facts. When you need a public-web search and page excerpts together, web_research_context can retrieve both in one call. Issue independent queries or page reads in the same tool round when available.\n\
-             - Prefer authoritative sources and fetch full pages before citing; do not cite search snippets as evidence.\n\
+             - For a quick fact, use the offered provider-hosted search when available, otherwise web_search. Answer from authoritative returned citations when they support the claim. Fetch an original page when a result supplies only a snippet or leaves a material detail unclear.\n\
+             - For comparisons, multi-source research, or requests for original passages, prefer web_research_context to search and read several pages together. Use web_search and fetch_url for additional evidence where needed. Avoid repeating a successful lookup through another search tool.\n\
              - Use the user's language for queries when appropriate, and use 1 focused query for simple lookups or 2-3 distinct angles for broad research.\n\
              - Cite fetched web evidence with real URL identifiers and distinguish web evidence from local knowledge-base evidence."
             .to_string(),

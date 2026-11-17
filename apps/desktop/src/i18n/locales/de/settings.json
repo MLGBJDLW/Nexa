@@ -147,7 +147,7 @@
   "webSearchExecutionMode": "Suchausführung",
   "webSearchExecutionMode.desc": "Wählen Sie, wer die Websuche ausführt. Native Modi sind nur für exakt passende, vertrauenswürdige Anbieter-Endpunkte verfügbar.",
   "webSearchExecutionMode.auto": "Automatisch",
-  "webSearchExecutionMode.auto.desc": "Verwendet die native Anbietersuche bei vertrauenswürdigem Adapter und Endpunkt, andernfalls Nexa Router.",
+  "webSearchExecutionMode.auto.desc": "Für kurze Faktenabfragen wird die native Suche des Anbieters bevorzugt, sofern verfügbar. Rechercheprofile mit mehreren Quellen verwenden Nexa Router.",
   "webSearchExecutionMode.providerNative": "Nativ beim Anbieter",
   "webSearchExecutionMode.providerNative.desc": "Erfordert die serverseitige Suche des gewählten Modellanbieters und verhindert doppelte lokale Suchaufrufe.",
   "webSearchExecutionMode.nexaRouter": "Nexa Router",

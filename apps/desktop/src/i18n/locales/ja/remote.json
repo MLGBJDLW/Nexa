@@ -174,6 +174,7 @@
   "mobilePairLink": "HTTPSペアリングリンク",
   "mobileFiles": "端末のファイル",
   "mobileFilesHint": "端末のタスクで作成したファイルです。タップして他のアプリで共有・保存できます。",
+  "deletePhoneFileHint": "このファイルを端末のワークスペースから完全に削除します。",
   "mobileConnections": "モデル接続",
   "mobileAddConnection": "接続を追加",
   "mobileRemoveConnection": "この端末から削除",

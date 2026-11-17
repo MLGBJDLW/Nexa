@@ -1554,6 +1554,8 @@ test("catalog model picker stays compact and searchable in a narrow settings col
   await expect(option).toBeVisible();
   await expect(option).toContainText("gpt-5.6-sol");
   await expect(option).toContainText("text→text");
+  await search.fill("GPT56sol");
+  await expect(option).toBeVisible();
 });
 
 test("provider refresh keeps account-discovered models selectable and cached", async ({ page }) => {

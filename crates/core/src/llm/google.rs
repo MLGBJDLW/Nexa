@@ -755,17 +755,7 @@ fn prepare_search_request<'a>(
             "Provider-native Google Search cannot be combined with client tools on this model/endpoint. Use Auto, Hybrid, or Nexa Router for a task with workspace tools.".into(),
         ));
     }
-    let mut projected = request.clone();
-    let mut selected = tools
-        .iter()
-        .filter(|tool| !super::native_search::is_native_marker(tool))
-        .cloned()
-        .collect::<Vec<_>>();
-    if supported_combination {
-        selected.extend(plan.marker());
-    }
-    projected.tools = (!selected.is_empty()).then_some(selected);
-    Ok(Cow::Owned(projected))
+    Ok(plan.project_marker(request, supported_combination))
 }
 
 fn convert_tools(tools: &[ToolDefinition]) -> Vec<serde_json::Value> {

@@ -141,7 +141,8 @@ impl LocalRuntime {
         PathBuf::from(&self.workspace.roots[0])
     }
     pub async fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
-        std::fs::create_dir_all(directory.join("workspace")).map_err(err)?;
+        let workspace_dir = directory.join(crate::workspace_files::DIRECTORY);
+        std::fs::create_dir_all(&workspace_dir).map_err(err)?;
         let db = Database::new(directory.join("nexa-mobile.db")).map_err(err)?;
         db.initialize_phone_chat_projects().map_err(err)?;
         let outboxes = AgentRunEventOutboxes::new(
@@ -156,11 +157,8 @@ impl LocalRuntime {
         db.reconcile_interrupted_schedule_runs().map_err(err)?;
         Ok(Arc::new(Self {
             db,
-            workspace: Workspace::validate(&[directory
-                .join("workspace")
-                .to_string_lossy()
-                .into_owned()])
-            .map_err(err)?,
+            workspace: Workspace::validate(&[workspace_dir.to_string_lossy().into_owned()])
+                .map_err(err)?,
             outboxes,
             active: Mutex::new(None),
             scheduler: Mutex::new(()),
