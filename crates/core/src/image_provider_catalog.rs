@@ -139,6 +139,10 @@ mod tests {
             default_image_model("open_ai", None, Some("https://api.x.ai/v1")).as_deref(),
             Some("grok-imagine-image-2.0")
         );
+        assert_eq!(
+            default_image_model("google", Some("gemini_generate_content"), None).as_deref(),
+            Some("gemini-nano-banana-2.1")
+        );
     }
 
     #[test]

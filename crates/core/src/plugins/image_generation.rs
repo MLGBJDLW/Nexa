@@ -488,7 +488,7 @@ fn default_model(provider: ImageProvider) -> &'static str {
     match provider {
         ImageProvider::OpenAi => "gpt-image-2.5-flare",
         ImageProvider::Xai => "grok-imagine-image-2.0",
-        ImageProvider::Google => "gemini-3.1-flash-image",
+        ImageProvider::Google => "gemini-nano-banana-2.1",
         ImageProvider::Qwen => "qwen-image-2.0-pro",
     }
 }

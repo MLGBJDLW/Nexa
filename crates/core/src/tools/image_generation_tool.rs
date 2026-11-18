@@ -257,7 +257,7 @@ impl Tool for GenerateImageTool {
             let openrouter = runtime.config.api_style.as_deref() == Some("openrouter_images");
             let native_mask = runtime.provider == ImageProvider::OpenAi
                 && !openrouter
-                && runtime.model.starts_with("gpt-image-");
+                && is_gpt_image(&runtime.model);
             if !openrouter
                 && !native_mask
                 && runtime.provider != ImageProvider::Google
@@ -766,6 +766,10 @@ fn is_meta_image_endpoint(config: &ResolvedImageConfig) -> bool {
         })
 }
 
+fn is_gpt_image(model: &str) -> bool {
+    model.starts_with("gpt-image-") || model == "chatgpt-image-latest"
+}
+
 fn supports_gpt_image_extended_quality(model: &str) -> bool {
     matches!(
         model,
@@ -872,7 +876,7 @@ fn validate_image_options(
         }
         return Ok(());
     }
-    if !model.starts_with("gpt-image-") {
+    if !is_gpt_image(model) {
         return Ok(());
     }
     if let Some(quality) = selected_image_quality(config, args, model) {
@@ -897,17 +901,25 @@ fn validate_image_options(
         return Err(invalid("Transparent backgrounds require png or webp."));
     }
     let size = selected_image_size(config, args, model);
-    if matches!(model, "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini")
-        && !matches!(
-            size.as_str(),
-            "auto" | "1024x1024" | "1024x1536" | "1536x1024"
-        )
-    {
+    if matches!(
+        model,
+        "gpt-image-1.5"
+            | "gpt-image-1.5-2025-12-16"
+            | "chatgpt-image-latest"
+            | "gpt-image-1"
+            | "gpt-image-1-mini"
+    ) && !matches!(
+        size.as_str(),
+        "auto" | "1024x1024" | "1024x1536" | "1536x1024"
+    ) {
         return Err(invalid(
             "This GPT Image model supports only auto, 1024x1024, 1024x1536 or 1536x1024.",
         ));
     }
-    if (supports_gpt_image_extended_quality(model) || model == "gpt-image-2") && size != "auto" {
+    if (supports_gpt_image_extended_quality(model)
+        || matches!(model, "gpt-image-2" | "gpt-image-2-2026-04-21"))
+        && size != "auto"
+    {
         let valid = size
             .split_once('x')
             .and_then(|(width, height)| {
@@ -1700,6 +1712,8 @@ mod tests {
         for model in [
             "gpt-image-2.5-flare",
             "gpt-image-2.5-sunburst",
+            "gpt-image-2.5-flare-2026-09-08",
+            "gpt-image-2.5-sunburst-2026-09-08",
             "gpt-image-2.6-flare",
             "gpt-image-2.6-sunburst",
         ] {
@@ -1802,7 +1816,13 @@ mod tests {
             build_openai_images_body(&config, &args, "gpt-image-2.5-flare", "png")["size"],
             "3840x2160"
         );
-        for model in ["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"] {
+        for model in [
+            "gpt-image-1.5",
+            "gpt-image-1.5-2025-12-16",
+            "chatgpt-image-latest",
+            "gpt-image-1",
+            "gpt-image-1-mini",
+        ] {
             assert_eq!(
                 build_openai_images_body(&config, &args, model, "png")["size"],
                 "1024x1024"
