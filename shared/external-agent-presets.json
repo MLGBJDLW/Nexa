@@ -44,34 +44,34 @@
     "env": {},
     "docsUrl": "https://github.com/tao12345666333/amp-acp",
     "registryId": "amp-acp",
-    "registryVersion": "0.12.0",
+    "registryVersion": "0.13.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.12.0/amp-acp-darwin-aarch64.tar.gz",
+          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.13.0/amp-acp-darwin-aarch64.tar.gz",
           "cmd": "./amp-acp",
-          "sha256": "1c5f08f44f3711710769585855cefcdbaed53e4133c2263d59a368b5a1597151"
+          "sha256": "ca3315e3e54ea85c7e5db09d19a1908cd2ea149c8e83a728cefb814c7a490edf"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.12.0/amp-acp-darwin-x86_64.tar.gz",
+          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.13.0/amp-acp-darwin-x86_64.tar.gz",
           "cmd": "./amp-acp",
-          "sha256": "4245776441b18c05621dd66376064e66aebba90806a0d787592ea558207c5a68"
+          "sha256": "75aeeb10a346276151fb38812a8aafd95d108765e794da0e1ff30b0aebfc6752"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.12.0/amp-acp-linux-aarch64.tar.gz",
+          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.13.0/amp-acp-linux-aarch64.tar.gz",
           "cmd": "./amp-acp",
-          "sha256": "f75b1f4a2adc1c243601952070eb24bbcfecf328692f799815b59efeb9791528"
+          "sha256": "ad7e1c23ec29bf47f757d656fc4c9a957dd60533da034213a6bc7d33d1813d32"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.12.0/amp-acp-linux-x86_64.tar.gz",
+          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.13.0/amp-acp-linux-x86_64.tar.gz",
           "cmd": "./amp-acp",
-          "sha256": "c25e3635159ee12f8a77bd775dd8a8fc21cc4d25a3a23483ffafec73ccb910fe"
+          "sha256": "205c819383b6fd389b408120ebea9cdde5c2957530b5ce4ebc912998d4118f8b"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.12.0/amp-acp-windows-x86_64.zip",
+          "archive": "https://github.com/tao12345666333/amp-acp/releases/download/v0.13.0/amp-acp-windows-x86_64.zip",
           "cmd": "amp-acp.exe",
-          "sha256": "7377158ddac570d50f1eb98e0ce39ca6ecf18990bf917c1930bf628509ae12b4"
+          "sha256": "5bb7aad1f40f6a1c41a81dbb566bf550a00a627da41508b035cca8765a1422dd"
         }
       }
     }
@@ -234,53 +234,53 @@
     "env": {},
     "docsUrl": "https://github.com/agentclientprotocol/claude-agent-acp",
     "registryId": "claude-acp",
-    "registryVersion": "0.107.0",
+    "registryVersion": "0.108.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-darwin-arm64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-darwin-arm64.zip",
           "cmd": "./claude-agent-acp",
-          "sha256": "ba106984d2d89b4e260ac0648e354c924a1a1545392929b1e27700615d7ba9b3"
+          "sha256": "e0850a19689c14db31a71a655cfdd50d5e298dfdfe10e0ea6c16770508eea836"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-darwin-x64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-darwin-x64.zip",
           "cmd": "./claude-agent-acp",
-          "sha256": "79d46ef951ad359776022c2cf3f85bb17cf16c1aedee68e8236370a6b15f1367"
+          "sha256": "b2d1d83bd6a21dbbb8c1eb07234ebf51cae64dbc76485947acf1fd7d6a9871d9"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-arm64.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-arm64.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "b63b7e5164a0585bdc4837943238170f156daed0d3a9effb093f7d93da206d7d"
+          "sha256": "969d747d0d662663e2aab56667be5819e2716890c2188e32672ac7ab4e47873f"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-x64.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-x64.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "768f0c910587b8c2a8c3a96aedd5a8876128277f6d633bbcd52092b229e056a9"
+          "sha256": "30a744c1cba84c551beb418dfbccdff71f6e33e98c46d95727a00d1c45f7df69"
         },
         "linux-aarch64-musl": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-arm64-musl.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-arm64-musl.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "151d2b9eb467d32493614249f2574dd9f164064ad956cc777ae44bcb675d652f"
+          "sha256": "53746deebc7361f1a3bb9b35ca254f4edb46e47f1d71983fdbed9e0338a1f416"
         },
         "linux-x86_64-musl": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-linux-x64-musl.tar.gz",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-linux-x64-musl.tar.gz",
           "cmd": "./claude-agent-acp",
-          "sha256": "b0a15ea0e40205ad63279b46a4b10ec8acd9f3e653f202cf0c3804e98a7649bb"
+          "sha256": "db16785fd1d04b5e91c944b651bcf3b55f914956b497849e4c6f3125c071739b"
         },
         "windows-aarch64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-windows-arm64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-windows-arm64.zip",
           "cmd": "./claude-agent-acp.exe",
-          "sha256": "92be1f854b13d4ceb133dbec69bf3fbcdb86d9807a583d45cbd6cddf29f76307"
+          "sha256": "529a6dbd2921b0060d922a376737ea35dbf25a178f51064d04bc1260564fea6a"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.107.0/claude-agent-acp-windows-x64.zip",
+          "archive": "https://github.com/agentclientprotocol/claude-agent-acp/releases/download/v0.108.0/claude-agent-acp-windows-x64.zip",
           "cmd": "./claude-agent-acp.exe",
-          "sha256": "bb406522d6341b3b9aa1b9bfcaa996ddf8cd53b91512f92b111a8414a049775f"
+          "sha256": "0b2e7079febace92156a7a2ede68f4faab1e343162b4b0d1ec855660515910ff"
         }
       },
       "npx": {
-        "package": "@agentclientprotocol/claude-agent-acp@0.107.0"
+        "package": "@agentclientprotocol/claude-agent-acp@0.108.0"
       }
     }
   },
@@ -327,17 +327,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@tencent-ai/codebuddy-code@2.184.0",
+      "@tencent-ai/codebuddy-code@2.185.0",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://www.codebuddy.cn/cli/",
     "registryId": "codebuddy-code",
-    "registryVersion": "2.184.0",
+    "registryVersion": "2.185.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@tencent-ai/codebuddy-code@2.184.0",
+        "package": "@tencent-ai/codebuddy-code@2.185.0",
         "args": [
           "--acp"
         ]
@@ -359,11 +359,11 @@
     "env": {},
     "docsUrl": "https://github.com/agentclientprotocol/codex-acp",
     "registryId": "codex-acp",
-    "registryVersion": "2.6.0",
+    "registryVersion": "2.7.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@agentclientprotocol/codex-acp@2.6.0"
+        "package": "@agentclientprotocol/codex-acp@2.7.0"
       }
     }
   },
@@ -662,47 +662,47 @@
     "env": {},
     "docsUrl": "https://docs.devin.ai/cli",
     "registryId": "devin",
-    "registryVersion": "3000.12.57",
+    "registryVersion": "3000.14.30821",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://static.devin.ai/cli/3000.12.57/devin-3000.12.57-aarch64-apple-darwin.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-aarch64-apple-darwin.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
           ]
         },
         "darwin-x86_64": {
-          "archive": "https://static.devin.ai/cli/3000.12.57/devin-3000.12.57-x86_64-apple-darwin.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-x86_64-apple-darwin.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
           ]
         },
         "linux-aarch64": {
-          "archive": "https://static.devin.ai/cli/3000.12.57/devin-3000.12.57-aarch64-unknown-linux.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-aarch64-unknown-linux.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
           ]
         },
         "linux-x86_64": {
-          "archive": "https://static.devin.ai/cli/3000.12.57/devin-3000.12.57-x86_64-unknown-linux.tar.gz",
+          "archive": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-x86_64-unknown-linux.tar.gz",
           "cmd": "./bin/devin",
           "args": [
             "acp"
           ]
         },
         "windows-aarch64": {
-          "archive": "https://static.devin.ai/cli/3000.12.57/devin-3000.12.57-aarch64-pc-windows.zip",
+          "archive": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-aarch64-pc-windows.zip",
           "cmd": "./bin\\devin.exe",
           "args": [
             "acp"
           ]
         },
         "windows-x86_64": {
-          "archive": "https://static.devin.ai/cli/3000.12.57/devin-3000.12.57-x86_64-pc-windows.zip",
+          "archive": "https://static.devin.ai/cli/3000.14.30821/devin-3000.14.30821-x86_64-pc-windows.zip",
           "cmd": "./bin\\devin.exe",
           "args": [
             "acp"
@@ -724,17 +724,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "dimcode@0.5.28",
+      "dimcode@0.5.29",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://dimagent.cn/",
     "registryId": "dimcode",
-    "registryVersion": "0.5.28",
+    "registryVersion": "0.5.29",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "dimcode@0.5.28",
+        "package": "dimcode@0.5.29",
         "args": [
           "acp"
         ]
@@ -754,17 +754,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "dirac-cli@0.6.0",
+      "dirac-cli@0.6.1",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://dirac.run",
     "registryId": "dirac",
-    "registryVersion": "0.6.0",
+    "registryVersion": "0.6.1",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "dirac-cli@0.6.0",
+        "package": "dirac-cli@0.6.1",
         "args": [
           "--acp"
         ]
@@ -784,7 +784,7 @@
     "command": "npx",
     "args": [
       "--yes",
-      "droid@1.11.0",
+      "droid@1.13.1",
       "exec",
       "--output-format",
       "acp-daemon"
@@ -795,11 +795,11 @@
     },
     "docsUrl": "https://factory.ai/product/cli",
     "registryId": "factory-droid",
-    "registryVersion": "1.11.0",
+    "registryVersion": "1.13.1",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "droid@1.11.0",
+        "package": "droid@1.13.1",
         "args": [
           "exec",
           "--output-format",
@@ -891,11 +891,11 @@
     "env": {},
     "docsUrl": "https://github.com/features/copilot/cli/",
     "registryId": "github-copilot-cli",
-    "registryVersion": "1.0.112",
+    "registryVersion": "1.0.113",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@github/copilot@1.0.112",
+        "package": "@github/copilot@1.0.113",
         "args": [
           "--acp"
         ]
@@ -945,65 +945,65 @@
     "env": {},
     "docsUrl": "https://block.github.io/goose/",
     "registryId": "goose",
-    "registryVersion": "1.59.0",
+    "registryVersion": "1.59.2",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/block/goose/releases/download/v1.59.0/goose-aarch64-apple-darwin.tar.bz2",
+          "archive": "https://github.com/block/goose/releases/download/v1.59.2/goose-aarch64-apple-darwin.tar.bz2",
           "cmd": "./goose",
           "args": [
             "acp"
           ],
-          "sha256": "0e7d8be54aa523689ff91e764f9ee4ee5fb0a67395d9289241b9982c50987263"
+          "sha256": "a4eac98999639741ee5a4cc7a3043952a4a22fc2004b7340e34ec927df0e8257"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/block/goose/releases/download/v1.59.0/goose-x86_64-apple-darwin.tar.bz2",
+          "archive": "https://github.com/block/goose/releases/download/v1.59.2/goose-x86_64-apple-darwin.tar.bz2",
           "cmd": "./goose",
           "args": [
             "acp"
           ],
-          "sha256": "c471d9af70aedca7737c67ea4eb865bd8ab976632eaafa0a815db35b30fe2ce1"
+          "sha256": "527310a89b5a505da1ad94fb10c02d0051037724b982320388fcd2f204508091"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/block/goose/releases/download/v1.59.0/goose-aarch64-unknown-linux-gnu.tar.bz2",
+          "archive": "https://github.com/block/goose/releases/download/v1.59.2/goose-aarch64-unknown-linux-gnu.tar.bz2",
           "cmd": "./goose",
           "args": [
             "acp"
           ],
-          "sha256": "c729a825575eb2ebc0e06a319797db92b70debbe706ffc12ffe392f05b9d3920"
+          "sha256": "394674d5c123b7ec299ce38718906528caff56b948fcd40bb20f6ecdc71d8c4c"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/block/goose/releases/download/v1.59.0/goose-x86_64-unknown-linux-gnu.tar.bz2",
+          "archive": "https://github.com/block/goose/releases/download/v1.59.2/goose-x86_64-unknown-linux-gnu.tar.bz2",
           "cmd": "./goose",
           "args": [
             "acp"
           ],
-          "sha256": "e4dda9ce4264b08842f836ed13e818a836156a8778d09b6c113264c32323a171"
+          "sha256": "36efe207ae4f8de3030ed8fdcfe3b7c5d13f23d6cb73d6fde747543f022ce218"
         },
         "linux-aarch64-musl": {
-          "archive": "https://github.com/block/goose/releases/download/v1.59.0/goose-aarch64-unknown-linux-musl.tar.bz2",
+          "archive": "https://github.com/block/goose/releases/download/v1.59.2/goose-aarch64-unknown-linux-musl.tar.bz2",
           "cmd": "./goose",
           "args": [
             "acp"
           ],
-          "sha256": "93cac3d926c597102f85b6d6b683c370507dc846984bacf541da7e9769aa54c6"
+          "sha256": "669aa04325e6121289fe5a4fc155f085cdb10cffdd830e4eb2c59ce733e6798b"
         },
         "linux-x86_64-musl": {
-          "archive": "https://github.com/block/goose/releases/download/v1.59.0/goose-x86_64-unknown-linux-musl.tar.bz2",
+          "archive": "https://github.com/block/goose/releases/download/v1.59.2/goose-x86_64-unknown-linux-musl.tar.bz2",
           "cmd": "./goose",
           "args": [
             "acp"
           ],
-          "sha256": "3efe3d8a00ff6c9b10d8ee9240c875d1dd0e80a6f9a85950075d367db1f08da5"
+          "sha256": "bb941041379f7f6f7b423cd5373d194d3acb15c4fdb2c25e9d7298a0492ca771"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/block/goose/releases/download/v1.59.0/goose-x86_64-pc-windows-msvc.zip",
+          "archive": "https://github.com/block/goose/releases/download/v1.59.2/goose-x86_64-pc-windows-msvc.zip",
           "cmd": "./goose-package\\goose.exe",
           "args": [
             "acp"
           ],
-          "sha256": "8b9ef7be66f469bdafd018de943a095ed83c32775dd623bebb0ab730da22d0d0"
+          "sha256": "aef6462832e8cbdcb465b45605afafe8459052effd9b9cbf74817d3d22f46a2f"
         }
       }
     }
@@ -1021,18 +1021,18 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@xai-official/grok@1.0.85",
+      "@xai-official/grok@1.0.89",
       "agent",
       "stdio"
     ],
     "env": {},
     "docsUrl": "https://x.ai/cli",
     "registryId": "grok-build",
-    "registryVersion": "1.0.85",
+    "registryVersion": "1.0.89",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@xai-official/grok@1.0.85",
+        "package": "@xai-official/grok@1.0.89",
         "args": [
           "agent",
           "stdio"
@@ -1058,54 +1058,54 @@
     "env": {},
     "docsUrl": "https://harnlang.com",
     "registryId": "harn",
-    "registryVersion": "0.10.196",
+    "registryVersion": "0.10.201",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.196/harn-aarch64-apple-darwin.tar.gz",
+          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.201/harn-aarch64-apple-darwin.tar.gz",
           "cmd": "./harn",
           "args": [
             "serve",
             "acp"
           ],
-          "sha256": "b1ba592d93de8f9e609879f59889fda23560b926216fe66ac26a91a9d230d04c"
+          "sha256": "332a7a94162e8c9d3345bbc34fcc6e1043e952b707f1ba44ba79fceb2c21a414"
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.196/harn-x86_64-apple-darwin.tar.gz",
+          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.201/harn-x86_64-apple-darwin.tar.gz",
           "cmd": "./harn",
           "args": [
             "serve",
             "acp"
           ],
-          "sha256": "c5019f0d313b789c79f3f459f47876cbf40d17fbf61b1ee5646c1d3a2853142c"
+          "sha256": "d7643783b41d13b03776685b0293d8871fecc39cf2590113ee731a53a7e0b581"
         },
         "linux-aarch64": {
-          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.196/harn-aarch64-unknown-linux-gnu.tar.gz",
+          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.201/harn-aarch64-unknown-linux-gnu.tar.gz",
           "cmd": "./harn",
           "args": [
             "serve",
             "acp"
           ],
-          "sha256": "81bbe4686a82ce98c6d229606cfb8d10da2174f8a3d63f2ab513d6b7505b1aa7"
+          "sha256": "487cd87dc7d10bcc4c3aa4c1573802cac1b3d4ec1238b609c9893d941a283932"
         },
         "linux-x86_64": {
-          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.196/harn-x86_64-unknown-linux-gnu.tar.gz",
+          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.201/harn-x86_64-unknown-linux-gnu.tar.gz",
           "cmd": "./harn",
           "args": [
             "serve",
             "acp"
           ],
-          "sha256": "f99626eca3dbf4173447184c4384969808c123bfa11ff124c40d96c361a8b668"
+          "sha256": "a14faa800cf24ed4d87a21e807b48db51616573645be2abbf3f4c1d5a7763ccc"
         },
         "windows-x86_64": {
-          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.196/harn-x86_64-pc-windows-msvc.zip",
+          "archive": "https://github.com/burin-labs/harn/releases/download/v0.10.201/harn-x86_64-pc-windows-msvc.zip",
           "cmd": "harn.exe",
           "args": [
             "serve",
             "acp"
           ],
-          "sha256": "fb90f9928ff7b3efc3d25ab6910ba423220aee4d69291629f25c01708455c968"
+          "sha256": "65b7023f20d2280e45d34cc0b7fd630fcc2c873e831694753ff000e4d7fa0fff"
         }
       }
     }
@@ -1282,13 +1282,13 @@
     "env": {},
     "docsUrl": "https://kimchi.dev",
     "registryId": "kimchi",
-    "registryVersion": "1.34.3",
+    "registryVersion": "1.35.1",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "binary": {
         "darwin-aarch64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.34.3/kimchi_darwin_arm64.tar.gz",
-          "sha256": "a99331f580f5c694e221c166a550f237bd42af37469bd0602af6910df38a026a",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_darwin_arm64.tar.gz",
+          "sha256": "21b002dcd41b326e41d47aeaaa4c0e2adeebc13ac120244034349bf713d11862",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1296,8 +1296,8 @@
           ]
         },
         "darwin-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.34.3/kimchi_darwin_amd64.tar.gz",
-          "sha256": "0cd5e76350e6f611fc9382e16c520cee8097136067020ff9e6f82e312904fe11",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_darwin_amd64.tar.gz",
+          "sha256": "0341300611a25c3acecf8a005f0f01449c254353cccad6e1f317ba0045b36230",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1305,8 +1305,8 @@
           ]
         },
         "linux-aarch64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.34.3/kimchi_linux_arm64.tar.gz",
-          "sha256": "81c3370f33a8706c8e58fafc9905b0eef351f5bf9ada5d87ae698147c25ac89b",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_linux_arm64.tar.gz",
+          "sha256": "b4f68458634a0e7757c521fe3aedaedeff591414ab440323b5bcd5f6eb935048",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1314,8 +1314,8 @@
           ]
         },
         "linux-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.34.3/kimchi_linux_amd64.tar.gz",
-          "sha256": "685865d02c523966fd198074310e70d89adaab0b3058367a07885115e9bee2df",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_linux_amd64.tar.gz",
+          "sha256": "e10d774e828be73f698144f912e0018f32340f6840b83e1f38f1736a889acd6e",
           "cmd": "./bin/kimchi",
           "args": [
             "--mode",
@@ -1323,8 +1323,8 @@
           ]
         },
         "windows-x86_64": {
-          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.34.3/kimchi_windows_amd64.zip",
-          "sha256": "ad71b2dee5ad236ba0c1af6d135c83dbe4e01f968b1d92c263568d853c87f28c",
+          "archive": "https://github.com/getkimchi/kimchi/releases/download/v1.35.1/kimchi_windows_amd64.zip",
+          "sha256": "11fb3e00f07eac9c5cc1d39b3db738ddba3865c53a610e5a46c25b2872ff0db9",
           "cmd": "./bin/kimchi.exe",
           "args": [
             "--mode",
@@ -1347,17 +1347,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@moonshot-ai/kimi-code@2.6.2",
+      "@moonshot-ai/kimi-code@2.6.3",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://moonshotai.github.io/kimi-code/",
     "registryId": "kimi-code",
-    "registryVersion": "2.6.2",
+    "registryVersion": "2.6.3",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@moonshot-ai/kimi-code@2.6.2",
+        "package": "@moonshot-ai/kimi-code@2.6.3",
         "args": [
           "acp"
         ]
@@ -1660,17 +1660,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@compass-ai/nova@1.1.65",
+      "@compass-ai/nova@1.1.66",
       "acp"
     ],
     "env": {},
     "docsUrl": "https://www.compassap.ai/portfolio/nova.html",
     "registryId": "nova",
-    "registryVersion": "1.1.65",
+    "registryVersion": "1.1.66",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@compass-ai/nova@1.1.65",
+        "package": "@compass-ai/nova@1.1.66",
         "args": [
           "acp"
         ]
@@ -1964,17 +1964,17 @@
     "command": "npx",
     "args": [
       "--yes",
-      "@qoder-ai/qodercli@1.1.89",
+      "@qoder-ai/qodercli@1.1.91",
       "--acp"
     ],
     "env": {},
     "docsUrl": "https://qoder.com",
     "registryId": "qoder",
-    "registryVersion": "1.1.89",
+    "registryVersion": "1.1.91",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@qoder-ai/qodercli@1.1.89",
+        "package": "@qoder-ai/qodercli@1.1.91",
         "args": [
           "--acp"
         ]
@@ -1999,11 +1999,11 @@
     "env": {},
     "docsUrl": "https://qwenlm.github.io/qwen-code-docs/en/users/overview",
     "registryId": "qwen-code",
-    "registryVersion": "0.27.3",
+    "registryVersion": "0.28.0",
     "registrySource": "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
     "distribution": {
       "npx": {
-        "package": "@qwen-code/qwen-code@0.27.3",
+        "package": "@qwen-code/qwen-code@0.28.0",
         "args": [
           "--acp",
           "--experimental-skills"
