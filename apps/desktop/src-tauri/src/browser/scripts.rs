@@ -39,20 +39,22 @@ pub fn browser_takeover_script(token: &str) -> String {
       const x = Number(expected.x);
       const y = Number(expected.y);
       const button = String(expected.button || '');
+      const systemModifiers = expected.systemModifiers;
+      if (systemModifiers !== undefined && ![0, 2, 8, 10].includes(systemModifiers)) return null;
       if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) return null;
       if (expected.kind === 'wheel') {
         const deltaX = Number(expected.deltaX), deltaY = Number(expected.deltaY);
         if (![deltaX, deltaY].every(value => Number.isFinite(value) && Math.abs(value) <= 100000)) return null;
-        return { kind: 'wheel', x, y, deltaX, deltaY, targetRef, targetContext };
+        return { kind: 'wheel', x, y, deltaX, deltaY, systemModifiers, targetRef, targetContext };
       }
       if (expected.kind === 'drag') {
         const endX = Number(expected.endX), endY = Number(expected.endY);
         const endRef = String(expected.endRef || ''), endContext = String(expected.endContext || '');
         if (![endX, endY].every(value => Number.isFinite(value) && value >= 0) || !endRef || !endContext || button !== 'left') return null;
-        return { kind: 'drag', x, y, endX, endY, endRef, endContext, button, targetRef, targetContext };
+        return { kind: 'drag', x, y, endX, endY, endRef, endContext, button, systemModifiers, targetRef, targetContext };
       }
       if (!['left', 'middle', 'right'].includes(button)) return null;
-      return { kind: 'pointer', x, y, button, targetRef, targetContext };
+      return { kind: 'pointer', x, y, button, systemModifiers, targetRef, targetContext };
     }
     if (expected.kind === 'key') {
       const key = String(expected.key || '');
@@ -153,6 +155,8 @@ pub fn browser_takeover_script(token: &str) -> String {
       blocked: false,
       pointerCommitted: false,
       pointerReleases: 0,
+      pendingModifiers: normalizedExpected.systemModifiers || 0,
+      wheelAxes: (normalizedExpected.deltaX ? 1 : 0) | (normalizedExpected.deltaY ? 2 : 0),
       ...normalized,
     };
     return true;
@@ -199,7 +203,7 @@ pub fn browser_takeover_script(token: &str) -> String {
       if (targetWindow && targetWindow !== window) {
         return targetWindow.__NEXA_TRUSTED_INPUT_GUARD__?.pointerProgress(providedToken, operationId, endingDrag) ?? null;
       }
-      return { releases: guard.pointerReleases, blocked: guard.blocked, targetCurrent: guardContextMatches(endingDrag) };
+      return { releases: guard.pointerReleases, wheelReceived: guard.expected.kind === 'wheel' && guard.wheel === 0, blocked: guard.blocked, targetCurrent: guardContextMatches(endingDrag) };
     },
     arm: (providedToken, operationId, budget, expected) => {
       if (providedToken !== trustedInputToken) return false;
@@ -248,8 +252,15 @@ pub fn browser_takeover_script(token: &str) -> String {
     return composedContains(target, eventElement(event));
   };
 
+  const modifierBit = key => key === 'Control' ? 2 : key === 'Shift' ? 8 : 0;
+  const eventModifiers = event => (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
+
   const matchesTrustedInput = (type, event) => {
     if (!trustedInputGuard) return false;
+    if (trustedInputGuard.expected.systemModifiers !== undefined) {
+      if (type === 'keydown') return !event.repeat && Boolean(trustedInputGuard.pendingModifiers & modifierBit(event.key));
+      if ((type === 'pointerdown' || type === 'wheel') && eventModifiers(event) !== trustedInputGuard.expected.systemModifiers) return false;
+    }
     const budgetKey = ({ pointerdown: 'pointerDown', keydown: 'keyDown', input: 'input', wheel: 'wheel' })[type];
     if (!budgetKey || trustedInputGuard[budgetKey] <= 0) return false;
     const expected = trustedInputGuard.expected;
@@ -267,7 +278,12 @@ pub fn browser_takeover_script(token: &str) -> String {
     }
     if (type === 'wheel') {
       return expected.kind === 'wheel' && Math.abs(event.clientX - expected.x) <= 2 && Math.abs(event.clientY - expected.y) <= 2
-        && Math.abs(event.deltaX - expected.deltaX) <= 1 && Math.abs(event.deltaY - expected.deltaY) <= 1 && eventTargetsArmedElement(event);
+        && (expected.systemModifiers === undefined
+          ? Math.abs(event.deltaX - expected.deltaX) <= 1 && Math.abs(event.deltaY - expected.deltaY) <= 1
+          : (event.deltaX || event.deltaY)
+            && (!event.deltaX || ((trustedInputGuard.wheelAxes & 1) && Math.sign(event.deltaX) === Math.sign(expected.deltaX)))
+            && (!event.deltaY || ((trustedInputGuard.wheelAxes & 2) && Math.sign(event.deltaY) === Math.sign(expected.deltaY))))
+        && eventTargetsArmedElement(event);
     }
     if (expected.kind === 'text') {
       return event.data === expected.data && eventTargetsArmedElement(event);
@@ -291,6 +307,14 @@ pub fn browser_takeover_script(token: &str) -> String {
     if (!matchesTrustedInput(type, event)) {
       trustedInputGuard = null;
       return false;
+    }
+    if (trustedInputGuard.expected.systemModifiers !== undefined) {
+      if (type === 'keydown') { trustedInputGuard.pendingModifiers &= ~modifierBit(event.key); return true; }
+      if (type === 'pointerdown' && trustedInputGuard.pointerDown > 1) trustedInputGuard.pendingModifiers = trustedInputGuard.expected.systemModifiers;
+      if (type === 'wheel') {
+        trustedInputGuard.wheelAxes &= ~((event.deltaX ? 1 : 0) | (event.deltaY ? 2 : 0));
+        if (trustedInputGuard.wheelAxes) return true;
+      }
     }
     const budgetKey = ({ pointerdown: 'pointerDown', keydown: 'keyDown', input: 'input', wheel: 'wheel' })[type];
     trustedInputGuard[budgetKey] -= 1;

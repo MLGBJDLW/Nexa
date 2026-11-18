@@ -220,6 +220,8 @@ impl NativeBrowserSessionTool {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BrowserArgs {
+    #[serde(default)]
+    delivery: super::state::BrowserInputDelivery,
     action: String,
     session_id: Option<String>,
     tab_id: Option<String>,
@@ -480,9 +482,10 @@ impl Tool for NativeBrowserSessionTool {
                 "files": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1 }, "description": "Local file paths for upload_files, resolved through the current file-access policy. At most 20 files and 100 MiB total. Empty clears a file input. The result confirms file selection; observe the page separately to confirm server upload completion." },
                 "key": { "type": "string", "description": "Non-text key such as Enter, Tab, Escape, ArrowLeft, Backspace, or Delete. On Windows, combine letters A-Z with modifiers for shortcuts, for example key=A, modifiers=[Control] to select all. Use type to enter text." },
                 "button": { "type": "string", "enum": ["left", "middle", "right"], "default": "left" },
+                "delivery": { "type": "string", "enum": ["foreground", "background"], "description": "Input defaults to foreground. Pause if the user switches windows. Select background only when the user explicitly requests operation in the background, never as a retry. Windows background input targets the selected visible tab without moving the system cursor." },
                 "modifiers": { "type": "array", "items": { "type": "string", "enum": ["Alt", "Control", "Meta", "Shift"] }, "uniqueItems": true },
                 "scrollX": { "type": "integer", "default": 0 },
-                "scrollY": { "type": "integer", "default": 0, "description": "Wheel delta in CSS pixels. On Windows the wheel targets point or targetRef, including nested scroll areas; without either it targets the viewport center." },
+                "scrollY": { "type": "integer", "default": 0, "description": "Requested CSS pixel delta. The system wheel follows Windows scroll settings. Control + vertical wheel zooms. On Windows the wheel targets point or targetRef, including nested scroll areas; without either it targets the viewport center." },
                 "condition": { "type": "object", "description": "Condition type: page_loaded, text_present, text_absent, url_matches, element_present, element_absent, element_checked, or element_enabled. Element conditions accept ref/targetRef, name, and role. State conditions require a boolean value; mixed/unknown checked states do not match false." },
                 "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "description": "Cancellable condition polling budget. One final visual observation has a separate 20-second limit. A pending condition returns conditionMatched=false with fresh evidence; timedOut reports whether the polling budget elapsed." }
             },
@@ -1194,6 +1197,7 @@ impl Tool for NativeBrowserSessionTool {
                 let action_result = self
                     .state
                     .act(BrowserActRequest {
+                        delivery: args.delivery,
                         call_id: context.call_id,
                         session_id,
                         tab_id,

@@ -80,7 +80,7 @@ fn run_html_pointer_fixture(foreground: bool) {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index.html");
     std::fs::write(&path, r#"<!doctype html><title>Preview continuity</title>
-      <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
+      <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted,ctrl:event.ctrlKey,shift:event.shiftKey};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
       <input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>
       <input id=editor aria-label=Editor value="select this text" style="position:absolute;left:20px;top:70px">
       <canvas width=300 height=120 style="position:absolute;left:20px;top:150px"></canvas>
@@ -116,7 +116,7 @@ fn run_html_pointer_fixture(foreground: bool) {
         let handle = app.handle().clone();
         let state = super::super::state::BrowserState::new(handle.clone(), profile.clone());
         tauri::async_runtime::spawn(async move {
-            use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker, BrowserViewportPoint}};
+            use super::super::{policy::NavigationActor, state::{BrowserActRequest, BrowserActCommitTracker, BrowserInputDelivery, BrowserViewportPoint}};
             use nexa_core::browser_runtime::{BrowserBounds, BrowserControlOwner};
             let mut registry = nexa_core::tools::ToolRegistry::new();
             registry.register(Box::new(super::super::agent_tool::NativeBrowserSessionTool::new(state.clone())));
@@ -165,8 +165,15 @@ fn run_html_pointer_fixture(foreground: bool) {
                     serde_json::json!({"action":"observe","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id}}))).await
                     .map_err(|_| "An interactive document waited for the load-finished event")??;
                 let target = before.elements.iter().find(|element| element.name == "Continue").ok_or("Missing button in native observation")?;
+                if !foreground {
+                    let paused = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-paused-click",
+                        serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id,"target_ref":target.element_ref})).await;
+                    if !matches!(paused, Err(ref message) if message.contains("paused")) {
+                        return Err("Unfocused default input did not pause".into());
+                    }
+                }
                 let (after, interaction) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "preview-click",
-                    serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id,"target_ref":target.element_ref})).await
+                    serde_json::json!({"action":"click","delivery":if foreground {"foreground"} else {"background"},"target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":before.observation_id,"target_ref":target.element_ref})).await
                     .map_err(|error| format!("Public native click: {error}"))?;
                 if !after.text.contains("clicked once") || after.screenshot.is_none() {
                     return Err("The original HTML tab did not retain observable native input".into());
@@ -197,6 +204,7 @@ fn run_html_pointer_fixture(foreground: bool) {
                     let observed = state.observe(&session.id, tab_id, &call_id).await?;
                     let target = observed.elements.iter().find(|element| element.name == name).ok_or("Missing no-op form target")?;
                     let noop = state.act(BrowserActRequest {
+                    delivery: if foreground { BrowserInputDelivery::Foreground } else { BrowserInputDelivery::Background },
                         call_id: &call_id, session_id: &session.id, tab_id, observation_id: &observed.observation_id,
                         action, target_ref: Some(&target.element_ref), end_ref: None, point: None, end_point: None, text: None,
                         value, values: None, checked, upload: None, key: None, button: None,
@@ -214,6 +222,7 @@ fn run_html_pointer_fixture(foreground: bool) {
                     let editor = observed.elements.iter().find(|element| element.name == "Editor").ok_or("Missing editor")?;
                     let modifiers = if action == "press" { vec!["Control".to_string()] } else { vec![] };
                     let outcome = state.act(BrowserActRequest {
+                    delivery: if foreground { BrowserInputDelivery::Foreground } else { BrowserInputDelivery::Background },
                         call_id: &call_id, session_id: &session.id, tab_id, observation_id: &observed.observation_id,
                         action, target_ref: (action == "press").then_some(editor.element_ref.as_str()), end_ref: None,
                         point: match action { "drag" => Some(BrowserViewportPoint { x: 40.0, y: 170.0 }), "scroll" => Some(BrowserViewportPoint { x: 400.0, y: 200.0 }), _ => None },
@@ -226,7 +235,7 @@ fn run_html_pointer_fixture(foreground: bool) {
                     if foreground {
                         let expected_route = match action {
                             "drag" => Some("system_pointer"),
-                            "scroll" => Some("system_pointer_webview_wheel"),
+                            "scroll" => Some("system_pointer"),
                             _ => None,
                         };
                         if outcome.pointer_delivery != expected_route {
@@ -245,6 +254,20 @@ fn run_html_pointer_fixture(foreground: bool) {
                     if state.eval_action(&session.id,tab_id,"window.dragMoves").await?.as_u64().unwrap_or(0)==0 {
                         return Err("The foreground gesture did not drag the canvas.".into());
                     }
+                    state.acquire_agent_control(&session.id, "modified-click")?;
+                    let observed = state.observe(&session.id, tab_id, "modified-click").await?;
+                    let button = observed.elements.iter().find(|element| element.name == "Continue").ok_or("Missing chord button")?;
+                    let (clicked, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "modified-click",
+                        serde_json::json!({"action":"click","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":observed.observation_id,"target_ref":button.element_ref,"modifiers":["Control","Shift"]})).await?;
+                    let flags = state.eval_action(&session.id,tab_id,"window.fixtureClick").await?;
+                    if flags["ctrl"] != true || flags["shift"] != true || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
+                        return Err(format!("Missing physical click modifiers: {flags}"));
+                    }
+                    let (zoomed, receipt) = public_browser_fixture_call(&registry, &db, &activity, &conversation, "modified-wheel",
+                        serde_json::json!({"action":"scroll","target":{"kind":"browser","session_id":session.id,"tab_id":tab_id},"observation_id":clicked.observation_id,"point":{"x":400,"y":200},"modifiers":["Control"],"scroll_y":-100})).await?;
+                    if clicked.viewport["deviceScaleFactor"] == zoomed.viewport["deviceScaleFactor"] || receipt.as_ref().is_none_or(|r| r["pointerDelivery"] != "system_pointer") {
+                        return Err("Control-wheel did not zoom the foreground tab.".into());
+                    }
                     return Ok(());
                 }
                 eprintln!("Native browser controls: screenshot-coordinate canvas drag, nested wheel and Control+A all produced verified page effects.");
@@ -259,6 +282,7 @@ fn run_html_pointer_fixture(foreground: bool) {
                 state.eval_action(&session.id, tab_id, "(() => { const canvases = document.querySelectorAll('canvas'); canvases[0].style.top = '300px'; canvases[1].style.top = '150px'; return true; })()").await?;
                 let _fresh = state.observe(&session.id, tab_id, "coordinate-race").await?;
                 let stale_action = state.act(BrowserActRequest {
+                    delivery: if foreground { BrowserInputDelivery::Foreground } else { BrowserInputDelivery::Background },
                     call_id: "coordinate-race", session_id: &session.id, tab_id, observation_id: &stale.observation_id,
                     action: "click", target_ref: None, end_ref: None, point: Some(BrowserViewportPoint { x: 40.0, y: 170.0 }), end_point: None,
                     text: None, value: None, values: None, checked: None, upload: None, key: None, button: None,
