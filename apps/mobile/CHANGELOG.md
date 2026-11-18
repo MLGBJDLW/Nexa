@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.13...nexa-mobile-v0.3.14) (2026-11-18)
+
+
+### Features
+
+* **chat:** reveal new streaming prose on desktop and phone ([1304444](https://github.com/MLGBJDLW/Nexa/commit/1304444917af912e46d4460bf2d260189e768689))
+* **workspace:** update provider catalogs, browser input and transfer feedback ([fd24e4c](https://github.com/MLGBJDLW/Nexa/commit/fd24e4cbf044f697d8bb286d10cfcc0d61d50a8e))
+
 ## [0.3.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.12...nexa-mobile-v0.3.13) (2026-11-18)
 
 ### Improvements
