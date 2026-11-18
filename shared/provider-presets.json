@@ -7846,7 +7846,7 @@
         "source": "official",
         "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/xiaomi/mimo-v2.5-pro",
-        "maxOutputTokens": 235929
+        "maxOutputTokens": 131072
       },
       {
         "id": "xiaomi/mimo-v2.5",
@@ -21868,7 +21868,7 @@
         "contextTokens": 1000000,
         "supportsTools": true,
         "supportsStructuredOutput": true,
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 64000
       },
       {
         "id": "meta/muse-wonder",
@@ -22556,7 +22556,7 @@
           "vision": true
         },
         "documentationRef": "https://openrouter.ai/openrouter/auto-beta",
-        "maxOutputTokens": 128000
+        "maxOutputTokens": 64000
       },
       {
         "id": "deepseek/deepseek-v4.1-flash-1017",
@@ -23502,7 +23502,7 @@
         "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/openrouter/auto-code",
         "contextTokens": 2000000,
-        "maxOutputTokens": 128000,
+        "maxOutputTokens": 64000,
         "inputModalities": [
           "text",
           "image",
