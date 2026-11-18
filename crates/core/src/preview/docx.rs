@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Cursor, Read};
+use std::io::{Read, Seek};
 use std::path::{Component, Path, PathBuf};
 
 use quick_xml::events::{BytesStart, Event};
@@ -93,12 +93,11 @@ struct ListInfo {
 }
 
 pub fn preview_docx(
-    path: &Path,
+    reader: impl Read + Seek,
     content_hash: &str,
     options: &PreviewBuildOptions,
 ) -> Result<StructuredPreview, String> {
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let mut archive = ZipArchive::new(reader).map_err(|e| e.to_string())?;
     let document_xml = read_zip_text(&mut archive, "word/document.xml")?;
     let mut document = parse_xml(&document_xml)?;
     assign_source_indices(&mut document, &mut 0, &mut 0, &mut 0);
@@ -817,9 +816,10 @@ mod tests {
         write_docx(&path);
         let options = PreviewBuildOptions {
             asset_cache_dir: Some(dir.path().join("assets")),
+            ..Default::default()
         };
 
-        let preview = preview_docx(&path, "hash", &options).unwrap();
+        let preview = preview_docx(fs::File::open(&path).unwrap(), "hash", &options).unwrap();
 
         let StructuredPreview::Document { blocks, assets } = preview else {
             panic!("expected document preview");

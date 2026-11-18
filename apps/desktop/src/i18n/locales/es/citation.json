@@ -2,6 +2,7 @@
   "extractedLines": "líneas extraídas {range}",
   "paragraph": "Párrafo {number}",
   "tableRow": "Tabla {table}, fila {row}",
+  "speakerNotes": "Notas del orador",
   "slide": "Diapositiva {number}",
   "locationUnknown": "Posición no disponible; vuelve a analizar esta fuente.",
   "version": "Versión indexada",

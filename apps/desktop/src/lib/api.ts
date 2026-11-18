@@ -709,6 +709,7 @@ export interface WorkbookStructuredPreview {
 }
 
 export type DocumentPreviewBlock =
+  | { type: 'slide'; number: number; text: string; notes: string }
   | DocumentHeadingBlock
   | DocumentParagraphBlock
   | DocumentListBlock
@@ -854,12 +855,13 @@ export interface FileSaveResult {
 
 export type { WorkflowCatalogTask, WorkflowCatalogTemplate } from '../types/workflows';
 
-export const previewFile = (path: string, conversationId?: string, verifyContentHash = false, startLine?: number) =>
+export const previewFile = (path: string, conversationId?: string, verifyContentHash = false, startLine?: number, focusSlide?: number) =>
   invoke<FilePreview>('preview_file_cmd', {
     path,
     conversationId: conversationId ?? null,
     ...(verifyContentHash ? { verifyContentHash: true } : {}),
     ...(startLine ? { startLine } : {}),
+    ...(focusSlide ? { focusSlide } : {}),
   });
 
 export const saveTextFile = (

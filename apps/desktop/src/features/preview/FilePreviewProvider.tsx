@@ -465,7 +465,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       setError(null);
       setActivePath(path);
       try {
-        const next = await api.previewFile(path, owner ?? undefined, Boolean(options.expectedHash), options.locator?.kind === 'text' ? options.locator.lineStart : undefined);
+        const next = await api.previewFile(path, owner ?? undefined, Boolean(options.expectedHash), options.locator?.kind === 'text' ? options.locator.lineStart : undefined, options.locator?.kind === 'slide' ? options.locator.slide : undefined);
         if (generation !== loadGeneration.current) return null;
         const changed = Boolean(options.expectedHash && options.expectedHash !== next.hash);
         if (changed) next.warning = t('citation.fileChanged');

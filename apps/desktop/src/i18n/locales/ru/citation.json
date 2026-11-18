@@ -2,6 +2,7 @@
   "extractedLines": "строки извлечённого текста {range}",
   "paragraph": "Абзац {number}",
   "tableRow": "Таблица {table}, строка {row}",
+  "speakerNotes": "Заметки докладчика",
   "slide": "Слайд {number}",
   "locationUnknown": "Позиция недоступна. Просканируйте источник заново.",
   "version": "Индексированная версия",

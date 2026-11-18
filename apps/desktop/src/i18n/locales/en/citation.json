@@ -2,6 +2,7 @@
   "extractedLines": "extracted lines {range}",
   "paragraph": "Paragraph {number}",
   "tableRow": "Table {table}, row {row}",
+  "speakerNotes": "Speaker notes",
   "slide": "Slide {number}",
   "locationUnknown": "Location unavailable; rescan this source.",
   "version": "Indexed version",

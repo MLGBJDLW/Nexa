@@ -76,6 +76,13 @@ function PdfLinesFixture() {
     <StructuredPreviewRenderer preview={pdfPreview} locator={cited ? { kind:'pdf', page:2, extractedLineStart:7, extractedLineEnd:8 } : undefined}
       labels={createPreviewLabels(t)} onMouseUp={() => undefined} onOpenWebLink={() => undefined} /></>;
 }
+function SlideFixture() {
+  const { t } = useTranslation();
+  return <StructuredPreviewRenderer preview={{ type:'document', assets:[], blocks:[
+    { type:'slide', number:91, text:'Quarterly totals', notes:'Revenue excludes tax' },
+  ] }} locator={{ kind:'slide', slide:91 }} labels={createPreviewLabels(t)}
+    onMouseUp={() => undefined} onOpenWebLink={() => undefined} />;
+}
 function WorkbookFixture() {
   const {t}=useTranslation();
   return <StructuredPreviewRenderer preview={{type:'workbook',truncated:false,limits:{maxSheets:20,maxRows:500,maxColumns:60},sheets:[{name:'预算',index:0,startRow:2,startColumn:1,rowCount:2,columnCount:2,previewRowCount:2,previewColumnCount:2,truncated:false,mergedRanges:[],cells:[{row:0,column:0,value:'金额(元)',dataType:'text',formula:null},{row:0,column:1,value:'500',dataType:'number',formula:null},{row:1,column:0,value:'Total',dataType:'text',formula:null},{row:1,column:1,value:'17',dataType:'number',formula:'SUM(C3)'}]}]}} locator={{kind:'sheet',sheet:'预算',range:'C4',contextRange:'B3:C3'}} labels={createPreviewLabels(t)} onMouseUp={() => undefined} onOpenWebLink={() => undefined} />;
@@ -106,7 +113,7 @@ const fixture = {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
-    {mode === 'file-links' ? <FileLinkFixture /> : mode === 'pdf-lines' ? <PdfLinesFixture /> : mode === 'docx' ? <DocxFixture /> : mode === 'reader' ? <ReaderFixture /> : mode === 'workbook' ? <WorkbookFixture /> : mode === 'research' ? <ResearchFixture /> : <FilePreviewContext.Provider value={{
+    {mode === 'slide' ? <SlideFixture /> : mode === 'file-links' ? <FileLinkFixture /> : mode === 'pdf-lines' ? <PdfLinesFixture /> : mode === 'docx' ? <DocxFixture /> : mode === 'reader' ? <ReaderFixture /> : mode === 'workbook' ? <WorkbookFixture /> : mode === 'research' ? <ResearchFixture /> : <FilePreviewContext.Provider value={{
       openFilePreview: () => undefined,
       openWebLink: () => undefined,
       loadEvidence: async () => {

@@ -2,6 +2,7 @@
   "extractedLines": "擷取文字第 {range} 行",
   "paragraph": "第 {number} 段",
   "tableRow": "表格 {table}，第 {row} 列",
+  "speakerNotes": "講者備忘稿",
   "slide": "第 {number} 張投影片",
   "locationUnknown": "原文位置尚不可用，請重新掃描此來源。",
   "version": "索引版本",

@@ -453,7 +453,7 @@ fn validate_generated_image_type(bytes: &[u8], media_type: &str) -> Result<(), S
 }
 
 const PREVIEW_TEXT_BYTES_LIMIT: u64 = 2 * 1024 * 1024;
-const PREVIEW_PARSE_BYTES_LIMIT: u64 = 25 * 1024 * 1024;
+use nexa_core::preview::DOCUMENT_PREVIEW_BYTES_LIMIT as PREVIEW_PARSE_BYTES_LIMIT;
 const PREVIEW_RELATIVE_SEARCH_LIMIT: usize = 5_000;
 const PREVIEW_RELATIVE_SEARCH_MAX_DEPTH: usize = 8;
 
@@ -881,6 +881,7 @@ pub(crate) fn build_file_preview(
     raw_path: &str,
     app_data_dir: Option<&Path>,
     start_line: Option<u32>,
+    focus_slide: Option<u32>,
 ) -> Result<FilePreview, String> {
     let resolved = resolve_local_file(db, raw_path)?;
     let metadata = std::fs::metadata(&resolved.canonical).map_err(|e| e.to_string())?;
@@ -893,8 +894,12 @@ pub(crate) fn build_file_preview(
         .and_then(|name| name.to_str())
         .unwrap_or("file")
         .to_string();
+    let presentation =
+        mime_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     let direct_media = nexa_core::preview::direct_media_kind(&mime_type).is_some();
     let mut window = None;
+    let mut document_bytes = None;
+    let structured_document = matches!(ext.as_str(), ".pdf" | ".docx" | ".xlsx" | ".pptx");
     let first_line = if size_bytes > PREVIEW_TEXT_BYTES_LIMIT {
         start_line.unwrap_or(1).max(1)
     } else {
@@ -916,6 +921,21 @@ pub(crate) fn build_file_preview(
             )
             .to_hex()
         )
+    } else if structured_document && size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
+        let file = std::fs::File::open(&resolved.canonical).map_err(|e| e.to_string())?;
+        let mut bytes = Vec::with_capacity(size_bytes as usize);
+        file.take(PREVIEW_PARSE_BYTES_LIMIT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > PREVIEW_PARSE_BYTES_LIMIT {
+            return Err(
+                "The document grew while opening its preview. Open the current version again."
+                    .into(),
+            );
+        }
+        let hash = blake3::hash(&bytes).to_hex().to_string();
+        document_bytes = Some(bytes);
+        hash
     } else if !is_document_preview_type(&mime_type)
         && (size_bytes <= PREVIEW_PARSE_BYTES_LIMIT || start_line.is_some())
     {
@@ -940,8 +960,8 @@ pub(crate) fn build_file_preview(
     let rendered_preview: Option<RenderedPreview> = None;
     let mut capabilities = nexa_core::preview::PreviewCapabilities::default();
 
-    if direct_media {
-        // The player/image element reports decoding errors; no text extraction.
+    if direct_media || (presentation && size_bytes <= PREVIEW_PARSE_BYTES_LIMIT) {
+        // The player handles media. Presentation text comes from the structured read below.
     } else if is_document_preview_type(&mime_type) && size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
         match nexa_core::parse::parse_file(
             &resolved.canonical,
@@ -952,6 +972,12 @@ pub(crate) fn build_file_preview(
             None,
             Some(2000),
         ) {
+            Ok(parsed) if parsed.content_hash != hash => {
+                warning = Some(
+                    "The document changed while extracting text. Reopen the current version."
+                        .into(),
+                );
+            }
             Ok(parsed) => {
                 content = Some(flatten_parsed_document(&parsed));
                 encoding = Some("extracted-text".to_string());
@@ -995,18 +1021,43 @@ pub(crate) fn build_file_preview(
         ));
     }
 
-    if size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
+    if let Some(bytes) = document_bytes {
         let options = nexa_core::preview::PreviewBuildOptions {
+            focus_slide,
             asset_cache_dir: app_data_dir
                 .map(|data_dir| data_dir.join("preview-cache").join("assets")),
         };
-        match nexa_core::preview::build_structured_preview(
-            &resolved.canonical,
+        match nexa_core::preview::build_structured_preview_from_reader(
+            std::io::Cursor::new(bytes),
             &mime_type,
             &hash,
             &options,
         ) {
             Ok(Some(structured)) => {
+                if presentation {
+                    if let nexa_core::preview::StructuredPreview::Document { blocks, .. } =
+                        &structured
+                    {
+                        let mut parts = Vec::new();
+                        for block in blocks {
+                            if let nexa_core::preview::model::PreviewBlock::Slide {
+                                text,
+                                notes,
+                                ..
+                            } = block
+                            {
+                                parts.extend(
+                                    [text.as_str(), notes.as_str()]
+                                        .into_iter()
+                                        .filter(|v| !v.is_empty()),
+                                );
+                            }
+                        }
+                        content = Some(parts.join("\n"));
+                        encoding = Some("extracted-text".into());
+                        capabilities.can_extract_text = true;
+                    }
+                }
                 structured_preview = Some(structured);
                 capabilities.can_render_structured = true;
             }
@@ -1083,6 +1134,7 @@ pub async fn preview_file_cmd(
     conversation_id: Option<String>,
     verify_content_hash: Option<bool>,
     start_line: Option<u32>,
+    focus_slide: Option<u32>,
 ) -> Result<FilePreview, String> {
     let db = state.db.clone();
     let data_dir = app_handle
@@ -1095,7 +1147,7 @@ pub async fn preview_file_cmd(
             .map(|id| nexa_core::chat_worktrees::activity(&db, id))
             .transpose()
             .map_err(|e| e.to_string())?;
-        let mut preview = build_file_preview(&db, &path, Some(&data_dir), start_line)?;
+        let mut preview = build_file_preview(&db, &path, Some(&data_dir), start_line, focus_slide)?;
         if verify_content_hash.unwrap_or(false) && preview.hash.starts_with("metadata:") {
             preview.hash = hash_file(Path::new(&preview.path))?;
         }
@@ -1213,7 +1265,7 @@ pub(super) fn save_text_file(
         None => ("not_indexed".to_string(), None),
     };
 
-    let preview = build_file_preview(db, &resolved.canonical.to_string_lossy(), None, None)?;
+    let preview = build_file_preview(db, &resolved.canonical.to_string_lossy(), None, None, None)?;
     Ok(FileSaveResult {
         preview,
         checkpoint_id: checkpoint.id,

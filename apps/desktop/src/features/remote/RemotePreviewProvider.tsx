@@ -50,9 +50,11 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
     const mine = ++generation.current;
     setPath(path); setPreview(null); setMedia(''); setError(''); setLoading(true);
     const params = { path, ...(position?.expectedHash ? { verifyContentHash: true } : {}) };
-    const startLine = position?.locator?.kind === 'text' ? position.locator.lineStart : undefined;
-    const request = startLine ? client.rpc<FilePreview>('files.preview', { ...params, startLine }).catch(error => {
-      if (!String(error).includes('startLine')) throw error;
+    const locator = position?.locator;
+    const anchor = locator?.kind === 'text' ? { startLine: locator.lineStart }
+      : locator?.kind === 'slide' ? { focusSlide: locator.slide } : undefined;
+    const request = anchor ? client.rpc<FilePreview>('files.preview', { ...params, ...anchor }).catch(error => {
+      if (!Object.keys(anchor).some(field => String(error).includes(field))) throw error;
       return client.rpc<FilePreview>('files.preview', params);
     }) : client.rpc<FilePreview>('files.preview', params);
     void request.then(async next => {
@@ -63,7 +65,15 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
       setPreview(next);
       const anchoredPdf = !changed && locatePdfPassage(next.structuredPreview, position?.locator)?.complete;
       if (['image', 'audio', 'video'].includes(next.kind) || (next.extension === '.pdf' && !anchoredPdf)) {
-        const data = await resolveFileUrl(next.path);
+        const data = !changed && position?.expectedHash
+          ? await client.rpc<string>('files.data', { path: next.path, expectedHash: position.expectedHash }).catch(error => {
+            if (!String(error).includes('expectedHash')) throw error;
+            if (mine === generation.current) {
+              setPreviewLocation(null);
+              setPreview({ ...next, warning: t('citation.previewLocationMissing') });
+            }
+            return resolveFileUrl(next.path);
+          }) : await resolveFileUrl(next.path);
         if (mine === generation.current) setMedia(data);
       }
     }).catch(error => { if (mine === generation.current) setError(error instanceof Error ? error.message : String(error)); })

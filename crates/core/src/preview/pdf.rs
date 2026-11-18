@@ -1,6 +1,5 @@
-use std::fs;
+use std::io::Read;
 use std::panic::{self, AssertUnwindSafe};
-use std::path::Path;
 
 use lopdf::Document;
 
@@ -10,14 +9,13 @@ const PDF_PREVIEW_MAX_PAGES: usize = 80;
 const PDF_PREVIEW_MAX_PARAGRAPHS_PER_PAGE: usize = 80;
 const PDF_PREVIEW_MAX_PARAGRAPH_CHARS: usize = 4_000;
 
-pub fn preview_pdf(path: &Path) -> Result<Option<StructuredPreview>, String> {
-    panic::catch_unwind(AssertUnwindSafe(|| preview_pdf_inner(path)))
+pub fn preview_pdf(reader: impl Read) -> Result<Option<StructuredPreview>, String> {
+    panic::catch_unwind(AssertUnwindSafe(|| preview_pdf_inner(reader)))
         .map_err(|payload| format!("panic: {}", panic_payload_to_string(payload)))?
 }
 
-fn preview_pdf_inner(path: &Path) -> Result<Option<StructuredPreview>, String> {
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
-    let doc = Document::load_mem(&bytes).map_err(|e| format!("PDF load failed: {e}"))?;
+fn preview_pdf_inner(reader: impl Read) -> Result<Option<StructuredPreview>, String> {
+    let doc = Document::load_from(reader).map_err(|e| format!("PDF load failed: {e}"))?;
     let pages = doc.get_pages();
     if pages.is_empty() {
         return Ok(None);
@@ -153,6 +151,7 @@ mod tests {
     use super::*;
     use lopdf::content::{Content, Operation};
     use lopdf::{dictionary, Object, Stream};
+    use std::path::Path;
 
     #[test]
     fn preview_pdf_builds_document_blocks_per_page() {
@@ -166,7 +165,7 @@ mod tests {
             ],
         );
 
-        let preview = preview_pdf(&path)
+        let preview = preview_pdf(std::fs::File::open(&path).unwrap())
             .expect("preview pdf")
             .expect("structured");
         let StructuredPreview::Document { blocks, assets } = preview else {

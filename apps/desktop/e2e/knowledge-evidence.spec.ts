@@ -194,3 +194,11 @@ test('phone PDF citations fall back to the original page when native text is mis
     await page.getByRole('button', { name: 'Close', exact: true }).click();
   }
 });
+
+test('focused PowerPoint previews retain the original slide number and speaker notes', async ({ page }) => {
+  await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=slide');
+  const selected = page.locator('[data-evidence-anchor="true"]');
+  await expect(selected).toHaveAttribute('data-preview-page', '91');
+  await expect(selected.getByText('Quarterly totals')).toBeVisible();
+  await expect(selected.getByText('Revenue excludes tax')).toBeVisible();
+});

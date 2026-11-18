@@ -2,6 +2,7 @@
   "extractedLines": "抽出テキスト {range} 行",
   "paragraph": "段落 {number}",
   "tableRow": "表 {table}、行 {row}",
+  "speakerNotes": "発表者ノート",
   "slide": "スライド {number}",
   "locationUnknown": "位置情報がありません。ソースを再スキャンしてください。",
   "version": "索引の版",

@@ -11,7 +11,7 @@ use quick_xml::{
 };
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Seek},
 };
 
 const MAX_XML_BYTES: u64 = 64 * 1024 * 1024;
@@ -27,7 +27,10 @@ pub(crate) fn office_package_error(bytes: &[u8], error: impl std::fmt::Display) 
     ))
 }
 
-fn xml_part(archive: &mut zip::ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<String, CoreError> {
+fn xml_part<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+) -> Result<String, CoreError> {
     let mut file = archive
         .by_name(name)
         .map_err(|error| CoreError::Parse(format!("Missing Office part {name}: {error}")))?;
@@ -308,13 +311,13 @@ fn slide_text(xml: &str) -> Result<String, CoreError> {
     Ok(text)
 }
 
-pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedChunk>, CoreError> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
-        .map_err(|error| office_package_error(bytes, error))?;
+pub(crate) fn presentation_slides<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+) -> Result<Vec<String>, CoreError> {
     let mut slides = Vec::new();
     if let (Ok(presentation), Ok(rels)) = (
-        xml_part(&mut archive, "ppt/presentation.xml"),
-        xml_part(&mut archive, "ppt/_rels/presentation.xml.rels"),
+        xml_part(archive, "ppt/presentation.xml"),
+        xml_part(archive, "ppt/_rels/presentation.xml.rels"),
     ) {
         let relationships = relationships(&rels);
         let mut reader = Reader::from_str(&presentation);
@@ -347,7 +350,7 @@ pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
             .file_names()
             .map(|name| name.map(|name| name.into_owned()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| office_package_error(bytes, error))?
+            .map_err(|error| CoreError::Parse(error.to_string()))?
             .into_iter()
             .filter(|name| name.starts_with("ppt/slides/slide") && name.ends_with(".xml"))
             .collect();
@@ -358,34 +361,50 @@ pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedCh
                 .unwrap_or(u32::MAX)
         });
     }
-    let mut chunks = Vec::new();
-    for (index, part) in slides.into_iter().enumerate() {
-        let slide = index as u32 + 1;
-        append_block(
-            &mut chunks,
-            &slide_text(&xml_part(&mut archive, &part)?)?,
-            Some(format!("Slide {slide}")),
-            EvidenceLocator::Slide { slide },
-            max_chars,
-        );
-        let basename = part.rsplit('/').next().unwrap_or_default();
-        if let Ok(rels) = xml_part(&mut archive, &format!("ppt/slides/_rels/{basename}.rels")) {
-            for target in relationships(&rels)
-                .values()
-                .filter(|target| target.contains("notesSlides/"))
-            {
-                let notes = format!("ppt/{}", target.trim_start_matches("../"));
-                if let Ok(xml) = xml_part(&mut archive, &notes) {
-                    append_block(
-                        &mut chunks,
-                        &slide_text(&xml)?,
-                        Some(format!("Slide {slide} · Notes")),
-                        EvidenceLocator::Slide { slide },
-                        max_chars,
-                    );
-                }
+    Ok(slides)
+}
+
+pub(crate) fn presentation_slide_text<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    part: &str,
+    mut visit: impl FnMut(String, bool),
+) -> Result<(), CoreError> {
+    visit(slide_text(&xml_part(archive, part)?)?, false);
+    let basename = part.rsplit('/').next().unwrap_or_default();
+    if let Ok(rels) = xml_part(archive, &format!("ppt/slides/_rels/{basename}.rels")) {
+        for target in relationships(&rels)
+            .values()
+            .filter(|target| target.contains("notesSlides/"))
+        {
+            let notes = format!("ppt/{}", target.trim_start_matches("../"));
+            if let Ok(xml) = xml_part(archive, &notes) {
+                visit(slide_text(&xml)?, true);
             }
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn pptx_chunks(bytes: &[u8], max_chars: usize) -> Result<Vec<ParsedChunk>, CoreError> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|error| office_package_error(bytes, error))?;
+    let mut chunks = Vec::new();
+    for (index, part) in presentation_slides(&mut archive)?.iter().enumerate() {
+        let slide = index as u32 + 1;
+        presentation_slide_text(&mut archive, part, |text, notes| {
+            let heading = if notes {
+                format!("Slide {slide} \u{b7} Notes")
+            } else {
+                format!("Slide {slide}")
+            };
+            append_block(
+                &mut chunks,
+                &text,
+                Some(heading),
+                EvidenceLocator::Slide { slide },
+                max_chars,
+            );
+        })?;
     }
     Ok(chunks)
 }
@@ -637,6 +656,28 @@ mod tests {
                 r#"<a:p xmlns:a="a"><a:r><a:t>Speaker evidence</a:t></a:r></a:p>"#,
             ),
         ]);
+        let mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        let slide = |number| {
+            let preview = crate::preview::build_structured_preview_from_reader(
+                Cursor::new(&bytes),
+                mime,
+                "hash",
+                &crate::preview::PreviewBuildOptions {
+                    focus_slide: Some(number),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .unwrap();
+            serde_json::to_value(preview).unwrap()["blocks"].clone()
+        };
+        let first = slide(1);
+        assert_eq!(first[0]["notes"], "Speaker evidence");
+        let second = slide(2);
+        assert_eq!(second.as_array().unwrap().len(), 1);
+        assert_eq!(second[0]["number"], 2);
+        assert_eq!(second[0]["text"], "Second result");
+        assert_eq!(slide(999), serde_json::json!([]));
         let chunks = pptx_chunks(&bytes, 2000).unwrap();
         assert_eq!(chunks[0].content, "第一张");
         assert_eq!(chunks[0].locator, EvidenceLocator::Slide { slide: 1 });

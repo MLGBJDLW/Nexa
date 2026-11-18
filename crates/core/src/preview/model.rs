@@ -63,6 +63,11 @@ pub enum PreviewBlock {
         asset_id: String,
         alt: Option<String>,
     },
+    Slide {
+        number: u32,
+        text: String,
+        notes: String,
+    },
     PageBreak,
     Unsupported {
         message: String,

@@ -42,6 +42,8 @@ export function createPreviewLabels(t: TranslateFn) {
     lines: t('preview.lines'),
     pages: t('preview.pages'),
     page: t('preview.page'),
+    slide: (number: number) => t('citation.slide', { number }),
+    speakerNotes: t('citation.speakerNotes'),
     pageBreak: t('preview.pageBreak'),
     zoomIn: t('preview.zoomIn'),
     zoomOut: t('preview.zoomOut'),
@@ -241,6 +243,15 @@ function DocumentBlockView({
   pdfLines?: PdfPassageLines;
 }) {
   switch (block.type) {
+    case 'slide':
+      return <section className="space-y-3 py-3">
+        <h3 className="text-lg font-semibold">{labels.slide(block.number)}</h3>
+        <p className="whitespace-pre-wrap">{block.text}</p>
+        {block.notes && <aside className="border-l-2 border-border px-3">
+          <h4 className="text-xs font-medium text-text-secondary">{labels.speakerNotes}</h4>
+          <p className="whitespace-pre-wrap">{block.notes}</p>
+        </aside>}
+      </section>;
     case 'heading': {
       const Tag = (`h${Math.min(Math.max(block.level, 1), 6)}`) as
         | 'h1'
@@ -400,7 +411,7 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
   const pdfPassage = useMemo(() => locatePdfPassage(preview, locator), [preview, locator]);
   const blockPages = useMemo(() => {
     let page = 1;
-    return preview.blocks.map((block) => { if (block.type === 'pageBreak') page += 1; return page; });
+    return preview.blocks.map((block) => { if (block.type === 'slide') page = block.number; else if (block.type === 'pageBreak') page += 1; return page; });
   }, [preview.blocks]);
   useEffect(() => {
     if (!locator || !root.current) { setAnchorMissing(false); return; }
