@@ -327,7 +327,7 @@ export function Layout() {
                   {appVersion ? `v${appVersion}` : 'v—'}
                 </span>
               ) : updater.status === 'checking' || updater.status === 'downloading' || updater.status === 'ready'
-                ? <UpdateActivity status={updater.status} progress={updater.progress} />
+                ? <UpdateActivity status={updater.status === 'downloading' && updater.progress === 100 ? 'installing' : updater.status} progress={updater.progress} />
                 : <UpdateIcon className="h-4.5 w-4.5" />}
               {(updater.status === 'available' || updater.status === 'ready') && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_7px_currentColor]" />

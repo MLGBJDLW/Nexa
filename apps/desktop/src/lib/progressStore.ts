@@ -25,7 +25,9 @@ export interface VideoProcessingState {
   fileName: string;
 }
 
+type DownloadKind = 'modelDownload' | 'ocrDownload' | 'videoDownload' | 'ffmpegDownload';
 export interface ProgressState {
+  activeDownloads: Partial<Record<DownloadKind, boolean>>;
   knowledgeJobs: KnowledgeJob[];
   // Model downloads
   modelDownload: DownloadProgress | null;
@@ -52,6 +54,7 @@ type Listener = () => void;
 
 function createDefaultState(): ProgressState {
   return {
+    activeDownloads: {},
     knowledgeJobs: [],
     modelDownload: null,
     ocrDownload: null,
@@ -76,6 +79,15 @@ function notify(): void {
 }
 
 export const progressStore = {
+  async runDownload<T>(kind: DownloadKind, start: () => Promise<T>): Promise<T> {
+    if (state.activeDownloads[kind]) throw new Error('This download is already running.');
+    const mark = (active: boolean) => {
+      state = { ...state, [kind]: null, activeDownloads: { ...state.activeDownloads, [kind]: active } };
+      notify();
+    };
+    mark(true);
+    try { return await start(); } finally { mark(false); }
+  },
   mergeKnowledgeJobs(jobs: KnowledgeJob[], beforeSnapshot?: KnowledgeJob[]): void {
     const merged = new Map(state.knowledgeJobs.map((job) => [job.id, job]));
     if (beforeSnapshot) {

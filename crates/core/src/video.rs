@@ -2054,7 +2054,7 @@ pub fn delete_whisper_model(config: &VideoConfig) -> Result<(), CoreError> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FfmpegDownloadProgress {
-    pub progress_pct: f32,
+    pub progress_pct: Option<f32>,
     pub status: String,
 }
 
@@ -2090,7 +2090,7 @@ pub fn download_ffmpeg(
     let mirror_url = ffmpeg_mirror_url(ghproxy_base)?;
 
     on_progress(FfmpegDownloadProgress {
-        progress_pct: 0.0,
+        progress_pct: None,
         status: "Downloading FFmpeg...".into(),
     });
 
@@ -2110,8 +2110,8 @@ pub fn download_ffmpeg(
         &tmp_archive,
         |bytes_downloaded, total_bytes| {
             let pct = total_bytes
-                .map(|t| (bytes_downloaded as f32 / t as f32) * 80.0) // 0-80% for download
-                .unwrap_or(0.0);
+                .filter(|total| *total > 0)
+                .map(|total| (bytes_downloaded as f32 / total as f32).min(1.0) * 80.0);
             on_progress(FfmpegDownloadProgress {
                 progress_pct: pct,
                 status: format!(
@@ -2124,7 +2124,7 @@ pub fn download_ffmpeg(
     .map_err(|e| CoreError::Video(format!("Failed to download FFmpeg: {e}")))?;
 
     on_progress(FfmpegDownloadProgress {
-        progress_pct: 80.0,
+        progress_pct: Some(80.0),
         status: "Extracting FFmpeg...".into(),
     });
 
@@ -2148,7 +2148,7 @@ pub fn download_ffmpeg(
     }
 
     on_progress(FfmpegDownloadProgress {
-        progress_pct: 100.0,
+        progress_pct: Some(100.0),
         status: "FFmpeg ready".into(),
     });
 

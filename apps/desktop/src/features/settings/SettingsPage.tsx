@@ -222,7 +222,7 @@ export function SettingsPage() {
   /* ── Embedding state ─────────────────────────────────────────────── */
   const [embedConfig, setEmbedConfig] = useState<EmbedderConfig | null>(null);
   const [localModelReady, setLocalModelReady] = useState<boolean | null>(null);
-  const [downloadLoading, setDownloadLoading] = useState(false);
+  const downloadLoading = !!progress.activeDownloads.modelDownload;
   const downloadProgress = progress.modelDownload;
   const [testLoading, setTestLoading] = useState(false);
   const [embedSaveLoading, setEmbedSaveLoading] = useState(false);
@@ -242,19 +242,19 @@ export function SettingsPage() {
   /* ── OCR state ────────────────────────────────────────────────────── */
   const [ocrConfig, setOcrConfig] = useState<OcrConfig | null>(null);
   const [ocrModelsExist, setOcrModelsExist] = useState<boolean | null>(null);
-  const [ocrDownloading, setOcrDownloading] = useState(false);
+  const ocrDownloading = !!progress.activeDownloads.ocrDownload;
   const ocrProgress = progress.ocrDownload;
   const [ocrSaveLoading, setOcrSaveLoading] = useState(false);
 
   /* ── Video state ──────────────────────────────────────────────────── */
   const [videoConfig, setVideoConfig] = useState<VideoConfig | null>(null);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
-  const [videoDownloading, setVideoDownloading] = useState(false);
+  const videoDownloading = !!progress.activeDownloads.videoDownload;
   const videoProgress = progress.videoDownload;
   const [videoSaveLoading, setVideoSaveLoading] = useState(false);
   const [showAdvancedVideo, setShowAdvancedVideo] = useState(false);
   const [deleteModelConfirmOpen, setDeleteModelConfirmOpen] = useState(false);
-  const [ffmpegDownloading, setFfmpegDownloading] = useState(false);
+  const ffmpegDownloading = !!progress.activeDownloads.ffmpegDownload;
   const ffmpegProgress = progress.ffmpegDownload;
   const voiceInputRuntime = useVoiceInputRuntime({ videoConfig });
   const {
@@ -276,12 +276,6 @@ export function SettingsPage() {
       progressStore.update('embedRebuildProgress', null);
     }
   }, [rebuildEmbedLoading]);
-
-  useEffect(() => {
-    if (!downloadLoading) {
-      progressStore.update('modelDownload', null);
-    }
-  }, [downloadLoading]);
 
   const loadEmbedConfig = useCallback(async () => {
     try {
@@ -330,7 +324,6 @@ export function SettingsPage() {
       if (!embedConfig) return;
       if (downloadLoading || deleteEmbedModelLoading) return;
       embeddingProbeRevision.current++;
-      setDownloadLoading(true);
       try {
         await api.downloadLocalModel(embedConfig.localModel, embedConfig.modelPath);
         toast.success(t('settings.embeddingDownloaded'));
@@ -338,7 +331,6 @@ export function SettingsPage() {
         toast.error(t('settings.embeddingDownloadFail') + ': ' + String(e));
       } finally {
         invalidateModelStatus('embed');
-        setDownloadLoading(false);
       }
     });
   };
@@ -556,17 +548,10 @@ export function SettingsPage() {
     }
   }, [activeTab, loadOcrConfig, ocrConfig]);
 
-  useEffect(() => {
-    if (!ocrDownloading) {
-      progressStore.update('ocrDownload', null);
-    }
-  }, [ocrDownloading]);
-
   const handleDownloadOcrModels = async () => {
     await runExclusiveAction('download:ocr-models', async () => {
       if (!ocrConfig) return;
       if (ocrDownloading) return;
-      setOcrDownloading(true);
       try {
         await api.downloadOcrModels(ocrConfig);
         setOcrModelsExist(true);
@@ -574,8 +559,6 @@ export function SettingsPage() {
         toast.success(t('settings.ocrModelsDownloaded'));
       } catch (e) {
         toast.error(t('settings.ocrDownloadFail') + ': ' + String(e));
-      } finally {
-        setOcrDownloading(false);
       }
     });
   };
@@ -681,21 +664,27 @@ export function SettingsPage() {
     whisperModelExists,
   ]);
 
+  const previousDownloads = useRef(progress.activeDownloads);
   useEffect(() => {
-    if (!videoDownloading) { progressStore.update('videoDownload', null); }
-  }, [videoDownloading]);
+    const previous = previousDownloads.current;
+    previousDownloads.current = progress.activeDownloads;
+    if (previous.ocrDownload && !ocrDownloading && ocrConfig) {
+      void api.checkOcrModels(ocrConfig).then(setOcrModelsExist).catch(() => setOcrModelsExist(false));
+    }
+    if (previous.ffmpegDownload && !ffmpegDownloading && videoConfig) {
+      void api.checkFfmpeg(videoConfig).then(setFfmpegAvailable).catch(() => setFfmpegAvailable(false));
+    }
+    if (previous.videoDownload && !videoDownloading && videoConfig) void refreshWhisperReadiness(videoConfig);
+  }, [progress.activeDownloads, ocrDownloading, ffmpegDownloading, videoDownloading, ocrConfig, videoConfig, refreshWhisperReadiness]);
 
   const handleWhisperDownload = async () => {
     await runExclusiveAction('download:whisper-model', async () => {
       if (!videoConfig) return;
       if (videoDownloading) return;
-      setVideoDownloading(true);
       try {
         await downloadWhisperModel(videoConfig);
       } catch (e) {
         toast.error(t('settings.videoDownloadFail') + ': ' + String(e));
-      } finally {
-        setVideoDownloading(false);
       }
     });
   };
@@ -712,14 +701,9 @@ export function SettingsPage() {
   };
 
   // FFmpeg download
-  useEffect(() => {
-    if (!ffmpegDownloading) { progressStore.update('ffmpegDownload', null); }
-  }, [ffmpegDownloading]);
-
   const handleFfmpegDownload = async () => {
     await runExclusiveAction('download:ffmpeg', async () => {
       if (ffmpegDownloading) return;
-      setFfmpegDownloading(true);
       try {
         const path = await api.downloadFfmpeg();
         setFfmpegAvailable(true);
@@ -730,8 +714,6 @@ export function SettingsPage() {
         void path; // path is auto-saved by backend
       } catch (e) {
         toast.error(t('settings.videoFfmpegDownloadFailed') + ': ' + String(e));
-      } finally {
-        setFfmpegDownloading(false);
       }
     });
   };

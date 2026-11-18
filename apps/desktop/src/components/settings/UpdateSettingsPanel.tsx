@@ -11,7 +11,7 @@ import { useTranslation } from '../../i18n';
 import { useUpdater, type UpdateSource } from '../../lib/useUpdater';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
-import { UpdateActivity } from '../ui/UpdateActivity';
+import { DownloadProgressBar, UpdateActivity } from '../ui/UpdateActivity';
 
 type UpdaterState = ReturnType<typeof useUpdater>;
 
@@ -64,7 +64,7 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
       case 'available':
         return { label: t('update.available'), variant: 'warning' as const, icon: <Download size={14} /> };
       case 'downloading':
-        return { label: t(progress === 100 ? 'update.installing' : 'update.downloading'), variant: 'info' as const, icon: <UpdateActivity status="downloading" progress={progress} className="update-activity--compact" /> };
+        return { label: t(progress === 100 ? 'update.installing' : 'update.downloading'), variant: 'info' as const, icon: <UpdateActivity status={progress === 100 ? 'installing' : 'downloading'} progress={progress} className="update-activity--compact" /> };
       case 'ready':
         return { label: t('update.ready'), variant: 'success' as const, icon: <UpdateActivity status="ready" className="update-activity--compact" /> };
       case 'error':
@@ -188,16 +188,7 @@ export function UpdateSettingsPanel({ appVersion, updater }: UpdateSettingsPanel
       </div>
 
       {status === 'downloading' && (
-        <div className="flex items-center gap-3">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3" role="progressbar" aria-label={t('update.downloading')}
-            aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-            <div
-              className="h-full origin-left rounded-full bg-accent transition-transform duration-300 motion-reduce:transition-none"
-              style={{ transform: `scaleX(${(progress ?? 0) / 100})` }}
-            />
-          </div>
-          <span className="w-10 text-right text-xs tabular-nums text-text-tertiary">{progress === undefined ? '—' : `${progress}%`}</span>
-        </div>
+        <DownloadProgressBar progress={progress} label={t('update.downloading')} />
       )}
 
       {status === 'error' && (

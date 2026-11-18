@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { Button } from '../ui/Button';
+import { DownloadProgressBar, UpdateActivity } from '../ui/UpdateActivity';
 import { Badge } from '../ui/Badge';
 
 type ModelStatus = 'downloaded' | 'downloading' | 'not-downloaded' | 'checking';
@@ -59,6 +60,8 @@ export function ModelCard({
   const [expanded, setExpanded] = useState(false);
   const panelId = useId();
   const reduceMotion = useReducedMotion();
+  const percent = downloadProgress?.totalBytes && downloadProgress.totalBytes > 0
+    ? 100 * downloadProgress.bytesDownloaded / downloadProgress.totalBytes : undefined;
   const hasChildren = !!children;
 
   return (
@@ -80,7 +83,7 @@ export function ModelCard({
               </Badge>
             ) : status === 'downloading' ? (
               <Badge variant="default" className="gap-1 shrink-0 bg-accent/10 text-accent border-accent/20">
-                <Loader2 size={10} className="animate-spin" />
+                <UpdateActivity status="downloading" progress={percent} className="update-activity--compact" />
                 {t('settings.modelDownloading')}
               </Badge>
             ) : (
@@ -150,36 +153,19 @@ export function ModelCard({
       </div>
 
       {/* Download progress */}
-      {status === 'downloading' && downloadProgress && (
+      {status === 'downloading' && (
         <div className="px-4 pb-3">
-          <div className="flex items-center gap-2 text-xs text-text-tertiary mb-1">
-            <Loader2 size={12} className="animate-spin" />
-            <span>
-              {t('settings.downloadingFile', {
+          {downloadProgress && (
+            <div className="mb-1 flex flex-wrap justify-between gap-x-2 text-xs text-text-tertiary">
+              <span className="break-all">{t('settings.downloadingFile', {
                 filename: downloadProgress.filename,
                 current: String(downloadProgress.fileIndex + 1),
                 total: String(downloadProgress.totalFiles),
-              })}
-            </span>
-          </div>
-          {downloadProgress.totalBytes ? (
-            <>
-              <div className="flex justify-between text-[10px] text-text-tertiary/70 mb-0.5">
-                <span>{formatBytes(downloadProgress.bytesDownloaded)} / {formatBytes(downloadProgress.totalBytes)}</span>
-                <span>{Math.round((downloadProgress.bytesDownloaded / downloadProgress.totalBytes) * 100)}%</span>
-              </div>
-              <div className="w-full bg-surface-3 rounded h-1.5">
-                <div
-                  className="bg-accent h-1.5 rounded transition-all duration-300"
-                  style={{ width: `${Math.min(100, (downloadProgress.bytesDownloaded / downloadProgress.totalBytes) * 100)}%` }}
-                />
-              </div>
-            </>
-          ) : (
-            <div className="w-full bg-surface-3 rounded h-1.5 overflow-hidden">
-              <div className="bg-accent h-1.5 rounded animate-pulse w-full" />
+              })}</span>
+              <span>{formatBytes(downloadProgress.bytesDownloaded)}{downloadProgress.totalBytes != null && downloadProgress.totalBytes > 0 && ` / ${formatBytes(downloadProgress.totalBytes)}`}</span>
             </div>
           )}
+          <DownloadProgressBar progress={percent} label={title} />
         </div>
       )}
 

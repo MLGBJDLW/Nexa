@@ -1,3 +1,4 @@
+import { progressStore } from './progressStore';
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from '@tauri-apps/api/event';
 import { connectEventSubscriptions } from './eventSubscriptions';
@@ -403,7 +404,7 @@ export const checkLocalModel = (localModel?: string, modelPath?: string) =>
   invoke<boolean>('check_local_model_cmd', { localModel, modelPath });
 
 export const downloadLocalModel = (localModel?: string, modelPath?: string) =>
-  invoke<void>('download_local_model_cmd', { localModel, modelPath });
+  progressStore.runDownload('modelDownload', () => invoke<void>('download_local_model_cmd', { localModel, modelPath }));
 
 export const cancelModelDownload = () =>
   invoke<void>('cancel_model_download_cmd');
@@ -2273,7 +2274,7 @@ export const checkOcrModels = (config: OcrConfig) =>
   invoke<boolean>('check_ocr_models_cmd', { config });
 
 export const downloadOcrModels = (config: OcrConfig) =>
-  invoke<void>('download_ocr_models_cmd', { config });
+  progressStore.runDownload('ocrDownload', () => invoke<void>('download_ocr_models_cmd', { config }));
 
 export const deleteOcrModels = (config: OcrConfig) =>
   invoke<void>('delete_ocr_models_cmd', { config });
@@ -2457,7 +2458,7 @@ export const checkWhisperModel = (config: VideoConfig) =>
   invoke<boolean>('check_whisper_model_cmd', { config });
 
 export const downloadWhisperModel = (config: VideoConfig) =>
-  invoke<void>('download_whisper_model_cmd', { config });
+  progressStore.runDownload('videoDownload', () => invoke<void>('download_whisper_model_cmd', { config }));
 
 export const deleteWhisperModel = () =>
   invoke<void>('delete_whisper_model_cmd');
@@ -2466,7 +2467,7 @@ export const checkFfmpeg = (config: VideoConfig) =>
   invoke<boolean>('check_ffmpeg_cmd', { config });
 
 export const downloadFfmpeg = () =>
-  invoke<string>('download_ffmpeg_cmd');
+  progressStore.runDownload('ffmpegDownload', () => invoke<string>('download_ffmpeg_cmd'));
 
 export interface VoiceAudioSpoolStarted {
   sessionId: string;

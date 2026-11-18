@@ -11,6 +11,7 @@ import {
 import { NexaSelect } from '../ui/overlay';
 import { useTranslation } from '../../i18n';
 import type { FfmpegDownloadProgress, VideoConfig } from '../../types/video';
+import { DownloadProgressBar, UpdateActivity } from '../ui/UpdateActivity';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -117,7 +118,7 @@ export function VideoSettingsSection({
               </Badge>
             ) : ffmpegDownloading ? (
               <Badge variant="default" className="gap-1">
-                <Loader2 size={12} className="animate-spin" />
+                <UpdateActivity status="downloading" progress={ffmpegProgress?.progressPct ?? undefined} className="update-activity--compact" />
                 {t('settings.videoFfmpegDownloading')}
               </Badge>
             ) : (
@@ -127,15 +128,10 @@ export function VideoSettingsSection({
               </Badge>
             )}
           </div>
-          {ffmpegDownloading && ffmpegProgress && (
+          {ffmpegDownloading && (
             <div className="space-y-1">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-surface-3">
-                <div
-                  className="h-full rounded-full bg-accent transition-all duration-300"
-                  style={{ width: `${Math.min(ffmpegProgress.progressPct, 100)}%` }}
-                />
-              </div>
-              <p className="text-xs text-text-tertiary">{ffmpegProgress.status}</p>
+              <DownloadProgressBar label={t('settings.videoFfmpegDownloading')} progress={ffmpegProgress?.progressPct ?? undefined} />
+              {ffmpegProgress && <p className="text-xs text-text-tertiary">{ffmpegProgress.status}</p>}
             </div>
           )}
           {ffmpegAvailable === false && !ffmpegDownloading && (

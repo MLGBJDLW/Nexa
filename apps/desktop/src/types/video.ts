@@ -42,7 +42,7 @@ export interface VideoDownloadProgress {
 }
 
 export interface FfmpegDownloadProgress {
-  progressPct: number;
+  progressPct: number | null;
   status: string;
 }
 
