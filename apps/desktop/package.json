@@ -90,11 +90,13 @@
     "@types/react-dom": "19.2.3",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "picomatch": "file:../../vendor/picomatch-safe",
     "tailwindcss": "^4",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite": "^6.4.5"
   },
   "overrides": {
-    "katex": "$katex"
+    "katex": "$katex",
+    "picomatch": "$picomatch"
   }
 }
