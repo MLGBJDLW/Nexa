@@ -2193,7 +2193,7 @@ fn ensure_target_patch_fresh(
     };
     if !screenshot_guard_patch_matches(expected, &current, normalized_x, normalized_y) {
         return Err(invalid(
-            "The approved target region changed since observation. No pointer input was sent; capture again.",
+            "The approved target region changed since observation. Capture the window again before further input.",
         ));
     }
     Ok(())
@@ -2283,24 +2283,16 @@ fn move_cursor_frame(
             actual.0, actual.1, point.0, point.1
         )));
     }
-    super::super::computer_pointer_feedback::show_at(point);
     Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PointerApproach {
-    Foreground,
-    FeedbackOnly,
-}
-
-/// One motion path for native input and semantic feedback. Frames carry no
-/// button events; background delivery never moves the physical cursor.
+/// Move the shared system cursor, checking for user takeover between frames.
 fn approach_pointer(
     point: (i32, i32),
     window: &WindowSnapshot,
     tracker: &ControlCommitTracker,
     context: &str,
-    delivery: PointerApproach,
+    stop_before: Option<HWND>,
 ) -> Result<(), CoreError> {
     use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONULL};
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -2314,15 +2306,10 @@ fn approach_pointer(
     };
     let started = Instant::now();
     let mut previous = from;
-    super::super::computer_pointer_feedback::show_at(from);
     for (index, next) in points.iter().copied().enumerate() {
         let due = duration.mul_f64((index + 1) as f64 / points.len() as f64);
         thread::sleep(due.saturating_sub(started.elapsed()));
         tracker.ensure_running()?;
-        if delivery == PointerApproach::FeedbackOnly {
-            super::super::computer_pointer_feedback::show_at(next);
-            continue;
-        }
         ensure_target_foreground(window)?;
         ensure_cursor_at(previous, context)?;
         for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
@@ -2342,6 +2329,12 @@ fn approach_pointer(
         if screen.0.is_null() && index + 1 < points.len() {
             continue;
         }
+        // Raw pixels have no stable element identity. Reserve entry into their
+        // receiving surface for the final move/button batch so normal hover
+        // styling does not invalidate its own click.
+        if stop_before.is_some_and(|receiver| window_at(next) == receiver) {
+            break;
+        }
         move_cursor_frame(next, context, tracker)?;
         previous = next;
     }
@@ -2358,17 +2351,21 @@ fn ensure_cursor_at(point: (i32, i32), context: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+fn window_at(point: (i32, i32)) -> HWND {
+    unsafe {
+        WindowFromPoint(windows::Win32::Foundation::POINT {
+            x: point.0,
+            y: point.1,
+        })
+    }
+}
+
 fn ensure_point_targets_window(
     point: (i32, i32),
     window: &WindowSnapshot,
 ) -> Result<(), CoreError> {
     super::super::computer_pointer_feedback::avoid_status_at(point);
-    let hit = unsafe {
-        WindowFromPoint(windows::Win32::Foundation::POINT {
-            x: point.0,
-            y: point.1,
-        })
-    };
+    let hit = window_at(point);
     if hit.0.is_null() {
         return Err(invalid(
             "No live window owns the approved input point; refusing pointer input.",
@@ -3113,8 +3110,7 @@ pub(super) fn control_window(
     let mut route = "global_input";
     let mut delivery = "foreground";
 
-    // A semantic single click can run without activating the window. Probe
-    // the actual pattern first; only auto mode may fall back before input.
+    // Background delivery is explicit. Ordinary clicks land on the shared system cursor.
     let mut effective_action = action;
     let menu_item = args.element_id.as_deref().and_then(|id| {
         observed
@@ -3167,16 +3163,7 @@ pub(super) fn control_window(
         window_epoch,
         foreground,
     ))?;
-    let _pointer_feedback = super::super::computer_pointer_feedback::PointerFeedback::begin(
-        current.id,
-        !matches!(
-            effective_action,
-            ControlAction::Expand
-                | ControlAction::Collapse
-                | ControlAction::Invoke
-                | ControlAction::SetValue
-        ),
-    );
+    let _status = super::super::computer_pointer_feedback::StatusGuard::begin(current.id);
     commit_tracker.result(commit_tracker.ensure_running())?;
     use crate::observed_interaction::RequestedCondition;
     let mut condition = RequestedCondition::NotRequested;
@@ -3199,27 +3186,8 @@ pub(super) fn control_window(
                 PreCommitFailureKind::ObservationStale,
                 resolve_live_element(&current, observed, expected),
             )?;
-            let bounds = &live.snapshot.screen_bounds;
-            let point = (
-                bounds.x + (bounds.width / 2) as i32,
-                bounds.y + (bounds.height / 2) as i32,
-            );
-            commit_tracker.result(approach_pointer(
-                point,
-                &current,
-                commit_tracker,
-                "approach semantic target",
-                PointerApproach::FeedbackOnly,
-            ))?;
-            let live = commit_tracker.result_as(
-                PreCommitFailureKind::ObservationStale,
-                resolve_live_element(&current, observed, expected),
-            )?;
             commit_tracker.result(commit_tracker.ensure_running())?;
             route = invoke_element(&live.element, &current, commit_tracker)?;
-            super::super::computer_pointer_feedback::pulse_at(point, || {
-                commit_tracker.ensure_running().is_ok()
-            });
             format!(
                 "Invoked semantic element {element_id} in window {}.",
                 current.id
@@ -3304,11 +3272,6 @@ pub(super) fn control_window(
                 resolve_live_element(&current, observed, expected),
             )?;
             let text = args.text.as_deref().expect("validated text");
-            let bounds = &live.snapshot.screen_bounds;
-            super::super::computer_pointer_feedback::show_at((
-                bounds.x + (bounds.width / 2) as i32,
-                bounds.y + (bounds.height / 2) as i32,
-            ));
             route = set_element_value(
                 &live.element,
                 &live.snapshot,
@@ -3361,7 +3324,7 @@ pub(super) fn control_window(
                 &current,
                 commit_tracker,
                 "move mouse",
-                PointerApproach::Foreground,
+                None,
             ))?;
             commit_tracker.result_as(
                 PreCommitFailureKind::TargetOccluded,
@@ -3416,16 +3379,29 @@ pub(super) fn control_window(
                 PreCommitFailureKind::UserTakeover,
                 ensure_mouse_button_not_physically_pressed(button),
             )?;
-            if target.live.is_some() {
-                commit_tracker.result(commit_tracker.mark())?;
-                commit_tracker.result(approach_pointer(
-                    target.point,
-                    &current,
-                    commit_tracker,
-                    "move mouse before click",
-                    PointerApproach::Foreground,
-                ))?;
-                thread::sleep(INPUT_SETTLE);
+            commit_tracker.result_as(
+                PreCommitFailureKind::TargetOccluded,
+                ensure_point_targets_window(target.point, &current),
+            )?;
+            let pixel_receiver = target.live.is_none().then(|| window_at(target.point));
+            commit_tracker.result(commit_tracker.mark())?;
+            commit_tracker.result(approach_pointer(
+                target.point,
+                &current,
+                commit_tracker,
+                "move mouse before click",
+                pixel_receiver,
+            ))?;
+            thread::sleep(INPUT_SETTLE);
+            if let Some(receiver) = pixel_receiver {
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_target_patch_fresh(observed, &current, target.point),
+                )?;
+                if window_at(target.point) != receiver {
+                    return Err(commit_tracker.failure_as(PreCommitFailureKind::ObservationStale,
+                        invalid("The receiving control changed during pointer movement. Observe again before clicking.")));
+                }
             }
             commit_tracker.result(commit_tracker.ensure_running())?;
             commit_tracker.result_as(
@@ -3485,9 +3461,6 @@ pub(super) fn control_window(
                     }))?;
                 }
             }
-            super::super::computer_pointer_feedback::pulse_at(target.point, || {
-                commit_tracker.ensure_running().is_ok()
-            });
             format!("Clicked {count} time(s) inside window {}.", current.id)
         }
         ControlAction::Drag => {
@@ -3541,7 +3514,7 @@ pub(super) fn control_window(
                 &current,
                 commit_tracker,
                 "move to drag start",
-                PointerApproach::Foreground,
+                None,
             ))?;
             thread::sleep(INPUT_SETTLE);
             for target in [&from, &to] {
@@ -3600,7 +3573,7 @@ pub(super) fn control_window(
                 &current,
                 commit_tracker,
                 "move mouse before scroll",
-                PointerApproach::Foreground,
+                None,
             ))?;
             thread::sleep(INPUT_SETTLE);
             if target.live.is_none() {
@@ -3692,11 +3665,6 @@ pub(super) fn control_window(
                         invalid("Password elements are protected from text input."),
                     ));
                 }
-                let bounds = &live.snapshot.screen_bounds;
-                super::super::computer_pointer_feedback::show_at((
-                    bounds.x + (bounds.width / 2) as i32,
-                    bounds.y + (bounds.height / 2) as i32,
-                ));
                 commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.delivered(
                     unsafe { live.element.SetFocus() }
@@ -3980,6 +3948,12 @@ $panel.Add_MouseEnter({ $panel.BackColor = [System.Drawing.Color]::Gold })
 $panel.Add_MouseLeave({ $panel.BackColor = [System.Drawing.Color]::RoyalBlue })
 $panel.Add_Click({ $form.Text = 'Nexa hover-click fixture CLICKED'; $panel.BackColor = [System.Drawing.Color]::LimeGreen })
 $form.Controls.Add($panel)
+$button = [System.Windows.Forms.Button]::new()
+$button.Text = 'Element target'
+$button.Location = [System.Drawing.Point]::new(275,150)
+$button.Size = [System.Drawing.Size]::new(125,55)
+$button.Add_Click({ $form.Text = 'Nexa element fixture CLICKED' })
+$form.Controls.Add($button)
 [System.Windows.Forms.Application]::Run($form)
 "#;
         let fixture = Fixture(
@@ -4035,9 +4009,11 @@ $form.Controls.Add($panel)
             elements: vec![],
         };
         let args: ControlArgs = serde_json::from_value(serde_json::json!({
-            "action":"click", "delivery":"foreground", "observation_id":"native-fixture", "window_id":target.id,
-            "x": f64::from(point.x-target.x) * f64::from(capture.image_width-1) / f64::from(target.width-1),
-            "y": f64::from(point.y-target.y) * f64::from(capture.image_height-1) / f64::from(target.height-1),
+            "action":"click", "observation_id":"native-fixture", "window_id":target.id,
+            "point": {
+                "x": f64::from(point.x-target.x) * f64::from(capture.image_width-1) / f64::from(target.width-1),
+                "y": f64::from(point.y-target.y) * f64::from(capture.image_height-1) / f64::from(target.height-1),
+            }
         })).unwrap();
         let tracker = ControlCommitTracker::default();
         let outcome = control_window(
@@ -4077,6 +4053,55 @@ $form.Controls.Add($panel)
         assert!(
             after.title.ends_with("CLICKED"),
             "the real window did not receive its click"
+        );
+        let (x, y) = cursor_position().unwrap();
+        assert!((x - point.x).abs() <= 1 && (y - point.y).abs() <= 1);
+
+        let tree = capture_window(&after, CaptureOptions::from_control(&args).unwrap()).unwrap();
+        let button = tree
+            .elements
+            .iter()
+            .find(|e| e.role == "button" && e.name == "Element target")
+            .expect("fixture button is in the accessibility tree");
+        let element_args: ControlArgs = serde_json::from_value(serde_json::json!({
+            "action":"click", "delivery":"auto", "observation_id":"native-element-fixture",
+            "window_id":target.id, "element_id":button.id,
+        }))
+        .unwrap();
+        let observed = ObservedWindow {
+            snapshot: tree.snapshot.clone(),
+            image_width: Some(tree.image_width),
+            image_height: Some(tree.image_height),
+            native_image_width: Some(tree.native_image_width),
+            native_image_height: Some(tree.native_image_height),
+            screenshot_signature: screenshot_signature(&tree.png),
+            screenshot_guard: screenshot_guard(&tree.png),
+            elements: tree.elements.clone(),
+        };
+        let outcome = control_window(
+            ControlAction::Click,
+            &element_args,
+            &observed,
+            CaptureOptions::pixels_only(),
+            &ControlCommitTracker::default(),
+        )
+        .expect("element click with the system cursor");
+        assert_ne!(outcome.delivery, "background");
+        assert_eq!(
+            current_window(&target).unwrap().1.title,
+            "Nexa element fixture CLICKED"
+        );
+        let (x, y) = cursor_position().unwrap();
+        let mut client = windows::Win32::Foundation::POINT { x, y };
+        assert!(unsafe {
+            windows::Win32::Graphics::Gdi::ScreenToClient(hwnd(target.id), &mut client)
+        }
+        .as_bool());
+        assert!(
+            (275..400).contains(&client.x) && (150..205).contains(&client.y),
+            "system cursor must be inside the button, got ({}, {})",
+            client.x,
+            client.y
         );
     }
 

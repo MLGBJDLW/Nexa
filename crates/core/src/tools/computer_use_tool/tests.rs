@@ -1220,6 +1220,25 @@ fn semantic_value_input_can_clear_fields_and_replace_multiline_documents() {
 }
 
 #[test]
+fn semantic_click_requires_explicit_background_delivery() {
+    for (delivery, semantic) in [
+        (None, false),
+        (Some("auto"), false),
+        (Some("foreground"), false),
+        (Some("background"), true),
+    ] {
+        let mut args = serde_json::json!({"action":"click","window_id":1,
+            "observation_id":"00000000-0000-4000-8000-000000000001","element_id":"e1"});
+        if let Some(delivery) = delivery {
+            args["delivery"] = serde_json::json!(delivery);
+        }
+        let args: ControlArgs = serde_json::from_value(args).unwrap();
+        validate_control_args(&args, ControlAction::Click).unwrap();
+        assert_eq!(permits_semantic_click(&args), semantic);
+    }
+}
+
+#[test]
 fn background_delivery_never_accepts_coordinate_or_double_click_fallbacks() {
     let args = serde_json::json!({"action":"click", "observation_id":"00000000-0000-4000-8000-000000000001", "window_id":1, "delivery":"background", "element_id":"e1"});
     let valid: ControlArgs = serde_json::from_value(args.clone()).unwrap();
@@ -2597,21 +2616,6 @@ fn windows_control_smoke(
             if geometry != bounds {
                 return Err(format!("captured-image click geometry mismatch: screenshot {geometry:?}, screen bounds {bounds:?}"));
             }
-            let _feedback =
-                super::super::computer_pointer_feedback::PointerFeedback::begin(target.id, false);
-            super::super::computer_pointer_feedback::show_at((
-                capture.snapshot.x + (capture.snapshot.width / 2) as i32,
-                capture.snapshot.y + (capture.snapshot.height / 2) as i32,
-            ));
-            let with_pointer =
-                platform::capture_window(&capture.snapshot, CaptureOptions::pixels_only())
-                    .map_err(|error| error.to_string())?;
-            if !screenshot_signatures_match(
-                &screenshot_signature(&capture.png).unwrap(),
-                &screenshot_signature(&with_pointer.png).unwrap(),
-            ) {
-                return Err("Nexa pointer feedback contaminated model screenshot evidence".into());
-            }
         }
         let initial_action = if background_only {
             ControlAction::SetValue
@@ -2802,7 +2806,7 @@ fn windows_control_smoke(
             .iter()
             .find(|element| element.role == "checkbox")
             .ok_or("missing checkbox")?;
-        let click: ControlArgs = serde_json::from_value(serde_json::json!({"action":"click", "delivery":"auto", "observation_id":uuid::Uuid::new_v4().to_string(), "window_id":target.id,"element_id":element.id})).map_err(|e| e.to_string())?;
+        let click: ControlArgs = serde_json::from_value(serde_json::json!({"action":"click", "delivery":"background", "observation_id":uuid::Uuid::new_v4().to_string(), "window_id":target.id,"element_id":element.id})).map_err(|e| e.to_string())?;
         let foreground = unsafe { GetForegroundWindow() };
         if foreground == hwnd {
             return Err("background checkbox fixture was already foreground before input; background focus preservation was not tested".into());
@@ -2821,7 +2825,7 @@ fn windows_control_smoke(
         );
         // BM_GETCHECK: verify the native checkbox, not just the tool receipt.
         if unsafe { SendMessageW(checkbox, 0x00f0, Some(WPARAM(0)), Some(LPARAM(0))) }.0 != 1 {
-            return Err("semantic auto click did not toggle the checkbox".into());
+            return Err("background click did not toggle the checkbox".into());
         }
         let business_label = unsafe { GetDlgItem(Some(hwnd), 102) }
             .map_err(|error| format!("missing checkbox business label: {error}"))?;
@@ -2902,8 +2906,8 @@ fn windows_control_smoke(
             let click: ControlArgs = serde_json::from_value(serde_json::json!({
                 "action":"click", "delivery":"foreground", "observation_id":uuid::Uuid::new_v4().to_string(),
                 "window_id":target.id, "coordinate_space":"captured_image_pixels",
-                "x": element.bounds.x + (element.bounds.width / 2) as i32,
-                "y": element.bounds.y + (element.bounds.height / 2) as i32,
+                "point": [element.bounds.x + (element.bounds.width / 2) as i32,
+                    element.bounds.y + (element.bounds.height / 2) as i32],
             })).map_err(|error| error.to_string())?;
             let sampling = Arc::new(AtomicBool::new(true));
             let sampler_flag = Arc::clone(&sampling);

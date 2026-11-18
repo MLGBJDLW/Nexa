@@ -110,12 +110,6 @@ pub fn configure_desktop_feedback(accent: [u8; 3], reduced_motion: bool) {
     super::computer_pointer_feedback::configure_appearance(accent, reduced_motion);
 }
 
-/// Handle the small native feedback subprocess before initializing the app.
-#[cfg(all(target_os = "windows", feature = "desktop-control"))]
-pub fn desktop_feedback_process_entry() -> bool {
-    super::computer_pointer_feedback::process_entry()
-}
-
 #[cfg(all(target_os = "windows", feature = "desktop-control"))]
 pub fn set_desktop_control_targets(targets: &[u64]) {
     super::computer_pointer_feedback::set_control_targets(targets);
@@ -989,7 +983,7 @@ enum ControlDelivery {
 }
 
 fn permits_semantic_click(args: &ControlArgs) -> bool {
-    args.delivery != Some(ControlDelivery::Foreground)
+    args.delivery == Some(ControlDelivery::Background)
         && args.element_id.is_some()
         && args.click_count.unwrap_or(1) == 1
         && args

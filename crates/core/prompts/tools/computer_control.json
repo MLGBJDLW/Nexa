@@ -1,6 +1,6 @@
 {
   "name": "computer_control",
-  "description": "Perform one approved Windows action against a fresh, single-use observation. Target either captured-image coordinates or observation-scoped UI Automation element ids. Identity, visual/semantic freshness and input ownership are revalidated. A successful result separates input delivery, observed change and any matched condition, and includes a new observation. A visual change alone does not prove the user goal: inspect it and reuse its observationId without another capture. If capture is missing or effects uncertain, observe before further input.\n\nexpand/collapse/invoke/set_value use semantic patterns without moving the pointer; type_text uses keyboard input. Auto delivery prefers UI Automation for supported element clicks. set_value requires an advertised writable Value pattern and supports replacement, clearing and multiline text. Background delivery never falls back to foreground input.",
+  "description": "Perform one approved Windows action against a fresh, single-use observation. Target either captured-image coordinates or observation-scoped UI Automation element ids. Identity, visual/semantic freshness and input ownership are revalidated. A successful result separates input delivery, observed change and any matched condition, and includes a new observation. A visual change alone does not prove the user goal: inspect it and reuse its observationId without another capture. If capture is missing or effects uncertain, observe before further input.\n\nexpand/collapse/invoke/set_value use semantic patterns without moving the pointer; type_text uses keyboard input. Clicks use the system cursor by default. Element ids supply a verified target for the physical click. set_value requires an advertised writable Value pattern and supports replacement, clearing and multiline text. Background delivery never falls back to foreground input.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -164,7 +164,7 @@
           "background",
           "foreground"
         ],
-        "description": "auto prefers UI Automation for supported element clicks. background requires a semantic pattern; no foreground fallback. The application may activate itself. foreground forces pointer/keyboard input; expand/collapse/invoke/set_value remain background."
+        "description": "auto uses the shared Windows cursor for pointer actions. Foreground moves and clicks the system pointer. Choose background explicitly for a semantic element click when requested. expand/collapse/invoke/set_value use UI Automation."
       },
       "drag_duration_ms": {
         "type": "integer",

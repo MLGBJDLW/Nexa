@@ -451,10 +451,6 @@ fn main() {
         }
         return;
     }
-    #[cfg(target_os = "windows")]
-    if nexa_core::tools::computer_use_tool::desktop_feedback_process_entry() {
-        return;
-    }
     let app = tauri::Builder::default()
         .invoke_system(command_dispatch::main_frame_invoke_script())
         .manage(chat_ui_preview::ChatUiPreviewState::default())

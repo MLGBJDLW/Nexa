@@ -1,10 +1,4 @@
-//! Native Computer Use feedback, scoped to admitted desktop input. Foreground
-//! actions use the real cursor; background UIA actions keep an inert marker.
-
-mod cursor;
-pub(super) fn process_entry() -> bool {
-    cursor::process_entry()
-}
+//! The native stop indicator and monitor edges for Computer Use.
 
 use crate::agent_pointer::accent;
 pub(super) use crate::agent_pointer::reduced_motion;
@@ -27,11 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 struct State {
     active: bool,
     scale: f64,
-    window: Option<PointerWindow>,
-    drawing_failed: bool,
-    painted_accent: Option<[u8; 3]>,
     status_placement: Option<StatusPlacement>,
-    cursor: Option<cursor::CursorLease>,
 }
 
 pub(super) fn configure_appearance(accent: [u8; 3], reduced_motion: bool) {
@@ -173,7 +163,7 @@ thread_local! { static FEEDBACK: RefCell<State> = RefCell::new(State::default())
 struct FrameState {
     signature: Vec<(i32, i32, i32, i32, u32)>,
     accent: [u8; 3],
-    surfaces: Vec<PointerWindow>,
+    surfaces: Vec<FrameSurface>,
 }
 
 thread_local! { static FRAMES: RefCell<FrameState> = RefCell::new(FrameState::default()); }
@@ -236,7 +226,7 @@ pub(super) fn set_control_targets(targets: &[u64]) {
                 ),
             ] {
                 let pixels = frame_pixels(w, h, edge, color);
-                match PointerWindow::create_surface(w, h, 0, (x, y), &pixels) {
+                match FrameSurface::create_surface(w, h, (x, y), &pixels) {
                     Ok(surface) => frames.surfaces.push(surface),
                     Err(error) => {
                         tracing::warn!("Could not draw the Computer Use screen frame: {error}")
@@ -269,156 +259,38 @@ fn frame_pixels(width: i32, height: i32, edge: u8, accent: [u8; 3]) -> Vec<u8> {
     pixels
 }
 
-pub(super) struct PointerFeedback(std::marker::PhantomData<std::rc::Rc<()>>);
+pub(super) struct StatusGuard(std::marker::PhantomData<std::rc::Rc<()>>);
 
-impl PointerFeedback {
-    pub(super) fn begin(target: u64, foreground: bool) -> Self {
+impl StatusGuard {
+    pub(super) fn begin(target: u64) -> Self {
         let dpi = unsafe { GetDpiForWindow(HWND(target as usize as *mut _)) }.max(96);
-        let scale = f64::from(dpi) / 96.0;
         FEEDBACK.with(|state| {
             *state.borrow_mut() = State {
                 active: true,
-                scale,
-                window: None,
-                drawing_failed: false,
-                painted_accent: None,
+                scale: f64::from(dpi) / 96.0,
                 status_placement: None,
-                cursor: foreground
-                    .then(|| cursor::CursorLease::begin(scale, accent()))
-                    .flatten(),
             }
         });
         Self(std::marker::PhantomData)
     }
 }
 
-impl Drop for PointerFeedback {
+impl Drop for StatusGuard {
     fn drop(&mut self) {
         FEEDBACK.with(|state| *state.borrow_mut() = State::default());
     }
 }
 
-/// Show only the verified target of an admitted action. Failure to draw is
-/// cosmetic and must never trigger input retries or change the action receipt.
-pub(super) fn show_at(point: (i32, i32)) {
-    FEEDBACK.with(|state| {
-        let mut state = state.borrow_mut();
-        if !state.active || state.drawing_failed {
-            return;
-        }
-        if state.cursor.is_some() {
-            return;
-        }
-        let color = accent();
-        if state.window.is_none() {
-            match PointerWindow::create(state.scale, point, color) {
-                Ok(window) => {
-                    state.window = Some(window);
-                    state.painted_accent = Some(color);
-                }
-                Err(error) => {
-                    state.drawing_failed = true;
-                    tracing::warn!("Could not draw the Nexa agent pointer: {error}");
-                }
-            }
-        } else if let Some(window) = &state.window {
-            if state.painted_accent != Some(color) {
-                let (_, _, pixels) = pointer_pixels(state.scale, color);
-                let _ = window.paint(point, &pixels);
-            }
-            let _ = unsafe {
-                SetWindowPos(
-                    window.handle,
-                    Some(HWND_TOPMOST),
-                    point.0 - window.hotspot,
-                    point.1 - window.hotspot,
-                    window.width,
-                    window.height,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                )
-            };
-            state.painted_accent = Some(color);
-        }
-    });
-}
-
-struct PointerWindow {
+struct FrameSurface {
     handle: HWND,
     width: i32,
     height: i32,
-    hotspot: i32,
 }
 
-/// Click acknowledgment only. Cosmetic failures never repeat an input action.
-pub(super) fn pulse_at(point: (i32, i32), keep_running: impl Fn() -> bool) {
-    use std::time::{Duration, Instant};
-    if reduced_motion() {
-        return;
-    }
-    let scale = FEEDBACK.with(|state| {
-        let state = state.borrow();
-        state.active.then_some(state.scale)
-    });
-    let Some(scale) = scale else {
-        return;
-    };
-    let (size, _, pixels) = ripple_pixels(scale, 0.0, accent());
-    let Ok(window) =
-        PointerWindow::create_surface(size, size, (32.0 * scale).round() as i32, point, &pixels)
-    else {
-        return;
-    };
-    let started = Instant::now();
-    let duration = Duration::from_millis(260);
-    while started.elapsed() < duration && keep_running() {
-        let progress = started.elapsed().as_secs_f64() / duration.as_secs_f64();
-        let (_, _, pixels) = ripple_pixels(scale, progress, accent());
-        if window.paint(point, &pixels).is_err() {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(16));
-    }
-}
-
-fn ripple_pixels(scale: f64, progress: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
-    let size = (64.0 * scale).ceil() as i32;
-    let progress = progress.clamp(0.0, 1.0);
-    let radius = 4.0 + 22.0 * (1.0 - (1.0 - progress).powi(2));
-    let mut pixels = vec![0; size as usize * size as usize * 4];
-    for row in 0..size {
-        for column in 0..size {
-            let x = (f64::from(column) + 0.5) / scale - 32.0;
-            let y = (f64::from(row) + 0.5) / scale - 32.0;
-            let edge = (x.hypot(y) - radius).abs();
-            let line = (1.25 - edge).clamp(0.0, 1.0);
-            let glow = (1.0 - edge / 3.5).clamp(0.0, 1.0).powi(2);
-            let alpha = ((line * 190.0 + glow * 35.0) * (1.0 - progress)) as u32;
-            let offset = (row as usize * size as usize + column as usize) * 4;
-            for (index, channel) in accent.into_iter().rev().enumerate() {
-                pixels[offset + index] = (u32::from(channel) * alpha / 255) as u8;
-            }
-            pixels[offset + 3] = alpha as u8;
-        }
-    }
-    (size, size, pixels)
-}
-
-impl PointerWindow {
-    fn create(scale: f64, point: (i32, i32), accent: [u8; 3]) -> windows::core::Result<Self> {
-        let (width, height, pixels) = pointer_pixels(scale, accent);
-        Self::create_surface(
-            width,
-            height,
-            (crate::agent_pointer::HOTSPOT * scale).round() as i32,
-            point,
-            &pixels,
-        )
-    }
-
+impl FrameSurface {
     fn create_surface(
         width: i32,
         height: i32,
-        hotspot: i32,
         point: (i32, i32),
         pixels: &[u8],
     ) -> windows::core::Result<Self> {
@@ -430,10 +302,10 @@ impl PointerWindow {
                     | WS_EX_TOOLWINDOW
                     | WS_EX_TOPMOST,
                 w!("STATIC"),
-                w!("Nexa agent pointer"),
+                w!("Nexa monitor frame"),
                 WS_POPUP,
-                point.0 - hotspot,
-                point.1 - hotspot,
+                point.0,
+                point.1,
                 width,
                 height,
                 None,
@@ -446,7 +318,6 @@ impl PointerWindow {
             handle,
             width,
             height,
-            hotspot,
         };
         window.paint(point, pixels)?;
         Ok(window)
@@ -457,7 +328,6 @@ impl PointerWindow {
             handle,
             width,
             height,
-            hotspot,
         } = *self;
         debug_assert_eq!(pixels.len(), width as usize * height as usize * 4);
         // The unowned tool window is outside the target's WGC surface.
@@ -502,8 +372,8 @@ impl PointerWindow {
                     std::ptr::copy_nonoverlapping(pixels.as_ptr(), bits.cast::<u8>(), pixels.len());
                 }
                 let position = POINT {
-                    x: point.0 - hotspot,
-                    y: point.1 - hotspot,
+                    x: point.0,
+                    y: point.1,
                 };
                 let size = SIZE {
                     cx: width,
@@ -545,8 +415,8 @@ impl PointerWindow {
             SetWindowPos(
                 handle,
                 Some(HWND_TOPMOST),
-                point.0 - hotspot,
-                point.1 - hotspot,
+                point.0,
+                point.1,
                 width,
                 height,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
@@ -556,77 +426,10 @@ impl PointerWindow {
     }
 }
 
-impl Drop for PointerWindow {
+impl Drop for FrameSurface {
     fn drop(&mut self) {
         let _ = unsafe { DestroyWindow(self.handle) };
     }
-}
-
-fn inside_polygon(x: f64, y: f64, points: &[(f64, f64)]) -> bool {
-    let mut inside = false;
-    let mut previous = points[points.len() - 1];
-    for &point in points {
-        if (point.1 > y) != (previous.1 > y)
-            && x < (previous.0 - point.0) * (y - point.1) / (previous.1 - point.1) + point.0
-        {
-            inside = !inside;
-        }
-        previous = point;
-    }
-    inside
-}
-
-/// A compact triangular pointer in premultiplied BGRA. A fine white edge
-/// and theme-tinted shadow retain contrast without a tail, label or idle halo.
-fn pointer_pixels(scale: f64, accent: [u8; 3]) -> (i32, i32, Vec<u8>) {
-    let width = (crate::agent_pointer::SIZE * scale).ceil() as i32;
-    let height = (crate::agent_pointer::SIZE * scale).ceil() as i32;
-    let outer = crate::agent_pointer::outer_outline();
-    let inner = crate::agent_pointer::inner_outline();
-    let mut pixels = vec![0; width as usize * height as usize * 4];
-    for row in 0..height {
-        for column in 0..width {
-            let mut sum = [0_u32; 4];
-            for sy in 0..4 {
-                for sx in 0..4 {
-                    let x = (f64::from(column) + (f64::from(sx) + 0.5) / 4.0) / scale;
-                    let y = (f64::from(row) + (f64::from(sy) + 0.5) / 4.0) / scale;
-                    let mut color = [0_u32; 4];
-                    // A restrained one-pixel shadow keeps the white outline
-                    // readable on pale windows; it never expands the hotspot.
-                    if inside_polygon(x - 0.5, y - 1.0, &outer) {
-                        color = [
-                            u32::from(accent[2]) / 4,
-                            u32::from(accent[1]) / 4,
-                            u32::from(accent[0]) / 4,
-                            70,
-                        ];
-                    }
-                    if inside_polygon(x, y, &outer) {
-                        color = [255, 255, 255, 255];
-                    }
-                    if inside_polygon(x, y, &inner) {
-                        let gradient = ((y - 10.) / 18.).clamp(0., 1.);
-                        let shade = |channel: u8| {
-                            let base = f64::from(channel);
-                            let light = base + (255.0 - base) * 0.22;
-                            (light * (1.0 - gradient) + base * 0.88 * gradient) as u32
-                        };
-                        color = [shade(accent[2]), shade(accent[1]), shade(accent[0]), 255];
-                    }
-                    for index in 0..3 {
-                        sum[index] += color[index] * color[3] / 255;
-                    }
-                    sum[3] += color[3];
-                }
-            }
-            let offset = (row as usize * width as usize + column as usize) * 4;
-            for index in 0..4 {
-                pixels[offset + index] = (sum[index] / 16) as u8;
-            }
-        }
-    }
-    (width, height, pixels)
 }
 
 #[cfg(test)]
@@ -683,104 +486,6 @@ mod tests {
     }
 
     #[test]
-    fn pointer_and_ripple_take_the_theme_color_and_ripple_fades_completely() {
-        let (width, _, red) = pointer_pixels(1.0, [255, 0, 0]);
-        let (_, _, blue) = pointer_pixels(1.0, [0, 0, 255]);
-        let body = (18 * width as usize + 12) * 4;
-        assert!(red[body + 2] > red[body]);
-        assert!(blue[body] > blue[body + 2]);
-        for scale in [1.0, 1.5, 2.0] {
-            let (_, _, pixels) = ripple_pixels(scale, 0.3, [224, 108, 50]);
-            assert!(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0));
-            assert!(pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
-            assert!(ripple_pixels(scale, 1.0, [224, 108, 50])
-                .2
-                .iter()
-                .all(|channel| *channel == 0));
-        }
-    }
-    #[test]
-    fn pointer_pixels_have_transparency_and_scale_without_changing_the_hotspot() {
-        for scale in [1.0, 1.5, 2.0] {
-            let (width, height, pixels) = pointer_pixels(scale, [20, 184, 166]);
-            assert_eq!(pixels.len(), width as usize * height as usize * 4);
-            assert!(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] == 0));
-            assert!(pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .any(|pixel| pixel[3] == 255));
-            assert!(pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|pixel| pixel[..3].iter().all(|channel| *channel <= pixel[3])));
-        }
-        if let Some(path) = std::env::var_os("NEXA_POINTER_PREVIEW") {
-            let (width, height, mut pixels) = pointer_pixels(2.0, [20, 184, 166]);
-            for pixel in pixels.as_chunks_mut::<4>().0 {
-                pixel.swap(0, 2);
-                if pixel[3] > 0 {
-                    for index in 0..3 {
-                        pixel[index] =
-                            (u32::from(pixel[index]) * 255 / u32::from(pixel[3])).min(255) as u8;
-                    }
-                }
-            }
-            image::RgbaImage::from_raw(width as u32, height as u32, pixels)
-                .unwrap()
-                .save(path)
-                .unwrap();
-        }
-    }
-
-    #[test]
-    #[ignore = "requires an interactive Windows desktop; draws feedback without sending input"]
-    fn native_pointer_is_click_through_nonactivating_and_worker_scoped() {
-        use windows::Win32::UI::HiDpi::{
-            SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-        };
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetCursorPos, GetForegroundWindow, IsWindow, WindowFromPoint,
-        };
-        let previous_dpi =
-            unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-        let mut point = POINT::default();
-        unsafe { GetCursorPos(&mut point) }.unwrap();
-        let foreground = unsafe { GetForegroundWindow() };
-        let hit = unsafe { WindowFromPoint(point) };
-        let handle;
-        {
-            let _feedback = PointerFeedback::begin(foreground.0 as usize as u64, false);
-            show_at((point.x, point.y));
-            handle = FEEDBACK.with(|state| {
-                state
-                    .borrow()
-                    .window
-                    .as_ref()
-                    .expect("native overlay created")
-                    .handle
-            });
-            assert!(unsafe { IsWindow(Some(handle)) }.as_bool());
-            assert_eq!(unsafe { GetForegroundWindow() }, foreground);
-            assert_eq!(unsafe { WindowFromPoint(point) }, hit);
-            pulse_at((point.x, point.y), || {
-                assert_eq!(unsafe { GetForegroundWindow() }, foreground);
-                assert_eq!(unsafe { WindowFromPoint(point) }, hit);
-                true
-            });
-        }
-        assert!(!unsafe { IsWindow(Some(handle)) }.as_bool());
-        unsafe {
-            SetThreadDpiAwarenessContext(previous_dpi);
-        }
-    }
-
-    #[test]
     #[ignore = "requires an interactive Windows desktop; moves only an isolated test status window"]
     fn status_obstruction_moves_only_registered_feedback_and_restores_on_exit() {
         use windows::Win32::Foundation::RECT;
@@ -812,11 +517,10 @@ mod tests {
             )
         }
         .unwrap();
-        let _status = PointerWindow {
+        let _status = FrameSurface {
             handle,
             width: 200,
             height: 76,
-            hotspot: 0,
         };
         unsafe {
             SetWindowPos(
@@ -833,7 +537,7 @@ mod tests {
         let mut original = RECT::default();
         unsafe { GetWindowRect(handle, &mut original) }.unwrap();
         {
-            let _feedback = PointerFeedback::begin(foreground.0 as usize as u64, false);
+            let _feedback = StatusGuard::begin(foreground.0 as usize as u64);
             // Unregistered windows are never moved, even with the same title.
             avoid_status_at((point.x, point.y));
             let mut current = RECT::default();

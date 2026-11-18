@@ -148,15 +148,11 @@ The banner enters with a short eased slide/scale and uses the shared Nexa logo
 with a flowing orbit and soft accent light. Reduced motion removes those effects.
 The window stays non-activating, with transparency around its rounded surface.
 
-The native action worker owns a compact triangular Nexa pointer, without a tail or idle halo.
-Its color comes from the current theme's resolved accent, including theme resource
-plugins; the main theme provider projects updates into the existing native surface.
-Foreground actions temporarily replace Windows' hardware cursor shapes so the
-system arrow or text caret cannot draw above Nexa's pointer. One lazily started
-native feedback host retains exact originals and restores them on worker release,
-parent-process exit, or an abandoned action timeout. The user's saved cursor
-settings are never modified. Background UI Automation uses an input-transparent
-marker at the semantic target and does not move or replace the user's pointer.
+Windows pointer actions move the user's system cursor. Default clicks on a UI
+Automation element resolve its live location and verify the control under that
+point before delivering the button events. An explicitly requested background
+action uses the application's accessibility pattern. The Stop banner and the
+monitor edges identify the active task.
 
 Four narrow, input-transparent native surfaces illuminate the active monitor's
 edges using the theme accent. They share the banner's ownership and lifecycle,
@@ -164,24 +160,11 @@ do not activate windows, and need no full-screen renderer or animation polling.
 The independent surfaces remain outside the target window's capture surface, so
 window screenshots remain clean evidence.
 
-Foreground pointer actions travel along a smooth, distance-scaled path at about
-60 Hz (100–360 ms), including movement to a drag's starting point. The pointer and
-feedback advance together; semantic background actions only mark their target.
-For semantic clicks, the feedback follows the same animated approach without
-moving the user's physical pointer; the semantic target is re-resolved afterward.
-Each movement frame checks focus, physical buttons, cursor takeover and Stop.
-Stopping signals the existing worker, which retains input ownership until cleanup;
-an interrupted drag still releases its injected button and records uncertain
-effects. Empty gaps between offset monitors are skipped without clamped input.
-Delivered pointer clicks and semantic invocations show a short expanding ripple
-in the same theme color. One ripple follows the complete click sequence, preserving
-double-click timing. Reduced-motion preferences disable travel animation and ripples.
-
-Coordinate clicks, scrolling and drag preparation recheck the target patch after
-approaching it. Hover-triggered content within the same window can therefore stop
-the action before button or wheel input. This still reports an uncertain effect
-when the cursor has already moved. Explicit theme invalidations also refresh the
-hidden main window, keeping native colors current during tray/background use.
+Foreground moves and drags check the actual cursor position between steps.
+For a screenshot-coordinate click, the cursor approaches the target and pauses
+before entering the receiving control. Nexa checks the target pixels again,
+then sends the final placement and button events together. This allows ordinary
+hover styling while detecting controls replaced during the approach. Physical takeover interrupts further input.
 
 If the Stop banner covers an admitted pointer target, only that registered,
 process-verified Nexa window moves temporarily to the opposite edge of the same
@@ -288,5 +271,5 @@ input. [Hermes action verdicts](https://github.com/NousResearch/hermes-agent/blo
 Core regressions cover fresh-token retention, safe failure diagnostics, real local
 image reads, native/interpreted routing and privacy. Interactive Windows helper
 tests cover physical screenshot-coordinate clicks, semantic value/checkbox effects,
-clean capture evidence, click-through pointer feedback and worker cleanup. Frontend
+clean capture evidence, input-transparent monitor edges and worker cleanup. Frontend
 tests cover grouped live receipts, compact layout, waiting status and Stop.
