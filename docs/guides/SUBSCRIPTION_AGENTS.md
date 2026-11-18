@@ -7,7 +7,11 @@ Add **GitHub Copilot** or **ChatGPT / Codex** from External agents → Add Provi
 Sign in through the official runtime and save the provider.
 Choose the model and reasoning level in Chat. The saved provider and its currently available models
 then appear in the Chat model picker. Reasoning levels come from that account's
-model catalog. Signing in does not automatically create a provider.
+model catalog. New Codex profiles use the account's declared default, including
+when it appears on a later catalog page. ACP discovery puts the runtime's active
+model first. Copilot lists all models available under the account's model
+policy. Each saved profile keeps its explicit model selection. Save a provider
+after sign-in to add it to Chat.
 
 Copilot discovery and execution use the same editor integration catalog through
 the official SDK. The bundled CLI is pinned to `1.0.103` with upstream archive

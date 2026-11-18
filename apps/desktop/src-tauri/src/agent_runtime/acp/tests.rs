@@ -57,6 +57,31 @@ async fn cursor_catalog_exposes_other_models_efforts_without_switching() {
     );
 }
 
+#[test]
+fn model_update_prioritizes_the_current_model_in_the_native_catalog() {
+    let mut session = Session::parse(
+        &json!({
+            "sessionId": "fixture",
+            "models": { "currentModelId": "old", "availableModels": [
+                {"modelId":"old"}, {"modelId":"other"}, {"modelId":"new"}
+            ]}
+        }),
+        false,
+    )
+    .unwrap();
+    session
+        .update(&json!({"sessionUpdate":"current_model_update","currentModelId":"new"}))
+        .unwrap();
+    assert_eq!(
+        session
+            .models
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        ["new", "old", "other"]
+    );
+}
+
 #[tokio::test]
 async fn native_setup_remains_available_after_a_non_authentication_session_error() {
     let mut wire = wire("setup_error");
