@@ -214,13 +214,16 @@ worker retains ownership while releasing buttons and finishing cleanup. Status
 phases come from the executing worker: moving, sending input and observing the
 result; a heartbeat cannot overwrite that phase.
 
-Browser presentation is a separate module. Every preview carries a host operation
-identity and reports actual animation completion. Old or cancelled acknowledgements
-cannot complete a newer preview. A stalled decoration is removed and the normal
-host lease and target checks still run; animation is never a capability limit.
-Capture scopes hide only Nexa-owned decoration, wait for a rendered hidden frame,
-and restore it on success, failure or cancellation. Native window capture remains
-cursor-free WGC window capture, not a crop of the composed monitor image.
+On a foreground Windows WebView2 tab, ordinary pointer movement, clicks and
+drags use the same system cursor as window control. The host checks the visible
+tab, its bounds and the control under the cursor before pressing. Modifier
+gestures, pinched viewports and tabs in an unfocused visible window use the
+tab's input route. Scrolling retains the requested CSS pixel deltas. The result
+identifies the route in `pointerDelivery`.
+
+The browser validates each action against its current observation. Captures
+temporarily hide Nexa's click feedback. Native window capture obtains the
+selected window surface. To inspect all displays, request a desktop observation.
 
 The native Windows adapter and its interactive fixtures live separately from the
 tool admission/receipt module. The browser interaction script is a standalone
