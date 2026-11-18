@@ -30,6 +30,7 @@ from xlsx_formula_inventory import dangerous_formula_functions, inventory_xlsx_f
 
 CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 MAIN_PARTS = {
     ".docx": "word/document.xml",
     ".docm": "word/document.xml",
@@ -63,6 +64,23 @@ FORMAT_PYTHON_DEPENDENCIES = {
     "xlsx": {"openpyxl"},
 }
 WINDOWS_COM_DEPENDENCY = {"name": "pywin32", "version": "312"}
+
+
+def word_paragraph_text(paragraph: ET.Element) -> str:
+    """Read runs in source order. Each nested text-box paragraph has its own location."""
+    pieces = []
+    pending = list(reversed(paragraph))
+    while pending:
+        node = pending.pop()
+        if node.tag == WORD_NS + "t":
+            pieces.append(node.text or "")
+        elif node.tag == WORD_NS + "tab":
+            pieces.append("\t")
+        elif node.tag in (WORD_NS + "br", WORD_NS + "cr"):
+            pieces.append("\n")
+        elif node.tag not in (WORD_NS + "p", WORD_NS + "del", WORD_NS + "moveFrom", WORD_NS + "pPr", WORD_NS + "rPr"):
+            pending.extend(reversed(node))
+    return "".join(pieces)
 
 
 def office_dependency_lock_status() -> dict[str, Any]:

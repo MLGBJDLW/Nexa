@@ -54,6 +54,70 @@ class OfficeArtifactRuntimeTests(unittest.TestCase):
         os.chdir(self.previous_cwd)
         self.temp.cleanup()
 
+    def test_extract_locations_and_full_output_through_cli(self) -> None:
+        from docx import Document
+        from openpyxl import Workbook
+        from pptx import Presentation
+
+        doc = Document()
+        doc.add_paragraph("Executive summary")
+        doc.add_table(rows=1, cols=1).cell(0, 0).text = "Inside table"
+        doc.save(self.root / "report.docx")
+
+        book = Workbook()
+        book.active.title = "Q1's data"
+        book.active["C9"] = "=1+1"
+        book.save(self.root / "model.xlsx")
+        book.close()
+
+        deck = Presentation()
+        slide = deck.slides.add_slide(deck.slide_layouts[6])
+        shape = slide.shapes.add_textbox(0, 0, 1_000_000, 1_000_000)
+        shape.text = "Forecast"
+        deck.save(self.root / "slides.pptx")
+
+        for name, evidence in [
+            ("report.docx", "[Body paragraph 2] Inside table"),
+            ("model.xlsx", "['Q1''s data'!C9] =1+1"),
+            ("slides.pptx", f"[Slide 1, shape {shape.shape_id}, paragraph 1] Forecast"),
+        ]:
+            with self.subTest(name=name):
+                output = self.root / "evidence.txt"
+                args = ["--path", str(self.root / name), "extract", "--locations"]
+                preview = io.StringIO()
+                with contextlib.redirect_stdout(preview):
+                    self.assertEqual(0, edit_doc.main(args))
+                self.assertIn(evidence, preview.getvalue())
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(0, edit_doc.main([*args, "--output", str(output)]))
+                self.assertEqual(preview.getvalue(), output.read_text(encoding="utf-8"))
+
+    def test_pdf_preview_stops_early_and_failed_export_preserves_output(self) -> None:
+        from pypdf import PageObject, PdfWriter
+
+        path = self.root / "sample.pdf"
+        writer = PdfWriter()
+        for _ in range(3):
+            writer.add_blank_page(width=120, height=120)
+        writer.write(path)
+        args = ["--path", str(path), "extract", "--pages", "2-999999999999", "--locations"]
+        preview = io.StringIO()
+        with mock.patch.object(PageObject, "extract_text", return_value="line one\n第二行" + "字" * 100) as read_page:
+            with mock.patch.object(edit_doc, "MAX_EXTRACT_BYTES", 89), contextlib.redirect_stdout(preview):
+                self.assertEqual(0, edit_doc.main(args))
+            read_page.assert_called_once()
+        self.assertIn("[Page 2, extracted line 2] 第二行", preview.getvalue())
+        self.assertIn("--output", preview.getvalue())
+        self.assertNotIn("\ufffd", preview.getvalue())
+
+        output = self.root / "evidence.txt"
+        output.write_text("previous extraction", encoding="utf-8")
+        with mock.patch.object(PageObject, "extract_text", side_effect=["first page", ValueError("broken page")]):
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(1, edit_doc.main([*args, "--output", str(output)]))
+        self.assertEqual("previous extraction", output.read_text(encoding="utf-8"))
+        self.assertEqual([], list(self.root.glob("*.nexa-stage-*.txt")))
+
     def test_docx_creation_emits_real_hyperlink_and_valid_package(self) -> None:
         path = self.root / "linked.docx"
         args = argparse.Namespace(
