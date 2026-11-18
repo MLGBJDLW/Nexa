@@ -80,14 +80,14 @@ fn record_event(window: u64, injected: bool, escape: bool, affects_window: bool)
 /// Availability is part of the revision: a recovered monitor invalidates
 /// observations taken during a gap instead of treating an unchanged zero as proof.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) struct InputEpoch {
+pub(crate) struct InputEpoch {
     generation: u64,
     revision: u64,
     monitored: bool,
 }
 
 impl InputEpoch {
-    pub(super) fn is_monitored(self) -> bool {
+    pub(crate) fn is_monitored(self) -> bool {
         self.monitored
     }
     pub(super) fn same_monitor(self, other: Self) -> bool {
@@ -111,7 +111,7 @@ pub(super) fn window_epoch(window: u64) -> InputEpoch {
         .observe(window);
     epoch
 }
-pub(super) fn physical_epoch() -> InputEpoch {
+pub(crate) fn physical_epoch() -> InputEpoch {
     let mut epoch = monitor_epoch();
     epoch.revision = PHYSICAL.load(Ordering::Acquire);
     epoch

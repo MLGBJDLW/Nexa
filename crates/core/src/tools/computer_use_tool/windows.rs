@@ -1,4 +1,5 @@
 use super::{permits_semantic_click, ControlDelivery};
+use crate::browser_runtime::absolute_pointer_input;
 use std::ffi::c_void;
 use std::io::Cursor;
 #[cfg(test)]
@@ -2236,41 +2237,12 @@ fn send_input_tracked(inputs: &[INPUT], tracker: &ControlCommitTracker) -> u32 {
     })
 }
 
-fn absolute_pointer_input(point: (i32, i32)) -> INPUT {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
-    };
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-        SM_YVIRTUALSCREEN,
-    };
-    let left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
-    let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
-    let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) }.max(1);
-    let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) }.max(1);
-    let absolute = |position: i32, origin: i32, size: i32| -> i32 {
-        (((i64::from(position) - i64::from(origin)) * 65536 + 32768) / i64::from(size))
-            .clamp(0, 65535) as i32
-    };
-    INPUT {
-        r#type: INPUT_MOUSE,
-        Anonymous: INPUT_0 {
-            mi: MOUSEINPUT {
-                dx: absolute(point.0, left, width),
-                dy: absolute(point.1, top, height),
-                dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-                ..Default::default()
-            },
-        },
-    }
-}
-
 fn move_cursor_frame(
     point: (i32, i32),
     context: &str,
     tracker: &ControlCommitTracker,
 ) -> Result<(), CoreError> {
-    let input = absolute_pointer_input(point);
+    let input = absolute_pointer_input(point)?;
     if send_input_tracked(&[input], tracker) != 1 {
         return Err(invalid(format!(
             "Windows refused pointer motion during {context}"
@@ -2562,7 +2534,7 @@ fn send_mouse_click(
     // our own hover styling cannot invalidate the observation between them.
     let mut inputs = Vec::with_capacity(3);
     if let Some(point) = point {
-        inputs.push(absolute_pointer_input(point));
+        inputs.push(absolute_pointer_input(point)?);
     }
     inputs.extend([mouse_input(down, 0), mouse_input(up, 0)]);
     let sent = send_input_tracked(&inputs, tracker) as usize;

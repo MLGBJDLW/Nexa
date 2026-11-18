@@ -454,9 +454,32 @@ pub async fn dispatch_trusted_wheel(
 pub struct BrowserTrustedInputGuard {
     webview: Webview,
     token: Arc<str>,
+    #[cfg(windows)]
+    foreground_watch: Option<nexa_core::browser_runtime::ForegroundInputWatch>,
 }
 
 impl BrowserTrustedInputGuard {
+    #[cfg(windows)]
+    pub(super) fn with_foreground_watch(
+        mut self,
+        watch: Option<nexa_core::browser_runtime::ForegroundInputWatch>,
+    ) -> Self {
+        self.foreground_watch = watch;
+        self
+    }
+    fn user_input_epoch(&self) -> Result<Option<u32>, String> {
+        #[cfg(windows)]
+        if let Some(watch) = self.foreground_watch {
+            if watch.changed() {
+                return Err(
+                    "Physical user input interrupted the foreground browser gesture.".into(),
+                );
+            }
+            return Ok(None);
+        }
+        physical_input_epoch(&self.webview)
+    }
+
     pub async fn arm(
         &self,
         budget: TrustedInputEventBudget,
@@ -464,7 +487,7 @@ impl BrowserTrustedInputGuard {
         target_ref: &str,
         target_context: &str,
     ) -> Result<ArmedTrustedInputGuard, String> {
-        let baseline_physical_input_epoch = physical_input_epoch(&self.webview)?;
+        let baseline_physical_input_epoch = self.user_input_epoch()?;
         let operation_id = uuid::Uuid::new_v4().simple().to_string();
         let expression = trusted_input_guard_expression(
             "arm",
@@ -482,7 +505,7 @@ impl BrowserTrustedInputGuard {
                     .to_string(),
             );
         }
-        if physical_input_epoch(&self.webview)? != baseline_physical_input_epoch {
+        if self.user_input_epoch().ok() != Some(baseline_physical_input_epoch) {
             let disarm = trusted_input_guard_expression("disarm", &self.token, &operation_id, None);
             let _ = eval_json(&self.webview, &disarm).await;
             return Err(
@@ -538,8 +561,83 @@ impl ArmedTrustedInputGuard {
         Ok(())
     }
 
+    #[cfg(windows)]
+    async fn system_pointer_progress(
+        &self,
+        ending_drag: bool,
+    ) -> Result<serde_json::Value, String> {
+        let operation = serde_json::to_string(&self.operation_id).map_err(|e| e.to_string())?;
+        let token = serde_json::to_string(self.guard.token.as_ref()).map_err(|e| e.to_string())?;
+        let expression = format!("({{progress:window.__NEXA_TRUSTED_INPUT_GUARD__?.pointerProgress({token},{operation},{ending_drag}),viewport:window.__NEXA_BROWSER_RUNTIME__?.viewportGeometry()}})");
+        eval_json(self.webview(), &expression).await
+    }
+
+    #[cfg(windows)]
+    pub(super) async fn check_system_target(
+        &self,
+        viewport: &serde_json::Value,
+        ending_drag: bool,
+    ) -> Result<(), String> {
+        let measured = self.system_pointer_progress(ending_drag).await?;
+        if measured["viewport"] != *viewport
+            || measured["progress"]["targetCurrent"] != true
+            || measured["progress"]["blocked"] != false
+        {
+            return Err(
+                "The WebView viewport or armed page target changed before system input.".into(),
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub(super) async fn await_system_release(
+        &self,
+        count: u32,
+        original_url: &url::Url,
+        another_press: bool,
+    ) -> Result<(), String> {
+        let wait_for_page = async {
+            loop {
+                if self.physical_input_changed()? {
+                    return Err("The user took over the foreground browser gesture.".into());
+                }
+                if self.webview().url().map_err(|e| e.to_string())? != *original_url {
+                    return if another_press {
+                        Err("The page navigated after the first click. The second press was cancelled.".into())
+                    } else {
+                        Ok(())
+                    };
+                }
+                let measured = self.system_pointer_progress(false).await?;
+                let progress = &measured["progress"];
+                if progress["blocked"] == true {
+                    return Err("The page no longer matched the armed pointer target.".into());
+                }
+                if progress["releases"]
+                    .as_u64()
+                    .is_some_and(|n| n >= u64::from(count))
+                {
+                    if another_press && progress["targetCurrent"] != true {
+                        return Err(
+                            "The first click changed the target. The second press was cancelled."
+                                .into(),
+                        );
+                    }
+                    return Ok(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(12)).await;
+            }
+        };
+        tokio::time::timeout(TRUSTED_INPUT_TIMEOUT, wait_for_page)
+            .await
+            .map_err(|_| {
+                "WebView2 did not confirm delivery of the physical pointer release.".to_owned()
+            })?
+    }
+
     fn physical_input_changed(&self) -> Result<bool, String> {
-        Ok(physical_input_epoch(&self.guard.webview)? != self.physical_input_epoch)
+        Ok(self.guard.user_input_epoch()? != self.physical_input_epoch)
     }
 }
 
@@ -987,6 +1085,8 @@ pub async fn create_child_webview(
     let trusted_input_guard = BrowserTrustedInputGuard {
         webview: webview.clone(),
         token: Arc::from(takeover_token),
+        #[cfg(windows)]
+        foreground_watch: None,
     };
     Ok(BrowserChildWebview {
         webview,

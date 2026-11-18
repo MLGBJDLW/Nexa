@@ -8,8 +8,6 @@ use super::policy::{
     BrowserActionRisk, NavigationActor,
 };
 use super::scripts::{browser_init_script, browser_takeover_script, BROWSER_INIT_SCRIPT};
-#[cfg(not(windows))]
-use super::state::browser_target_screen_point;
 use super::state::{
     accept_visibility_revision, action_snapshot_changed, agent_tab_surface_is_valid,
     browser_history_target_expression, browser_host_window_allows_agent_action,
@@ -501,30 +499,6 @@ fn observation_script_never_serializes_form_values_or_hidden_inputs() {
     assert!(BROWSER_INIT_SCRIPT.contains("targetContextFingerprint(element, contextCache)"));
     assert!(BROWSER_INIT_SCRIPT.contains("interactionFingerprintOf"));
     assert!(BROWSER_INIT_SCRIPT.contains("hashText(interactiveState)"));
-}
-
-#[test]
-#[cfg(not(windows))]
-fn browser_target_coordinates_respect_window_origin_webview_offset_and_scale() {
-    let point = browser_target_screen_point(
-        (-1200, 80),
-        1.5,
-        BrowserBounds {
-            x: 300.0,
-            y: 100.0,
-            width: 600.0,
-            height: 500.0,
-        },
-        &BrowserElementBounds {
-            x: 40.0,
-            y: 60.0,
-            width: 80.0,
-            height: 40.0,
-        },
-    )
-    .unwrap();
-
-    assert_eq!(point, (-630, 350));
 }
 
 #[test]

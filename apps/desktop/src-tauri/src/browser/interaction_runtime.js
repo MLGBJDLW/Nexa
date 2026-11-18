@@ -35,6 +35,12 @@
     if (document.documentElement) install();
     else document.addEventListener('DOMContentLoaded', install, { once: true });
   }
+  const viewportGeometry = () => ({
+    width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio,
+    visualScale: window.visualViewport?.scale ?? 1,
+    visualOffsetX: window.visualViewport?.offsetLeft ?? 0,
+    visualOffsetY: window.visualViewport?.offsetTop ?? 0,
+  });
   const runtime = {
     refs: new Map(),
     refIds: new WeakMap(),
@@ -45,9 +51,6 @@
     pendingArtifact: null,
     overlay: null,
     regionStart: null,
-    agentCursor: null,
-    cursorDocument: null,
-    cursorPoint: null,
     observationOptions: { query: '', offset: 0, textQuery: null },
     geometryIds: new WeakMap(),
     nextGeometryId: 0,
@@ -471,7 +474,7 @@
     observationOptions: { ...runtime.observationOptions },
   });
   const coordinateFingerprintOf = (rootList = roots()) => {
-    const state = [];
+    const state = [JSON.stringify(viewportGeometry())];
     for (const root of rootList) for (const element of root.querySelectorAll('*')) {
       let feedback = false;
       for (let ancestor = element; ancestor; ancestor = composedParent(ancestor)) {
@@ -534,7 +537,7 @@
       text: text.slice(0, 30000),
       textMatch: textQuery === null ? null : { query: textQuery, found: text.includes(textQuery), complete: incompleteReason === null,
         ...(incompleteReason ? { incompleteReason } : {}) },
-      viewport: { width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio },
+      viewport: viewportGeometry(),
       historyLength: history.length,
       userEpoch: runtime.userEpoch,
       domFingerprint: domFingerprintOf(interactionFingerprint, text),
@@ -593,13 +596,7 @@
   };
   const cancelPresentation = (id) => {
     if (!presentation || presentation.id !== id) return false;
-    const pending = presentation.status === 'pending';
     presentation.status = 'cancelled';
-    runtime.agentCursor?.getAnimations?.().forEach(animation => animation.cancel());
-    if (pending) {
-      runtime.agentCursor?.remove(); runtime.agentCursor = null;
-      runtime.cursorDocument = null; runtime.cursorPoint = null;
-    }
     return true;
   };
   runtime.presentationStatus = (id) => ({ id, status: presentation?.id === id ? presentation.status : 'unavailable' });
@@ -624,66 +621,7 @@
     }
     return true;
   };
-  const ensureAgentCursor = (ownerDocument) => {
-    if (runtime.agentCursor?.isConnected && runtime.cursorDocument === ownerDocument) return runtime.agentCursor;
-    runtime.agentCursor?.remove();
-    const cursor = ownerDocument.createElement('div');
-    cursor.setAttribute('data-nexa-agent-cursor', 'true');
-    cursor.setAttribute('aria-hidden', 'true');
-    cursor.style.cssText = `position:fixed;left:${-pointerAppearance.hotspot}px;top:${-pointerAppearance.hotspot}px;width:${pointerAppearance.size}px;height:${pointerAppearance.size}px;z-index:2147483647;pointer-events:none;will-change:transform;contain:layout paint style;`;
-    cursor.innerHTML = pointerAppearance.svg;
-    (ownerDocument.documentElement || ownerDocument.body).appendChild(cursor);
-    trackFeedback(cursor);
-    runtime.agentCursor = cursor;
-    runtime.cursorDocument = ownerDocument;
-    runtime.cursorPoint = null;
-    return cursor;
-  };
-  runtime.setPointerAppearance = (appearance) => {
-    pointerAppearance = appearance;
-    if (runtime.agentCursor?.isConnected) runtime.agentCursor.innerHTML = appearance.svg;
-  };
-  const moveAgentCursor = (el, via = null, currentPresentation = null, destinationPoint = null, originPoint = null) => {
-    const finish = (status) => {
-      if (presentation === currentPresentation && currentPresentation?.status === 'pending') currentPresentation.status = status;
-    };
-    if (!el) { finish('arrived'); return 0; }
-    const ownerDocument = el.ownerDocument || document;
-    const ownerWindow = ownerDocument.defaultView || window;
-    const cursor = ensureAgentCursor(ownerDocument);
-    const to = destinationPoint || centerOf(el);
-    const viaPoint = via ? originPoint || centerOf(via) : null;
-    const from = runtime.cursorPoint || {
-      x: Math.max(18, Number(ownerWindow.innerWidth || 0) * 0.22),
-      y: Math.max(22, Number(ownerWindow.innerHeight || 0) * 0.18),
-    };
-    const distance = viaPoint
-      ? Math.hypot(viaPoint.x - from.x, viaPoint.y - from.y) + Math.hypot(to.x - viaPoint.x, to.y - viaPoint.y)
-      : Math.hypot(to.x - from.x, to.y - from.y);
-    const reduced = pointerAppearance.reducedMotion || ownerWindow.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const duration = reduced ? 0 : Math.round(Math.min(520, Math.max(180, 150 + distance * 0.36)));
-    const translate = (point) => `translate3d(${point.x}px,${point.y}px,0)`;
-    cursor.getAnimations?.().forEach((animation) => animation.cancel());
-    if (duration > 0 && cursor.animate) {
-      const bend = Math.min(70, Math.max(18, distance * 0.14));
-      const frames = viaPoint ? [
-        { transform: translate(from), offset: 0 },
-        { transform: translate(viaPoint), offset: 0.48 },
-        { transform: translate(to), offset: 1 },
-      ] : [
-        { transform: translate(from) },
-        { transform: translate({ x: from.x + (to.x - from.x) * 0.55, y: from.y + (to.y - from.y) * 0.45 - bend }) },
-        { transform: translate(to) },
-      ];
-      const motion = cursor.animate(frames, { duration, easing: 'cubic-bezier(.22,.8,.24,1)', fill: 'forwards' });
-      motion.finished.then(() => finish(cursor.isConnected ? 'arrived' : 'unavailable'), () => finish('cancelled'));
-    } else {
-      finish('arrived');
-    }
-    cursor.style.transform = translate(to);
-    runtime.cursorPoint = to;
-    return duration;
-  };
+  runtime.setPointerAppearance = (appearance) => { pointerAppearance = appearance; };
   const mouseButtonOf = (input) => ({ left: 0, middle: 1, right: 2 })[input.button] ?? 0;
   const pressedButtonsOf = (input) => ({ left: 1, middle: 4, right: 2 })[input.button] ?? 1;
   const pointerOptions = (input, point, detail = 1, pressed = false) => ({
@@ -773,21 +711,14 @@
     if (presentation) cancelPresentation(presentation.id);
     runtime.userEpoch += 1;
     runtime.refs = new Map();
-    runtime.agentCursor?.remove();
-    runtime.agentCursor = null;
-    runtime.cursorDocument = null;
-    runtime.cursorPoint = null;
   };
   runtime.previewAction = (input) => {
-    const { el, end } = validateAction(input);
+    validateAction(input);
     if (input.pointerAppearance) runtime.setPointerAppearance(input.pointerAppearance);
-    const destination = input.action === 'drag' ? end : el;
     if (presentation) cancelPresentation(presentation.id);
-    const current = { id: String(input.presentationId || ''), status: 'pending' };
-    presentation = current;
-    return { durationMs: moveAgentCursor(destination, input.action === 'drag' ? el : null, current, input.action === 'drag' ? input.endPoint : input.point, input.point), presentationId: current.id, action: input.action };
+    presentation = { id: String(input.presentationId || ''), status: 'arrived' };
+    return { durationMs: 0, presentationId: presentation.id, action: input.action };
   };
-  runtime.validateAction = (input) => { validateAction(input); return true; };
   const viewportPoint = (point) => {
     if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)
       || point.x < 0 || point.y < 0 || point.x >= innerWidth || point.y >= innerHeight) {
@@ -856,6 +787,7 @@
     }
     if (targetContext !== targetContextFingerprint(el)) throw new Error('stale observation: target context changed during preparation');
     return {
+      systemViewport: viewportGeometry(),
       bounds: prepared ? prepared.bounds : requestedPoint ? { ...requestedPoint, width: 0, height: 0 } : viewportBounds,
       targetContext,
       targetRef: input.targetRef,
@@ -924,7 +856,7 @@
     let inputSent = true;
     runtime.synthetic = true;
     try {
-      if (input.action === 'move' || input.action === 'hover') hoverAt(el, input, centerOf(el));
+      if (input.action === 'move' || input.action === 'hover') hoverAt(el, input, input.point || centerOf(el));
       else if (input.action === 'click') clickAt(el, input);
       else if (input.action === 'set_checked') {
         if (!checkedStateMatches(el, input)) clickAt(el, input);
@@ -1156,6 +1088,7 @@
     }
   }, true);
   const bridge = Object.freeze({
+    viewportGeometry,
     observe: (options) => runtime.observe(options),
     targetContextFingerprint: (element) => targetContextFingerprint(element),
     frameCoordinateTransform: (frame) => frameCoordinateTransform(frame),
@@ -1167,7 +1100,7 @@
     beginCapture: (id) => runtime.beginCapture(id),
     captureStatus: (id) => runtime.captureStatus(id),
     endCapture: (id) => runtime.endCapture(id),
-    validateAction: (input) => runtime.validateAction(input),
+    validateAction: (input) => { validateAction(input); return true; },
     resolvePointerTarget: (input, point) => runtime.resolvePointerTarget(input, point),
     prepareTrustedDrag: (input) => runtime.prepareTrustedDrag(input),
     prepareNativePointer: (input, prepared) => runtime.prepareNativePointer(input, prepared),

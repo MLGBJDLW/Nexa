@@ -1282,7 +1282,7 @@ impl Tool for NativeBrowserSessionTool {
                     }
                     result => result,
                 };
-                let (observation, interaction) = match action_result {
+                let (observation, interaction, pointer_delivery) = match action_result {
                     Ok(outcome) => {
                         let stage = if outcome.effect_observed {
                             "observed"
@@ -1297,12 +1297,17 @@ impl Tool for NativeBrowserSessionTool {
                                 "browserSessionId": session_id,
                                 "observationId": outcome.observation.observation_id,
                                 "effectObserved": outcome.effect_observed,
+                                "pointerDelivery": outcome.pointer_delivery,
                                 "interaction": outcome.interaction,
                                 "dialogs": dialogs,
                                 "download": download_result,
                             }),
                         )?;
-                        (outcome.observation, outcome.interaction)
+                        (
+                            outcome.observation,
+                            outcome.interaction,
+                            outcome.pointer_delivery,
+                        )
                     }
                     Err(error) => {
                         let error = if let Some(download) = download_result.as_ref() {
@@ -1331,6 +1336,9 @@ impl Tool for NativeBrowserSessionTool {
                     .and_then(serde_json::Value::as_object_mut)
                 {
                     data.insert("interaction".into(), serde_json::to_value(interaction)?);
+                    if let Some(delivery) = pointer_delivery {
+                        data.insert("pointerDelivery".into(), serde_json::json!(delivery));
+                    }
                 }
                 output.llm_content.push_str(&format!("\nAction receipt: {}. A visual change alone does not verify the requested goal.", serde_json::to_string(&interaction)?));
                 if let Some(download) = download_result {

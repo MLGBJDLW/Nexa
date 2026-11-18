@@ -116,6 +116,7 @@ pub type BrowserObservationPayload = CoreBrowserObservation;
 pub struct BrowserActOutcome {
     pub observation: BrowserObservationPayload,
     pub effect_observed: bool,
+    pub pointer_delivery: Option<&'static str>,
     pub interaction: nexa_core::observed_interaction::InteractionReceipt,
 }
 
@@ -242,6 +243,8 @@ impl BrowserActCommitTracker {
 
 #[derive(Clone)]
 struct StoredObservation {
+    #[cfg(windows)]
+    foreground_input_watch: Option<nexa_core::browser_runtime::ForegroundInputWatch>,
     created_at: Instant,
     tab_id: String,
     url: String,
@@ -263,6 +266,8 @@ struct StoredObservation {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ActionVerificationBaseline {
+    #[serde(skip)]
+    pointer_delivery: Option<&'static str>,
     url: String,
     dom_fingerprint: String,
     #[serde(default)]
@@ -275,6 +280,7 @@ struct ActionVerificationBaseline {
 impl StoredObservation {
     fn verification_baseline(&self) -> ActionVerificationBaseline {
         ActionVerificationBaseline {
+            pointer_delivery: None,
             url: self.url.clone(),
             dom_fingerprint: self.dom_fingerprint.clone(),
             screenshot_hash: Some(self.screenshot_hash.clone()),
@@ -2256,6 +2262,10 @@ impl BrowserState {
         call_id: &str,
         options: &BrowserObservationOptions,
     ) -> Result<BrowserObservationPayload, String> {
+        #[cfg(windows)]
+        let foreground_input_watch = super::system_pointer::SystemPointer::observe_foreground(
+            &self.webview(session_id, tab_id)?,
+        );
         let captured_at_ms = chrono::Utc::now().timestamp_millis();
         let (webview, lease_generation, snapshot) = self
             .read_page_snapshot(session_id, tab_id, call_id, options)
@@ -2328,6 +2338,8 @@ impl BrowserState {
             tab.url = snapshot.url.clone();
             tab.title = snapshot.title.clone();
             let stored = StoredObservation {
+                #[cfg(windows)]
+                foreground_input_watch,
                 created_at: Instant::now(),
                 tab_id: tab_id.to_string(),
                 url: snapshot.url.clone(),
@@ -2643,18 +2655,8 @@ impl BrowserState {
             request.call_id,
             observation.lease_generation,
         )?;
+        #[cfg(windows)]
         if matches!(request.action, "move" | "hover") {
-            // Acquire before the native preparation so a queued computer
-            // action cannot make the returned element bounds stale while this
-            // pointer commit waits for desktop ownership.
-            #[cfg(not(windows))]
-            let _desktop_input_guard = nexa_core::browser_runtime::acquire_desktop_input_permit()
-                .await
-                .map_err(|error| error.to_string())?;
-            #[cfg(not(windows))]
-            let _cross_process_guard =
-                nexa_core::browser_runtime::try_acquire_cross_process_input()
-                    .map_err(|error| error.to_string())?;
             let prepare_expression = format!(
                 "(() => {{ const bridge = window.__NEXA_BROWSER_RUNTIME__; if (!bridge) throw new Error('Browser interaction runtime is unavailable'); return bridge.prepareNativePointer({action_input}); }})()"
             );
@@ -2703,8 +2705,7 @@ impl BrowserState {
             .resolve()
             .await?;
             self.require_visible_focused_host_window()?;
-            #[cfg(windows)]
-            {
+            let pointer_delivery = {
                 self.revalidate_agent_lease(
                     request.session_id,
                     request.tab_id,
@@ -2712,28 +2713,41 @@ impl BrowserState {
                     observation.lease_generation,
                 )?;
                 request.commit_tracker.mark_committed();
-                super::webview_host::dispatch_webview_pointer_move(
-                    &self.webview(request.session_id, request.tab_id)?,
-                    target_bounds.x + target_bounds.width / 2.0,
-                    target_bounds.y + target_bounds.height / 2.0,
+                let webview = self.webview(request.session_id, request.tab_id)?;
+                let point = (
+                    target_bounds.x + target_bounds.width / 2.,
+                    target_bounds.y + target_bounds.height / 2.,
+                );
+                let pointer = super::system_pointer::SystemPointer::for_action(
+                    &webview,
+                    observation.foreground_input_watch,
+                    &observation.viewport,
+                    &prepared,
                     request.modifiers,
                 )
                 .await?;
-            }
-            #[cfg(not(windows))]
-            self.move_native_pointer_to_target(
-                request.session_id,
-                request.tab_id,
-                request.observation_id,
-                request.call_id,
-                observation.lease_generation,
-                &target_bounds,
-                &request.commit_tracker,
-            )
-            .await?;
+                if let Some(pointer) = pointer {
+                    self.revalidate_agent_lease(
+                        request.session_id,
+                        request.tab_id,
+                        request.call_id,
+                        observation.lease_generation,
+                    )?;
+                    pointer.check_idle()?;
+                    pointer.move_to(point)?;
+                    "system_pointer"
+                } else {
+                    super::webview_host::dispatch_webview_pointer_move(
+                        &webview,
+                        point.0,
+                        point.1,
+                        request.modifiers,
+                    )
+                    .await?;
+                    "webview_input"
+                }
+            };
             request.commit_tracker.confirm_input_sent();
-            #[cfg(not(windows))]
-            drop(_desktop_input_guard);
             let effect_observed = self
                 .settle_after_agent_action(
                     request.session_id,
@@ -2766,6 +2780,7 @@ impl BrowserState {
                 }),
             );
             return Ok(BrowserActOutcome {
+                pointer_delivery: Some(pointer_delivery),
                 observation: fresh_observation,
                 effect_observed,
                 interaction: request
@@ -2836,6 +2851,7 @@ impl BrowserState {
                     return Err(error);
                 }
             };
+            let pointer_delivery = verification_baseline.pointer_delivery;
             let effect_observed = self
                 .settle_after_agent_action(
                     request.session_id,
@@ -2870,6 +2886,7 @@ impl BrowserState {
                 }),
             );
             return Ok(BrowserActOutcome {
+                pointer_delivery,
                 observation: fresh_observation,
                 effect_observed,
                 interaction: request
@@ -2958,6 +2975,11 @@ impl BrowserState {
             }),
         );
         Ok(BrowserActOutcome {
+            pointer_delivery: matches!(
+                request.action,
+                "move" | "hover" | "click" | "double_click" | "drag" | "scroll"
+            )
+            .then_some("webview_dom"),
             observation: fresh_observation,
             effect_observed,
             interaction: request
@@ -3059,6 +3081,68 @@ impl BrowserState {
         } else {
             None
         };
+        let mut system_pointer = if let Some(bounds) = pointer_bounds.as_ref() {
+            let webview = self.webview(request.session_id, request.tab_id)?;
+            let pointer = super::system_pointer::SystemPointer::for_action(
+                &webview,
+                observation.foreground_input_watch,
+                &observation.viewport,
+                &prepared,
+                request.modifiers,
+            )
+            .await?;
+            if let Some(pointer) = &pointer {
+                self.revalidate_agent_lease(
+                    request.session_id,
+                    request.tab_id,
+                    request.call_id,
+                    observation.lease_generation,
+                )?;
+                pointer.check_idle()?;
+                pointer.move_to((bounds.x + bounds.width / 2., bounds.y + bounds.height / 2.))?;
+                // Hovering can reveal another element or displace the observed target.
+                let recheck = if input_action == "drag" {
+                    prepare_expression.clone()
+                } else {
+                    format!("window.__NEXA_BROWSER_RUNTIME__.prepareNativePointer({action_input},{prepared})")
+                };
+                let live = self
+                    .dispatch_agent_action(
+                        request.session_id,
+                        request.tab_id,
+                        request.observation_id,
+                        request.call_id,
+                        &recheck,
+                    )?
+                    .resolve()
+                    .await?;
+                for field in [
+                    "bounds",
+                    "targetRef",
+                    "targetContext",
+                    "endRef",
+                    "endBounds",
+                    "endContext",
+                    "systemViewport",
+                ] {
+                    if live.get(field) != prepared.get(field) {
+                        return Err("Browser pointer target changed after moving the system cursor. Observe again.".into());
+                    }
+                }
+            }
+            pointer
+        } else {
+            None
+        };
+        verification_baseline.pointer_delivery = pointer_bounds.as_ref().map(|_| {
+            if system_pointer.is_some() && input_action != "scroll" {
+                "system_pointer"
+            } else if system_pointer.is_some() {
+                "system_pointer_webview_wheel"
+            } else {
+                "webview_input"
+            }
+        });
         let expected_input = match input_action {
             "click" | "double_click" => {
                 let bounds = pointer_bounds
@@ -3131,6 +3215,7 @@ impl BrowserState {
             )
             .await?;
         let armed_guard = trusted_guard
+            .with_foreground_watch(system_pointer.as_ref().map(|p| p.watch))
             .arm(
                 budget,
                 expected_input,
@@ -3180,8 +3265,33 @@ impl BrowserState {
             });
         }
 
-        let dispatch_result = match input_action {
-            "drag" => {
+        let dispatch_result = match (input_action, system_pointer.as_mut()) {
+            ("click" | "double_click" | "drag", Some(pointer)) => {
+                let start = pointer_bounds.as_ref().expect("validated pointer bounds");
+                let start = (start.x + start.width / 2., start.y + start.height / 2.);
+                let end = end_bounds
+                    .as_ref()
+                    .map(|b| (b.x + b.width / 2., b.y + b.height / 2.));
+                pointer
+                    .gesture(
+                        &armed_guard,
+                        &url::Url::parse(&observation.url).map_err(|e| e.to_string())?,
+                        input_action,
+                        request.button.unwrap_or("left"),
+                        start,
+                        end,
+                        || {
+                            self.revalidate_agent_lease(
+                                request.session_id,
+                                request.tab_id,
+                                request.call_id,
+                                observation.lease_generation,
+                            )
+                        },
+                    )
+                    .await
+            }
+            ("drag", None) => {
                 let start = pointer_bounds.as_ref().expect("parsed pointer bounds");
                 let end = end_bounds.as_ref().expect("parsed drag destination");
                 super::webview_host::dispatch_trusted_drag(
@@ -3192,7 +3302,7 @@ impl BrowserState {
                 )
                 .await
             }
-            "scroll" => {
+            ("scroll", _) => {
                 let bounds = pointer_bounds.as_ref().expect("parsed pointer bounds");
                 super::webview_host::dispatch_trusted_wheel(
                     &armed_guard,
@@ -3204,7 +3314,7 @@ impl BrowserState {
                 )
                 .await
             }
-            "click" | "double_click" => {
+            ("click" | "double_click", None) => {
                 let bounds = pointer_bounds
                     .as_ref()
                     .expect("pointer actions always parse prepared target bounds");
@@ -3222,8 +3332,10 @@ impl BrowserState {
                 )
                 .await
             }
-            "type" => insert_trusted_text(&armed_guard, request.text.unwrap_or_default()).await,
-            "upload_files" => {
+            ("type", _) => {
+                insert_trusted_text(&armed_guard, request.text.unwrap_or_default()).await
+            }
+            ("upload_files", _) => {
                 super::webview_host::set_trusted_files(
                     &armed_guard,
                     request.target_ref.ok_or("Upload requires targetRef")?,
@@ -3235,7 +3347,7 @@ impl BrowserState {
                 )
                 .await
             }
-            "press" => {
+            ("press", _) => {
                 dispatch_trusted_key(
                     &armed_guard,
                     request
@@ -4065,130 +4177,25 @@ impl BrowserState {
         }
     }
 
-    #[cfg(not(windows))]
-    async fn move_native_pointer_to_target(
+    #[cfg(all(windows, test))]
+    pub(super) async fn verify_fixture_cursor(
         &self,
-        session_id: &str,
-        tab_id: &str,
-        observation_id: &str,
-        call_id: &str,
-        lease_generation: u64,
-        target: &BrowserElementBounds,
-        commit_tracker: &BrowserActCommitTracker,
+        session: &str,
+        tab: &str,
+        viewport: &serde_json::Value,
+        point: (f64, f64),
     ) -> Result<(), String> {
-        let (session_id, tab_id, observation_id, call_id) = (
-            session_id.to_string(),
-            tab_id.to_string(),
-            observation_id.to_string(),
-            call_id.to_string(),
-        );
-        let target = target.clone();
-        let commit_tracker = commit_tracker.clone();
-        self.on_ui_commit(move |state| {
-            state.move_native_pointer_on_ui(
-                &session_id,
-                &tab_id,
-                &observation_id,
-                &call_id,
-                lease_generation,
-                &target,
-                &commit_tracker,
-            )
-        })
-        .await
-    }
-
-    #[cfg(not(windows))]
-    fn move_native_pointer_on_ui(
-        &self,
-        session_id: &str,
-        tab_id: &str,
-        observation_id: &str,
-        call_id: &str,
-        lease_generation: u64,
-        target: &BrowserElementBounds,
-        commit_tracker: &BrowserActCommitTracker,
-    ) -> Result<(), String> {
-        // Keep the runtime mutex through the native pointer commit. A hide,
-        // tab switch or takeover therefore either wins before this validation
-        // or waits until after the single OS side effect has completed.
-        let runtime = self
-            .inner
-            .lock()
-            .map_err(|_| "Browser runtime is unavailable".to_string())?;
-        let session = runtime
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| format!("Unknown browser session '{session_id}'"))?;
-        let tab = require_agent_tab_surface(session, tab_id)?;
-        if session.control_lease.generation() != lease_generation
-            || !matches!(
-                session.control_lease.owner(),
-                BrowserControlOwner::Agent { call_id: owner_call_id } if owner_call_id == call_id
-            )
-        {
-            return Err(
-                "Browser pointer commit was cancelled because control or the active tab changed"
-                    .to_string(),
-            );
-        }
-        let observation = session
-            .observations
-            .get(observation_id)
-            .filter(|observation| {
-                observation.claimed_for_action
-                    && observation.created_at.elapsed() <= Duration::from_secs(120)
-                    && observation.tab_id == tab_id
-                    && observation.lease_generation == lease_generation
-            })
-            .ok_or_else(|| "Browser pointer commit lost its claimed observation".to_string())?;
-        let current_url = tab
-            .webview
-            .url()
-            .map_err(|error| format!("Could not read browser address: {error}"))?;
-        if current_url.as_str() != observation.url {
-            return Err(
-                "Browser pointer commit was cancelled because the page changed".to_string(),
-            );
-        }
-        let bounds = tab.bounds;
-        let window = self
-            .app
-            .get_window("main")
-            .ok_or_else(|| "Main application window is unavailable".to_string())?;
-        if !window
-            .is_visible()
-            .map_err(|error| format!("Could not read main window visibility: {error}"))?
-            || window
-                .is_minimized()
-                .map_err(|error| format!("Could not read main window state: {error}"))?
-        {
-            return Err(
-                "Browser pointer movement requires the visible, restored Nexa window".to_string(),
-            );
-        }
-        if !window
-            .is_focused()
-            .map_err(|error| format!("Could not read main window focus: {error}"))?
-        {
-            return Err(
-                "Browser pointer movement was cancelled because the user focused another application"
-                    .to_string(),
-            );
-        }
-        let origin = window
-            .outer_position()
-            .map_err(|error| format!("Could not read main window position: {error}"))?;
-        let scale_factor = window
-            .scale_factor()
-            .map_err(|error| format!("Could not read main window scale: {error}"))?;
-        let (x, y) =
-            browser_target_screen_point((origin.x, origin.y), scale_factor, bounds, target)?;
-        commit_tracker.mark_committed();
-        let result = nexa_core::browser_runtime::move_native_pointer(x, y)
-            .map_err(|error| error.to_string());
-        drop(runtime);
-        result
+        let webview = self.webview(session, tab)?;
+        super::system_pointer::SystemPointer::for_action(
+            &webview,
+            super::system_pointer::SystemPointer::observe_foreground(&webview),
+            viewport,
+            &serde_json::json!({"systemViewport":viewport}),
+            &[],
+        )
+        .await?
+        .ok_or("The isolated fixture lost foreground ownership.")?
+        .verify_cursor(point)
     }
 
     fn webview(&self, session_id: &str, tab_id: &str) -> Result<Webview, String> {
@@ -4576,34 +4583,6 @@ pub(super) fn browser_host_window_allows_agent_action(
     // Windows input is addressed to the exact WebView through CDP. Desktop
     // focus is relevant only to the OS pointer transport on other platforms.
     visible && !minimized && (cfg!(windows) || focused)
-}
-
-#[cfg(not(windows))]
-pub(super) fn browser_target_screen_point(
-    window_origin: (i32, i32),
-    scale_factor: f64,
-    webview_bounds: BrowserBounds,
-    target_bounds: &BrowserElementBounds,
-) -> Result<(i32, i32), String> {
-    let logical_x = webview_bounds.x + target_bounds.x + target_bounds.width / 2.0;
-    let logical_y = webview_bounds.y + target_bounds.y + target_bounds.height / 2.0;
-    if !scale_factor.is_finite()
-        || scale_factor <= 0.0
-        || !logical_x.is_finite()
-        || !logical_y.is_finite()
-    {
-        return Err("Browser pointer target has invalid screen coordinates".to_string());
-    }
-    let physical_x = f64::from(window_origin.0) + logical_x * scale_factor;
-    let physical_y = f64::from(window_origin.1) + logical_y * scale_factor;
-    if physical_x < f64::from(i32::MIN)
-        || physical_x > f64::from(i32::MAX)
-        || physical_y < f64::from(i32::MIN)
-        || physical_y > f64::from(i32::MAX)
-    {
-        return Err("Browser pointer target is outside the supported desktop range".to_string());
-    }
-    Ok((physical_x.round() as i32, physical_y.round() as i32))
 }
 
 fn safe_identifier(input: &str) -> String {
