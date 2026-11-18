@@ -463,7 +463,7 @@ fn shared_schema_tracks_rust_wire_names_and_qwen_replacements() {
                     .any(|endpoint| endpoint == "text:alibaba-model-studio")
         })
         .expect("the saved Qwen3 Max identity should remain in the catalog");
-    assert_eq!(retired.lifecycle, ModelLifecycle::Deprecated);
+    assert_eq!(retired.lifecycle, ModelLifecycle::Removed);
     assert_eq!(retired.replacement_model_id.as_deref(), Some("qwen3.7-max"));
     assert!(retired.aliases.iter().any(|alias| alias == "qwen3-max"));
 }

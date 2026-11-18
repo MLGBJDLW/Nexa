@@ -118,10 +118,10 @@ test('phone TTS model changes replace incompatible preset voices and retain priv
   const output=page.getByTestId('phone-cloud-output');
   await output.locator('select').selectOption('dashscope-cosyvoice');
   const model=output.locator('input[list$="-models"]'),voice=output.locator('input[list$="-voices"]');
-  await expect(voice).toHaveValue('longanhuan_v3.6');
+  await expect(model).toHaveValue('qwen-audio-3.1-tts-flash');
+  await expect(voice).toHaveValue('longanhuan_v3.1');
   await model.fill('qwen-audio-3.0-tts-plus');
-  await expect(voice).not.toHaveValue('longanhuan_v3.6');
-  await expect(voice).not.toHaveValue('');
+  await expect(voice).toHaveValue('longanlingxin');
   await voice.fill('private-user-voice');
   await model.fill('qwen-audio-3.0-tts-flash');
   await expect(voice).toHaveValue('private-user-voice');
