@@ -244,7 +244,7 @@ impl BrowserActCommitTracker {
 #[derive(Clone)]
 struct StoredObservation {
     #[cfg(windows)]
-    foreground_input_watch: Option<nexa_core::browser_runtime::ForegroundInputWatch>,
+    pointer_focus: super::system_pointer::ObservedPointerFocus,
     created_at: Instant,
     tab_id: String,
     url: String,
@@ -2263,7 +2263,7 @@ impl BrowserState {
         options: &BrowserObservationOptions,
     ) -> Result<BrowserObservationPayload, String> {
         #[cfg(windows)]
-        let foreground_input_watch = super::system_pointer::SystemPointer::observe_foreground(
+        let pointer_focus = super::system_pointer::ObservedPointerFocus::observe(
             &self.webview(session_id, tab_id)?,
         );
         let captured_at_ms = chrono::Utc::now().timestamp_millis();
@@ -2339,7 +2339,7 @@ impl BrowserState {
             tab.title = snapshot.title.clone();
             let stored = StoredObservation {
                 #[cfg(windows)]
-                foreground_input_watch,
+                pointer_focus,
                 created_at: Instant::now(),
                 tab_id: tab_id.to_string(),
                 url: snapshot.url.clone(),
@@ -2712,7 +2712,6 @@ impl BrowserState {
                     request.call_id,
                     observation.lease_generation,
                 )?;
-                request.commit_tracker.mark_committed();
                 let webview = self.webview(request.session_id, request.tab_id)?;
                 let point = (
                     target_bounds.x + target_bounds.width / 2.,
@@ -2720,7 +2719,7 @@ impl BrowserState {
                 );
                 let pointer = super::system_pointer::SystemPointer::for_action(
                     &webview,
-                    observation.foreground_input_watch,
+                    observation.pointer_focus,
                     &observation.viewport,
                     &prepared,
                     request.modifiers,
@@ -2734,7 +2733,7 @@ impl BrowserState {
                         observation.lease_generation,
                     )?;
                     pointer.check_idle()?;
-                    pointer.move_to(point)?;
+                    pointer.move_to(point, || request.commit_tracker.mark_committed())?;
                     "system_pointer"
                 } else {
                     super::webview_host::dispatch_webview_pointer_move(
@@ -2742,6 +2741,17 @@ impl BrowserState {
                         point.0,
                         point.1,
                         request.modifiers,
+                        || {
+                            self.revalidate_agent_lease(
+                                request.session_id,
+                                request.tab_id,
+                                request.call_id,
+                                observation.lease_generation,
+                            )?;
+                            observation.pointer_focus.check(&webview)?;
+                            request.commit_tracker.mark_committed();
+                            Ok(())
+                        },
                     )
                     .await?;
                     "webview_input"
@@ -3085,7 +3095,7 @@ impl BrowserState {
             let webview = self.webview(request.session_id, request.tab_id)?;
             let pointer = super::system_pointer::SystemPointer::for_action(
                 &webview,
-                observation.foreground_input_watch,
+                observation.pointer_focus,
                 &observation.viewport,
                 &prepared,
                 request.modifiers,
@@ -3099,7 +3109,10 @@ impl BrowserState {
                     observation.lease_generation,
                 )?;
                 pointer.check_idle()?;
-                pointer.move_to((bounds.x + bounds.width / 2., bounds.y + bounds.height / 2.))?;
+                pointer.move_to(
+                    (bounds.x + bounds.width / 2., bounds.y + bounds.height / 2.),
+                    || {},
+                )?;
                 // Hovering can reveal another element or displace the observed target.
                 let recheck = if input_action == "drag" {
                     prepare_expression.clone()
@@ -3215,7 +3228,11 @@ impl BrowserState {
             )
             .await?;
         let armed_guard = trusted_guard
-            .with_foreground_watch(system_pointer.as_ref().map(|p| p.watch))
+            .with_pointer_focus(
+                pointer_bounds
+                    .is_some()
+                    .then_some(observation.pointer_focus),
+            )
             .arm(
                 budget,
                 expected_input,
@@ -4188,7 +4205,7 @@ impl BrowserState {
         let webview = self.webview(session, tab)?;
         super::system_pointer::SystemPointer::for_action(
             &webview,
-            super::system_pointer::SystemPointer::observe_foreground(&webview),
+            super::system_pointer::ObservedPointerFocus::observe(&webview),
             viewport,
             &serde_json::json!({"systemViewport":viewport}),
             &[],

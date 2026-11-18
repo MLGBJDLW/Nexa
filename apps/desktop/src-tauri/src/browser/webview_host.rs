@@ -455,27 +455,24 @@ pub struct BrowserTrustedInputGuard {
     webview: Webview,
     token: Arc<str>,
     #[cfg(windows)]
-    foreground_watch: Option<nexa_core::browser_runtime::ForegroundInputWatch>,
+    pointer_focus: Option<super::system_pointer::ObservedPointerFocus>,
 }
 
 impl BrowserTrustedInputGuard {
     #[cfg(windows)]
-    pub(super) fn with_foreground_watch(
+    pub(super) fn with_pointer_focus(
         mut self,
-        watch: Option<nexa_core::browser_runtime::ForegroundInputWatch>,
+        focus: Option<super::system_pointer::ObservedPointerFocus>,
     ) -> Self {
-        self.foreground_watch = watch;
+        self.pointer_focus = focus;
         self
     }
     fn user_input_epoch(&self) -> Result<Option<u32>, String> {
         #[cfg(windows)]
-        if let Some(watch) = self.foreground_watch {
-            if watch.changed() {
-                return Err(
-                    "Physical user input interrupted the foreground browser gesture.".into(),
-                );
+        if let Some(focus) = self.pointer_focus {
+            if focus.check(&self.webview)?.is_some() {
+                return Ok(None);
             }
-            return Ok(None);
         }
         physical_input_epoch(&self.webview)
     }
@@ -720,8 +717,10 @@ pub async fn dispatch_webview_pointer_move(
     x: f64,
     y: f64,
     modifiers: &[String],
+    before_send: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
     let payload = trusted_pointer_payloads(x, y, "left", modifiers, 1)?.remove(0);
+    before_send()?;
     call_devtools_protocol_method(
         webview,
         "Input.dispatchMouseEvent",
@@ -1086,7 +1085,7 @@ pub async fn create_child_webview(
         webview: webview.clone(),
         token: Arc::from(takeover_token),
         #[cfg(windows)]
-        foreground_watch: None,
+        pointer_focus: None,
     };
     Ok(BrowserChildWebview {
         webview,

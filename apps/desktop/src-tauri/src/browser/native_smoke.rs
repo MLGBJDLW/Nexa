@@ -108,6 +108,11 @@ fn run_html_pointer_fixture(foreground: bool) {
         tauri::window::WindowBuilder::new(app, "main")
             .title("Nexa HTML continuity fixture").visible(true).focused(foreground)
             .inner_size(640.0, 480.0).build()?;
+        if !foreground {
+            tauri::window::WindowBuilder::new(app,"fixture-foreground")
+                .title("Nexa background-test focus window").visible(false).focused(false)
+                .inner_size(180.0,80.0).build()?;
+        }
         let handle = app.handle().clone();
         let state = super::super::state::BrowserState::new(handle.clone(), profile.clone());
         tauri::async_runtime::spawn(async move {
@@ -120,6 +125,18 @@ fn run_html_pointer_fixture(foreground: bool) {
                 let session = state.create_session(Some(conversation.clone()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
                 let tab_id = session.active_tab_id.as_deref().ok_or("Missing preview tab")?;
+                if !foreground {
+                    // WebView2 may activate its host when creating the controller.
+                    // Put a second test-owned window in front before observing the tab.
+                    let anchor = handle.get_window("fixture-foreground").ok_or("Missing test focus window")?;
+                    anchor.show().and_then(|_|anchor.set_focus()).map_err(|error|error.to_string())?;
+                    let expected = anchor.hwnd().map_err(|error|error.to_string())?.0 as isize;
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                    while unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize != expected {
+                        if std::time::Instant::now() >= deadline { return Err("The dedicated fixture window did not acquire foreground ownership.".into()); }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }
                 if state.target_is_absent(&session.id, tab_id, Some("other-conversation")).is_ok() {
                     return Err("A foreign conversation could inspect target presence".into());
                 }
@@ -405,7 +422,7 @@ fn native_dialog_and_download_complete_the_original_trusted_gesture() {
                 let download = downloads.arm(&destination)?;
                 let x = binding["x"].as_f64().ok_or("Missing x")?;
                 let y = binding["y"].as_f64().ok_or("Missing y")?;
-                let guard = BrowserTrustedInputGuard { foreground_watch: None, webview: webview.clone(), token: Arc::from("fixture-input") };
+                let guard = BrowserTrustedInputGuard { pointer_focus: None, webview: webview.clone(), token: Arc::from("fixture-input") };
                 let armed = guard.arm(TrustedInputEventBudget::pointer_click(1, 0)?, TrustedInputMatch::Pointer { x, y, button: "left".into() }, binding["targetRef"].as_str().ok_or("Missing target")?, binding["targetContext"].as_str().ok_or("Missing context")?).await?;
                 dispatch_trusted_pointer_click(&armed, x, y, "left", &[], 1).await?;
                 armed.disarm().await?;
@@ -472,7 +489,7 @@ async fn native_shadow_component_competence(webview: &Webview) -> Result<(), Str
         return true;
     })()"#).await?;
     let guard = BrowserTrustedInputGuard {
-        foreground_watch: None,
+        pointer_focus: None,
         webview: webview.clone(),
         token: Arc::from("fixture-input"),
     };
@@ -689,7 +706,7 @@ async fn native_form_competence(webview: &Webview) -> Result<(), String> {
     )
     .await?;
     let guard = BrowserTrustedInputGuard {
-        foreground_watch: None,
+        pointer_focus: None,
         webview: webview.clone(),
         token: Arc::from("fixture-input"),
     };

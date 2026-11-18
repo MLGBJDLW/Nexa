@@ -35,13 +35,56 @@ impl Drop for Pixels {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ObservedPointerFocus<W = ForegroundInputWatch> {
+    Background,
+    Foreground(W),
+    Unknown,
+}
+
+impl<W: Copy> ObservedPointerFocus<W> {
+    fn validate(
+        self,
+        foreground: bool,
+        changed: impl FnOnce(W) -> bool,
+    ) -> Result<Option<W>, String> {
+        match (self, foreground) {
+            (Self::Background, false) => Ok(None),
+            (Self::Foreground(watch), true) if !changed(watch) => Ok(Some(watch)),
+            _ => Err("The browser foreground or physical input changed since observation. Observe again.".into()),
+        }
+    }
+}
+
+impl ObservedPointerFocus {
+    pub(super) fn observe(webview: &Webview) -> Self {
+        let Ok(main) = webview.window().hwnd() else {
+            return Self::Unknown;
+        };
+        if unsafe { GetForegroundWindow() }.0 != main.0 {
+            return Self::Background;
+        }
+        ForegroundInputWatch::start()
+            .map(Self::Foreground)
+            .unwrap_or(Self::Unknown)
+    }
+
+    pub(super) fn check(self, webview: &Webview) -> Result<Option<ForegroundInputWatch>, String> {
+        let main = webview.window().hwnd().map_err(|error| error.to_string())?;
+        self.validate(
+            unsafe { GetForegroundWindow() }.0 == main.0,
+            ForegroundInputWatch::changed,
+        )
+    }
+}
+
 pub(super) struct SystemPointer {
     container: isize,
     main: isize,
     rect: RECT,
     scale: f64,
     viewport: serde_json::Value,
-    pub watch: ForegroundInputWatch,
+    watch: ForegroundInputWatch,
     _local: tokio::sync::OwnedMutexGuard<()>,
     _shared: CrossProcessDesktopInputGuard,
 }
@@ -92,31 +135,15 @@ fn cursor() -> Result<POINT, String> {
 }
 
 impl SystemPointer {
-    pub fn observe_foreground(webview: &Webview) -> Option<ForegroundInputWatch> {
-        let main = webview.window().hwnd().ok()?;
-        if unsafe { GetForegroundWindow() }.0 != main.0 {
-            return None;
-        }
-        ForegroundInputWatch::start().ok()
-    }
-
     pub async fn for_action(
         webview: &Webview,
-        watch: Option<ForegroundInputWatch>,
+        focus: ObservedPointerFocus,
         observation: &serde_json::Value,
         prepared: &serde_json::Value,
         modifiers: &[String],
     ) -> Result<Option<Self>, String> {
         let live = &prepared["systemViewport"];
-        if !modifiers.is_empty()
-            || live["visualScale"].as_f64() != Some(1.)
-            || live["visualOffsetX"].as_f64() != Some(0.)
-            || live["visualOffsetY"].as_f64() != Some(0.)
-        {
-            // Modifier chords can trigger system shortcuts. Pixel wheel and
-            // pinch/pan use the WebView's own viewport coordinate system.
-            return Ok(None);
-        }
+        let foreground_watch = focus.check(webview)?;
         if [
             "width",
             "height",
@@ -130,23 +157,27 @@ impl SystemPointer {
         {
             return Err("Browser viewport changed since observation. Observe again.".into());
         }
-        Self::acquire(webview, live, watch).await
+        let Some(watch) = foreground_watch else {
+            return Ok(None);
+        };
+        if !modifiers.is_empty()
+            || live["visualScale"].as_f64() != Some(1.)
+            || live["visualOffsetX"].as_f64() != Some(0.)
+            || live["visualOffsetY"].as_f64() != Some(0.)
+        {
+            // Modifier chords can trigger system shortcuts. Pixel wheel and
+            // pinch/pan use the WebView's own viewport coordinate system.
+            return Ok(None);
+        }
+        Self::acquire(webview, live, watch).await.map(Some)
     }
 
     async fn acquire(
         webview: &Webview,
         viewport: &serde_json::Value,
-        observation_watch: Option<ForegroundInputWatch>,
-    ) -> Result<Option<Self>, String> {
+        watch: ForegroundInputWatch,
+    ) -> Result<Self, String> {
         let main = webview.window().hwnd().map_err(|e| e.to_string())?.0 as isize;
-        if unsafe { GetForegroundWindow() }.0 as isize != main {
-            return Ok(None);
-        }
-        let watch = observation_watch
-            .ok_or("Observe the foreground WebView again before moving the system cursor.")?;
-        if watch.changed() {
-            return Err("User input or input monitoring changed since the browser observation. Observe again.".into());
-        }
         let local = acquire_desktop_input_permit()
             .await
             .map_err(|e| e.to_string())?;
@@ -195,7 +226,7 @@ impl SystemPointer {
         {
             return Err("WebView2 physical bounds and observed CSS viewport no longer agree. Observe again.".into());
         }
-        Ok(Some(Self {
+        Ok(Self {
             container,
             main,
             rect,
@@ -204,7 +235,7 @@ impl SystemPointer {
             watch,
             _local: local,
             _shared: shared,
-        }))
+        })
     }
     fn checked_point(&self, css: (f64, f64)) -> Result<POINT, String> {
         let container = HWND(self.container as *mut _);
@@ -259,11 +290,12 @@ impl SystemPointer {
         }
         Ok(point)
     }
-    pub fn move_to(&self, css: (f64, f64)) -> Result<(), String> {
+    pub fn move_to(&self, css: (f64, f64), before_send: impl FnOnce()) -> Result<(), String> {
         let _pixels = Pixels::enter()?;
         let p = self.checked_point(css)?;
         let movement = nexa_core::browser_runtime::absolute_pointer_input((p.x, p.y))
             .map_err(|e| e.to_string())?;
+        before_send();
         send(&[movement])?;
         self.verify_cursor(css)
     }
@@ -323,10 +355,13 @@ impl SystemPointer {
                     tokio::time::sleep(std::time::Duration::from_millis(8)).await;
                     revalidate()?;
                     let t = f64::from(step) / 16.;
-                    self.move_to((
-                        start.0 + (destination.0 - start.0) * t,
-                        start.1 + (destination.1 - start.1) * t,
-                    ))?;
+                    self.move_to(
+                        (
+                            start.0 + (destination.0 - start.0) * t,
+                            start.1 + (destination.1 - start.1) * t,
+                        ),
+                        || {},
+                    )?;
                 }
             }
             if action == "drag" {
@@ -369,5 +404,23 @@ impl Drop for HeldButton {
         if let Some(up) = self.0 {
             let _ = send(&[mouse(up, 0, 0)]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ObservedPointerFocus::{self, Background, Foreground, Unknown};
+
+    #[test]
+    fn a_pointer_action_can_only_use_the_original_focus_and_input() {
+        let check = |observed: ObservedPointerFocus<bool>, foreground| {
+            observed.validate(foreground, |changed| changed)
+        };
+        assert_eq!(check(Background, false).unwrap(), None);
+        assert_eq!(check(Foreground(false), true).unwrap(), Some(false));
+        assert!(check(Foreground(false), false).is_err());
+        assert!(check(Foreground(true), true).is_err());
+        assert!(check(Background, true).is_err());
+        assert!(check(Unknown, false).is_err());
     }
 }
