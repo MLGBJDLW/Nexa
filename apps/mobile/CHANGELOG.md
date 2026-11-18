@@ -2,6 +2,10 @@
 
 ## [0.3.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.12...nexa-mobile-v0.3.13) (2026-11-18)
 
+### Improvements
+
+- Open local citations on the phone at a PDF page and its extracted lines, a Word paragraph, worksheet cells or a PowerPoint slide. The reader checks the source revision before displaying the passage.
+- Follow a citation deep into a large text file without loading the whole file into the preview. If the source has changed, the reader identifies the mismatch before displaying the cited location.
 
 ### Features
 
