@@ -1042,7 +1042,7 @@ async fn drive(
         // Cursor ACP emits its payment action as an ordinary answer, with no
         // structured error. Offer guidance on the standalone native message
         // while preserving the answer and its protocol completion status.
-        if provider == "acp_cursor" && output.answer == "\n\nAdd a payment method to continue" {
+        if provider == "acp_cursor" && output.answer.trim() == "Add a payment method to continue" {
             turn.events
                 .send(AgentEvent::ControllerStatus {
                     code: "external_agent_cursor_payment".into(),
