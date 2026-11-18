@@ -289,9 +289,9 @@ fn pcm16_wav_header(
 fn transcription_form_fields(config: &SpeechToTextConfig) -> Vec<(&'static str, String)> {
     let model = config.model.trim();
     let mut fields = vec![("model", model.to_string())];
-    let gpt_transcribe = config.provider == "open_ai"
-        && model == "gpt-transcribe"
+    let openai = config.provider == "open_ai"
         && is_official_transcription_endpoint(config, "api.openai.com");
+    let gpt_transcribe = openai && model == "gpt-transcribe";
     let mistral = config.provider == "mistral"
         && is_official_transcription_endpoint(config, "api.mistral.ai");
     if config.provider == "siliconflow"
@@ -303,6 +303,10 @@ fn transcription_form_fields(config: &SpeechToTextConfig) -> Vec<(&'static str, 
     // response_format set is identical to the older GPT-4o models.
     if !gpt_transcribe && !mistral {
         fields.push(("response_format", "json".to_string()));
+    }
+    if openai && model == "gpt-4o-transcribe-diarize" {
+        // A completed recording can exceed the model's 30-second unchunked limit.
+        fields.push(("chunking_strategy", "auto".to_string()));
     }
     if let Some(language) = config
         .language

@@ -21,6 +21,77 @@ use crate::model_catalog::{
 };
 use crate::provider_registry::provider_type_from_key;
 
+/// Some providers' model lists have no operation metadata. These dedicated
+/// families are shared with legacy desktop caches and the catalog auditor.
+pub(crate) fn is_dedicated_model_id(id: &str) -> bool {
+    static RULES: OnceLock<regex::RegexSet> = OnceLock::new();
+    static DEDICATED_IDS: OnceLock<HashSet<String>> = OnceLock::new();
+    let normalized = id.trim().to_ascii_lowercase();
+    let id = normalized.strip_prefix("models/").unwrap_or(&normalized);
+    if id.is_empty()
+        || RULES
+            .get_or_init(|| {
+                let patterns: Vec<String> = serde_json::from_str(include_str!(
+                    "../../../shared/dedicated-model-id-patterns.json"
+                ))
+                .expect("valid dedicated model patterns");
+                regex::RegexSet::new(patterns).expect("valid dedicated model patterns")
+            })
+            .is_match(id)
+    {
+        return true;
+    }
+    DEDICATED_IDS
+        .get_or_init(|| {
+            let catalog = builtin_catalog().expect("valid built-in catalog");
+            let mut ids = HashSet::new();
+            for model in &catalog.models {
+                if !model
+                    .endpoint_ids
+                    .iter()
+                    .any(|endpoint| endpoint.starts_with("text:"))
+                {
+                    ids.extend(
+                        std::iter::once(&model.id)
+                            .chain(&model.aliases)
+                            .map(|id| id.to_ascii_lowercase()),
+                    );
+                }
+            }
+            for preset in crate::video_provider_catalog::load_video_provider_presets()
+                .expect("valid video presets")
+            {
+                ids.extend(
+                    preset
+                        .models
+                        .into_iter()
+                        .map(|model| model.model_id.to_ascii_lowercase()),
+                );
+            }
+            for preset in crate::system_one::presets() {
+                ids.extend(
+                    preset
+                        .models
+                        .iter()
+                        .map(|model| model.id.to_ascii_lowercase()),
+                );
+            }
+            for model in &catalog.models {
+                if model
+                    .endpoint_ids
+                    .iter()
+                    .any(|endpoint| endpoint.starts_with("text:"))
+                {
+                    for key in std::iter::once(&model.id).chain(&model.aliases) {
+                        ids.remove(&key.to_ascii_lowercase());
+                    }
+                }
+            }
+            ids
+        })
+        .contains(id)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingBudgetCapability {
@@ -556,6 +627,7 @@ pub fn build_effective_model_catalog(
 ) -> ProviderModelCatalogSnapshot {
     let refreshed_at = refreshed_at.into();
     let live_model_ids = live_model_ids.map(|mut model_ids| {
+        model_ids.retain(|id| !is_dedicated_model_id(id));
         if let Some(verified_model_id) = verified_model_id
             .map(str::trim)
             .filter(|model_id| !model_id.is_empty())
@@ -1174,7 +1246,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_catalog_defaults_to_gpt_56() {
+    fn openai_catalog_features_current_models_and_retains_previous_generations() {
         let openai = find_provider_preset("open_ai", Some("https://api.openai.com/v1"))
             .expect("openai preset should match");
         let ids = openai
@@ -1183,7 +1255,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"gpt-5.6"));
+        assert_eq!(&ids[..2], &["gpt-6.2-sol", "gpt-6.2-astra"]);
         assert!(ids.contains(&"gpt-5.6-sol"));
         assert!(ids.contains(&"gpt-5.6-terra"));
         assert!(ids.contains(&"gpt-5.6-luna"));
@@ -1196,7 +1268,8 @@ mod tests {
             .iter()
             .find(|model| model.id == "gpt-5.6")
             .expect("gpt-5.6 should be listed");
-        assert_eq!(gpt_56.recommended, Some(true));
+        assert_eq!(openai.models[0].recommended, Some(true));
+        assert_eq!(gpt_56.recommended, Some(false));
 
         let reasoning = gpt_56
             .capabilities
@@ -1242,7 +1315,7 @@ mod tests {
             .iter()
             .find(|model| model.id == "claude-fable-5-2")
             .expect("claude-fable-5-2 should be listed");
-        assert_eq!(fable_5.recommended, Some(true));
+        assert_eq!(fable_5.recommended, Some(false));
 
         let mythos = anthropic
             .models
@@ -1341,7 +1414,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"qwen3.8-max"));
+        assert_eq!(ids.first(), Some(&"qwen4-max"));
         assert!(ids.contains(&"qwen3.8-flash"));
         assert!(ids.contains(&"qwen3.8-2.4t-a95b"));
         assert!(ids.contains(&"qwen3.8-27b"));
@@ -1366,7 +1439,7 @@ mod tests {
             .iter()
             .find(|model| model.id == "qwen3.8-max")
             .expect("formal qwen3.8-max should be listed");
-        assert_eq!(qwen38.recommended, Some(true));
+        assert_eq!(qwen38.recommended, Some(false));
         assert_eq!(qwen38.modalities, vec!["text", "image", "video"]);
         let qwen38_reasoning = qwen38
             .capabilities
@@ -1454,8 +1527,8 @@ mod tests {
             .iter()
             .find(|model| model.id == "qwen3.7-max")
             .expect("qwen3.7-max should be listed");
-        assert_eq!(qwen37.recommended, Some(true));
-        assert_eq!(qwen37.tag_key.as_deref(), Some("providers.tagLatest"));
+        assert_eq!(qwen37.recommended, Some(false));
+        assert!(qwen37.tag_key.is_none());
         assert_eq!(
             qwen37
                 .capabilities
@@ -1475,14 +1548,14 @@ mod tests {
             .iter()
             .find(|model| model.id == "qwen3.8-max")
             .expect("Token Plan Max must resolve on its dedicated endpoint");
-        assert_eq!(token_plan_max.recommended, Some(true));
+        assert_eq!(token_plan_max.recommended, Some(false));
         assert_eq!(token_plan_max.max_output_tokens, Some(131_072));
         let token_plan_flash = token_plan
             .models
             .iter()
             .find(|model| model.id == "qwen3.8-flash")
             .expect("Token Plan Flash must resolve on its dedicated endpoint");
-        assert_eq!(token_plan_flash.recommended, Some(true));
+        assert_eq!(token_plan_flash.recommended, Some(false));
         let flash_reasoning = token_plan_flash
             .capabilities
             .as_ref()
@@ -1509,9 +1582,10 @@ mod tests {
         )
         .expect("global Token Plan should keep its own endpoint identity");
         assert_eq!(global_token_plan.id, "qwen-token-plan-global");
-        assert_eq!(global_token_plan.models[0].id, "qwen3.8-max");
-        assert_eq!(global_token_plan.models[0].max_output_tokens, Some(131_072));
-        assert_eq!(global_token_plan.models[1].id, "qwen3.8-flash");
+        assert_eq!(global_token_plan.models[0].id, "qwen4-max");
+        assert_eq!(global_token_plan.models[1].id, "qwen3.8-max");
+        assert_eq!(global_token_plan.models[1].max_output_tokens, Some(131_072));
+        assert_eq!(global_token_plan.models[2].id, "qwen3.8-flash");
         assert_eq!(
             find_provider_preset("alibaba_model_studio", None)
                 .expect("Alibaba Model Studio should keep its pay-as-you-go default")
@@ -1545,13 +1619,13 @@ mod tests {
         )
         .expect("QwenCloud international preset should match its pay-as-you-go endpoint");
         assert_eq!(qwen_cloud.id, "qwen-cloud-intl");
-        assert_eq!(qwen_cloud.models[0].id, "qwen3.8-max");
+        assert_eq!(qwen_cloud.models[0].id, "qwen4-max");
         let flash = qwen_cloud
             .models
             .iter()
             .find(|model| model.id == "qwen3.8-flash")
             .expect("Qwen3.8 Flash should be listed for QwenCloud");
-        assert_eq!(flash.recommended, Some(true));
+        assert_eq!(flash.recommended, Some(false));
         assert_eq!(
             flash
                 .capabilities
@@ -1575,7 +1649,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"gemini-4-carbon"));
+        assert_eq!(ids.first(), Some(&"gemini-4-hydrogen"));
         assert!(ids.contains(&"gemini-4-argon"));
         assert!(ids.contains(&"gemini-3.7-flash"));
         assert!(ids.contains(&"gemini-3.6-flash"));
@@ -1587,24 +1661,24 @@ mod tests {
         let latest = google
             .models
             .first()
-            .expect("Gemini 4 Carbon should be listed first");
+            .expect("Gemini 4 Hydrogen should be listed first");
         assert_eq!(latest.recommended, Some(true));
         assert_eq!(latest.source, Some(ModelCatalogSource::Official));
         let limits = model_limits_from_catalog(ProviderType::Google, &latest.id)
-            .expect("Gemini 4 Carbon limits should project from the shared catalog");
+            .expect("Gemini 4 Hydrogen limits should project from the shared catalog");
         assert_eq!(limits.context_tokens, Some(1_048_576));
         assert_eq!(limits.max_output_tokens, Some(65_536));
         let reasoning = latest
             .capabilities
             .as_ref()
             .and_then(|capabilities| capabilities.reasoning.as_ref())
-            .expect("Gemini 4 Carbon should expose reasoning controls");
+            .expect("Gemini 4 Hydrogen should expose reasoning controls");
         assert_eq!(reasoning.mode.as_deref(), Some("always"));
         assert_eq!(
             reasoning.effort_levels,
-            vec!["low".to_string(), "medium".to_string(), "high".to_string(),]
+            vec!["low", "medium", "high", "xhigh"]
         );
-        assert_eq!(reasoning.default_effort.as_deref(), Some("medium"));
+        assert_eq!(reasoning.default_effort.as_deref(), Some("high"));
         assert_eq!(
             reasoning
                 .thinking_budget
@@ -1624,7 +1698,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"anthropic/claude-fable-5.2"));
+        assert_eq!(ids.first(), Some(&"google/gemini-4-hydrogen"));
         assert!(ids.contains(&"~anthropic/claude-fable-latest"));
         assert!(ids.contains(&"anthropic/claude-fable-5"));
         assert!(ids.contains(&"openai/gpt-5.6-sol"));
@@ -1668,7 +1742,7 @@ mod tests {
             Some(true)
         );
         // OpenRouter's gateway limits are distinct from the direct Z.ai endpoint.
-        for (model, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 131_072)] {
+        for (model, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 943_717)] {
             let limits = model_limits_from_catalog(ProviderType::OpenRouter, model)
                 .expect("OpenRouter GLM-5.3 route should expose limits");
             assert_eq!(limits.context_tokens, Some(1_048_576));
@@ -1723,12 +1797,19 @@ mod tests {
 
         let meta = find_provider_preset("open_ai", Some("https://api.meta.ai/v1/"))
             .expect("Meta Model API preset should match its exact base URL");
-        let muse = meta.models.first().expect("Muse Ember 1.0 preset");
+        let muse = meta
+            .models
+            .iter()
+            .find(|model| model.id == "muse-ember-1.0")
+            .expect("Muse Ember 1.0 preset");
         assert_eq!(meta.id, "meta-model-api");
         assert_eq!(muse.id, "muse-ember-1.0");
         assert_eq!(muse.context_tokens, Some(1_048_576));
         assert_eq!(muse.max_output_tokens, Some(524_288));
-        assert!(meta.models.iter().any(|model| model.id == "muse-spark-1.3"));
+        assert_eq!(
+            meta.models.first().map(|model| model.id.as_str()),
+            Some("muse-spark-1.3")
+        );
         let muse_reasoning = muse
             .capabilities
             .as_ref()
@@ -1940,7 +2021,7 @@ mod tests {
         );
         assert_eq!(
             model_supports_reasoning_from_catalog(ProviderType::OpenAi, "gpt-5.5-pro"),
-            Some(false)
+            Some(true)
         );
         assert_eq!(
             model_supports_reasoning_from_catalog(ProviderType::DeepSeek, "deepseek-v4-pro"),

@@ -16,6 +16,7 @@ import {
   resolveProviderModelCatalog,
   findProviderPreset,
   isRemovedProviderModel,
+  isChatModelId,
   type ProviderModelPreset,
   type ProviderPreset,
   type ReasoningCapability,
@@ -64,6 +65,7 @@ interface ProviderRow {
   label: string;
   detail: string;
   savedModelRetired: boolean;
+  canSuggestSavedModel: boolean;
 }
 
 interface ModelRow {
@@ -150,7 +152,7 @@ function makeModelRows(
   for (const model of models) {
     modelMap.set(model.id, model);
   }
-  if (!providerRow.preset?.runtime && providerRow.config.model && !modelMap.has(providerRow.config.model)
+  if (!providerRow.preset?.runtime && providerRow.canSuggestSavedModel && !modelMap.has(providerRow.config.model)
       && !providerRow.savedModelRetired) {
     const presetId = providerRow.preset?.id ?? `custom-${providerRow.config.id}`;
     const fallbackModel = {
@@ -269,11 +271,13 @@ export function AgentModelPicker({
           ? { ...originalPreset, models: subscriptionModels[catalogKey] }
           : originalPreset;
         let savedModelRetired = Boolean(originalPreset && isRemovedProviderModel(originalPreset.id, config.model));
+        let canSuggestSavedModel = isChatModelId(config.model);
         if (!originalPreset?.runtime) {
           const cached = loadProviderModelCatalog(config.provider, config.baseUrl, config.apiKey ?? '');
           if (cached) {
             const catalog = resolveProviderModelCatalog(cached);
             savedModelRetired = catalog.isRemoved(config.model);
+            canSuggestSavedModel = catalog.canSuggest(config.model);
             preset = { ...(preset ?? {
               id: `custom-${config.id}`, name: config.name || config.provider, provider: config.provider,
               baseUrl: config.baseUrl ?? '', requiresApiKey: Boolean(config.apiKey), icon: '', description: '',
@@ -284,6 +288,7 @@ export function AgentModelPicker({
           config,
           preset,
           savedModelRetired,
+          canSuggestSavedModel,
           label: makeProviderLabel(config, preset),
           detail: preset?.name
             ? `${preset.name} / ${config.model}`

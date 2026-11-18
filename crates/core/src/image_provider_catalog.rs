@@ -84,11 +84,25 @@ pub fn default_image_model(
     base_url: Option<&str>,
 ) -> Option<String> {
     let preset = find_image_provider_preset(provider, api_style, base_url)?;
-    preset
-        .models
-        .iter()
+    let eligible = preset.models.iter().filter(|model| {
+        let metadata = &model.metadata;
+        metadata
+            .get("status")
+            .is_none_or(|status| status == "active")
+            && metadata
+                .get("access")
+                .is_none_or(|access| access == "public")
+            && metadata
+                .get("availableToCredential")
+                .is_none_or(|available| available != false)
+            && metadata
+                .get("productReadiness")
+                .is_some_and(|readiness| readiness == "product_ready")
+    });
+    eligible
+        .clone()
         .find(|model| model.recommended)
-        .or_else(|| preset.models.first())
+        .or_else(|| eligible.into_iter().next())
         .map(|model| model.id.clone())
 }
 
@@ -122,7 +136,7 @@ mod tests {
             find_image_provider_preset("open_ai", None, Some("https://api.openai.com/v1")).unwrap();
         assert_eq!(
             default_image_model("open_ai", None, Some("https://api.openai.com/v1")).as_deref(),
-            Some("gpt-image-2.5-flare")
+            Some("gpt-image-2.6-flare")
         );
         let sunburst = preset
             .models
@@ -138,6 +152,10 @@ mod tests {
         assert_eq!(
             default_image_model("open_ai", None, Some("https://api.x.ai/v1")).as_deref(),
             Some("grok-imagine-image-2.0")
+        );
+        assert_eq!(
+            default_image_model("google", Some("gemini_generate_content"), None).as_deref(),
+            Some("gemini-nano-banana-2.1")
         );
     }
 
@@ -163,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn qwen_image_2_pro_remains_the_default_during_preview() {
+    fn qwen_image_3_defaults_to_the_public_model_in_both_regions() {
         for base_url in [
             "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
             "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
@@ -171,7 +189,7 @@ mod tests {
             assert_eq!(
                 default_image_model("qwen", Some("dashscope_multimodal"), Some(base_url))
                     .as_deref(),
-                Some("qwen-image-2.0-pro")
+                Some("qwen-image-3.0")
             );
         }
     }

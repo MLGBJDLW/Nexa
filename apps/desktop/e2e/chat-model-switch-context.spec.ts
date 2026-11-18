@@ -521,10 +521,13 @@ test('model search excludes provider metadata in global and provider results', a
   await expect(page.getByTestId('agent-model-option-cfg-glm-gpt-5.5')).toHaveCount(0);
 });
 
-test('saved retired models stay visible only as status and private endpoints retain their own choices', async ({ page }) => {
+test('chat switching excludes retired and dedicated models from cached results and preserves private chat models', async ({ page }) => {
   const privateUrl = 'https://tenant.example/v1';
   const rows = [
-    { provider: 'open_ai', baseUrl: null, models: [{ id: 'old-route', status: 'removed', aliases: ['tiny-context'] }] },
+    { provider: 'open_ai', baseUrl: null, models: [
+      { id: 'old-route', status: 'removed', aliases: ['tiny-context'] },
+      ...['gpt-transcribe', 'gpt-4o-mini-tts', 'gpt-image-2.6-flare', 'text-embedding-3-small', 'private-chat'].map(id => ({ id, name: id, status: 'active', source: 'discovered', modalities: ['text'] })),
+    ] },
     { provider: 'openrouter', baseUrl: privateUrl, models: [] },
   ].map(snapshot => [providerModelCatalogCacheKey(snapshot.provider, snapshot.baseUrl, ''), JSON.stringify({ version: 3,
     snapshot: { ...snapshot, credentialFingerprint: 'anonymous', refreshedAt: '2026-11-16', liveDiscoverySucceeded: true } })]);
@@ -537,7 +540,14 @@ test('saved retired models stay visible only as status and private endpoints ret
   await expect(trigger).toContainText('tiny-context');
   await expect(trigger).toHaveAttribute('title', /has been retired/);
   await trigger.click();
-  await page.getByTestId('agent-model-picker-menu').getByRole('searchbox').fill('tiny-context');
+  const search = page.getByTestId('agent-model-picker-menu').getByRole('searchbox');
+  await search.fill('private-chat');
+  await expect(page.getByTestId('agent-model-option-cfg-tiny-private-chat')).toBeVisible();
+  for (const id of ['gpt-transcribe', 'gpt-4o-mini-tts', 'gpt-image-2.6-flare', 'text-embedding-3-small']) {
+    await search.fill(id);
+    await expect(page.getByTestId(`agent-model-option-cfg-tiny-${id}`)).toHaveCount(0);
+  }
+  await search.fill('tiny-context');
   await expect(page.getByTestId('agent-model-option-cfg-tiny-tiny-context')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await page.getByTestId('agent-provider-picker-trigger').click();

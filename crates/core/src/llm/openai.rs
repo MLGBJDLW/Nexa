@@ -511,6 +511,10 @@ pub(crate) fn requires_non_streaming_fallback(model: &str) -> bool {
     model.to_lowercase().starts_with("gpt-5.5-pro")
 }
 
+pub(crate) fn is_o3_pro(model: &str) -> bool {
+    matches!(model.trim(), "o3-pro" | "o3-pro-2025-06-10")
+}
+
 fn completion_response_to_stream_chunks(
     response: CompletionResponse,
 ) -> Vec<Result<StreamChunk, CoreError>> {
@@ -1647,22 +1651,41 @@ fn is_direct_xai_multi_agent(config: &ProviderConfig, model: &str) -> bool {
     ) && is_xai_multi_agent_model(model)
 }
 
-fn is_direct_gpt6_responses_model(config: &ProviderConfig, model: &str) -> bool {
+pub(super) fn openai_pro_preset(
+    model: &str,
+) -> Option<&'static crate::provider_catalog::ProviderModelPreset> {
+    if !model.contains("-pro") {
+        return None;
+    }
+    crate::provider_catalog::find_provider_preset("open_ai", None)?
+        .models
+        .iter()
+        .find(|preset| {
+            (preset.id == model || preset.aliases.iter().any(|alias| alias == model))
+                && matches!(
+                    preset.id.as_str(),
+                    "gpt-5.5-pro" | "gpt-5.4-pro" | "gpt-5.2-pro" | "gpt-5-pro" | "o3-pro"
+                )
+        })
+}
+
+fn is_direct_openai_responses_model(config: &ProviderConfig, model: &str) -> bool {
     config.provider_type == ProviderType::OpenAi
         && super::provider_boundary::is_openai_public_endpoint(
             config.provider_type,
             config.base_url.as_deref(),
         )
-        && matches!(
-            model.trim(),
-            "gpt-6-astra"
-                | "gpt-6-sol"
-                | "gpt-6-luna"
-                | "gpt-6.1-sol"
-                | "gpt-6.1-terra"
-                | "gpt-6.2-astra"
-                | "gpt-6.2-sol"
-        )
+        && (openai_pro_preset(model).is_some()
+            || matches!(
+                model.trim(),
+                "gpt-6-astra"
+                    | "gpt-6-sol"
+                    | "gpt-6-luna"
+                    | "gpt-6.1-sol"
+                    | "gpt-6.1-terra"
+                    | "gpt-6.2-astra"
+                    | "gpt-6.2-sol"
+            ))
 }
 
 fn is_direct_deepseek_responses_request(
@@ -3096,6 +3119,56 @@ impl OpenAiProvider {
         }
     }
 
+    fn responses_body(
+        &self,
+        request: &CompletionRequest,
+        dialect: super::native_search::NativeSearchDialect,
+        hosted_search: Option<(
+            super::native_search::SearchExecutionMode,
+            crate::model_catalog::NativeWebSearchCapability,
+        )>,
+    ) -> Result<serde_json::Value, CoreError> {
+        let mut body = match hosted_search {
+            Some((mode, capability)) => {
+                build_responses_request(request, dialect, mode, capability)?
+            }
+            None => build_generic_responses_request(request, dialect)?,
+        };
+        if self.config.provider_type == ProviderType::OpenAi
+            && super::provider_boundary::is_openai_public_endpoint(
+                self.config.provider_type,
+                self.config.base_url.as_deref(),
+            )
+        {
+            if let Some(reasoning) = openai_pro_preset(&request.model)
+                .and_then(|preset| preset.capabilities.as_ref()?.reasoning.as_ref())
+            {
+                let object = body.as_object_mut().expect("Responses object");
+                object.remove("temperature");
+                // The API supplies the default when no effort was requested.
+                // Clamp saved settings to the ordered range supported by this model.
+                if let Some(requested) = request.reasoning_effort.as_ref() {
+                    let value = requested.to_string();
+                    let levels = &reasoning.effort_levels;
+                    let effort = levels.iter().find(|level| **level == value).or_else(|| {
+                        if matches!(
+                            requested,
+                            ReasoningEffort::XHigh | ReasoningEffort::Max | ReasoningEffort::Ultra
+                        ) {
+                            levels.last()
+                        } else {
+                            levels.first()
+                        }
+                    });
+                    if let Some(effort) = effort {
+                        object.insert("reasoning".into(), serde_json::json!({ "effort": effort }));
+                    }
+                }
+            }
+        }
+        Ok(body)
+    }
+
     async fn complete_responses(
         &self,
         request: &CompletionRequest,
@@ -3111,12 +3184,7 @@ impl OpenAiProvider {
         let capability = hosted_search
             .map(|(_, capability)| capability)
             .unwrap_or_else(|| generic_responses_capability(dialect));
-        let body = match hosted_search {
-            Some((mode, capability)) => {
-                build_responses_request(request, dialect, mode, capability)?
-            }
-            None => build_generic_responses_request(request, dialect)?,
-        };
+        let body = self.responses_body(request, dialect, hosted_search)?;
         let body_bytes = self.wire_body(&body, request)?;
         let api_key = self.api_key()?;
         info!(
@@ -3203,12 +3271,7 @@ impl OpenAiProvider {
         let capability = hosted_search
             .map(|(_, capability)| capability)
             .unwrap_or_else(|| generic_responses_capability(dialect));
-        let mut body = match hosted_search {
-            Some((mode, capability)) => {
-                build_responses_request(request, dialect, mode, capability)?
-            }
-            None => build_generic_responses_request(request, dialect)?,
-        };
+        let mut body = self.responses_body(request, dialect, hosted_search)?;
         body["stream"] = serde_json::json!(true);
         let body_bytes = self.wire_body(&body, request)?;
         let api_key = self.api_key()?;
@@ -3314,7 +3377,7 @@ impl LlmProvider for OpenAiProvider {
     }
 
     fn reasoning_replay_policy(&self, model: &str) -> ReasoningReplayPolicy {
-        let api_style = if is_direct_gpt6_responses_model(&self.config, model)
+        let api_style = if is_direct_openai_responses_model(&self.config, model)
             || is_direct_xai_multi_agent(&self.config, model)
             || (self.config.provider_type == ProviderType::DeepSeek
                 && super::provider_boundary::is_deepseek_public_endpoint(
@@ -3377,7 +3440,7 @@ impl LlmProvider for OpenAiProvider {
                 ReasoningApiStyle::OpenAiResponses
             }
             None if self.uses_copilot_responses()
-                || is_direct_gpt6_responses_model(&self.config, &request.model) =>
+                || is_direct_openai_responses_model(&self.config, &request.model) =>
             {
                 ReasoningApiStyle::OpenAiResponses
             }
@@ -3478,7 +3541,7 @@ impl LlmProvider for OpenAiProvider {
                 }
             }
         } else if self.uses_copilot_responses()
-            || is_direct_gpt6_responses_model(&self.config, &request.model)
+            || is_direct_openai_responses_model(&self.config, &request.model)
         {
             return self
                 .complete_responses(
@@ -3686,6 +3749,17 @@ impl LlmProvider for OpenAiProvider {
         );
         let request = projected.as_ref();
         let transport = self.transport.for_request()?;
+        if super::endpoint_uses_non_streaming_fallback(
+            self.config.provider_type,
+            self.config.base_url.as_deref(),
+            &request.model,
+        ) && is_direct_openai_responses_model(&self.config, &request.model)
+        {
+            let response = self.complete(request).await?;
+            return Ok(Box::pin(futures::stream::iter(
+                completion_response_to_provider_events(response),
+            )));
+        }
         if is_direct_xai_multi_agent(&self.config, &request.model) {
             let search =
                 hosted_search_context(request).map(|(_, mode, capability)| (mode, capability));
@@ -3753,7 +3827,7 @@ impl LlmProvider for OpenAiProvider {
             )));
         }
         if self.uses_copilot_responses()
-            || is_direct_gpt6_responses_model(&self.config, &request.model)
+            || is_direct_openai_responses_model(&self.config, &request.model)
         {
             return self
                 .stream_responses_events(
@@ -4800,11 +4874,64 @@ mod tests {
                 "https://api.openai.com/proxy",
                 "https://api.x.ai/v1",
             ] {
-                assert!(!is_direct_gpt6_responses_model(
+                assert!(!is_direct_openai_responses_model(
                     &endpoint_config(ProviderType::OpenAi, endpoint),
                     model
                 ));
             }
+        }
+    }
+
+    #[test]
+    fn native_pro_uses_responses_with_the_models_supported_efforts() {
+        let provider =
+            OpenAiProvider::new(endpoint_config(ProviderType::OpenAi, DEFAULT_BASE_URL)).unwrap();
+        let private = OpenAiProvider::new(endpoint_config(
+            ProviderType::OpenAi,
+            "https://private.example/v1",
+        ))
+        .unwrap();
+        let dialect = super::super::native_search::NativeSearchDialect::OpenAiResponses;
+        for (model, maximum, completion_only) in [
+            ("gpt-5.5-pro", "xhigh", true),
+            ("gpt-5.4-pro", "xhigh", false),
+            ("gpt-5.2-pro-2025-12-11", "xhigh", false),
+            ("gpt-5-pro", "high", false),
+            ("o3-pro-2025-06-10", "high", true),
+        ] {
+            let mut request = endpoint_reasoning_request(model);
+            request.temperature = Some(0.7);
+            request.reasoning_enabled = Some(false);
+            request.reasoning_effort = None;
+            let route = provider.route_snapshot(&request);
+            assert_eq!(route.api_style, ReasoningApiStyle::OpenAiResponses);
+            assert_eq!(route.replay_policy, ReasoningReplayPolicy::OpaqueSignature);
+            assert_eq!(
+                private.route_snapshot(&request).api_style,
+                ReasoningApiStyle::OpenAiChatCompletions
+            );
+            assert_eq!(
+                super::super::endpoint_uses_non_streaming_fallback(
+                    ProviderType::OpenAi,
+                    Some(DEFAULT_BASE_URL),
+                    model
+                ),
+                completion_only
+            );
+            let body = provider.responses_body(&request, dialect, None).unwrap();
+            assert!(body.get("temperature").is_none());
+            assert!(body.get("reasoning").is_none());
+            request.reasoning_enabled = Some(true);
+            request.reasoning_effort = Some(ReasoningEffort::Max);
+            let body = provider.responses_body(&request, dialect, None).unwrap();
+            assert_eq!(body["reasoning"]["effort"], maximum);
+        }
+        for other in [
+            "openai/gpt-5.4-pro",
+            "gpt-5.4-pro:custom",
+            "gpt-6.2-sol-pro",
+        ] {
+            assert!(!is_direct_openai_responses_model(&provider.config, other));
         }
     }
 
@@ -4817,7 +4944,7 @@ mod tests {
             "openai/gpt-6.2-astra",
             "openai/gpt-6.2-sol",
         ] {
-            assert!(!is_direct_gpt6_responses_model(&config, model));
+            assert!(!is_direct_openai_responses_model(&config, model));
         }
         for model in ["gpt-6.2-astra", "gpt-6.2-sol"] {
             for effort in [ReasoningEffort::None, ReasoningEffort::Minimal] {
@@ -8368,10 +8495,10 @@ data: [DONE]
         };
 
         let body = serde_json::to_value(build_request_body(&request, false)).unwrap();
-        assert!(body.get("reasoning_effort").is_none());
-        assert_eq!(body["max_tokens"], 100);
-        assert!(body.get("max_completion_tokens").is_none());
-        assert!(body.get("temperature").is_some());
+        assert_eq!(body["reasoning_effort"], "high");
+        assert_eq!(body["max_completion_tokens"], 100);
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("temperature").is_none());
 
         let request = CompletionRequest {
             model: "gpt-5-future".to_string(),

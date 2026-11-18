@@ -52,7 +52,7 @@
       },
       "quality": {
         "type": "string",
-        "description": "GPT Image supports auto, low, medium or high; gpt-image-2.5-flare and gpt-image-2.5-sunburst also support xhigh and max. grok-imagine-image-2.0 supports auto, low or medium. Omit for older Grok image models."
+        "description": "GPT Image supports auto, low, medium or high; GPT Image 2.5 and 2.6 Flare and Sunburst also support xhigh and max. grok-imagine-image-2.0 supports auto, low or medium. Omit for older Grok image models."
       },
       "aspect_ratio": {
         "type": "string",

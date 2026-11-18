@@ -8142,7 +8142,7 @@ mod tests {
                 provider: "qwen".into(),
                 api_key: "sk-test".into(),
                 base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1".into()),
-                model: "qwen3-max".into(),
+                model: "qwen3.8-max-2026-09-02".into(),
                 provider_endpoint_id: None,
                 model_id: None,
                 temperature: None,
@@ -8168,19 +8168,19 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(config.model, "qwen3-max-2026-01-23");
-        assert_eq!(config.model_id.as_deref(), Some("qwen3-max-2026-01-23"));
+        assert_eq!(config.model, "qwen3.8-max-0902");
+        assert_eq!(config.model_id.as_deref(), Some("qwen3.8-max-0902"));
 
         db.conn()
             .execute(
-                "UPDATE agent_configs SET model = 'qwen3-max', model_id = 'qwen3-max', provider_endpoint_id = NULL WHERE id = ?1",
+                "UPDATE agent_configs SET model = 'qwen3.8-max-2026-09-02', model_id = 'qwen3.8-max-2026-09-02', provider_endpoint_id = NULL WHERE id = ?1",
                 rusqlite::params![&config.id],
             )
             .unwrap();
 
         let hydrated = db.get_agent_config(&config.id).unwrap();
-        assert_eq!(hydrated.model, "qwen3-max-2026-01-23");
-        assert_eq!(hydrated.model_id.as_deref(), Some("qwen3-max-2026-01-23"));
+        assert_eq!(hydrated.model, "qwen3.8-max-0902");
+        assert_eq!(hydrated.model_id.as_deref(), Some("qwen3.8-max-0902"));
         assert_eq!(
             hydrated.provider_endpoint_id.as_deref(),
             Some("text:alibaba-model-studio")

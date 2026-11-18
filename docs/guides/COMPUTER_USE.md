@@ -214,12 +214,14 @@ worker retains ownership while releasing buttons and finishing cleanup. Status
 phases come from the executing worker: moving, sending input and observing the
 result; a heartbeat cannot overwrite that phase.
 
-On a foreground Windows WebView2 tab, ordinary pointer movement, clicks and
-drags use the same system cursor as window control. The host checks the visible
-tab, its bounds and the control under the cursor before pressing. Modifier
-gestures, pinched viewports and tabs in an unfocused visible window use the
-tab's input route. Scrolling retains the requested CSS pixel deltas. The result
-identifies the route in `pointerDelivery`.
+On a foreground Windows WebView2 tab, pointer movement, clicks, drags and
+scrolling use the system cursor. Control/Shift clicks and Control + vertical
+wheel (page zoom) use Windows input. Wheel travel follows the user's scroll
+settings. The host checks focus, tab bounds and the target before dispatch.
+Switching windows pauses foreground input. When the user explicitly asks to
+work in the background, set `delivery: "background"` on that action to use the
+visible selected tab without moving the cursor. Read `pointerDelivery` for the
+actual route and observe again after a focus change.
 
 The browser validates each action against its current observation. Captures
 temporarily hide Nexa's click feedback. Native window capture obtains the

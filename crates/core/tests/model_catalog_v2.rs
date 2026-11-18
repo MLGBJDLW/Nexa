@@ -344,21 +344,21 @@ fn builtin_presets_project_every_surface_into_catalog_v2() {
     assert_eq!(qwen_image.access, ModelAccess::Application);
     assert!(!qwen_image.is_implicit_default_eligible());
 
-    let suspicious_embedding = catalog
+    let previous_embedding = catalog
         .models
         .iter()
-        .find(|model| model.id == "qwen3.7-text-embedding")
-        .expect("legacy saved embedding id remains resolvable");
+        .find(|model| model.id == "text-embedding-v4")
+        .expect("existing embedding selections remain resolvable");
     assert_eq!(
-        suspicious_embedding.product_readiness,
+        previous_embedding.product_readiness,
         ProductReadiness::Known
     );
-    assert!(!suspicious_embedding.recommended);
+    assert!(!previous_embedding.recommended);
 
     let recommended_embedding = catalog
         .models
         .iter()
-        .find(|model| model.id == "text-embedding-v4")
+        .find(|model| model.id == "qwen3.7-text-embedding")
         .expect("official embedding should be projected");
     assert!(recommended_embedding.recommended);
     assert_eq!(
@@ -463,7 +463,7 @@ fn shared_schema_tracks_rust_wire_names_and_qwen_replacements() {
                     .any(|endpoint| endpoint == "text:alibaba-model-studio")
         })
         .expect("the saved Qwen3 Max identity should remain in the catalog");
-    assert_eq!(retired.lifecycle, ModelLifecycle::Deprecated);
+    assert_eq!(retired.lifecycle, ModelLifecycle::Removed);
     assert_eq!(retired.replacement_model_id.as_deref(), Some("qwen3.7-max"));
     assert!(retired.aliases.iter().any(|alias| alias == "qwen3-max"));
 }
@@ -528,7 +528,7 @@ fn builtin_catalog_tracks_exact_glm53_provider_routes_and_verified_hosted_routes
     );
     assert!(international_flash.capabilities.vision);
 
-    for (id, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 131_072)] {
+    for (id, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 943_717)] {
         let model = find(id, "text:openrouter");
         assert_eq!(model.limits.context_tokens, Some(1_048_576));
         assert_eq!(model.limits.max_output_tokens, Some(max_output));

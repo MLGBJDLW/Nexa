@@ -234,6 +234,10 @@ struct FallbackStreamState<'a> {
 
 #[async_trait]
 impl LlmProvider for AutomaticFallbackProvider {
+    fn default_model(&self) -> Result<&str, CoreError> {
+        Ok(&self.routes[self.active_position()].model)
+    }
+
     fn manages_request_timeout(&self) -> bool {
         // Each endpoint owns its own attempt deadline. A shared outer timer
         // would also charge previous routes against a later route's budget.

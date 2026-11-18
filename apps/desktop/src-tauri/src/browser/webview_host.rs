@@ -255,6 +255,10 @@ impl TrustedInputEventBudget {
 
 #[derive(Debug, Clone)]
 pub enum TrustedInputMatch {
+    SystemPointer {
+        gesture: Box<Self>,
+        modifiers: u8,
+    },
     Pointer {
         x: f64,
         y: f64,
@@ -287,8 +291,27 @@ pub enum TrustedInputMatch {
 }
 
 impl TrustedInputMatch {
+    #[cfg(windows)]
+    pub(super) fn with_system_modifiers(self, modifiers: &[String]) -> Result<Self, String> {
+        let mask = trusted_input_modifiers(modifiers)?;
+        if mask & !10 != 0 || (mask != 0 && matches!(self, Self::Drag { .. })) {
+            return Err(
+                "System pointer modifiers support Control and Shift for clicks and scrolling."
+                    .into(),
+            );
+        }
+        Ok(Self::SystemPointer {
+            gesture: Box::new(self),
+            modifiers: mask,
+        })
+    }
     fn as_json(&self) -> serde_json::Value {
         match self {
+            Self::SystemPointer { gesture, modifiers } => {
+                let mut expected = gesture.as_json();
+                expected["systemModifiers"] = serde_json::json!(modifiers);
+                expected
+            }
             Self::Pointer { x, y, button } => serde_json::json!({
                 "kind": "pointer",
                 "x": x,
@@ -470,7 +493,7 @@ impl BrowserTrustedInputGuard {
     fn user_input_epoch(&self) -> Result<Option<u32>, String> {
         #[cfg(windows)]
         if let Some(focus) = self.pointer_focus {
-            if focus.check(&self.webview)?.is_some() {
+            if focus.check()?.is_some() {
                 return Ok(None);
             }
         }
@@ -630,6 +653,41 @@ impl ArmedTrustedInputGuard {
             .await
             .map_err(|_| {
                 "WebView2 did not confirm delivery of the physical pointer release.".to_owned()
+            })?
+    }
+
+    #[cfg(windows)]
+    pub(super) async fn await_system_wheel(
+        &self,
+        viewport: &serde_json::Value,
+        modifiers: &[String],
+    ) -> Result<(), String> {
+        let zoom = modifiers.iter().any(|key| key == "Control");
+        let wait = async {
+            loop {
+                if self.physical_input_changed()? {
+                    return Err("The user took over the browser wheel gesture.".into());
+                }
+                let measured = self.system_pointer_progress(false).await?;
+                if measured["progress"]["blocked"] == true {
+                    return Err("The wheel target changed during delivery.".into());
+                }
+                // WebView2 may consume Ctrl+wheel for page zoom before DOM dispatch.
+                if measured["progress"]["wheelReceived"] == true
+                    || (zoom
+                        && measured["viewport"]["deviceScaleFactor"].as_f64().is_some()
+                        && measured["viewport"]["deviceScaleFactor"]
+                            != viewport["deviceScaleFactor"])
+                {
+                    return Ok(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(12)).await;
+            }
+        };
+        tokio::time::timeout(TRUSTED_INPUT_TIMEOUT, wait)
+            .await
+            .map_err(|_| {
+                "The system wheel was sent but the tab did not confirm delivery.".to_string()
             })?
     }
 
@@ -973,6 +1031,7 @@ pub async fn create_child_webview(
         label,
         WebviewUrl::External(Url::parse("about:blank").expect("static URL")),
     )
+    .zoom_hotkeys_enabled(cfg!(windows))
     .data_directory(profile_dir)
     .data_store_identifier(profile_data_store_identifier(profile_id))
     .disable_drag_drop_handler()

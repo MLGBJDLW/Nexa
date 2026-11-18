@@ -50,7 +50,9 @@ for (const [provider, id, offMode] of [
     assert.equal(reasoning?.mode, provider === 'anthropic' ? 'optional' : 'always');
     const hydrated = catalogModelsForSnapshot({ provider, baseUrl: preset.baseUrl,
       refreshedAt: '2026-09-29', liveDiscoverySucceeded: false, models: [], descriptors: [model.descriptor] });
-    assert.equal(hydrated[0].descriptor.capabilities.reasoning?.disabledMode, offMode);
+    const hydratedModel = hydrated.find(candidate => candidate.id === id);
+    assert.ok(hydratedModel);
+    assert.equal(hydratedModel.descriptor.capabilities.reasoning?.disabledMode, offMode);
     assert.equal(getReasoningCapability({ provider, baseUrl: 'https://private.example/v1', model: id }), null);
   });
 }

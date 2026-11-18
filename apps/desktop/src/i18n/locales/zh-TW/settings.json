@@ -1,4 +1,5 @@
 {
+  "cursorPlanUsageHint": "使用 The X Subscription 時，可選擇方案內的 Grok 或 Composer 模型。在 grok.com/dashboard 核對 CLI 登入帳號與本週額度。支援第三方模型的方案會從預付餘額扣款。",
   "cursorApiKey": "Cursor API Key（選填）",
   "cursorApiKeyHelp": "輸入帳戶控制台產生的 Cursor API Key，或留空使用 Cursor CLI 登入。檢查連線後載入目前帳戶可用模型。Grok API Key 請設定至 xAI 供應商，兩種金鑰不能混用。",
   "storageChats": "聊天與任務紀錄",

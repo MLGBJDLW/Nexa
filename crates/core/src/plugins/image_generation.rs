@@ -71,6 +71,7 @@ impl ResolvedImageConfig {
         }
         if base_url.contains("dashscope.aliyuncs.com/compatible-mode")
             || base_url.contains("dashscope-intl.aliyuncs.com/compatible-mode")
+            || crate::provider_catalog::alibaba_workspace_preset_id(base_url).is_some()
         {
             let host = base_url
                 .split("/compatible-mode")
@@ -127,7 +128,10 @@ pub(crate) fn resolve_runtime(
                 config.base_url.as_deref(),
             )
         })
-        .unwrap_or_else(|| default_model(provider).to_string());
+        .or_else(|| (config.provider != "custom").then(|| default_model(provider).to_string()))
+        .ok_or_else(|| {
+            CoreError::InvalidInput("Set the image model ID for this custom endpoint.".into())
+        })?;
     let output_format =
         normalize_output_format(request.output_format.or(config.output_format.as_deref()));
     let openrouter = config.api_style.as_deref() == Some("openrouter_images");
@@ -486,10 +490,10 @@ fn is_image_generation_model(model: &str) -> bool {
 
 fn default_model(provider: ImageProvider) -> &'static str {
     match provider {
-        ImageProvider::OpenAi => "gpt-image-2.5-flare",
+        ImageProvider::OpenAi => "gpt-image-2.6-flare",
         ImageProvider::Xai => "grok-imagine-image-2.0",
-        ImageProvider::Google => "gemini-3.1-flash-image",
-        ImageProvider::Qwen => "qwen-image-2.0-pro",
+        ImageProvider::Google => "gemini-nano-banana-2.1",
+        ImageProvider::Qwen => "qwen-image-3.0",
     }
 }
 
@@ -1186,7 +1190,7 @@ mod tests {
 
         assert_eq!(runtime.provider, ImageProvider::Qwen);
         assert_eq!(runtime.config.api_key, "qwen-key");
-        assert_eq!(runtime.model, "qwen-image-2.0-pro");
+        assert_eq!(runtime.model, "qwen-image-3.0");
         assert_eq!(
             runtime.config.qwen_endpoint(),
             "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
@@ -1195,7 +1199,7 @@ mod tests {
 
     #[test]
     fn qwen_endpoint_rewrites_compatible_mode_base_url() {
-        let config = ResolvedImageConfig {
+        let mut config = ResolvedImageConfig {
             provider: "qwen".to_string(),
             api_style: Some("dashscope_multimodal".to_string()),
             api_key: "key".to_string(),
@@ -1210,6 +1214,9 @@ mod tests {
             config.qwen_endpoint(),
             "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
         );
+        config.base_url =
+            Some("https://workspace.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1".into());
+        assert_eq!(config.qwen_endpoint(), "https://workspace.ap-southeast-1.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation");
     }
 }
 

@@ -57,6 +57,31 @@ async fn cursor_catalog_exposes_other_models_efforts_without_switching() {
     );
 }
 
+#[test]
+fn model_update_prioritizes_the_current_model_in_the_native_catalog() {
+    let mut session = Session::parse(
+        &json!({
+            "sessionId": "fixture",
+            "models": { "currentModelId": "old", "availableModels": [
+                {"modelId":"old"}, {"modelId":"other"}, {"modelId":"new"}
+            ]}
+        }),
+        false,
+    )
+    .unwrap();
+    session
+        .update(&json!({"sessionUpdate":"current_model_update","currentModelId":"new"}))
+        .unwrap();
+    assert_eq!(
+        session
+            .models
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        ["new", "old", "other"]
+    );
+}
+
 #[tokio::test]
 async fn native_setup_remains_available_after_a_non_authentication_session_error() {
     let mut wire = wire("setup_error");
@@ -1232,6 +1257,31 @@ async fn external_protocol_supports_config_only_and_legacy_catalogs_without_dupl
         }
         assert!(reported);
         assert_eq!(done, 1);
+    }
+}
+
+#[tokio::test]
+async fn cursor_payment_hint_preserves_the_native_reply_and_is_provider_scoped() {
+    for provider in ["acp_cursor", "opencode"] {
+        let (request, mut events, _, _) = super::super::tests::fixture(
+            super::super::AgentRuntimeKind::Acp(provider.into()),
+            "first",
+        );
+        let answer = run_connected(provider, request, wire("cursor_payment"), "fixture")
+            .await
+            .unwrap();
+        assert_eq!(
+            answer.text_content().trim(),
+            "Add a payment method to continue"
+        );
+        let mut hints = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(event, AgentEvent::ControllerStatus {code, ..} if code == "external_agent_cursor_payment")
+            {
+                hints += 1;
+            }
+        }
+        assert_eq!(hints, usize::from(provider == "acp_cursor"));
     }
 }
 

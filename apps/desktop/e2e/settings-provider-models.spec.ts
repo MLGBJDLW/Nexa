@@ -206,7 +206,7 @@ test('expanded settings keep compact spacing and controls inside narrow content'
   }
 });
 
-test('image settings select GPT Image 2.5 and Grok Image 2 with model-specific options', async ({ page }, testInfo) => {
+test('image settings select GPT Image and Grok Image 2 with model-specific options', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.goto('/settings');
   await page.getByRole('tab', { name: 'AI Providers' }).click();
@@ -215,7 +215,7 @@ test('image settings select GPT Image 2.5 and Grok Image 2 with model-specific o
   const selects = panel.locator('[data-nexa-select-trigger]:not(#image-generation-source)');
   await selectControl(selects.nth(0), 'openai');
   await panel.locator('input[type="password"]').fill('openai-image-test-key');
-  await expectNexaValue(selects.nth(1), 'gpt-image-2.5-flare');
+  await expectNexaValue(selects.nth(1), 'gpt-image-2.6-flare');
   const quality = panel.getByRole('combobox', { name: 'Quality', exact: true });
   await selectControl(quality, 'max');
   await selects.nth(1).click();
@@ -260,6 +260,7 @@ test('structured decisions save opt-in settings and clear credentials across pro
   await panel.getByRole('checkbox').check();
   const save = panel.getByRole('button', { name: 'Save', exact: true });
   await expect(save).toBeDisabled();
+  await panel.getByRole('combobox', { name: 'Model', exact: true }).fill('jev-latest');
   await panel.locator('input[type="password"]').fill('typesafe-fixture-key');
   await save.click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'typesafe', model: 'jev-latest', apiKey: 'typesafe-fixture-key' });
@@ -268,7 +269,7 @@ test('structured decisions save opt-in settings and clear credentials across pro
   await expect(save).toBeDisabled();
   await panel.locator('input[type="password"]').fill('router-fixture-key');
   await save.click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'openrouter', model: 'perplexity/pplx-decider-flash-v1.2', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'router-fixture-key' });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { systemOne: unknown } }).__savedAppConfig?.systemOne)).toMatchObject({ enabled: true, provider: 'openrouter', model: '~perplexity/pplx-decider-flash-latest', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'router-fixture-key' });
   await page.setViewportSize({ width: 680, height: 820 });
   await expect.poll(() => panel.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
   await panel.screenshot({ path: testInfo.outputPath('system-one-settings.png') });
@@ -1535,7 +1536,7 @@ test("legacy provider output caps are retired without manual cleanup", async ({ 
   }));
 });
 
-test("catalog model picker stays compact and searchable in a narrow settings column", async ({ page }) => {
+test("native OpenAI exposes both GPT-6.2 models first and saves the selected model in a narrow settings column", async ({ page }) => {
   await page.goto("/settings");
   await page.getByRole("tab", { name: "AI Providers" }).click();
   await page.getByRole("button", { name: "Add Provider" }).click();
@@ -1544,6 +1545,7 @@ test("catalog model picker stays compact and searchable in a narrow settings col
   await page.setViewportSize({ width: 320, height: 760 });
   const picker = page.getByTestId("default-model-picker");
   await expect(picker).toBeVisible();
+  await expectNexaValue(picker, "gpt-6.2-sol");
   expect(await picker.evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
@@ -1552,14 +1554,23 @@ test("catalog model picker stays compact and searchable in a narrow settings col
   expect(await picker.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 
   await picker.click();
+  const options = page.getByRole("option");
+  await expect(options.nth(0)).toHaveAttribute("data-value", "gpt-6.2-sol");
+  await expect(options.nth(1)).toHaveAttribute("data-value", "gpt-6.2-astra");
   const search = page.getByPlaceholder("Search models by name, provider, or ID");
-  await search.fill("gpt-5.6-sol");
-  const option = page.locator('[role="option"][data-value="gpt-5.6-sol"]');
+  await search.fill("gpt-6.2-astra");
+  const option = page.locator('[role="option"][data-value="gpt-6.2-astra"]');
   await expect(option).toBeVisible();
-  await expect(option).toContainText("gpt-5.6-sol");
-  await expect(option).toContainText("text→text");
-  await search.fill("GPT56sol");
-  await expect(option).toBeVisible();
+  await expect(option).toContainText("gpt-6.2-astra");
+  await expect(option).toContainText("text+image→text");
+  await search.fill("GPT62astra");
+  await option.click();
+  const form = picker.locator("xpath=ancestor::form");
+  await form.locator('input[placeholder="sk-..."]').fill("native-openai-fixture");
+  await form.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAgentConfig?: unknown }).__savedAgentConfig)).toMatchObject({
+    provider: "open_ai", baseUrl: "https://api.openai.com/v1", model: "gpt-6.2-astra",
+  });
 });
 
 test("provider refresh keeps account-discovered models selectable and cached", async ({ page }) => {
@@ -1972,7 +1983,7 @@ test("settings exposes the complete current Qwen3.8 family through QwenCloud int
   await page.getByRole("button", { name: "Add Provider" }).click();
 
   const qwenCloudCard = page.getByRole("button", { name: /^QwenCloud \(International\)/ });
-  await expect(qwenCloudCard).toContainText("pay-as-you-go international endpoint");
+  await expect(qwenCloudCard).toContainText("Singapore pay-as-you-go");
   await qwenCloudCard.click();
 
   const baseUrlField = page
@@ -1986,7 +1997,7 @@ test("settings exposes the complete current Qwen3.8 family through QwenCloud int
   const modelField = page
     .getByTestId("default-model-field");
   const modelSelect = modelField.locator("[data-nexa-select-trigger]:not(#image-generation-source)");
-  await expectNexaValue(modelSelect, "qwen3.8-max");
+  await expectNexaValue(modelSelect, "qwen4-max");
   await expectNexaOptions(modelSelect, [
     "Qwen3.8 Max",
     "Qwen3.8 Flash",
@@ -2207,7 +2218,7 @@ test("speech preset defaults and model changes retain valid voice choices", asyn
   await selectControl(selects.nth(1), 'canopylabs/orpheus-arabic-saudi');
   await expect(tts.getByTestId('tts-voice-input')).toHaveValue('abdullah');
   await selectControl(selects.nth(0), 'dashscope-cosyvoice');
-  await expectNexaValue(selects.nth(1), 'qwen-audio-3.0-tts-flash');
+  await expectNexaValue(selects.nth(1), 'qwen-audio-3.1-tts-flash');
   await selectControl(selects.nth(1), 'qwen-audio-3.0-tts-plus');
   await expect(tts.getByTestId('tts-voice-input')).toHaveValue('longanlingxin');
   await expect(tts.getByTestId('tts-voice-catalog')).not.toContainText('longanhuan_v3.6');
@@ -3521,5 +3532,6 @@ test('Cursor API key is forwarded to Cursor discovery without becoming an xAI ke
   await environment.fill('{"LOG_LEVEL":"error"}');
   await form.getByRole('button', { name: /check connection/i }).click();
   await expect.poll(() => page.evaluate(() => (window as any).cursorProbe?.launch.env.CURSOR_API_KEY)).toBe('cursor-fixture-key');
+  await expect(form.getByText(/select an included Grok or Composer model/i)).toBeVisible();
   expect(await page.evaluate(() => (window as any).cursorProbe?.launch.env.XAI_API_KEY)).toBeUndefined();
 });

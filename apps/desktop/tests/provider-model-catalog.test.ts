@@ -1,4 +1,5 @@
-import { catalogModelsForSnapshot } from '../src/lib/providerPresets';
+import { catalogModelsForSnapshot, PROVIDER_PRESETS } from '../src/lib/providerPresets';
+import { selectImplicitDefault } from '../src/lib/modelCatalog';
 import {
   bindProviderModelCatalogCredential,
   catalogMatchesProvider,
@@ -132,6 +133,29 @@ function testPreviousReleaseCatalog(): void {
   assertEqual(catalogModelsForSnapshot(previous).length, 1, 'never borrow official models for a custom endpoint');
   previous.models.push({ ...previous.models[0], id: 'retired', aliases: ['account-model'], status: 'removed' });
   assertEqual(catalogModelsForSnapshot(previous).length, 0, 'legacy custom-endpoint tombstones exclude retired aliases');
+
+  previous.provider = 'open_ai';
+  previous.baseUrl = 'https://api.openai.com/v1';
+  previous.models = [{ ...snapshot().models[0], id: 'gpt-5.6', recommended: true }];
+  const nativeModels = catalogModelsForSnapshot(previous);
+  assertDeepEqual(nativeModels.slice(0, 2).map(model => model.id), ['gpt-6.2-sol', 'gpt-6.2-astra'],
+    'an existing account receives the current release ordering');
+  assertEqual(nativeModels.find(model => model.id === 'gpt-5.6')?.recommended, false,
+    'a previous release recommendation must not shadow the bundled recommendation');
 }
 
 testPreviousReleaseCatalog();
+
+for (const preset of PROVIDER_PRESETS.filter(preset => !preset.runtime)) {
+  const first = preset.models[0];
+  const selected = selectImplicitDefault(preset.models);
+  if (!first || !preset.requiresApiKey || first.descriptor.access !== 'public') {
+    assertEqual(selected, null, `${preset.id} requires explicit installation or account access`);
+    continue;
+  }
+  assert(first.recommended, `${preset.id} should show its recommendation first`);
+  assertEqual(selected?.id, first.id, `${preset.id} should preselect its public recommendation`);
+  const denied = { ...first, descriptor: { ...first.descriptor, availableToCredential: false } };
+  assert(selectImplicitDefault([denied, ...preset.models.slice(1)])?.id !== first.id,
+    `${preset.id} must honor a negative account discovery`);
+}

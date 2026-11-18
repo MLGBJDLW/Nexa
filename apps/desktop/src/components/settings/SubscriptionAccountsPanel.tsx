@@ -555,8 +555,8 @@ export function SubscriptionAccountsPanel({ runtime }: { runtime: 'copilot' | 'c
               <p className="text-xs font-medium text-text-secondary">
                 {t('settings.copilotAvailableModels', { count: copilotSnapshot.models.length })}
               </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {copilotSnapshot.models.slice(0, 8).map((model) => (
+              <div className="mt-2 flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
+                {copilotSnapshot.models.map((model) => (
                   <Badge key={model.id} variant="muted" title={model.id}>{model.name}</Badge>
                 ))}
               </div>

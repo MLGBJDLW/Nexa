@@ -257,7 +257,7 @@ impl Tool for GenerateImageTool {
             let openrouter = runtime.config.api_style.as_deref() == Some("openrouter_images");
             let native_mask = runtime.provider == ImageProvider::OpenAi
                 && !openrouter
-                && runtime.model.starts_with("gpt-image-");
+                && is_gpt_image(&runtime.model);
             if !openrouter
                 && !native_mask
                 && runtime.provider != ImageProvider::Google
@@ -427,6 +427,10 @@ fn selected_image_quality<'a>(
         .is_none_or(|configured| configured.trim() == model.trim())
         .then_some(config.quality.as_deref())
         .flatten();
+    // Older GLM Image presets saved standard, which the official model rejects.
+    let configured = configured.filter(|quality| {
+        !(config.provider == "zhipu" && model == "glm-image" && *quality == "standard")
+    });
     selected_optional(args.quality.as_deref(), configured)
 }
 
@@ -766,6 +770,10 @@ fn is_meta_image_endpoint(config: &ResolvedImageConfig) -> bool {
         })
 }
 
+fn is_gpt_image(model: &str) -> bool {
+    model.starts_with("gpt-image-") || model == "chatgpt-image-latest"
+}
+
 fn supports_gpt_image_extended_quality(model: &str) -> bool {
     matches!(
         model,
@@ -805,6 +813,15 @@ fn validate_image_options(
             ));
         }
         return Ok(());
+    }
+    if config.provider == "zhipu"
+        && model == "glm-image"
+        && args
+            .quality
+            .as_deref()
+            .is_some_and(|quality| quality != "hd")
+    {
+        return Err(invalid("GLM Image accepts hd quality only."));
     }
     let wan27 = is_wan27_image(model);
     let qwen21 = matches!(model, "qwen-image-2.1-pro" | "qwen-image-2.1-turbo");
@@ -872,7 +889,7 @@ fn validate_image_options(
         }
         return Ok(());
     }
-    if !model.starts_with("gpt-image-") {
+    if !is_gpt_image(model) {
         return Ok(());
     }
     if let Some(quality) = selected_image_quality(config, args, model) {
@@ -897,17 +914,25 @@ fn validate_image_options(
         return Err(invalid("Transparent backgrounds require png or webp."));
     }
     let size = selected_image_size(config, args, model);
-    if matches!(model, "gpt-image-1.5" | "gpt-image-1" | "gpt-image-1-mini")
-        && !matches!(
-            size.as_str(),
-            "auto" | "1024x1024" | "1024x1536" | "1536x1024"
-        )
-    {
+    if matches!(
+        model,
+        "gpt-image-1.5"
+            | "gpt-image-1.5-2025-12-16"
+            | "chatgpt-image-latest"
+            | "gpt-image-1"
+            | "gpt-image-1-mini"
+    ) && !matches!(
+        size.as_str(),
+        "auto" | "1024x1024" | "1024x1536" | "1536x1024"
+    ) {
         return Err(invalid(
             "This GPT Image model supports only auto, 1024x1024, 1024x1536 or 1536x1024.",
         ));
     }
-    if (supports_gpt_image_extended_quality(model) || model == "gpt-image-2") && size != "auto" {
+    if (supports_gpt_image_extended_quality(model)
+        || matches!(model, "gpt-image-2" | "gpt-image-2-2026-04-21"))
+        && size != "auto"
+    {
         let valid = size
             .split_once('x')
             .and_then(|(width, height)| {
@@ -1700,6 +1725,8 @@ mod tests {
         for model in [
             "gpt-image-2.5-flare",
             "gpt-image-2.5-sunburst",
+            "gpt-image-2.5-flare-2026-09-08",
+            "gpt-image-2.5-sunburst-2026-09-08",
             "gpt-image-2.6-flare",
             "gpt-image-2.6-sunburst",
         ] {
@@ -1802,7 +1829,13 @@ mod tests {
             build_openai_images_body(&config, &args, "gpt-image-2.5-flare", "png")["size"],
             "3840x2160"
         );
-        for model in ["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"] {
+        for model in [
+            "gpt-image-1.5",
+            "gpt-image-1.5-2025-12-16",
+            "chatgpt-image-latest",
+            "gpt-image-1",
+            "gpt-image-1-mini",
+        ] {
             assert_eq!(
                 build_openai_images_body(&config, &args, model, "png")["size"],
                 "1024x1024"
@@ -2233,7 +2266,9 @@ mod tests {
     fn openai_body_uses_output_format_only_when_supported() {
         let args = test_args();
         let openai = test_config("open_ai", Some("https://api.openai.com/v1"));
-        let zhipu = test_config("zhipu", Some("https://open.bigmodel.cn/api/paas/v4"));
+        let mut zhipu = test_config("zhipu", Some("https://open.bigmodel.cn/api/paas/v4"));
+        zhipu.model = Some("glm-image".into());
+        zhipu.quality = Some("standard".into());
 
         let gpt_body = build_openai_images_body(&openai, &args, "gpt-image-2", "webp");
         assert_eq!(gpt_body["output_format"], "webp");
@@ -2246,6 +2281,17 @@ mod tests {
         let zhipu_body = build_openai_images_body(&zhipu, &args, "glm-image", "png");
         assert!(zhipu_body.get("output_format").is_none());
         assert!(zhipu_body.get("response_format").is_none());
+        assert!(zhipu_body.get("quality").is_none());
+        let mut explicit = args;
+        explicit.quality = Some("standard".into());
+        assert!(validate_image_options(
+            &zhipu,
+            &explicit,
+            "glm-image",
+            ImageProvider::OpenAi,
+            "png"
+        )
+        .is_err());
     }
 
     #[test]

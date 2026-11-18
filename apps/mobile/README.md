@@ -14,7 +14,8 @@ Each device keeps its own selected model, tools, history and workspace.
 Chat history keeps older pages and expanded replies when it refreshes, while
 applying updated attachment and steering-message metadata. Earlier turns remain
 stable as new output streams, so long conversations avoid repeatedly processing
-the same saved replies. These behaviors are shared with the browser companion.
+the same saved replies. New prose rises into view in small batches and follows
+the device's reduced-motion preference. The browser companion uses the same renderer.
 
 Interactive reply previews stay visible when their activity details are
 collapsed. With an official DeepSeek Flash connection, Auto web search streams

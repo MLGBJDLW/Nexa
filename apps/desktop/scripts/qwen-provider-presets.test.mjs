@@ -27,6 +27,7 @@ test('Qwen September models retain region, alias, vision and effort controls in 
   ]) {
     const route = { provider: 'alibaba_model_studio', baseUrl };
     assert.equal(findProviderPreset(route)?.id, presetId);
+    assert.equal(findProviderPreset(route)?.models.find(model => model.recommended)?.id, 'qwen4-max');
     const max = findProviderModelPreset({ ...route, model: 'qwen3.8-max-2026-09-02' });
     assert.equal(max?.id, 'qwen3.8-max-0902');
     assert.equal(max?.descriptor.limits.contextTokens, 1_000_000);

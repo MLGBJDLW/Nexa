@@ -1,4 +1,5 @@
 {
+  "cursorPlanUsageHint": "Com The X Subscription, selecione um modelo Grok ou Composer incluído. Confira a conta da CLI e o uso semanal em grok.com/dashboard. Nos planos compatíveis, modelos de terceiros consomem crédito pré-pago.",
   "cursorApiKey": "Chave de API do Cursor (opcional)",
   "cursorApiKeyHelp": "Insira uma chave de API do Cursor gerada no painel da sua conta ou deixe o campo em branco para usar o login da CLI do Cursor. Verifique a conexão para carregar os modelos disponíveis. As chaves de API do Grok devem ser configuradas no provedor xAI.",
   "storageChats": "Chats e histórico de tarefas",

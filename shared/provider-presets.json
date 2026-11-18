@@ -16,7 +16,7 @@
     "baseUrl": "https://api.openai.com/v1",
     "requiresApiKey": true,
     "icon": "🤖",
-    "description": "GPT-6.1 Sol and Terra, GPT-6 Astra, Sol, Luna; GPT-5.6 and earlier models",
+    "description": "GPT-6.2 Sol and Astra with Responses API tools, vision and reasoning",
     "nativeWebSearch": {
       "dialect": "openAiResponses",
       "supportsDomains": true,
@@ -32,6 +32,106 @@
     },
     "models": [
       {
+        "id": "gpt-6.2-sol",
+        "name": "GPT-6.2 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagLatest",
+        "releaseDate": "2026-11-17"
+      },
+      {
+        "id": "gpt-6.2-astra",
+        "name": "GPT-6.2 Astra",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T07:38:10Z",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagLatest",
+        "releaseDate": "2026-11-17"
+      },
+      {
         "id": "gpt-5.6",
         "name": "GPT-5.6",
         "nativeWebSearch": {
@@ -44,10 +144,9 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "curated",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "capabilities": {
@@ -128,7 +227,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -178,7 +276,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -216,7 +313,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -266,7 +362,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -399,7 +494,6 @@
       {
         "id": "gpt-5.5",
         "name": "GPT-5.5",
-        "tagKey": "providers.tagLatest",
         "capabilities": {
           "reasoning": {
             "effortLevels": [
@@ -421,8 +515,33 @@
         "name": "GPT-5.5 Pro",
         "tagKey": "providers.tagMostIntelligent",
         "capabilities": {
-          "reasoning": null
-        }
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "aliases": [
+          "gpt-5.5-pro-2026-04-23"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5.5-pro"
       },
       {
         "id": "gpt-5.4",
@@ -450,6 +569,7 @@
         "tagKey": "providers.tagMostIntelligent",
         "capabilities": {
           "reasoning": {
+            "mode": "always",
             "effortLevels": [
               "medium",
               "high",
@@ -460,7 +580,21 @@
               "enabled": false
             }
           }
-        }
+        },
+        "aliases": [
+          "gpt-5.4-pro-2026-03-05"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5.4-pro"
       },
       {
         "id": "gpt-5.4-mini",
@@ -549,6 +683,72 @@
             }
           }
         }
+      },
+      {
+        "id": "gpt-5.2-pro",
+        "name": "GPT-5.2 Pro",
+        "tagKey": "providers.tagReasoning",
+        "aliases": [
+          "gpt-5.2-pro-2025-12-11"
+        ],
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+        "capabilities": {
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gpt-5-pro",
+        "name": "GPT-5 Pro",
+        "tagKey": "providers.tagReasoning",
+        "aliases": [
+          "gpt-5-pro-2025-10-06"
+        ],
+        "contextTokens": 400000,
+        "maxOutputTokens": 272000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+        "capabilities": {
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "status": "deprecated",
+        "deprecationDate": "2026-12-11",
+        "replacementModelId": "gpt-6.1-sol"
       },
       {
         "id": "gpt-5-mini",
@@ -653,6 +853,7 @@
         "tagKey": "providers.tagReasoning",
         "capabilities": {
           "reasoning": {
+            "mode": "always",
             "effortLevels": [
               "low",
               "medium",
@@ -667,9 +868,20 @@
         "status": "deprecated",
         "recommended": false,
         "deprecationDate": "2026-12-11",
-        "replacementModelId": "gpt-5.6-sol",
-        "lastVerifiedAt": "2026-10-19",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+        "replacementModelId": "gpt-6.1-sol",
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/o3-pro",
+        "aliases": [
+          "o3-pro-2025-06-10"
+        ],
+        "contextTokens": 200000,
+        "maxOutputTokens": 100000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true
       },
       {
         "id": "o4-mini",
@@ -895,15 +1107,14 @@
         "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
-        "id": "gpt-6.2-astra",
-        "name": "GPT-6.2 Astra",
+        "id": "chat-latest",
+        "name": "Chat Latest",
         "source": "official",
         "status": "active",
-        "productReadiness": "known",
         "recommended": false,
+        "productReadiness": "known",
         "lastVerifiedAt": "2026-11-18",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
+        "documentationRef": "https://developers.openai.com/api/docs/models/chat-latest",
         "inputModalities": [
           "text",
           "image"
@@ -912,78 +1123,11 @@
           "text"
         ],
         "supportsTools": true,
-        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
         "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "nativeWebSearch": {
-          "dialect": "openAiResponses",
-          "supportsDomains": true,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": true,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        }
-      },
-      {
-        "id": "gpt-6.2-sol",
-        "name": "GPT-6.2 Sol",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "contextTokens": 1050000,
+        "contextTokens": 400000,
         "maxOutputTokens": 128000,
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
-        "supportsStructuredOutput": true,
         "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "nativeWebSearch": {
-          "dialect": "openAiResponses",
-          "supportsDomains": true,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": true,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
+          "vision": true
         }
       }
     ]
@@ -1010,6 +1154,224 @@
       "canMixClientTools": true
     },
     "models": [
+      {
+        "id": "google/gemini-4-hydrogen",
+        "name": "Google: Gemini 4 Hydrogen",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "documentationRef": "https://openrouter.ai/api/v1/models/google/gemini-4-hydrogen/endpoints",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "inputModalities": [
+          "audio",
+          "file",
+          "image",
+          "text",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "medium",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true
+          }
+        }
+      },
+      {
+        "id": "openai/gpt-6.2-sol",
+        "name": "OpenAI: GPT-6.2 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-astra",
+        "name": "OpenAI: GPT-6.2 Astra",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "anthropic/claude-opus-5.5",
+        "name": "Anthropic: Claude Opus 5.5",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://openrouter.ai/anthropic/claude-opus-5.5",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "high",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "stop",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
       {
         "id": "anthropic/claude-fable-5.2",
         "name": "Anthropic: Claude Fable 5.2",
@@ -1063,6 +1425,285 @@
           }
         },
         "documentationRef": "https://openrouter.ai/anthropic/claude-fable-5.2"
+      },
+      {
+        "id": "x-ai/grok-4.7",
+        "name": "SpaceXAI: Grok 4.7",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://openrouter.ai/x-ai/grok-4.7",
+        "contextTokens": 500000,
+        "maxOutputTokens": 450000,
+        "inputModalities": [
+          "text",
+          "image",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "high",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "logprobs",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ]
+      },
+      {
+        "id": "qwen/qwen4-max",
+        "name": "Qwen: Qwen4 Max",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://openrouter.ai/qwen/qwen4-max",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "frequency_penalty",
+          "include_reasoning",
+          "logprobs",
+          "max_tokens",
+          "presence_penalty",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_k",
+          "top_logprobs",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "google/gemini-4-carbon",
+        "name": "Google: Gemini 4 Carbon",
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-14",
+        "inputModalities": [
+          "audio",
+          "file",
+          "image",
+          "text",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "supportedParameters": [
+          "include_reasoning",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "stop",
+          "structured_outputs",
+          "temperature",
+          "tool_choice",
+          "tools",
+          "top_p"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://openrouter.ai/google/gemini-4-carbon"
+      },
+      {
+        "id": "openai/gpt-6.2-sol-pro",
+        "name": "OpenAI: GPT-6.2 Sol Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-astra-pro",
+        "name": "OpenAI: GPT-6.2 Astra Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
       },
       {
         "id": "baidu/ernie-5.5-flash-preview:free",
@@ -1160,61 +1801,6 @@
           }
         },
         "documentationRef": "https://openrouter.ai/baidu/ernie-light-dt-1.0-intl"
-      },
-      {
-        "id": "google/gemini-4-carbon",
-        "name": "Google: Gemini 4 Carbon",
-        "tagKey": "providers.tagLatest",
-        "contextTokens": 1048576,
-        "maxOutputTokens": 943718,
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-14",
-        "inputModalities": [
-          "audio",
-          "file",
-          "image",
-          "text",
-          "video"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://openrouter.ai/google/gemini-4-carbon"
       },
       {
         "id": "kt/midm-k-3.0-pro",
@@ -1482,7 +2068,7 @@
         "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1000000,
         "maxOutputTokens": 128000,
         "capabilities": {
@@ -2284,59 +2870,6 @@
         ]
       },
       {
-        "id": "anthropic/claude-opus-5.5",
-        "name": "Anthropic: Claude Opus 5.5",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/anthropic/claude-opus-5.5",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "text",
-          "image",
-          "file"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "high",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "stop",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
-      },
-      {
         "id": "anthropic/claude-sonnet-5.5",
         "name": "Anthropic: Claude Sonnet 5.5",
         "source": "official",
@@ -2376,7 +2909,7 @@
           }
         },
         "tagKey": "providers.tagBestBalance",
-        "recommended": true,
+        "recommended": false,
         "releaseDate": "2026-09-28",
         "supportedParameters": [
           "include_reasoning",
@@ -2536,62 +3069,6 @@
           "presence_penalty",
           "reasoning",
           "repetition_penalty",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_k",
-          "top_logprobs",
-          "top_p"
-        ]
-      },
-      {
-        "id": "x-ai/grok-4.7",
-        "name": "SpaceXAI: Grok 4.7",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/x-ai/grok-4.7",
-        "contextTokens": 500000,
-        "maxOutputTokens": 450000,
-        "inputModalities": [
-          "text",
-          "image",
-          "file"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "high",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "logprobs",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
           "response_format",
           "seed",
           "stop",
@@ -4311,7 +4788,7 @@
         "status": "active",
         "access": "public",
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "lastVerifiedAt": "2026-11-14",
         "releaseDate": "2026-09-02",
         "modalities": [
@@ -4373,7 +4850,7 @@
         "status": "active",
         "access": "public",
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "lastVerifiedAt": "2026-11-14",
         "releaseDate": "2026-09-02",
         "modalities": [
@@ -4436,7 +4913,7 @@
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "lastVerifiedAt": "2026-11-14",
         "releaseDate": "2026-08-12",
         "inputModalities": [
@@ -4726,7 +5203,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-18",
         "releaseDate": "2026-08-26",
         "inputModalities": [
           "text",
@@ -4739,7 +5216,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943717,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -7344,7 +7821,7 @@
             "defaultEnabled": true
           }
         },
-        "contextTokens": 1024000,
+        "contextTokens": 262144,
         "inputModalities": [
           "text"
         ],
@@ -7367,7 +7844,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/xiaomi/mimo-v2.5-pro",
         "maxOutputTokens": 131072
       },
@@ -8242,66 +8719,6 @@
         "maxOutputTokens": 1800000
       },
       {
-        "id": "google/lyria-3-pro-preview",
-        "name": "Google: Lyria 3 Pro Preview",
-        "capabilities": {
-          "vision": true,
-          "reasoning": null
-        },
-        "contextTokens": 1048576,
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text",
-          "audio"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "max_tokens",
-          "response_format",
-          "seed",
-          "temperature",
-          "top_p"
-        ],
-        "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/google/lyria-3-pro-preview",
-        "maxOutputTokens": 65536
-      },
-      {
-        "id": "google/lyria-3-clip-preview",
-        "name": "Google: Lyria 3 Clip Preview",
-        "capabilities": {
-          "vision": true,
-          "reasoning": null
-        },
-        "contextTokens": 1048576,
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text",
-          "audio"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "max_tokens",
-          "response_format",
-          "seed",
-          "temperature",
-          "top_p"
-        ],
-        "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/google/lyria-3-clip-preview",
-        "maxOutputTokens": 65536
-      },
-      {
         "id": "kwaipilot/kat-coder-pro-v2",
         "name": "Kwaipilot: KAT-Coder-Pro V2",
         "capabilities": {
@@ -9122,54 +9539,6 @@
         "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/bytedance-seed/seed-2.0-mini",
         "maxOutputTokens": 131072
-      },
-      {
-        "id": "google/gemini-3.1-flash-image-preview",
-        "name": "Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)",
-        "tagKey": "providers.tagReasoning",
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "minimal",
-              "high"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "minimal",
-            "defaultEnabled": true
-          }
-        },
-        "contextTokens": 65536,
-        "inputModalities": [
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "image",
-          "text"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "temperature",
-          "top_p"
-        ],
-        "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/google/gemini-3.1-flash-image-preview",
-        "maxOutputTokens": 58982
       },
       {
         "id": "qwen/qwen3.5-35b-a3b",
@@ -11557,49 +11926,6 @@
         "recommended": false
       },
       {
-        "id": "google/gemini-3-pro-image-preview",
-        "name": "Google: Nano Banana Pro (Gemini 3 Pro Image Preview)",
-        "tagKey": "providers.tagReasoning",
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEnabled": true
-          }
-        },
-        "contextTokens": 65536,
-        "inputModalities": [
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "image",
-          "text"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "top_p"
-        ],
-        "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/google/gemini-3-pro-image-preview",
-        "maxOutputTokens": 32768
-      },
-      {
         "id": "deepcogito/cogito-v2.1-671b",
         "name": "Deep Cogito: Cogito v2.1 671B",
         "tagKey": "providers.tagReasoning",
@@ -12483,38 +12809,6 @@
         "status": "removed",
         "lastVerifiedAt": "2026-09-07",
         "recommended": false
-      },
-      {
-        "id": "google/gemini-2.5-flash-image",
-        "name": "Google: Nano Banana (Gemini 2.5 Flash Image)",
-        "capabilities": {
-          "vision": true,
-          "reasoning": null
-        },
-        "contextTokens": 32768,
-        "inputModalities": [
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "image",
-          "text"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "max_tokens",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "top_p"
-        ],
-        "source": "official",
-        "lastVerifiedAt": "2026-10-08",
-        "documentationRef": "https://openrouter.ai/google/gemini-2.5-flash-image",
-        "maxOutputTokens": 8192
       },
       {
         "id": "qwen/qwen3-vl-30b-a3b-thinking",
@@ -14159,10 +14453,13 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": false,
+        "supportsStructuredOutput": true,
         "supportedParameters": [
+          "frequency_penalty",
           "max_tokens",
+          "response_format",
           "stop",
+          "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
@@ -14170,7 +14467,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/qwen/qwen3-coder-30b-a3b-instruct",
         "maxOutputTokens": 235929
       },
@@ -21526,7 +21823,7 @@
         "status": "active",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/typesafe/jev-router",
         "inputModalities": [
           "audio",
@@ -22207,58 +22504,6 @@
         "maxOutputTokens": 131072
       },
       {
-        "id": "google/gemini-nano-banana-2.1",
-        "name": "Google: Nano Banana 2.1",
-        "contextTokens": 65536,
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "inputModalities": [
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "image",
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "minimal",
-              "high"
-            ],
-            "defaultEffort": "minimal",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://openrouter.ai/google/gemini-nano-banana-2.1",
-        "maxOutputTokens": 58982
-      },
-      {
         "id": "openrouter/auto-beta",
         "name": "Auto Router (Beta)",
         "contextTokens": 2000000,
@@ -22267,7 +22512,7 @@
         "access": "public",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "inputModalities": [
           "text",
           "image",
@@ -22312,152 +22557,6 @@
         },
         "documentationRef": "https://openrouter.ai/openrouter/auto-beta",
         "maxOutputTokens": 64000
-      },
-      {
-        "id": "google/gemini-3.1-flash-lite-image",
-        "name": "Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
-        "contextTokens": 65536,
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "inputModalities": [
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "image",
-          "text"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "temperature",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "minimal",
-              "high"
-            ],
-            "defaultEffort": "minimal",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://openrouter.ai/google/gemini-3.1-flash-lite-image",
-        "maxOutputTokens": 58982
-      },
-      {
-        "id": "google/gemini-3.1-flash-image",
-        "name": "Google: Nano Banana 2 (Gemini 3.1 Flash Image)",
-        "contextTokens": 131072,
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "inputModalities": [
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "image",
-          "text"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "temperature",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "minimal",
-              "high"
-            ],
-            "defaultEffort": "minimal",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://openrouter.ai/google/gemini-3.1-flash-image",
-        "maxOutputTokens": 32768
-      },
-      {
-        "id": "google/gemini-3-pro-image",
-        "name": "Google: Nano Banana Pro (Gemini 3 Pro Image)",
-        "contextTokens": 131072,
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "inputModalities": [
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "image",
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [],
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://openrouter.ai/google/gemini-3-pro-image",
-        "maxOutputTokens": 32768
       },
       {
         "id": "deepseek/deepseek-v4.1-flash-1017",
@@ -23400,7 +23499,7 @@
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/openrouter/auto-code",
         "contextTokens": 2000000,
         "maxOutputTokens": 64000,
@@ -23495,157 +23594,6 @@
             },
             "effortBudgetExclusive": true,
             "defaultEnabled": true
-          }
-        }
-      },
-      {
-        "id": "google/gemini-omni-1.2-flash",
-        "name": "Google: Gemini Omni 1.2 Flash",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=text",
-        "contextTokens": 131072,
-        "maxOutputTokens": 65536,
-        "inputModalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "outputModalities": [
-          "text",
-          "video"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": false,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "seed",
-          "temperature",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "high"
-            ],
-            "defaultEffort": "low",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        }
-      },
-      {
-        "id": "google/gemini-omni-1.1-flash",
-        "name": "Google: Gemini Omni 1.1 Flash",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/api/v1/models?output_modalities=text",
-        "contextTokens": 131072,
-        "maxOutputTokens": 65536,
-        "inputModalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "outputModalities": [
-          "text",
-          "video"
-        ],
-        "supportsTools": false,
-        "supportsStructuredOutput": false,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "seed",
-          "temperature",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "high"
-            ],
-            "defaultEffort": "low",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        }
-      },
-      {
-        "id": "google/gemini-4-hydrogen",
-        "name": "Google: Gemini 4 Hydrogen",
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-13",
-        "documentationRef": "https://openrouter.ai/api/v1/models/google/gemini-4-hydrogen/endpoints",
-        "contextTokens": 1048576,
-        "maxOutputTokens": 943718,
-        "inputModalities": [
-          "audio",
-          "file",
-          "image",
-          "text",
-          "video"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "include_reasoning",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ],
-            "defaultEffort": "medium",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true
           }
         }
       },
@@ -23827,66 +23775,6 @@
         ]
       },
       {
-        "id": "qwen/qwen4-max",
-        "name": "Qwen: Qwen4 Max",
-        "tagKey": "providers.tagLatest",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-16",
-        "documentationRef": "https://openrouter.ai/qwen/qwen4-max",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 131072,
-        "inputModalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "supportedParameters": [
-          "frequency_penalty",
-          "include_reasoning",
-          "logprobs",
-          "max_tokens",
-          "presence_penalty",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "stop",
-          "structured_outputs",
-          "temperature",
-          "tool_choice",
-          "tools",
-          "top_k",
-          "top_logprobs",
-          "top_p"
-        ],
-        "capabilities": {
-          "vision": true,
-          "videoInput": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "low",
-              "high",
-              "xhigh"
-            ],
-            "defaultEffort": "high",
-            "defaultEnabled": true,
-            "effortBudgetExclusive": true,
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        }
-      },
-      {
         "id": "tencent/hy4-flash",
         "name": "Tencent: Hy4 flash",
         "source": "official",
@@ -23925,222 +23813,6 @@
             "defaultEnabled": true
           }
         }
-      },
-      {
-        "id": "openai/gpt-6.2-astra",
-        "name": "OpenAI: GPT-6.2 Astra",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
-      },
-      {
-        "id": "openai/gpt-6.2-astra-pro",
-        "name": "OpenAI: GPT-6.2 Astra Pro",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra-pro",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
-      },
-      {
-        "id": "openai/gpt-6.2-sol",
-        "name": "OpenAI: GPT-6.2 Sol",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
-      },
-      {
-        "id": "openai/gpt-6.2-sol-pro",
-        "name": "OpenAI: GPT-6.2 Sol Pro",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol-pro",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
       }
     ]
   },
@@ -24151,7 +23823,7 @@
     "baseUrl": "https://api.anthropic.com/v1",
     "requiresApiKey": true,
     "icon": "🧠",
-    "description": "Claude Opus 5.5, Sonnet 5.5, Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5",
+    "description": "Claude Opus 5.5, Fable 5.2, Sonnet 5.5 and Haiku 5.5",
     "nativeWebSearch": {
       "dialect": "anthropicServerTool",
       "supportsDomains": true,
@@ -24166,6 +23838,184 @@
       "vision": true
     },
     "models": [
+      {
+        "id": "claude-opus-5-5",
+        "name": "Claude Opus 5.5",
+        "nativeWebSearch": {
+          "dialect": "anthropicServerTool",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagMostIntelligent",
+        "source": "official",
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "status": "active",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "documentationRef": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true
+      },
+      {
+        "id": "claude-fable-5-2",
+        "name": "Claude Fable 5.2",
+        "nativeWebSearch": {
+          "dialect": "anthropicServerTool",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagMostIntelligent",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "reasoning": {
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "mode": "always"
+          }
+        },
+        "status": "active",
+        "lastVerifiedAt": "2026-11-11",
+        "documentationRef": "https://platform.claude.com/docs/en/models/fable-5-2/overview"
+      },
+      {
+        "id": "claude-sonnet-5-5",
+        "name": "Claude Sonnet 5.5",
+        "nativeWebSearch": {
+          "dialect": "anthropicServerTool",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagBestBalance",
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "disabledMode": "between_tools",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "status": "active",
+        "lastVerifiedAt": "2026-09-29",
+        "documentationRef": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "releaseDate": "2026-09-28"
+      },
+      {
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-08",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "id": "claude-haiku-5-5",
+        "name": "Claude Haiku 5.5",
+        "status": "active",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "documentationRef": "https://platform.claude.com/docs/en/models/haiku-5-5/overview",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEnabled": true
+          }
+        }
+      },
       {
         "id": "claude-mythos-5-2",
         "name": "Claude Mythos 5.2",
@@ -24205,94 +24055,6 @@
         }
       },
       {
-        "id": "claude-fable-5-2",
-        "name": "Claude Fable 5.2",
-        "nativeWebSearch": {
-          "dialect": "anthropicServerTool",
-          "supportsDomains": true,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": true,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        },
-        "tagKey": "providers.tagMostIntelligent",
-        "source": "official",
-        "productReadiness": "known",
-        "recommended": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 128000,
-        "capabilities": {
-          "reasoning": {
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "mode": "always"
-          }
-        },
-        "status": "active",
-        "lastVerifiedAt": "2026-11-11",
-        "documentationRef": "https://platform.claude.com/docs/en/models/fable-5-2/overview"
-      },
-      {
-        "id": "claude-opus-5-5",
-        "name": "Claude Opus 5.5",
-        "nativeWebSearch": {
-          "dialect": "anthropicServerTool",
-          "supportsDomains": true,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": true,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        },
-        "tagKey": "providers.tagMostIntelligent",
-        "source": "official",
-        "productReadiness": "known",
-        "recommended": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 128000,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "status": "active",
-        "lastVerifiedAt": "2026-09-23",
-        "documentationRef": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true
-      },
-      {
         "id": "claude-mythos-5-1",
         "name": "Claude Mythos 5.1",
         "source": "official",
@@ -24329,57 +24091,6 @@
             }
           }
         }
-      },
-      {
-        "id": "claude-sonnet-5-5",
-        "name": "Claude Sonnet 5.5",
-        "nativeWebSearch": {
-          "dialect": "anthropicServerTool",
-          "supportsDomains": true,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": true,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        },
-        "tagKey": "providers.tagBestBalance",
-        "source": "official",
-        "productReadiness": "known",
-        "recommended": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 128000,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "disabledMode": "between_tools",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "status": "active",
-        "lastVerifiedAt": "2026-09-29",
-        "documentationRef": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "releaseDate": "2026-09-28"
       },
       {
         "id": "claude-opus-5",
@@ -24446,7 +24157,7 @@
         "tagKey": "providers.tagMostIntelligent",
         "source": "official",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1000000,
         "maxOutputTokens": 128000,
         "capabilities": {
@@ -24882,45 +24593,6 @@
         "replacementModelId": "claude-sonnet-4-6",
         "deprecationDate": "2025-07-21",
         "documentationRef": "https://platform.claude.com/docs/en/about-claude/model-deprecations"
-      },
-      {
-        "source": "official",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-10-08",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "id": "claude-haiku-5-5",
-        "name": "Claude Haiku 5.5",
-        "status": "active",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 128000,
-        "documentationRef": "https://platform.claude.com/docs/en/models/haiku-5-5/overview",
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "defaultEnabled": true
-          }
-        }
       }
     ]
   },
@@ -24937,6 +24609,71 @@
       "vision": true
     },
     "models": [
+      {
+        "id": "gemini-4-hydrogen",
+        "name": "Gemini 4 Hydrogen",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-hydrogen",
+        "releaseDate": "2026-11-12",
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ]
+      },
       {
         "id": "gemini-4-argon",
         "name": "Gemini 4 Argon",
@@ -24982,6 +24719,125 @@
           "supportsStreamEvents": true,
           "canMixClientTools": false
         }
+      },
+      {
+        "id": "gemini-3.8-flash",
+        "name": "Gemini 3.8 Flash",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-10-20",
+        "releaseDate": "2026-09-02",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash"
+      },
+      {
+        "id": "gemini-4-carbon",
+        "name": "Gemini 4 Carbon",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": false
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "gated",
+        "access": "account_enablement",
+        "lastVerifiedAt": "2026-11-13",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "known",
+        "recommended": false,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-carbon",
+        "releaseDate": "2026-11-10",
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ]
       },
       {
         "id": "gemini-3.5-flash",
@@ -25120,62 +24976,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": false
         }
-      },
-      {
-        "id": "gemini-3.8-flash",
-        "name": "Gemini 3.8 Flash",
-        "nativeWebSearch": {
-          "dialect": "geminiGoogleSearch",
-          "supportsDomains": false,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": false,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": false
-        },
-        "tagKey": "providers.tagLatest",
-        "contextTokens": 1048576,
-        "maxOutputTokens": 65536,
-        "source": "official",
-        "status": "active",
-        "access": "account_enablement",
-        "lastVerifiedAt": "2026-10-20",
-        "releaseDate": "2026-09-02",
-        "modalities": [
-          "text",
-          "image"
-        ],
-        "inputModalities": [
-          "text",
-          "image",
-          "audio",
-          "video"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "productReadiness": "known",
-        "recommended": true,
-        "capabilities": {
-          "vision": true,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash"
       },
       {
         "id": "gemini-3.7-flash",
@@ -25442,135 +25242,6 @@
             }
           }
         }
-      },
-      {
-        "id": "gemini-4-hydrogen",
-        "name": "Gemini 4 Hydrogen",
-        "nativeWebSearch": {
-          "dialect": "geminiGoogleSearch",
-          "supportsDomains": false,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": false,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": false
-        },
-        "contextTokens": 1048576,
-        "maxOutputTokens": 65536,
-        "source": "official",
-        "status": "active",
-        "access": "account_enablement",
-        "lastVerifiedAt": "2026-11-13",
-        "modalities": [
-          "text",
-          "image",
-          "audio",
-          "video",
-          "file"
-        ],
-        "inputModalities": [
-          "text",
-          "image",
-          "audio",
-          "video",
-          "file"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "productReadiness": "known",
-        "recommended": false,
-        "capabilities": {
-          "vision": true,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-hydrogen",
-        "releaseDate": "2026-11-12",
-        "regions": [
-          "global",
-          "us",
-          "eu"
-        ]
-      },
-      {
-        "id": "gemini-4-carbon",
-        "name": "Gemini 4 Carbon",
-        "nativeWebSearch": {
-          "dialect": "geminiGoogleSearch",
-          "supportsDomains": false,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": false,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": false
-        },
-        "contextTokens": 1048576,
-        "maxOutputTokens": 65536,
-        "source": "official",
-        "status": "gated",
-        "access": "account_enablement",
-        "lastVerifiedAt": "2026-11-13",
-        "modalities": [
-          "text",
-          "image",
-          "audio",
-          "video",
-          "file"
-        ],
-        "inputModalities": [
-          "text",
-          "image",
-          "audio",
-          "video",
-          "file"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "productReadiness": "known",
-        "recommended": false,
-        "capabilities": {
-          "vision": true,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-carbon",
-        "releaseDate": "2026-11-10",
-        "regions": [
-          "global",
-          "us",
-          "eu"
-        ]
       }
     ],
     "nativeWebSearch": {
@@ -25847,6 +25518,102 @@
             },
             "defaultEnabled": true
           }
+        }
+      },
+      {
+        "id": "global.openai.gpt-6.2-sol",
+        "name": "GPT-6.2 Sol (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-sol.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "us.openai.gpt-6.2-sol",
+        "name": "GPT-6.2 Sol (US)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-sol.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "global.openai.gpt-6.2-astra",
+        "name": "GPT-6.2 Astra (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-astra.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "us.openai.gpt-6.2-astra",
+        "name": "GPT-6.2 Astra (US)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-astra.html",
+        "capabilities": {
+          "vision": true
         }
       },
       {
@@ -26234,7 +26001,7 @@
     "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
     "requiresApiKey": true,
     "icon": "✨",
-    "description": "Direct Gemini API for Google-supported locations. Includes Gemini 3.8/3.7/3.6/3.5/3.1/2.5; for an unsupported Google location, select an authorized Gemini route under OpenRouter instead.",
+    "description": "Gemini 4 Hydrogen, Carbon and Argon through the direct Gemini API in supported locations.",
     "nativeWebSearch": {
       "dialect": "geminiGoogleSearch",
       "supportsDomains": false,
@@ -26249,6 +26016,66 @@
       "vision": true
     },
     "models": [
+      {
+        "id": "gemini-4-hydrogen",
+        "name": "Gemini 4 Hydrogen",
+        "nativeWebSearch": {
+          "dialect": "geminiGoogleSearch",
+          "supportsDomains": false,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": false,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "modalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "file"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "capabilities": {
+          "vision": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://aistudio.google.com/docs/models/gemini-4-hydrogen",
+        "releaseDate": "2026-11-12"
+      },
       {
         "id": "gemini-4-carbon",
         "name": "Gemini 4 Carbon",
@@ -26289,7 +26116,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "capabilities": {
           "vision": true,
           "promptCache": true,
@@ -26349,7 +26176,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "capabilities": {
           "vision": true,
           "promptCache": true,
@@ -26381,7 +26208,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "contextTokens": 1048576,
         "maxOutputTokens": 65536,
         "source": "official",
@@ -26403,7 +26229,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "capabilities": {
           "vision": true,
           "promptCache": true,
@@ -26880,66 +26706,6 @@
         "replacementModelId": "gemini-3.6-flash",
         "deprecationDate": "2026-02-17",
         "documentationRef": "https://ai.google.dev/gemini-api/docs/deprecations"
-      },
-      {
-        "id": "gemini-4-hydrogen",
-        "name": "Gemini 4 Hydrogen",
-        "nativeWebSearch": {
-          "dialect": "geminiGoogleSearch",
-          "supportsDomains": false,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": false,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        },
-        "contextTokens": 1048576,
-        "maxOutputTokens": 65536,
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "lastVerifiedAt": "2026-11-13",
-        "modalities": [
-          "text",
-          "image",
-          "audio",
-          "video",
-          "file"
-        ],
-        "inputModalities": [
-          "text",
-          "image",
-          "audio",
-          "video",
-          "file"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "productReadiness": "known",
-        "recommended": false,
-        "capabilities": {
-          "vision": true,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://aistudio.google.com/docs/models/gemini-4-hydrogen",
-        "releaseDate": "2026-11-12"
       }
     ]
   },
@@ -27197,9 +26963,9 @@
         "contextTokens": 500000,
         "source": "official",
         "status": "active",
-        "productReadiness": "known",
+        "productReadiness": "product_ready",
         "recommended": true,
-        "lastVerifiedAt": "2026-09-23",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
         "inputModalities": [
           "text",
           "image"
@@ -27231,7 +26997,6 @@
       {
         "id": "grok-4.6",
         "name": "Grok 4.6",
-        "tagKey": "providers.tagLatest",
         "contextTokens": 500000,
         "source": "official",
         "status": "active",
@@ -27478,8 +27243,8 @@
         "name": "MiMo V2.6 Pro",
         "source": "official",
         "status": "active",
-        "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-23",
+        "productReadiness": "product_ready",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
         "recommended": true,
         "documentationRef": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro",
         "contextTokens": 1048576,
@@ -27588,6 +27353,53 @@
     },
     "models": [
       {
+        "id": "muse-spark-1.3",
+        "name": "Muse Spark 1.3",
+        "tagKey": "providers.tagLatest",
+        "contextTokens": 1048576,
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-14",
+        "releaseDate": "2026-09-02",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "parallelToolCalling": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEffort": "high"
+          }
+        },
+        "documentationRef": "https://dev.meta.ai/docs/muse-spark"
+      },
+      {
         "id": "muse-ember-1.0",
         "name": "Muse Ember 1.0",
         "tagKey": "providers.tagLatest",
@@ -27639,53 +27451,6 @@
         },
         "documentationRef": "https://dev.meta.ai/docs/muse-ember",
         "maxOutputTokens": 524288
-      },
-      {
-        "id": "muse-spark-1.3",
-        "name": "Muse Spark 1.3",
-        "tagKey": "providers.tagLatest",
-        "contextTokens": 1048576,
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "product_ready",
-        "recommended": true,
-        "lastVerifiedAt": "2026-11-14",
-        "releaseDate": "2026-09-02",
-        "modalities": [
-          "text",
-          "image"
-        ],
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "parallelToolCalling": true,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "defaultEffort": "high"
-          }
-        },
-        "documentationRef": "https://dev.meta.ai/docs/muse-spark"
       },
       {
         "id": "muse-wonder-1.0",
@@ -27927,9 +27692,9 @@
         "name": "MiniMax M3.1 Flash",
         "source": "official",
         "status": "active",
-        "productReadiness": "known",
+        "productReadiness": "product_ready",
         "recommended": true,
-        "lastVerifiedAt": "2026-10-20",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
         "contextTokens": 1000000,
         "maxOutputTokens": 524288,
         "inputModalities": [
@@ -28177,6 +27942,139 @@
     },
     "models": [
       {
+        "source": "official",
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "id": "mistral-large-4",
+        "name": "Mistral Large 4",
+        "status": "active",
+        "access": "public",
+        "contextTokens": 1048576,
+        "documentationRef": "https://docs.mistral.ai/models/mistral-large-4-0",
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "aliases": [
+          "mistral-large-4-0"
+        ]
+      },
+      {
+        "id": "zai-glm-5-3",
+        "name": "Z.ai GLM 5.3",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-04",
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.mistral.ai/studio/conversations/reasoning",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "access": "public"
+      },
+      {
+        "id": "zai-glm-5-3-flash",
+        "name": "Z.ai GLM 5.3 Flash",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-16",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://docs.mistral.ai/models/zai-glm-5-3-flash"
+      },
+      {
+        "id": "mistral-small-2603",
+        "name": "Mistral Small 4",
+        "tagKey": "providers.tagFast",
+        "aliases": [
+          "mistral-small-latest"
+        ],
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "lastVerifiedAt": "2026-11-16",
+        "documentationRef": "https://docs.mistral.ai/models/mistral-small-4-0-26-03"
+      },
+      {
         "id": "deepseek-v4-1-flash-1017",
         "name": "DeepSeek V4.1 Flash 1017",
         "source": "official",
@@ -28264,41 +28162,6 @@
         "replacementModelId": "zai-glm-5-3"
       },
       {
-        "id": "zai-glm-5-3",
-        "name": "Z.ai GLM 5.3",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-04",
-        "inputModalities": [
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "documentationRef": "https://docs.mistral.ai/studio/conversations/reasoning",
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": false,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "high",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "contextTokens": 1000000,
-        "maxOutputTokens": 128000,
-        "access": "public"
-      },
-      {
         "id": "mistral-large-2512",
         "name": "Mistral Large 3",
         "source": "curated",
@@ -28325,30 +28188,6 @@
         "lastVerifiedAt": "2026-09-12",
         "replacementModelId": "mistral-medium-3-5",
         "documentationRef": "https://docs.mistral.ai/inference/model-lifecycle"
-      },
-      {
-        "id": "mistral-small-2603",
-        "name": "Mistral Small 4",
-        "tagKey": "providers.tagFast",
-        "aliases": [
-          "mistral-small-latest"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "high"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "lastVerifiedAt": "2026-11-16",
-        "documentationRef": "https://docs.mistral.ai/models/mistral-small-4-0-26-03"
       },
       {
         "id": "ministral-14b-2512",
@@ -28390,80 +28229,6 @@
         "replacementModelId": "mistral-medium-3-5",
         "lastVerifiedAt": "2026-09-12",
         "documentationRef": "https://docs.mistral.ai/inference/model-lifecycle"
-      },
-      {
-        "source": "official",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "id": "mistral-large-4",
-        "name": "Mistral Large 4",
-        "status": "active",
-        "access": "public",
-        "contextTokens": 1048576,
-        "documentationRef": "https://docs.mistral.ai/models/mistral-large-4-0",
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "aliases": [
-          "mistral-large-4-0"
-        ]
-      },
-      {
-        "id": "zai-glm-5-3-flash",
-        "name": "Z.ai GLM 5.3 Flash",
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-16",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "high",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://docs.mistral.ai/models/zai-glm-5-3-flash"
       }
     ]
   },
@@ -28484,9 +28249,9 @@
         "name": "Qwen 3.8 27B",
         "source": "official",
         "status": "active",
-        "lastVerifiedAt": "2026-10-15",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
         "documentationRef": "https://ollama.com/library/qwen3.8",
-        "recommended": false,
+        "recommended": true,
         "inputModalities": [
           "text",
           "image"
@@ -28509,10 +28274,9 @@
       {
         "id": "qwen3.6:latest",
         "name": "Qwen 3.6",
-        "tagKey": "providers.tagRecommended",
         "source": "curated",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "capabilities": {
           "vision": true
         }
@@ -29269,6 +29033,80 @@
     },
     "models": [
       {
+        "id": "kimi-k3.1-pro",
+        "name": "Kimi K3.1 Pro",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart"
+      },
+      {
+        "id": "kimi-k3.1-pro-highspeed",
+        "name": "Kimi K3.1 Pro Highspeed",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-10-24",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1048576,
+        "maxOutputTokens": 1048576,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "promptCache": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "high",
+              "max"
+            ],
+            "defaultEffort": "max",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "documentationRef": "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart"
+      },
+      {
         "id": "kimi-k3",
         "name": "Kimi K3",
         "tagKey": "providers.tagLatest",
@@ -29580,80 +29418,6 @@
         "replacementModelId": "kimi-k3",
         "deprecationDate": "2025-11-11",
         "documentationRef": "https://platform.kimi.ai/docs/models"
-      },
-      {
-        "id": "kimi-k3.1-pro",
-        "name": "Kimi K3.1 Pro",
-        "tagKey": "providers.tagLatest",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": true,
-        "lastVerifiedAt": "2026-10-24",
-        "modalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "contextTokens": 1048576,
-        "maxOutputTokens": 1048576,
-        "capabilities": {
-          "vision": true,
-          "videoInput": true,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "high",
-              "max"
-            ],
-            "defaultEffort": "max",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart"
-      },
-      {
-        "id": "kimi-k3.1-pro-highspeed",
-        "name": "Kimi K3.1 Pro Highspeed",
-        "tagKey": "providers.tagLatest",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-10-24",
-        "modalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "contextTokens": 1048576,
-        "maxOutputTokens": 1048576,
-        "capabilities": {
-          "vision": true,
-          "videoInput": true,
-          "promptCache": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "high",
-              "max"
-            ],
-            "defaultEffort": "max",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "documentationRef": "https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart"
       }
     ]
   },
@@ -29680,8 +29444,54 @@
     },
     "models": [
       {
-        "id": "deepseek-ai/DeepSeek-V4-Flash",
-        "name": "deepseek-ai/DeepSeek-V4-Flash",
+        "id": "deepseek-ai/DeepSeek-V4.1-Flash",
+        "name": "DeepSeek V4.1 Flash 1017",
+        "version": "DeepSeek-V4.1-Flash-1017",
+        "status": "active",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
+        "capabilities": {
+          "vision": true,
+          "reasoning": null
+        },
+        "source": "official",
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "productReadiness": "product_ready",
+        "contextTokens": 1048576,
+        "supportsStructuredOutput": true,
+        "recommended": true
+      },
+      {
+        "id": "zai-org/GLM-5.3",
+        "name": "zai-org/GLM-5.3",
+        "source": "official",
+        "status": "active",
+        "access": "public",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-14",
+        "documentationRef": "https://www.siliconflow.cn/models",
+        "contextTokens": 1048576,
+        "inputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": false,
+          "reasoning": null
+        }
+      },
+      {
+        "id": "deepseek-ai/DeepSeek-V4-Pro",
+        "name": "deepseek-ai/DeepSeek-V4-Pro",
         "status": "active",
         "source": "official",
         "lastVerifiedAt": "2026-11-14",
@@ -29691,8 +29501,8 @@
         "supportsStructuredOutput": true
       },
       {
-        "id": "deepseek-ai/DeepSeek-V4-Pro",
-        "name": "deepseek-ai/DeepSeek-V4-Pro",
+        "id": "deepseek-ai/DeepSeek-V4-Flash",
+        "name": "deepseek-ai/DeepSeek-V4-Flash",
         "status": "active",
         "source": "official",
         "lastVerifiedAt": "2026-11-14",
@@ -29905,27 +29715,6 @@
         "contextTokens": 1048576
       },
       {
-        "id": "zai-org/GLM-5.3",
-        "name": "zai-org/GLM-5.3",
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://www.siliconflow.cn/models",
-        "contextTokens": 1048576,
-        "inputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": false,
-          "reasoning": null
-        }
-      },
-      {
         "id": "zai-org/GLM-5.2",
         "name": "zai-org/GLM-5.2",
         "source": "official",
@@ -30073,30 +29862,6 @@
           "vision": false,
           "reasoning": null
         },
-        "contextTokens": 1048576,
-        "supportsStructuredOutput": true
-      },
-      {
-        "id": "deepseek-ai/DeepSeek-V4.1-Flash",
-        "name": "DeepSeek V4.1 Flash 1017",
-        "version": "DeepSeek-V4.1-Flash-1017",
-        "status": "active",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "documentationRef": "https://docs.siliconflow.cn/docs/release-notes/overview",
-        "capabilities": {
-          "vision": true,
-          "reasoning": null
-        },
-        "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "productReadiness": "known",
         "contextTokens": 1048576,
         "supportsStructuredOutput": true
       },
@@ -30298,30 +30063,6 @@
         "deprecationDate": "2026-11-16"
       },
       {
-        "id": "PaddlePaddle/PaddleOCR-VL-1.5",
-        "name": "PaddleOCR-VL-1.5",
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "documentationRef": "https://www.siliconflow.cn/models",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": null
-        },
-        "supportsTools": false,
-        "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14"
-      },
-      {
         "id": "inclusionAI/Ling-mini-2.0",
         "name": "Ling-mini-2.0",
         "source": "official",
@@ -30367,31 +30108,6 @@
         },
         "contextTokens": 131072,
         "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14"
-      },
-      {
-        "id": "deepseek-ai/DeepSeek-OCR",
-        "name": "DeepSeek-OCR",
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "documentationRef": "https://www.siliconflow.cn/models",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": null
-        },
-        "contextTokens": 8192,
-        "supportsTools": false,
         "supportsStructuredOutput": true,
         "lastVerifiedAt": "2026-11-14"
       },
@@ -30694,31 +30410,6 @@
       {
         "id": "Qwen/Qwen3-Omni-30B-A3B-Thinking",
         "name": "Qwen3-Omni-30B-A3B-Thinking",
-        "source": "official",
-        "status": "active",
-        "access": "public",
-        "productReadiness": "known",
-        "recommended": false,
-        "documentationRef": "https://www.siliconflow.cn/models",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "capabilities": {
-          "vision": true,
-          "reasoning": null
-        },
-        "contextTokens": 65536,
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "lastVerifiedAt": "2026-11-14"
-      },
-      {
-        "id": "Qwen/Qwen3-Omni-30B-A3B-Captioner",
-        "name": "Qwen3-Omni-30B-A3B-Captioner",
         "source": "official",
         "status": "active",
         "access": "public",
@@ -31214,10 +30905,23 @@
     },
     "models": [
       {
+        "id": "qwen4-max",
+        "name": "Qwen4 Max",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": true,
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview"
+      },
+      {
         "id": "qwen3.8-max",
         "name": "Qwen3.8 Max",
-        "tagKey": "providers.tagLatest",
-        "recommended": true,
+        "recommended": false,
         "status": "active",
         "access": "account_enablement",
         "source": "official",
@@ -31264,59 +30968,10 @@
         }
       },
       {
-        "id": "qwen4-max-preview",
-        "name": "Qwen4 Max Preview",
-        "aliases": [
-          "qwen4.0-max-preview"
-        ],
-        "tagKey": "providers.tagLatest",
-        "recommended": false,
-        "status": "preview",
-        "access": "account_enablement",
-        "source": "official",
-        "productReadiness": "product_ready",
-        "regions": [
-          "cn-beijing"
-        ],
-        "lastVerifiedAt": "2026-11-14",
-        "modalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 393216,
-        "capabilities": {
-          "vision": true,
-          "videoInput": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "low",
-              "medium",
-              "xhigh"
-            ],
-            "defaultEffort": "xhigh",
-            "effortBudgetExclusive": true,
-            "thinkingBudget": {
-              "enabled": true,
-              "minTokens": 0,
-              "maxTokens": 262144,
-              "step": 1,
-              "allowZero": true
-            }
-          }
-        },
-        "deprecationDate": "2026-11-26",
-        "documentationRef": "https://help.aliyun.com/en/model-studio/qwen4-max-preview"
-      },
-      {
         "id": "qwen3.8-flash",
         "name": "Qwen3.8 Flash",
         "tagKey": "providers.tagFast",
-        "recommended": true,
+        "recommended": false,
         "status": "active",
         "access": "account_enablement",
         "source": "official",
@@ -31362,6 +31017,54 @@
             }
           }
         }
+      },
+      {
+        "id": "qwen4-max-preview",
+        "name": "Qwen4 Max Preview",
+        "aliases": [
+          "qwen4.0-max-preview"
+        ],
+        "recommended": false,
+        "status": "preview",
+        "access": "account_enablement",
+        "source": "official",
+        "productReadiness": "product_ready",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-11-14",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 393216,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "medium",
+              "xhigh"
+            ],
+            "defaultEffort": "xhigh",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "minTokens": 0,
+              "maxTokens": 262144,
+              "step": 1,
+              "allowZero": true
+            }
+          }
+        },
+        "deprecationDate": "2026-11-26",
+        "documentationRef": "https://help.aliyun.com/en/model-studio/qwen4-max-preview"
       },
       {
         "id": "qwen3.8-max-preview",
@@ -31772,20 +31475,6 @@
         "regions": [
           "cn-beijing"
         ]
-      },
-      {
-        "id": "qwen4-max",
-        "name": "Qwen4 Max",
-        "source": "official",
-        "status": "active",
-        "access": "account_enablement",
-        "productReadiness": "known",
-        "recommended": false,
-        "regions": [
-          "cn-beijing"
-        ],
-        "lastVerifiedAt": "2026-11-17",
-        "documentationRef": "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview"
       }
     ]
   },
@@ -31802,10 +31491,23 @@
     },
     "models": [
       {
+        "id": "qwen4-max",
+        "name": "Qwen4 Max",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": true,
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview"
+      },
+      {
         "id": "qwen3.8-max",
         "name": "Qwen3.8 Max",
-        "tagKey": "providers.tagLatest",
-        "recommended": true,
+        "recommended": false,
         "status": "active",
         "access": "account_enablement",
         "source": "official",
@@ -31855,7 +31557,7 @@
         "id": "qwen3.8-flash",
         "name": "Qwen3.8 Flash",
         "tagKey": "providers.tagFast",
-        "recommended": true,
+        "recommended": false,
         "status": "active",
         "access": "account_enablement",
         "source": "official",
@@ -32318,7 +32020,6 @@
         "aliases": [
           "qwen4.0-max-preview"
         ],
-        "tagKey": "providers.tagLatest",
         "recommended": false,
         "status": "preview",
         "access": "account_enablement",
@@ -32360,20 +32061,6 @@
         },
         "deprecationDate": "2026-11-26",
         "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/qwen4-max-preview"
-      },
-      {
-        "id": "qwen4-max",
-        "name": "Qwen4 Max",
-        "source": "official",
-        "status": "active",
-        "access": "account_enablement",
-        "productReadiness": "known",
-        "recommended": false,
-        "regions": [
-          "ap-southeast-1"
-        ],
-        "lastVerifiedAt": "2026-11-17",
-        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview"
       }
     ]
   },
@@ -32384,15 +32071,59 @@
     "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "requiresApiKey": true,
     "icon": "🪶",
-    "description": "QwenCloud pay-as-you-go international endpoint with formal Qwen3.8 Max and regular sk API keys; separate from Token Plan",
+    "description": "Qwen4 Max and other Singapore pay-as-you-go models with a regular API key.",
     "capabilities": {
       "vision": true
     },
     "models": [
       {
+        "id": "qwen4-max",
+        "name": "Qwen4 Max",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "product_ready",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen4-max",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
+        },
+        "recommended": true
+      },
+      {
         "id": "qwen3.8-max",
         "name": "Qwen3.8 Max",
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
         "regions": [
@@ -32407,7 +32138,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1000000,
         "maxOutputTokens": 131072,
         "capabilities": {
@@ -32415,6 +32146,52 @@
           "videoInput": true,
           "promptCache": true,
           "batch": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "low",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "minTokens": 0,
+              "maxTokens": 262144,
+              "step": 1,
+              "allowZero": true
+            }
+          }
+        }
+      },
+      {
+        "id": "qwen3.8-flash",
+        "name": "Qwen3.8 Flash",
+        "tagKey": "providers.tagFast",
+        "source": "official",
+        "status": "active",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-08-28",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "product_ready",
+        "recommended": false,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "capabilities": {
+          "vision": true,
           "reasoning": {
             "mode": "optional",
             "effortLevels": [
@@ -32477,7 +32254,6 @@
       {
         "id": "qwen3.8-max-0902",
         "name": "Qwen3.8 Max (0902)",
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
         "regions": [
@@ -32492,7 +32268,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1000000,
         "maxOutputTokens": 131072,
         "capabilities": {
@@ -32531,11 +32307,10 @@
       {
         "id": "qwen3.8-omni-flash",
         "name": "Qwen3.8 Omni Flash",
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "regions": [
           "ap-southeast-1"
         ],
@@ -32580,52 +32355,6 @@
             "effortBudgetExclusive": true,
             "thinkingBudget": {
               "enabled": false
-            }
-          }
-        }
-      },
-      {
-        "id": "qwen3.8-flash",
-        "name": "Qwen3.8 Flash",
-        "tagKey": "providers.tagFast",
-        "source": "official",
-        "status": "active",
-        "regions": [
-          "ap-southeast-1"
-        ],
-        "lastVerifiedAt": "2026-08-28",
-        "modalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "productReadiness": "product_ready",
-        "recommended": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 131072,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "defaultEffort": "low",
-            "effortBudgetExclusive": true,
-            "thinkingBudget": {
-              "enabled": true,
-              "minTokens": 0,
-              "maxTokens": 262144,
-              "step": 1,
-              "allowZero": true
             }
           }
         }
@@ -32700,7 +32429,7 @@
         "tagKey": "providers.tagFast",
         "source": "curated",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -33044,50 +32773,6 @@
         "maxOutputTokens": 1048576
       },
       {
-        "id": "qwen4-max",
-        "name": "Qwen4 Max",
-        "tagKey": "providers.tagLatest",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "regions": [
-          "ap-southeast-1"
-        ],
-        "lastVerifiedAt": "2026-11-16",
-        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen4-max",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 262144,
-        "inputModalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "videoInput": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "low",
-              "high",
-              "xhigh"
-            ],
-            "defaultEffort": "high",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": true,
-              "maxTokens": 262144,
-              "defaultTokens": 131072
-            }
-          }
-        }
-      },
-      {
         "id": "mindlab/macaron-v1.1-venti",
         "name": "mindlab/macaron-v1.1-venti",
         "source": "official",
@@ -33144,9 +32829,53 @@
     },
     "models": [
       {
+        "id": "qwen4-max",
+        "name": "Qwen4 Max",
+        "tagKey": "providers.tagLatest",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "product_ready",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen4-max",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 262144,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "videoInput": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "low",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "defaultEnabled": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "maxTokens": 262144,
+              "defaultTokens": 131072
+            }
+          }
+        },
+        "recommended": true
+      },
+      {
         "id": "qwen3.8-max",
         "name": "Qwen3.8 Max",
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
         "regions": [
@@ -33161,7 +32890,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1000000,
         "maxOutputTokens": 131072,
         "capabilities": {
@@ -33169,6 +32898,52 @@
           "videoInput": true,
           "promptCache": true,
           "batch": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "low",
+            "effortBudgetExclusive": true,
+            "thinkingBudget": {
+              "enabled": true,
+              "minTokens": 0,
+              "maxTokens": 262144,
+              "step": 1,
+              "allowZero": true
+            }
+          }
+        }
+      },
+      {
+        "id": "qwen3.8-flash",
+        "name": "Qwen3.8 Flash",
+        "tagKey": "providers.tagFast",
+        "source": "official",
+        "status": "active",
+        "regions": [
+          "cn-beijing"
+        ],
+        "lastVerifiedAt": "2026-08-28",
+        "modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "productReadiness": "product_ready",
+        "recommended": false,
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "capabilities": {
+          "vision": true,
           "reasoning": {
             "mode": "optional",
             "effortLevels": [
@@ -33338,7 +33113,6 @@
       {
         "id": "qwen3.8-max-0902",
         "name": "Qwen3.8 Max (0902)",
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
         "regions": [
@@ -33353,7 +33127,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "productReadiness": "product_ready",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1000000,
         "maxOutputTokens": 131072,
         "capabilities": {
@@ -33392,11 +33166,10 @@
       {
         "id": "qwen3.8-omni-flash",
         "name": "Qwen3.8 Omni Flash",
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "regions": [
           "cn-beijing"
         ],
@@ -33441,52 +33214,6 @@
             "effortBudgetExclusive": true,
             "thinkingBudget": {
               "enabled": false
-            }
-          }
-        }
-      },
-      {
-        "id": "qwen3.8-flash",
-        "name": "Qwen3.8 Flash",
-        "tagKey": "providers.tagFast",
-        "source": "official",
-        "status": "active",
-        "regions": [
-          "cn-beijing"
-        ],
-        "lastVerifiedAt": "2026-08-28",
-        "modalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "productReadiness": "product_ready",
-        "recommended": true,
-        "contextTokens": 1000000,
-        "maxOutputTokens": 131072,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "none",
-              "minimal",
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "defaultEffort": "low",
-            "effortBudgetExclusive": true,
-            "thinkingBudget": {
-              "enabled": true,
-              "minTokens": 0,
-              "maxTokens": 262144,
-              "step": 1,
-              "allowZero": true
             }
           }
         }
@@ -33906,7 +33633,7 @@
             }
           }
         },
-        "recommended": true,
+        "recommended": false,
         "productReadiness": "known",
         "inputModalities": [
           "text",
@@ -34053,9 +33780,8 @@
       {
         "id": "qwen3.7-max",
         "name": "Qwen3.7 Max",
-        "tagKey": "providers.tagLatest",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "source": "official",
         "status": "active",
         "regions": [
@@ -34095,7 +33821,6 @@
       {
         "id": "qwen3.7-max-2026-06-08",
         "name": "Qwen3.7 Max 2026-06-08",
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "status": "active",
         "regions": [
@@ -34188,30 +33913,36 @@
           "qwen3-max"
         ],
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-10",
         "replacementModelId": "qwen3.7-max",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3.6-max-preview",
         "name": "Qwen3.6 Max Preview",
         "tagKey": "providers.tagPreview",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-10",
         "replacementModelId": "qwen3.7-max",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3-max-preview",
         "name": "Qwen3 Max Preview",
         "tagKey": "providers.tagPreview",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-10",
         "replacementModelId": "qwen3.7-max",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3.5-plus",
@@ -34226,7 +33957,13 @@
               "enabled": true
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2027-01-19",
+        "lastVerifiedAt": "2026-11-18",
+        "replacementModelId": "qwen3.8-flash",
+        "documentationRef": "https://www.alibabacloud.com/notice/detail?_p_lc=1&id=2217"
       },
       {
         "id": "qwen3.6-plus",
@@ -34281,16 +34018,25 @@
       {
         "id": "qwen3-coder-next",
         "name": "Qwen3 Coder Next",
-        "tagKey": "providers.tagCode"
+        "tagKey": "providers.tagCode",
+        "status": "removed",
+        "recommended": false,
+        "deprecationDate": "2026-10-10",
+        "replacementModelId": "qwen3.7-plus",
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3-coder-plus",
         "name": "Qwen3 Coder Plus",
         "tagKey": "providers.tagCoding",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "replacementModelId": "qwen3.7-plus",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "deprecationDate": "2026-10-10",
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3-coder-flash",
@@ -34320,12 +34066,15 @@
         "name": "Qwen3 VL Flash",
         "tagKey": "providers.tagVision",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "replacementModelId": "qwen3.6-flash",
-        "lastVerifiedAt": "2026-08-01",
+        "lastVerifiedAt": "2026-11-18",
         "capabilities": {
           "vision": true
-        }
+        },
+        "recommended": false,
+        "deprecationDate": "2026-10-10",
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qvq-max",
@@ -34673,50 +34422,6 @@
           "vision": true,
           "videoInput": true
         }
-      },
-      {
-        "id": "qwen4-max",
-        "name": "Qwen4 Max",
-        "tagKey": "providers.tagLatest",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "regions": [
-          "cn-beijing"
-        ],
-        "lastVerifiedAt": "2026-11-16",
-        "documentationRef": "https://help.aliyun.com/zh/model-studio/qwen4-max",
-        "contextTokens": 1000000,
-        "maxOutputTokens": 262144,
-        "inputModalities": [
-          "text",
-          "image",
-          "video"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "videoInput": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "low",
-              "high",
-              "xhigh"
-            ],
-            "defaultEffort": "high",
-            "defaultEnabled": true,
-            "thinkingBudget": {
-              "enabled": true,
-              "maxTokens": 262144,
-              "defaultTokens": 131072
-            }
-          }
-        }
       }
     ]
   },
@@ -34727,25 +34432,55 @@
     "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
     "requiresApiKey": true,
     "icon": "🫘",
-    "description": "Doubao Seed 2.0, Doubao-Seed 1.6, Seed-Code",
+    "description": "Seed-Evolving and Seed 2.1 on the Beijing Ark API",
     "capabilities": {
       "vision": false
     },
     "models": [
       {
-        "id": "doubao-seed-2.0-pro",
-        "name": "Doubao Seed 2.0 Pro",
-        "tagKey": "providers.tagLatest",
-        "source": "curated",
-        "productReadiness": "known",
+        "id": "doubao-seed-evolving",
+        "name": "Doubao Seed-Evolving",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "product_ready",
         "recommended": true,
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://ark.volcengine.com/region:cn-beijing/docs/latest-model",
         "capabilities": {
-          "vision": true
-        }
+          "vision": true,
+          "reasoning": {
+            "mode": "optional",
+            "effortLevels": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "defaultEnabled": true
+          }
+        },
+        "contextTokens": 1024000,
+        "maxOutputTokens": 256000,
+        "supportsStructuredOutput": true
       },
       {
-        "id": "doubao-seed-evolving",
-        "name": "doubao-seed-evolving",
+        "id": "doubao-seed-2-1-pro-260915",
+        "name": "doubao-seed-2-1-pro-260915",
         "source": "official",
         "status": "active",
         "productReadiness": "known",
@@ -34818,41 +34553,14 @@
         "supportsStructuredOutput": true
       },
       {
-        "id": "doubao-seed-2-1-pro-260915",
-        "name": "doubao-seed-2-1-pro-260915",
-        "source": "official",
-        "status": "active",
+        "id": "doubao-seed-2.0-pro",
+        "name": "Doubao Seed 2.0 Pro",
+        "source": "curated",
         "productReadiness": "known",
         "recommended": false,
-        "lastVerifiedAt": "2026-09-30",
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "documentationRef": "https://docs.volcengine.com/docs/ark/model-release-announcement?lang=zh",
         "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "optional",
-            "effortLevels": [
-              "minimal",
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "high",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "contextTokens": 1024000,
-        "maxOutputTokens": 256000,
-        "supportsStructuredOutput": true
+          "vision": true
+        }
       },
       {
         "id": "doubao-seed-2.0-code",
@@ -35563,41 +35271,19 @@
     "baseUrl": "https://api.baichuan-ai.com/v1",
     "requiresApiKey": true,
     "icon": "🌊",
-    "description": "Baichuan-M3/M2 medical models",
+    "description": "General chat with Baichuan4-Turbo and specialized Baichuan medical models",
     "capabilities": {
       "vision": false
     },
     "models": [
       {
-        "id": "Baichuan-M3-Plus",
-        "name": "Baichuan M3 Plus",
-        "tagKey": "providers.tagLatest",
-        "source": "curated",
-        "productReadiness": "known",
-        "recommended": true
-      },
-      {
-        "id": "Baichuan-M3",
-        "name": "Baichuan M3",
-        "tagKey": "providers.tagBestBalance"
-      },
-      {
-        "id": "Baichuan-M2-Plus",
-        "name": "Baichuan M2 Plus"
-      },
-      {
-        "id": "Baichuan-M2",
-        "name": "Baichuan M2",
-        "tagKey": "providers.tagFast"
-      },
-      {
         "id": "Baichuan4-Turbo",
         "name": "Baichuan4-Turbo",
         "status": "active",
         "source": "official",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-05",
+        "productReadiness": "product_ready",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-18T08:18:54Z",
         "documentationRef": "https://platform.baichuan-ai.com/docs-v2/api",
         "inputModalities": [
           "text"
@@ -35607,7 +35293,9 @@
         ],
         "capabilities": {
           "vision": false
-        }
+        },
+        "supportsTools": true,
+        "maxOutputTokens": 2048
       },
       {
         "id": "Baichuan4-Air",
@@ -35627,6 +35315,28 @@
         "capabilities": {
           "vision": false
         }
+      },
+      {
+        "id": "Baichuan-M3-Plus",
+        "name": "Baichuan M3 Plus",
+        "tagKey": "providers.tagLatest",
+        "source": "curated",
+        "productReadiness": "known",
+        "recommended": false
+      },
+      {
+        "id": "Baichuan-M3",
+        "name": "Baichuan M3",
+        "tagKey": "providers.tagBestBalance"
+      },
+      {
+        "id": "Baichuan-M2-Plus",
+        "name": "Baichuan M2 Plus"
+      },
+      {
+        "id": "Baichuan-M2",
+        "name": "Baichuan M2",
+        "tagKey": "providers.tagFast"
       },
       {
         "id": "Baichuan4",

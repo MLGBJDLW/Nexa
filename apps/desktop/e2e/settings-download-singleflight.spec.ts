@@ -9,6 +9,7 @@ test.beforeEach(async ({ page }) => {
     let callbackSeq = 1;
     let listenerSeq = 1;
     let downloadModelCalls = 0;
+    let modelReady = false;
     let activeModelProbes = 0;
     let maxConcurrentModelProbes = 0;
     let modelProbeCalls = 0;
@@ -105,11 +106,21 @@ test.beforeEach(async ({ page }) => {
             vectorDimensions: 384,
           };
         case "check_local_model_cmd":
-          return runModelProbe(false);
+          return runModelProbe(modelReady);
         case "download_local_model_cmd":
           downloadModelCalls += 1;
           (window as unknown as { __downloadModelCalls: number }).__downloadModelCalls = downloadModelCalls;
-          return new Promise((resolve) => setTimeout(resolve, 250));
+          return new Promise<void>(resolve => {
+            (window as unknown as { finishModelDownload: () => void }).finishModelDownload = () => {
+              modelReady = true;
+              resolve();
+            };
+            for (const { event, handlerId } of listeners.values()) {
+              if (event === 'model:download-progress') callbackMap.get(handlerId)?.({ payload: {
+                filename: 'model.bin', fileIndex: 0, totalFiles: 1, bytesDownloaded: 12, totalBytes: 48,
+              } });
+            }
+          });
         case "get_ocr_config_cmd":
           return {
             enabled: false,
@@ -209,6 +220,16 @@ test("model downloads coalesce rapid repeated clicks into one backend call", asy
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __downloadModelCalls: number }).__downloadModelCalls))
     .toBe(1);
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  await page.getByRole('link', { name: 'Sources', exact: true }).click();
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.getByRole('tab', { name: 'Models & Embedding' }).click();
+  const section = page.getByRole('button', { name: /^Models Manage AI models/ });
+  if (!await page.getByRole('progressbar').isVisible()) await section.click();
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '25');
+  await page.evaluate(() => (window as unknown as { finishModelDownload: () => void }).finishModelDownload());
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
+
 });
 
 test("model status probes are serialized when the tab opens", async ({ page }) => {

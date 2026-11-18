@@ -270,6 +270,7 @@ export function ExternalAgentConfigForm({ preset: initialPreset, config, onSave,
         {models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </NexaSelect>
     </label>}
+    {isCursor && models.length > 0 && <p className="text-xs leading-5 text-text-secondary">{t('settings.cursorPlanUsageHint')}</p>}
     {nativeOptions.filter(option => !isNativeModel(option) && !isNativeReasoning(option)).map(option => <label key={option.id} className="block text-xs font-medium text-text-secondary">
       {option.name}
       <NexaSelect className={inputClass} disabled={loading} value={launch.configOptions?.[option.id] ?? option.currentValue}

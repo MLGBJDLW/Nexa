@@ -151,7 +151,11 @@ pub(super) async fn run(request: AgentRuntimeTurnRequest) -> Result<Message, Cor
             .await
             .map_err(sdk_error)?;
         let models = client.list_models().await.map_err(sdk_error)?;
-        let model = models.into_iter().find(|model| model.id == model_id).ok_or_else(|| protocol_error("the selected model is not available to this Copilot account; refresh its model list"))?;
+        let model = models
+            .into_iter()
+            .filter(crate::commands::subscription_accounts::copilot_model_available)
+            .find(|model| model.id == model_id)
+            .ok_or_else(|| protocol_error("the selected model is not available to this Copilot account; refresh its model list"))?;
         Ok::<_, CoreError>((client, model))
     };
     let (client, model) = tokio::select! {

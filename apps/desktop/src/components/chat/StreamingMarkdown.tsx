@@ -1,4 +1,5 @@
-import { memo, useMemo } from 'react';
+import { memo, useLayoutEffect, useMemo, useRef } from 'react';
+import type { Element, Root, RootContent } from 'hast';
 import ReactMarkdown from 'react-markdown';
 import { useStreamingPresentation } from '../../lib/useStreamingPresentation';
 import { markdownProse } from '../../lib/markdownCodeProtection';
@@ -29,12 +30,52 @@ interface MarkdownDocumentProps {
   content: string;
   citationLookup: MarkdownCitationLookup;
   isStreaming: boolean;
+  revealTail: boolean;
 }
+
+// Only the newest prose leaf needs animated runs. Leave code, math, links
+// and earlier blocks in the normal Markdown renderer.
+function rehypeStreamingTail() {
+  return (root: Root) => {
+    let parent: Root | Element = root;
+    while (parent.children.length) {
+      const child: RootContent = parent.children[parent.children.length - 1];
+      if (child.type === 'text' && parent.type === 'element' && child.value.trim()) {
+        parent.children[parent.children.length - 1] = {
+          type: 'element', tagName: 'nexa-stream-tail', properties: {}, children: [child],
+        };
+        return;
+      }
+      if (child.type !== 'element' || !/^(p|li|ul|ol|blockquote|em|strong|del|h[1-6])$/.test(child.tagName)) return;
+      parent = child;
+    }
+  };
+}
+
+function StreamingTail({ children = '' }: { children?: string }) {
+  const previous = useRef({ text: '', starts: [] as number[] });
+  const prior = previous.current;
+  const appended = children.length - prior.text.length;
+  let starts = prior.starts;
+  if (children !== prior.text) {
+    // A restored block or a large catch-up batch should be readable immediately.
+    starts = appended > 0 && appended <= 160 && children.startsWith(prior.text)
+      ? [...prior.starts.slice(-5), prior.text.length] : [];
+  }
+  useLayoutEffect(() => { previous.current = { text: children, starts }; }, [children, starts]);
+  return <>{children.slice(0, starts[0] ?? children.length)}{starts.map((start, index) => (
+    <span key={start} className="streaming-text-rise">{children.slice(start, starts[index + 1])}</span>
+  ))}</>;
+}
+
+const livePlugins = [...rehypePlugins, rehypeStreamingTail];
+const liveComponents: typeof markdownComponents = { ...markdownComponents, 'nexa-stream-tail': StreamingTail };
 
 const MarkdownDocument = memo(function MarkdownDocument({
   content,
   citationLookup,
   isStreaming,
+  revealTail,
 }: MarkdownDocumentProps) {
   const { t } = useTranslation();
   const processed = useMemo(
@@ -83,8 +124,8 @@ const MarkdownDocument = memo(function MarkdownDocument({
           >
             <ReactMarkdown
               remarkPlugins={markdownRemarkPlugins}
-              rehypePlugins={rehypePlugins}
-              components={markdownComponents}
+              rehypePlugins={revealTail ? livePlugins : rehypePlugins}
+              components={revealTail ? liveComponents : markdownComponents}
               urlTransform={(url) => url}
             >
               {processed}
@@ -118,6 +159,7 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
         content={presented}
         citationLookup={effectiveCitationLookup}
         isStreaming={isStreaming || partial}
+        revealTail={isStreaming && !reduceMotion}
       />
       {isStreaming && (
         <span className={`streaming-caret-overlay ${reduceMotion ? '' : 'animate-pulse'}`} />

@@ -323,7 +323,7 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
   });
   for (const [id, expectedVision, expectedOutput] of [
     ['z-ai/glm-5.3', false, 943_718],
-    ['z-ai/glm-5.3-flash', true, 131_072],
+    ['z-ai/glm-5.3-flash', true, 943_717],
   ] as const) {
     const candidate = openrouterModels.find(model => model.id === id);
     assert(candidate, `${id} should be listed by OpenRouter`);
@@ -356,7 +356,7 @@ function testGlm53AndDeepSeekCurrentModelsExposeOfficialCapabilities(): void {
   });
   const gemini38 = googleModels.find(candidate => candidate.id === 'gemini-3.8-flash');
   assert(gemini38, 'Gemini 3.8 Flash should be listed by the direct API');
-  assertEqual(selectImplicitDefault(googleModels)?.id, 'gemini-4-carbon', 'latest Gemini default');
+  assertEqual(selectImplicitDefault(googleModels)?.id, 'gemini-4-hydrogen', 'latest Gemini default');
   assertEqual(gemini38.descriptor.limits.contextTokens, 1_048_576, 'Gemini 3.8 context');
   assertEqual(gemini38.descriptor.limits.maxOutputTokens, 65_536, 'Gemini 3.8 output');
   assertEqual(gemini38.descriptor.capabilities.promptCache, true, 'Gemini 3.8 cache');

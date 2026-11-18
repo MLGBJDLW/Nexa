@@ -472,10 +472,11 @@ pub fn resolve_reasoning_profile(
             ReasoningReplayPolicy::OpaqueSignature
         };
         if provider == ProviderType::OpenAi
-            && matches!(
-                model,
-                "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
-            )
+            && (super::openai::openai_pro_preset(model).is_some()
+                || matches!(
+                    model,
+                    "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
+                ))
         {
             value.mode_control = ThinkingModeControl::AlwaysOn;
         }
@@ -537,37 +538,18 @@ pub fn resolve_reasoning_profile(
     if (provider == ProviderType::OpenAi && is_openai_public_endpoint(provider, base_url))
         || (provider == ProviderType::AzureOpenAi && is_azure_openai_endpoint(provider, base_url))
     {
-        if provider == ProviderType::OpenAi
-            && matches!(model.as_str(), "gpt-6.2-astra" | "gpt-6.2-sol")
-        {
+        let always_on_profile = match model.as_str() {
+            "gpt-6.2-astra" | "gpt-6.2-sol" if provider == ProviderType::OpenAi => {
+                Some("openai-gpt62-v1")
+            }
+            "gpt-6.1-sol" => Some("openai-gpt61-sol-v1"),
+            "gpt-6-astra" => Some("openai-gpt-6-astra-v1"),
+            _ => None,
+        };
+        if let Some(profile_id) = always_on_profile {
             let mut value = profile(
                 key,
-                "openai-gpt62-v1",
-                ThinkingModeControl::AlwaysOn,
-                ReasoningEffortField::TopLevel,
-                ReasoningEffortMapping::Exact,
-                (
-                    &[
-                        ReasoningEffort::Low,
-                        ReasoningEffort::Medium,
-                        ReasoningEffort::High,
-                    ],
-                    Some(ReasoningEffort::Medium),
-                ),
-                ReasoningBudgetField::None,
-            );
-            value.omit_temperature_when_reasoning = true;
-            value.use_max_completion_tokens = true;
-            return value;
-        }
-        if matches!(model.as_str(), "gpt-6-astra" | "gpt-6.1-sol") {
-            let mut value = profile(
-                key,
-                if model == "gpt-6.1-sol" {
-                    "openai-gpt61-sol-v1"
-                } else {
-                    "openai-gpt-6-astra-v1"
-                },
+                profile_id,
                 ThinkingModeControl::AlwaysOn,
                 ReasoningEffortField::TopLevel,
                 ReasoningEffortMapping::Exact,
@@ -609,6 +591,9 @@ pub fn resolve_reasoning_profile(
         );
         value.omit_temperature_when_reasoning = true;
         value.use_max_completion_tokens = true;
+        if provider == ProviderType::OpenAi && super::openai::openai_pro_preset(&model).is_some() {
+            value.mode_control = ThinkingModeControl::AlwaysOn;
+        }
         return value;
     }
 
@@ -790,6 +775,14 @@ pub fn resolve_reasoning_profile(
         value.preserve_reasoning_history = true;
         value.reasoning_history_encoding = ReasoningHistoryEncoding::ArkEncryptedContent;
         value.default_enabled = (model == "doubao-seed-2-1-turbo-260628").then_some(true);
+        if model == "doubao-seed-evolving" {
+            if let Some((levels, default, _)) = catalog_reasoning_effort_policy(provider, &model) {
+                value.effort_mapping = ReasoningEffortMapping::Exact;
+                value.accepted_efforts = levels;
+                value.default_effort = default;
+            }
+            value.default_enabled = Some(true);
+        }
         return value;
     }
 
@@ -2550,6 +2543,8 @@ mod tests {
                     ReasoningEffort::Low,
                     ReasoningEffort::Medium,
                     ReasoningEffort::High,
+                    ReasoningEffort::XHigh,
+                    ReasoningEffort::Max,
                 ]
             );
             assert!(chat.omit_temperature_when_reasoning);

@@ -239,8 +239,17 @@ impl Session {
             )
             .await?;
         }
-        self.current_model = Some(model.to_string());
+        self.set_current_model(model);
         Ok(())
+    }
+
+    fn set_current_model(&mut self, model: &str) {
+        if self.current_model.as_deref() != Some(model) {
+            self.current_model = Some(model.to_owned());
+            if let Some(index) = self.models.iter().position(|item| item.id == model) {
+                self.models[..=index].rotate_right(1);
+            }
+        }
     }
 
     pub(super) async fn set_option(
@@ -332,7 +341,7 @@ impl Session {
                     .as_str()
                     .filter(|id| !id.is_empty() && id.len() <= 1024)
                 {
-                    self.current_model = Some(model.into());
+                    self.set_current_model(model);
                 }
             }
             Some("config_option_update") => self.replace_options(update)?,

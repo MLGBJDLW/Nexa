@@ -250,12 +250,21 @@ export function SpeechToTextSettingsPanel({
             {!isWhisper && (
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-primary">{t('settings.model')}</label>
-                <CatalogModelPicker
-                  value={config.model}
-                  onValueChange={(model) => update({ model })}
-                  models={activePreset.models}
-                  surface="speech_to_text"
-                />
+                {activePreset.id === 'custom-openai' ? (
+                  <Input
+                    aria-label={t('settings.model')}
+                    value={config.model}
+                    onChange={event => update({ model: event.target.value })}
+                    placeholder="whisper-1"
+                  />
+                ) : (
+                  <CatalogModelPicker
+                    value={config.model}
+                    onValueChange={(model) => update({ model })}
+                    models={activePreset.models}
+                    surface="speech_to_text"
+                  />
+                )}
                 <ModelDescriptorBadges descriptor={selectedModelDescriptor} surface="speech_to_text" />
               </div>
             )}

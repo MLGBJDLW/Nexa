@@ -27,6 +27,8 @@ pub(super) struct ModelEntry {
     top_provider: Option<TopProvider>,
     reasoning: Option<Reasoning>,
     endpoints: Option<Vec<String>>,
+    operation: Option<String>,
+    completion_chat: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -50,11 +52,22 @@ impl From<RawModelEntry> for ModelEntry {
             id: raw.id,
             name: take(&mut raw.fields, "name"),
             supported_parameters: take(&mut raw.fields, "supported_parameters"),
-            architecture: take(&mut raw.fields, "architecture"),
+            architecture: take(&mut raw.fields, "architecture").or_else(|| {
+                Some(Architecture {
+                    input_modalities: take(&mut raw.fields, "input_modalities"),
+                    output_modalities: take(&mut raw.fields, "output_modalities"),
+                })
+            }),
             context_length: take(&mut raw.fields, "context_length"),
             top_provider: take(&mut raw.fields, "top_provider"),
             reasoning: take(&mut raw.fields, "reasoning"),
             endpoints: take(&mut raw.fields, "endpoints"),
+            operation: take(&mut raw.fields, "type"),
+            completion_chat: raw
+                .fields
+                .get("capabilities")
+                .and_then(|caps| caps.get("completion_chat"))
+                .and_then(|chat| chat.as_bool()),
         }
     }
 }
@@ -143,14 +156,42 @@ fn account_cache(provider: &OpenAiProvider) -> Arc<tokio::sync::Mutex<CachedDisc
 }
 
 impl ModelEntry {
-    fn supports_chat(&self) -> bool {
+    fn supports_chat(&self, allow_responses: bool) -> bool {
         !self.id.trim().is_empty()
-            && !self.id.ends_with(":batch")
+            && self.completion_chat != Some(false)
+            && !crate::provider_catalog::is_dedicated_model_id(&self.id)
+            && !matches!(
+                self.operation.as_deref(),
+                Some(
+                    "transcription"
+                        | "audio-transcription"
+                        | "automatic-speech-recognition"
+                        | "speech"
+                        | "text-to-speech"
+                        | "embedding"
+                        | "embeddings"
+                        | "rerank"
+                        | "reranker"
+                        | "image"
+                        | "text-to-image"
+                        | "video"
+                        | "moderation"
+                )
+            )
             && self.endpoints.as_ref().is_none_or(|endpoints| {
-                endpoints
-                    .iter()
-                    .any(|endpoint| endpoint == "/api/v1/chat/completions")
+                endpoints.iter().any(|endpoint| {
+                    endpoint
+                        .trim_end_matches('/')
+                        .ends_with("/chat/completions")
+                        || (allow_responses
+                            && endpoint.trim_end_matches('/').ends_with("/responses"))
+                })
             })
+            && self
+                .architecture
+                .as_ref()
+                .and_then(|a| a.input_modalities.as_ref())
+                .is_none_or(|inputs| inputs.iter().any(|m| m == "text"))
             && self
                 .architecture
                 .as_ref()
@@ -220,9 +261,12 @@ impl OpenAiProvider {
             if total.is_some_and(|total| rows.len() < total) {
                 return Err(CoreError::Llm("Incomplete model catalog".into()));
             }
-            if is_openrouter_config(&self.config) {
-                rows.retain(ModelEntry::supports_chat);
-            }
+            rows.retain(|model| {
+                model.supports_chat(super::is_direct_openai_responses_model(
+                    &self.config,
+                    &model.id,
+                ))
+            });
             Ok(rows)
         })
         .await
@@ -463,17 +507,25 @@ mod tests {
             {"id":"chat","endpoints":["/api/v1/chat/completions"]},
             {"id":"batch:batch","endpoints":["/api/v1/batches"]},
             {"id":"responses-only","endpoints":["/api/v1/responses"]},
-            {"id":"image","architecture":{"output_modalities":["image"]}}
+            {"id":"image","architecture":{"output_modalities":["image"]}},
+            {"id":"gpt-4o-mini-transcribe-2025-03-20"},
+            {"id":"voxtral-mini-tts-3-0"},
+            {"id":"private-transcription","input_modalities":["audio"],"output_modalities":["text"]},
+            {"id":"private-reranker","capabilities":{"completion_chat":false}},
+            {"id":"another-embed","type":"embeddings"},
+            {"id":"google/gemini-3.1-flash-image","architecture":{"output_modalities":["text","image"]}},
+            {"id":"openai/gpt-audio","architecture":{"input_modalities":["text","audio"],"output_modalities":["text","audio"]}},
+            {"id":"openai/gpt-5.4-image-2"}
         ]}))
         .unwrap();
         assert_eq!(
             models
                 .data
                 .iter()
-                .filter(|model| model.supports_chat())
+                .filter(|model| model.supports_chat(false))
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            ["chat"]
+            ["chat", "openai/gpt-audio", "openai/gpt-5.4-image-2"]
         );
     }
 

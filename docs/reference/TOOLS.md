@@ -899,11 +899,12 @@ Windows WebView2 also supports these native interactions:
   This supports canvas controls that have no semantic element ref. A drag uses
   `endPoint` or `endRef`; both endpoints must be visible in the same document and
   at least eight CSS pixels apart. Native held-button mouse events support canvas and HTML drag/drop.
-  On foreground Windows WebView2 tabs, ordinary clicks, double clicks, hovers and drags
-  move the system pointer. Covered points or user input cancel the gesture.
-  Active tabs in an unfocused window, modifier gestures and pinched viewports
-  use tab-scoped WebView input. Scroll uses the requested CSS wheel deltas. The result reports the chosen
-  route in `pointerDelivery`. Frame targets require element refs.
+  On foreground Windows WebView2 tabs, pointer gestures, Control/Shift clicks,
+  scrolling and Control-wheel zoom use system input. Focus changes or covered
+  points pause the gesture. Only use `delivery: "background"` when the user
+  explicitly requests background input. It targets the visible selected WebView.
+  Windows scroll settings determine physical wheel travel. The receipt records
+  the route in `pointerDelivery`. Frame targets require element refs.
 - `scroll` sends a native wheel event at `point` or `targetRef`, so nested scroll
   areas receive input. With neither, it targets the viewport center. Each delta
   is bounded to 100,000 CSS pixels. `press` supports letter shortcuts with

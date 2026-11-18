@@ -288,25 +288,28 @@ test.beforeEach(async ({ page }) => {
 test('keeps long streaming markdown advancing before the stream finishes', async ({ page }) => {
   await page.goto('/chat');
 
-  await expect(page.getByText(/token05/i)).toBeVisible();
+  await expect(page.getByTestId('chat-markdown-document').last()).toContainText(/token05/i);
   await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
 
-  await page.waitForTimeout(700);
-  await expect(page.getByText(/token45/i)).toBeVisible();
+  await expect(page.locator('.streaming-text-rise').first()).toBeVisible();
+  expect(await page.locator('.streaming-text-rise').count()).toBeLessThanOrEqual(6);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.locator('.streaming-text-rise')).toHaveCount(0);
+  await expect(page.getByTestId('chat-markdown-document').last()).toContainText(/token45/i);
   await page.evaluate(() => (window as Window & { __finishMarkdownStream?: () => void }).__finishMarkdownStream?.());
 });
 
 test('keeps sidebar interaction urgent while transcript transitions are streaming', async ({ page }) => {
   await page.goto('/chat');
 
-  await expect(page.getByText(/token05/i)).toBeVisible();
+  await expect(page.getByTestId('chat-markdown-document').last()).toContainText(/token05/i);
   const sidebar = page.getByTestId('chat-history-sidebar');
   await expect(sidebar).toHaveAttribute('data-collapsed', 'false');
 
   await page.getByRole('button', { name: 'Toggle sidebar' }).click();
 
   await expect(sidebar).toHaveAttribute('data-collapsed', 'true');
-  await expect(page.getByText(/token45/i)).toBeVisible();
+  await expect(page.getByTestId('chat-markdown-document').last()).toContainText(/token45/i);
   await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
   await page.evaluate(() => (window as Window & { __finishMarkdownStream?: () => void }).__finishMarkdownStream?.());
 });

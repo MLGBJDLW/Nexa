@@ -293,7 +293,7 @@ pub(super) async fn binary(
     let client = reqwest::Client::builder()
         .user_agent(crate::USER_AGENT)
         .connect_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(600))
+        .read_timeout(Duration::from_secs(600))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.url().scheme() != "https" || attempt.previous().len() >= 10 {
                 attempt.stop()

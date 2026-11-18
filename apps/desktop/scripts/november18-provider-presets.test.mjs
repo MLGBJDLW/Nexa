@@ -7,12 +7,19 @@ const provider = id => text.find(p => p.id === id);
 test('GPT6.2 native exact IDs stay always-reasoning Responses routes, not router Pro aliases', () => {
   for (const id of ['gpt-6.2-astra', 'gpt-6.2-sol']) {
     const m = provider('openai').models.find(m => m.id === id);
-    assert.equal(m.recommended, false);
+    assert.equal(m.recommended, id === 'gpt-6.2-sol');
     assert.equal(m.contextTokens, 1050000);
     assert.equal(m.maxOutputTokens, 128000);
-    assert.deepEqual(m.capabilities.reasoning.effortLevels, ['low', 'medium', 'high']);
+    assert.deepEqual(m.capabilities.reasoning.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.equal(m.capabilities.reasoning.mode, 'always');
     assert.equal(m.nativeWebSearch.dialect, 'openAiResponses');
+    for (const scope of ['us', 'global']) {
+      const profile = provider('bedrock').models.find(model => model.id === `${scope}.openai.${id}`);
+      assert.equal(profile.access, 'account_enablement');
+      assert.equal(profile.contextTokens, m.contextTokens);
+      assert.equal(profile.maxOutputTokens, m.maxOutputTokens);
+      assert.equal(profile.nativeWebSearch, undefined);
+    }
   }
   assert.equal(provider('openai').models.some(m => m.id.startsWith('gpt-6.2-') && m.id.endsWith('-pro')), false);
   for (const id of ['astra', 'astra-pro', 'sol', 'sol-pro']) {
@@ -32,6 +39,19 @@ test('future aggregator expirations stay deprecated and endpoint-scoped', () => 
     const m = read('system-one-provider-presets').find(p => p.id === 'openrouter').models.find(m => m.id === id);
     assert.equal(m.status, 'deprecated'); assert.equal(m.deprecationDate, '2026-11-24');
   }
+});
+test('Alibaba Beijing lifecycles distinguish retired models from upcoming shutdowns', () => {
+  const models = provider('alibaba-model-studio').models;
+  for (const id of ['qwen3-max-2026-01-23', 'qwen3.6-max-preview', 'qwen3-max-preview', 'qwen3-coder-next', 'qwen3-coder-plus', 'qwen3-vl-flash']) {
+    const model = models.find(model => model.id === id);
+    assert.equal(model.status, 'removed');
+    assert.equal(model.deprecationDate, '2026-10-10');
+    assert.ok(model.replacementModelId);
+  }
+  const plus = models.find(model => model.id === 'qwen3.5-plus');
+  assert.equal(plus.status, 'deprecated');
+  assert.equal(plus.deprecationDate, '2027-01-19');
+  assert.equal(plus.replacementModelId, 'qwen3.8-flash');
 });
 test('MAI image options and Decisions modality remain on their correct adapters', () => {
   for (const id of ['microsoft/mai-image-2.7', 'microsoft/mai-image-2.7-flash']) {

@@ -7,7 +7,11 @@ Add **GitHub Copilot** or **ChatGPT / Codex** from External agents → Add Provi
 Sign in through the official runtime and save the provider.
 Choose the model and reasoning level in Chat. The saved provider and its currently available models
 then appear in the Chat model picker. Reasoning levels come from that account's
-model catalog. Signing in does not automatically create a provider.
+model catalog. New Codex profiles use the account's declared default, including
+when it appears on a later catalog page. ACP discovery puts the runtime's active
+model first. Copilot lists all models available under the account's model
+policy. Each saved profile keeps its explicit model selection. Save a provider
+after sign-in to add it to Chat.
 
 Copilot discovery and execution use the same editor integration catalog through
 the official SDK. The bundled CLI is pinned to `1.0.103` with upstream archive
@@ -147,6 +151,16 @@ and the [ACP integration](https://cursor.com/docs/cli/acp).
 
 Chat negotiates Cursor's parameterized model picker and reads the reasoning choices
 for each available model. Older saved variant IDs use the legacy picker when needed.
+
+If Cursor replies “Add a payment method to continue,” check the model on that
+turn and the profile's **Default model**. On The X Subscription, Grok and
+Composer draw from the included weekly pool. A third-party model such as Claude
+uses prepaid credit on eligible plans, even for the first request. Select an
+included model in the chat and save it as the Cursor profile default for future
+chats. For a payment prompt on an included model, run `agent status` to confirm
+the CLI account, then check its remaining weekly usage and reset date under
+**Usage** in the Grok dashboard. [Cursor models and pricing](https://cursor.com/docs/models-and-pricing)
+and [account usage](https://grok.com/dashboard).
 
 The speed display uses the Copilot SDK's per-request output tokens and API duration.
 For ACP and Codex turns with reported output tokens and turn duration, **Agent turn

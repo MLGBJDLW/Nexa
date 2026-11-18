@@ -1,5 +1,6 @@
 //! Physical input for the foreground, windowed WebView2 only. The controller
 //! parent is wry's dedicated tab container, distinct from the host window.
+use super::state::BrowserInputDelivery;
 use nexa_core::browser_runtime::{
     acquire_desktop_input_permit, try_acquire_cross_process_input, CrossProcessDesktopInputGuard,
     ForegroundInputWatch,
@@ -36,13 +37,13 @@ impl Drop for Pixels {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum ObservedPointerFocus<W = ForegroundInputWatch> {
+enum ObservedFocus<W> {
     Background,
     Foreground(W),
     Unknown,
 }
 
-impl<W: Copy> ObservedPointerFocus<W> {
+impl<W: Copy> ObservedFocus<W> {
     fn validate(
         self,
         foreground: bool,
@@ -56,23 +57,40 @@ impl<W: Copy> ObservedPointerFocus<W> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct ObservedPointerFocus {
+    main: isize,
+    focus: ObservedFocus<ForegroundInputWatch>,
+}
 impl ObservedPointerFocus {
     pub(super) fn observe(webview: &Webview) -> Self {
-        let Ok(main) = webview.window().hwnd() else {
-            return Self::Unknown;
+        let main = webview.window().hwnd().map_or(0, |hwnd| hwnd.0 as isize);
+        let focus = if main == 0 {
+            ObservedFocus::Unknown
+        } else if unsafe { GetForegroundWindow() }.0 as isize != main {
+            ObservedFocus::Background
+        } else {
+            ForegroundInputWatch::start()
+                .map(ObservedFocus::Foreground)
+                .unwrap_or(ObservedFocus::Unknown)
         };
-        if unsafe { GetForegroundWindow() }.0 != main.0 {
-            return Self::Background;
-        }
-        ForegroundInputWatch::start()
-            .map(Self::Foreground)
-            .unwrap_or(Self::Unknown)
+        Self { main, focus }
     }
 
-    pub(super) fn check(self, webview: &Webview) -> Result<Option<ForegroundInputWatch>, String> {
-        let main = webview.window().hwnd().map_err(|error| error.to_string())?;
-        self.validate(
-            unsafe { GetForegroundWindow() }.0 == main.0,
+    pub(super) fn check_delivery(
+        self,
+        delivery: BrowserInputDelivery,
+    ) -> Result<Option<ForegroundInputWatch>, String> {
+        let observed = self.check()?;
+        if delivery == BrowserInputDelivery::Background {
+            return Ok(None);
+        }
+        observed.map(Some).ok_or_else(|| "Browser input paused while Nexa is in the background. Return to the window and observe again.".into())
+    }
+
+    pub(super) fn check(self) -> Result<Option<ForegroundInputWatch>, String> {
+        self.focus.validate(
+            unsafe { GetForegroundWindow() }.0 as isize == self.main,
             ForegroundInputWatch::changed,
         )
     }
@@ -140,10 +158,10 @@ impl SystemPointer {
         focus: ObservedPointerFocus,
         observation: &serde_json::Value,
         prepared: &serde_json::Value,
-        modifiers: &[String],
+        delivery: BrowserInputDelivery,
     ) -> Result<Option<Self>, String> {
         let live = &prepared["systemViewport"];
-        let foreground_watch = focus.check(webview)?;
+        let foreground_watch = focus.check_delivery(delivery)?;
         if [
             "width",
             "height",
@@ -160,14 +178,13 @@ impl SystemPointer {
         let Some(watch) = foreground_watch else {
             return Ok(None);
         };
-        if !modifiers.is_empty()
-            || live["visualScale"].as_f64() != Some(1.)
+        if live["visualScale"].as_f64() != Some(1.)
             || live["visualOffsetX"].as_f64() != Some(0.)
             || live["visualOffsetY"].as_f64() != Some(0.)
         {
-            // Modifier chords can trigger system shortcuts. Pixel wheel and
-            // pinch/pan use the WebView's own viewport coordinate system.
-            return Ok(None);
+            return Err(
+                "Reset pinch zoom and observe the tab again before system pointer input.".into(),
+            );
         }
         Self::acquire(webview, live, watch).await.map(Some)
     }
@@ -337,6 +354,7 @@ impl SystemPointer {
         original_url: &url::Url,
         action: &str,
         button: &str,
+        modifiers: &[String],
         start: (f64, f64),
         end: Option<(f64, f64)>,
         revalidate: impl Fn() -> Result<(), String>,
@@ -349,6 +367,12 @@ impl SystemPointer {
         for click in 1..=count {
             guard.check_system_target(&self.viewport, false).await?;
             revalidate()?;
+            self.check_idle()?;
+            self.verify_cursor(start)?;
+            if !modifiers.is_empty() {
+                self.check_keyboard_target()?;
+            }
+            let held_keys = HeldModifiers::press(modifiers)?;
             let held = self.press(start, button)?;
             if action == "drag" {
                 for step in 1..=16 {
@@ -370,14 +394,68 @@ impl SystemPointer {
             revalidate()?;
             self.verify_cursor(destination)?;
             held.release()?;
+            held_keys.release()?;
             guard
                 .await_system_release(click, original_url, click < count)
                 .await?;
         }
         Ok(())
     }
-    fn press(&self, css: (f64, f64), button: &str) -> Result<HeldButton, String> {
+    fn check_keyboard_target(&self) -> Result<(), String> {
+        let mut info = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        unsafe { GetGUIThreadInfo(0, &mut info) }.map_err(|e| e.to_string())?;
+        let container = HWND(self.container as *mut _);
+        if info.hwndFocus != container && !unsafe { IsChild(container, info.hwndFocus) }.as_bool() {
+            return Err(
+                "Focus the selected browser tab before sending a system chord or wheel gesture."
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn wheel(
+        &self,
+        point: (f64, f64),
+        x: i64,
+        y: i64,
+        modifiers: &[String],
+    ) -> Result<(), String> {
+        if (x == 0 && y == 0) || x.unsigned_abs() > 100_000 || y.unsigned_abs() > 100_000 {
+            return Err("The system wheel requires nonzero bounded scroll input.".into());
+        }
         self.check_idle()?;
+        self.verify_cursor(point)?;
+        self.check_keyboard_target()?;
+        let held_keys = HeldModifiers::press(modifiers)?;
+        self.verify_cursor(point)?;
+        let mut events = Vec::new();
+        // Chromium's nominal wheel step is 100 CSS pixels. Windows applies
+        // the user's scroll settings and browser zoom to the actual distance.
+        for (delta, flag) in [(x, MOUSEEVENTF_HWHEEL), (-y, MOUSEEVENTF_WHEEL)] {
+            if delta != 0 {
+                // WM_MOUSEWHEEL carries a signed 16-bit delta. Keep a large
+                // gesture in its requested direction when Windows packs it.
+                let data = (delta as f64 * 1.2).round() as i16;
+                events.push(INPUT {
+                    r#type: INPUT_MOUSE,
+                    Anonymous: INPUT_0 {
+                        mi: MOUSEINPUT {
+                            dwFlags: flag,
+                            mouseData: i32::from(data) as u32,
+                            ..Default::default()
+                        },
+                    },
+                });
+            }
+        }
+        send(&events)?;
+        held_keys.release()
+    }
+    fn press(&self, css: (f64, f64), button: &str) -> Result<HeldButton, String> {
         self.verify_cursor(css)?;
         let (down, up) = match button {
             "left" => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
@@ -387,6 +465,55 @@ impl SystemPointer {
         };
         send(&[mouse(down, 0, 0)])?;
         Ok(HeldButton(Some(up)))
+    }
+}
+
+struct HeldModifiers(Vec<VIRTUAL_KEY>);
+impl HeldModifiers {
+    fn event(key: VIRTUAL_KEY, up: bool) -> INPUT {
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: key,
+                    dwFlags: if up {
+                        KEYEVENTF_KEYUP
+                    } else {
+                        KEYBD_EVENT_FLAGS(0)
+                    },
+                    ..Default::default()
+                },
+            },
+        }
+    }
+    fn press(modifiers: &[String]) -> Result<Self, String> {
+        let mut held = Self(Vec::new());
+        for name in modifiers {
+            let key = match name.as_str() {
+                "Control" => VK_LCONTROL,
+                "Shift" => VK_LSHIFT,
+                _ => return Err(format!("Unsupported system pointer modifier '{name}'.")),
+            };
+            if !held.0.contains(&key) {
+                send(&[Self::event(key, false)])?;
+                held.0.push(key);
+            }
+        }
+        Ok(held)
+    }
+    fn release(mut self) -> Result<(), String> {
+        while let Some(key) = self.0.last() {
+            send(&[Self::event(*key, true)])?;
+            self.0.pop();
+        }
+        Ok(())
+    }
+}
+impl Drop for HeldModifiers {
+    fn drop(&mut self) {
+        for key in self.0.iter().rev() {
+            let _ = send(&[Self::event(*key, true)]);
+        }
     }
 }
 
@@ -409,11 +536,11 @@ impl Drop for HeldButton {
 
 #[cfg(test)]
 mod tests {
-    use super::ObservedPointerFocus::{self, Background, Foreground, Unknown};
+    use super::ObservedFocus::{self, Background, Foreground, Unknown};
 
     #[test]
     fn a_pointer_action_can_only_use_the_original_focus_and_input() {
-        let check = |observed: ObservedPointerFocus<bool>, foreground| {
+        let check = |observed: ObservedFocus<bool>, foreground| {
             observed.validate(foreground, |changed| changed)
         };
         assert_eq!(check(Background, false).unwrap(), None);

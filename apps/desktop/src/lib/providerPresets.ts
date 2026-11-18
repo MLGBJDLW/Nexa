@@ -1,4 +1,6 @@
 import providerPresets from "../../../../shared/provider-presets.json";
+import { isChatModelId } from "../../../../shared/chat-model-ids.mjs";
+export { isChatModelId };
 import subscriptionPresets from "../../../../shared/subscription-runtime-presets.json";
 import externalAgentPresets from "../../../../shared/external-agent-presets.json";
 import retiredExternalAgents from "../../../../shared/retired-external-agents.json";
@@ -307,14 +309,11 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
   }
   const isRemoved = (id: string) => tombstones.has(normalizeModelId(id))
     || Boolean(preset && isRemovedProviderModel(preset.id, id));
-  const byId = new Map<string, ProviderModelPreset>();
-  for (const model of [...observed, ...(preset?.models ?? [])]) {
-    const id = model.id.trim().toLowerCase();
-    if ([id, ...model.descriptor.aliases].some(isRemoved)) {
-      markRemoved(id, model.descriptor.aliases);
-      continue;
-    }
-    if (byId.has(id)) continue;
+  // Keep the current release's picker order. An older account snapshot can
+  // contribute access and additional IDs without burying newly shipped rows.
+  const byId = new Map(bundled);
+  for (const model of observed) {
+    const id = normalizeModelId(model.id);
     const current = bundled.get(id);
     const verified = Date.parse(model.descriptor.lastVerifiedAt ?? '');
     // A previous release may have cached the model before its contract changed.
@@ -325,9 +324,27 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
         productReadiness: model.descriptor.productReadiness === 'callable' && current.descriptor.productReadiness !== 'product_ready'
           ? 'callable' : current.descriptor.productReadiness,
       } });
+    } else if (current && (current.tagKey !== model.tagKey || current.recommended !== model.recommended)) {
+      byId.set(id, {
+        ...model,
+        tagKey: current.tagKey,
+        recommended: current.recommended,
+        descriptor: { ...model.descriptor, recommended: current.descriptor.recommended },
+      });
     } else byId.set(id, model);
   }
-  return { models: [...byId.values()].filter(model => !isRemoved(model.id)), isRemoved };
+  for (const model of [...(preset?.models ?? []), ...observed]) {
+    if ([model.id, ...model.descriptor.aliases].some(isRemoved)) {
+      markRemoved(model.id, model.descriptor.aliases);
+    }
+  }
+  const isChat = (model: ProviderModelPreset) => isChatModelId(model.id)
+    && model.descriptor.inputModalities.includes('text') && model.descriptor.outputModalities.includes('text');
+  const canSuggest = (id: string) => {
+    const model = byId.get(normalizeModelId(id));
+    return model ? isChat(model) : isChatModelId(id);
+  };
+  return { models: [...byId.values()].filter(model => !isRemoved(model.id) && isChat(model)), isRemoved, canSuggest };
 }
 
 export function catalogModelsForSnapshot(snapshot: ProviderModelCatalogSnapshot): ProviderModelPreset[] {

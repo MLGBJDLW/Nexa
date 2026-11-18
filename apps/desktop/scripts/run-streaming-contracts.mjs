@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,6 +28,13 @@ run(process.execPath, [
   '-p',
   join(root, 'tsconfig.streaming-tests.json'),
 ]);
+// tsc emits TypeScript and its JSON imports. The native ESM catalog reader
+// and the JSON it imports also need to be available in the isolated tree.
+const shared = join(root, '..', '..', 'shared');
+for (const file of readdirSync(shared).filter(name => name.endsWith('provider-presets.json')
+  || name === 'chat-model-ids.mjs' || name === 'dedicated-model-id-patterns.json')) {
+  copyFileSync(join(shared, file), join(outDir, 'shared', file));
+}
 for (const file of readdirSync(join(outDir, 'apps', 'desktop', 'tests')).filter((name) => name.endsWith('.test.js')).sort()) {
   run(process.execPath, [join(outDir, 'apps', 'desktop', 'tests', file)]);
 }

@@ -36,6 +36,8 @@ test('explicit speech presets select documented usable models without claiming c
         assert.equal(select(preset.models), null, 'the retired-next-January Speech route has no active automatic default');
         assert.ok(preset.models.every(model => model.descriptor.lifecycle === 'deprecated'));
         assert.ok(preset.models.every(model => model.descriptor.availableToCredential === null));
+      } else if (preset.id === 'custom-openai') {
+        assert.equal(select(preset.models), null, 'the custom server provides the deployment ID');
       } else {
         assert.ok(select(preset.models)?.id, `${preset.id} should have a usable preset default`);
         assert.equal(select(preset.models).descriptor.availableToCredential, null);
@@ -45,9 +47,14 @@ test('explicit speech presets select documented usable models without claiming c
   }
   const openai = stt.STT_PROVIDER_PRESETS.find(p => p.id === 'openai');
   assert.equal(stt.defaultSttItem(openai.models).id, 'gpt-transcribe');
+  const dashscope = tts.TTS_PROVIDER_PRESETS.find(p => p.id === 'dashscope-cosyvoice');
+  assert.equal(tts.defaultTtsItem(dashscope.models).id, 'qwen-audio-3.1-tts-flash');
+  assert.equal(tts.ttsVoiceForModel(dashscope, 'qwen-audio-3.1-tts-flash'), 'longanhuan_v3.1');
   for (const legacy of openai.models.filter(m => m.id !== 'gpt-transcribe')) {
     assert.equal(legacy.descriptor.lifecycle, 'deprecated');
-    assert.equal(legacy.descriptor.replacementModelId, 'gpt-transcribe');
+    const replacement = legacy.id === 'gpt-4o-mini-transcribe-2025-03-20'
+      ? 'gpt-4o-mini-transcribe-2025-12-15' : 'gpt-transcribe';
+    assert.equal(legacy.descriptor.replacementModelId, replacement);
     assert.equal(stt.defaultSttItem([legacy]), null);
   }
   const retired = { ...openai.models[0], descriptor: { ...openai.models[0].descriptor, lifecycle: 'removed' } };
@@ -169,6 +176,7 @@ test('read-aloud cancellation during config lookup causes no synthesis and setti
 test('speech input limits follow the selected model above the former generic ceiling', async () => {
   const config = { ...groqConfig, provider: 'elevenlabs', apiStyle: 'elevenlabs_speech', baseUrl: 'https://api.elevenlabs.io/v1', model: 'eleven_flash_v2_5', voice: 'George', outputFormat: 'mp3' };
   assert.equal(playback.speechPlaybackInputLimit(config), 40000);
+  assert.equal(playback.speechPlaybackInputLimit({ ...config, model: 'eleven_flash_v2' }), 30000);
   const result = await playback.requestSpeechPlayback('中'.repeat(25000), {
     loadConfig: async () => config, synthesize: async text => text, isCurrent: () => true,
   });

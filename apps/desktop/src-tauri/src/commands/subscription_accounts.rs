@@ -185,6 +185,13 @@ pub(crate) fn copilot_reasoning_efforts(model: &github_copilot_sdk::rpc::Model) 
         .collect()
 }
 
+pub(crate) fn copilot_model_available(model: &github_copilot_sdk::rpc::Model) -> bool {
+    !matches!(
+        model.policy.as_ref().map(|policy| &policy.state),
+        Some(github_copilot_sdk::rpc::ModelPolicyState::Disabled)
+    )
+}
+
 fn copilot_model_summary(model: github_copilot_sdk::rpc::Model) -> CopilotModelSummary {
     CopilotModelSummary {
         context_tiers: copilot_context_tiers(&model),
@@ -204,6 +211,14 @@ fn copilot_model_summary(model: github_copilot_sdk::rpc::Model) -> CopilotModelS
             .as_ref()
             .and_then(|supports| supports.reasoning_effort),
     }
+}
+
+fn copilot_catalog(models: Vec<github_copilot_sdk::rpc::Model>) -> Vec<CopilotModelSummary> {
+    models
+        .into_iter()
+        .filter(copilot_model_available)
+        .map(copilot_model_summary)
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1039,7 +1054,7 @@ async fn read_copilot_account_snapshot(runtime: CopilotAccountRuntime) -> Copilo
             );
             match catalog {
                 Ok(Ok(catalog)) => {
-                    models = catalog.into_iter().map(copilot_model_summary).collect();
+                    models = copilot_catalog(catalog);
                     entitlement_verified = !models.is_empty();
                     if !entitlement_verified {
                         error_code = Some("copilot_entitlement_unverified".to_string());
@@ -1196,7 +1211,7 @@ pub(crate) async fn native_subscription_models(
                     client.list_models().await.map_err(|_| "Unable to load Copilot models. Check the connection and account, then retry.".to_string())
                 }.await;
                 let _ = client.stop().await;
-                result.map(|models| models.into_iter().map(copilot_model_summary).collect())
+                result.map(copilot_catalog)
             }).await.map_err(|_| "Copilot model loading timed out. Please retry.".to_string())?
         }
         "openai_codex" => tokio::task::spawn_blocking(|| {
@@ -1208,6 +1223,7 @@ pub(crate) async fn native_subscription_models(
                 );
             }
             let mut models = Vec::new();
+            let mut default_index = None;
             let mut cursor: Option<String> = None;
             let mut cursors = std::collections::HashSet::new();
             loop {
@@ -1230,6 +1246,9 @@ pub(crate) async fn native_subscription_models(
                     else {
                         continue;
                     };
+                    if item["isDefault"] == true && default_index.is_none() {
+                        default_index = Some(models.len());
+                    }
                     models.push(CopilotModelSummary {
                         supports_reasoning_effort: None,
                         context_tiers: Vec::new(),
@@ -1268,6 +1287,11 @@ pub(crate) async fn native_subscription_models(
                 if models.len() > 1000 || !cursors.insert(next.clone()) {
                     return Err("Codex model pagination did not converge".into());
                 }
+            }
+            // New profiles use the first entry. The declared account default
+            // can arrive on any page. Preserve native order for every other model.
+            if let Some(index) = default_index {
+                models[..=index].rotate_right(1);
             }
             Ok(models)
         })
@@ -1445,5 +1469,21 @@ mod tests {
         let summary = copilot_model_summary(model);
         assert_eq!(summary.supports_reasoning_effort, Some(false));
         assert!(summary.reasoning_efforts.is_empty());
+    }
+
+    #[test]
+    fn copilot_account_catalog_excludes_explicitly_disabled_models() {
+        for (policy, available) in [
+            (Value::Null, true),
+            (json!({"state":"enabled"}), true),
+            (json!({"state":"unconfigured"}), true),
+            (json!({"state":"disabled"}), false),
+        ] {
+            let model = serde_json::from_value(json!({
+                "id": "account-model", "name": "Model", "capabilities": {}, "policy": policy
+            }))
+            .unwrap();
+            assert_eq!(copilot_model_available(&model), available);
+        }
     }
 }

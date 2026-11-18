@@ -245,6 +245,8 @@ impl BrowserActCommitTracker {
 struct StoredObservation {
     #[cfg(windows)]
     pointer_focus: super::system_pointer::ObservedPointerFocus,
+    #[cfg(windows)]
+    delivery: BrowserInputDelivery,
     created_at: Instant,
     tab_id: String,
     url: String,
@@ -2340,6 +2342,8 @@ impl BrowserState {
             let stored = StoredObservation {
                 #[cfg(windows)]
                 pointer_focus,
+                #[cfg(windows)]
+                delivery: BrowserInputDelivery::Foreground,
                 created_at: Instant::now(),
                 tab_id: tab_id.to_string(),
                 url: snapshot.url.clone(),
@@ -2498,14 +2502,24 @@ impl BrowserState {
                         .to_string(),
                 );
             }
+            #[cfg(windows)]
+            observation.pointer_focus.check_delivery(request.delivery)?;
+            #[cfg(not(windows))]
+            if request.delivery == BrowserInputDelivery::Background {
+                return Err("Background tab input requires Windows WebView2.".into());
+            }
             // Claim while holding the session mutex, before the first await or
             // WebView/native side effect. A dropped callback or aborted turn
             // can no longer reuse the same pre-action state.
-            session
+            let claimed = session
                 .observations
                 .get_mut(request.observation_id)
-                .expect("observation remained present under the session lock")
-                .claimed_for_action = true;
+                .expect("observation remained present under the session lock");
+            claimed.claimed_for_action = true;
+            #[cfg(windows)]
+            {
+                claimed.delivery = request.delivery;
+            }
             request.commit_tracker.mark_observation_consumed();
             (observation, expected, expected_end)
         };
@@ -2722,7 +2736,7 @@ impl BrowserState {
                     observation.pointer_focus,
                     &observation.viewport,
                     &prepared,
-                    request.modifiers,
+                    request.delivery,
                 )
                 .await?;
                 if let Some(pointer) = pointer {
@@ -2732,6 +2746,12 @@ impl BrowserState {
                         request.call_id,
                         observation.lease_generation,
                     )?;
+                    if !request.modifiers.is_empty() {
+                        return Err(
+                            "Modified system hover is unavailable. No pointer movement was sent."
+                                .into(),
+                        );
+                    }
                     pointer.check_idle()?;
                     pointer.move_to(point, || request.commit_tracker.mark_committed())?;
                     "system_pointer"
@@ -2748,7 +2768,7 @@ impl BrowserState {
                                 request.call_id,
                                 observation.lease_generation,
                             )?;
-                            observation.pointer_focus.check(&webview)?;
+                            observation.pointer_focus.check()?;
                             request.commit_tracker.mark_committed();
                             Ok(())
                         },
@@ -3098,7 +3118,7 @@ impl BrowserState {
                 observation.pointer_focus,
                 &observation.viewport,
                 &prepared,
-                request.modifiers,
+                request.delivery,
             )
             .await?;
             if let Some(pointer) = &pointer {
@@ -3148,10 +3168,8 @@ impl BrowserState {
             None
         };
         verification_baseline.pointer_delivery = pointer_bounds.as_ref().map(|_| {
-            if system_pointer.is_some() && input_action != "scroll" {
+            if system_pointer.is_some() {
                 "system_pointer"
-            } else if system_pointer.is_some() {
-                "system_pointer_webview_wheel"
             } else {
                 "webview_input"
             }
@@ -3213,6 +3231,11 @@ impl BrowserState {
             _ => unreachable!("trusted action kind was validated before preparation"),
         };
 
+        let expected_input = if system_pointer.is_some() {
+            expected_input.with_system_modifiers(request.modifiers)?
+        } else {
+            expected_input
+        };
         self.require_visible_focused_host_window()?;
 
         // Validate the exact claimed observation, surface and lease immediately
@@ -3228,11 +3251,7 @@ impl BrowserState {
             )
             .await?;
         let armed_guard = trusted_guard
-            .with_pointer_focus(
-                pointer_bounds
-                    .is_some()
-                    .then_some(observation.pointer_focus),
-            )
+            .with_pointer_focus(Some(observation.pointer_focus))
             .arm(
                 budget,
                 expected_input,
@@ -3295,6 +3314,7 @@ impl BrowserState {
                         &url::Url::parse(&observation.url).map_err(|e| e.to_string())?,
                         input_action,
                         request.button.unwrap_or("left"),
+                        request.modifiers,
                         start,
                         end,
                         || {
@@ -3319,7 +3339,29 @@ impl BrowserState {
                 )
                 .await
             }
-            ("scroll", _) => {
+            ("scroll", Some(pointer)) => {
+                let bounds = pointer_bounds.as_ref().expect("parsed pointer bounds");
+                let center = (bounds.x + bounds.width / 2., bounds.y + bounds.height / 2.);
+                armed_guard
+                    .check_system_target(&prepared["systemViewport"], false)
+                    .await?;
+                self.revalidate_agent_lease(
+                    request.session_id,
+                    request.tab_id,
+                    request.call_id,
+                    observation.lease_generation,
+                )?;
+                pointer.wheel(
+                    center,
+                    request.scroll_x,
+                    request.scroll_y,
+                    request.modifiers,
+                )?;
+                armed_guard
+                    .await_system_wheel(&prepared["systemViewport"], request.modifiers)
+                    .await
+            }
+            ("scroll", None) => {
                 let bounds = pointer_bounds.as_ref().expect("parsed pointer bounds");
                 super::webview_host::dispatch_trusted_wheel(
                     &armed_guard,
@@ -4004,6 +4046,10 @@ impl BrowserState {
         {
             return Err("stale observation: browser state or control owner changed".to_string());
         }
+        #[cfg(windows)]
+        observation
+            .pointer_focus
+            .check_delivery(observation.delivery)?;
         dispatch_eval_json(&tab.webview, expression)
     }
 
@@ -4208,7 +4254,7 @@ impl BrowserState {
             super::system_pointer::ObservedPointerFocus::observe(&webview),
             viewport,
             &serde_json::json!({"systemViewport":viewport}),
-            &[],
+            BrowserInputDelivery::Foreground,
         )
         .await?
         .ok_or("The isolated fixture lost foreground ownership.")?
@@ -4515,7 +4561,16 @@ pub struct BrowserViewportPoint {
     pub y: f64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BrowserInputDelivery {
+    #[default]
+    Foreground,
+    Background,
+}
+
 pub struct BrowserActRequest<'a> {
+    pub delivery: BrowserInputDelivery,
     pub call_id: &'a str,
     pub session_id: &'a str,
     pub tab_id: &'a str,
@@ -4597,8 +4652,8 @@ pub(super) fn browser_host_window_allows_agent_action(
     minimized: bool,
     focused: bool,
 ) -> bool {
-    // Windows input is addressed to the exact WebView through CDP. Desktop
-    // focus is relevant only to the OS pointer transport on other platforms.
+    // Visible Windows tabs can be observed without focus. Input separately
+    // checks the requested delivery and the focus captured by that observation.
     visible && !minimized && (cfg!(windows) || focused)
 }
 
