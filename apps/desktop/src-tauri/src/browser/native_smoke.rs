@@ -1,5 +1,5 @@
-//! Opt-in real WebView2 acceptance. Uses a non-activating, isolated fixture window and
-//! profile, never the user's active browser or installed Nexa database.
+//! Opt-in WebView2 tests create a dedicated window, profile and database.
+//! The foreground pointer test requires exclusive access to the system cursor.
 use super::*;
 
 async fn public_browser_fixture_call(
@@ -34,7 +34,10 @@ async fn public_browser_fixture_call(
     let data = output
         .data
         .ok_or("Public control returned no observation data")?;
-    let interaction = data.get("interaction").cloned();
+    let mut interaction = data.get("interaction").cloned();
+    if let Some(report) = interaction.as_mut() {
+        report["pointerDelivery"] = data["pointerDelivery"].clone();
+    }
     let mut observation: super::super::state::BrowserObservationPayload =
         serde_json::from_value(data).map_err(|error| error.to_string())?;
     let encoded = output
@@ -64,10 +67,20 @@ async fn public_browser_fixture_call(
 #[test]
 #[ignore = "requires an interactive Windows desktop and installed WebView2"]
 fn native_html_preview_keeps_agent_observation_and_input_continuous() {
+    run_html_pointer_fixture(false);
+}
+
+#[test]
+#[ignore = "requires an interactive Windows desktop and owns the system cursor in its fixture"]
+fn foreground_webview_delivers_the_actual_system_pointer_once() {
+    run_html_pointer_fixture(true);
+}
+
+fn run_html_pointer_fixture(foreground: bool) {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("index.html");
     std::fs::write(&path, r#"<!doctype html><title>Preview continuity</title>
-      <button onclick="document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
+      <button onclick="window.fixtureClicks=(window.fixtureClicks||0)+1;window.fixtureClick={x:event.clientX,y:event.clientY,trusted:event.isTrusted};document.querySelector('output').textContent='clicked once'">Continue</button><output>ready</output>
       <input type=checkbox checked aria-label=Ready><select aria-label=Choice><option value=a selected>A</option><option value=b>B</option></select>
       <input id=editor aria-label=Editor value="select this text" style="position:absolute;left:20px;top:70px">
       <canvas width=300 height=120 style="position:absolute;left:20px;top:150px"></canvas>
@@ -93,8 +106,13 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
     context.config_mut().identifier = "com.nexa.browser-continuity-fixture".into();
     let app = tauri::Builder::default().any_thread().setup(move |app| {
         tauri::window::WindowBuilder::new(app, "main")
-            .title("Nexa HTML continuity fixture").visible(true).focused(false)
+            .title("Nexa HTML continuity fixture").visible(true).focused(foreground)
             .inner_size(640.0, 480.0).build()?;
+        if !foreground {
+            tauri::window::WindowBuilder::new(app,"fixture-foreground")
+                .title("Nexa background-test focus window").visible(false).focused(false)
+                .inner_size(180.0,80.0).build()?;
+        }
         let handle = app.handle().clone();
         let state = super::super::state::BrowserState::new(handle.clone(), profile.clone());
         tauri::async_runtime::spawn(async move {
@@ -107,6 +125,18 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                 let session = state.create_session(Some(conversation.clone()), None, Some(&prepared.url), true, NavigationActor::Agent,
                     Some(BrowserBounds { x: 0.0, y: 0.0, width: 640.0, height: 480.0 })).await.map_err(|error| format!("Create HTML session: {error}"))?;
                 let tab_id = session.active_tab_id.as_deref().ok_or("Missing preview tab")?;
+                if !foreground {
+                    // WebView2 may activate its host when creating the controller.
+                    // Put a second test-owned window in front before observing the tab.
+                    let anchor = handle.get_window("fixture-foreground").ok_or("Missing test focus window")?;
+                    anchor.show().and_then(|_|anchor.set_focus()).map_err(|error|error.to_string())?;
+                    let expected = anchor.hwnd().map_err(|error|error.to_string())?.0 as isize;
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                    while unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize != expected {
+                        if std::time::Instant::now() >= deadline { return Err("The dedicated fixture window did not acquire foreground ownership.".into()); }
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                }
                 if state.target_is_absent(&session.id, tab_id, Some("other-conversation")).is_ok() {
                     return Err("A foreign conversation could inspect target presence".into());
                 }
@@ -140,6 +170,24 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     .map_err(|error| format!("Public native click: {error}"))?;
                 if !after.text.contains("clicked once") || after.screenshot.is_none() {
                     return Err("The original HTML tab did not retain observable native input".into());
+                }
+                let expected_route = if foreground { "system_pointer" } else { "webview_input" };
+                if interaction.as_ref().and_then(|i| i["pointerDelivery"].as_str()) != Some(expected_route) {
+                    return Err(format!("Expected {expected_route} in the isolated WebView: {interaction:?}"));
+                }
+                if foreground {
+                    let click = state.eval_action(&session.id,tab_id,"({clicks:window.fixtureClicks,point:window.fixtureClick,second:!!document.querySelector('[data-nexa-agent-cursor]')})").await?;
+                    if click["clicks"]!=1 || click["point"]["trusted"]!=true || click["second"]!=false {
+                        return Err(format!("The fixture did not receive exactly one physical click: {click}"));
+                    }
+                    let point = (click["point"]["x"].as_f64().ok_or("missing clientX")?,click["point"]["y"].as_f64().ok_or("missing clientY")?);
+                    // MouseEvent exposes integer CSS pixels even on fractional-DPI displays.
+                    // The OS cursor must land at the exact projected center of the observed button.
+                    let center=(target.bounds.x+target.bounds.width/2., target.bounds.y+target.bounds.height/2.);
+                    if (point.0-center.0).abs()>1. || (point.1-center.1).abs()>1. {
+                        return Err(format!("Received click at {point:?}, expected button center {center:?}"));
+                    }
+                    state.verify_fixture_cursor(&session.id,tab_id,&after.viewport,center).await?;
                 }
                 use nexa_core::observed_interaction::{InputDelivery, RequestedCondition};
                 if interaction.is_none_or(|receipt| receipt["delivery"] != "inputSent") { return Err("A real trusted click lost its public dispatch receipt".into()); }
@@ -175,6 +223,16 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                         scroll_x: 0, scroll_y: if action == "scroll" { 240 } else { 0 }, commit_tracker: BrowserActCommitTracker::default(),
                     }).await.map_err(|error| format!("Native {action}: {error}"))?;
                     if outcome.interaction.delivery != InputDelivery::InputSent { return Err(format!("Native {action} did not send input")); }
+                    if foreground {
+                        let expected_route = match action {
+                            "drag" => Some("system_pointer"),
+                            "scroll" => Some("system_pointer_webview_wheel"),
+                            _ => None,
+                        };
+                        if outcome.pointer_delivery != expected_route {
+                            return Err(format!("Unexpected {action} pointer route: {:?}", outcome.pointer_delivery));
+                        }
+                    }
                     let evidence = state.eval_action(&session.id, tab_id,
                         "({ moves: window.dragMoves, scroll: document.querySelector('#scrollbox').scrollTop, selected: document.querySelector('#editor').selectionEnd - document.querySelector('#editor').selectionStart })").await?;
                     if (action == "drag" && evidence["moves"].as_u64().unwrap_or(0) < 2)
@@ -182,6 +240,12 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                         || (action == "press" && evidence["selected"].as_u64() != Some(16)) {
                         return Err(format!("Native {action} failed its actual page effect: {evidence}"));
                     }
+                }
+                if foreground {
+                    if state.eval_action(&session.id,tab_id,"window.dragMoves").await?.as_u64().unwrap_or(0)==0 {
+                        return Err("The foreground gesture did not drag the canvas.".into());
+                    }
+                    return Ok(());
                 }
                 eprintln!("Native browser controls: screenshot-coordinate canvas drag, nested wheel and Control+A all produced verified page effects.");
                 state.eval_action(&session.id, tab_id, "(() => { const spinner = document.createElement('div'); spinner.id='fixture-spinner'; spinner.style.cssText='position:absolute;left:570px;top:30px;width:24px;height:24px;background:red'; document.body.append(spinner); spinner.animate([{transform:'rotate(0deg)'},{transform:'rotate(360deg)'}],{duration:200,iterations:Infinity}); return true; })()").await?;
@@ -225,8 +289,8 @@ fn native_html_preview_keeps_agent_observation_and_input_continuous() {
                     if loaded["id"] != before_reload && loaded["ready"] == "complete" { break; }
                     tokio::time::sleep(std::time::Duration::from_millis(25)).await;
                 }
-                let cursor = state.eval_action(&session.id, &next.id, "(() => { const bridge=window.__NEXA_BROWSER_RUNTIME__; const observation=bridge.observe(); const target=observation.elements.find(e=>e.name==='Continue'); const preview=bridge.previewAction({...observation,action:'move',presentationId:'theme-after-reload',targetRef:target.ref,expected:target,button:'left',modifiers:[]}); return {duration:preview.durationMs,color:document.querySelector('[data-nexa-agent-cursor] stop')?.getAttribute('stop-color')}; })()").await?;
-                if cursor["duration"] != 0 || cursor["color"] != "rgb(63 71 79)" { return Err(format!("Pointer appearance reverted after navigation: {cursor}")); }
+                let cursor = state.eval_action(&session.id, &next.id, "(() => { const bridge=window.__NEXA_BROWSER_RUNTIME__; const observation=bridge.observe(); const target=observation.elements.find(e=>e.name==='Continue'); const preview=bridge.previewAction({...observation,action:'move',presentationId:'theme-after-reload',targetRef:target.ref,expected:target,button:'left',modifiers:[]}); return {duration:preview.durationMs,hasSecondCursor:!!document.querySelector('[data-nexa-agent-cursor]')}; })()").await?;
+                if cursor["duration"] != 0 || cursor["hasSecondCursor"] != false { return Err(format!("Pointer appearance reverted after navigation: {cursor}")); }
                 eprintln!("Native pointer theme: current Computer Use color and reduced motion survive tab reload.");
                 let ordinary = state.open_tab(&session.id, "about:blank", NavigationActor::User, None).await?;
                 if state.tab_profile_directory_for_test(&session.id, &ordinary.id)? != ordinary_storage {
@@ -358,7 +422,7 @@ fn native_dialog_and_download_complete_the_original_trusted_gesture() {
                 let download = downloads.arm(&destination)?;
                 let x = binding["x"].as_f64().ok_or("Missing x")?;
                 let y = binding["y"].as_f64().ok_or("Missing y")?;
-                let guard = BrowserTrustedInputGuard { webview: webview.clone(), token: Arc::from("fixture-input") };
+                let guard = BrowserTrustedInputGuard { pointer_focus: None, webview: webview.clone(), token: Arc::from("fixture-input") };
                 let armed = guard.arm(TrustedInputEventBudget::pointer_click(1, 0)?, TrustedInputMatch::Pointer { x, y, button: "left".into() }, binding["targetRef"].as_str().ok_or("Missing target")?, binding["targetContext"].as_str().ok_or("Missing context")?).await?;
                 dispatch_trusted_pointer_click(&armed, x, y, "left", &[], 1).await?;
                 armed.disarm().await?;
@@ -425,6 +489,7 @@ async fn native_shadow_component_competence(webview: &Webview) -> Result<(), Str
         return true;
     })()"#).await?;
     let guard = BrowserTrustedInputGuard {
+        pointer_focus: None,
         webview: webview.clone(),
         token: Arc::from("fixture-input"),
     };
@@ -641,6 +706,7 @@ async fn native_form_competence(webview: &Webview) -> Result<(), String> {
     )
     .await?;
     let guard = BrowserTrustedInputGuard {
+        pointer_focus: None,
         webview: webview.clone(),
         token: Arc::from("fixture-input"),
     };

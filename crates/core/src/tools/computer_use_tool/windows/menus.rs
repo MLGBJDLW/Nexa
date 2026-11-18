@@ -35,8 +35,15 @@ fn menu_handle(window: HWND) -> Option<HMENU> {
 }
 
 fn owned_popup(window: HWND, parent: HWND) -> bool {
+    let mut parent_pid = 0;
+    unsafe { GetWindowThreadProcessId(parent, Some(&mut parent_pid)) };
     let mut current = window;
     for _ in 0..16 {
+        let mut current_pid = 0;
+        unsafe { GetWindowThreadProcessId(current, Some(&mut current_pid)) };
+        if current_pid == 0 || current_pid != parent_pid {
+            return false;
+        }
         let Ok(owner) = (unsafe { GetWindow(current, GW_OWNER) }) else {
             return false;
         };
@@ -72,7 +79,7 @@ fn surfaces(parent: &WindowSnapshot) -> Vec<HWND> {
         BOOL(1)
     }
     let thread = unsafe { GetWindowThreadProcessId(hwnd(parent.id), None) };
-    if thread == 0 {
+    if thread == 0 || !unsafe { IsWindowEnabled(hwnd(parent.id)) }.as_bool() {
         return Vec::new();
     }
     let mut scan = Scan {
@@ -116,6 +123,12 @@ fn verify_surface(
     surface: &WindowSnapshot,
     menu: Option<HMENU>,
 ) -> Result<(), CoreError> {
+    current_window_for_access(parent, true)?;
+    if !same_process_instance(surface, parent)
+        || !unsafe { IsWindowEnabled(hwnd(parent.id)) }.as_bool()
+    {
+        return Err(invalid("The active popup owner changed. Observe again."));
+    }
     let window = hwnd(surface.id);
     let thread = unsafe { GetWindowThreadProcessId(window, None) };
     let linked = match menu {
@@ -126,7 +139,7 @@ fn verify_surface(
         }
         None => owned_popup(window, hwnd(parent.id)) && is_menu_provider(window)?,
     };
-    if surface.pid != parent.pid || !linked {
+    if !linked {
         return Err(invalid(
             "The popup no longer belongs to the observed parent's menu loop.",
         ));
@@ -215,10 +228,19 @@ pub(super) fn observe(
     const MAX_MENU_IMAGES: usize = 4;
     let mut truncated = false;
     for &handle in &handles {
-        let native = window_class(handle)? == "#32768";
+        let window = Window::from_raw_hwnd(handle.0);
+        let surface = snapshot(&window)?;
+        if !same_process_instance(&surface, &parent.snapshot)
+            || !unsafe { IsWindowEnabled(hwnd(parent.snapshot.id)) }.as_bool()
+        {
+            return Err(invalid("The active popup owner changed. Observe again."));
+        }
+        let native = surface.window_class == "#32768";
         let menu = if native {
             Some(menu_handle(handle).ok_or_else(|| invalid("Menu closed before capture."))?)
-        } else if is_menu_provider(handle).unwrap_or(false) {
+        } else if owned_popup(handle, hwnd(parent.snapshot.id))
+            && is_menu_provider(handle).unwrap_or(false)
+        {
             None
         } else {
             continue;
@@ -227,8 +249,6 @@ pub(super) fn observe(
             truncated = true;
             break;
         }
-        let window = Window::from_raw_hwnd(handle.0);
-        let surface = snapshot(&window)?;
         verify_surface(&parent.snapshot, &surface, menu)?;
         let remaining = options.max_elements - menu_items.len();
         let start = menu_items.len();

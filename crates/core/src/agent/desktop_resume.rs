@@ -493,7 +493,8 @@ fn reconcile_late_desktop_receipts(
         let matching_modal_receipt = detail
             .pointer("/modalOwnerHandoffReceipt/actionReceiptId")
             .and_then(Value::as_str)
-            == Some(activity_id.as_str());
+            == Some(activity_id.as_str())
+            || detail.get("modalChildTarget").is_some_and(Value::is_object);
         let matching_terminal_receipt = saved.completion_contract.desktop_terminal_closure_evidence
             && detail
                 .pointer("/terminalWindowReceipt/actionReceiptId")
@@ -519,9 +520,9 @@ fn reconcile_late_desktop_receipts(
         }
         let artifacts = serde_json::json!({"artifacts":{"kind":"computerControl"}, "data":detail});
         let verified_handoff =
-            crate::workflow_ir::verified_desktop_modal_owner_handoff(None, Some(&artifacts))
-                .is_some();
+            crate::workflow_ir::verified_desktop_modal_handoff(None, Some(&artifacts)).is_some();
         let verified_closure = matching_terminal_receipt
+            && detail.get("modalChildTarget").is_none_or(Value::is_null)
             && detail
                 .get("modalOwnerHandoffReceipt")
                 .is_none_or(Value::is_null)

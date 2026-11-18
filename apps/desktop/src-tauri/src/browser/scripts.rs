@@ -152,6 +152,7 @@ pub fn browser_takeover_script(token: &str) -> String {
       target,
       blocked: false,
       pointerCommitted: false,
+      pointerReleases: 0,
       ...normalized,
     };
     return true;
@@ -191,6 +192,15 @@ pub fn browser_takeover_script(token: &str) -> String {
 
   const trustedInputApi = Object.freeze({
     expects: (type, event) => matchesTrustedInput(type, event),
+    pointerProgress: (providedToken, operationId, endingDrag) => {
+      const guard = trustedInputGuard;
+      if (providedToken !== trustedInputToken || !guard || guard.operationId !== operationId) return null;
+      const targetWindow = guard.target.ownerDocument.defaultView;
+      if (targetWindow && targetWindow !== window) {
+        return targetWindow.__NEXA_TRUSTED_INPUT_GUARD__?.pointerProgress(providedToken, operationId, endingDrag) ?? null;
+      }
+      return { releases: guard.pointerReleases, blocked: guard.blocked, targetCurrent: guardContextMatches(endingDrag) };
+    },
     arm: (providedToken, operationId, budget, expected) => {
       if (providedToken !== trustedInputToken) return false;
       const armed = armTrustedInputLocal(operationId, budget, expected);
@@ -319,6 +329,8 @@ pub fn browser_takeover_script(token: &str) -> String {
         event.preventDefault();
         apply(nativeStopImmediatePropagation, event, []);
         if (window !== window.top) apply(nativePostMessage, window.top, [{ marker: trustedInputMarker, token: trustedInputToken, kind: 'blocked', operationId: guard.operationId }, '*']);
+      } else if (type === 'pointerup' || (expected.kind === 'drag' && type === 'drop')) {
+        guard.pointerReleases += 1;
       } else if (type === 'click') guard.pointerCommitted = true;
     }, { capture: true, passive: false });
   }

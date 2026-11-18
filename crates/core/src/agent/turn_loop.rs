@@ -895,8 +895,9 @@ impl AgentExecutor {
                 self.config.power_mode.is_nexus(),
             )?;
         }
-        if self.config.request_kind == AgentRequestKind::SubagentWorker {
-            if let Some(workflow) = workflow_ir.as_mut() {
+        if let Some(workflow) = workflow_ir.as_mut() {
+            workflow.configure_desktop_overview_availability(&self.tools);
+            if self.config.request_kind == AgentRequestKind::SubagentWorker {
                 workflow.defer_unavailable_worker_interactions(&self.tools);
             }
         }

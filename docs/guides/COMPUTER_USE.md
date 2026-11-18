@@ -18,7 +18,7 @@ expandable chat record, using the same screenshot presenter and interaction
 receipt states. Only a verified requested condition gets a green success state;
 input delivery, observed change and uncertain results remain distinct.
 The built-in [Computer Use skill](../../crates/core/assets/skills/computer-use/SKILL.md)
-uses the model-facing `computer_use` tool for window and browser targets.
+uses the model-facing `computer_use` tool for browser and native targets.
 Windows observation and input route to `computer_observe` and `computer_control`.
 They keep distinct permission boundaries while sharing the observation store,
 input arbiter, action journal and completion checks. The semantic observation
@@ -39,6 +39,28 @@ Capturing the host retains the geometry, process-identity and input-epoch checks
 If host pixels change while UI semantics are collected, the valid screenshot is
 returned with the mismatched elements removed and a `semanticError` explanation.
 Other windows still reject mixed frame/semantics observations before control.
+
+For a read-only overview on Windows, use `{"action":"observe","target":{"kind":"desktop"}}`.
+The screenshot covers every active display. Windows may omit applications that request
+[capture exclusion](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity).
+In Ask mode each desktop observation has its own full-screen prompt.
+The result contains one JPEG scaled to at most 1,568 pixels on the
+longest edge and carries no input token. Select and observe an individual window to
+interact with it. The native capture backend uses the
+[Win32 virtual screen](https://learn.microsoft.com/en-us/windows/win32/gdi/the-virtual-screen)
+and the [screen device context](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdc).
+
+For a multi-step window task, **Allow for session** carries the chosen tool's
+grant across fresh observations of that window and its verified same-process
+modal dialogs. **Allow once** approves only the pending call. A dialog handoff
+returns an inventory token. Observe that dialog before clicking one of its
+controls. When it closes, observe the identified owner to verify the outcome.
+Window grants expire with the current task.
+
+Pointer locations use the first window image's pixels by default. A model
+that reports coordinates on a 0 to 1000 grid can set
+`coordinate_space: "normalized_0_1000"`. Use the observed menu item ID
+for a separate popup-menu image.
 
 Browser text waits query the complete accessible text independently of the
 bounded preview, including same-origin frames and open shadow roots. Cross-origin
@@ -126,15 +148,11 @@ The banner enters with a short eased slide/scale and uses the shared Nexa logo
 with a flowing orbit and soft accent light. Reduced motion removes those effects.
 The window stays non-activating, with transparency around its rounded surface.
 
-The native action worker owns a compact triangular Nexa pointer, without a tail or idle halo.
-Its color comes from the current theme's resolved accent, including theme resource
-plugins; the main theme provider projects updates into the existing native surface.
-Foreground actions temporarily replace Windows' hardware cursor shapes so the
-system arrow or text caret cannot draw above Nexa's pointer. One lazily started
-native feedback host retains exact originals and restores them on worker release,
-parent-process exit, or an abandoned action timeout. The user's saved cursor
-settings are never modified. Background UI Automation uses an input-transparent
-marker at the semantic target and does not move or replace the user's pointer.
+Windows pointer actions move the user's system cursor. Default clicks on a UI
+Automation element resolve its live location and verify the control under that
+point before delivering the button events. An explicitly requested background
+action uses the application's accessibility pattern. The Stop banner and the
+monitor edges identify the active task.
 
 Four narrow, input-transparent native surfaces illuminate the active monitor's
 edges using the theme accent. They share the banner's ownership and lifecycle,
@@ -142,24 +160,11 @@ do not activate windows, and need no full-screen renderer or animation polling.
 The independent surfaces remain outside the target window's capture surface, so
 window screenshots remain clean evidence.
 
-Foreground pointer actions travel along a smooth, distance-scaled path at about
-60 Hz (100–360 ms), including movement to a drag's starting point. The pointer and
-feedback advance together; semantic background actions only mark their target.
-For semantic clicks, the feedback follows the same animated approach without
-moving the user's physical pointer; the semantic target is re-resolved afterward.
-Each movement frame checks focus, physical buttons, cursor takeover and Stop.
-Stopping signals the existing worker, which retains input ownership until cleanup;
-an interrupted drag still releases its injected button and records uncertain
-effects. Empty gaps between offset monitors are skipped without clamped input.
-Delivered pointer clicks and semantic invocations show a short expanding ripple
-in the same theme color. One ripple follows the complete click sequence, preserving
-double-click timing. Reduced-motion preferences disable travel animation and ripples.
-
-Coordinate clicks, scrolling and drag preparation recheck the target patch after
-approaching it. Hover-triggered content within the same window can therefore stop
-the action before button or wheel input. This still reports an uncertain effect
-when the cursor has already moved. Explicit theme invalidations also refresh the
-hidden main window, keeping native colors current during tray/background use.
+Foreground moves and drags check the actual cursor position between steps.
+For a screenshot-coordinate click, the cursor approaches the target and pauses
+before entering the receiving control. Nexa checks the target pixels again,
+then sends the final placement and button events together. This allows ordinary
+hover styling while detecting controls replaced during the approach. Physical takeover interrupts further input.
 
 If the Stop banner covers an admitted pointer target, only that registered,
 process-verified Nexa window moves temporarily to the opposite edge of the same
@@ -209,13 +214,16 @@ worker retains ownership while releasing buttons and finishing cleanup. Status
 phases come from the executing worker: moving, sending input and observing the
 result; a heartbeat cannot overwrite that phase.
 
-Browser presentation is a separate module. Every preview carries a host operation
-identity and reports actual animation completion. Old or cancelled acknowledgements
-cannot complete a newer preview. A stalled decoration is removed and the normal
-host lease and target checks still run; animation is never a capability limit.
-Capture scopes hide only Nexa-owned decoration, wait for a rendered hidden frame,
-and restore it on success, failure or cancellation. Native window capture remains
-cursor-free WGC window capture, not a crop of the composed monitor image.
+On a foreground Windows WebView2 tab, ordinary pointer movement, clicks and
+drags use the same system cursor as window control. The host checks the visible
+tab, its bounds and the control under the cursor before pressing. Modifier
+gestures, pinched viewports and tabs in an unfocused visible window use the
+tab's input route. Scrolling retains the requested CSS pixel deltas. The result
+identifies the route in `pointerDelivery`.
+
+The browser validates each action against its current observation. Captures
+temporarily hide Nexa's click feedback. Native window capture obtains the
+selected window surface. To inspect all displays, request a desktop observation.
 
 The native Windows adapter and its interactive fixtures live separately from the
 tool admission/receipt module. The browser interaction script is a standalone
@@ -266,5 +274,5 @@ input. [Hermes action verdicts](https://github.com/NousResearch/hermes-agent/blo
 Core regressions cover fresh-token retention, safe failure diagnostics, real local
 image reads, native/interpreted routing and privacy. Interactive Windows helper
 tests cover physical screenshot-coordinate clicks, semantic value/checkbox effects,
-clean capture evidence, click-through pointer feedback and worker cleanup. Frontend
+clean capture evidence, input-transparent monitor edges and worker cleanup. Frontend
 tests cover grouped live receipts, compact layout, waiting status and Stop.

@@ -15,6 +15,7 @@ pub const BACKEND_NAMES: &[&str] = &["browser_session", "computer_observe", "com
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoutedControlCall {
+    pub target_kind: String,
     pub tool_name: &'static str,
     pub arguments: Value,
 }
@@ -49,7 +50,7 @@ pub fn expand_allowed_names(requested: &[String], available: &[String]) -> Vec<S
 
 fn public_action(backend: &str, action: &str) -> String {
     match (backend, action) {
-        ("computer_observe", "capture_window") => "observe",
+        ("computer_observe", "capture_window" | "capture_desktop") => "observe",
         ("computer_control", "move_mouse") => "move",
         ("computer_control", "type_text") => "type",
         ("computer_control", "key") => "press",
@@ -137,13 +138,11 @@ fn route_call_impl(
     let mut target = body
         .remove("target")
         .and_then(|target| target.as_object().cloned())
-        .ok_or_else(|| {
-            "computer_use requires target.kind=browser or target.kind=window.".to_string()
-        })?;
+        .ok_or_else(|| "computer_use requires an explicit target.kind.".to_string())?;
     let kind = target
         .remove("kind")
         .and_then(|kind| kind.as_str().map(str::to_ascii_lowercase))
-        .ok_or_else(|| "computer_use target.kind must be browser or window.".to_string())?;
+        .ok_or_else(|| "computer_use target.kind must name an available surface.".to_string())?;
     if ["session_id", "tab_id", "window_id"]
         .iter()
         .any(|field| body.contains_key(*field))
@@ -183,9 +182,24 @@ fn route_call_impl(
             }
             body.insert("action".into(), Value::String(action));
             return Ok(Some(RoutedControlCall {
+                target_kind: kind,
                 tool_name: "browser_session",
                 arguments: browser_value(Value::Object(body)),
             }));
+        }
+        "desktop" => {
+            if action != "observe" || !target.is_empty() {
+                return Err(
+                    "A desktop target supports only observe and takes no identifiers.".into(),
+                );
+            }
+            // Archived receipts can be read on a different host. Only execution
+            // needs the Windows capture adapter and user-supplied options.
+            if prepare_observation {
+                super::computer_use_tool::validate_desktop_observation(&body)?;
+            }
+            body.insert("action".into(), Value::String("capture_desktop".into()));
+            "computer_observe"
         }
         "window" => {
             if target.keys().any(|key| key != "window_id") {
@@ -220,12 +234,10 @@ fn route_call_impl(
             body.insert("action".into(), Value::String(action.to_string()));
             backend
         }
-        _ => return Err(
-            "target.kind must be browser or window; routing never falls back to another surface."
-                .into(),
-        ),
+        _ => return Err("Unsupported target.kind. Choose an advertised surface.".into()),
     };
     Ok(Some(RoutedControlCall {
+        target_kind: kind,
         tool_name,
         arguments: Value::Object(body),
     }))
@@ -259,6 +271,17 @@ pub fn route_receipt_str(name: &str, args: Option<&str>) -> Option<RoutedControl
         if let Some(value) = body.get(key) {
             identity.insert(key.into(), value.clone());
         }
+    }
+    if body
+        .get("key_sequence")
+        .is_some_and(crate::tool_argument_projection::window_close_shortcut)
+        && body.get("action").and_then(Value::as_str) == Some("press")
+        && canonical.pointer("/target/kind").and_then(Value::as_str) == Some("window")
+    {
+        identity.insert(
+            "key_sequence".into(),
+            json!({"kind":"keySequence","windowClose":true}),
+        );
     }
     if let Some(token) = body
         .get("observation_id")
@@ -390,11 +413,31 @@ pub(crate) fn definition(backends: &[ToolDefinition]) -> Option<ToolDefinition> 
         let Some(backend_properties) = schema.get("properties").and_then(Value::as_object) else {
             continue;
         };
+        if backend.name == "computer_observe"
+            && backend_actions
+                .iter()
+                .any(|action| action == "capture_desktop")
+        {
+            kinds.insert("desktop");
+            actions.insert("observe".to_string());
+            variants.push(json!({
+                "type": "object", "properties": {
+                    "action": {"const":"observe"},
+                    "target": {"type":"object", "properties":{"kind":{"const":"desktop"}}, "required":["kind"], "additionalProperties":false},
+                    "approval_scope": {"const":"action"},
+                    "wait_for_previous": {"type":"boolean"}
+                }, "required":["action","target"], "additionalProperties":false
+            }));
+        }
         let backend_actions = backend_actions
             .iter()
             .filter_map(Value::as_str)
+            .filter(|action| *action != "capture_desktop")
             .map(|action| public_action(&backend.name, action))
             .collect::<Vec<_>>();
+        if backend_actions.is_empty() {
+            continue;
+        }
         kinds.insert(kind);
         actions.extend(backend_actions.iter().cloned());
         let mut target_properties = Map::new();
@@ -446,6 +489,9 @@ pub(crate) fn definition(backends: &[ToolDefinition]) -> Option<ToolDefinition> 
     if kinds.contains("browser") {
         description.push_str("Browser pages use target.kind=browser with session_id/tab_id and fresh DOM target_ref evidence. Recover tabs with list_sessions/list_tabs; lifecycle and navigation actions remain in the schema. ");
     }
+    if kinds.contains("desktop") {
+        description.push_str("On Windows, target.kind=desktop with action=observe requests one read-only screenshot across all active monitors. Select and observe an individual window before input. ");
+    }
     if kinds.contains("window") {
         description.push_str("Native windows use target.kind=window with window_id and fresh UIA element_id or captured-image coordinates. ");
         if actions.contains("list_windows") {
@@ -482,6 +528,46 @@ pub(crate) fn collapse_definitions(definitions: Vec<ToolDefinition>) -> Vec<Tool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_observation_routes_only_explicit_full_screen_reads() {
+        let request = json!({"action":"observe", "target":{"kind":"desktop"}});
+        if cfg!(all(windows, feature = "desktop-control")) {
+            let routed = route_call(TOOL_NAME, &request).unwrap().unwrap();
+            assert_eq!(routed.tool_name, "computer_observe");
+            assert_eq!(routed.arguments, json!({"action":"capture_desktop"}));
+            assert_eq!(
+                route_receipt_str(TOOL_NAME, Some(&request.to_string())).unwrap(),
+                routed
+            );
+            let audit = crate::tool_argument_projection::audit_safe_arguments(TOOL_NAME, &request);
+            assert_eq!(audit, request);
+            let prompt = super::super::computer_use_tool::ComputerObserveTool
+                .confirmation_message_in_context(&routed.arguments, None)
+                .unwrap()
+                .unwrap();
+            assert!(prompt.contains("every active monitor"));
+            assert!(super::super::computer_use_tool::ComputerObserveTool
+                .confirmation_message_in_context(
+                    &json!({"action":"capture_desktop", "approval_scope":"window_session"}),
+                    None
+                )
+                .is_err());
+        } else {
+            assert!(route_call(TOOL_NAME, &request)
+                .unwrap_err()
+                .contains("Windows"));
+        }
+        for invalid in [
+            json!({"action":"click", "target":{"kind":"desktop"}}),
+            json!({"action":"observe", "target":{"kind":"desktop","window_id":3}}),
+            json!({"action":"observe", "target":{"kind":"desktop"}, "observation_id":"window-token"}),
+            json!({"action":"observe", "target":{"kind":"desktop"}, "approval_scope":"window_session"}),
+            json!({"action":"capture_desktop", "target":{"kind":"window"}}),
+        ] {
+            assert!(route_call(TOOL_NAME, &invalid).is_err(), "{invalid}");
+        }
+    }
 
     #[test]
     fn window_observe_without_a_token_prepares_only_the_exact_inventory() {
@@ -608,7 +694,11 @@ mod tests {
         let definition = registry.definition(TOOL_NAME).unwrap();
         assert_eq!(
             definition.parameters["properties"]["target"]["properties"]["kind"]["enum"],
-            json!(["browser", "window"])
+            if cfg!(all(windows, feature = "desktop-control")) {
+                json!(["browser", "desktop", "window"])
+            } else {
+                json!(["browser", "window"])
+            }
         );
         assert!(definition.parameters["oneOf"]
             .as_array()
@@ -651,7 +741,11 @@ mod tests {
         assert!(actions.contains(&json!("observe")) && !actions.contains(&json!("click")));
         assert_eq!(
             advertised.parameters["properties"]["target"]["properties"]["kind"]["enum"],
-            json!(["window"])
+            if cfg!(all(windows, feature = "desktop-control")) {
+                json!(["desktop", "window"])
+            } else {
+                json!(["window"])
+            }
         );
         let explicit = readonly.filtered(&[TOOL_NAME.into()]);
         assert_eq!(explicit.tool_names(), ["computer_observe"]);

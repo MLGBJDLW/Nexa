@@ -9,9 +9,11 @@ mod policy;
 mod types;
 
 pub use control_lease::ControlLease;
+#[cfg(windows)]
+pub use native_pointer::{absolute_pointer_input, ForegroundInputWatch};
 pub use native_pointer::{
-    acquire_desktop_input_permit, desktop_input_arbiter, move_native_pointer,
-    try_acquire_cross_process_input, CrossProcessDesktopInputGuard,
+    acquire_desktop_input_permit, desktop_input_arbiter, try_acquire_cross_process_input,
+    CrossProcessDesktopInputGuard,
 };
 pub use policy::{classify_action_risk, BrowserActionRisk};
 pub use types::*;

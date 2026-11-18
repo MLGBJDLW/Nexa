@@ -91,28 +91,70 @@ pub fn try_acquire_cross_process_input() -> Result<CrossProcessDesktopInputGuard
     ))
 }
 
-#[cfg(target_os = "windows")]
-pub fn move_native_pointer(x: i32, y: i32) -> Result<(), CoreError> {
-    use windows::Win32::Foundation::POINT;
-    use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos};
-
-    unsafe { SetCursorPos(x, y) }
-        .map_err(|error| CoreError::Internal(format!("move browser pointer: {error}")))?;
-    let mut actual = POINT::default();
-    unsafe { GetCursorPos(&mut actual) }
-        .map_err(|error| CoreError::Internal(format!("verify browser pointer: {error}")))?;
-    if actual.x.abs_diff(x) > 1 || actual.y.abs_diff(y) > 1 {
-        return Err(CoreError::InvalidInput(format!(
-            "Browser pointer moved to ({}, {}) instead of ({x}, {y}); refusing uncertain multi-display input.",
-            actual.x, actual.y
-        )));
+/// Encode a physical desktop pixel at its center for Win32 absolute input.
+#[cfg(windows)]
+pub fn absolute_pointer_input(
+    point: (i32, i32),
+) -> Result<windows::Win32::UI::Input::KeyboardAndMouse::INPUT, CoreError> {
+    use windows::Win32::{
+        Foundation::POINT,
+        Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONULL},
+        UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
+    };
+    let pixel = POINT {
+        x: point.0,
+        y: point.1,
+    };
+    if unsafe { MonitorFromPoint(pixel, MONITOR_DEFAULTTONULL) }
+        .0
+        .is_null()
+    {
+        return Err(CoreError::InvalidInput(
+            "The pointer target is outside every connected display.".into(),
+        ));
     }
-    Ok(())
+    let axis = |position: i32, origin, size| {
+        let offset = i64::from(position) - i64::from(unsafe { GetSystemMetrics(origin) });
+        let span = i64::from(unsafe { GetSystemMetrics(size) });
+        if !(0..span).contains(&offset) {
+            return Err(CoreError::InvalidInput(
+                "The pointer target is outside the current virtual desktop.".into(),
+            ));
+        }
+        Ok(((offset * 65536 + 32768) / span) as i32)
+    };
+    Ok(INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: axis(point.0, SM_XVIRTUALSCREEN, SM_CXVIRTUALSCREEN)?,
+                dy: axis(point.1, SM_YVIRTUALSCREEN, SM_CYVIRTUALSCREEN)?,
+                dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                ..Default::default()
+            },
+        },
+    })
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn move_native_pointer(_x: i32, _y: i32) -> Result<(), CoreError> {
-    Err(CoreError::InvalidInput(
-        "Native Browser Workspace pointer movement is unavailable on this platform".to_string(),
-    ))
+/// A foreground gesture must yield if real input arrives or monitoring restarts.
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug)]
+pub struct ForegroundInputWatch(crate::tools::computer_input::InputEpoch);
+
+#[cfg(windows)]
+impl ForegroundInputWatch {
+    pub fn start() -> Result<Self, CoreError> {
+        let epoch = crate::tools::computer_input::physical_epoch();
+        if !epoch.is_monitored() {
+            return Err(CoreError::InvalidInput(
+                "Physical input monitoring is unavailable for the foreground browser gesture."
+                    .into(),
+            ));
+        }
+        Ok(Self(epoch))
+    }
+
+    pub fn changed(self) -> bool {
+        self.0 != crate::tools::computer_input::physical_epoch()
+    }
 }

@@ -899,8 +899,11 @@ Windows WebView2 also supports these native interactions:
   This supports canvas controls that have no semantic element ref. A drag uses
   `endPoint` or `endRef`; both endpoints must be visible in the same document and
   at least eight CSS pixels apart. Native held-button mouse events support canvas and HTML drag/drop.
-  The visible Agent cursor follows the requested points without moving the OS
-  cursor. Frame targets still require element refs.
+  On foreground Windows WebView2 tabs, ordinary clicks, double clicks, hovers and drags
+  move the system pointer. Covered points or user input cancel the gesture.
+  Active tabs in an unfocused window, modifier gestures and pinched viewports
+  use tab-scoped WebView input. Scroll uses the requested CSS wheel deltas. The result reports the chosen
+  route in `pointerDelivery`. Frame targets require element refs.
 - `scroll` sends a native wheel event at `point` or `targetRef`, so nested scroll
   areas receive input. With neither, it targets the viewport center. Each delta
   is bounded to 100,000 CSS pixels. `press` supports letter shortcuts with
@@ -1027,19 +1030,15 @@ While native observation or control is running, a non-activating Nexa desktop
 status window shows the activity and offers **Stop** for its owning task.
 The indicator follows committed tool/terminal events, stays available between
 actions, and hides when the owning run finishes. It is centered on the target
-monitor. Native input also carries a non-activating, click-through Nexa pointer;
-see [Computer Use and local images](../guides/COMPUTER_USE.md) for coordinates, recovery,
-feedback lifecycle and direct image inspection. It does not grant control permission.
-Observations are single-use for control. Prefer semantic `invoke` or
-`set_value`, then element-targeted pointer actions, with raw coordinates as the
-last fallback. Coordinates may use `captured_image_pixels` or
-`normalized_0_1`.
+monitor. Each control consumes a fresh observation. Identify elements by their
+observed IDs or provide a point in the coordinate space of the returned image.
+See the [Computer Use guide](../guides/COMPUTER_USE.md) for pixel, normalized
+and 1000-unit coordinates, window recovery, and local image inspection.
 
-- `delivery: "auto"` prefers an actual UI Automation invocation pattern for
-  single left clicks on element IDs. `background` refuses unsupported targets
-  before any foreground input; `foreground` explicitly selects mouse/keyboard
-  delivery. `invoke` and `set_value` use background semantics; target applications
-  can still activate themselves when responding to UI Automation.
+- Ordinary clicks, including element-targeted clicks with default or `auto`
+  delivery, use the Windows system cursor. Explicit `background` clicks require
+  a supported accessibility operation. `invoke` and `set_value` also use
+  accessibility operations. An application can activate itself in response.
 - Standard native checkbox styles use a verified state transition and the
   application's real `BN_CLICKED` notification, with bounded native messages
   and state readback. This avoids the mouse-down/up path of `BM_CLICK`; updating
@@ -1051,9 +1050,10 @@ last fallback. Coordinates may use `captured_image_pixels` or
 - `drag_duration_ms` controls drag timing from 100 to 3,000 ms (default 400).
 - For a multi-step task, `approval_scope: "window_session"` lets the user choose
   **Allow (Session)** for a verified process/window and the current task. The
-  grant survives fresh observation tokens but cannot cross windows, replaced
-  processes, conversations, or later tasks. General Allow All is not a desktop
-  grant. Default `action` scope retains one-action approval.
+  grant applies to the observed window and its verified same-process modal dialogs
+  for this task. A new process or unrelated window requires its own authorization.
+  Full access uses the configured approval policy. Every action still requires
+  fresh evidence and a verified target.
 
 The result distinguishes delivery from effect: `route`, `delivery`,
 `deliveryStatus`, `effect`, and perceptual `verification` do not by themselves

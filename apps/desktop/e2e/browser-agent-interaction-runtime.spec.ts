@@ -84,21 +84,15 @@ test('Already satisfied form actions report no input and dispatch no events', as
   expect(results.events).toBe(2);
 });
 
-test('Presentation arrival follows the actual animation and ignores old completion', async ({ page }) => {
+test('Preview introduces no second pointer and ignores stale cancellation', async ({ page }) => {
   await page.setContent('<button style="margin:100px">Target</button>');
   await page.addScriptTag({ content: runtimeSource });
   const observation = await observe(page);
   const input = { ...actionInput(observation, 'click', observation.elements[0].ref), presentationId: 'first' };
-  const preview = await page.evaluate(value => {
-    const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
-    const result = bridge.previewAction(value);
-    document.querySelector('[data-nexa-agent-cursor]')!.getAnimations().forEach(animation => animation.playbackRate = 0.05);
-    return result;
-  }, input);
-  await page.waitForTimeout(preview.durationMs + 80);
-  expect(await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('first').status)).toBe('pending');
-  await page.evaluate(() => document.querySelector('[data-nexa-agent-cursor]')!.getAnimations().forEach(animation => animation.finish()));
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('first').status)).toBe('arrived');
+  expect(await page.evaluate(value => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.validateAction(value), input)).toBe(true);
+  const preview = await page.evaluate(value => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(value), input);
+  expect(preview.durationMs).toBe(0);
+  await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCount(0);
   await page.evaluate(value => {
     const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
     bridge.previewAction({ ...value, presentationId: 'second' });
@@ -109,7 +103,7 @@ test('Presentation arrival follows the actual animation and ignores old completi
   expect(await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.presentationStatus('second').status)).toBe('cancelled');
 });
 
-test('Capture excludes agent decoration and restores it after nested capture scopes', async ({ page }, testInfo) => {
+test('Preview and nested capture scopes leave the page free of pointer decoration', async ({ page }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setContent('<body style="margin:0;background:white"><button style="margin:100px">Target</button></body>');
   await page.addScriptTag({ content: runtimeSource });
@@ -117,7 +111,7 @@ test('Capture excludes agent decoration and restores it after nested capture sco
   const observation = await observe(page);
   const input = { ...actionInput(observation, 'click', observation.elements[0].ref), presentationId: 'capture' };
   await page.evaluate(value => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.previewAction(value), input);
-  expect((await page.screenshot()).equals(baseline)).toBe(false);
+  expect((await page.screenshot()).equals(baseline)).toBe(true);
   await page.evaluate(() => {
     const bridge = (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__;
     bridge.beginCapture('outer'); bridge.beginCapture('inner');
@@ -128,11 +122,11 @@ test('Capture excludes agent decoration and restores it after nested capture sco
   await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.endCapture('inner'));
   await expect(page.locator('[data-nexa-agent-cursor]')).toBeHidden();
   await page.evaluate(() => (window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }).__NEXA_BROWSER_RUNTIME__.endCapture('outer'));
-  await expect(page.locator('[data-nexa-agent-cursor]')).toBeVisible();
-  expect((await page.screenshot()).equals(baseline)).toBe(false);
+  await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCount(0);
+  expect((await page.screenshot()).equals(baseline)).toBe(true);
 });
 
-test('Agent browser interaction shows cursor motion and commits verified pointer actions', async ({ page }, testInfo) => {
+test('Agent browser interaction commits verified pointer actions', async ({ page }, testInfo) => {
   await page.setContent(`
     <!doctype html>
     <button id="source">Open details</button>
@@ -154,11 +148,10 @@ test('Agent browser interaction shows cursor motion and commits verified pointer
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
   ).__NEXA_BROWSER_RUNTIME__.previewAction(value), input);
 
-  expect(preview.durationMs).toBeGreaterThanOrEqual(180);
-  await expect(page.locator('[data-nexa-agent-cursor]')).toBeVisible();
+  expect(preview.durationMs).toBe(0);
+  await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('browser-link.png') });
   await page.waitForTimeout(preview.durationMs + 20);
-  await expect(page.locator('[data-nexa-agent-cursor]')).toHaveCSS('pointer-events', 'none');
   await page.evaluate(value => (
     window as unknown as { __NEXA_BROWSER_RUNTIME__: BrowserBridge }
   ).__NEXA_BROWSER_RUNTIME__.act(value), input);
@@ -1174,6 +1167,7 @@ test('Trusted drag delivers real held-button pointer events to a canvas', async 
 });
 
 interface BrowserBridge {
+  validateAction(input: BrowserActionInput): boolean;
   resolvePointerTarget(input: BrowserActionInput, point: { x: number; y: number }): BrowserElement;
   prepareTrustedDrag(input: BrowserActionInput): { targetRef: string; targetContext: string; endRef: string; endContext: string; bounds: { x: number; y: number; width: number; height: number }; endBounds: { x: number; y: number; width: number; height: number } };
   prepareTrustedUpload(input: BrowserActionInput): { targetRef: string; targetContext: string; verificationBaseline: BrowserVerificationBaseline };

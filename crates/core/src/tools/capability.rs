@@ -660,12 +660,13 @@ pub fn infer_tool_access_profile(
             "Can launch an explicitly approved installed catalog application, or open/reveal/launch source-scoped paths.",
         ),
         "computer_observe" => {
-            let discloses_window_content = args
+            let discloses_screen_content = args
                 .get("action")
                 .and_then(serde_json::Value::as_str)
                 .map(str::trim)
                 .is_some_and(|action| {
-                    action.eq_ignore_ascii_case("capture_window")
+                    action.eq_ignore_ascii_case("capture_desktop")
+                        || action.eq_ignore_ascii_case("capture_window")
                         || action.eq_ignore_ascii_case("wait_for_change")
                 });
             (
@@ -673,11 +674,11 @@ pub fn infer_tool_access_profile(
                 true,
                 false,
                 false,
-                discloses_window_content,
-                discloses_window_content,
+                discloses_screen_content,
+                discloses_screen_content,
                 ApprovalRisk::Medium,
-                if discloses_window_content {
-                    "Captures local window pixels and accessibility text that may be disclosed to the configured model provider."
+                if discloses_screen_content {
+                    "Discloses the requested desktop or window screenshot to the configured model provider. Window captures can include accessibility text."
                 } else {
                     "Reads bounded local window metadata without injecting input."
                 },

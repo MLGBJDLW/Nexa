@@ -10,6 +10,8 @@ pub mod policy;
 mod presentation;
 mod scripts;
 pub mod state;
+#[cfg(windows)]
+mod system_pointer;
 pub mod webview_host;
 
 pub use commands::*;

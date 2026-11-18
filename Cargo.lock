@@ -4429,7 +4429,6 @@ dependencies = [
  "futures",
  "github-copilot-sdk",
  "gtk",
- "image",
  "json5",
  "log",
  "nexa-core",

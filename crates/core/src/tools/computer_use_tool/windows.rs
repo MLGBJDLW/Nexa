@@ -1,4 +1,5 @@
 use super::{permits_semantic_click, ControlDelivery};
+use crate::browser_runtime::absolute_pointer_input;
 use std::ffi::c_void;
 use std::io::Cursor;
 #[cfg(test)]
@@ -59,8 +60,8 @@ use windows::Win32::{
         WindowsAndMessaging::{
             GetAncestor, GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindow,
             GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
-            SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT, GW_OWNER, SW_RESTORE,
-            WHEEL_DELTA,
+            SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT, GW_ENABLEDPOPUP, GW_OWNER,
+            SW_RESTORE, WHEEL_DELTA,
         },
     },
 };
@@ -76,7 +77,7 @@ use super::{
     before_control_commit, before_control_commit_as, screenshot_difference, screenshot_guard,
     screenshot_guard_patch_matches, screenshot_signature, screenshot_signatures_match, CaptureMode,
     CaptureOptions, CapturedWindow, ControlAction, ControlArgs, ControlCommitTracker,
-    ControlFailure, ControlOutcome, CoordinateSpace, CoreError, ElementBounds, ModalOwnerHandoff,
+    ControlFailure, ControlOutcome, CoordinateSpace, CoreError, ElementBounds, ModalHandoff,
     ObservedWindow, PreCommitFailureKind, TextRangeEvidence, TextRangeKind, UiElementSnapshot,
     UiElementState, UiElementValue, VisualVerification, WindowSnapshot,
 };
@@ -306,25 +307,95 @@ fn observation_time_ms() -> u64 {
     chrono::Utc::now().timestamp_millis().max(0) as u64
 }
 
-/// An owned top-level window whose exact owner is disabled establishes the
-/// native modal relationship. Class names and shared PIDs are not evidence.
+fn same_process_instance(left: &WindowSnapshot, right: &WindowSnapshot) -> bool {
+    left.pid == right.pid
+        && left.process_started_at_100ns == right.process_started_at_100ns
+        && left.executable_path_hash == right.executable_path_hash
+        && left.session_id == right.session_id
+}
+
+fn modal_pair(child: HWND, owner: HWND) -> bool {
+    unsafe {
+        child != owner
+            && IsWindowVisible(child).as_bool()
+            && IsWindowEnabled(child).as_bool()
+            && !IsWindowEnabled(owner).as_bool()
+            && GetAncestor(child, GA_ROOT) == child
+            && GetWindow(child, GW_OWNER).ok() == Some(owner)
+            && GetWindow(owner, GW_ENABLEDPOPUP).ok() == Some(child)
+    }
+}
+
+// GW_ENABLEDPOPUP returns the first enabled popup when several are owned.
+// A disabled owner plus a palette alongside a dialog is ambiguous.
+fn sole_enabled_modal(child: HWND, owner: HWND) -> bool {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::UI::WindowsAndMessaging::EnumWindows;
+    struct Check {
+        owner: HWND,
+        child: HWND,
+    }
+    unsafe extern "system" fn check(window: HWND, data: LPARAM) -> BOOL {
+        let check = unsafe { &*(data.0 as *const Check) };
+        let other = window != check.child
+            && unsafe { GetWindow(window, GW_OWNER) }.ok() == Some(check.owner)
+            && unsafe { IsWindowVisible(window).as_bool() && IsWindowEnabled(window).as_bool() };
+        BOOL::from(!other)
+    }
+    let check_data = Check { owner, child };
+    unsafe { EnumWindows(Some(check), LPARAM(std::ptr::addr_of!(check_data) as isize)) }.is_ok()
+}
+
+/// Establish both directions of the native modal relationship. An ordinary
+/// modeless palette can share both the process and the owner HWND.
 fn observed_modal_owner(window: &WindowSnapshot) -> Option<Box<WindowSnapshot>> {
-    let owner = unsafe { GetWindow(hwnd(window.id), GW_OWNER) }.ok()?;
-    if owner.0.is_null() || owner == hwnd(window.id) || unsafe { IsWindowEnabled(owner) }.as_bool()
+    let child = hwnd(window.id);
+    if window.observation_only
+        || protected_system_process(&window.app_name)
+        || window.window_class == "#32768"
     {
         return None;
     }
-    let owner_window = Window::from_raw_hwnd(owner.0);
-    if !owner_window.is_valid() {
+    let owner = unsafe { GetWindow(child, GW_OWNER) }.ok()?;
+    if !modal_pair(child, owner) {
         return None;
     }
-    let expected = snapshot(&owner_window).ok()?;
-    if expected.session_id != window.session_id {
+    let snapshot = snapshot(&Window::from_raw_hwnd(owner.0)).ok()?;
+    let mut live_child_pid = 0;
+    unsafe { GetWindowThreadProcessId(child, Some(&mut live_child_pid)) };
+    if snapshot.observation_only
+        || protected_system_process(&snapshot.app_name)
+        || !same_process_instance(window, &snapshot)
+        || live_child_pid != window.pid
+        || !sole_enabled_modal(child, owner)
+        || !modal_pair(child, owner)
+    {
         return None;
     }
-    // Apply the same host/credential-surface exclusion as ordinary access.
-    let (_, owner) = current_window(&expected).ok()?;
-    Some(Box::new(owner))
+    Some(Box::new(snapshot))
+}
+
+/// Discover a direct child using native inventory metadata alone. Reading its
+/// pixels or accessibility tree requires a separate observation.
+fn enabled_modal_child(owner: &WindowSnapshot) -> Option<WindowSnapshot> {
+    let owner_hwnd = hwnd(owner.id);
+    if unsafe { IsWindowEnabled(owner_hwnd) }.as_bool() {
+        return None;
+    }
+    // A modal can itself open a dialog. The owner will be disabled by now,
+    // so validate its direct identity here, independent of its former role.
+    let candidate = unsafe { GetWindow(owner_hwnd, GW_ENABLEDPOPUP) }.ok()?;
+    if !modal_pair(candidate, owner_hwnd) {
+        return None;
+    }
+    let mut child = snapshot(&Window::from_raw_hwnd(candidate.0)).ok()?;
+    let live_owner = observed_modal_owner(&child)?;
+    if !modal_owner_matches(Some(owner), Some(&live_owner)) {
+        return None;
+    }
+    child.modal_owner = Some(live_owner);
+    Some(child)
 }
 
 fn modal_owner_matches(
@@ -341,20 +412,50 @@ fn modal_owner_matches(
     }
 }
 
-fn recovered_modal_owner(observed: &WindowSnapshot) -> Option<ModalOwnerHandoff> {
-    let expected = observed.modal_owner.as_deref()?;
-    let (window, current) = current_window(expected).ok()?;
-    if !window.is_valid()
-        || current.minimized
-        || !unsafe { IsWindowVisible(hwnd(current.id)) }.as_bool()
-        || !unsafe { IsWindowEnabled(hwnd(current.id)) }.as_bool()
-    {
-        return None;
+/// A dialog may close before its owner processes an asynchronous close or
+/// re-enable message. Use the same post-action deadline and inventory only.
+fn modal_destination_after_close(
+    observed: &WindowSnapshot,
+    deadline: Instant,
+) -> (Option<ModalHandoff>, Option<WindowSnapshot>) {
+    let Some(expected) = observed.modal_owner.as_deref() else {
+        return (None, None);
+    };
+    let handle = hwnd(expected.id);
+    let mut previously_available = false;
+    loop {
+        if !unsafe { IsWindow(Some(handle)) }.as_bool() {
+            return (None, Some(expected.clone()));
+        }
+        let owner = current_window(expected)
+            .ok()
+            .map(|(_, owner)| owner)
+            .filter(|owner| {
+                !owner.minimized
+                    && unsafe {
+                        IsWindowVisible(handle).as_bool() && IsWindowEnabled(handle).as_bool()
+                    }
+            });
+        let now = Instant::now();
+        if let Some(owner) = owner {
+            if previously_available || now >= deadline {
+                return (
+                    Some(ModalHandoff {
+                        target: owner,
+                        observation_not_before_ms: observation_time_ms(),
+                    }),
+                    None,
+                );
+            }
+            previously_available = true;
+        } else {
+            previously_available = false;
+        }
+        if now >= deadline {
+            return (None, None);
+        }
+        thread::sleep(POST_ACTION_SAMPLE_INTERVAL.min(deadline - now));
     }
-    Some(ModalOwnerHandoff {
-        owner: current,
-        observation_not_before_ms: observation_time_ms(),
-    })
 }
 
 fn enumerated_windows() -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
@@ -408,7 +509,10 @@ fn enumerated_windows() -> Result<Vec<(Window, WindowSnapshot)>, CoreError> {
 pub(super) fn list_windows() -> Result<Vec<WindowSnapshot>, CoreError> {
     let mut windows = enumerated_windows()?
         .into_iter()
-        .map(|(_, snapshot)| snapshot)
+        .map(|(_, mut snapshot)| {
+            snapshot.modal_owner = observed_modal_owner(&snapshot);
+            snapshot
+        })
         .collect::<Vec<_>>();
     windows.sort_by(|left, right| {
         right
@@ -441,7 +545,7 @@ fn current_window_for_access(
         )));
     }
     let window = Window::from_raw_hwnd(handle.0);
-    let current = snapshot(&window)?;
+    let mut current = snapshot(&window)?;
     if current.pid != expected.pid
         || current.process_started_at_100ns != expected.process_started_at_100ns
         || current.executable_path_hash != expected.executable_path_hash
@@ -464,7 +568,22 @@ fn current_window_for_access(
             "Windows credential, consent, lock, and logon surfaces are protected from computer control.",
         ));
     }
+    if expected.modal_owner.is_some() {
+        current.modal_owner = observed_modal_owner(&current);
+        if !modal_owner_matches(
+            expected.modal_owner.as_deref(),
+            current.modal_owner.as_deref(),
+        ) {
+            return Err(invalid(
+                "The modal owner relationship changed. Observe the window again.",
+            ));
+        }
+    }
     Ok((window, current))
+}
+
+pub(super) fn verify_modal_target(expected: &WindowSnapshot) -> Result<(), CoreError> {
+    current_window(expected).map(|_| ())
 }
 
 pub(super) fn user_share_windows() -> Result<Vec<super::UserShareWindow>, CoreError> {
@@ -1262,6 +1381,9 @@ pub(super) fn capture_window(
     let mut capture = capture_window_with_elements(expected, options, collect_elements)?;
     if options.include_elements {
         menus::observe(&mut capture, options)?;
+        if capture.snapshot.modal_owner.is_some() {
+            current_window_for_access(&capture.snapshot, true)?;
+        }
     }
     Ok(capture)
 }
@@ -1511,15 +1633,28 @@ fn live_element_point(
     window: &WindowSnapshot,
 ) -> Result<(i32, i32), CoreError> {
     let mut clickable = windows::Win32::Foundation::POINT::default();
-    let available = unsafe { live.element.GetClickablePoint(&mut clickable) }
-        .map_err(|error| platform_error("resolve exact UI Automation click point", error))?;
-    if !available.as_bool() {
-        return Err(invalid(format!(
-            "Element {} has no verified clickable point; refusing to guess its center.",
-            live.snapshot.id
-        )));
-    }
-    let point = (clickable.x, clickable.y);
+    use windows::Win32::UI::Accessibility::UIA_E_NOCLICKABLEPOINT;
+    let advertised = match unsafe { live.element.GetClickablePoint(&mut clickable) } {
+        Ok(available) => available.as_bool(),
+        Err(error) if error.code().0 as u32 == UIA_E_NOCLICKABLEPOINT => false,
+        Err(error) => {
+            return Err(platform_error(
+                "resolve exact UI Automation click point",
+                error,
+            ))
+        }
+    };
+    // Some providers omit a clickable point for visible controls. Accept the
+    // clipped midpoint only if the live UIA hit test below identifies the target.
+    let point = if advertised {
+        (clickable.x, clickable.y)
+    } else {
+        let bounds = &live.snapshot.screen_bounds;
+        (
+            bounds.x.saturating_add((bounds.width / 2) as i32),
+            bounds.y.saturating_add((bounds.height / 2) as i32),
+        )
+    };
     let right = i64::from(window.x) + i64::from(window.width);
     let bottom = i64::from(window.y) + i64::from(window.height);
     if i64::from(point.0) < i64::from(window.x)
@@ -2059,7 +2194,7 @@ fn ensure_target_patch_fresh(
     };
     if !screenshot_guard_patch_matches(expected, &current, normalized_x, normalized_y) {
         return Err(invalid(
-            "The approved target region changed since observation. No pointer input was sent; capture again.",
+            "The approved target region changed since observation. Capture the window again before further input.",
         ));
     }
     Ok(())
@@ -2102,41 +2237,12 @@ fn send_input_tracked(inputs: &[INPUT], tracker: &ControlCommitTracker) -> u32 {
     })
 }
 
-fn absolute_pointer_input(point: (i32, i32)) -> INPUT {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
-    };
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-        SM_YVIRTUALSCREEN,
-    };
-    let left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
-    let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
-    let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) }.max(1);
-    let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) }.max(1);
-    let absolute = |position: i32, origin: i32, size: i32| -> i32 {
-        (((i64::from(position) - i64::from(origin)) * 65536 + 32768) / i64::from(size))
-            .clamp(0, 65535) as i32
-    };
-    INPUT {
-        r#type: INPUT_MOUSE,
-        Anonymous: INPUT_0 {
-            mi: MOUSEINPUT {
-                dx: absolute(point.0, left, width),
-                dy: absolute(point.1, top, height),
-                dwFlags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-                ..Default::default()
-            },
-        },
-    }
-}
-
 fn move_cursor_frame(
     point: (i32, i32),
     context: &str,
     tracker: &ControlCommitTracker,
 ) -> Result<(), CoreError> {
-    let input = absolute_pointer_input(point);
+    let input = absolute_pointer_input(point)?;
     if send_input_tracked(&[input], tracker) != 1 {
         return Err(invalid(format!(
             "Windows refused pointer motion during {context}"
@@ -2149,24 +2255,16 @@ fn move_cursor_frame(
             actual.0, actual.1, point.0, point.1
         )));
     }
-    super::super::computer_pointer_feedback::show_at(point);
     Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PointerApproach {
-    Foreground,
-    FeedbackOnly,
-}
-
-/// One motion path for native input and semantic feedback. Frames carry no
-/// button events; background delivery never moves the physical cursor.
+/// Move the shared system cursor, checking for user takeover between frames.
 fn approach_pointer(
     point: (i32, i32),
     window: &WindowSnapshot,
     tracker: &ControlCommitTracker,
     context: &str,
-    delivery: PointerApproach,
+    stop_before: Option<HWND>,
 ) -> Result<(), CoreError> {
     use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONULL};
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -2180,15 +2278,10 @@ fn approach_pointer(
     };
     let started = Instant::now();
     let mut previous = from;
-    super::super::computer_pointer_feedback::show_at(from);
     for (index, next) in points.iter().copied().enumerate() {
         let due = duration.mul_f64((index + 1) as f64 / points.len() as f64);
         thread::sleep(due.saturating_sub(started.elapsed()));
         tracker.ensure_running()?;
-        if delivery == PointerApproach::FeedbackOnly {
-            super::super::computer_pointer_feedback::show_at(next);
-            continue;
-        }
         ensure_target_foreground(window)?;
         ensure_cursor_at(previous, context)?;
         for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
@@ -2208,6 +2301,12 @@ fn approach_pointer(
         if screen.0.is_null() && index + 1 < points.len() {
             continue;
         }
+        // Raw pixels have no stable element identity. Reserve entry into their
+        // receiving surface for the final move/button batch so normal hover
+        // styling does not invalidate its own click.
+        if stop_before.is_some_and(|receiver| window_at(next) == receiver) {
+            break;
+        }
         move_cursor_frame(next, context, tracker)?;
         previous = next;
     }
@@ -2224,17 +2323,21 @@ fn ensure_cursor_at(point: (i32, i32), context: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
+fn window_at(point: (i32, i32)) -> HWND {
+    unsafe {
+        WindowFromPoint(windows::Win32::Foundation::POINT {
+            x: point.0,
+            y: point.1,
+        })
+    }
+}
+
 fn ensure_point_targets_window(
     point: (i32, i32),
     window: &WindowSnapshot,
 ) -> Result<(), CoreError> {
     super::super::computer_pointer_feedback::avoid_status_at(point);
-    let hit = unsafe {
-        WindowFromPoint(windows::Win32::Foundation::POINT {
-            x: point.0,
-            y: point.1,
-        })
-    };
+    let hit = window_at(point);
     if hit.0.is_null() {
         return Err(invalid(
             "No live window owns the approved input point; refusing pointer input.",
@@ -2300,19 +2403,20 @@ fn image_point(
             }
             (x, y)
         }
-        CoordinateSpace::Normalized => {
+        CoordinateSpace::Normalized(max) => {
+            let max = f64::from(max);
             if !x.is_finite()
                 || !y.is_finite()
-                || !(0.0..=1.0).contains(&x)
-                || !(0.0..=1.0).contains(&y)
+                || !(0.0..=max).contains(&x)
+                || !(0.0..=max).contains(&y)
             {
                 return Err(invalid(format!(
-                    "Normalized point ({x}, {y}) must be inside 0..1."
+                    "Normalized point ({x}, {y}) must be inside 0..{max}."
                 )));
             }
             (
-                x * image_width.saturating_sub(1) as f64,
-                y * image_height.saturating_sub(1) as f64,
+                (x / max) * image_width.saturating_sub(1) as f64,
+                (y / max) * image_height.saturating_sub(1) as f64,
             )
         }
     };
@@ -2430,7 +2534,7 @@ fn send_mouse_click(
     // our own hover styling cannot invalidate the observation between them.
     let mut inputs = Vec::with_capacity(3);
     if let Some(point) = point {
-        inputs.push(absolute_pointer_input(point));
+        inputs.push(absolute_pointer_input(point)?);
     }
     inputs.extend([mouse_input(down, 0), mouse_input(up, 0)]);
     let sent = send_input_tracked(&inputs, tracker) as usize;
@@ -2978,8 +3082,7 @@ pub(super) fn control_window(
     let mut route = "global_input";
     let mut delivery = "foreground";
 
-    // A semantic single click can run without activating the window. Probe
-    // the actual pattern first; only auto mode may fall back before input.
+    // Background delivery is explicit. Ordinary clicks land on the shared system cursor.
     let mut effective_action = action;
     let menu_item = args.element_id.as_deref().and_then(|id| {
         observed
@@ -3006,18 +3109,20 @@ pub(super) fn control_window(
             invalid("The target has no usable background invocation pattern. No foreground input was sent.")));
     }
 
-    if observed.screenshot_signature.is_some()
-        && !modal_owner_matches(
-            observed.snapshot.modal_owner.as_deref(),
-            observed_modal_owner(&current).as_deref(),
-        )
-    {
+    if !modal_owner_matches(
+        observed.snapshot.modal_owner.as_deref(),
+        observed_modal_owner(&current).as_deref(),
+    ) {
         return Err(ControlFailure::pre_commit_as(
             PreCommitFailureKind::ObservationStale,
             invalid("The observed modal owner relationship changed before input. Capture again."),
         ));
     }
 
+    if observed.snapshot.modal_owner.is_some() {
+        let _ = commit_tracker.modal_target.set(observed.snapshot.clone());
+    }
+    let owner_was_enabled = unsafe { IsWindowEnabled(hwnd(current.id)) }.as_bool();
     let foreground = !matches!(
         effective_action,
         ControlAction::Expand
@@ -3030,16 +3135,7 @@ pub(super) fn control_window(
         window_epoch,
         foreground,
     ))?;
-    let _pointer_feedback = super::super::computer_pointer_feedback::PointerFeedback::begin(
-        current.id,
-        !matches!(
-            effective_action,
-            ControlAction::Expand
-                | ControlAction::Collapse
-                | ControlAction::Invoke
-                | ControlAction::SetValue
-        ),
-    );
+    let _status = super::super::computer_pointer_feedback::StatusGuard::begin(current.id);
     commit_tracker.result(commit_tracker.ensure_running())?;
     use crate::observed_interaction::RequestedCondition;
     let mut condition = RequestedCondition::NotRequested;
@@ -3062,27 +3158,8 @@ pub(super) fn control_window(
                 PreCommitFailureKind::ObservationStale,
                 resolve_live_element(&current, observed, expected),
             )?;
-            let bounds = &live.snapshot.screen_bounds;
-            let point = (
-                bounds.x + (bounds.width / 2) as i32,
-                bounds.y + (bounds.height / 2) as i32,
-            );
-            commit_tracker.result(approach_pointer(
-                point,
-                &current,
-                commit_tracker,
-                "approach semantic target",
-                PointerApproach::FeedbackOnly,
-            ))?;
-            let live = commit_tracker.result_as(
-                PreCommitFailureKind::ObservationStale,
-                resolve_live_element(&current, observed, expected),
-            )?;
             commit_tracker.result(commit_tracker.ensure_running())?;
             route = invoke_element(&live.element, &current, commit_tracker)?;
-            super::super::computer_pointer_feedback::pulse_at(point, || {
-                commit_tracker.ensure_running().is_ok()
-            });
             format!(
                 "Invoked semantic element {element_id} in window {}.",
                 current.id
@@ -3167,11 +3244,6 @@ pub(super) fn control_window(
                 resolve_live_element(&current, observed, expected),
             )?;
             let text = args.text.as_deref().expect("validated text");
-            let bounds = &live.snapshot.screen_bounds;
-            super::super::computer_pointer_feedback::show_at((
-                bounds.x + (bounds.width / 2) as i32,
-                bounds.y + (bounds.height / 2) as i32,
-            ));
             route = set_element_value(
                 &live.element,
                 &live.snapshot,
@@ -3224,7 +3296,7 @@ pub(super) fn control_window(
                 &current,
                 commit_tracker,
                 "move mouse",
-                PointerApproach::Foreground,
+                None,
             ))?;
             commit_tracker.result_as(
                 PreCommitFailureKind::TargetOccluded,
@@ -3279,16 +3351,29 @@ pub(super) fn control_window(
                 PreCommitFailureKind::UserTakeover,
                 ensure_mouse_button_not_physically_pressed(button),
             )?;
-            if target.live.is_some() {
-                commit_tracker.result(commit_tracker.mark())?;
-                commit_tracker.result(approach_pointer(
-                    target.point,
-                    &current,
-                    commit_tracker,
-                    "move mouse before click",
-                    PointerApproach::Foreground,
-                ))?;
-                thread::sleep(INPUT_SETTLE);
+            commit_tracker.result_as(
+                PreCommitFailureKind::TargetOccluded,
+                ensure_point_targets_window(target.point, &current),
+            )?;
+            let pixel_receiver = target.live.is_none().then(|| window_at(target.point));
+            commit_tracker.result(commit_tracker.mark())?;
+            commit_tracker.result(approach_pointer(
+                target.point,
+                &current,
+                commit_tracker,
+                "move mouse before click",
+                pixel_receiver,
+            ))?;
+            thread::sleep(INPUT_SETTLE);
+            if let Some(receiver) = pixel_receiver {
+                commit_tracker.result_as(
+                    PreCommitFailureKind::ObservationStale,
+                    ensure_target_patch_fresh(observed, &current, target.point),
+                )?;
+                if window_at(target.point) != receiver {
+                    return Err(commit_tracker.failure_as(PreCommitFailureKind::ObservationStale,
+                        invalid("The receiving control changed during pointer movement. Observe again before clicking.")));
+                }
             }
             commit_tracker.result(commit_tracker.ensure_running())?;
             commit_tracker.result_as(
@@ -3331,7 +3416,7 @@ pub(super) fn control_window(
                 commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.result(send_mouse_click(
                     button,
-                    (target.live.is_none() && index == 0).then_some(target.point),
+                    Some(target.point),
                     commit_tracker,
                 ))?;
                 if index + 1 < count {
@@ -3348,9 +3433,6 @@ pub(super) fn control_window(
                     }))?;
                 }
             }
-            super::super::computer_pointer_feedback::pulse_at(target.point, || {
-                commit_tracker.ensure_running().is_ok()
-            });
             format!("Clicked {count} time(s) inside window {}.", current.id)
         }
         ControlAction::Drag => {
@@ -3404,7 +3486,7 @@ pub(super) fn control_window(
                 &current,
                 commit_tracker,
                 "move to drag start",
-                PointerApproach::Foreground,
+                None,
             ))?;
             thread::sleep(INPUT_SETTLE);
             for target in [&from, &to] {
@@ -3463,7 +3545,7 @@ pub(super) fn control_window(
                 &current,
                 commit_tracker,
                 "move mouse before scroll",
-                PointerApproach::Foreground,
+                None,
             ))?;
             thread::sleep(INPUT_SETTLE);
             if target.live.is_none() {
@@ -3555,11 +3637,6 @@ pub(super) fn control_window(
                         invalid("Password elements are protected from text input."),
                     ));
                 }
-                let bounds = &live.snapshot.screen_bounds;
-                super::super::computer_pointer_feedback::show_at((
-                    bounds.x + (bounds.width / 2) as i32,
-                    bounds.y + (bounds.height / 2) as i32,
-                ));
                 commit_tracker.result(commit_tracker.mark())?;
                 commit_tracker.delivered(
                     unsafe { live.element.SetFocus() }
@@ -3629,7 +3706,19 @@ pub(super) fn control_window(
     let mut previous_signature: Option<Vec<u8>> = None;
     let mut stable_samples = 0_u8;
     let mut sampled_frames = 0_u16;
+    let owner_became_disabled =
+        || owner_was_enabled && !unsafe { IsWindowEnabled(hwnd(current.id)) }.as_bool();
     while std::time::Instant::now() < deadline {
+        if !unsafe { IsWindow(Some(hwnd(current.id))) }.as_bool() {
+            break;
+        }
+        if owner_became_disabled() {
+            if enabled_modal_child(&current).is_some() {
+                break;
+            }
+            thread::sleep(POST_ACTION_SAMPLE_INTERVAL);
+            continue;
+        }
         if let Ok(capture) = capture_window(&last_snapshot, CaptureOptions::pixels_only()) {
             sampled_frames = sampled_frames.saturating_add(1);
             last_snapshot = capture.snapshot;
@@ -3658,10 +3747,31 @@ pub(super) fn control_window(
         thread::sleep(POST_ACTION_SAMPLE_INTERVAL);
     }
 
-    let final_capture_result = capture_window(&last_snapshot, final_capture_options);
-    let (capture, observation_error) = match final_capture_result {
-        Ok(capture) => (Some(capture), None),
-        Err(error) => (None, Some(error.to_string())),
+    let final_capture = if owner_became_disabled() {
+        None
+    } else {
+        Some(capture_window(&last_snapshot, final_capture_options))
+    };
+    let (capture, observation_error, modal_child) = if owner_became_disabled() {
+        let child = enabled_modal_child(&current).map(|target| ModalHandoff {
+            target,
+            observation_not_before_ms: observation_time_ms(),
+        });
+        let error = (child.is_none() && unsafe { IsWindow(Some(hwnd(current.id))) }.as_bool())
+            .then(|| {
+                "The source window was disabled. List windows to locate the active dialog.".into()
+            });
+        (None, error, child)
+    } else {
+        match final_capture {
+            Some(Ok(capture)) => (Some(capture), None, None),
+            Some(Err(error)) => (None, Some(error.to_string()), None),
+            None => (
+                None,
+                Some("The active window changed during observation. Observe again.".into()),
+                None,
+            ),
+        }
     };
     if let Some(title) = args.expected_window_title.as_deref() {
         condition = if capture
@@ -3674,9 +3784,11 @@ pub(super) fn control_window(
         };
     }
     let window_closed = capture.is_none() && !unsafe { IsWindow(Some(hwnd(current.id))).as_bool() };
-    let modal_owner_handoff = window_closed
-        .then(|| recovered_modal_owner(&observed.snapshot))
-        .flatten();
+    let (modal_owner_handoff, closed_modal_owner) = if window_closed {
+        modal_destination_after_close(&observed.snapshot, deadline)
+    } else {
+        (None, None)
+    };
     let after_signature = capture
         .as_ref()
         .and_then(|capture| screenshot_signature(&capture.png))
@@ -3692,12 +3804,15 @@ pub(super) fn control_window(
             && observed.elements != capture.elements
     });
     let state_changed = window_closed
+        || modal_child.is_some()
         || semantic_changed
         || difference.is_some_and(|difference| difference.materially_changed);
     let after_hash = capture
         .as_ref()
         .map(|capture| blake3::hash(&capture.png).to_hex().to_string());
-    let effect = if modal_owner_handoff.is_some() {
+    let effect = if modal_child.is_some() {
+        "modal_child_handoff"
+    } else if modal_owner_handoff.is_some() {
         "modal_owner_handoff"
     } else if window_closed {
         "window_closed"
@@ -3737,6 +3852,8 @@ pub(super) fn control_window(
         condition,
         window_closed,
         modal_owner_handoff,
+        closed_modal_owner,
+        modal_child,
     })
 }
 
@@ -3803,6 +3920,12 @@ $panel.Add_MouseEnter({ $panel.BackColor = [System.Drawing.Color]::Gold })
 $panel.Add_MouseLeave({ $panel.BackColor = [System.Drawing.Color]::RoyalBlue })
 $panel.Add_Click({ $form.Text = 'Nexa hover-click fixture CLICKED'; $panel.BackColor = [System.Drawing.Color]::LimeGreen })
 $form.Controls.Add($panel)
+$button = [System.Windows.Forms.Button]::new()
+$button.Text = 'Element target'
+$button.Location = [System.Drawing.Point]::new(275,150)
+$button.Size = [System.Drawing.Size]::new(125,55)
+$button.Add_Click({ $form.Text = 'Nexa element fixture CLICKED' })
+$form.Controls.Add($button)
 [System.Windows.Forms.Application]::Run($form)
 "#;
         let fixture = Fixture(
@@ -3858,9 +3981,11 @@ $form.Controls.Add($panel)
             elements: vec![],
         };
         let args: ControlArgs = serde_json::from_value(serde_json::json!({
-            "action":"click", "delivery":"foreground", "observation_id":"native-fixture", "window_id":target.id,
-            "x": f64::from(point.x-target.x) * f64::from(capture.image_width-1) / f64::from(target.width-1),
-            "y": f64::from(point.y-target.y) * f64::from(capture.image_height-1) / f64::from(target.height-1),
+            "action":"click", "observation_id":"native-fixture", "window_id":target.id,
+            "point": {
+                "x": f64::from(point.x-target.x) * f64::from(capture.image_width-1) / f64::from(target.width-1),
+                "y": f64::from(point.y-target.y) * f64::from(capture.image_height-1) / f64::from(target.height-1),
+            }
         })).unwrap();
         let tracker = ControlCommitTracker::default();
         let outcome = control_window(
@@ -3900,6 +4025,55 @@ $form.Controls.Add($panel)
         assert!(
             after.title.ends_with("CLICKED"),
             "the real window did not receive its click"
+        );
+        let (x, y) = cursor_position().unwrap();
+        assert!((x - point.x).abs() <= 1 && (y - point.y).abs() <= 1);
+
+        let tree = capture_window(&after, CaptureOptions::from_control(&args).unwrap()).unwrap();
+        let button = tree
+            .elements
+            .iter()
+            .find(|e| e.role == "button" && e.name == "Element target")
+            .expect("fixture button is in the accessibility tree");
+        let element_args: ControlArgs = serde_json::from_value(serde_json::json!({
+            "action":"click", "delivery":"auto", "observation_id":"native-element-fixture",
+            "window_id":target.id, "element_id":button.id,
+        }))
+        .unwrap();
+        let observed = ObservedWindow {
+            snapshot: tree.snapshot.clone(),
+            image_width: Some(tree.image_width),
+            image_height: Some(tree.image_height),
+            native_image_width: Some(tree.native_image_width),
+            native_image_height: Some(tree.native_image_height),
+            screenshot_signature: screenshot_signature(&tree.png),
+            screenshot_guard: screenshot_guard(&tree.png),
+            elements: tree.elements.clone(),
+        };
+        let outcome = control_window(
+            ControlAction::Click,
+            &element_args,
+            &observed,
+            CaptureOptions::pixels_only(),
+            &ControlCommitTracker::default(),
+        )
+        .expect("element click with the system cursor");
+        assert_ne!(outcome.delivery, "background");
+        assert_eq!(
+            current_window(&target).unwrap().1.title,
+            "Nexa element fixture CLICKED"
+        );
+        let (x, y) = cursor_position().unwrap();
+        let mut client = windows::Win32::Foundation::POINT { x, y };
+        assert!(unsafe {
+            windows::Win32::Graphics::Gdi::ScreenToClient(hwnd(target.id), &mut client)
+        }
+        .as_bool());
+        assert!(
+            (275..400).contains(&client.x) && (150..205).contains(&client.y),
+            "system cursor must be inside the button, got ({}, {})",
+            client.x,
+            client.y
         );
     }
 
@@ -4231,8 +4405,8 @@ $window.ShowDialog() | Out-Null
             session_id: 1,
             app_name: "Editor".to_string(),
             title: "Document".to_string(),
-            x: 100,
-            y: 200,
+            x: -2200,
+            y: -200,
             width: model_width * 2,
             height: model_height * 2,
             minimized: false,
@@ -4262,6 +4436,17 @@ $window.ShowDialog() | Out-Null
         )
         .expect("coordinate mapping");
 
+        let mapped =
+            |x, y, space| image_point(Some(x), Some(y), space, &observed, &current, "click");
+        assert_eq!(
+            mapped(1000.0, 1000.0, CoordinateSpace::Normalized(1000)).unwrap(),
+            point
+        );
+        assert_eq!(
+            mapped(230.0, 750.0, CoordinateSpace::Normalized(1000)).unwrap(),
+            mapped(0.23, 0.75, CoordinateSpace::Normalized(1)).unwrap()
+        );
+        assert!(mapped(1001.0, 500.0, CoordinateSpace::Normalized(1000)).is_err());
         assert_eq!(
             point,
             (
