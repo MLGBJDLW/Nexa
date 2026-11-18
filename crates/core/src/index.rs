@@ -56,7 +56,8 @@ impl Database {
                 SUM(CASE WHEN ds.input_revision=d.index_revision AND COALESCE(json_extract(ds.coverage_json,'$.complete'),0)=0 THEN 1 ELSE 0 END) partial,
                 SUM(CASE WHEN COALESCE(json_extract(d.metadata,'$.parse_warnings'),'')!='' THEN 1 ELSE 0 END) warnings,
                 SUM(CASE WHEN COALESCE(json_extract(d.metadata,'$.parser_profile'),'')=''
-                  OR (json_extract(d.metadata,'$.parser_profile') LIKE 'native-%' AND json_extract(d.metadata,'$.parser_profile')!=?2)
+                  OR (json_extract(d.metadata,'$.parser_profile') LIKE 'native-%' AND json_extract(d.metadata,'$.parser_profile')!=
+                    CASE WHEN d.mime_type IN (SELECT value FROM json_each(?4)) THEN ?3 ELSE ?2 END)
                   THEN 1 ELSE 0 END) reparse
               FROM documents d LEFT JOIN document_summaries ds ON ds.document_id=d.id GROUP BY d.source_id
             ), chunk_health AS (
@@ -73,7 +74,12 @@ impl Database {
         )?;
         let rows = statement
             .query_map(
-                rusqlite::params![&space, crate::ingest::NATIVE_PARSER_PROFILE],
+                rusqlite::params![
+                    &space,
+                    crate::ingest::NATIVE_PARSER_PROFILE,
+                    crate::ingest::LOCATED_PARSER_PROFILE,
+                    serde_json::to_string(&crate::ingest::LOCATED_MIME_TYPES)?,
+                ],
                 |row| {
                     let scan: Option<String> = row.get(11)?;
                     Ok(SourceIndexHealth {

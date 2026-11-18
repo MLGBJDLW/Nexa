@@ -510,6 +510,7 @@ fn push_paragraph_blocks(
             });
         } else {
             blocks.push(PreviewBlock::Paragraph {
+                extracted_lines: None,
                 source_paragraph,
                 runs: paragraph.runs,
                 alignment: paragraph.alignment,

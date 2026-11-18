@@ -772,6 +772,7 @@ mod tests {
         let mut pdf = EvidenceLocator::Pdf {
             page: 3,
             bbox: Some([0.1, 0.2, 0.3, 0.4]),
+            extracted_lines: None,
         };
         let original = pdf.clone();
         redact_locator(&mut pdf, &[]);

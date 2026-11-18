@@ -34,36 +34,19 @@ fn preview_pdf_inner(path: &Path) -> Result<Option<StructuredPreview>, String> {
         }
         blocks.push(heading(format!("Page {}", index + 1), 2));
 
-        match extract_page_text(&doc, *page_number) {
-            Ok(text) if !text.trim().is_empty() => {
-                extracted_any_text = true;
-                for (paragraph_count, paragraph) in pdf_paragraphs(&text).into_iter().enumerate() {
-                    if paragraph_count >= PDF_PREVIEW_MAX_PARAGRAPHS_PER_PAGE {
-                        blocks.push(PreviewBlock::Unsupported {
-                            message: format!(
-                                "Page {} preview is limited to the first {} paragraphs.",
-                                index + 1,
-                                PDF_PREVIEW_MAX_PARAGRAPHS_PER_PAGE
-                            ),
-                        });
-                        break;
-                    }
-                    blocks.push(paragraph_block(paragraph));
-                }
-            }
-            Ok(_) => {
-                blocks.push(PreviewBlock::Unsupported {
-                    message: "No extractable text layer was found on this page.".to_string(),
-                });
-            }
-            Err(err) => {
-                if first_error.is_none() {
-                    first_error = Some(err.clone());
-                }
-                blocks.push(PreviewBlock::Unsupported {
-                    message: format!("Could not extract text from this page: {err}"),
-                });
-            }
+        let (text, error) = crate::parse::native_pdf_page_text(&doc, *page_number);
+        if !text.trim().is_empty() {
+            extracted_any_text = true;
+            append_page_paragraphs(&mut blocks, &text, *page_number);
+        } else if let Some(err) = error {
+            first_error.get_or_insert_with(|| err.clone());
+            blocks.push(PreviewBlock::Unsupported {
+                message: format!("Could not extract text from this page: {err}"),
+            });
+        } else {
+            blocks.push(PreviewBlock::Unsupported {
+                message: "No extractable text layer was found on this page.".to_string(),
+            });
         }
     }
 
@@ -89,72 +72,32 @@ fn preview_pdf_inner(path: &Path) -> Result<Option<StructuredPreview>, String> {
     }))
 }
 
-fn extract_page_text(doc: &Document, page_number: u32) -> Result<String, String> {
-    let mut text = String::new();
-    let mut decode_error_count = 0;
-    let mut first_decode_error: Option<String> = None;
-
-    for chunk in doc.extract_text_chunks(&[page_number]) {
-        match chunk {
-            Ok(fragment) => text.push_str(&fragment),
-            Err(err) => {
-                decode_error_count += 1;
-                if first_decode_error.is_none() {
-                    first_decode_error = Some(err.to_string());
-                }
+fn append_page_paragraphs(blocks: &mut Vec<PreviewBlock>, text: &str, page: u32) {
+    let mut offset = 0;
+    let mut start = None;
+    let mut count = 0;
+    // A sentinel flushes the last nonempty paragraph without a trailing newline.
+    for (index, line) in text
+        .split_inclusive('\n')
+        .chain(std::iter::once(""))
+        .enumerate()
+    {
+        if !line.trim().is_empty() {
+            start.get_or_insert((offset, index as u32 + 1));
+        } else if let Some((begin, line_number)) = start.take() {
+            if count == PDF_PREVIEW_MAX_PARAGRAPHS_PER_PAGE {
+                blocks.push(PreviewBlock::Unsupported {
+                    message: format!(
+                        "Page {page} preview is limited to the first {count} paragraphs."
+                    ),
+                });
+                break;
             }
+            blocks.push(paragraph_block(text[begin..offset].trim(), line_number));
+            count += 1;
         }
+        offset += line.len();
     }
-
-    if !text.trim().is_empty() || decode_error_count == 0 {
-        Ok(text)
-    } else {
-        Err(format!(
-            "{} decode errors; first error: {}",
-            decode_error_count,
-            first_decode_error.unwrap_or_else(|| "unknown".to_string())
-        ))
-    }
-}
-
-fn pdf_paragraphs(text: &str) -> Vec<String> {
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let mut paragraphs = Vec::new();
-    let mut current = String::new();
-
-    for line in normalized.lines() {
-        let line = line.trim_end();
-        if line.trim().is_empty() {
-            flush_paragraph(&mut paragraphs, &mut current);
-            continue;
-        }
-        if !current.is_empty() {
-            current.push('\n');
-        }
-        current.push_str(line);
-    }
-    flush_paragraph(&mut paragraphs, &mut current);
-    paragraphs
-}
-
-fn flush_paragraph(paragraphs: &mut Vec<String>, current: &mut String) {
-    let trimmed = current.trim();
-    if !trimmed.is_empty() {
-        paragraphs.push(limit_paragraph(trimmed));
-    }
-    current.clear();
-}
-
-fn limit_paragraph(text: &str) -> String {
-    let mut out = String::new();
-    for (index, ch) in text.chars().enumerate() {
-        if index >= PDF_PREVIEW_MAX_PARAGRAPH_CHARS {
-            out.push_str("\n[truncated]");
-            break;
-        }
-        out.push(ch);
-    }
-    out
 }
 
 fn heading(text: String, level: u8) -> PreviewBlock {
@@ -166,10 +109,24 @@ fn heading(text: String, level: u8) -> PreviewBlock {
     }
 }
 
-fn paragraph_block(text: String) -> PreviewBlock {
+fn paragraph_block(text: &str, first_line: u32) -> PreviewBlock {
+    let cut = text
+        .char_indices()
+        .nth(PDF_PREVIEW_MAX_PARAGRAPH_CHARS)
+        .map(|(offset, _)| offset);
+    let visible = text[..cut.unwrap_or(text.len())].trim_end_matches('\n');
+    let last_line = first_line + visible.lines().count() as u32 - 1;
+    let mut rendered = visible.to_owned();
+    if cut.is_some() {
+        rendered.push_str("\n[truncated]");
+    }
     PreviewBlock::Paragraph {
         source_paragraph: None,
-        runs: vec![plain_run(text)],
+        extracted_lines: Some(crate::evidence::ExtractedLineRange {
+            start: first_line,
+            end: last_line,
+        }),
+        runs: vec![plain_run(rendered)],
         alignment: None,
     }
 }
@@ -201,7 +158,13 @@ mod tests {
     fn preview_pdf_builds_document_blocks_per_page() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sample.pdf");
-        write_test_pdf(&path, &["Executive Summary", "Second page details"]);
+        write_test_pdf(
+            &path,
+            &[
+                "Executive Summary\nFirst page details",
+                "Second page details",
+            ],
+        );
 
         let preview = preview_pdf(&path)
             .expect("preview pdf")
@@ -217,15 +180,41 @@ mod tests {
         ));
         assert!(blocks.iter().any(|block| matches!(
             block,
-            PreviewBlock::Paragraph { runs, .. } if runs[0].text.contains("Executive Summary")
+            PreviewBlock::Paragraph { runs, extracted_lines: Some(lines), .. }
+                if runs[0].text == "Executive Summary\nFirst page details" && (lines.start, lines.end) == (1, 2)
         )));
         assert!(blocks
             .iter()
             .any(|block| matches!(block, PreviewBlock::PageBreak)));
         assert!(blocks.iter().any(|block| matches!(
             block,
-            PreviewBlock::Paragraph { runs, .. } if runs[0].text.contains("Second page details")
+            PreviewBlock::Paragraph { runs, extracted_lines: Some(lines), .. }
+                if runs[0].text == "Second page details" && (lines.start, lines.end) == (1, 1)
         )));
+        let parsed = crate::parse::parse_pdf(&path, &Default::default(), None, 2000).unwrap();
+        let first = serde_json::to_value(&parsed.chunks[0].locator).unwrap();
+        assert_eq!(
+            first,
+            serde_json::json!({
+                "kind":"pdf", "page":1, "extractedLineStart":1, "extractedLineEnd":2
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<crate::evidence::EvidenceLocator>(first).unwrap(),
+            parsed.chunks[0].locator
+        );
+        let old = serde_json::json!({"kind":"pdf","page":1});
+        assert_eq!(
+            serde_json::to_value(
+                serde_json::from_value::<crate::evidence::EvidenceLocator>(old.clone()).unwrap()
+            )
+            .unwrap(),
+            old
+        );
+        let shortened = paragraph_block(&"visible\n".repeat(1_000), 4);
+        assert!(matches!(shortened,
+            PreviewBlock::Paragraph { runs, extracted_lines: Some(lines), .. }
+                if runs[0].text.ends_with("\n[truncated]") && (lines.start, lines.end) == (4, 503)));
     }
 
     fn write_test_pdf(path: &Path, page_texts: &[&str]) {
@@ -244,15 +233,19 @@ mod tests {
 
         let mut kids = Vec::new();
         for text in page_texts {
-            let content = Content {
-                operations: vec![
-                    Operation::new("BT", vec![]),
-                    Operation::new("Tf", vec!["F1".into(), 12.into()]),
-                    Operation::new("Td", vec![72.into(), 720.into()]),
-                    Operation::new("Tj", vec![Object::string_literal(*text)]),
-                    Operation::new("ET", vec![]),
-                ],
-            };
+            let mut operations = vec![
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec!["F1".into(), 12.into()]),
+                Operation::new("Td", vec![72.into(), 720.into()]),
+            ];
+            for (index, line) in text.lines().enumerate() {
+                if index > 0 {
+                    operations.push(Operation::new("T*", vec![]));
+                }
+                operations.push(Operation::new("Tj", vec![Object::string_literal(line)]));
+            }
+            operations.push(Operation::new("ET", vec![]));
+            let content = Content { operations };
             let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
             let page_id = doc.add_object(dictionary! {
                 "Type" => "Page",
