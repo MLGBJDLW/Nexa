@@ -211,10 +211,13 @@ test('phone model defaults skip gated models and preserve saved selections', asy
   const model = page.getByRole('button', {name:'Model connection', exact:true});
   await expect(model).toHaveAttribute('data-value','claude-mythos-5-2');
   await page.locator('.mobile-add-connection').click();
+  await expect(model).toHaveAttribute('data-value','gpt-6.2-sol');
+  await model.click();
+  await expect(page.locator('[cmdk-item][role="option"]').nth(1)).toHaveAttribute('data-value','gpt-6.2-astra');
+  await page.keyboard.press('Escape');
   await page.getByRole('button', {name:'Provider', exact:true}).click();
-  await page.getByRole('option', {name:/^Anthropic/}).click();
-  // No native Anthropic model is marked product-ready in the current catalog;
-  // require an explicit choice instead of silently selecting a restricted model.
+  await page.locator('[role="option"][data-value="qwen-token-plan-cn"]').click();
+  // This subscription requires an explicit model choice for the account.
   await expect(model).toHaveAttribute('data-value','');
   const save = page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true});
   await expect(save).toBeDisabled();
@@ -224,8 +227,11 @@ test('phone model defaults skip gated models and preserve saved selections', asy
   await page.getByRole('button', {name:'Choose from preset models', exact:true}).click();
   await expect(save).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.some((call: any) => call.command === 'mobile_save_settings'))).toBe(false);
+  await page.getByRole('button', {name:'Provider', exact:true}).click();
+  await page.getByRole('option', {name:/^Anthropic/}).click();
+  await expect(model).toHaveAttribute('data-value','claude-opus-5-5');
   await model.click();
-  await page.locator('[cmdk-input]').fill('Fable 5.2');
+  await page.locator('.nexa-combobox-content[data-state="open"] [cmdk-input]').fill('Fable 5.2');
   await page.getByRole('option').filter({hasText:'claude-fable-5-2'}).click();
   await page.locator('form.mobile-settings-form').getByRole('button', {name:'Save', exact:true}).click();
   expect(await page.evaluate(() => (window as any).__MOBILE_SETTINGS__.findLast((call: any) => call.command === 'mobile_save_settings').args.settings.model)).toBe('claude-fable-5-2');
