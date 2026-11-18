@@ -668,7 +668,9 @@ impl Update {
             request = request.danger_accept_invalid_hostnames(true);
         }
         if let Some(timeout) = self.timeout {
-            request = request.timeout(timeout);
+            // A slow mirror may take longer than the idle timeout to deliver a
+            // signed installer. Bound connection and stalled reads separately.
+            request = request.connect_timeout(timeout).read_timeout(timeout);
         }
         if self.no_proxy {
             request = request.no_proxy();
