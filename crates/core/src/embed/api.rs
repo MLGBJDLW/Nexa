@@ -640,6 +640,13 @@ mod tests {
             voyage.request(&["document"], false).1["input_type"],
             "document"
         );
+        for (model, dimensions) in [("voyage-3-lite", 512), ("voyage-large-2", 1536)] {
+            let embedder = client("https://api.voyageai.com/v1", model, dimensions);
+            let (_, body) = embedder.request(&["query"], true);
+            assert_eq!(body["model"], model);
+            assert_eq!(body["input_type"], "query");
+            assert!(body.get("output_dimension").is_none());
+        }
         let cohere = client("https://api.cohere.com/v2", "embed-v4.0", 256);
         let (url, body) = cohere.request(&["query"], true);
         assert_eq!(url, "https://api.cohere.com/v2/embed");
