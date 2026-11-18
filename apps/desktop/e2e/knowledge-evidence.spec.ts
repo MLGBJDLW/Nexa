@@ -168,5 +168,25 @@ test('structured PDF preview highlights only the cited extracted lines', async (
   const selected = page.locator('[data-evidence-anchor="true"]');
   await expect(selected).toHaveCount(1);
   await expect(selected).toHaveAttribute('data-pdf-line', '7');
-  await expect(selected).toHaveText('selected');
+  await expect(selected).toHaveText('selected\nafter');
+  const dense = page.locator('[data-preview-page="1"] p');
+  await expect(dense).toContainText('row 512');
+  await expect(dense.locator('span')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Clear citation' }).click();
+  await expect(page.locator('[data-pdf-line]')).toHaveCount(0);
+  await expect(dense.locator('span')).toHaveCount(1);
+});
+
+test('phone PDF citations fall back to the original page when native text is missing or clipped', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nexa-locale', 'en'));
+  await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=pdf-lines&remote=1');
+  await page.getByRole('button', { name: 'Open page 2', exact: true }).click();
+  await expect(page.locator('[data-evidence-anchor="true"]')).toHaveText('selected');
+  await expect(page.locator('iframe')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  for (const number of [3, 4, 81]) {
+    await page.getByRole('button', { name: `Open page ${number}`, exact: true }).click();
+    await expect(page.locator('iframe[title="Report"]')).toHaveAttribute('src', new RegExp(`#page=${number}$`));
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+  }
 });

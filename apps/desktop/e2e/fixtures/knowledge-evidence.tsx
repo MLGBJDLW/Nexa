@@ -1,4 +1,4 @@
-import { StrictMode, useMemo, useState } from 'react';
+import { StrictMode, useContext, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StreamingMarkdown } from '../../src/components/chat/StreamingMarkdown';
 import { CitationChip } from '../../src/components/chat/EvidenceCard';
@@ -10,6 +10,9 @@ import { ResearchWorkspace } from '../../src/features/knowledge/ResearchWorkspac
 import { StructuredPreviewRenderer, createPreviewLabels } from '../../src/features/preview/StructuredPreview';
 import { useTranslation } from '../../src/i18n';
 import type { EvidenceRef } from '../../src/types/evidence';
+import type { DocumentStructuredPreview } from '../../src/lib/api';
+import { RemotePreviewProvider } from '../../src/features/remote/RemotePreviewProvider';
+import type { RemoteChatClient } from '../../src/features/remote/remoteClient';
 
 const extracted = new URLSearchParams(location.search).has('extracted');
 const historical: EvidenceRef = {sourceId:'fixture-source',documentId:'fixture-doc',revision:'revision-2026-09',documentHash:'raw-hash-500',blockId:'old',contentHash:'old-500',locator:extracted ? {kind:'extracted',section:'Pages 1, 2'} : {kind:'pdf',page:2,extractedLineStart:7,extractedLineEnd:9},extractionMethod:extracted ? 'docling_layout_ocr' : 'native',status:extracted ? 'current' : 'historical'};
@@ -41,12 +44,36 @@ function FileLinkFixture() {
     <output data-testid="file-link-target">{opened}</output>
   </FilePreviewContext.Provider>;
 }
+const pdfRun = (text: string) => ({ text, bold: false, italic: false, underline: false });
+const pdfPreview: DocumentStructuredPreview = { type: 'document', assets: [], blocks: [
+  { type: 'paragraph', extractedLineStart: 1, extractedLineEnd: 512, runs: [pdfRun(Array.from({ length: 512 }, (_, i) => `row ${i + 1}`).join('\n'))] },
+  { type: 'pageBreak' },
+  { type: 'paragraph', extractedLineStart: 6, extractedLineEnd: 8, runs: [pdfRun('before\nselected\nafter')] },
+  { type: 'pageBreak' },
+  { type: 'unsupported', message: 'No extractable text layer was found on this page.' },
+  { type: 'pageBreak' },
+  { type: 'paragraph', extractedLineStart: 1, extractedLineEnd: 2, runs: [pdfRun('first line\nclipped line\n[truncated]')] },
+] };
+const pdfClient = { rpc: async (method: string) => {
+  if (method === 'files.preview') return { path: 'report.pdf', displayName: 'Report', extension: '.pdf', kind: 'document', hash: 'same-revision', structuredPreview: pdfPreview };
+  if (method === 'files.data') return 'data:application/pdf;base64,JVBERi0=';
+  throw new Error(`Unexpected request: ${method}`);
+} } as unknown as RemoteChatClient;
+function PdfLinks() {
+  const { openFilePreview } = useContext(FilePreviewContext);
+  const open = (page: number, line: number) => openFilePreview('report.pdf', {
+    expectedHash: 'same-revision', locator: { kind: 'pdf', page, extractedLineStart: line, extractedLineEnd: line },
+  });
+  return <>{[[2, 7], [3, 1], [4, 2], [81, 1]].map(([page, line]) =>
+    <button key={page} onClick={() => open(page, line)}>Open page {page}</button>)}</>;
+}
 function PdfLinesFixture() {
   const { t } = useTranslation();
-  return <StructuredPreviewRenderer preview={{ type: 'document', assets: [], blocks: [
-    { type: 'paragraph', extractedLineStart: 6, extractedLineEnd: 8, runs: [{ text: 'before\nselected\nafter', bold: false, italic: false, underline: false }] },
-  ] }} locator={{ kind:'pdf', page:1, extractedLineStart:7, extractedLineEnd:7 }}
-    labels={createPreviewLabels(t)} onMouseUp={() => undefined} onOpenWebLink={() => undefined} />;
+  const [cited, setCited] = useState(true);
+  if (new URLSearchParams(location.search).has('remote')) return <RemotePreviewProvider client={pdfClient}><PdfLinks /></RemotePreviewProvider>;
+  return <><button onClick={() => setCited(false)}>Clear citation</button>
+    <StructuredPreviewRenderer preview={pdfPreview} locator={cited ? { kind:'pdf', page:2, extractedLineStart:7, extractedLineEnd:8 } : undefined}
+      labels={createPreviewLabels(t)} onMouseUp={() => undefined} onOpenWebLink={() => undefined} /></>;
 }
 function WorkbookFixture() {
   const {t}=useTranslation();

@@ -4,7 +4,7 @@ import { FilePreviewContext } from '../preview/filePreviewContext';
 import type { PreviewLocation } from '../preview/filePreviewContext';
 import type { EvidenceRef, EvidenceContext, DocumentOutline } from '../../types/evidence';
 import { EvidenceReader } from '../preview/EvidenceReader';
-import { StructuredPreviewRenderer, createPreviewLabels } from '../preview/StructuredPreview';
+import { StructuredPreviewRenderer, createPreviewLabels, locatePdfPassage } from '../preview/StructuredPreview';
 import { StreamingMarkdown } from '../../components/chat/StreamingMarkdown';
 import { HtmlPreviewFrame } from '../../components/chat/HtmlPreviewFrame';
 import type { FilePreview, getEvidenceCard } from '../../lib/api';
@@ -55,7 +55,7 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
       if (changed) next.warning = t('citation.fileChanged');
       setPreviewLocation(changed ? null : position ?? null);
       setPreview(next);
-      const anchoredPdf = !changed && position?.locator?.kind === 'pdf' && position.locator.extractedLineStart && next.structuredPreview;
+      const anchoredPdf = !changed && locatePdfPassage(next.structuredPreview, position?.locator)?.complete;
       if (['image', 'audio', 'video'].includes(next.kind) || (next.extension === '.pdf' && !anchoredPdf)) {
         const data = await resolveFileUrl(next.path);
         if (mine === generation.current) setMedia(data);

@@ -201,16 +201,44 @@ function DocumentRuns({
   );
 }
 
+interface PdfPassageLines { first: number; last: number }
+
+export function locatePdfPassage(preview: api.StructuredPreview | undefined | null, locator: PreviewLocation['locator']) {
+  if (preview?.type !== 'document' || locator?.kind !== 'pdf' || !locator.extractedLineStart || !locator.extractedLineEnd) return null;
+  const start = locator.extractedLineStart, end = locator.extractedLineEnd;
+  const ranges = new Map<api.DocumentPreviewBlock, PdfPassageLines>();
+  let page = 1;
+  let hasStart = false, hasEnd = false, clipped = false;
+  for (const block of preview.blocks) {
+    if (block.type === 'pageBreak') page++;
+    if (page > locator.page) break;
+    if (page !== locator.page || block.type !== 'paragraph' || block.extractedLineStart == null || block.extractedLineEnd == null) continue;
+    const first = Math.max(start, block.extractedLineStart), last = Math.min(end, block.extractedLineEnd);
+    if (first > last) continue;
+    ranges.set(block, { first, last });
+    hasStart ||= first === start;
+    hasEnd ||= last === end;
+    if (last === block.extractedLineEnd) {
+      // A clipped paragraph has an extra display line beyond its numbered source lines.
+      const text = block.runs.map(run => run.text).join('');
+      clipped ||= text.split('\n').length > block.extractedLineEnd - block.extractedLineStart + 1;
+    }
+  }
+  return { ranges, complete: hasStart && hasEnd && !clipped };
+}
+
 function DocumentBlockView({
   block,
   assetMap,
   labels,
   onOpenWebLink,
+  pdfLines,
 }: {
   block: api.DocumentPreviewBlock;
   assetMap: Map<string, api.PreviewAsset>;
   labels: PreviewLabels;
   onOpenWebLink: (url: string, title?: string) => void;
+  pdfLines?: PdfPassageLines;
 }) {
   switch (block.type) {
     case 'heading': {
@@ -234,13 +262,14 @@ function DocumentBlockView({
       );
     }
     case 'paragraph':
-      if (block.extractedLineStart != null && block.extractedLineEnd != null) {
-        const first = block.extractedLineStart, last = block.extractedLineEnd;
-        return <p className="my-3 whitespace-pre-wrap text-sm leading-7">{
-          block.runs.map(run => run.text).join('').split('\n').map((line, i) =>
-            <span key={i} data-pdf-line={first + i <= last ? first + i : undefined}>{i > 0 && '\n'}{line}</span>
-          )
-        }</p>;
+      if (pdfLines && block.extractedLineStart != null) {
+        const lines = block.runs.map(run => run.text).join('').split('\n');
+        const from = pdfLines.first - block.extractedLineStart, to = pdfLines.last - block.extractedLineStart + 1;
+        return <p className="my-3 whitespace-pre-wrap text-sm leading-7">
+          {from > 0 && lines.slice(0, from).join('\n') + '\n'}
+          <span data-pdf-line={pdfLines.first}>{lines.slice(from, to).join('\n')}</span>
+          {to < lines.length && '\n' + lines.slice(to).join('\n')}
+        </p>;
       }
       return (
         <p data-docx-paragraph={block.sourceParagraph} className={`my-3 whitespace-pre-wrap text-sm leading-7 ${textAlignClass(block.alignment)}`}>
@@ -368,6 +397,7 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
   const root = useRef<HTMLDivElement>(null);
   const [anchorMissing, setAnchorMissing] = useState(false);
   const assetMap = useMemo(() => new Map(preview.assets.map((asset) => [asset.id, asset])), [preview.assets]);
+  const pdfPassage = useMemo(() => locatePdfPassage(preview, locator), [preview, locator]);
   const blockPages = useMemo(() => {
     let page = 1;
     return preview.blocks.map((block) => { if (block.type === 'pageBreak') page += 1; return page; });
@@ -379,11 +409,9 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
     if (locator.kind === 'pdf' || locator.kind === 'slide') {
       const page = locator.kind === 'pdf' ? locator.page : locator.slide;
       target = root.current.querySelector<HTMLElement>(`[data-preview-page="${page}"]`);
-      if (locator.kind === 'pdf' && locator.extractedLineStart && locator.extractedLineEnd) {
-        const start = locator.extractedLineStart, end = locator.extractedLineEnd;
-        const lines = Array.from(root.current.querySelectorAll<HTMLElement>(`[data-preview-page="${page}"] [data-pdf-line]`))
-          .filter(element => Number(element.dataset.pdfLine) >= start && Number(element.dataset.pdfLine) <= end);
-        setAnchorMissing(!lines.length || Number(lines[0].dataset.pdfLine) !== start || Number(lines[lines.length - 1]?.dataset.pdfLine) !== end);
+      if (pdfPassage) {
+        const lines = Array.from(root.current.querySelectorAll<HTMLElement>('[data-pdf-line]'));
+        setAnchorMissing(!pdfPassage.complete);
         return markEvidenceLocations(lines.length ? lines : target ? [target] : [], []);
       }
     } else if (locator.kind === 'document' && locator.part === 'word/document.xml') {
@@ -399,13 +427,13 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
     setAnchorMissing(!target || (locator.kind === 'document' && Boolean(locator.contextRow) && !context));
     if (!target) return;
     return markEvidenceLocations([target], context ? [context] : []);
-  }, [locator, preview]);
+  }, [locator, preview, pdfPassage]);
   return (
     <div ref={root} data-testid="file-preview-structured-document" className="h-full overflow-auto bg-surface-0 px-4 py-5" onMouseUp={onMouseUp}>
       {anchorMissing && <p role="status" className="mb-3 text-xs text-warning">{t('citation.previewLocationMissing')}</p>}
       <article className="mx-auto min-h-full max-w-[900px] rounded-md border border-border/70 bg-surface-1 px-6 py-6 text-text-primary shadow-[0_18px_45px_rgba(0,0,0,0.18)] sm:px-8 sm:py-7">
         {preview.blocks.map((block, index) => <div key={index} data-preview-page={blockPages[index]}>
-          <DocumentBlockView block={block} assetMap={assetMap} labels={labels} onOpenWebLink={onOpenWebLink} />
+          <DocumentBlockView block={block} assetMap={assetMap} labels={labels} onOpenWebLink={onOpenWebLink} pdfLines={pdfPassage?.ranges.get(block)} />
         </div>)}
       </article>
     </div>
