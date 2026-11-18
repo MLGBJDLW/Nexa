@@ -29,6 +29,16 @@
 * **settings:** use current endpoint-specific media model defaults ([1acc1ba](https://github.com/MLGBJDLW/Nexa/commit/1acc1ba723438757bacc5b9ad65dfec279dc1e93))
 * **speech:** align transcription and synthesis with model-specific contracts ([bddae76](https://github.com/MLGBJDLW/Nexa/commit/bddae76bdfc5e2b1d2c5a272a884e64d7572d69e))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 02f567f233d178ba6943989b9057aa60fdbd58cd -->
+
+### What's Changed
+* feat(workspace): update provider catalogs, browser input and transfer feedback by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/576
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.15...nexa-monorepo-v0.19.16
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.14...nexa-monorepo-v0.19.15) (2026-11-18)
 
 ### Improvements
