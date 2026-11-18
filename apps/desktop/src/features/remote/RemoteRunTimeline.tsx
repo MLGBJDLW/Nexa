@@ -6,6 +6,7 @@ import { stripFollowupBlocks } from '../../lib/followupSuggestions';
 import { hasInlineChatPreview } from '../../lib/markdownCodeProtection';
 import { compactActivityLabel, thinkingSummary } from '../../lib/thinkingSummary';
 import { completeReplayText } from './remoteHistory';
+import { useReducedMotionPreference } from '../../lib/uiMotion';
 
 export type RemoteTimelineItem = {
   id: string;
@@ -114,9 +115,10 @@ function ActivityGroup({ items, running }: { items: RemoteTimelineItem[]; runnin
 
 function TimelineAnswer({ item, streaming }: { item: Extract<RemoteTimelineItem, { kind: 'answer' }>; streaming: boolean }) {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotionPreference();
   return <article className="remote-answer" data-timeline-kind="answer">
     <p className="mb-3 text-xs font-semibold text-accent">Nexa</p>
-    <StreamingMarkdown content={stripFollowupBlocks(item.text)} isStreaming={streaming} partial={!!(item.onMore || item.truncated)} reduceMotion />
+    <StreamingMarkdown content={stripFollowupBlocks(item.text)} isStreaming={streaming} partial={!!(item.onMore || item.truncated)} reduceMotion={reduceMotion} />
     {item.onMore && <button onClick={item.onMore}>{t('remote.moreText')}</button>}
   </article>;
 }

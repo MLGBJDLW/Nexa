@@ -11,7 +11,7 @@ import {
   useCallback,
   useLayoutEffect,
 } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDown,
@@ -34,7 +34,7 @@ import {
   buildCitationMap,
 } from "../../lib/citationParser";
 import type { CitationCardData } from "../../lib/citationParser";
-import { SOFT_FADE_TRANSITION } from "../../lib/uiMotion";
+import { SOFT_FADE_TRANSITION, useReducedMotionPreference as useReducedMotion } from "../../lib/uiMotion";
 import { isCompactionSummaryMessage, isGoalMessage, isSteeringMessage } from "../../lib/chatMessageGuards";
 import { getActiveGoalContext } from "../../lib/goalContext";
 import type {

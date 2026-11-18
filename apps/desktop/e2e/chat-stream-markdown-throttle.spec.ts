@@ -291,7 +291,10 @@ test('keeps long streaming markdown advancing before the stream finishes', async
   await expect(page.getByText(/token05/i)).toBeVisible();
   await expect(page.getByRole('button', { name: /stop/i })).toBeVisible();
 
-  await page.waitForTimeout(700);
+  await expect(page.locator('.streaming-text-rise').first()).toBeVisible();
+  expect(await page.locator('.streaming-text-rise').count()).toBeLessThanOrEqual(6);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.locator('.streaming-text-rise')).toHaveCount(0);
   await expect(page.getByText(/token45/i)).toBeVisible();
   await page.evaluate(() => (window as Window & { __finishMarkdownStream?: () => void }).__finishMarkdownStream?.());
 });
