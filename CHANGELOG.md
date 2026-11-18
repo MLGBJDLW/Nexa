@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.19.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.14...nexa-monorepo-v0.19.15) (2026-11-18)
+
+
+### Features
+
+* **browser:** deliver foreground gestures through the Windows system pointer ([2cb04b4](https://github.com/MLGBJDLW/Nexa/commit/2cb04b4cd0eec8aa619302f11fde05812d13d407))
+* **catalog:** expand Qianfan embeddings and refresh ACP distributions ([dea403e](https://github.com/MLGBJDLW/Nexa/commit/dea403e8fd878e8f4d4d0b74b435edaa0d572252))
+* **catalog:** refresh November 18 models and GPT6.2 routing ([5f304a4](https://github.com/MLGBJDLW/Nexa/commit/5f304a494b867ce33a9a1fe63191395010a19325))
+* **catalog:** refresh November 18 models and GPT6.2 routing ([de78432](https://github.com/MLGBJDLW/Nexa/commit/de784326a722d4840a2454057ec5930609dfb2fb))
+* **citations:** locate document evidence across desktop and phone ([59917cf](https://github.com/MLGBJDLW/Nexa/commit/59917cf5ca1d34d14214b4d773613b9aead0d43b))
+* **citations:** open revision-bound Office passage links ([e16cc28](https://github.com/MLGBJDLW/Nexa/commit/e16cc28e2b15d2eee29a8e5ff1625e6f0109153d))
+* **citations:** open source passages from indexed and direct file reads ([12c1fb8](https://github.com/MLGBJDLW/Nexa/commit/12c1fb8722bda15ae47952295df50bdc95f198c8))
+* **computer-use:** follow verified dialogs and observe the entire desktop ([bc4e003](https://github.com/MLGBJDLW/Nexa/commit/bc4e003d6070fbc1f0705a672135b860fafe9780))
+* **computer-use:** use the system cursor and preserve dialog sessions ([66040ae](https://github.com/MLGBJDLW/Nexa/commit/66040ae26e32c8475c580cbec2ac5540486be5b1))
+* **index:** preserve PDF text lines and exact workbook cell ranges ([e51c225](https://github.com/MLGBJDLW/Nexa/commit/e51c225e5e7ddd8f3191d40c207bad9c4a091f67))
+* **office:** stream document evidence with source coordinates ([de773e5](https://github.com/MLGBJDLW/Nexa/commit/de773e5e57d1541560a1fd316c0af5ec26b9d92e))
+* **preview:** open cited slides from bounded document snapshots ([7d7afd9](https://github.com/MLGBJDLW/Nexa/commit/7d7afd97745120e2df3c39b29bb5d2acf0b226fe))
+
+
+### Bug Fixes
+
+* **browser:** preserve observed focus before pointer dispatch ([93a5c9e](https://github.com/MLGBJDLW/Nexa/commit/93a5c9eb1b779e84cfc91e47f1f90034c92563f4))
+* **build:** guard desktop glob matching against nested wildcard repetition ([201d9d2](https://github.com/MLGBJDLW/Nexa/commit/201d9d230b5104cf867d7221a47a22537866b22b))
+* **citations:** preserve source locations in direct document reads ([dcc2340](https://github.com/MLGBJDLW/Nexa/commit/dcc234033ef1df61a0f9ce3f605fb82883419947))
+* **computer-use:** drive the shared Windows cursor for foreground clicks ([874fef4](https://github.com/MLGBJDLW/Nexa/commit/874fef471fbc35876dbe7dea4251a99360888353))
+* **computer-use:** verify the requested window and desktop scope ([89a6ca1](https://github.com/MLGBJDLW/Nexa/commit/89a6ca1a8dcdb4c62b95c8c42ca96ba16aef5ccc))
+* **models:** omit retired options from new catalog selections ([fc81022](https://github.com/MLGBJDLW/Nexa/commit/fc810225015893f3f7bfa502c9bc40cb7f04ad87))
+* **preview:** fall back to cited PDF pages and bound line highlights ([55c3ea5](https://github.com/MLGBJDLW/Nexa/commit/55c3ea52dc3830c094f9e42b2e1c6f37738d3e42))
+* **preview:** preserve source line numbers for partial text selections ([c344055](https://github.com/MLGBJDLW/Nexa/commit/c344055f262774153c8e18a17d8a8f949f4764d2))
+* **preview:** stream verified text windows from the cited line ([cc8ce0a](https://github.com/MLGBJDLW/Nexa/commit/cc8ce0a91aea7c0a7d0f4f4341a4fc2b83c7b1c9))
+* **recovery:** follow verified modal handoffs in callback replay ([e371644](https://github.com/MLGBJDLW/Nexa/commit/e3716442fc92e7181aa96ffed2568046cc44af70))
+* **recovery:** reinstate overview verification on a capable host ([c487129](https://github.com/MLGBJDLW/Nexa/commit/c4871296bd11cec52c229c189a8ba2b841cd4d9a))
+* **recovery:** route external continuations from the saved task plan ([60b0d94](https://github.com/MLGBJDLW/Nexa/commit/60b0d94ddd700a775d5dbfd38678f296348b613b))
+* **settings:** hide retired services in new API configurations ([3721352](https://github.com/MLGBJDLW/Nexa/commit/3721352f922cd351c753bedeebd4251c5c8de9dd))
+
 ## [0.19.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.13...nexa-monorepo-v0.19.14) (2026-11-17)
 
 ### Improvements
