@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.19.16](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.15...nexa-monorepo-v0.19.16) (2026-11-18)
+
+
+### Features
+
+* **browser:** deliver foreground chords, wheel and zoom through Windows input ([082b8bd](https://github.com/MLGBJDLW/Nexa/commit/082b8bdcdd087b96020423d31ea601a5c469f054))
+* **catalog:** surface GPT-6.2 and refresh supported chat models ([95275a7](https://github.com/MLGBJDLW/Nexa/commit/95275a753d19ca23f3bdbcde493f5bbe110429f4))
+* **chat:** reveal new streaming prose on desktop and phone ([1304444](https://github.com/MLGBJDLW/Nexa/commit/1304444917af912e46d4460bf2d260189e768689))
+* **downloads:** show shared transfer progress across settings navigation ([364bf85](https://github.com/MLGBJDLW/Nexa/commit/364bf85693815e07b79ca171a37e5945acbc464f))
+* **workspace:** update provider catalogs, browser input and transfer feedback ([fd24e4c](https://github.com/MLGBJDLW/Nexa/commit/fd24e4cbf044f697d8bb286d10cfcc0d61d50a8e))
+
+
+### Bug Fixes
+
+* **agents:** honor native model defaults and account policy ([12fd763](https://github.com/MLGBJDLW/Nexa/commit/12fd763a5c9c5794a90b8add024b38d1105c59ff))
+* **browser:** preserve the direction of large Windows wheel gestures ([f5f8b8e](https://github.com/MLGBJDLW/Nexa/commit/f5f8b8e8bafedac5528dce2a50794c1874c16c34))
+* **catalog:** select current chat defaults for each provider ([8a03d51](https://github.com/MLGBJDLW/Nexa/commit/8a03d516e4520a2c7f728fa0285685b5bdae2cd2))
+* **cursor:** explain model-specific payment prompts ([fcbf678](https://github.com/MLGBJDLW/Nexa/commit/fcbf678b65d0c2a0a89f73794829b65d036baf50))
+* **cursor:** recognize standalone payment hints across CLI formatting ([572e9fd](https://github.com/MLGBJDLW/Nexa/commit/572e9fd6952c6cf3bd194f6ec7a8d57938b3e0d2))
+* **downloads:** keep progressing adapter and update transfers alive ([8f28dbc](https://github.com/MLGBJDLW/Nexa/commit/8f28dbc7928fdd5aecb022abf0b1ab80dd7dd88c))
+* **embeddings:** preserve fixed dimensions for Voyage retrieval models ([7903ad2](https://github.com/MLGBJDLW/Nexa/commit/7903ad2555d3007b29f1d7b27b32e849fa9902a2))
+* **images:** resolve native defaults and support documented image snapshots ([e435340](https://github.com/MLGBJDLW/Nexa/commit/e435340a5334f4cf0b6f679a234c62fa2bb4f246))
+* **models:** align chat selection and runtime defaults with endpoint capabilities ([cc981e4](https://github.com/MLGBJDLW/Nexa/commit/cc981e40d1d8801583ad26f78f0409b41dd6aa56))
+* **openai:** route supported Pro models through Responses ([b2208e8](https://github.com/MLGBJDLW/Nexa/commit/b2208e846413b077b94f31041331815982644057))
+* **openrouter:** budget for observed provider pool limits ([ce41e20](https://github.com/MLGBJDLW/Nexa/commit/ce41e200dd56618ed3284cfcc3daa9eee100dfb1))
+* **settings:** refresh unconfigured legacy image defaults ([2d4ec0e](https://github.com/MLGBJDLW/Nexa/commit/2d4ec0eda42c659a37822981e3f6de5a2d2dfb67))
+* **settings:** use current endpoint-specific media model defaults ([1acc1ba](https://github.com/MLGBJDLW/Nexa/commit/1acc1ba723438757bacc5b9ad65dfec279dc1e93))
+* **speech:** align transcription and synthesis with model-specific contracts ([bddae76](https://github.com/MLGBJDLW/Nexa/commit/bddae76bdfc5e2b1d2c5a272a884e64d7572d69e))
+
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 02f567f233d178ba6943989b9057aa60fdbd58cd -->
+
+### What's Changed
+* feat(workspace): update provider catalogs, browser input and transfer feedback by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/576
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.15...nexa-monorepo-v0.19.16
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.14...nexa-monorepo-v0.19.15) (2026-11-18)
 
 ### Improvements
