@@ -775,6 +775,14 @@ pub fn resolve_reasoning_profile(
         value.preserve_reasoning_history = true;
         value.reasoning_history_encoding = ReasoningHistoryEncoding::ArkEncryptedContent;
         value.default_enabled = (model == "doubao-seed-2-1-turbo-260628").then_some(true);
+        if model == "doubao-seed-evolving" {
+            if let Some((levels, default, _)) = catalog_reasoning_effort_policy(provider, &model) {
+                value.effort_mapping = ReasoningEffortMapping::Exact;
+                value.accepted_efforts = levels;
+                value.default_effort = default;
+            }
+            value.default_enabled = Some(true);
+        }
         return value;
     }
 

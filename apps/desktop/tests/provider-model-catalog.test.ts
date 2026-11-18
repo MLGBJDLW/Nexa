@@ -1,4 +1,5 @@
-import { catalogModelsForSnapshot } from '../src/lib/providerPresets';
+import { catalogModelsForSnapshot, PROVIDER_PRESETS } from '../src/lib/providerPresets';
+import { selectImplicitDefault } from '../src/lib/modelCatalog';
 import {
   bindProviderModelCatalogCredential,
   catalogMatchesProvider,
@@ -144,3 +145,17 @@ function testPreviousReleaseCatalog(): void {
 }
 
 testPreviousReleaseCatalog();
+
+for (const preset of PROVIDER_PRESETS.filter(preset => !preset.runtime)) {
+  const first = preset.models[0];
+  const selected = selectImplicitDefault(preset.models);
+  if (!first || !preset.requiresApiKey || first.descriptor.access !== 'public') {
+    assertEqual(selected, null, `${preset.id} requires explicit installation or account access`);
+    continue;
+  }
+  assert(first.recommended, `${preset.id} should show its recommendation first`);
+  assertEqual(selected?.id, first.id, `${preset.id} should preselect its public recommendation`);
+  const denied = { ...first, descriptor: { ...first.descriptor, availableToCredential: false } };
+  assert(selectImplicitDefault([denied, ...preset.models.slice(1)])?.id !== first.id,
+    `${preset.id} must honor a negative account discovery`);
+}

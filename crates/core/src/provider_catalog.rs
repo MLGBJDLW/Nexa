@@ -1243,7 +1243,7 @@ mod tests {
             .iter()
             .find(|model| model.id == "claude-fable-5-2")
             .expect("claude-fable-5-2 should be listed");
-        assert_eq!(fable_5.recommended, Some(true));
+        assert_eq!(fable_5.recommended, Some(false));
 
         let mythos = anthropic
             .models
@@ -1342,7 +1342,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"qwen3.8-max"));
+        assert_eq!(ids.first(), Some(&"qwen4-max"));
         assert!(ids.contains(&"qwen3.8-flash"));
         assert!(ids.contains(&"qwen3.8-2.4t-a95b"));
         assert!(ids.contains(&"qwen3.8-27b"));
@@ -1367,7 +1367,7 @@ mod tests {
             .iter()
             .find(|model| model.id == "qwen3.8-max")
             .expect("formal qwen3.8-max should be listed");
-        assert_eq!(qwen38.recommended, Some(true));
+        assert_eq!(qwen38.recommended, Some(false));
         assert_eq!(qwen38.modalities, vec!["text", "image", "video"]);
         let qwen38_reasoning = qwen38
             .capabilities
@@ -1455,8 +1455,8 @@ mod tests {
             .iter()
             .find(|model| model.id == "qwen3.7-max")
             .expect("qwen3.7-max should be listed");
-        assert_eq!(qwen37.recommended, Some(true));
-        assert_eq!(qwen37.tag_key.as_deref(), Some("providers.tagLatest"));
+        assert_eq!(qwen37.recommended, Some(false));
+        assert!(qwen37.tag_key.is_none());
         assert_eq!(
             qwen37
                 .capabilities
@@ -1476,14 +1476,14 @@ mod tests {
             .iter()
             .find(|model| model.id == "qwen3.8-max")
             .expect("Token Plan Max must resolve on its dedicated endpoint");
-        assert_eq!(token_plan_max.recommended, Some(true));
+        assert_eq!(token_plan_max.recommended, Some(false));
         assert_eq!(token_plan_max.max_output_tokens, Some(131_072));
         let token_plan_flash = token_plan
             .models
             .iter()
             .find(|model| model.id == "qwen3.8-flash")
             .expect("Token Plan Flash must resolve on its dedicated endpoint");
-        assert_eq!(token_plan_flash.recommended, Some(true));
+        assert_eq!(token_plan_flash.recommended, Some(false));
         let flash_reasoning = token_plan_flash
             .capabilities
             .as_ref()
@@ -1510,9 +1510,10 @@ mod tests {
         )
         .expect("global Token Plan should keep its own endpoint identity");
         assert_eq!(global_token_plan.id, "qwen-token-plan-global");
-        assert_eq!(global_token_plan.models[0].id, "qwen3.8-max");
-        assert_eq!(global_token_plan.models[0].max_output_tokens, Some(131_072));
-        assert_eq!(global_token_plan.models[1].id, "qwen3.8-flash");
+        assert_eq!(global_token_plan.models[0].id, "qwen4-max");
+        assert_eq!(global_token_plan.models[1].id, "qwen3.8-max");
+        assert_eq!(global_token_plan.models[1].max_output_tokens, Some(131_072));
+        assert_eq!(global_token_plan.models[2].id, "qwen3.8-flash");
         assert_eq!(
             find_provider_preset("alibaba_model_studio", None)
                 .expect("Alibaba Model Studio should keep its pay-as-you-go default")
@@ -1546,13 +1547,13 @@ mod tests {
         )
         .expect("QwenCloud international preset should match its pay-as-you-go endpoint");
         assert_eq!(qwen_cloud.id, "qwen-cloud-intl");
-        assert_eq!(qwen_cloud.models[0].id, "qwen3.8-max");
+        assert_eq!(qwen_cloud.models[0].id, "qwen4-max");
         let flash = qwen_cloud
             .models
             .iter()
             .find(|model| model.id == "qwen3.8-flash")
             .expect("Qwen3.8 Flash should be listed for QwenCloud");
-        assert_eq!(flash.recommended, Some(true));
+        assert_eq!(flash.recommended, Some(false));
         assert_eq!(
             flash
                 .capabilities
@@ -1576,7 +1577,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"gemini-4-carbon"));
+        assert_eq!(ids.first(), Some(&"gemini-4-hydrogen"));
         assert!(ids.contains(&"gemini-4-argon"));
         assert!(ids.contains(&"gemini-3.7-flash"));
         assert!(ids.contains(&"gemini-3.6-flash"));
@@ -1588,24 +1589,24 @@ mod tests {
         let latest = google
             .models
             .first()
-            .expect("Gemini 4 Carbon should be listed first");
+            .expect("Gemini 4 Hydrogen should be listed first");
         assert_eq!(latest.recommended, Some(true));
         assert_eq!(latest.source, Some(ModelCatalogSource::Official));
         let limits = model_limits_from_catalog(ProviderType::Google, &latest.id)
-            .expect("Gemini 4 Carbon limits should project from the shared catalog");
+            .expect("Gemini 4 Hydrogen limits should project from the shared catalog");
         assert_eq!(limits.context_tokens, Some(1_048_576));
         assert_eq!(limits.max_output_tokens, Some(65_536));
         let reasoning = latest
             .capabilities
             .as_ref()
             .and_then(|capabilities| capabilities.reasoning.as_ref())
-            .expect("Gemini 4 Carbon should expose reasoning controls");
+            .expect("Gemini 4 Hydrogen should expose reasoning controls");
         assert_eq!(reasoning.mode.as_deref(), Some("always"));
         assert_eq!(
             reasoning.effort_levels,
-            vec!["low".to_string(), "medium".to_string(), "high".to_string(),]
+            vec!["low", "medium", "high", "xhigh"]
         );
-        assert_eq!(reasoning.default_effort.as_deref(), Some("medium"));
+        assert_eq!(reasoning.default_effort.as_deref(), Some("high"));
         assert_eq!(
             reasoning
                 .thinking_budget
@@ -1625,7 +1626,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"anthropic/claude-fable-5.2"));
+        assert_eq!(ids.first(), Some(&"google/gemini-4-hydrogen"));
         assert!(ids.contains(&"~anthropic/claude-fable-latest"));
         assert!(ids.contains(&"anthropic/claude-fable-5"));
         assert!(ids.contains(&"openai/gpt-5.6-sol"));
@@ -1724,12 +1725,19 @@ mod tests {
 
         let meta = find_provider_preset("open_ai", Some("https://api.meta.ai/v1/"))
             .expect("Meta Model API preset should match its exact base URL");
-        let muse = meta.models.first().expect("Muse Ember 1.0 preset");
+        let muse = meta
+            .models
+            .iter()
+            .find(|model| model.id == "muse-ember-1.0")
+            .expect("Muse Ember 1.0 preset");
         assert_eq!(meta.id, "meta-model-api");
         assert_eq!(muse.id, "muse-ember-1.0");
         assert_eq!(muse.context_tokens, Some(1_048_576));
         assert_eq!(muse.max_output_tokens, Some(524_288));
-        assert!(meta.models.iter().any(|model| model.id == "muse-spark-1.3"));
+        assert_eq!(
+            meta.models.first().map(|model| model.id.as_str()),
+            Some("muse-spark-1.3")
+        );
         let muse_reasoning = muse
             .capabilities
             .as_ref()
