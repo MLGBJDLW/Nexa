@@ -3135,6 +3135,7 @@ version = "0.3.12"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "blake3",
  "cap-primitives",
  "chrono",
  "futures",

@@ -5,7 +5,12 @@ use serde_json::{json, Value};
 use std::path::Path;
 use tokio::io::AsyncReadExt;
 
-pub async fn read(root: &Path, requested: &str, data: bool) -> Result<Value, String> {
+pub async fn read(
+    root: &Path,
+    requested: &str,
+    data: bool,
+    text_citation: bool,
+) -> Result<Value, String> {
     let root = tokio::fs::canonicalize(root)
         .await
         .map_err(|error| error.to_string())?;
@@ -36,6 +41,9 @@ pub async fn read(root: &Path, requested: &str, data: bool) -> Result<Value, Str
         "md" | "markdown" => ("markdown", "text/markdown"),
         "txt" | "csv" | "json" | "log" => ("text", "text/plain"),
         "pdf" => ("document", "application/pdf"),
+        _ if text_citation || nexa_core::parse::detect_mime_type(&path).starts_with("text/") => {
+            ("text", "text/plain")
+        }
         _ => ("binary", "application/octet-stream"),
     };
     let limit = if data { 8 * 1024 * 1024 } else { 512 * 1024 };
@@ -59,15 +67,20 @@ pub async fn read(root: &Path, requested: &str, data: bool) -> Result<Value, Str
         )));
     }
     let content = if matches!(kind, "code" | "markdown" | "text") {
-        Some(String::from_utf8(bytes).map_err(|_| "File is not UTF-8 text")?)
+        Some(nexa_core::parse::decode_text_bytes(&bytes, &path).map_err(|err| err.to_string())?)
     } else {
         None
     };
+    let hash = content
+        .as_ref()
+        .map(|_| blake3::hash(&bytes).to_hex().to_string())
+        .unwrap_or_default();
+    let line_count = content.as_deref().map_or(0, |text| text.lines().count());
     Ok(
         json!({"path":path,"displayName":path.file_name().unwrap().to_string_lossy(),
         "sourceId":null,"sourceName":"Phone","extension":format!(".{extension}"),"mimeType":mime,"kind":kind,
-        "content":content,"editable":false,"agentEditAllowed":false,"sizeBytes":metadata.len(),"hash":"",
-        "lineCount":0,"truncated":false}),
+        "content":content,"editable":false,"agentEditAllowed":false,"sizeBytes":metadata.len(),"hash":hash,
+        "lineCount":line_count,"truncated":false}),
     )
 }
 
@@ -89,31 +102,37 @@ mod tests {
         tokio::fs::write(temporary.join("private.txt"), "private")
             .await
             .unwrap();
+        let preview = read(&root, "timeline.html", false, true).await.unwrap();
+        assert_eq!(preview["content"], "<h1>Timeline</h1>");
+        assert_eq!(preview["lineCount"], 1);
         assert_eq!(
-            read(&root, "timeline.html", false).await.unwrap()["content"],
-            "<h1>Timeline</h1>"
+            preview["hash"],
+            blake3::hash(b"<h1>Timeline</h1>").to_hex().as_str()
         );
         assert_eq!(
-            read(&root, "image.png", true).await.unwrap(),
+            read(&root, "image.png", true, false).await.unwrap(),
             "data:image/png;base64,AQID"
         );
-        assert!(read(&root, "../private.txt", true).await.is_err());
-        assert!(
-            read(&root, temporary.join("private.txt").to_str().unwrap(), true)
-                .await
-                .is_err()
-        );
-        assert!(read(&root, ".", true).await.is_err());
+        assert!(read(&root, "../private.txt", true, false).await.is_err());
+        assert!(read(
+            &root,
+            temporary.join("private.txt").to_str().unwrap(),
+            true,
+            false
+        )
+        .await
+        .is_err());
+        assert!(read(&root, ".", true, false).await.is_err());
         let large = tokio::fs::File::create(root.join("large.png"))
             .await
             .unwrap();
         large.set_len(8 * 1024 * 1024 + 1).await.unwrap();
-        assert!(read(&root, "large.png", true).await.is_err());
+        assert!(read(&root, "large.png", true, false).await.is_err());
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(temporary.join("private.txt"), root.join("link.txt"))
                 .unwrap();
-            assert!(read(&root, "link.txt", true).await.is_err());
+            assert!(read(&root, "link.txt", true, false).await.is_err());
         }
         tokio::fs::remove_dir_all(temporary).await.unwrap();
     }

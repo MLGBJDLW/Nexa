@@ -740,6 +740,7 @@ async fn mobile_files(
     runtime: State<'_, RuntimeSlot>,
     action: String,
     relative_path: Option<String>,
+    verify_content_hash: Option<bool>,
 ) -> Result<Value, String> {
     let state = runtime.get(&app).await?;
     match action.as_str() {
@@ -748,6 +749,7 @@ async fn mobile_files(
                 &state.workspace_dir(),
                 relative_path.as_deref().ok_or("Choose a file")?,
                 action == "data",
+                verify_content_hash.unwrap_or(false),
             )
             .await
         }
