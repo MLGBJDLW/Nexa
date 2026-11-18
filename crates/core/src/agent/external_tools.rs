@@ -1556,8 +1556,9 @@ impl ExternalToolSession {
             &desktop_profile,
             false,
         )?;
-        if input.config.request_kind == AgentRequestKind::SubagentWorker {
-            if let Some(workflow) = desktop_resume_workflow.as_mut() {
+        if let Some(workflow) = desktop_resume_workflow.as_mut() {
+            workflow.configure_desktop_overview_availability(&input.tools);
+            if input.config.request_kind == AgentRequestKind::SubagentWorker {
                 workflow.defer_unavailable_worker_interactions(&input.tools);
             }
         }

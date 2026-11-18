@@ -57,6 +57,25 @@ fn text_summary(value: &str) -> Value {
     })
 }
 
+pub(crate) fn window_close_shortcut(value: &Value) -> bool {
+    if let Some(keys) = value.as_str() {
+        let mut keys = keys.split('+').map(str::trim);
+        return keys
+            .next()
+            .is_some_and(|key| key.eq_ignore_ascii_case("alt"))
+            && keys
+                .next()
+                .is_some_and(|key| key.eq_ignore_ascii_case("f4"))
+            && keys.next().is_none();
+    }
+    value.get("kind").and_then(Value::as_str) == Some("keySequence")
+        && value
+            .get("windowClose")
+            .or_else(|| value.get("window_close"))
+            .and_then(Value::as_bool)
+            == Some(true)
+}
+
 fn key_sequence_summary(value: &str) -> Value {
     let keys = value
         .split('+')
@@ -338,10 +357,13 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
     }
     for key in ["key_sequence", "keySequence"] {
         if let Some(raw) = object.get(key) {
-            let value = raw
+            let mut value = raw
                 .as_str()
                 .map(key_sequence_summary)
                 .unwrap_or_else(|| redacted_invalid_value("keySequence", raw));
+            if raw.is_string() && window_close_shortcut(raw) {
+                value["windowClose"] = Value::Bool(true);
+            }
             projected.insert(key.to_string(), value);
         }
     }

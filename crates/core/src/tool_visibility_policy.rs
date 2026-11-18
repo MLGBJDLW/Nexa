@@ -405,7 +405,8 @@ pub fn resolve_turn_capability_requirements(
             "an explicit local path handoff needs the visible desktop opener",
         );
     }
-    if query_requests_desktop_operation(&query) {
+    let desktop_overview = query_requests_desktop_overview(&query);
+    if desktop_overview || query_requests_desktop_operation(&query) {
         push_signal(
             &mut signals,
             &mut log,
@@ -653,7 +654,7 @@ pub fn resolve_turn_capability_requirements(
         VisualObservationRequirement::default()
     };
     let desktop_observation = if !has_signal(&signals, ToolVisibilitySignalKind::DesktopInteraction)
-        && query_requests_desktop_overview(&query)
+        && desktop_overview
     {
         DesktopObservationRequirement::DesktopOverview
     } else if has_signal(&signals, ToolVisibilitySignalKind::Desktop) {
@@ -1365,7 +1366,8 @@ fn desktop_closure_command_in_context(query: &str, start: usize, end: usize) -> 
 
 fn query_requests_desktop_operation(query: &str) -> bool {
     query_requests_desktop_terminal_closure(query)
-        || query_requests_desktop_overview(query)
+        || (contains_any(query, &["窗口", "对话框", "app window", "dialog"])
+            && contains_any(query, &["截图", "截屏", "screenshot"]))
         || (contains_any(query, DESKTOP_TERMS)
             && contains_any(query, DESKTOP_OPERATION_INTENT_TERMS))
         || (contains_any(query, NATIVE_DESKTOP_APP_TERMS)
@@ -1373,58 +1375,51 @@ fn query_requests_desktop_operation(query: &str) -> bool {
 }
 
 fn query_requests_desktop_overview(query: &str) -> bool {
-    let words = query.split(|c: char| !c.is_ascii_alphanumeric());
-    if words.clone().any(|word| {
-        matches!(
-            word,
-            "window" | "app" | "application" | "tab" | "attached" | "file"
-        )
-    }) || contains_any(query, &["窗口", "附件", "上传的", "文件"])
-        || contains_any(query, NATIVE_DESKTOP_APP_TERMS)
-    {
+    // Require the desktop itself to be the object of the request. "The file
+    // on my desktop" and "桌面应用里的对话框" name narrower objects.
+    static REQUEST: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?ix)
+            (?:
+                \b(?:capture|screenshot(?:\s+of)?|observe|inspect|show(?:\s+me)?|what(?:'s|\s+is)\s+on)\s+
+                    (?:(?:the|my|entire|whole|full|current|windows)\s+)*
+                    (?:desktop|screen|all\s+(?:active\s+)?(?:monitors|displays))
+              | ^\s*(?:(?:please\s+)?(?:take|get|capture)\s+(?:a\s+)?)?desktop\s+screenshot
+              | (?:查看|观察|截取|捕获|截图|截屏|看看)(?:一下)?(?:我的|当前|整个|全部|电脑|的)*(?:桌面|屏幕|所有显示器)
+              | ^\s*请?(?:帮我|给我)?(?:来一张|拍一张|一张)?(?:桌面|全屏|整个屏幕|所有显示器)(?:的)?(?:截图|截屏)
+            )
+            (?:\s*(?:please|now|一下))?(?:\s*$|\s*[,.:;!?](?:\s|$)|\s*[，。；！？]|\s+(?:and|then)\b|然后|并)")
+            .expect("desktop overview request pattern")
+    });
+    if contains_any(query, &["attached", "uploaded", "附件", "上传的"]) {
         return false;
     }
-    let whole_display = words.clone().any(|word| word == "desktop")
-        || (words.clone().any(|word| word == "screen")
-            && contains_any(
-                query,
-                &[
-                    "my screen",
-                    "the screen",
-                    "entire screen",
-                    "whole screen",
-                    "full screen",
-                ],
-            ))
-        || contains_any(
-            query,
+    REQUEST.find_iter(query).any(|request| {
+        let prefix = query[..request.start()]
+            .rsplit([',', '.', ';', '\n', '，', '。', '；'])
+            .next()
+            .unwrap_or_default();
+        !contains_any(
+            prefix,
             &[
-                "all monitors",
-                "all displays",
-                "all active monitors",
-                "all active displays",
-                "桌面",
-                "整个屏幕",
-                "全屏",
-                "所有显示器",
-            ],
-        );
-    whole_display
-        && contains_any(
-            query,
-            &[
-                "capture",
-                "screenshot",
-                "observe",
-                "inspect",
-                "what's on",
-                "what is on",
-                "截图",
-                "截取",
-                "观察",
-                "查看",
+                "do not",
+                "don't",
+                "never",
+                "without",
+                "how to",
+                "how do i",
+                "how can i",
+                "不要",
+                "别",
+                "勿",
+                "不用",
+                "无需",
+                "不需要",
+                "如何",
+                "怎样",
+                "怎么",
             ],
         )
+    })
 }
 
 fn query_requests_desktop_interaction(query: &str) -> bool {
@@ -3142,6 +3137,61 @@ mod tests {
         );
         assert!(requirements.browser_observation);
         assert!(requirements.browser_interaction);
+    }
+
+    #[test]
+    fn desktop_overview_requires_the_full_display_as_the_requested_subject() {
+        for query in [
+            "截取整个桌面",
+            "查看桌面",
+            "桌面截图",
+            "Take a screenshot of the desktop",
+            "Capture all active displays",
+            "What is on my screen?",
+        ] {
+            let result = resolve_turn_capability_requirements(ToolVisibilityInput {
+                query,
+                system_prompt: "",
+                has_sources: false,
+            });
+            assert_eq!(
+                result.interaction.desktop_observation,
+                DesktopObservationRequirement::DesktopOverview,
+                "{query}"
+            );
+        }
+        for query in [
+            "查看桌面上的报告.pdf",
+            "给桌面应用里的对话框截图",
+            "Inspect the report on my desktop",
+            "Capture the desktop application's dialog",
+            "Inspect the attached desktop screenshot",
+            "解释昨天的桌面截图",
+            "不要截取整个桌面，只看报告",
+            "Do not take a screenshot of the desktop.",
+            "How do I capture the desktop?",
+            "desktop screenshot.png",
+        ] {
+            let result = resolve_turn_capability_requirements(ToolVisibilityInput {
+                query,
+                system_prompt: "",
+                has_sources: false,
+            });
+            assert_ne!(
+                result.interaction.desktop_observation,
+                DesktopObservationRequirement::DesktopOverview,
+                "{query}"
+            );
+        }
+        let dialog = resolve_turn_capability_requirements(ToolVisibilityInput {
+            query: "给桌面应用里的对话框截图",
+            system_prompt: "",
+            has_sources: false,
+        });
+        assert_eq!(
+            dialog.interaction.desktop_observation,
+            DesktopObservationRequirement::BeforeControlAndAfterLastControl
+        );
     }
 
     #[test]

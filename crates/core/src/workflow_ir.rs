@@ -179,6 +179,9 @@ pub struct WorkflowCheckpoint {
     /// The original window for an explicit close request survives modal handoffs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desktop_closure_target: Option<DesktopWindowIdentity>,
+    /// Dismissing a dialog opened during this workflow does not close its owner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub desktop_opened_dialogs: Vec<DesktopWindowIdentity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub browser_observation_targets: Vec<BrowserObservationTarget>,
     #[serde(default)]
@@ -203,6 +206,13 @@ pub struct DesktopWindowIdentity {
 }
 
 impl DesktopWindowIdentity {
+    fn from_observation(target: &DesktopObservationTarget) -> Option<Self> {
+        Some(Self {
+            window_id: target.window_id,
+            target_identity: target.target_identity.clone()?,
+        })
+    }
+
     fn matches(&self, target: &DesktopObservationTarget) -> bool {
         self.window_id == target.window_id
             && Some(self.target_identity.as_str()) == target.target_identity.as_deref()
@@ -362,6 +372,31 @@ impl WorkflowIr {
             })
     }
 
+    pub(crate) fn configure_desktop_overview_availability(
+        &mut self,
+        tools: &crate::tools::ToolRegistry,
+    ) {
+        if let Some(gate) = self
+            .verification_gates
+            .iter_mut()
+            .find(|gate| gate.kind == VerificationGateKind::DesktopOverview)
+        {
+            gate.required = tools.get("computer_observe").is_some_and(|tool| {
+                tool.parameters_schema()
+                    .pointer("/properties/action/enum")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|actions| actions.iter().any(|action| action == "capture_desktop"))
+            });
+            if gate.passed != Some(true) {
+                gate.detail = Some(if gate.required {
+                    "Capture the requested overview using the available full-desktop adapter."
+                } else {
+                    "The active host has no full-desktop capture adapter. Report that the requested screenshot is unavailable."
+                }.into());
+            }
+        }
+    }
+
     /// A scoped worker cannot satisfy a prompt-derived shared-surface check.
     /// Keep it visible as parent-owned pending work, not a passed verification.
     /// Real action targets and reconciliation receipts always retain their gate.
@@ -373,7 +408,8 @@ impl WorkflowIr {
             && !tools.contains("computer_control")
             && self.checkpoint.desktop_observation_targets.is_empty()
             && self.checkpoint.verified_desktop_target_ids.is_empty()
-            && self.checkpoint.desktop_closure_target.is_none();
+            && self.checkpoint.desktop_closure_target.is_none()
+            && self.checkpoint.desktop_opened_dialogs.is_empty();
         let browser = !tools.contains("browser_session")
             && self.checkpoint.browser_observation_targets.is_empty()
             && self.checkpoint.verified_browser_target_ids.is_empty()
@@ -435,6 +471,7 @@ impl WorkflowIr {
         self.completion_contract.desktop_terminal_closure_evidence =
             saved.completion_contract.desktop_terminal_closure_evidence;
         self.checkpoint.desktop_closure_target = saved.checkpoint.desktop_closure_target.clone();
+        self.checkpoint.desktop_opened_dialogs = saved.checkpoint.desktop_opened_dialogs.clone();
         self.checkpoint.revision = self.checkpoint.revision.max(saved.checkpoint.revision);
         self.checkpoint.verified_desktop_target_ids =
             saved.checkpoint.verified_desktop_target_ids.clone();
@@ -575,8 +612,9 @@ impl WorkflowIr {
         if self
             .checkpoint
             .desktop_closure_target
-            .as_ref()
-            .is_some_and(|target| {
+            .iter()
+            .chain(&self.checkpoint.desktop_opened_dialogs)
+            .any(|target| {
                 target.window_id == 0
                     || target.target_identity.trim().is_empty()
                     || !self.completion_contract.desktop_terminal_closure_evidence
@@ -984,15 +1022,22 @@ impl WorkflowIr {
             if let Some(target) = desktop_control_target(tool_arguments, artifacts) {
                 if self.completion_contract.desktop_terminal_closure_evidence
                     && self.checkpoint.desktop_closure_target.is_none()
+                    && tool_arguments
+                        .and_then(|args| serde_json::from_str::<serde_json::Value>(args).ok())
+                        .is_some_and(|args| {
+                            args.get("action").and_then(serde_json::Value::as_str) == Some("key")
+                                && args.get("key_sequence").is_some_and(
+                                    crate::tool_argument_projection::window_close_shortcut,
+                                )
+                        })
+                    && !self
+                        .checkpoint
+                        .desktop_opened_dialogs
+                        .iter()
+                        .any(|dialog| dialog.matches(&target))
                 {
                     self.checkpoint.desktop_closure_target =
-                        target
-                            .target_identity
-                            .as_ref()
-                            .map(|identity| DesktopWindowIdentity {
-                                window_id: target.window_id,
-                                target_identity: identity.clone(),
-                            });
+                        DesktopWindowIdentity::from_observation(&target);
                 }
                 self.checkpoint
                     .desktop_observation_targets
@@ -1202,6 +1247,25 @@ impl WorkflowIr {
             if let Some((source, destination, opened)) =
                 verified_desktop_modal_handoff(tool_arguments, artifacts)
             {
+                let intermediate_dialog = self
+                    .checkpoint
+                    .desktop_opened_dialogs
+                    .iter()
+                    .any(|dialog| dialog.matches(&source));
+                if self.completion_contract.desktop_terminal_closure_evidence {
+                    if opened {
+                        if let Some(dialog) = DesktopWindowIdentity::from_observation(&destination)
+                        {
+                            if !self.checkpoint.desktop_opened_dialogs.contains(&dialog) {
+                                self.checkpoint.desktop_opened_dialogs.push(dialog);
+                            }
+                        }
+                    } else {
+                        self.checkpoint
+                            .desktop_opened_dialogs
+                            .retain(|dialog| !dialog.matches(&source));
+                    }
+                }
                 transfer_desktop_observation_target(
                     &mut self.checkpoint.desktop_observation_targets,
                     &source,
@@ -1216,8 +1280,12 @@ impl WorkflowIr {
                         .checkpoint
                         .desktop_closure_target
                         .as_ref()
-                        .is_some_and(|target| target.matches(&source))
+                        .map_or(!intermediate_dialog, |target| target.matches(&source))
                 {
+                    if self.checkpoint.desktop_closure_target.is_none() {
+                        self.checkpoint.desktop_closure_target =
+                            DesktopWindowIdentity::from_observation(&source);
+                    }
                     self.record_gate("desktop-terminal-closure", true,
                         "The requested source dialog closed, but its verified owner still requires fresh visual evidence.");
                 }
@@ -1273,14 +1341,32 @@ impl WorkflowIr {
                 } else {
                     "The requested window closed, but other desktop targets still require verification."
                 });
+                    let intermediate_dialog = self
+                        .checkpoint
+                        .desktop_opened_dialogs
+                        .iter()
+                        .any(|dialog| dialog.matches(&closed));
+                    let verified_owner_closed = closed_owner.as_ref().is_some_and(|owner| {
+                        !self.checkpoint.desktop_opened_dialogs.contains(owner)
+                    });
+                    self.checkpoint.desktop_opened_dialogs.retain(|dialog| {
+                        !dialog.matches(&closed) && Some(dialog) != closed_owner.as_ref()
+                    });
                     if self
                         .checkpoint
                         .desktop_closure_target
                         .as_ref()
-                        .is_some_and(|target| {
+                        .map_or(!intermediate_dialog || verified_owner_closed, |target| {
                             target.matches(&closed) || Some(target) == closed_owner.as_ref()
                         })
                     {
+                        if self.checkpoint.desktop_closure_target.is_none() {
+                            self.checkpoint.desktop_closure_target = if intermediate_dialog {
+                                closed_owner
+                            } else {
+                                DesktopWindowIdentity::from_observation(&closed)
+                            };
+                        }
                         self.record_gate(
                             "desktop-terminal-closure",
                             true,
@@ -3193,6 +3279,7 @@ pub fn compile_workflow_ir(
             remaining_delegated_tokens: profile.delegated_token_budget.unwrap_or(u32::MAX),
             desktop_observation_targets: Vec::new(),
             desktop_closure_target: None,
+            desktop_opened_dialogs: Vec::new(),
             browser_observation_targets: Vec::new(),
             browser_recovery_active: false,
             verified_desktop_target_ids: Vec::new(),
@@ -4070,6 +4157,24 @@ mod tests {
         for query in ["Take a screenshot of the desktop", "截取整个桌面"] {
             let pending = compile(query);
             assert!(!pending.completion_allowed());
+            let mut unavailable = pending.clone();
+            unavailable.configure_desktop_overview_availability(&crate::tools::ToolRegistry::new());
+            assert!(unavailable.completion_allowed());
+            let optional = unavailable
+                .verification_gates
+                .iter()
+                .find(|gate| gate.kind == VerificationGateKind::DesktopOverview)
+                .unwrap();
+            assert!(!optional.required && optional.passed.is_none());
+            let mut native = crate::tools::ToolRegistry::new();
+            native.register(Box::new(
+                crate::tools::computer_use_tool::ComputerObserveTool,
+            ));
+            unavailable.configure_desktop_overview_availability(&native);
+            assert_eq!(
+                unavailable.desktop_evidence_pending(),
+                cfg!(all(windows, feature = "desktop-control"))
+            );
             for receipt in [&live, &archived] {
                 let mut workflow = compile(query);
                 workflow.restore_desktop_checkpoint(&pending);
@@ -4096,6 +4201,7 @@ mod tests {
             Some(&serde_json::json!({"data":{"kind":"computerControlReceipt","windowId":42,"targetIdentity":"window-42","effect":"unverifiable"}})), "Input delivered.",
         );
         capture(&mut after_input, &archived);
+        after_input.configure_desktop_overview_availability(&crate::tools::ToolRegistry::new());
         assert!(!after_input.completion_allowed());
         assert_eq!(
             after_input.checkpoint.desktop_observation_targets[0].window_id,
@@ -5081,6 +5187,51 @@ mod tests {
     }
 
     #[test]
+    fn closure_targets_the_closing_window_after_unrelated_edits_and_dialogs() {
+        let plan = interaction_plan("Capture this app window, close the window, then verify it");
+        let mut workflow = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
+        workflow.observe_tool_result_with_arguments("edit", "computer_control",
+            Some(r#"{"action":"type_text","window_id":77,"observation_id":"edited","text":"draft"}"#), false,
+            Some(&serde_json::json!({"data":{"windowId":77,"targetIdentity":"exact-owner","consumedObservationId":"edited"}})), "Edited the other app");
+        observe_modal_owner(&mut workflow, 77, "exact-owner", Some(100));
+        let opening = serde_json::json!({"artifacts":{"kind":"computerControl"},"data":{
+            "windowId":77,"targetIdentity":"exact-owner","consumedObservationId":"before-opening",
+            "targetVerified":true,"inputDelivered":true,"deliveryStatus":"delivered",
+            "effect":"modal_child_handoff","actionReceiptId":"open-picker",
+            "modalChildTarget":{"windowId":42,"targetIdentity":"target-a","ownerRelationshipVerified":true,"observationNotBeforeMs":101}
+        }});
+        workflow.observe_tool_result_with_arguments(
+            "picker",
+            "computer_control",
+            None,
+            false,
+            Some(&opening),
+            "Opened a picker",
+        );
+        workflow.observe_tool_result_with_arguments(
+            "dismiss",
+            "computer_control",
+            None,
+            false,
+            Some(&desktop_modal_handoff_fixture()),
+            "Dismissed picker",
+        );
+        observe_modal_owner(&mut workflow, 77, "exact-owner", Some(1001));
+        assert!(workflow.checkpoint.desktop_closure_target.is_none());
+        assert!(!workflow.completion_allowed());
+        let mut closed = desktop_closure_fixture();
+        for path in ["/data", "/data/terminalWindowReceipt"] {
+            let value = closed.pointer_mut(path).unwrap();
+            value["windowId"] = serde_json::json!(88);
+            value["targetIdentity"] = serde_json::json!("requested-window");
+        }
+        workflow.observe_tool_result_with_arguments("close", "computer_use",
+            Some(r#"{"action":"invoke","target":{"kind":"window","window_id":88},"observation_id":"latest","element_id":"e3"}"#),
+            false, Some(&closed), "Closed the requested window");
+        assert!(workflow.completion_allowed());
+    }
+
+    #[test]
     fn modal_handoff_cancel_preserves_original_terminal_target_until_its_own_closure() {
         let plan = interaction_plan("Capture this app window, close the window, then verify it");
         let opening = serde_json::json!({"artifacts":{"kind":"computerControl"},"data":{
@@ -5093,8 +5244,10 @@ mod tests {
         let mut original = compile_workflow_ir(&plan, &balanced_profile(), false).unwrap();
         original.observe_tool_result_with_arguments(
             "open",
-            "computer_control",
-            None,
+            "computer_use",
+            Some(&crate::tool_argument_projection::audit_safe_arguments_string(
+                "computer_use", r#"{"action":"press","target":{"kind":"window","window_id":77},"observation_id":"owner-before","key_sequence":"Alt + F4"}"#,
+            )),
             false,
             Some(&opening),
             "opened confirmation",

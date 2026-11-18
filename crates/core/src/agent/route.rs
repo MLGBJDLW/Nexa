@@ -129,7 +129,7 @@ fn prompt_section_for_requirements(
     if requirements.interaction.desktop_observation
         == crate::tool_visibility_policy::DesktopObservationRequirement::DesktopOverview
     {
-        sections.push("## Desktop Observation Contract\nUse computer_use with action=observe and target.kind=desktop to capture the requested overview of the active displays.".to_string());
+        sections.push("## Desktop Observation Contract\nWhen computer_use advertises target.kind=desktop, use action=observe on that target to capture the requested overview of the active displays. If the active tool has no desktop target, report that this host cannot capture the requested screenshot.".to_string());
     } else if requirements.interaction.requires_desktop_observation() {
         sections.push(
             "## Desktop Observation Contract\n\
@@ -183,7 +183,7 @@ fn route_pack_for_route(kind: AgentRouteKind) -> String {
             .to_string(),
         AgentRouteKind::InteractionOperation => "## Route Pack: Unified Interaction\n\
              - Use computer_use for browser and native window targets. When the user needs the whole visible Windows desktop and the schema offers it, action=observe with target.kind=desktop requests one read-only screenshot of all monitors. For a browser, keep target.kind=browser plus the exact session_id/tab_id and prefer observation-scoped DOM refs. For Windows apps, use target.kind=window; discover with action=list_windows, filtering by process_id/app_name when known. If windowCoverage.hasMore is true, continue with its nextOffset and the same filters. Observe the exact target.window_id using the token from its inventory page; inventory does not authorize input.\n\
-             - The common actions observe/click/type/press/scroll route through the selected target. For native windows, prefer observation-scoped UI Automation element ids: invoke/set_value and auto-delivered element clicks can operate without moving the pointer. Use foreground only when native input is needed. A window-session grant follows the verified window and its same-process modal dialogs during this task. Observe the target returned by a dialog handoff. For point input use the window screenshot dimensions, or select normalized_0_1000 when reporting coordinates on that grid.\n\
+             - The common actions observe/click/type/press/scroll route through the selected target. For native windows, use observed element ids or image coordinates for clicks. The default click moves and clicks the shared system cursor. Use background delivery only when the user asks for background operation. A window-session grant follows the verified window and its same-process modal dialogs during this task. Observe the target returned by a dialog handoff. For point input use the window screenshot dimensions, or select normalized_0_1000 when reporting coordinates on that grid.\n\
              - Never send input before a successful observation. Read the returned post-action state and verify the effect; reuse only its fresh observationId for the next action on the same target. Observe again when that evidence is absent, stale or uncertain. Never change target.kind or replay input to work around an uncertain result or user takeover.\n\
              - A claimed, pending, or skipped record_verification check cannot replace the fresh desktop observation.\n\
              - Report a precise typed availability or permission failure instead of saying that no browser or computer capability exists."

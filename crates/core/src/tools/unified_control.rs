@@ -272,6 +272,17 @@ pub fn route_receipt_str(name: &str, args: Option<&str>) -> Option<RoutedControl
             identity.insert(key.into(), value.clone());
         }
     }
+    if body
+        .get("key_sequence")
+        .is_some_and(crate::tool_argument_projection::window_close_shortcut)
+        && body.get("action").and_then(Value::as_str) == Some("press")
+        && canonical.pointer("/target/kind").and_then(Value::as_str) == Some("window")
+    {
+        identity.insert(
+            "key_sequence".into(),
+            json!({"kind":"keySequence","windowClose":true}),
+        );
+    }
     if let Some(token) = body
         .get("observation_id")
         .and_then(Value::as_str)
