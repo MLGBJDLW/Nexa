@@ -73,7 +73,7 @@ function isDefaultImageConfig(config: ImageGenerationConfig): boolean {
     config.provider === DEFAULT_IMAGE_CONFIG.provider &&
     config.apiStyle === DEFAULT_IMAGE_CONFIG.apiStyle &&
     normalizeUrl(config.baseUrl) === normalizeUrl(DEFAULT_IMAGE_CONFIG.baseUrl) &&
-    (config.model === DEFAULT_IMAGE_CONFIG.model || config.model === 'gpt-image-2')
+    [DEFAULT_IMAGE_CONFIG.model, 'gpt-image-2.5-flare', 'gpt-image-2'].includes(config.model)
   );
 }
 
@@ -190,10 +190,11 @@ export function ImageGenerationSettingsPanel({
 
     return preferredConfig ? presetForAgentConfig(preferredConfig, providerPresets) : null;
   }, [agentConfigs, providerPresets]);
-  const imageConfig =
-    preferAgentDefaults && preferredAgentPreset && isDefaultImageConfig(storedImageConfig)
-      ? configFromPreset(storedImageConfig, preferredAgentPreset)
-      : storedImageConfig;
+  const imageConfig = useMemo(() => {
+    if (!preferAgentDefaults || !isDefaultImageConfig(storedImageConfig)) return storedImageConfig;
+    if (preferredAgentPreset) return configFromPreset(storedImageConfig, preferredAgentPreset);
+    return { ...storedImageConfig, model: DEFAULT_IMAGE_CONFIG.model };
+  }, [preferAgentDefaults, preferredAgentPreset, storedImageConfig]);
   const activePreset = useMemo(
     () =>
       findImageProviderPreset({
