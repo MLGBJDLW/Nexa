@@ -437,13 +437,15 @@ impl SystemPointer {
         // the user's scroll settings and browser zoom to the actual distance.
         for (delta, flag) in [(x, MOUSEEVENTF_HWHEEL), (-y, MOUSEEVENTF_WHEEL)] {
             if delta != 0 {
-                let data = (delta as f64 * 1.2).round() as i32;
+                // WM_MOUSEWHEEL carries a signed 16-bit delta. Keep a large
+                // gesture in its requested direction when Windows packs it.
+                let data = (delta as f64 * 1.2).round() as i16;
                 events.push(INPUT {
                     r#type: INPUT_MOUSE,
                     Anonymous: INPUT_0 {
                         mi: MOUSEINPUT {
                             dwFlags: flag,
-                            mouseData: data as u32,
+                            mouseData: i32::from(data) as u32,
                             ..Default::default()
                         },
                     },
