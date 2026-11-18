@@ -1202,30 +1202,11 @@ impl WorkflowIr {
             if let Some((source, destination, opened)) =
                 verified_desktop_modal_handoff(tool_arguments, artifacts)
             {
-                self.checkpoint
-                    .desktop_observation_targets
-                    .retain(|target| {
-                        target.window_id != source.window_id
-                            || target.target_identity != source.target_identity
-                            || target.consumed_observation_id != source.consumed_observation_id
-                    });
-                if let Some(existing) =
-                    self.checkpoint
-                        .desktop_observation_targets
-                        .iter_mut()
-                        .find(|target| {
-                            target.window_id == destination.window_id
-                                && target.target_identity == destination.target_identity
-                        })
-                {
-                    existing.observation_not_before_ms = existing
-                        .observation_not_before_ms
-                        .max(destination.observation_not_before_ms);
-                } else {
-                    self.checkpoint
-                        .desktop_observation_targets
-                        .push(destination);
-                }
+                transfer_desktop_observation_target(
+                    &mut self.checkpoint.desktop_observation_targets,
+                    &source,
+                    destination,
+                );
                 self.record_gate("desktop-observation", false,
                     if opened { "An owned modal dialog opened. Capture that exact dialog after the handoff to verify the resulting state." }
                     else { "The modal dialog closed and control returned to its verified owner. Capture that owner after the handoff before completion." });
@@ -2277,6 +2258,28 @@ pub(crate) fn desktop_control_target(
             .map(str::to_owned),
         observation_not_before_ms: None,
     })
+}
+
+pub(crate) fn transfer_desktop_observation_target(
+    pending: &mut Vec<DesktopObservationTarget>,
+    source: &DesktopObservationTarget,
+    destination: DesktopObservationTarget,
+) {
+    pending.retain(|target| {
+        target.window_id != source.window_id
+            || target.target_identity != source.target_identity
+            || target.consumed_observation_id != source.consumed_observation_id
+    });
+    if let Some(existing) = pending.iter_mut().find(|target| {
+        target.window_id == destination.window_id
+            && target.target_identity == destination.target_identity
+    }) {
+        existing.observation_not_before_ms = existing
+            .observation_not_before_ms
+            .max(destination.observation_not_before_ms);
+    } else {
+        pending.push(destination);
+    }
 }
 
 pub(crate) fn verified_desktop_modal_handoff(

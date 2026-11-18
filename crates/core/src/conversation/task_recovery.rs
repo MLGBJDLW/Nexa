@@ -263,6 +263,17 @@ fn pending_targets_with_batches(
                     || prior.target_identity != target.target_identity
             });
             targets.desktop.push(target);
+            if !is_error {
+                if let Some((source, destination, _)) =
+                    crate::workflow_ir::verified_desktop_modal_handoff(args, artifacts)
+                {
+                    crate::workflow_ir::transfer_desktop_observation_target(
+                        &mut targets.desktop,
+                        &source,
+                        destination,
+                    );
+                }
+            }
         }
         if let Some(mut target) = browser_target {
             // Canonical event ordering proves whether a later historical read
@@ -579,6 +590,54 @@ mod tests {
     use crate::conversation::{ConversationMessage, CreateConversationInput};
     use crate::llm::{Role, ToolCallRequest};
     use serde_json::json;
+
+    #[test]
+    fn callback_recovery_follows_only_a_verified_desktop_modal_handoff() {
+        let open = json!({
+            "toolName":"computer_use","arguments":r#"{"action":"click","target":{"kind":"window","window_id":11},"observation_id":"before"}"#,
+            "status":"completed","artifacts":{"data":{
+                "kind":"computerControlReceipt","windowId":11,"targetIdentity":"owner","consumedObservationId":"before",
+                "actionReceiptId":"open","inputDelivered":true,"targetVerified":true,"deliveryStatus":"delivered",
+                "effect":"modal_child_handoff","modalChildTarget":{"windowId":22,"targetIdentity":"dialog",
+                    "ownerRelationshipVerified":true,"observationNotBeforeMs":100}
+            }}
+        });
+        let observe = |window, identity, time| {
+            json!({
+                "toolName":"computer_use","arguments":json!({"action":"observe","target":{"kind":"window","window_id":window},"observation_id":"inventory"}).to_string(),
+                "status":"completed","artifacts":{"data":{"kind":"computerObservationReceipt","windowId":window,
+                    "targetIdentity":identity,"observationId":"fresh","screenshotHash":"pixels","observationCapturedAtMs":time}}
+            })
+        };
+        for frame in [
+            observe(11, "owner", 101),
+            observe(22, "other-instance", 101),
+            observe(22, "dialog", 100),
+        ] {
+            let targets = pending_targets(&[open.clone(), frame]).unwrap();
+            assert_eq!(targets.desktop.len(), 1);
+            let target = &targets.desktop[0];
+            assert_eq!(
+                (
+                    target.window_id,
+                    target.target_identity.as_deref(),
+                    target.observation_not_before_ms
+                ),
+                (22, Some("dialog"), Some(100))
+            );
+        }
+        let fresh = observe(22, "dialog", 101);
+        assert!(pending_targets(&[open.clone(), fresh.clone()])
+            .unwrap()
+            .is_empty());
+        let mut unverified = open;
+        unverified["artifacts"]["data"]["modalChildTarget"]["ownerRelationshipVerified"] =
+            json!(false);
+        assert_eq!(
+            pending_targets(&[unverified, fresh]).unwrap().desktop[0].window_id,
+            11
+        );
+    }
 
     #[test]
     fn public_audit_receipts_recover_exact_local_targets() {
