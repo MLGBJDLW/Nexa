@@ -540,7 +540,12 @@ mod tests {
             "Host desktop receipt fixture"
         }
         fn parameters_schema(&self) -> serde_json::Value {
-            serde_json::json!({"type":"object","properties":{"action":{"type":"string","enum":[if self.0 { "invoke" } else { "capture_window" }]},"window_id":{"type":"integer"},"observation_id":{"type":"string"}},"required":["action","window_id"],"additionalProperties":false})
+            let actions = if self.0 {
+                &["invoke"][..]
+            } else {
+                &["capture_window", "capture_desktop"][..]
+            };
+            serde_json::json!({"type":"object","properties":{"action":{"type":"string","enum":actions},"window_id":{"type":"integer"},"observation_id":{"type":"string"}},"required":["action"],"additionalProperties":false})
         }
         fn requires_confirmation(&self, _: &serde_json::Value) -> bool {
             false
@@ -550,7 +555,9 @@ mod tests {
             context: ToolExecutionContext<'_>,
         ) -> Result<ToolResult, CoreError> {
             let args: serde_json::Value = serde_json::from_str(context.arguments)?;
-            let window = args["window_id"].as_u64().unwrap();
+            let window = args["window_id"].as_u64().ok_or_else(|| {
+                CoreError::InvalidInput("This fixture expects a window-scoped call".into())
+            })?;
             if self.0 {
                 let mut result = crate::tools::structured_tool_error_result_with_side_effect(
                     context.call_id,
@@ -984,9 +991,14 @@ mod tests {
             )
             .unwrap();
         let mut input = session.input;
+        let original_objective = input.user_prompt.clone();
         input.user_prompt = checkpoint.resume_prompt;
         input.next_sort_order = launch.user_message_sort_order + 1;
         let resumed = ExternalToolSession::new(input).unwrap();
+        assert_eq!(
+            resumed.state.lock().await.plan.objective,
+            original_objective
+        );
         assert!(resumed
             .persist_answer("Skipped resumed evidence")
             .await
@@ -1507,26 +1519,30 @@ impl ExternalToolSession {
         let source_scope = input
             .db
             .get_effective_conversation_source_scope(&input.conversation_id)?;
-        let routing_objective = if input.config.request_kind == AgentRequestKind::SubagentWorker {
-            input
-                .config
-                .delegated_task
-                .as_deref()
-                .unwrap_or(&input.user_prompt)
-        } else {
-            &input.user_prompt
-        };
+        let saved_plan = resumed_execution
+            .as_ref()
+            .and_then(|saved| saved.plan.as_ref());
+        let routing_objective = saved_plan
+            .map(|plan| plan.objective.as_str())
+            .or_else(|| {
+                (input.config.request_kind == AgentRequestKind::SubagentWorker)
+                    .then_some(input.config.delegated_task.as_deref())
+                    .flatten()
+            })
+            .unwrap_or(&input.user_prompt);
         let route = route_user_turn(
             routing_objective,
             &input.config.system_prompt,
             !source_scope.is_empty(),
         );
-        let plan = build_task_plan(TaskPlanningInput::for_requirements(
-            routing_objective,
-            &route.requirements,
-            !source_scope.is_empty(),
-            source_scope.len(),
-        ));
+        let plan = saved_plan.cloned().unwrap_or_else(|| {
+            build_task_plan(TaskPlanningInput::for_requirements(
+                routing_objective,
+                &route.requirements,
+                !source_scope.is_empty(),
+                source_scope.len(),
+            ))
+        });
         let privacy = privacy_lease.policy.config().clone();
         let activity = crate::activity::ActivityRuntime::with_database((*input.db).clone())?;
         let desktop_profile = resolve_orchestration_profile(OrchestrationProfileInput {
