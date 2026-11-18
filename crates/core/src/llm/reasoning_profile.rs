@@ -472,10 +472,11 @@ pub fn resolve_reasoning_profile(
             ReasoningReplayPolicy::OpaqueSignature
         };
         if provider == ProviderType::OpenAi
-            && matches!(
-                model,
-                "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
-            )
+            && (super::openai::openai_pro_preset(model).is_some()
+                || matches!(
+                    model,
+                    "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
+                ))
         {
             value.mode_control = ThinkingModeControl::AlwaysOn;
         }
@@ -590,6 +591,9 @@ pub fn resolve_reasoning_profile(
         );
         value.omit_temperature_when_reasoning = true;
         value.use_max_completion_tokens = true;
+        if provider == ProviderType::OpenAi && super::openai::openai_pro_preset(&model).is_some() {
+            value.mode_control = ThinkingModeControl::AlwaysOn;
+        }
         return value;
     }
 

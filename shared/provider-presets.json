@@ -515,8 +515,33 @@
         "name": "GPT-5.5 Pro",
         "tagKey": "providers.tagMostIntelligent",
         "capabilities": {
-          "reasoning": null
-        }
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "aliases": [
+          "gpt-5.5-pro-2026-04-23"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5.5-pro"
       },
       {
         "id": "gpt-5.4",
@@ -544,6 +569,7 @@
         "tagKey": "providers.tagMostIntelligent",
         "capabilities": {
           "reasoning": {
+            "mode": "always",
             "effortLevels": [
               "medium",
               "high",
@@ -554,7 +580,21 @@
               "enabled": false
             }
           }
-        }
+        },
+        "aliases": [
+          "gpt-5.4-pro-2026-03-05"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5.4-pro"
       },
       {
         "id": "gpt-5.4-mini",
@@ -643,6 +683,72 @@
             }
           }
         }
+      },
+      {
+        "id": "gpt-5.2-pro",
+        "name": "GPT-5.2 Pro",
+        "tagKey": "providers.tagReasoning",
+        "aliases": [
+          "gpt-5.2-pro-2025-12-11"
+        ],
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": false,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5.2-pro",
+        "capabilities": {
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        }
+      },
+      {
+        "id": "gpt-5-pro",
+        "name": "GPT-5 Pro",
+        "tagKey": "providers.tagReasoning",
+        "aliases": [
+          "gpt-5-pro-2025-10-06"
+        ],
+        "contextTokens": 400000,
+        "maxOutputTokens": 272000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-5-pro",
+        "capabilities": {
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "high"
+            ],
+            "defaultEffort": "high",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "status": "deprecated",
+        "deprecationDate": "2026-12-11",
+        "replacementModelId": "gpt-6.1-sol"
       },
       {
         "id": "gpt-5-mini",
@@ -747,6 +853,7 @@
         "tagKey": "providers.tagReasoning",
         "capabilities": {
           "reasoning": {
+            "mode": "always",
             "effortLevels": [
               "low",
               "medium",
@@ -761,9 +868,20 @@
         "status": "deprecated",
         "recommended": false,
         "deprecationDate": "2026-12-11",
-        "replacementModelId": "gpt-5.6-sol",
-        "lastVerifiedAt": "2026-10-19",
-        "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+        "replacementModelId": "gpt-6.1-sol",
+        "lastVerifiedAt": "2026-11-18T08:00:00Z",
+        "documentationRef": "https://developers.openai.com/api/docs/models/o3-pro",
+        "aliases": [
+          "o3-pro-2025-06-10"
+        ],
+        "contextTokens": 200000,
+        "maxOutputTokens": 100000,
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true
       },
       {
         "id": "o4-mini",

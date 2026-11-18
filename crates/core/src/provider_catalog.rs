@@ -1941,7 +1941,7 @@ mod tests {
         );
         assert_eq!(
             model_supports_reasoning_from_catalog(ProviderType::OpenAi, "gpt-5.5-pro"),
-            Some(false)
+            Some(true)
         );
         assert_eq!(
             model_supports_reasoning_from_catalog(ProviderType::DeepSeek, "deepseek-v4-pro"),

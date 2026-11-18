@@ -580,13 +580,12 @@ fn apply_intrinsic_binding_constraints(
     candidate: &mut ResolvedCapabilityRouteTarget,
     constraints: &CapabilityBindingConstraintsV2,
 ) {
+    let base_url = (!candidate.connection.base_url.is_empty())
+        .then_some(candidate.connection.base_url.as_str());
     if constraints.requires_streaming
-        && crate::llm::provider_uses_non_streaming_fallback(
-            provider_type_for_parts(
-                &candidate.connection.adapter_provider_id,
-                (!candidate.connection.base_url.is_empty())
-                    .then_some(candidate.connection.base_url.as_str()),
-            ),
+        && crate::llm::endpoint_uses_non_streaming_fallback(
+            provider_type_for_parts(&candidate.connection.adapter_provider_id, base_url),
+            base_url,
             &candidate.target.upstream_model_id,
         )
     {

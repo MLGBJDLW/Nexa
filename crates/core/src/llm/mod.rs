@@ -1218,6 +1218,17 @@ pub fn provider_uses_non_streaming_fallback(provider_type: ProviderType, model: 
     ) && openai::requires_non_streaming_fallback(model)
 }
 
+pub(crate) fn endpoint_uses_non_streaming_fallback(
+    provider_type: ProviderType,
+    base_url: Option<&str>,
+    model: &str,
+) -> bool {
+    provider_uses_non_streaming_fallback(provider_type, model)
+        || (provider_type == ProviderType::OpenAi
+            && openai::is_o3_pro(model)
+            && provider_boundary::is_openai_public_endpoint(provider_type, base_url))
+}
+
 /// Determines whether a model is expected to support vision/image inputs.
 /// Defaults to `true` for most modern models; only returns `false` for models
 /// known to lack vision support (text-only, embedding-only, older generations).
