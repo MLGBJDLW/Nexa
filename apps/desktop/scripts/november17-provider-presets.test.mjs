@@ -8,7 +8,7 @@ test('Hy4 Flash is opt-in and exact router controls do not invent effort levels'
  const m=model('openrouter','tencent/hy4-flash');assert.equal(m.contextTokens,1048576);assert.equal(m.maxOutputTokens,65536);assert.equal(m.recommended,false);assert.equal(m.supportsTools,true);assert.equal(m.supportsStructuredOutput,true);assert.deepEqual(m.inputModalities,['text','image']);assert.deepEqual(m.capabilities.reasoning,{mode:'optional',defaultEnabled:true});
 });
 test('Qwen4 Token Plan stays region/account scoped and keeps preview',()=>{
- for(const [p,r] of [['qwen-token-plan-cn','cn-beijing'],['qwen-token-plan-global','ap-southeast-1']]) {const m=model(p,'qwen4-max');assert.deepEqual(m.regions,[r]);assert.equal(m.access,'account_enablement');assert.equal(m.recommended,false);assert.equal(model(p,'qwen4-max-preview').deprecationDate,'2026-11-26');}
+ for(const [p,r] of [['qwen-token-plan-cn','cn-beijing'],['qwen-token-plan-global','ap-southeast-1']]) {const m=model(p,'qwen4-max');assert.deepEqual(m.regions,[r]);assert.equal(m.access,'account_enablement');assert.equal(m.recommended,true);assert.equal(model(p,'qwen4-max-preview').deprecationDate,'2026-11-26');}
 });
 test('Liquid D1.2 remains on Decisions, not chat',()=>{
  const p=read('system-one-provider-presets').find(x=>x.id==='openrouter');for(const id of ['liquid/d1.2','liquid/d1.2-ultra']) {const m=p.models.find(x=>x.id===id);assert.equal(m.contextTokens,65536);assert.equal(m.recommended,false);assert.deepEqual(m.outputModalities,['decisions']);assert.equal(text.some(p=>p.models?.some(m=>m.id===id)),false);}
@@ -26,6 +26,6 @@ test('expired embedding with no routing endpoints retains its saved ID and no re
   assert.equal(retired.deprecationDate, '2026-11-16');
   assert.equal(retired.replacementModelId, undefined);
 });
-test('Cohere light v3 additions do not change default or existing dimensions',()=>{
- const p=read('embedding-provider-presets').find(x=>x.id==='cohere');for(const id of ['embed-english-light-v3.0','embed-multilingual-light-v3.0']){const m=p.models.find(x=>x.id===id);assert.equal(m.dimensions,384);assert.equal(m.supportsDimensionOverride,false);assert.equal(m.recommended,false);}assert.equal(p.models.find(x=>x.id==='embed-v4.0').recommended,true);assert.equal(p.models.find(x=>x.id==='embed-english-v3.0').dimensions,1024);
+test('Cohere light v3 models keep their fixed dimensions alongside Embed 5 Fast',()=>{
+ const p=read('embedding-provider-presets').find(x=>x.id==='cohere');for(const id of ['embed-english-light-v3.0','embed-multilingual-light-v3.0']){const m=p.models.find(x=>x.id===id);assert.equal(m.dimensions,384);assert.equal(m.supportsDimensionOverride,false);assert.equal(m.recommended,false);}assert.equal(p.models.find(x=>x.id==='embed-v5.0-fast').recommended,true);assert.equal(p.models.find(x=>x.id==='embed-english-v3.0').dimensions,1024);
 });

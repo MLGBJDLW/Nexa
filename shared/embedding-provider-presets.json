@@ -49,7 +49,7 @@
         "name": "Qwen3.7 Text Embedding",
         "dimensions": 1024,
         "supportsDimensionOverride": true,
-        "recommended": false,
+        "recommended": true,
         "source": "official",
         "productReadiness": "known",
         "allowedDimensions": [
@@ -89,7 +89,7 @@
         "name": "Text Embedding v4",
         "dimensions": 1024,
         "supportsDimensionOverride": true,
-        "recommended": true,
+        "recommended": false,
         "source": "official",
         "status": "active",
         "regions": [
@@ -107,6 +107,53 @@
           1536,
           2048
         ]
+      },
+      {
+        "id": "text-embedding-v3",
+        "name": "Text Embedding v3",
+        "dimensions": 1024,
+        "supportsDimensionOverride": true,
+        "maxBatchSize": 10,
+        "contextTokens": 8192,
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://help.aliyun.com/en/model-studio/embedding-interfaces-compatible-with-openai",
+        "allowedDimensions": [
+          64,
+          128,
+          256,
+          512,
+          768,
+          1024
+        ]
+      },
+      {
+        "id": "text-embedding-v2",
+        "name": "Text Embedding v2",
+        "dimensions": 1536,
+        "supportsDimensionOverride": false,
+        "maxBatchSize": 25,
+        "contextTokens": 2048,
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://help.aliyun.com/en/model-studio/embedding-interfaces-compatible-with-openai"
+      },
+      {
+        "id": "text-embedding-v1",
+        "name": "Text Embedding v1",
+        "dimensions": 1536,
+        "supportsDimensionOverride": false,
+        "maxBatchSize": 25,
+        "contextTokens": 2048,
+        "source": "official",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://help.aliyun.com/en/model-studio/embedding-interfaces-compatible-with-openai"
       }
     ],
     "apiStyle": "openai_embeddings",
@@ -1152,7 +1199,7 @@
         "name": "embed-v4.0",
         "dimensions": 1536,
         "supportsDimensionOverride": true,
-        "recommended": true,
+        "recommended": false,
         "source": "official",
         "productReadiness": "known",
         "lastVerifiedAt": "2026-09-26",
@@ -1179,7 +1226,7 @@
           1536,
           2048
         ],
-        "recommended": false,
+        "recommended": true,
         "documentationRef": "https://docs.cohere.com/docs/cohere-embed",
         "productReadiness": "known"
       },

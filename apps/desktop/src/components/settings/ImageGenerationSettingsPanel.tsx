@@ -49,7 +49,7 @@ const DEFAULT_IMAGE_CONFIG: ImageGenerationConfig = {
   apiStyle: "openai_images",
   apiKey: "",
   baseUrl: "https://api.openai.com/v1",
-  model: "gpt-image-2.5-flare",
+  model: getDefaultImageModel(IMAGE_PROVIDER_PRESETS.find(preset => preset.id === "openai") ?? null),
   size: "1024x1024",
   quality: null,
   outputFormat: "png",
@@ -59,10 +59,6 @@ function firstOption(options: string[]): string | null {
   return options.length > 0 ? options[0] : null;
 }
 
-function firstSize(preset: ImageProviderPreset | null): string | null {
-  return preset ? getImageSizeOptions(preset, getDefaultImageModel(preset))[0]?.value ?? null : null;
-}
-
 function normalizeUrl(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\/+$/, "").toLowerCase();
 }
@@ -70,6 +66,10 @@ function normalizeUrl(value: string | null | undefined): string {
 function isDefaultImageConfig(config: ImageGenerationConfig): boolean {
   return (
     !config.apiKey.trim() &&
+    (config.source ?? 'auto') === 'auto' &&
+    config.size === DEFAULT_IMAGE_CONFIG.size &&
+    (config.quality ?? null) === DEFAULT_IMAGE_CONFIG.quality &&
+    config.outputFormat === DEFAULT_IMAGE_CONFIG.outputFormat &&
     config.provider === DEFAULT_IMAGE_CONFIG.provider &&
     config.apiStyle === DEFAULT_IMAGE_CONFIG.apiStyle &&
     normalizeUrl(config.baseUrl) === normalizeUrl(DEFAULT_IMAGE_CONFIG.baseUrl) &&
@@ -81,6 +81,7 @@ function configFromPreset(
   current: ImageGenerationConfig,
   preset: ImageProviderPreset,
 ): ImageGenerationConfig {
+  const model = getDefaultImageModel(preset);
   const preservesCredential = providerCredentialScope(current.provider, current.baseUrl) ===
     providerCredentialScope(preset.provider, preset.baseUrl);
   return {
@@ -88,10 +89,10 @@ function configFromPreset(
     provider: preset.provider,
     apiStyle: preset.apiStyle,
     baseUrl: preset.baseUrl,
-    model: getDefaultImageModel(preset),
-    size: firstSize(preset),
-    quality: firstOption(preset.qualityOptions),
-    outputFormat: firstOption(getImageOutputFormats(preset, getDefaultImageModel(preset))),
+    model,
+    size: getImageSizeOptions(preset, model)[0]?.value ?? null,
+    quality: firstOption(getImageQualityOptions(preset, model)),
+    outputFormat: firstOption(getImageOutputFormats(preset, model)),
     apiKey: preservesCredential ? current.apiKey : "",
   };
 }
@@ -216,6 +217,8 @@ export function ImageGenerationSettingsPanel({
   const qualityOptions = getImageQualityOptions(activePreset, imageConfig.model);
   const sizeOptions = getImageSizeOptions(activePreset, imageConfig.model);
   const outputFormats = getImageOutputFormats(activePreset, imageConfig.model);
+  const quality = imageConfig.quality && !qualityOptions.includes(imageConfig.quality)
+    && selectedModelDescriptor ? firstOption(qualityOptions) : imageConfig.quality;
   const sharedKeySource = useMemo(
     () => findSharedProviderCredential(agentConfigs, imageConfig.provider, imageConfig.baseUrl),
     [agentConfigs, imageConfig.baseUrl, imageConfig.provider],
@@ -229,9 +232,10 @@ export function ImageGenerationSettingsPanel({
     () => ({
       ...imageConfig,
       apiKey: resolvedApiKey,
+      quality,
       outputFormat: outputFormats.includes(imageConfig.outputFormat ?? '') ? imageConfig.outputFormat : firstOption(outputFormats),
     }),
-    [imageConfig, resolvedApiKey, outputFormats],
+    [imageConfig, quality, resolvedApiKey, outputFormats],
   );
   const materializedAppConfig = useMemo(
     () => ({
@@ -479,7 +483,7 @@ export function ImageGenerationSettingsPanel({
             <div className="space-y-2">
               <SettingsRow label={t('settings.quality')}>
                 <NexaSelect
-                  value={imageConfig.quality ?? ""}
+                  value={quality ?? ""}
                   aria-label={t('settings.quality')}
                   onChange={(event) =>
                     updateImageConfig({ ...imageConfig, quality: event.target.value || null })

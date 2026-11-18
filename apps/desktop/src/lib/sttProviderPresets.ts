@@ -79,7 +79,7 @@ export function defaultSttItem(items: SttCatalogItem[]): SttCatalogItem | null {
   const eligible = items.filter(({ descriptor }) => (descriptor.lifecycle === 'active' || descriptor.lifecycle === 'preview')
     && descriptor.access === 'public' && descriptor.availableToCredential !== false);
   return selectImplicitDefault(items)
-    ?? eligible.find((item) => item.recommended) ?? eligible[0] ?? null;
+    ?? eligible.find((item) => item.recommended) ?? null;
 }
 
 /** Resolve the catalog entry that backs a saved speech-to-text configuration. */

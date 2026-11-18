@@ -344,21 +344,21 @@ fn builtin_presets_project_every_surface_into_catalog_v2() {
     assert_eq!(qwen_image.access, ModelAccess::Application);
     assert!(!qwen_image.is_implicit_default_eligible());
 
-    let suspicious_embedding = catalog
+    let previous_embedding = catalog
         .models
         .iter()
-        .find(|model| model.id == "qwen3.7-text-embedding")
-        .expect("legacy saved embedding id remains resolvable");
+        .find(|model| model.id == "text-embedding-v4")
+        .expect("existing embedding selections remain resolvable");
     assert_eq!(
-        suspicious_embedding.product_readiness,
+        previous_embedding.product_readiness,
         ProductReadiness::Known
     );
-    assert!(!suspicious_embedding.recommended);
+    assert!(!previous_embedding.recommended);
 
     let recommended_embedding = catalog
         .models
         .iter()
-        .find(|model| model.id == "text-embedding-v4")
+        .find(|model| model.id == "qwen3.7-text-embedding")
         .expect("official embedding should be projected");
     assert!(recommended_embedding.recommended);
     assert_eq!(

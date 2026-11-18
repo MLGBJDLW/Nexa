@@ -36,6 +36,8 @@ test('explicit speech presets select documented usable models without claiming c
         assert.equal(select(preset.models), null, 'the retired-next-January Speech route has no active automatic default');
         assert.ok(preset.models.every(model => model.descriptor.lifecycle === 'deprecated'));
         assert.ok(preset.models.every(model => model.descriptor.availableToCredential === null));
+      } else if (preset.id === 'custom-openai') {
+        assert.equal(select(preset.models), null, 'the custom server provides the deployment ID');
       } else {
         assert.ok(select(preset.models)?.id, `${preset.id} should have a usable preset default`);
         assert.equal(select(preset.models).descriptor.availableToCredential, null);
@@ -45,6 +47,9 @@ test('explicit speech presets select documented usable models without claiming c
   }
   const openai = stt.STT_PROVIDER_PRESETS.find(p => p.id === 'openai');
   assert.equal(stt.defaultSttItem(openai.models).id, 'gpt-transcribe');
+  const dashscope = tts.TTS_PROVIDER_PRESETS.find(p => p.id === 'dashscope-cosyvoice');
+  assert.equal(tts.defaultTtsItem(dashscope.models).id, 'qwen-audio-3.1-tts-flash');
+  assert.equal(tts.ttsVoiceForModel(dashscope, 'qwen-audio-3.1-tts-flash'), 'longanhuan_v3.1');
   for (const legacy of openai.models.filter(m => m.id !== 'gpt-transcribe')) {
     assert.equal(legacy.descriptor.lifecycle, 'deprecated');
     const replacement = legacy.id === 'gpt-4o-mini-transcribe-2025-03-20'

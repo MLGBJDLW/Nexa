@@ -120,7 +120,7 @@ impl Default for TextToSpeechConfig {
             api_style: default_tts_api_style(),
             api_key: String::new(),
             base_url: default_tts_base_url_option(),
-            model: default_tts_model(),
+            model: String::new(),
             voice: default_tts_voice(),
             output_format: default_tts_output_format(),
             speed: default_tts_speed(),
@@ -1005,7 +1005,7 @@ fn default_image_base_url_option() -> Option<String> {
     Some("https://api.openai.com/v1".to_string())
 }
 fn default_image_model() -> String {
-    "gpt-image-2.5-flare".to_string()
+    "gpt-image-2.6-flare".to_string()
 }
 fn default_image_size_option() -> Option<String> {
     Some("1024x1024".to_string())
@@ -1022,6 +1022,7 @@ fn default_tts_api_style() -> String {
 fn default_tts_base_url_option() -> Option<String> {
     Some("https://api.openai.com/v1".to_string())
 }
+// Preserve the historical model only when reading a saved pre-model-field configuration.
 fn default_tts_model() -> String {
     "gpt-4o-mini-tts".to_string()
 }

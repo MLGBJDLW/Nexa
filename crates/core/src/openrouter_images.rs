@@ -1,5 +1,6 @@
 //! Public OpenRouter image discovery. Capabilities belong to the image endpoint,
 //! not to similarly named chat models or direct vendor APIs.
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -12,6 +13,10 @@ use crate::image_provider_catalog::ImageModelPreset;
 type CatalogCache = Option<(Instant, Vec<ImageModelPreset>)>;
 
 pub fn parse_models(value: &Value) -> Vec<ImageModelPreset> {
+    let bundled: HashMap<_, _> = catalog_fallback()
+        .into_iter()
+        .map(|model| (model.id.clone(), model))
+        .collect();
     value["data"].as_array().into_iter().flatten().filter_map(|model| {
         let id = model["id"].as_str()?.trim();
         if id.is_empty() { return None; }
@@ -28,16 +33,25 @@ pub fn parse_models(value: &Value) -> Vec<ImageModelPreset> {
         let resolutions = values("resolution");
         let mut sizes = vec![json!({"value":"auto", "label":"Auto"})];
         for ratio in &ratios {
-            if resolutions.is_empty() { sizes.push(json!({"value":ratio,"label":ratio})); }
+            if resolutions.is_empty() { if ratio != "auto" { sizes.push(json!({"value":ratio,"label":ratio})); } }
             else { for resolution in &resolutions { sizes.push(json!({"value":format!("{ratio}|{resolution}"),"label":format!("{ratio} · {resolution}")})); } }
         }
         if ratios.is_empty() { for resolution in resolutions { sizes.push(json!({"value":resolution,"label":resolution})); } }
+        let known = bundled.get(id);
+        let mut metadata = json!({"source":"official", "productReadiness":"known", "sizeOptions":sizes,
+                "inputModalities":if parameters.pointer("/input_references/max").and_then(Value::as_u64).unwrap_or(0) > 0 { vec!["text", "image"] } else { vec!["text"] }, "outputModalities":["image"], "outputFormats":formats, "supportedParameters":parameters,
+                "lastVerifiedAt":chrono::Utc::now().format("%Y-%m-%d").to_string()}).as_object().unwrap().clone();
+        if let Some(known) = known {
+            for key in ["status", "access", "productReadiness", "deprecationDate", "replacementModelId"] {
+                if let Some(value) = known.metadata.get(key) {
+                    metadata.insert(key.into(), value.clone());
+                }
+            }
+        }
         Some(ImageModelPreset {
             id:id.into(), name:model["name"].as_str().unwrap_or(id).into(),
-            recommended:id == "google/gemini-3.1-flash-image", quality_options:Some(values("quality")),
-            metadata:json!({"source":"official", "productReadiness":"known", "sizeOptions":sizes,
-                "inputModalities":if parameters.pointer("/input_references/max").and_then(Value::as_u64).unwrap_or(0) > 0 { vec!["text", "image"] } else { vec!["text"] }, "outputModalities":["image"], "outputFormats":formats, "supportedParameters":parameters,
-                "lastVerifiedAt":chrono::Utc::now().format("%Y-%m-%d").to_string()}).as_object().unwrap().clone(),
+            recommended:known.is_some_and(|model| model.recommended),
+            quality_options:Some(values("quality")), metadata,
         })
     }).collect()
 }
@@ -213,6 +227,21 @@ mod tests {
             .unwrap();
         assert_eq!(bundled.metadata["outputFormats"], json!(["jpeg"]));
     }
+    #[test]
+    fn image_refresh_keeps_the_bundled_recommendation_and_readiness() {
+        let models = parse_models(&json!({"data":[{
+            "id": "google/gemini-nano-banana-2.1",
+            "architecture": {"output_modalities": ["image"]},
+            "supported_parameters": {"aspect_ratio": {"values": ["auto", "1:1"]}}
+        }]}));
+        assert!(models[0].recommended);
+        assert_eq!(models[0].metadata["productReadiness"], "product_ready");
+        assert_eq!(
+            models[0].metadata["sizeOptions"].as_array().unwrap().len(),
+            2
+        );
+    }
+
     #[test]
     fn image_discovery_filters_unsupported_outputs_and_drives_request_options() {
         let mut source = json!({"id":"vendor/new-image", "name":"New image", "architecture":{"output_modalities":["image"]},"supported_parameters":{"resolution":{"type":"enum","values":["2K"]},"quality":{"type":"enum","values":["high"]}}});

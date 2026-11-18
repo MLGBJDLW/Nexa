@@ -49,6 +49,13 @@ export function catalogModelOptionDescription(
   return [model.id, model.secondary, credential, source, region, io].filter(Boolean).join(' · ');
 }
 
+function isRecommendedChoice(model: CatalogModelPickerItem): boolean {
+  const descriptor = model.descriptor;
+  return Boolean(model.recommended && descriptor.access === 'public'
+    && (descriptor.lifecycle === 'active' || descriptor.lifecycle === 'preview')
+    && descriptor.availableToCredential !== false);
+}
+
 /** Searchable model picker with a compact selected label and two-line catalog rows. */
 export function CatalogModelPicker({
   models,
@@ -64,6 +71,7 @@ export function CatalogModelPicker({
   const savedRetirement = selected?.descriptor.lifecycle === 'removed' ? selected.id : undefined;
   const options = useMemo(() => models
     .filter(model => model.descriptor.lifecycle !== 'removed' || model.id === savedRetirement)
+    .sort((a, b) => Number(isRecommendedChoice(b)) - Number(isRecommendedChoice(a)))
     .map((model) => ({
       value: model.id,
       label: `${model.name}${model.recommended ? ' ★' : ''}`,
@@ -82,7 +90,7 @@ export function CatalogModelPicker({
         emptyLabel={t('settings.modelSearchNoResults')}
         onValueChange={onValueChange}
         options={options}
-        placeholder={placeholder ?? t('settings.selectModel')}
+        placeholder={value || placeholder || t('settings.selectModel')}
         searchPlaceholder={t('settings.modelSearchPlaceholder')}
         value={selected?.id ?? value}
       />

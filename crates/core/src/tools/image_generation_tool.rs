@@ -427,6 +427,10 @@ fn selected_image_quality<'a>(
         .is_none_or(|configured| configured.trim() == model.trim())
         .then_some(config.quality.as_deref())
         .flatten();
+    // Older GLM Image presets saved standard, which the official model rejects.
+    let configured = configured.filter(|quality| {
+        !(config.provider == "zhipu" && model == "glm-image" && *quality == "standard")
+    });
     selected_optional(args.quality.as_deref(), configured)
 }
 
@@ -809,6 +813,15 @@ fn validate_image_options(
             ));
         }
         return Ok(());
+    }
+    if config.provider == "zhipu"
+        && model == "glm-image"
+        && args
+            .quality
+            .as_deref()
+            .is_some_and(|quality| quality != "hd")
+    {
+        return Err(invalid("GLM Image accepts hd quality only."));
     }
     let wan27 = is_wan27_image(model);
     let qwen21 = matches!(model, "qwen-image-2.1-pro" | "qwen-image-2.1-turbo");
@@ -2253,7 +2266,9 @@ mod tests {
     fn openai_body_uses_output_format_only_when_supported() {
         let args = test_args();
         let openai = test_config("open_ai", Some("https://api.openai.com/v1"));
-        let zhipu = test_config("zhipu", Some("https://open.bigmodel.cn/api/paas/v4"));
+        let mut zhipu = test_config("zhipu", Some("https://open.bigmodel.cn/api/paas/v4"));
+        zhipu.model = Some("glm-image".into());
+        zhipu.quality = Some("standard".into());
 
         let gpt_body = build_openai_images_body(&openai, &args, "gpt-image-2", "webp");
         assert_eq!(gpt_body["output_format"], "webp");
@@ -2266,6 +2281,17 @@ mod tests {
         let zhipu_body = build_openai_images_body(&zhipu, &args, "glm-image", "png");
         assert!(zhipu_body.get("output_format").is_none());
         assert!(zhipu_body.get("response_format").is_none());
+        assert!(zhipu_body.get("quality").is_none());
+        let mut explicit = args;
+        explicit.quality = Some("standard".into());
+        assert!(validate_image_options(
+            &zhipu,
+            &explicit,
+            "glm-image",
+            ImageProvider::OpenAi,
+            "png"
+        )
+        .is_err());
     }
 
     #[test]

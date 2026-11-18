@@ -51,7 +51,7 @@ impl Default for SystemOneConfig {
             enabled: false,
             provider: default_provider(),
             api_key: String::new(),
-            model: default_model(),
+            model: String::new(),
             base_url: None,
         }
     }
@@ -806,8 +806,11 @@ mod tests {
         let request: DecisionRequest = serde_json::from_value(json!({"state":{"person@example.com":"mail me"},"questions":{
             "person@example.com":{"type":"choice","instructions":"Review person@example.com","criteria":{"person@example.com":null,"review":"safe"}}
         }})).unwrap();
-        let projected =
-            prepare_request(&SystemOneConfig::default(), &request, &lease.policy).unwrap();
+        let config = SystemOneConfig {
+            model: "jev-latest".into(),
+            ..Default::default()
+        };
+        let projected = prepare_request(&config, &request, &lease.policy).unwrap();
         assert_eq!(
             projected
                 .questions
@@ -822,7 +825,7 @@ mod tests {
         assert!(serialized.contains("\"type\":\"choice\""));
         let router = SystemOneConfig {
             provider: "openrouter".into(),
-            ..Default::default()
+            ..config
         };
         assert_eq!(
             prepare_request(&router, &request, &lease.policy)
@@ -850,8 +853,11 @@ mod tests {
             "a":{"type":"choice","instructions":"Choose","criteria":{"option_0":"one","option_1":"two"}},
             "b":{"type":"noul","instructions":"Check","criteria":{"true":"yes","false":"no"}}
         }})).unwrap();
-        let projected =
-            prepare_request(&SystemOneConfig::default(), &request, &lease.policy).unwrap();
+        let config = SystemOneConfig {
+            model: "jev-latest".into(),
+            ..Default::default()
+        };
+        let projected = prepare_request(&config, &request, &lease.policy).unwrap();
         let body = serde_json::to_value(&projected).unwrap();
         assert!(body["questions"]["q0"]["criteria"].get("c0").is_some());
         assert!(body["questions"]["q1"]["criteria"].get("true").is_some());

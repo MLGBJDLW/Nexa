@@ -44,7 +44,7 @@ export const DEFAULT_TTS_CONFIG: TextToSpeechConfig = {
   apiStyle: 'openai_speech',
   apiKey: '',
   baseUrl: 'https://api.openai.com/v1',
-  model: 'gpt-4o-mini-tts',
+  model: '',
   voice: 'coral',
   outputFormat: 'wav',
   speed: 1,
