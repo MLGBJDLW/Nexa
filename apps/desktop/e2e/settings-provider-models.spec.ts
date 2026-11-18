@@ -218,7 +218,11 @@ test('image settings select GPT Image 2.5 and Grok Image 2 with model-specific o
   await expectNexaValue(selects.nth(1), 'gpt-image-2.5-flare');
   const quality = panel.getByRole('combobox', { name: 'Quality', exact: true });
   await selectControl(quality, 'max');
-  await selectControl(selects.nth(1), 'gpt-image-2.5-sunburst');
+  await selects.nth(1).click();
+  const sunburst = page.locator('[role="option"][data-value="gpt-image-2.5-sunburst"]');
+  await expect(sunburst).toBeVisible();
+  await expect(page.locator('[role="option"][data-value="gpt-image-1"]')).toHaveCount(0);
+  await sunburst.click();
   await expectNexaValue(quality, 'max');
   await panel.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __savedAppConfig?: { imageGeneration: unknown } }).__savedAppConfig?.imageGeneration)).toMatchObject({ model: 'gpt-image-2.5-sunburst', quality: 'max', apiStyle: 'openai_images' });
