@@ -47,7 +47,9 @@ test('explicit speech presets select documented usable models without claiming c
   assert.equal(stt.defaultSttItem(openai.models).id, 'gpt-transcribe');
   for (const legacy of openai.models.filter(m => m.id !== 'gpt-transcribe')) {
     assert.equal(legacy.descriptor.lifecycle, 'deprecated');
-    assert.equal(legacy.descriptor.replacementModelId, 'gpt-transcribe');
+    const replacement = legacy.id === 'gpt-4o-mini-transcribe-2025-03-20'
+      ? 'gpt-4o-mini-transcribe-2025-12-15' : 'gpt-transcribe';
+    assert.equal(legacy.descriptor.replacementModelId, replacement);
     assert.equal(stt.defaultSttItem([legacy]), null);
   }
   const retired = { ...openai.models[0], descriptor: { ...openai.models[0].descriptor, lifecycle: 'removed' } };
@@ -169,6 +171,7 @@ test('read-aloud cancellation during config lookup causes no synthesis and setti
 test('speech input limits follow the selected model above the former generic ceiling', async () => {
   const config = { ...groqConfig, provider: 'elevenlabs', apiStyle: 'elevenlabs_speech', baseUrl: 'https://api.elevenlabs.io/v1', model: 'eleven_flash_v2_5', voice: 'George', outputFormat: 'mp3' };
   assert.equal(playback.speechPlaybackInputLimit(config), 40000);
+  assert.equal(playback.speechPlaybackInputLimit({ ...config, model: 'eleven_flash_v2' }), 30000);
   const result = await playback.requestSpeechPlayback('中'.repeat(25000), {
     loadConfig: async () => config, synthesize: async text => text, isCurrent: () => true,
   });

@@ -34,6 +34,15 @@ fn multipart_dialects_preserve_custom_and_legacy_models() {
         .any(|(key, _)| *key == "languages[]"));
     config.model = "gpt-4o-mini-transcribe".into();
     assert!(transcription_form_fields(&config).contains(&("response_format", "json".into())));
+    assert!(!transcription_form_fields(&config)
+        .iter()
+        .any(|(key, _)| *key == "chunking_strategy"));
+    config.model = "gpt-4o-transcribe-diarize".into();
+    assert!(transcription_form_fields(&config).contains(&("chunking_strategy", "auto".into())));
+    config.base_url = Some("https://private.example/v1".into());
+    assert!(!transcription_form_fields(&config)
+        .iter()
+        .any(|(key, _)| *key == "chunking_strategy"));
     config.provider = "siliconflow".into();
     config.base_url = Some("https://api.siliconflow.cn/v1".into());
     config.model = "FunAudioLLM/SenseVoiceSmall".into();

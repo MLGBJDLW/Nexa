@@ -22,11 +22,14 @@
     "apiStyle": "openai_transcription",
     "requiresApiKey": true,
     "baseUrl": "https://api.openai.com/v1",
-    "description": "GPT Transcribe for completed recordings. Older GPT-4o and Whisper API models remain supported until their scheduled shutdown on 2027-02-26; live microphone deltas use the separate Live preset.",
+    "description": "GPT Transcribe for completed recordings. The older GPT-4o and Whisper models have individual retirement dates. For live microphone transcripts, select OpenAI Live Transcription.",
     "transcription": {"audioInput": "completeFile", "transcriptDelivery": "finalOnly", "interimSemantics": "none", "finalization": "endOfFile", "transport": "httpMultipart", "sampleRateHz": 16000, "engineStreamingCapable": false},
     "models": [
       {"id": "gpt-transcribe", "name": "GPT Transcribe", "recommended": true, "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
       {"id": "gpt-4o-mini-transcribe", "name": "GPT-4o Mini Transcribe (Deprecated)", "source": "official", "productReadiness": "known", "recommended": false, "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "lastVerifiedAt": "2026-09-29"},
+      {"id": "gpt-4o-mini-transcribe-2025-03-20", "name": "GPT-4o Mini Transcribe (2025-03-20)", "status": "deprecated", "deprecationDate": "2027-01-20", "replacementModelId": "gpt-4o-mini-transcribe-2025-12-15", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-11-18", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
+      {"id": "gpt-4o-mini-transcribe-2025-12-15", "name": "GPT-4o Mini Transcribe (2025-12-15)", "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-11-18", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
+      {"id": "gpt-4o-transcribe-diarize", "name": "GPT-4o Transcribe Diarize", "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "source": "official", "productReadiness": "known", "recommended": false, "lastVerifiedAt": "2026-11-18", "documentationRef": "https://developers.openai.com/api/docs/deprecations"},
       {"id": "gpt-4o-transcribe", "name": "GPT-4o Transcribe (Deprecated)", "recommended": false, "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"},
       {"id": "whisper-1", "name": "Whisper-1 (Deprecated)", "recommended": false, "status": "deprecated", "deprecationDate": "2027-02-26", "replacementModelId": "gpt-transcribe", "lastVerifiedAt": "2026-09-29", "source": "official", "productReadiness": "known"}
     ],
