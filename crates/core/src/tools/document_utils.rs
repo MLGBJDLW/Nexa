@@ -65,15 +65,63 @@ impl NativeFileEvidence {
     }
 }
 
+pub(crate) struct FileEvidence {
+    pub text: String,
+    pub native: Option<NativeFileEvidence>,
+    /// Present only for text decoded directly from these exact source bytes.
+    pub text_hash: Option<blake3::Hash>,
+}
+
+impl FileEvidence {
+    fn extracted(text: String, native: Option<NativeFileEvidence>) -> Self {
+        Self {
+            text,
+            native,
+            text_hash: None,
+        }
+    }
+}
+
+pub(crate) fn file_citation(
+    path: &Path,
+    hash: Option<blake3::Hash>,
+    start: usize,
+    end: usize,
+) -> String {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let label = name
+        .replace('\\', "\\\\")
+        .replace('[', "\\[")
+        .replace(']', "\\]")
+        .replace(['\r', '\n'], " ");
+    let Ok(mut url) = url::Url::from_file_path(path) else {
+        return label;
+    };
+    if let Some(hash) = hash.filter(|_| start <= end && start > 0) {
+        url.set_fragment(Some(&format!("L{start}-L{end}@{hash}")));
+        return format!("[{label} · L{start}–{end}](<{url}>)");
+    }
+    format!("[{label}](<{url}>)")
+}
+
 /// Read already-authorized bytes once. Extraction and native evidence use the
 /// same snapshot even when the source file is subsequently changed.
 pub(crate) fn read_file_evidence(
     path: &Path,
     native_candidate: bool,
-) -> Result<(String, Option<NativeFileEvidence>), CoreError> {
+) -> Result<FileEvidence, CoreError> {
     use crate::llm::document::{DocumentInput, MAX_DOCUMENT_BYTES};
     use std::io::{Read, Write};
     let mime = crate::parse::detect_mime_type(path);
+    if mime.starts_with("text/") || mime == "application/octet-stream" {
+        let bytes = std::fs::read(path)?;
+        let text = crate::parse::decode_text_bytes(&bytes, path)?;
+        return Ok(FileEvidence {
+            text,
+            native: None,
+            text_hash: Some(blake3::hash(&bytes)),
+        });
+    }
     if native_candidate && crate::media::is_supported_image(&mime) {
         use base64::Engine;
         let mut bytes = Vec::new();
@@ -101,14 +149,17 @@ pub(crate) fn read_file_evidence(
                 "sourcePath": path.to_string_lossy(),
             }),
         };
-        return Ok((text, Some(NativeFileEvidence::Image(attachment, length))));
+        return Ok(FileEvidence::extracted(
+            text,
+            Some(NativeFileEvidence::Image(attachment, length)),
+        ));
     }
     if !native_candidate || !crate::llm::document::supported_mime(&mime) {
         return read_supported_file_content(path).map(|mut text| {
             if crate::media::is_supported_image(&mime) {
                 text.push_str("\n[Pixels were not included in this text-only read. For visual inspection, use read_file with image_mode=\"native\" and no line parameters; raw-image consent is required. Use extract_image_text only for text extraction.]");
             }
-            (text, None)
+            FileEvidence::extracted(text, None)
         });
     }
     let mut bytes = Vec::new();
@@ -120,7 +171,7 @@ pub(crate) fn read_file_evidence(
         .and_then(|v| v.to_str())
         .unwrap_or("document");
     if DocumentInput::from_bytes(name, &mime, &bytes, "").is_none() {
-        return read_supported_file_content(path).map(|text| (text, None));
+        return read_supported_file_content(path).map(|text| FileEvidence::extracted(text, None));
     }
     let suffix = path.extension().and_then(|v| v.to_str()).unwrap_or("bin");
     let mut snapshot = tempfile::Builder::new()
@@ -132,7 +183,10 @@ pub(crate) fn read_file_evidence(
         format!("[Local extraction failed: {error}. The original file may still be read by a supported native document route.]")
     });
     let candidate = DocumentInput::from_bytes(name, &mime, &bytes, &text);
-    Ok((text, candidate.map(NativeFileEvidence::Document)))
+    Ok(FileEvidence::extracted(
+        text,
+        candidate.map(NativeFileEvidence::Document),
+    ))
 }
 
 fn document_attachment(

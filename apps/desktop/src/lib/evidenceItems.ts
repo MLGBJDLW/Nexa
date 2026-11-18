@@ -53,7 +53,8 @@ export function buildEvidenceItemsFromContent(
     }
 
     const card = citationLookup?.getCard(entry.chunkId);
-    const groupKey = card?.documentPath?.trim() || card?.documentTitle?.trim() || entry.chunkId;
+    // Distinct blocks in one local file lead to different passages.
+    const groupKey = card && isWebUrl(card.documentPath) ? card.documentPath.trim() : entry.chunkId;
     const existing = grouped.get(groupKey);
     if (existing) {
       existing.count += 1;

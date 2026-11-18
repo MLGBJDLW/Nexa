@@ -3,7 +3,7 @@ import { FileSpreadsheet } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import type * as api from '../../lib/api';
 import { PreviewImage } from './PreviewImage';
-import type { EvidenceLocator } from '../../types/evidence';
+import type { PreviewLocation } from './filePreviewContext';
 type TranslateFn = ReturnType<typeof useTranslation>['t'];
 export function createPreviewLabels(t: TranslateFn) {
   return {
@@ -234,6 +234,14 @@ function DocumentBlockView({
       );
     }
     case 'paragraph':
+      if (block.extractedLineStart != null && block.extractedLineEnd != null) {
+        const first = block.extractedLineStart, last = block.extractedLineEnd;
+        return <p className="my-3 whitespace-pre-wrap text-sm leading-7">{
+          block.runs.map(run => run.text).join('').split('\n').map((line, i) =>
+            <span key={i} data-pdf-line={first + i <= last ? first + i : undefined}>{i > 0 && '\n'}{line}</span>
+          )
+        }</p>;
+      }
       return (
         <p data-docx-paragraph={block.sourceParagraph} className={`my-3 whitespace-pre-wrap text-sm leading-7 ${textAlignClass(block.alignment)}`}>
           <DocumentRuns runs={block.runs} onOpenWebLink={onOpenWebLink} />
@@ -353,7 +361,7 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
   focusText?: string;
 }) {
   const { t } = useTranslation();
@@ -371,6 +379,13 @@ function StructuredDocumentPreview({ preview, labels, onMouseUp, onOpenWebLink, 
     if (locator.kind === 'pdf' || locator.kind === 'slide') {
       const page = locator.kind === 'pdf' ? locator.page : locator.slide;
       target = root.current.querySelector<HTMLElement>(`[data-preview-page="${page}"]`);
+      if (locator.kind === 'pdf' && locator.extractedLineStart && locator.extractedLineEnd) {
+        const start = locator.extractedLineStart, end = locator.extractedLineEnd;
+        const lines = Array.from(root.current.querySelectorAll<HTMLElement>(`[data-preview-page="${page}"] [data-pdf-line]`))
+          .filter(element => Number(element.dataset.pdfLine) >= start && Number(element.dataset.pdfLine) <= end);
+        setAnchorMissing(!lines.length || Number(lines[0].dataset.pdfLine) !== start || Number(lines[lines.length - 1]?.dataset.pdfLine) !== end);
+        return markEvidenceLocations(lines.length ? lines : target ? [target] : [], []);
+      }
     } else if (locator.kind === 'document' && locator.part === 'word/document.xml') {
       if (locator.table) {
         const table = root.current.querySelector<HTMLElement>(`[data-docx-table="${locator.table}"]`);
@@ -417,7 +432,7 @@ function WorkbookPreview({
   preview: api.WorkbookStructuredPreview;
   labels: PreviewLabels;
   onMouseUp: () => void;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
 }) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
@@ -609,7 +624,7 @@ export function StructuredPreviewRenderer({
   labels: PreviewLabels;
   onMouseUp: () => void;
   onOpenWebLink: (url: string, title?: string) => void;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
   focusText?: string;
 }) {
   if (preview.type === 'workbook') {

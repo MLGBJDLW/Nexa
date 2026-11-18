@@ -77,7 +77,7 @@ impl Tool for ChunkContextTool {
             let mut artifacts=Vec::new();
             for neighbor in &context.cards {
                 let is_target=neighbor.chunk_id==card.chunk_id;
-                text.push_str(&format!("--- [{} (index {}, kind: {})] ---\n[chunk_id: {}]\n{}\n\n",if is_target{"TARGET CHUNK"}else{"context chunk"},neighbor.chunk_index,neighbor.chunk_kind,neighbor.chunk_id,neighbor.content));
+                text.push_str(&format!("--- [{} (index {}, kind: {})] ---\n[chunk_id: {}]\nSource location: {}\n{}\n\n",if is_target{"TARGET CHUNK"}else{"context chunk"},neighbor.chunk_index,neighbor.chunk_kind,neighbor.chunk_id,crate::citations::source_location(neighbor),neighbor.content));
                 let mut value=serde_json::to_value(neighbor)?;value["isTarget"]=json!(is_target);artifacts.push(value);
             }
             if context.truncated {text.push_str("The context text reached the 64000-character budget. Read the source for omitted text.\n");}

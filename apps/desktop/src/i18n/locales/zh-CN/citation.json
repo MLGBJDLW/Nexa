@@ -1,4 +1,5 @@
 {
+  "extractedLines": "提取文本第 {range} 行",
   "paragraph": "第 {number} 段",
   "tableRow": "表格 {table}，第 {row} 行",
   "slide": "第 {number} 张幻灯片",

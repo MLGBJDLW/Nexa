@@ -22,7 +22,7 @@ use crate::visual_document::{OoxmlPackageKind, ParsedVisualArtifact};
 
 const BINARY_SNIFF_BYTES: usize = 8192;
 
-fn bytes_appear_binary(raw: &[u8]) -> bool {
+pub fn bytes_appear_binary(raw: &[u8]) -> bool {
     if raw.starts_with(&[0xFF, 0xFE]) || raw.starts_with(&[0xFE, 0xFF]) {
         return false;
     }
@@ -61,7 +61,7 @@ pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
     decode_text_bytes(&raw, path)
 }
 
-pub(crate) fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
+pub fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
     // Binary check — look for null bytes in first 8 KB.
     if bytes_appear_binary(raw) {
         return Err(CoreError::Parse(format!(

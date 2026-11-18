@@ -27,10 +27,10 @@ export function hasInlineChatPreview(reply: { text: string }): boolean {
 /** Use the renderer's CommonMark parser to protect exact source ranges, including
  * unfinished streaming fences and container-relative indentation. Unmatched
  * inline backticks remain prose, as they do in the rendered message. */
-function segments(content: string): { text: string; code: boolean }[] {
+function segments(content: string, protectLinks = false): { text: string; code: boolean }[] {
   const ranges: { start: number; end: number }[] = [];
   const visit = (node: MarkdownNode) => {
-    if (node.type === 'code' || node.type === 'inlineCode') {
+    if (node.type === 'code' || node.type === 'inlineCode' || (protectLinks && (node.type === 'link' || node.type === 'image'))) {
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
       if (start !== undefined && end !== undefined) ranges.push({ start, end });
@@ -53,7 +53,7 @@ function segments(content: string): { text: string; code: boolean }[] {
 export function transformMarkdownProse(content: string, transform: (prose: string) => string): string {
   let prefix = '\u0000nexa-code-'; while (content.includes(prefix)) prefix += 'x';
   const saved: string[] = [];
-  const masked = segments(content).map(part => {
+  const masked = segments(content, true).map(part => {
     if (!part.code) return part.text;
     saved.push(part.text); return `${prefix}${saved.length - 1}\u0000`;
   }).join('');

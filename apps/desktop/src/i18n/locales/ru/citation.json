@@ -1,4 +1,5 @@
 {
+  "extractedLines": "строки извлечённого текста {range}",
   "paragraph": "Абзац {number}",
   "tableRow": "Таблица {table}, строка {row}",
   "slide": "Слайд {number}",

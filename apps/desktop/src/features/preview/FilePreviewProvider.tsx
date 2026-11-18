@@ -50,7 +50,7 @@ import { openNexaBrowser } from '../browser';
 import { requestNexaBrowser } from '../browser/openNexaBrowser';
 import { FilePreviewContext } from './filePreviewContext';
 import type { PreviewLocation } from './filePreviewContext';
-import type { EvidenceRef, EvidenceLocator } from '../../types/evidence';
+import type { EvidenceRef } from '../../types/evidence';
 import { EvidenceReader } from './EvidenceReader';
 import { useAgentPreviewRequests, type AgentPreviewRequest } from './useAgentPreviewRequests';
 
@@ -252,7 +252,7 @@ function OfficeRenderedPreview({
 }: {
   rendered: api.RenderedPreview;
   labels: PreviewLabels;
-  locator?: EvidenceLocator;
+  locator?: PreviewLocation['locator'];
 }) {
   const [zoom, setZoom] = useState(1);
   const root = useRef<HTMLDivElement>(null);

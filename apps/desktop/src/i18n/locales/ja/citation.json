@@ -1,4 +1,5 @@
 {
+  "extractedLines": "抽出テキスト {range} 行",
   "paragraph": "段落 {number}",
   "tableRow": "表 {table}、行 {row}",
   "slide": "スライド {number}",

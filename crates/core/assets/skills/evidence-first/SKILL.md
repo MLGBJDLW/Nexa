@@ -7,7 +7,7 @@ description: Activate for every answer that uses knowledge base search results o
 Every answer that uses knowledge base search results.
 
 ## Rules
-1. ALWAYS cite sources: "According to [Document Title] (path/to/file)..."
+1. Place `[cite:CHUNK_ID]` next to each claim supported by an indexed local source. Reuse the ID returned for that passage. For a direct file read, copy its suggested citation. If you mention a page, line, paragraph or cell in prose, use the coordinates returned with the evidence. PDF extracted line numbers refer to text within that page. For extracted-only evidence, name the available section.
 2. When multiple sources exist:
    - If they AGREE: synthesize into one answer, cite all sources
    - If they CONFLICT: present both views explicitly, note the contradiction

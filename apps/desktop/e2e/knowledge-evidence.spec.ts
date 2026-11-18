@@ -27,6 +27,7 @@ test('citations expose read failures, recover on retry and fit a small viewport'
   await page.getByRole('button', { name: 'Retry' }).click();
   const popup = page.getByRole('dialog');
   await expect(popup).toContainText('Evidence restored');
+  await expect(popup).toContainText('Page 2 · extracted lines 7–9');
   const bounds = await popup.boundingBox();
   expect(bounds).not.toBeNull();
   expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -148,4 +149,24 @@ test('research saves a comparison, reviews cited evidence and restores stale sta
   await expect(workspace.getByRole('button',{name:'Updated limit: 600 yuan.'})).toBeVisible();
   await expect(workspace.getByText('Needs review',{exact:true})).toBeVisible();
   await page.screenshot({path:'.artifacts/knowledge-research-final.png',fullPage:true});
+});
+
+test('direct file links open the original path and pass a hash-bound line range', async ({ page }) => {
+  await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=file-links');
+  await page.getByRole('button', { name: /Budget/ }).click();
+  const target = page.getByTestId('file-link-target');
+  await expect(target).toHaveText(JSON.stringify({
+    path: 'C:/notes/cost #%.md',
+    position: { expectedHash: 'b'.repeat(64), locator: { kind: 'text', lineStart: 2, lineEnd: 4 } },
+  }));
+  await page.getByRole('button', { name: 'old.md' }).click();
+  await expect(target).toHaveText(JSON.stringify({ path: '/tmp/old.md' }));
+});
+
+test('structured PDF preview highlights only the cited extracted lines', async ({ page }) => {
+  await page.goto('/e2e/fixtures/knowledge-evidence.html?mode=pdf-lines');
+  const selected = page.locator('[data-evidence-anchor="true"]');
+  await expect(selected).toHaveCount(1);
+  await expect(selected).toHaveAttribute('data-pdf-line', '7');
+  await expect(selected).toHaveText('selected');
 });

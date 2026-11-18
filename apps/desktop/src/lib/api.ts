@@ -725,6 +725,8 @@ export interface DocumentHeadingBlock {
 }
 
 export interface DocumentParagraphBlock {
+  extractedLineStart?: number;
+  extractedLineEnd?: number;
   sourceParagraph?: number;
   type: 'paragraph';
   runs: DocumentPreviewRun[];

@@ -13,7 +13,7 @@ use crate::error::CoreError;
 use crate::privacy;
 
 use super::document_utils::{
-    native_image_consent_message, read_file_evidence, requests_native_image,
+    file_citation, native_image_consent_message, read_file_evidence, requests_native_image,
 };
 use super::path_utils::resolve_existing_file_for_file_access;
 use super::{Tool, ToolCategory, ToolDef, ToolResult};
@@ -134,7 +134,9 @@ impl Tool for FileTool {
             // Read text files directly; for supported binary docs, parse and extract text.
             let privacy_config = db.load_privacy_config()?;
             let unredacted_image = native_image_consent && crate::media::is_supported_image(&crate::parse::detect_mime_type(&canonical));
-            let (raw, document) = read_file_evidence(&canonical, native_candidate && (!privacy_config.enabled || unredacted_image))?;
+            let evidence = read_file_evidence(&canonical, native_candidate && (!privacy_config.enabled || unredacted_image))?;
+
+            let raw = &evidence.text;
 
             // Skip to start_line (1-based) and truncate to max_lines.
             let start = args.start_line.max(1);
@@ -153,14 +155,7 @@ impl Tool for FileTool {
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .ok();
-            let file_label = canonical
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("file");
-            let suggested_citation = match &document_info {
-                Some((document_id, _)) => format!("[doc:{document_id}|{file_label}]"),
-                None => format!("[file:{canonical_str}:{start}-{showing_end}|{file_label}]"),
-            };
+            let suggested_citation = file_citation(&canonical, evidence.text_hash, start, showing_end);
 
             // Apply privacy redaction.
             let redacted = if privacy_config.enabled {
@@ -198,7 +193,7 @@ impl Tool for FileTool {
                     "suggestedCitation": suggested_citation,
                 })),
             };
-            if let Some(document) = document {
+            if let Some(document) = evidence.native {
                 let attachment = document.into_attachment(text);
                 result.artifacts.as_mut().unwrap()["toolOutput"] = serde_json::json!({
                     "llmContent": result.content, "displayContent": result.content,
@@ -367,7 +362,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_file_returns_suggested_document_citation_when_indexed() {
+    async fn read_file_cites_the_read_bytes_even_when_the_index_is_stale() {
         let dir = tempfile::tempdir().expect("create tempdir");
         let file_path = dir.path().join("notes.md");
         std::fs::write(&file_path, "# Notes\nhello world\n").expect("write text file");
@@ -400,9 +395,11 @@ mod tests {
 
         assert!(!result.is_error);
         assert!(result.content.contains("Document ID: doc-1"));
+        let hash = blake3::hash(b"# Notes\nhello world\n");
         assert!(result
             .content
-            .contains("Suggested citation: [doc:doc-1|notes.md]"));
+            .contains("Suggested citation: [notes.md · L1–2]"));
+        assert!(result.content.contains(&format!("#L1-L2@{hash}>")));
         assert_eq!(result.artifacts.unwrap()["documentId"], "doc-1");
     }
 

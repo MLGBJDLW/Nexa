@@ -26,7 +26,7 @@ export interface EvidenceCard {
 
 export type EvidenceLocator =
   | { kind: 'text'; byteStart: number; byteEnd: number; lineStart: number; lineEnd: number }
-  | { kind: 'pdf'; page: number; bbox?: [number, number, number, number] }
+  | { kind: 'pdf'; page: number; bbox?: [number, number, number, number]; extractedLineStart?: number; extractedLineEnd?: number }
   | { kind: 'document'; part: string; paragraph: number; table?: number; row?: number; contextRow?: number; column?: number }
   | { kind: 'sheet'; sheet: string; range: string; contextRange?: string }
   | { kind: 'slide'; slide: number }

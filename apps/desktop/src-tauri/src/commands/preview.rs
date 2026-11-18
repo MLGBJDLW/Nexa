@@ -831,12 +831,18 @@ fn hash_file(path: &Path) -> Result<String, String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-fn read_prefix(path: &Path, max_bytes: u64) -> Result<Vec<u8>, String> {
+/// Keep the displayed prefix and its full-file revision on the same read.
+fn read_hashed_prefix(path: &Path, max_bytes: u64) -> Result<(Vec<u8>, String), String> {
     let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut limited = file.by_ref().take(max_bytes);
     let mut bytes = Vec::new();
-    limited.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-    Ok(bytes)
+    file.by_ref()
+        .take(max_bytes)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&bytes);
+    hasher.update_reader(file).map_err(|e| e.to_string())?;
+    Ok((bytes, hasher.finalize().to_hex().to_string()))
 }
 
 fn decode_preview_text(bytes: &[u8]) -> (String, String, bool) {
@@ -930,6 +936,7 @@ pub(crate) fn build_file_preview(
         .unwrap_or("file")
         .to_string();
     let direct_media = nexa_core::preview::direct_media_kind(&mime_type).is_some();
+    let mut text_bytes = None;
     // Read-only media is streamed by the webview. Hashing a multi-gigabyte video
     // before opening its player adds no edit-conflict protection.
     let hash = if direct_media {
@@ -946,6 +953,10 @@ pub(crate) fn build_file_preview(
             )
             .to_hex()
         )
+    } else if !is_document_preview_type(&mime_type) && size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
+        let (bytes, hash) = read_hashed_prefix(&resolved.canonical, PREVIEW_TEXT_BYTES_LIMIT)?;
+        text_bytes = Some(bytes);
+        hash
     } else {
         hash_file(&resolved.canonical)?
     };
@@ -981,10 +992,8 @@ pub(crate) fn build_file_preview(
                 warning = Some(format!("Could not extract document text: {err}"));
             }
         }
-    } else if size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
-        let read_limit = size_bytes.min(PREVIEW_TEXT_BYTES_LIMIT);
-        let bytes = read_prefix(&resolved.canonical, read_limit)?;
-        binary = bytes[..bytes.len().min(8192)].contains(&0);
+    } else if let Some(bytes) = text_bytes {
+        binary = nexa_core::parse::bytes_appear_binary(&bytes);
         truncated = size_bytes > PREVIEW_TEXT_BYTES_LIMIT;
         if binary {
             warning = Some(

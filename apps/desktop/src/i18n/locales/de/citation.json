@@ -1,4 +1,5 @@
 {
+  "extractedLines": "extrahierte Zeilen {range}",
   "paragraph": "Absatz {number}",
   "tableRow": "Tabelle {table}, Zeile {row}",
   "slide": "Folie {number}",

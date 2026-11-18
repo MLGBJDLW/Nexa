@@ -116,15 +116,19 @@ function extractCard(item: unknown): CitationCardData | null {
   };
 }
 
-function collectArtifactItems(value: unknown, out: unknown[]) {
+function collectArtifactCards(value: unknown, cards: Map<string, CitationCardData>) {
   const pending: unknown[] = [value];
   const seen = new WeakSet<object>();
   while (pending.length > 0) {
     const item = pending.pop();
     if (!item || typeof item !== 'object' || seen.has(item)) continue;
     seen.add(item);
-    if (!Array.isArray(item)) out.push(item);
-    pending.push(...Object.values(item));
+    const card = extractCard(item);
+    if (card && (card.evidenceRef || !cards.get(card.chunkId)?.evidenceRef)) cards.set(card.chunkId, card);
+    // A large result array must not become a variadic call.
+    for (const child of Object.values(item)) {
+      if (child && typeof child === 'object') pending.push(child);
+    }
   }
 }
 
@@ -142,14 +146,7 @@ export function buildCitationMap(
   const map = new Map<string, CitationCardData>();
   for (const tc of toolCalls) {
     if (!tc.artifacts) continue;
-    const items: unknown[] = [];
-    collectArtifactItems(tc.artifacts, items);
-    for (const item of items) {
-      const card = extractCard(item);
-      if (card) {
-        map.set(card.chunkId, card);
-      }
-    }
+    collectArtifactCards(tc.artifacts, map);
   }
   return map;
 }
@@ -177,7 +174,11 @@ export function preprocessInlineCitations(content: string): string {
       const trimPath = path.trim();
       const filename = trimPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || trimPath;
       const display = label?.trim() || filename;
-      return citationLink(display, 'file', trimPath);
+      // Older read_file results appended the extracted range to the filename.
+      // The saved label distinguishes these from literal POSIX filenames ending in digits.
+      const legacy = /^(.*):\d+-\d+$/.exec(trimPath);
+      const fileTarget = legacy && legacy[1].split(/[\\/]/).pop() === label?.trim() ? legacy[1] : trimPath;
+      return citationLink(display, 'file', fileTarget);
     })
     .replace(URL_REGEX, (_m, url: string, label?: string) => {
       const trimUrl = url.trim();

@@ -70,13 +70,17 @@ cloud-to-local dense-vector fallback so either transition changes that basis.
 Evidence references carry source ID, document ID, index revision, raw file hash,
 block ID/hash, extraction method, and a format-specific location. The reader
 shows the selected block, adjacent text, and paginated document sections.
+Chat displays each local block's location beside its citation, including separate
+passages in the same document. Direct reads of text files link the returned line
+range to the hash of the source bytes. Opening the link checks that hash before
+selecting text in the current file.
 Source context excludes generated summaries; a summary is returned only when it
 is the explicitly requested block, at the requested content version.
 
 | Input | Location and interpretation |
 | --- | --- |
 | Text and Markdown | UTF-8 byte ranges and original line numbers; short facts are retained |
-| PDF | Page number, with optional normalized top-left bounding box; native coverage is checked per page |
+| PDF | Original page number and, where available, lines within the extracted page text or a normalized top-left bounding box |
 | DOCX | Package part, paragraph, or table/row; no fabricated page number |
 | XLSX/XLS | Worksheet and original cell range, including used ranges that begin away from A1; formulas and cached values remain distinct |
 | PPTX | Presentation slide order and speaker notes |

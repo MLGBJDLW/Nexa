@@ -1,4 +1,5 @@
 {
+  "extractedLines": "lignes extraites {range}",
   "paragraph": "Paragraphe {number}",
   "tableRow": "Tableau {table}, ligne {row}",
   "slide": "Diapositive {number}",

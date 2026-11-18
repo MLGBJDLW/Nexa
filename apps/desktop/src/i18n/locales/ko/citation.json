@@ -1,4 +1,5 @@
 {
+  "extractedLines": "추출 텍스트 {range}행",
   "paragraph": "문단 {number}",
   "tableRow": "표 {table}, 행 {row}",
   "slide": "슬라이드 {number}",
