@@ -678,6 +678,7 @@ export interface FilePreview {
   modifiedAt?: string | null;
   hash: string;
   lineCount: number;
+  firstLine?: number;
   truncated: boolean;
   warning?: string | null;
   structuredPreview?: StructuredPreview | null;
@@ -853,11 +854,12 @@ export interface FileSaveResult {
 
 export type { WorkflowCatalogTask, WorkflowCatalogTemplate } from '../types/workflows';
 
-export const previewFile = (path: string, conversationId?: string, verifyContentHash = false) =>
+export const previewFile = (path: string, conversationId?: string, verifyContentHash = false, startLine?: number) =>
   invoke<FilePreview>('preview_file_cmd', {
     path,
     conversationId: conversationId ?? null,
     ...(verifyContentHash ? { verifyContentHash: true } : {}),
+    ...(startLine ? { startLine } : {}),
   });
 
 export const saveTextFile = (

@@ -493,6 +493,7 @@ pub struct FilePreview {
     pub modified_at: Option<String>,
     pub hash: String,
     pub line_count: usize,
+    pub first_line: u32,
     pub truncated: bool,
     pub warning: Option<String>,
     pub structured_preview: Option<nexa_core::preview::StructuredPreview>,
@@ -831,50 +832,6 @@ fn hash_file(path: &Path) -> Result<String, String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-/// Keep the displayed prefix and its full-file revision on the same read.
-fn read_hashed_prefix(path: &Path, max_bytes: u64) -> Result<(Vec<u8>, String), String> {
-    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    file.by_ref()
-        .take(max_bytes)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&bytes);
-    hasher.update_reader(file).map_err(|e| e.to_string())?;
-    Ok((bytes, hasher.finalize().to_hex().to_string()))
-}
-
-fn decode_preview_text(bytes: &[u8]) -> (String, String, bool) {
-    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        if let Ok(text) = String::from_utf8(bytes[3..].to_vec()) {
-            return (text, "utf-8-bom".to_string(), true);
-        }
-    }
-    if bytes.starts_with(&[0xFF, 0xFE]) {
-        let (text, _, _) = encoding_rs::UTF_16LE.decode(&bytes[2..]);
-        return (text.into_owned(), "utf-16le".to_string(), false);
-    }
-    if bytes.starts_with(&[0xFE, 0xFF]) {
-        let (text, _, _) = encoding_rs::UTF_16BE.decode(&bytes[2..]);
-        return (text.into_owned(), "utf-16be".to_string(), false);
-    }
-    match String::from_utf8(bytes.to_vec()) {
-        Ok(text) => (text, "utf-8".to_string(), true),
-        Err(_) => {
-            let (text, _, had_errors) = encoding_rs::GBK.decode(bytes);
-            if !had_errors {
-                return (text.into_owned(), "gbk".to_string(), false);
-            }
-            (
-                String::from_utf8_lossy(bytes).into_owned(),
-                "lossy".to_string(),
-                false,
-            )
-        }
-    }
-}
-
 fn flatten_parsed_document(parsed: &nexa_core::parse::ParsedDocument) -> String {
     let mut out = String::new();
     for chunk in &parsed.chunks {
@@ -923,6 +880,7 @@ pub(crate) fn build_file_preview(
     db: &Database,
     raw_path: &str,
     app_data_dir: Option<&Path>,
+    start_line: Option<u32>,
 ) -> Result<FilePreview, String> {
     let resolved = resolve_local_file(db, raw_path)?;
     let metadata = std::fs::metadata(&resolved.canonical).map_err(|e| e.to_string())?;
@@ -936,7 +894,12 @@ pub(crate) fn build_file_preview(
         .unwrap_or("file")
         .to_string();
     let direct_media = nexa_core::preview::direct_media_kind(&mime_type).is_some();
-    let mut text_bytes = None;
+    let mut window = None;
+    let first_line = if size_bytes > PREVIEW_TEXT_BYTES_LIMIT {
+        start_line.unwrap_or(1).max(1)
+    } else {
+        1
+    };
     // Read-only media is streamed by the webview. Hashing a multi-gigabyte video
     // before opening its player adds no edit-conflict protection.
     let hash = if direct_media {
@@ -953,9 +916,15 @@ pub(crate) fn build_file_preview(
             )
             .to_hex()
         )
-    } else if !is_document_preview_type(&mime_type) && size_bytes <= PREVIEW_PARSE_BYTES_LIMIT {
-        let (bytes, hash) = read_hashed_prefix(&resolved.canonical, PREVIEW_TEXT_BYTES_LIMIT)?;
-        text_bytes = Some(bytes);
+    } else if !is_document_preview_type(&mime_type)
+        && (size_bytes <= PREVIEW_PARSE_BYTES_LIMIT || start_line.is_some())
+    {
+        let file = std::fs::File::open(&resolved.canonical).map_err(|e| e.to_string())?;
+        let result =
+            nexa_core::text_window::read(file, first_line, PREVIEW_TEXT_BYTES_LIMIT as usize)
+                .map_err(|e| e.to_string())?;
+        let hash = result.hash.clone();
+        window = Some(result);
         hash
     } else {
         hash_file(&resolved.canonical)?
@@ -992,18 +961,20 @@ pub(crate) fn build_file_preview(
                 warning = Some(format!("Could not extract document text: {err}"));
             }
         }
-    } else if let Some(bytes) = text_bytes {
-        binary = nexa_core::parse::bytes_appear_binary(&bytes);
-        truncated = size_bytes > PREVIEW_TEXT_BYTES_LIMIT;
+    } else if let Some(window) = window {
+        binary = window.binary;
+        truncated = window.truncated;
         if binary {
             warning = Some(
                 "This looks like a binary file, so inline text preview is disabled.".to_string(),
             );
         } else {
-            let (text, enc, editable_encoding) = decode_preview_text(&bytes);
+            let (text, enc) =
+                nexa_core::parse::decode_text_with_encoding(&window.bytes, &resolved.canonical)
+                    .map_err(|e| e.to_string())?;
             content = Some(text);
-            encoding = Some(enc);
-            encoding_editable = editable_encoding;
+            encoding = Some(enc.to_string());
+            encoding_editable = matches!(enc, "utf-8" | "utf-8-bom");
             capabilities.can_extract_text = true;
             if truncated {
                 warning = Some(format!(
@@ -1089,11 +1060,13 @@ pub(crate) fn build_file_preview(
         content,
         encoding,
         editable,
-        agent_edit_allowed: nexa_core::tools::agent_can_access_local_file(db, &resolved.canonical),
+        agent_edit_allowed: first_line == 1
+            && nexa_core::tools::agent_can_access_local_file(db, &resolved.canonical),
         size_bytes,
         modified_at: modified_at_iso(&resolved.canonical),
         hash,
         line_count,
+        first_line,
         truncated,
         warning,
         structured_preview,
@@ -1109,6 +1082,7 @@ pub async fn preview_file_cmd(
     path: String,
     conversation_id: Option<String>,
     verify_content_hash: Option<bool>,
+    start_line: Option<u32>,
 ) -> Result<FilePreview, String> {
     let db = state.db.clone();
     let data_dir = app_handle
@@ -1121,7 +1095,7 @@ pub async fn preview_file_cmd(
             .map(|id| nexa_core::chat_worktrees::activity(&db, id))
             .transpose()
             .map_err(|e| e.to_string())?;
-        let mut preview = build_file_preview(&db, &path, Some(&data_dir))?;
+        let mut preview = build_file_preview(&db, &path, Some(&data_dir), start_line)?;
         if verify_content_hash.unwrap_or(false) && preview.hash.starts_with("metadata:") {
             preview.hash = hash_file(Path::new(&preview.path))?;
         }
@@ -1135,8 +1109,8 @@ pub async fn preview_file_cmd(
             let mut context =
                 nexa_core::tools::ToolExecutionContext::new("preview", "", &db, &scope);
             context.workspace = workspace.as_ref();
-            preview.agent_edit_allowed =
-                nexa_core::tools::resolve_agent_file_path(&context, Path::new(&preview.path))
+            preview.agent_edit_allowed = preview.first_line == 1
+                && nexa_core::tools::resolve_agent_file_path(&context, Path::new(&preview.path))
                     .is_ok();
         }
         Ok::<_, String>(preview)
@@ -1239,7 +1213,7 @@ pub(super) fn save_text_file(
         None => ("not_indexed".to_string(), None),
     };
 
-    let preview = build_file_preview(db, &resolved.canonical.to_string_lossy(), None)?;
+    let preview = build_file_preview(db, &resolved.canonical.to_string_lossy(), None, None)?;
     Ok(FileSaveResult {
         preview,
         checkpoint_id: checkpoint.id,

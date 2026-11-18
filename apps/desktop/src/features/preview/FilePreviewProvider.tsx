@@ -465,7 +465,7 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
       setError(null);
       setActivePath(path);
       try {
-        const next = await api.previewFile(path, owner ?? undefined, Boolean(options.expectedHash));
+        const next = await api.previewFile(path, owner ?? undefined, Boolean(options.expectedHash), options.locator?.kind === 'text' ? options.locator.lineStart : undefined);
         if (generation !== loadGeneration.current) return null;
         const changed = Boolean(options.expectedHash && options.expectedHash !== next.hash);
         if (changed) next.warning = t('citation.fileChanged');
@@ -563,12 +563,14 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
     if (mode !== 'text' || locator?.kind !== 'text' || !preview?.content || !textPreview.current) return;
     const displayed = textPreview.current.value;
     const lines = displayed.split('\n');
-    if (locator.lineStart > lines.length) { setError(t('citation.previewLocationMissing')); return; }
-    const start = lines.slice(0, locator.lineStart - 1).reduce((sum, line) => sum + line.length + 1, 0);
-    const end = Math.min(displayed.length, start + lines.slice(locator.lineStart - 1, locator.lineEnd).join('\n').length);
+    const first = preview.firstLine ?? 1;
+    const startLine = locator.lineStart - first + 1, endLine = locator.lineEnd - first + 1;
+    if (startLine < 1 || startLine > lines.length) { setError(t('citation.previewLocationMissing')); return; }
+    const start = lines.slice(0, startLine - 1).reduce((sum, line) => sum + line.length + 1, 0);
+    const end = Math.min(displayed.length, start + lines.slice(startLine - 1, endLine).join('\n').length);
     textPreview.current.focus();
     textPreview.current.setSelectionRange(start, end);
-    textPreview.current.scrollTop = Math.max(0, locator.lineStart - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
+    textPreview.current.scrollTop = Math.max(0, startLine - 3) * Number.parseFloat(getComputedStyle(textPreview.current).lineHeight || '20');
     setTextSelection(selectionFromTextarea(preview.content, start, end, 'preview'));
   }, [previewLocation, preview, mode, t]);
 

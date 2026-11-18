@@ -62,6 +62,13 @@ pub fn read_text_file(path: &std::path::Path) -> Result<String, CoreError> {
 }
 
 pub fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
+    decode_text_with_encoding(raw, path).map(|(text, _)| text)
+}
+
+pub fn decode_text_with_encoding(
+    raw: &[u8],
+    path: &Path,
+) -> Result<(String, &'static str), CoreError> {
     // Binary check — look for null bytes in first 8 KB.
     if bytes_appear_binary(raw) {
         return Err(CoreError::Parse(format!(
@@ -73,32 +80,34 @@ pub fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
     // BOM detection
     if raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
         // UTF-8 BOM — strip and decode
-        return String::from_utf8(raw[3..].to_vec()).map_err(|e| {
-            CoreError::Parse(format!(
-                "File has UTF-8 BOM but contains invalid UTF-8: {}: {}",
-                path.display(),
-                e
-            ))
-        });
+        return String::from_utf8(raw[3..].to_vec())
+            .map(|s| (s, "utf-8-bom"))
+            .map_err(|e| {
+                CoreError::Parse(format!(
+                    "File has UTF-8 BOM but contains invalid UTF-8: {}: {}",
+                    path.display(),
+                    e
+                ))
+            });
     }
     if raw.starts_with(&[0xFF, 0xFE]) {
         let (result, _, had_errors) = encoding_rs::UTF_16LE.decode(&raw[2..]);
         if had_errors {
             tracing::warn!("UTF-16 LE decoding had errors for: {}", path.display());
         }
-        return Ok(result.into_owned());
+        return Ok((result.into_owned(), "utf-16le"));
     }
     if raw.starts_with(&[0xFE, 0xFF]) {
         let (result, _, had_errors) = encoding_rs::UTF_16BE.decode(&raw[2..]);
         if had_errors {
             tracing::warn!("UTF-16 BE decoding had errors for: {}", path.display());
         }
-        return Ok(result.into_owned());
+        return Ok((result.into_owned(), "utf-16be"));
     }
 
     // Try strict UTF-8 (most common case)
     if let Ok(s) = std::str::from_utf8(raw) {
-        return Ok(s.to_owned());
+        return Ok((s.to_owned(), "utf-8"));
     }
 
     // Try common legacy encodings
@@ -111,7 +120,7 @@ pub fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
                 path.display(),
                 encoding.name()
             );
-            return Ok(result.into_owned());
+            return Ok((result.into_owned(), encoding.name()));
         }
     }
 
@@ -120,7 +129,7 @@ pub fn decode_text_bytes(raw: &[u8], path: &Path) -> Result<String, CoreError> {
         "Could not detect encoding for {}, using lossy UTF-8",
         path.display()
     );
-    Ok(String::from_utf8_lossy(raw).into_owned())
+    Ok((String::from_utf8_lossy(raw).into_owned(), "lossy"))
 }
 
 // ---------------------------------------------------------------------------

@@ -49,7 +49,13 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
   const openFilePreview = useCallback((path: string, position?: PreviewLocation) => {
     const mine = ++generation.current;
     setPath(path); setPreview(null); setMedia(''); setError(''); setLoading(true);
-    void client.rpc<FilePreview>('files.preview', { path, ...(position?.expectedHash ? { verifyContentHash: true } : {}) }).then(async next => {
+    const params = { path, ...(position?.expectedHash ? { verifyContentHash: true } : {}) };
+    const startLine = position?.locator?.kind === 'text' ? position.locator.lineStart : undefined;
+    const request = startLine ? client.rpc<FilePreview>('files.preview', { ...params, startLine }).catch(error => {
+      if (!String(error).includes('startLine')) throw error;
+      return client.rpc<FilePreview>('files.preview', params);
+    }) : client.rpc<FilePreview>('files.preview', params);
+    void request.then(async next => {
       if (mine !== generation.current) return;
       const changed = Boolean(position?.expectedHash && position.expectedHash !== next.hash);
       if (changed) next.warning = t('citation.fileChanged');
@@ -88,7 +94,7 @@ export function RemotePreviewProvider({ client, children }: { client: RemoteChat
         {loading && <Loader2 className="animate-spin" />}{error && <p role="alert" className="mb-4 text-sm text-danger">{error}</p>}
         {preview?.warning && <p className="mb-3 text-xs text-text-secondary">{preview.warning}</p>}
         {preview && (preview.content != null && previewLocation?.locator?.kind === 'text'
-          ? <TextPassage content={preview.content} start={previewLocation.locator.lineStart} end={previewLocation.locator.lineEnd} />
+          ? <TextPassage content={preview.content} start={previewLocation.locator.lineStart - (preview.firstLine ?? 1) + 1} end={previewLocation.locator.lineEnd - (preview.firstLine ?? 1) + 1} />
           : ['.html', '.htm'].includes(preview.extension) && preview.content != null ? <HtmlPreviewFrame source={preview.content} />
           : preview.kind === 'image' && media ? <img src={media} alt={preview.displayName} className="mx-auto max-h-full max-w-full object-contain" />
           : preview.kind === 'audio' && media ? <audio src={media} controls onLoadedMetadata={(event) => { if (previewLocation?.locator?.kind === 'media') event.currentTarget.currentTime = previewLocation.locator.startMs / 1000; }} className="w-full" />

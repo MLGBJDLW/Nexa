@@ -73,7 +73,10 @@ shows the selected block, adjacent text, and paginated document sections.
 Chat displays each local block's location beside its citation, including separate
 passages in the same document. Direct reads of text files link the returned line
 range to the hash of the source bytes. Opening the link checks that hash before
-selecting text in the current file.
+selecting text in the current file. Large text previews keep a bounded window
+beginning at the cited line while hashing the entire byte stream. The native PDF
+viewer opens the cited physical page when a phone's structured preview lacks
+the extracted passage.
 Source context excludes generated summaries; a summary is returned only when it
 is the explicitly requested block, at the requested content version.
 

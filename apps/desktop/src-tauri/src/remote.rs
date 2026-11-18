@@ -478,10 +478,10 @@ impl RemoteHost for DesktopHost {
             PhoneControlResult { .. } => Err("Phone results are owned by the authenticated transport.".into()),
             PreviewHtml { html } => value(app.state::<RemoteState>().server()?.create_html_preview(owner, html)?),
             ReleasePreview { id } => { app.state::<RemoteState>().server()?.release_html_preview(owner, &id); value(()) },
-            FilePreview { path, verify_content_hash } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None, verify_content_hash).await?),
+            FilePreview { path, verify_content_hash, start_line } => value(commands::preview_file_cmd(app.state(), app.clone(), path, None, verify_content_hash, start_line).await?),
             FileData { path } => {
                 // Resolve through the same source/path rules as the desktop preview.
-                let preview = commands::preview_file_cmd(app.state(), app.clone(), path, None, None).await?;
+                let preview = commands::preview_file_cmd(app.state(), app.clone(), path, None, None, None).await?;
                 let file = tokio::fs::File::open(&preview.path).await.map_err(|e| e.to_string())?;
                 let mut bytes = Vec::new();
                 use tokio::io::AsyncReadExt;

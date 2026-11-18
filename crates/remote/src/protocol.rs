@@ -36,6 +36,7 @@ pub enum RemoteCommand {
     FilePreview {
         path: String,
         verify_content_hash: Option<bool>,
+        start_line: Option<u32>,
     },
     #[serde(rename = "files.data")]
     FileData { path: String },
