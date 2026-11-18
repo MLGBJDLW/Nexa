@@ -387,6 +387,7 @@ impl WorkflowIr {
                     .and_then(serde_json::Value::as_array)
                     .is_some_and(|actions| actions.iter().any(|action| action == "capture_desktop"))
             });
+            self.completion_contract.require_interaction_gates |= gate.required;
             if gate.passed != Some(true) {
                 gate.detail = Some(if gate.required {
                     "Capture the requested overview using the available full-desktop adapter."
@@ -4170,10 +4171,15 @@ mod tests {
             native.register(Box::new(
                 crate::tools::computer_use_tool::ComputerObserveTool,
             ));
+            unavailable.completion_contract.require_interaction_gates = false;
             unavailable.configure_desktop_overview_availability(&native);
             assert_eq!(
                 unavailable.desktop_evidence_pending(),
                 cfg!(all(windows, feature = "desktop-control"))
+            );
+            assert_eq!(
+                unavailable.completion_allowed(),
+                !cfg!(all(windows, feature = "desktop-control"))
             );
             for receipt in [&live, &archived] {
                 let mut workflow = compile(query);
