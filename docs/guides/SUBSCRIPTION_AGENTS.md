@@ -148,6 +148,16 @@ and the [ACP integration](https://cursor.com/docs/cli/acp).
 Chat negotiates Cursor's parameterized model picker and reads the reasoning choices
 for each available model. Older saved variant IDs use the legacy picker when needed.
 
+If Cursor replies “Add a payment method to continue,” check the model on that
+turn and the profile's **Default model**. On The X Subscription, Grok and
+Composer draw from the included weekly pool. A third-party model such as Claude
+uses prepaid credit on eligible plans, even for the first request. Select an
+included model in the chat and save it as the Cursor profile default for future
+chats. For a payment prompt on an included model, run `agent status` to confirm
+the CLI account, then check its remaining weekly usage and reset date under
+**Usage** in the Grok dashboard. [Cursor models and pricing](https://cursor.com/docs/models-and-pricing)
+and [account usage](https://grok.com/dashboard).
+
 The speed display uses the Copilot SDK's per-request output tokens and API duration.
 For ACP and Codex turns with reported output tokens and turn duration, **Agent turn
 throughput** includes tool and approval time. A dash means the runtime has not

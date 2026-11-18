@@ -1236,6 +1236,31 @@ async fn external_protocol_supports_config_only_and_legacy_catalogs_without_dupl
 }
 
 #[tokio::test]
+async fn cursor_payment_hint_preserves_the_native_reply_and_is_provider_scoped() {
+    for provider in ["acp_cursor", "opencode"] {
+        let (request, mut events, _, _) = super::super::tests::fixture(
+            super::super::AgentRuntimeKind::Acp(provider.into()),
+            "first",
+        );
+        let answer = run_connected(provider, request, wire("cursor_payment"), "fixture")
+            .await
+            .unwrap();
+        assert_eq!(
+            answer.text_content().trim(),
+            "Add a payment method to continue"
+        );
+        let mut hints = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(event, AgentEvent::ControllerStatus {code, ..} if code == "external_agent_cursor_payment")
+            {
+                hints += 1;
+            }
+        }
+        assert_eq!(hints, usize::from(provider == "acp_cursor"));
+    }
+}
+
+#[tokio::test]
 async fn external_protocol_rejects_false_success_and_unconfirmed_model_changes() {
     for mode in [
         "auth",

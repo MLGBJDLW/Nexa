@@ -1,4 +1,5 @@
 {
+  "cursorPlanUsageHint": "Wähle mit The X Subscription ein enthaltenes Grok- oder Composer-Modell. Prüfe das CLI-Konto und das Wochenkontingent auf grok.com/dashboard. Modelle anderer Anbieter verbrauchen bei berechtigten Tarifen Prepaid-Guthaben.",
   "cursorApiKey": "Cursor-API-Schlüssel (optional)",
   "cursorApiKeyHelp": "Verwenden Sie einen Cursor-API-Schlüssel aus Ihrem Konto oder lassen Sie das Feld leer, um die Anmeldung der Cursor CLI zu nutzen. Prüfen Sie die Verbindung, um die für Ihr Konto verfügbaren Modelle zu laden. Grok-API-Schlüssel gehören zum Anbieter xAI.",
   "storageChats": "Chats und Aufgabenverlauf",

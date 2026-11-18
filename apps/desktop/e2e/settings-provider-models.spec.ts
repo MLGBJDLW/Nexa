@@ -3521,5 +3521,6 @@ test('Cursor API key is forwarded to Cursor discovery without becoming an xAI ke
   await environment.fill('{"LOG_LEVEL":"error"}');
   await form.getByRole('button', { name: /check connection/i }).click();
   await expect.poll(() => page.evaluate(() => (window as any).cursorProbe?.launch.env.CURSOR_API_KEY)).toBe('cursor-fixture-key');
+  await expect(form.getByText(/select an included Grok or Composer model/i)).toBeVisible();
   expect(await page.evaluate(() => (window as any).cursorProbe?.launch.env.XAI_API_KEY)).toBeUndefined();
 });

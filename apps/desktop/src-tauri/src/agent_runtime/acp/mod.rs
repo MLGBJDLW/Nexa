@@ -1039,6 +1039,19 @@ async fn drive(
         }
         output.select_answer_blocks(answer_blocks.iter().map(|(id, _)| id.clone()).collect())?;
         output.mark_persisted(&format!("acp:{segment}:{span}:thought"));
+        // Cursor ACP emits its payment action as an ordinary answer, with no
+        // structured error. Offer guidance on the standalone native message
+        // while preserving the answer and its protocol completion status.
+        if provider == "acp_cursor" && output.answer == "\n\nAdd a payment method to continue" {
+            turn.events
+                .send(AgentEvent::ControllerStatus {
+                    code: "external_agent_cursor_payment".into(),
+                    content: "For The X Subscription, select an included Grok or Composer model. Check the CLI account and weekly usage at grok.com/dashboard. Third-party models use prepaid credit on eligible plans.".into(),
+                    tone: Some("warning".into()),
+                })
+                .await
+                .map_err(error)?;
+        }
         if command.is_some() && output.answer.trim().is_empty() {
             turn.events
                 .send(AgentEvent::ControllerStatus {

@@ -137,6 +137,10 @@ for line in sys.stdin:
             update({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" corrected answer"}})
             reply(pending, {"stopReason":"end_turn","usage":{"inputTokens":2,"outputTokens":3,"totalTokens":5}})
     elif method == "session/prompt":
+        if mode == "cursor_payment":
+            update({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n\nAdd a payment method to continue"}})
+            reply(message, {"stopReason":"end_turn"})
+            continue
         if mode.startswith("steer_"):
             pending = message
             prompt_count += 1
