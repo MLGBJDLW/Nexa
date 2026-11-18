@@ -471,7 +471,12 @@ pub fn resolve_reasoning_profile(
         } else {
             ReasoningReplayPolicy::OpaqueSignature
         };
-        if provider == ProviderType::OpenAi && matches!(model, "gpt-6-astra" | "gpt-6.1-sol") {
+        if provider == ProviderType::OpenAi
+            && matches!(
+                model,
+                "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
+            )
+        {
             value.mode_control = ThinkingModeControl::AlwaysOn;
         }
         value.confidence = CapabilityConfidence::Verified;
@@ -532,6 +537,29 @@ pub fn resolve_reasoning_profile(
     if (provider == ProviderType::OpenAi && is_openai_public_endpoint(provider, base_url))
         || (provider == ProviderType::AzureOpenAi && is_azure_openai_endpoint(provider, base_url))
     {
+        if provider == ProviderType::OpenAi
+            && matches!(model.as_str(), "gpt-6.2-astra" | "gpt-6.2-sol")
+        {
+            let mut value = profile(
+                key,
+                "openai-gpt62-v1",
+                ThinkingModeControl::AlwaysOn,
+                ReasoningEffortField::TopLevel,
+                ReasoningEffortMapping::Exact,
+                (
+                    &[
+                        ReasoningEffort::Low,
+                        ReasoningEffort::Medium,
+                        ReasoningEffort::High,
+                    ],
+                    Some(ReasoningEffort::Medium),
+                ),
+                ReasoningBudgetField::None,
+            );
+            value.omit_temperature_when_reasoning = true;
+            value.use_max_completion_tokens = true;
+            return value;
+        }
         if matches!(model.as_str(), "gpt-6-astra" | "gpt-6.1-sol") {
             let mut value = profile(
                 key,
@@ -2494,5 +2522,45 @@ mod tests {
             "muse-wonder-1.0",
         );
         assert_ne!(private.id, value.id);
+    }
+
+    #[test]
+    fn native_gpt62_responses_always_preserve_reasoning_with_endpoint_boundary() {
+        for model in ["gpt-6.2-astra", "gpt-6.2-sol"] {
+            let value = resolve_reasoning_profile(
+                ProviderType::OpenAi,
+                Some("https://api.openai.com/v1"),
+                ReasoningApiStyle::OpenAiResponses,
+                model,
+            );
+            assert_eq!(value.mode_control, ThinkingModeControl::AlwaysOn);
+            assert_eq!(value.replay_policy, ReasoningReplayPolicy::OpaqueSignature);
+            assert!(value.preserve_reasoning_history);
+            let chat = resolve_reasoning_profile(
+                ProviderType::OpenAi,
+                Some("https://api.openai.com/v1"),
+                ReasoningApiStyle::OpenAiChatCompletions,
+                model,
+            );
+            assert_eq!(chat.mode_control, ThinkingModeControl::AlwaysOn);
+            assert_eq!(chat.default_effort, Some(ReasoningEffort::Medium));
+            assert_eq!(
+                chat.accepted_efforts,
+                vec![
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                ]
+            );
+            assert!(chat.omit_temperature_when_reasoning);
+            assert!(chat.use_max_completion_tokens);
+            let private = resolve_reasoning_profile(
+                ProviderType::OpenAi,
+                Some("https://private.example/v1"),
+                ReasoningApiStyle::OpenAiResponses,
+                model,
+            );
+            assert_ne!(private.mode_control, ThinkingModeControl::AlwaysOn);
+        }
     }
 }

@@ -893,6 +893,98 @@
         "replacementModelId": "gpt-5.6-sol",
         "deprecationDate": "2025-07-14",
         "documentationRef": "https://developers.openai.com/api/docs/deprecations"
+      },
+      {
+        "id": "gpt-6.2-astra",
+        "name": "GPT-6.2 Astra",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        }
+      },
+      {
+        "id": "gpt-6.2-sol",
+        "name": "GPT-6.2 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        }
       }
     ]
   },
@@ -1338,10 +1430,10 @@
         "contextTokens": 1048576,
         "maxOutputTokens": 131072,
         "source": "official",
-        "status": "active",
+        "status": "deprecated",
         "access": "public",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "inputModalities": [
           "text",
           "image"
@@ -1380,7 +1472,9 @@
             }
           }
         },
-        "documentationRef": "https://openrouter.ai/thinkingmachines/inkling-2-small:free"
+        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "deprecationDate": "2026-11-19",
+        "recommended": false
       },
       {
         "id": "~anthropic/claude-fable-latest",
@@ -6142,9 +6236,12 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
-        "documentationRef": "https://openrouter.ai/mistralai/mistral-medium-3-5",
-        "maxOutputTokens": 209715
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/api/v1/models",
+        "maxOutputTokens": 209715,
+        "status": "deprecated",
+        "deprecationDate": "2027-01-31",
+        "recommended": false
       },
       {
         "id": "openrouter/owl-alpha",
@@ -6975,7 +7072,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "releaseDate": "2026-09-10",
         "inputModalities": [
           "text",
@@ -6987,7 +7084,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 393216,
+        "maxOutputTokens": 943718,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -9176,9 +9273,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/qwen/qwen3.5-27b",
-        "maxOutputTokens": 81920
+        "maxOutputTokens": 65536
       },
       {
         "id": "qwen/qwen3.5-122b-a10b",
@@ -13155,9 +13252,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-10-20",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/qwen/qwen3-next-80b-a3b-instruct",
-        "maxOutputTokens": 16384
+        "maxOutputTokens": 235929
       },
       {
         "id": "qwen/qwen-plus-2025-07-28:thinking",
@@ -13963,9 +14060,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/openai/gpt-oss-20b",
-        "maxOutputTokens": 65536
+        "maxOutputTokens": 117964
       },
       {
         "id": "anthropic/claude-opus-4.1",
@@ -14743,9 +14840,9 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-14",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/mistralai/mistral-small-3.2-24b-instruct",
-        "maxOutputTokens": 26214
+        "maxOutputTokens": 16384
       },
       {
         "id": "minimax/minimax-m1",
@@ -23828,6 +23925,222 @@
             "defaultEnabled": true
           }
         }
+      },
+      {
+        "id": "openai/gpt-6.2-astra",
+        "name": "OpenAI: GPT-6.2 Astra",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-astra-pro",
+        "name": "OpenAI: GPT-6.2 Astra Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-sol",
+        "name": "OpenAI: GPT-6.2 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-sol-pro",
+        "name": "OpenAI: GPT-6.2 Sol Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
       }
     ]
   },
@@ -32773,6 +33086,48 @@
             }
           }
         }
+      },
+      {
+        "id": "mindlab/macaron-v1.1-venti",
+        "name": "mindlab/macaron-v1.1-venti",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "access": "account_enablement",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/macaron-mindlab"
+      },
+      {
+        "id": "mindlab/macaron-v1.1-coding-venti",
+        "name": "mindlab/macaron-v1.1-coding-venti",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "access": "account_enablement",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/macaron-mindlab"
+      },
+      {
+        "id": "mindlab/macaron-v1-tall",
+        "name": "mindlab/macaron-v1-tall",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "access": "account_enablement",
+        "regions": [
+          "ap-southeast-1"
+        ],
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://www.alibabacloud.com/help/en/model-studio/macaron-mindlab"
       }
     ]
   },
@@ -34522,9 +34877,10 @@
           "vision": true
         },
         "status": "deprecated",
-        "lastVerifiedAt": "2026-09-30",
+        "lastVerifiedAt": "2026-11-18",
         "replacementModelId": "doubao-seed-2-1-lite-260915",
-        "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh"
+        "documentationRef": "https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh",
+        "deprecationDate": "2026-11-24"
       },
       {
         "id": "doubao-seed-2-0-lite-260428",
