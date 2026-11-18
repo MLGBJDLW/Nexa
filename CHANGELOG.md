@@ -2,6 +2,11 @@
 
 ## [0.19.15](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.14...nexa-monorepo-v0.19.15) (2026-11-18)
 
+### Improvements
+
+- Windows Computer Use follows verified dialogs and can capture all active displays in one screenshot. Window clicks, and ordinary clicks and drags on a foreground Browser Workspace tab, use the user's system cursor. A focus change or user takeover requires a fresh observation.
+- Open local citations at a PDF page and its extracted lines, a Word paragraph, worksheet cells or a PowerPoint slide and speaker notes. Large text files open at the cited lines. Previews check the source revision before highlighting a passage.
+- Office extraction returns a bounded preview or streams a complete export with source locations. The catalog includes GPT-6.2 Astra and Sol, updated media and embedding options, and 17 refreshed agent distributions. Saved configurations retain their original model IDs.
 
 ### Features
 
