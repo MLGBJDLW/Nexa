@@ -161,6 +161,10 @@ test('direct file links open the original path and pass a hash-bound line range'
   }));
   await page.getByRole('button', { name: 'old.md' }).click();
   await expect(target).toHaveText(JSON.stringify({ path: '/tmp/old.md' }));
+  await page.getByRole('button', { name: 'PDF p. 3' }).click();
+  await expect(target).toHaveText(JSON.stringify({
+    path: '/tmp/report.pdf', position: { expectedHash: 'b'.repeat(64), locator: { kind: 'pdf', page: 3 } },
+  }));
 });
 
 test('structured PDF preview highlights only the cited extracted lines', async ({ page }) => {

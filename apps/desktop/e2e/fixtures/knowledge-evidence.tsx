@@ -36,11 +36,12 @@ function ReaderFixture() {
 function FileLinkFixture() {
   const [opened, setOpened] = useState('');
   const hash = 'b'.repeat(64);
+  const page = new URLSearchParams({ loc: JSON.stringify({ kind: 'pdf', page: 3 }), rev: hash });
   return <FilePreviewContext.Provider value={{
     openFilePreview: (path, position) => setOpened(JSON.stringify({ path, position })),
     openWebLink: () => undefined,
   }}>
-    <StreamingMarkdown content={`[Budget · L2–4](<file:///C:/notes/cost%20%23%25.md#L2-L4@${hash}>) and [file:/tmp/old.md:2-4|old.md]`} isStreaming={false} reduceMotion />
+    <StreamingMarkdown content={`[Budget · L2–4](<file:///C:/notes/cost%20%23%25.md#L2-L4@${hash}>) and [file:/tmp/old.md:2-4|old.md] and [PDF p. 3](<file:///tmp/report.pdf#${page}>)`} isStreaming={false} reduceMotion />
     <output data-testid="file-link-target">{opened}</output>
   </FilePreviewContext.Provider>;
 }
