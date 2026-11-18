@@ -35,6 +35,18 @@
 * **recovery:** route external continuations from the saved task plan ([60b0d94](https://github.com/MLGBJDLW/Nexa/commit/60b0d94ddd700a775d5dbfd38678f296348b613b))
 * **settings:** hide retired services in new API configurations ([3721352](https://github.com/MLGBJDLW/Nexa/commit/3721352f922cd351c753bedeebd4251c5c8de9dd))
 
+<!-- nexa:merged-prs:start -->
+<!-- Release notes generated using configuration in .github/release.yml at 66040ae26e32c8475c580cbec2ac5540486be5b1 -->
+
+### What's Changed
+* feat(catalog): refresh November 18 models and GPT6.2 routing by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/571
+* feat(citations): locate document evidence across desktop and phone by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/572
+* feat(computer-use): use the system cursor and preserve dialog sessions by @MLGBJDLW in https://github.com/MLGBJDLW/Nexa/pull/574
+
+
+**Full Changelog**: https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.14...nexa-monorepo-v0.19.15
+<!-- nexa:merged-prs:end -->
+
 ## [0.19.14](https://github.com/MLGBJDLW/Nexa/compare/nexa-monorepo-v0.19.13...nexa-monorepo-v0.19.14) (2026-11-17)
 
 ### Improvements
