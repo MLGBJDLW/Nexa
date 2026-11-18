@@ -857,6 +857,12 @@ pub trait LlmProvider: Send + Sync {
     /// Human-readable provider name (e.g. "OpenAI").
     fn name(&self) -> &str;
 
+    /// Model for callers that omit a selection. External adapters retain the
+    /// historical fallback unless they declare their own default.
+    fn default_model(&self) -> Result<&str, CoreError> {
+        Ok("gpt-4o-mini")
+    }
+
     /// Optional provider-scoped retry budget for both stream startup and
     /// replay-safe disconnect recovery. `None` keeps the runtime defaults.
     fn stream_max_retries(&self) -> Option<u32> {
@@ -985,7 +991,7 @@ pub trait LlmProvider: Send + Sync {
 struct MessageValidatingProvider {
     inner: Box<dyn LlmProvider>,
     retirements: crate::provider_catalog::ModelRetirementPolicy,
-    search_preset: Option<&'static crate::provider_catalog::ProviderPreset>,
+    preset: Option<&'static crate::provider_catalog::ProviderPreset>,
 }
 
 impl MessageValidatingProvider {
@@ -1002,7 +1008,7 @@ impl MessageValidatingProvider {
         Self {
             inner,
             retirements,
-            search_preset: crate::provider_catalog::find_provider_preset(
+            preset: crate::provider_catalog::find_provider_preset(
                 catalog_provider,
                 base_url.as_deref(),
             ),
@@ -1024,7 +1030,7 @@ impl MessageValidatingProvider {
         };
         let plan = native_search::NativeSearchPlan::for_preset(
             mode,
-            self.search_preset,
+            self.preset,
             &request.model,
             native_search::marker_engine(tools),
         );
@@ -1067,6 +1073,22 @@ impl MessageValidatingProvider {
 
 #[async_trait]
 impl LlmProvider for MessageValidatingProvider {
+    fn default_model(&self) -> Result<&str, CoreError> {
+        let missing =
+            || CoreError::InvalidInput(format!("Select a model for the {} endpoint.", self.name()));
+        let endpoint = format!("text:{}", self.preset.ok_or_else(missing)?.id);
+        let catalog = crate::model_catalog::builtin_catalog()
+            .map_err(|error| CoreError::Llm(error.clone()))?;
+        crate::model_catalog::select_implicit_default(
+            catalog
+                .models
+                .iter()
+                .filter(|model| model.endpoint_ids.contains(&endpoint)),
+        )
+        .map(|model| model.id.as_str())
+        .ok_or_else(missing)
+    }
+
     fn manages_request_timeout(&self) -> bool {
         self.inner.manages_request_timeout()
     }
@@ -1115,7 +1137,10 @@ impl LlmProvider for MessageValidatingProvider {
 
     async fn list_models(&self) -> Result<Vec<String>, CoreError> {
         let mut models = self.inner.list_models().await?;
-        models.retain(|model| self.retirements.get(model).is_none());
+        models.retain(|model| {
+            self.retirements.get(model).is_none()
+                && !crate::provider_catalog::is_dedicated_model_id(model)
+        });
         Ok(models)
     }
 
@@ -1316,6 +1341,31 @@ pub fn model_declares_vision_support(provider_type: &ProviderType, model: &str) 
 mod tests {
     use super::*;
     use futures::{stream, StreamExt};
+
+    #[test]
+    fn unspecified_models_follow_the_native_endpoint_and_keep_explicit_choices() {
+        for (url, expected) in [
+            ("https://api.openai.com/v1", Some("gpt-6.2-sol")),
+            ("https://private.example/v1", None),
+        ] {
+            let provider = create_provider(ProviderConfig {
+                provider_type: ProviderType::OpenAi,
+                base_url: Some(url.into()),
+                api_key: Some("fixture".into()),
+                org_id: None,
+                timeout_secs: None,
+                streaming: Default::default(),
+            })
+            .unwrap();
+            let mut config = crate::agent::AgentConfig::default();
+            assert_eq!(config.effective_model(provider.as_ref()).ok(), expected);
+            config.model = Some("existing-model".into());
+            assert_eq!(
+                config.effective_model(provider.as_ref()).unwrap(),
+                "existing-model"
+            );
+        }
+    }
 
     #[test]
     fn configured_http_deadlines_survive_the_message_validation_adapter() {

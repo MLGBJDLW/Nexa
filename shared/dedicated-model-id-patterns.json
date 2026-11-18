@@ -1,0 +1,9 @@
+[
+  "(?:^|/)(?:whisper(?:-|$)|gpt-(?:[0-9a-z.-]+-)?(?:transcribe|tts|realtime|live)(?:-|$)|tts-[0-9]|dall-e-|gpt-image-|chatgpt-image-|sora-|(?:omni|text)-moderation-)",
+  "(?:^|/)(?:gemini-[a-z0-9.-]+-(?:image|tts|transcribe)(?:-|$)|gemini-(?:nano-banana|omni-1[.][12]-flash)|lyria-|imagen-|veo-)",
+  "(?:^|/)(?:voxtral-[a-z0-9.-]+-(?:transcribe|tts)(?:-|$)|muse-(?:voice-transcribe|image|video)-|grok-imagine-|qwen[0-9a-z.-]*-(?:asr|tts|image)(?:-|$))",
+  "(?:^|/)(?:text-embedding-|embedding-[0-9v]|embed-v[0-9]|(?:jina-|qwen[0-9.-]*-|gemini-|nomic-)(?:text-)?embed(?:ding|dings)?(?:[-:]|$)|(?:mistral|codestral)-embed(?:-|$)|bge-(?:large|small|base|m3|reranker)|voyage-(?:[0-9]|code-|context-|multimodal-))",
+  "(?:^|/)(?:sensevoicesmall|telespeechasr|cosyvoice[0-9-]|moss-ttsd-|orpheus-(?:v1|arabic)|eleven_(?:flash|turbo|multilingual)|speech-[0-9]|recraft-v[0-9]|cogview-|glm-image|wan[0-9.]+-(?:image|t2v|i2v)|minimax-h[0-9]+-(?:image|video))",
+  "(?:^|/)(?:paddleocr-|deepseek-ocr(?:-|$)|qwen3-omni-30b-a3b-captioner|pplx-decider-|decision-model-preview)",
+  ":batch$"
+]

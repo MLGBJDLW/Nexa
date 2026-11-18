@@ -584,7 +584,22 @@ pub struct DelegationLimitsConfig {
     pub run_deadline_ms: Option<u64>,
 }
 
-const DEFAULT_MODEL: &str = "gpt-4o-mini";
+impl AgentConfig {
+    pub fn effective_model<'a>(
+        &'a self,
+        provider: &'a dyn LlmProvider,
+    ) -> Result<&'a str, CoreError> {
+        match self
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+        {
+            Some(model) => Ok(model),
+            None => provider.default_model(),
+        }
+    }
+}
 
 const DEFAULT_SYSTEM_PROMPT_KERNEL: &str = include_str!("../../prompts/system.md");
 

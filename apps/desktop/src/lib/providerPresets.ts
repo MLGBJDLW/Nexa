@@ -1,4 +1,6 @@
 import providerPresets from "../../../../shared/provider-presets.json";
+import { isChatModelId } from "../../../../shared/chat-model-ids.mjs";
+export { isChatModelId };
 import subscriptionPresets from "../../../../shared/subscription-runtime-presets.json";
 import externalAgentPresets from "../../../../shared/external-agent-presets.json";
 import retiredExternalAgents from "../../../../shared/retired-external-agents.json";
@@ -336,7 +338,13 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
       markRemoved(model.id, model.descriptor.aliases);
     }
   }
-  return { models: [...byId.values()].filter(model => !isRemoved(model.id)), isRemoved };
+  const isChat = (model: ProviderModelPreset) => isChatModelId(model.id)
+    && model.descriptor.inputModalities.includes('text') && model.descriptor.outputModalities.includes('text');
+  const canSuggest = (id: string) => {
+    const model = byId.get(normalizeModelId(id));
+    return model ? isChat(model) : isChatModelId(id);
+  };
+  return { models: [...byId.values()].filter(model => !isRemoved(model.id) && isChat(model)), isRemoved, canSuggest };
 }
 
 export function catalogModelsForSnapshot(snapshot: ProviderModelCatalogSnapshot): ProviderModelPreset[] {

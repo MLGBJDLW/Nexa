@@ -34,11 +34,10 @@ impl AgentExecutor {
         if user_text.is_empty() || !turn_budget.can_dispatch_tool_round() {
             return Ok(DirectDispatchOutcome::NotMatched);
         }
-        let model = self.config.model.as_deref().unwrap_or(DEFAULT_MODEL);
-
         let Some(dispatch) = direct_dispatch::match_direct_pattern(user_text, db) else {
             return Ok(DirectDispatchOutcome::NotMatched);
         };
+        let model = self.config.effective_model(self.provider.as_ref())?;
 
         // Admission must survive interruption before the first tool event or
         // execution, including failed and cancelled direct dispatches.

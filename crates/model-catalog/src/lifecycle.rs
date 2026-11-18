@@ -2,15 +2,20 @@ use serde::{Deserialize, Serialize};
 
 use super::{ModelDescriptor, ModelLifecycle};
 
-pub fn select_implicit_default(models: &[ModelDescriptor]) -> Option<&ModelDescriptor> {
-    models
-        .iter()
-        .find(|model| model.recommended && model.is_implicit_default_eligible())
-        .or_else(|| {
-            models
-                .iter()
-                .find(|model| model.is_implicit_default_eligible())
-        })
+pub fn select_implicit_default<'a>(
+    models: impl IntoIterator<Item = &'a ModelDescriptor>,
+) -> Option<&'a ModelDescriptor> {
+    let mut first = None;
+    for model in models
+        .into_iter()
+        .filter(|model| model.is_implicit_default_eligible())
+    {
+        if model.recommended {
+            return Some(model);
+        }
+        first.get_or_insert(model);
+    }
+    first
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

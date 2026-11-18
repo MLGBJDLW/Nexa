@@ -1,3 +1,5 @@
+import { isChatModelId } from '../shared/chat-model-ids.mjs';
+
 function normalizedValues(values) {
   return [...new Set((Array.isArray(values) ? values : [])
     .map((value) => String(value).trim().toLowerCase())
@@ -196,7 +198,8 @@ export function compareCatalogInventory(endpoint, rows) {
     }
     if (surface !== 'text' && !outputs && !endpoint.operationSpecific) return false;
     if (outputs && !outputs.includes(expectedModality)) return false;
-    if (surface === 'text' && (model.id?.endsWith(':batch')
+    if (surface === 'text' && (!isChatModelId(model.id ?? '')
+      || (stringArray(model.architecture?.input_modalities ?? model.input_modalities)?.includes('text') === false)
       || (Array.isArray(model.endpoints) && !model.endpoints.includes('/api/v1/chat/completions')))) return false;
     return true;
   }).map(model => normalizeDiscoveredModel(endpoint.endpointId, model));

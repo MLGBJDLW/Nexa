@@ -21,6 +21,77 @@ use crate::model_catalog::{
 };
 use crate::provider_registry::provider_type_from_key;
 
+/// Some providers' model lists have no operation metadata. These dedicated
+/// families are shared with legacy desktop caches and the catalog auditor.
+pub(crate) fn is_dedicated_model_id(id: &str) -> bool {
+    static RULES: OnceLock<regex::RegexSet> = OnceLock::new();
+    static DEDICATED_IDS: OnceLock<HashSet<String>> = OnceLock::new();
+    let normalized = id.trim().to_ascii_lowercase();
+    let id = normalized.strip_prefix("models/").unwrap_or(&normalized);
+    if id.is_empty()
+        || RULES
+            .get_or_init(|| {
+                let patterns: Vec<String> = serde_json::from_str(include_str!(
+                    "../../../shared/dedicated-model-id-patterns.json"
+                ))
+                .expect("valid dedicated model patterns");
+                regex::RegexSet::new(patterns).expect("valid dedicated model patterns")
+            })
+            .is_match(id)
+    {
+        return true;
+    }
+    DEDICATED_IDS
+        .get_or_init(|| {
+            let catalog = builtin_catalog().expect("valid built-in catalog");
+            let mut ids = HashSet::new();
+            for model in &catalog.models {
+                if !model
+                    .endpoint_ids
+                    .iter()
+                    .any(|endpoint| endpoint.starts_with("text:"))
+                {
+                    ids.extend(
+                        std::iter::once(&model.id)
+                            .chain(&model.aliases)
+                            .map(|id| id.to_ascii_lowercase()),
+                    );
+                }
+            }
+            for preset in crate::video_provider_catalog::load_video_provider_presets()
+                .expect("valid video presets")
+            {
+                ids.extend(
+                    preset
+                        .models
+                        .into_iter()
+                        .map(|model| model.model_id.to_ascii_lowercase()),
+                );
+            }
+            for preset in crate::system_one::presets() {
+                ids.extend(
+                    preset
+                        .models
+                        .iter()
+                        .map(|model| model.id.to_ascii_lowercase()),
+                );
+            }
+            for model in &catalog.models {
+                if model
+                    .endpoint_ids
+                    .iter()
+                    .any(|endpoint| endpoint.starts_with("text:"))
+                {
+                    for key in std::iter::once(&model.id).chain(&model.aliases) {
+                        ids.remove(&key.to_ascii_lowercase());
+                    }
+                }
+            }
+            ids
+        })
+        .contains(id)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingBudgetCapability {
@@ -556,6 +627,7 @@ pub fn build_effective_model_catalog(
 ) -> ProviderModelCatalogSnapshot {
     let refreshed_at = refreshed_at.into();
     let live_model_ids = live_model_ids.map(|mut model_ids| {
+        model_ids.retain(|id| !is_dedicated_model_id(id));
         if let Some(verified_model_id) = verified_model_id
             .map(str::trim)
             .filter(|model_id| !model_id.is_empty())

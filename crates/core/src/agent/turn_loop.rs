@@ -674,7 +674,7 @@ impl AgentExecutor {
             .policy
             .redact_context_messages(std::slice::from_mut(&mut user));
         user_parts = user.parts.clone();
-        let model = self.config.model.as_deref().unwrap_or(DEFAULT_MODEL);
+        let model = self.config.effective_model(self.provider.as_ref())?;
         if self.live_catalog_limits.get().is_none() {
             let snapshot = tokio::select! {
                 _ = self.cancel_token.cancelled() => None,

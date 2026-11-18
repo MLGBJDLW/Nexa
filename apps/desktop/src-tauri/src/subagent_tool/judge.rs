@@ -286,9 +286,8 @@ impl Tool for JudgeSubagentResultsTool {
             let model = self
                 .runtime
                 .base_config
-                .model
-                .clone()
-                .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                .effective_model(provider.as_ref())?
+                .to_owned();
             let mut judge_config = self.runtime.base_config.clone();
             judge_config.model = Some(model.clone());
             let system_prompt = build_judge_system_prompt(&self.runtime.base_config.system_prompt);
