@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.13](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.12...nexa-mobile-v0.3.13) (2026-11-18)
+
+### Improvements
+
+- Open local citations on the phone at a PDF page and its extracted lines, a Word paragraph, worksheet cells or a PowerPoint slide. The reader checks the source revision before displaying the passage.
+- Follow a citation deep into a large text file without loading the whole file into the preview. If the source has changed, the reader identifies the mismatch before displaying the cited location.
+
+### Features
+
+* **citations:** locate document evidence across desktop and phone ([59917cf](https://github.com/MLGBJDLW/Nexa/commit/59917cf5ca1d34d14214b4d773613b9aead0d43b))
+* **mobile:** verify workspace text before highlighting cited lines ([4fffce4](https://github.com/MLGBJDLW/Nexa/commit/4fffce4b1aa42ef9351a8ec331e238f2042eb923))
+
+
+### Bug Fixes
+
+* **mobile:** open local document citations from verified snapshots ([6b6e766](https://github.com/MLGBJDLW/Nexa/commit/6b6e7664f5cdd524fc5e88c69c657aff239a3f3a))
+* **preview:** stream verified text windows from the cited line ([cc8ce0a](https://github.com/MLGBJDLW/Nexa/commit/cc8ce0a91aea7c0a7d0f4f4341a4fc2b83c7b1c9))
+
 ## [0.3.12](https://github.com/MLGBJDLW/Nexa/compare/nexa-mobile-v0.3.11...nexa-mobile-v0.3.12) (2026-11-17)
 
 ### Improvements
