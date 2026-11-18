@@ -221,6 +221,12 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
             "targetIdentity": receipt.get("targetIdentity").and_then(serde_json::Value::as_str),
             "actionReceiptId": receipt.get("actionReceiptId").and_then(serde_json::Value::as_str),
             "windowExists": receipt.get("windowExists").and_then(serde_json::Value::as_bool),
+            "closedModalOwner": receipt.get("closedModalOwner").filter(|v| v.is_object()).map(|owner| serde_json::json!({
+                "windowId": owner.get("windowId").and_then(serde_json::Value::as_u64),
+                "targetIdentity": owner.get("targetIdentity").and_then(serde_json::Value::as_str),
+                "windowExists": owner.get("windowExists").and_then(serde_json::Value::as_bool),
+                "ownerObservedBeforeAction": owner.get("ownerObservedBeforeAction").and_then(serde_json::Value::as_bool),
+            })),
             "inputDelivered": receipt.get("inputDelivered").and_then(serde_json::Value::as_bool),
         }));
     let modal_owner_handoff = source
@@ -281,6 +287,12 @@ fn strip_ephemeral_computer_artifacts(tool_name: &str, artifacts: &mut Option<se
         "postActionObservationVerified": post_action_observation_verified,
         "terminalWindowReceipt": terminal_window_receipt,
         "modalOwnerHandoffReceipt": modal_owner_handoff,
+        "modalChildTarget": source.get("modalChildTarget").filter(|v| v.is_object()).map(|child| serde_json::json!({
+            "windowId": child.get("windowId").and_then(serde_json::Value::as_u64),
+            "targetIdentity": child.get("targetIdentity").and_then(serde_json::Value::as_str),
+            "ownerRelationshipVerified": child.get("ownerRelationshipVerified").and_then(serde_json::Value::as_bool),
+            "observationNotBeforeMs": child.get("observationNotBeforeMs").and_then(serde_json::Value::as_i64),
+        })),
         "screenshotHash": source.get("screenshotHash").and_then(serde_json::Value::as_str)
             .or_else(|| source.pointer("/observation/screenshotHash").and_then(serde_json::Value::as_str)),
         "semanticHash": source.get("semanticHash").and_then(serde_json::Value::as_str)
@@ -1130,7 +1142,8 @@ impl ToolDispatchRuntime<'_> {
                                     .and_then(serde_json::Value::as_str)
                                     .map(str::trim)
                                     .is_some_and(|action| {
-                                        action.eq_ignore_ascii_case("capture_window")
+                                        action.eq_ignore_ascii_case("capture_desktop")
+                                            || action.eq_ignore_ascii_case("capture_window")
                                             || action.eq_ignore_ascii_case("wait_for_change")
                                     }));
                         let shell_requires_confirm = execution_call.name == "run_shell"

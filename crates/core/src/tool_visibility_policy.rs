@@ -115,6 +115,7 @@ pub enum VisualObservationRequirement {
 pub enum DesktopObservationRequirement {
     #[default]
     NotRequired,
+    DesktopOverview,
     BeforeControlAndAfterLastControl,
 }
 
@@ -210,7 +211,7 @@ impl TurnInteractionRequirements {
     }
 
     pub fn requires_desktop_observation(self) -> bool {
-        self.desktop_observation == DesktopObservationRequirement::BeforeControlAndAfterLastControl
+        self.desktop_observation != DesktopObservationRequirement::NotRequired
     }
 
     pub fn requires_completion_gate(self) -> bool {
@@ -651,7 +652,11 @@ pub fn resolve_turn_capability_requirements(
     } else {
         VisualObservationRequirement::default()
     };
-    let desktop_observation = if has_signal(&signals, ToolVisibilitySignalKind::Desktop) {
+    let desktop_observation = if !has_signal(&signals, ToolVisibilitySignalKind::DesktopInteraction)
+        && query_requests_desktop_overview(&query)
+    {
+        DesktopObservationRequirement::DesktopOverview
+    } else if has_signal(&signals, ToolVisibilitySignalKind::Desktop) {
         DesktopObservationRequirement::BeforeControlAndAfterLastControl
     } else {
         DesktopObservationRequirement::default()
@@ -1360,10 +1365,66 @@ fn desktop_closure_command_in_context(query: &str, start: usize, end: usize) -> 
 
 fn query_requests_desktop_operation(query: &str) -> bool {
     query_requests_desktop_terminal_closure(query)
+        || query_requests_desktop_overview(query)
         || (contains_any(query, DESKTOP_TERMS)
             && contains_any(query, DESKTOP_OPERATION_INTENT_TERMS))
         || (contains_any(query, NATIVE_DESKTOP_APP_TERMS)
             && contains_any(query, DESKTOP_OPERATION_INTENT_TERMS))
+}
+
+fn query_requests_desktop_overview(query: &str) -> bool {
+    let words = query.split(|c: char| !c.is_ascii_alphanumeric());
+    if words.clone().any(|word| {
+        matches!(
+            word,
+            "window" | "app" | "application" | "tab" | "attached" | "file"
+        )
+    }) || contains_any(query, &["窗口", "附件", "上传的", "文件"])
+        || contains_any(query, NATIVE_DESKTOP_APP_TERMS)
+    {
+        return false;
+    }
+    let whole_display = words.clone().any(|word| word == "desktop")
+        || (words.clone().any(|word| word == "screen")
+            && contains_any(
+                query,
+                &[
+                    "my screen",
+                    "the screen",
+                    "entire screen",
+                    "whole screen",
+                    "full screen",
+                ],
+            ))
+        || contains_any(
+            query,
+            &[
+                "all monitors",
+                "all displays",
+                "all active monitors",
+                "all active displays",
+                "桌面",
+                "整个屏幕",
+                "全屏",
+                "所有显示器",
+            ],
+        );
+    whole_display
+        && contains_any(
+            query,
+            &[
+                "capture",
+                "screenshot",
+                "observe",
+                "inspect",
+                "what's on",
+                "what is on",
+                "截图",
+                "截取",
+                "观察",
+                "查看",
+            ],
+        )
 }
 
 fn query_requests_desktop_interaction(query: &str) -> bool {

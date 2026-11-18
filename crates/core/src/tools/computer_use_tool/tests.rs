@@ -241,6 +241,8 @@ fn computer_receipt_requires_comparable_evidence_to_claim_unchanged() {
         effect: "delivered_unverified",
         window_closed: false,
         modal_owner_handoff: None,
+        closed_modal_owner: None,
+        modal_child: None,
     };
     assert_eq!(
         outcome.interaction(&commit).evidence,
@@ -266,6 +268,15 @@ fn computer_receipt_requires_comparable_evidence_to_claim_unchanged() {
         outcome.interaction(&commit).evidence,
         ObservedEvidence::Unavailable
     );
+    outcome.modal_child = Some(ModalHandoff {
+        target: wait_capture_fixture(0).snapshot,
+        observation_not_before_ms: 100,
+    });
+    assert_eq!(
+        outcome.interaction(&commit).evidence,
+        ObservedEvidence::Changed
+    );
+    outcome.modal_child = None;
     outcome.window_closed = true;
     assert_eq!(
         outcome.interaction(&commit).evidence,
@@ -1108,6 +1119,54 @@ fn dropping_one_call_does_not_poison_the_turn_but_explicit_stop_does() {
 }
 
 #[test]
+fn screenshot_point_aliases_share_the_flat_coordinate_validation() {
+    let base = serde_json::json!({
+        "action": "click", "window_id": 5,
+        "observation_id": "00000000-0000-4000-8000-000000000001"
+    });
+    let decode = |point, extra: serde_json::Value| {
+        let mut args = base.clone();
+        args["point"] = point;
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let normalized = crate::tools::normalize_tool_arguments(
+            "computer_control",
+            &args.to_string(),
+            &ComputerControlTool.parameters_schema(),
+        )
+        .unwrap();
+        serde_json::from_str::<ControlArgs>(&normalized)
+    };
+    for point in [
+        serde_json::json!({"x":37,"y":18}),
+        serde_json::json!([37, 18]),
+    ] {
+        let args = decode(point, serde_json::json!({})).unwrap();
+        assert_eq!((args.x, args.y), (Some(37.0), Some(18.0)));
+        validate_control_args(&args, ControlAction::Click).unwrap();
+    }
+    for point in [
+        serde_json::json!([1]),
+        serde_json::json!({"x":1,"y":2,"z":3}),
+    ] {
+        assert!(decode(point, serde_json::json!({})).is_err());
+    }
+    let point = serde_json::json!([2, 9]);
+    assert!(decode(point.clone(), serde_json::json!({"x":0})).is_err());
+    for extra in [
+        serde_json::json!({"element_id":"e1"}),
+        serde_json::json!({"coordinate_space":"normalized_0_1"}),
+    ] {
+        assert!(validate_control_args(
+            &decode(point.clone(), extra).unwrap(),
+            ControlAction::Click
+        )
+        .is_err());
+    }
+}
+
+#[test]
 fn control_validation_accepts_normalized_targets_and_rejects_missing_semantic_ids() {
     let click = ControlArgs {
         action: "click".to_string(),
@@ -1118,6 +1177,7 @@ fn control_validation_accepts_normalized_targets_and_rejects_missing_semantic_id
         window_id: 1,
         element_id: None,
         to_element_id: None,
+        point: None,
         coordinate_space: Some("normalized_0_1".to_string()),
         x: Some(0.5),
         y: Some(1.0),
@@ -1181,7 +1241,7 @@ fn background_delivery_never_accepts_coordinate_or_double_click_fallbacks() {
 
 #[test]
 fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens() {
-    let observe = |started| {
+    let observe = |started, modal_owner: Option<Box<WindowSnapshot>>| {
         remember_observation(
             Some("window-scope-test"),
             vec![ObservedWindow {
@@ -1203,7 +1263,7 @@ fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens(
                     maximized: false,
                     focused: false,
                     observation_only: false,
-                    modal_owner: None,
+                    modal_owner,
                 },
                 image_width: None,
                 image_height: None,
@@ -1216,8 +1276,12 @@ fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens(
         )
         .unwrap()
     };
-    let bind = |token: &str, task| {
-        let args = serde_json::json!({"action":"focus_window", "window_id":400,"observation_id":token,"approval_scope":"window_session"});
+    let bind = |token: &str, task, scope: Option<&str>| {
+        let mut args =
+            serde_json::json!({"action":"focus_window", "window_id":400,"observation_id":token});
+        if let Some(scope) = scope {
+            args["approval_scope"] = scope.into();
+        }
         let mut request = crate::approval::ApprovalRequest::new(
             "req",
             "computer_control",
@@ -1227,14 +1291,52 @@ fn reusable_grants_bind_verified_process_window_and_task_not_observation_tokens(
         );
         bind_window_session_approval(&mut request, &args, Some("window-scope-test"), Some(task))
             .unwrap();
-        assert_eq!(request.target_kind, "desktop_window_task");
+        assert_eq!(
+            request.target_kind,
+            if scope == Some("action") {
+                "desktop_action"
+            } else {
+                "desktop_window_task"
+            }
+        );
         request.permission_key
     };
-    let first = observe(123);
-    let next = observe(123);
-    assert_eq!(bind(&first, "task-a"), bind(&next, "task-a"));
-    assert_ne!(bind(&first, "task-a"), bind(&first, "task-b"));
-    assert_ne!(bind(&first, "task-a"), bind(&observe(456), "task-a"));
+    let first = observe(123, None);
+    let next = observe(123, None);
+    let key = bind(&first, "task-a", Some("window_session"));
+    assert_eq!(key, bind(&next, "task-a", None));
+    assert_ne!(key, bind(&next, "task-a", Some("action")));
+    assert_ne!(key, bind(&first, "task-b", None));
+    assert_ne!(key, bind(&observe(456, None), "task-a", None));
+    let original = observed_window(Some("window-scope-test"), &first, 400).unwrap();
+    let mut owner = original.snapshot.clone();
+    owner.id = 401;
+    let owner_key = |owner: WindowSnapshot| {
+        let mut window = original.clone();
+        window.snapshot = owner;
+        let token = remember_observation(Some("window-scope-test"), vec![window]).unwrap();
+        let args =
+            serde_json::json!({"action":"focus_window","window_id":401,"observation_id":token});
+        let mut req = crate::approval::ApprovalRequest::new(
+            "request",
+            "computer_control",
+            &args,
+            crate::approval::ApprovalRisk::High,
+            "Focus",
+        );
+        bind_window_session_approval(&mut req, &args, Some("window-scope-test"), Some("task-a"))
+            .unwrap();
+        req.permission_key
+    };
+    assert_eq!(
+        bind(&observe(123, Some(Box::new(owner.clone()))), "task-a", None),
+        owner_key(owner.clone())
+    );
+    owner.pid += 1;
+    assert_ne!(
+        bind(&observe(123, Some(Box::new(owner.clone()))), "task-a", None),
+        owner_key(owner)
+    );
 }
 
 #[cfg(all(windows, feature = "desktop-control"))]
@@ -1555,6 +1657,11 @@ fn windows_computer_control_helper_window() {
         use windows::Win32::UI::WindowsAndMessaging::{
             GetCursorPos, KillTimer, SetTimer, WM_APP, WM_TIMER,
         };
+        if message == WM_COMMAND && (wparam.0 & 0xffff) == 104 {
+            let title = wide(&std::env::var("NEXA_COMPUTER_USE_HELPER_TITLE").unwrap());
+            create_owned_modal_smoke_window(window, &title);
+            return LRESULT(0);
+        }
         if message == WM_APP + 98 {
             return LRESULT(
                 unsafe {
@@ -1762,7 +1869,23 @@ fn windows_computer_control_helper_window() {
         let _ = unsafe { SetForegroundWindow(window) };
     }
     if std::env::var_os("NEXA_COMPUTER_USE_HELPER_MODAL").is_some() {
-        create_owned_modal_smoke_window(window, &title);
+        unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                windows::core::w!("BUTTON"),
+                windows::core::w!("Open dialog"),
+                WS_CHILD | WS_VISIBLE,
+                32,
+                205,
+                180,
+                32,
+                Some(window),
+                Some(HMENU(104_usize as *mut _)),
+                None,
+                None,
+            )
+        }
+        .expect("create isolated modal opener");
     }
     let mut message = MSG::default();
     while unsafe { GetMessageW(&mut message, None, 0, 0) }.as_bool() {
@@ -1790,6 +1913,10 @@ fn create_owned_modal_smoke_window(owner: windows::Win32::Foundation::HWND, owne
     ) -> LRESULT {
         if message == WM_COMMAND && (wparam.0 & 0xffff) == 1 {
             if let Ok(owner) = unsafe { GetWindow(window, GW_OWNER) } {
+                if std::env::var_os("NEXA_COMPUTER_USE_HELPER_MODAL_CLOSE_OWNER").is_some() {
+                    let _ = unsafe { DestroyWindow(owner) };
+                    return LRESULT(0);
+                }
                 let _ = unsafe { EnableWindow(owner, true) };
                 if let Ok(edit) =
                     unsafe { FindWindowExW(Some(owner), None, w!("EDIT"), PCWSTR::null()) }
@@ -1860,6 +1987,12 @@ fn create_owned_modal_smoke_window(owner: windows::Win32::Foundation::HWND, owne
 #[test]
 #[ignore = "requires an interactive Windows desktop and confirms an owned modal fixture"]
 fn windows_owned_modal_handoff_smoke_test() {
+    owned_modal_handoff_smoke(false);
+    owned_modal_handoff_smoke(true);
+}
+
+#[cfg(all(target_os = "windows", feature = "desktop-control"))]
+fn owned_modal_handoff_smoke(confirm_exit: bool) {
     use std::process::{Command, Stdio};
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
     let original_foreground = unsafe { GetForegroundWindow() };
@@ -1874,7 +2007,13 @@ fn windows_owned_modal_handoff_smoke_test() {
             .chain(std::env::split_paths(&original_path)),
     )
     .unwrap();
-    let mut child = Command::new(executable)
+    let mut command = Command::new(executable);
+    if confirm_exit {
+        command.env("NEXA_COMPUTER_USE_HELPER_MODAL_CLOSE_OWNER", "1");
+    } else {
+        command.env_remove("NEXA_COMPUTER_USE_HELPER_MODAL_CLOSE_OWNER");
+    }
+    let mut child = command
         .args([
             "--ignored",
             "--exact",
@@ -1893,14 +2032,10 @@ fn windows_owned_modal_handoff_smoke_test() {
         .unwrap();
     let result = (|| -> Result<(), String> {
         let deadline = Instant::now() + Duration::from_secs(15);
-        let (owner, modal) = loop {
+        let owner = loop {
             let windows = platform::list_windows().map_err(|error| error.to_string())?;
-            let owner = windows.iter().find(|window| window.title == title);
-            let modal = windows
-                .iter()
-                .find(|window| window.title == format!("{title} dialog"));
-            if let (Some(owner), Some(modal)) = (owner, modal) {
-                break (owner.clone(), modal.clone());
+            if let Some(owner) = windows.into_iter().find(|window| window.title == title) {
+                break owner;
             }
             if Instant::now() >= deadline {
                 return Err("owned modal fixture did not become capturable".into());
@@ -1913,6 +2048,81 @@ fn windows_owned_modal_handoff_smoke_test() {
             max_elements: 120,
             mode: CaptureMode::Raw,
         };
+        let db = crate::db::Database::open_memory().map_err(|error| error.to_string())?;
+        let activities = crate::activity::ActivityRuntime::with_database(db.clone())
+            .map_err(|error| error.to_string())?;
+        let runtime = tokio::runtime::Runtime::new().map_err(|error| error.to_string())?;
+        let owner_capture = platform::capture_window(&owner, options).map_err(|e| e.to_string())?;
+        let opener = owner_capture
+            .elements
+            .iter()
+            .find(|e| e.name == "Open dialog" && e.role == "button")
+            .ok_or("missing fixture opener")?;
+        let owner_token = remember_capture(None, &owner_capture).map_err(|e| e.to_string())?;
+        let args =
+            serde_json::json!({"action":"invoke","delivery":"background","window_id":owner.id,
+            "observation_id":owner_token, "element_id":opener.id})
+            .to_string();
+        let opened = runtime
+            .block_on(
+                ComputerControlTool.execute(
+                    crate::tools::ToolExecutionContext::new("open-modal", &args, &db, &[])
+                        .with_activity_runtime(&activities),
+                ),
+            )
+            .map_err(|e| e.to_string())?;
+        if opened.is_error {
+            return Err(format!("modal opener failed: {}", opened.content));
+        }
+        let data = opened
+            .artifacts
+            .as_ref()
+            .and_then(|v| v.get("data"))
+            .ok_or("missing opening result")?;
+        if data["effect"] != "modal_child_handoff"
+            || !data["observation"].is_null()
+            || !data["observationId"].is_null()
+        {
+            return Err(format!(
+                "opening a modal must return only its inventory target: {data}"
+            ));
+        }
+        let child = &data["modalChildTarget"];
+        let modal_id = child["windowId"].as_u64().ok_or("missing modal HWND")?;
+        let modal = observed_window(
+            None,
+            child["observationId"]
+                .as_str()
+                .ok_or("missing modal token")?,
+            modal_id,
+        )
+        .map_err(|e| e.to_string())?;
+        if !modal.elements.is_empty()
+            || modal.screenshot_signature.is_some()
+            || modal.snapshot.modal_owner.as_ref().map(|w| w.id) != Some(owner.id)
+        {
+            return Err("modal inventory included content or lost its exact owner".into());
+        }
+        let modal = modal.snapshot;
+        let inventoried = platform::list_windows()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|w| w.id == modal.id)
+            .ok_or("missing inventoried dialog")?;
+        if inventoried.modal_owner.as_ref().map(|w| w.id) != Some(owner.id) {
+            return Err("list_windows lost the verified fixture owner".into());
+        }
+        {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
+            let owner_handle = HWND(owner.id as usize as *mut _);
+            let _ = unsafe { EnableWindow(owner_handle, true) };
+            let stale = platform::capture_window(&inventoried, CaptureOptions::pixels_only());
+            let _ = unsafe { EnableWindow(owner_handle, false) };
+            if stale.is_ok() {
+                return Err("a stale inventoried modal relationship was accepted".into());
+            }
+        }
         let capture =
             platform::capture_window(&modal, options).map_err(|error| error.to_string())?;
         let button = capture
@@ -1922,25 +2132,8 @@ fn windows_owned_modal_handoff_smoke_test() {
             .ok_or("modal OK control was not observed")?
             .id
             .clone();
-        let token = remember_observation(
-            None,
-            vec![ObservedWindow {
-                snapshot: capture.snapshot.clone(),
-                image_width: Some(capture.image_width),
-                image_height: Some(capture.image_height),
-                native_image_width: Some(capture.native_image_width),
-                native_image_height: Some(capture.native_image_height),
-                screenshot_signature: screenshot_signature(&capture.png),
-                screenshot_guard: screenshot_guard(&capture.png),
-                elements: capture.elements.clone(),
-            }],
-        )
-        .map_err(|error| error.to_string())?;
-        let db = crate::db::Database::open_memory().map_err(|error| error.to_string())?;
-        let activities = crate::activity::ActivityRuntime::with_database(db.clone())
-            .map_err(|error| error.to_string())?;
+        let token = remember_capture(None, &capture).map_err(|error| error.to_string())?;
         let arguments = serde_json::json!({"action":"invoke", "delivery":"background", "window_id":modal.id, "observation_id":token, "element_id":button}).to_string();
-        let runtime = tokio::runtime::Runtime::new().map_err(|error| error.to_string())?;
         runtime.block_on(async {
             let result = ComputerControlTool
                 .execute(
@@ -1956,6 +2149,16 @@ fn windows_owned_modal_handoff_smoke_test() {
                 .map_err(|error| error.to_string())?;
             if result.is_error {
                 return Err(format!("modal confirmation failed: {}", result.content));
+            }
+            if confirm_exit {
+                let closed_owner = result.artifacts.as_ref()
+                    .and_then(|v| v.pointer("/data/terminalWindowReceipt/closedModalOwner"))
+                    .ok_or("confirming exit did not return the original owner's disappearance")?;
+                if closed_owner["windowId"] != owner.id || closed_owner["targetIdentity"] != desktop_target_identity(&owner)
+                    || closed_owner["windowExists"] != false || closed_owner["ownerObservedBeforeAction"] != true {
+                    return Err("owner closure did not match the exact pre-action window".into());
+                }
+                return Ok(());
             }
             let mut owner_capture =
                 platform::capture_window(&owner, options).map_err(|error| error.to_string())?;
@@ -2425,6 +2628,7 @@ fn windows_control_smoke(
             element_id: Some(element),
             to_element_id: None,
             coordinate_space: None,
+            point: None,
             x: None,
             y: None,
             to_x: None,

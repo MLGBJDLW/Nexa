@@ -124,14 +124,8 @@ pub fn audit_safe_arguments(tool_name: &str, arguments: &Value) -> Value {
                     object.insert("action".into(), json!(action.to_ascii_lowercase()));
                 }
             }
-            let mut target = serde_json::Map::from_iter([(
-                "kind".into(),
-                json!(if route.tool_name == "browser_session" {
-                    "browser"
-                } else {
-                    "window"
-                }),
-            )]);
+            let mut target =
+                serde_json::Map::from_iter([("kind".into(), json!(route.target_kind))]);
             for (canonical, public) in [
                 ("sessionId", "session_id"),
                 ("session_id", "session_id"),
@@ -167,6 +161,7 @@ fn audit_safe_computer_observation_arguments(arguments: &Value) -> Value {
                 "list_windows"
                     | "wait_for_window"
                     | "capture_window"
+                    | "capture_desktop"
                     | "wait_for_change"
                     | "cursor_position"
             )
@@ -269,6 +264,14 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
             );
         }
     }
+    if let Some(raw) = object.get("point") {
+        use crate::tools::computer_use_tool::ScreenshotPoint;
+        use serde::Deserialize;
+        let safe = ScreenshotPoint::deserialize(raw)
+            .map(|point| serde_json::json!(point.coordinates()))
+            .unwrap_or_else(|_| redacted_invalid_value("point", raw));
+        projected.insert("point".into(), safe);
+    }
     for key in ["include_elements", "wait_for_previous"] {
         if let Some(value) = object.get(key) {
             projected.insert(
@@ -283,7 +286,11 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
     for (key, allowed) in [
         (
             "coordinate_space",
-            &["captured_image_pixels", "normalized_0_1"][..],
+            &[
+                "captured_image_pixels",
+                "normalized_0_1",
+                "normalized_0_1000",
+            ][..],
         ),
         ("button", &["left", "right", "middle"][..]),
         ("capture_mode", &["raw", "som"][..]),
@@ -359,6 +366,7 @@ fn audit_safe_computer_control_arguments(arguments: &Value) -> Value {
         "windowId",
         "element_id",
         "to_element_id",
+        "point",
         "coordinate_space",
         "x",
         "y",
@@ -824,6 +832,19 @@ mod tests {
         assert_eq!(projected["approval_scope"], "window_session");
         assert_eq!(projected["delivery"], "foreground");
         assert!(!projected.to_string().contains("private-token"));
+        let point = audit_safe_arguments(
+            "computer_control",
+            &json!({
+                "point":{"x":250,"y":750}, "coordinate_space":"normalized_0_1000"
+            }),
+        );
+        assert_eq!(point["point"], json!([250.0, 750.0]));
+        assert!(point.get("unknownFieldCount").is_none());
+        let invalid = audit_safe_arguments(
+            "computer_control",
+            &json!({"point":{"x":2, "y":3, "name":"private-text"}}),
+        );
+        assert!(!invalid.to_string().contains("private-text"));
     }
 
     #[test]

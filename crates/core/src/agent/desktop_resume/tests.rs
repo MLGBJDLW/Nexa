@@ -109,65 +109,75 @@ fn late_modal_handoff_detail(activity_id: &str) -> Value {
 }
 
 #[test]
-fn late_native_modal_handoff_restores_owner_obligation_without_granting_close_permission() {
+fn late_native_modal_handoff_restores_destination_obligation_without_granting_close_permission() {
     use crate::activity::{ActivityRuntime, ActivitySpec};
-    let (db, run, _, mut saved) = fixture();
-    observe(&mut saved, 43, "target-43", "after-43");
-    let runtime = ActivityRuntime::with_database(db.clone()).unwrap();
-    let activity = runtime
-        .start(
-            ActivitySpec::new(ActivitySurface::Desktop, "computer_control")
-                .with_conversation_id(&run.conversation_id)
-                .with_turn_id(&run.turn_id),
-        )
-        .unwrap();
-    resume(&db, &run, &saved);
-    runtime
+    for opening in [false, true] {
+        let (db, run, _, mut saved) = fixture();
+        observe(&mut saved, 43, "target-43", "after-43");
+        let runtime = ActivityRuntime::with_database(db.clone()).unwrap();
+        let activity = runtime
+            .start(
+                ActivitySpec::new(ActivitySurface::Desktop, "computer_control")
+                    .with_conversation_id(&run.conversation_id)
+                    .with_turn_id(&run.turn_id),
+            )
+            .unwrap();
+        resume(&db, &run, &saved);
+        runtime
         .transition(
             &activity.activity_id,
             ActivityState::Completed,
-            late_modal_handoff_detail(&activity.activity_id),
+            if opening {
+                json!({"windowId":42,"targetIdentity":"target-42","consumedObservationId":"before-42",
+                    "actionReceiptId":activity.activity_id,"targetVerified":true,"inputDelivered":true,
+                    "deliveryStatus":"delivered","effect":"modal_child_handoff",
+                    "modalChildTarget":{"windowId":77,"targetIdentity":"exact-owner",
+                        "ownerRelationshipVerified":true,"observationNotBeforeMs":1000}})
+            } else {
+                late_modal_handoff_detail(&activity.activity_id)
+            },
         )
         .unwrap();
-    let resumed_plan = plan("Continue the task");
-    let mut resumed = None;
-    restore_pending_desktop_evidence(
-        &db,
-        Some(&run.conversation_id),
-        Some(&run.turn_id),
-        &mut resumed,
-        &resumed_plan,
-        &profile(),
-        false,
-    )
-    .unwrap();
-    let resumed = resumed.as_mut().unwrap();
-    assert!(
-        !resumed
-            .completion_contract
-            .desktop_terminal_closure_evidence
-    );
-    assert_eq!(resumed.checkpoint.desktop_observation_targets.len(), 1);
-    assert_eq!(
-        resumed.checkpoint.desktop_observation_targets[0].window_id,
-        77
-    );
-    assert_eq!(
-        resumed.checkpoint.desktop_observation_targets[0].observation_not_before_ms,
-        Some(1000)
-    );
-    for (window, identity, time, expected) in [
-        (78, "exact-owner", 1001, false),
-        (77, "other-owner", 1001, false),
-        (77, "exact-owner", 1000, false),
-        (77, "exact-owner", 1001, true),
-    ] {
-        resumed.observe_tool_result_with_arguments("owner", "computer_observe",
+        let resumed_plan = plan("Continue the task");
+        let mut resumed = None;
+        restore_pending_desktop_evidence(
+            &db,
+            Some(&run.conversation_id),
+            Some(&run.turn_id),
+            &mut resumed,
+            &resumed_plan,
+            &profile(),
+            false,
+        )
+        .unwrap();
+        let resumed = resumed.as_mut().unwrap();
+        assert!(
+            !resumed
+                .completion_contract
+                .desktop_terminal_closure_evidence
+        );
+        assert_eq!(resumed.checkpoint.desktop_observation_targets.len(), 1);
+        assert_eq!(
+            resumed.checkpoint.desktop_observation_targets[0].window_id,
+            77
+        );
+        assert_eq!(
+            resumed.checkpoint.desktop_observation_targets[0].observation_not_before_ms,
+            Some(1000)
+        );
+        for (window, identity, time, expected) in [
+            (78, "exact-owner", 1001, false),
+            (77, "other-owner", 1001, false),
+            (77, "exact-owner", 1000, false),
+            (77, "exact-owner", 1001, true),
+        ] {
+            resumed.observe_tool_result_with_arguments("owner", "computer_observe",
             Some(&json!({"action":"capture_window","window_id":window}).to_string()), false,
             Some(&json!({"data":{"kind":"computerObservationReceipt","windowId":window,
                 "targetIdentity":identity,"observationId":format!("owner-{time}"),"observationCapturedAtMs":time,
                 "screenshotHash":"owner-pixels"}})), "host owner capture");
-        assert_eq!(resumed.completion_allowed(), expected);
+            assert_eq!(resumed.completion_allowed(), expected);
+        }
     }
 }
 

@@ -370,6 +370,9 @@ impl ToolPermissionKey {
                 .and_then(serde_json::Value::as_str)
                 .map(str::trim)
                 .unwrap_or("<unknown>");
+            if action.eq_ignore_ascii_case("capture_desktop") {
+                return Self::new(&invocation.tool_name, "screen_disclosure", "entire_desktop");
+            }
             if action.eq_ignore_ascii_case("capture_window")
                 || action.eq_ignore_ascii_case("wait_for_change")
             {

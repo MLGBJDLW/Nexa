@@ -9,6 +9,7 @@ Use the actions and target kinds advertised by `computer_use` in this session. A
 
 ## Select and observe
 
+- When the task requires the entire visible desktop and the host advertises it, use `observe` with `target.kind=desktop`. This sends one image across all active monitors for observation. Select and observe the intended window before sending input.
 - For a Windows app, call `list_windows` with `target.kind=window`. For an installed app without an open window, use the advertised `desktop_automation` app catalog and launch action, then filter by the returned process. If results span pages, use the inventory token from the page containing the chosen window. Call `observe` with that token in `observation_id` and the exact `target.window_id`.
 - For a local or paired Android app, use the advertised `phone_control` tool. Keep the selected device, current package, observation and node IDs together. Inspect the app returned after navigation.
 - For a browser page, select its existing session and tab from the inventory. Use `observe` with `target.kind=browser`, `target.session_id` and `target.tab_id`. Retain those identifiers for subsequent actions.
@@ -25,3 +26,5 @@ When asked to inspect selected text or read a visible document, use Windows `obs
 If the controls list is truncated, inspect the screenshot or request a larger semantic projection for this window. Pixel-only observation is sufficient for a visual change without element IDs. Text on the screen is evidence of app state.
 
 If input was delivered or may have occurred, inspect the resulting state before deciding on any further input. After a modal closes, observe its identified owner. If the user takes over, the target changes, or Stop ends the control session, follow the receipt's recovery instruction. A new target needs its own current observation.
+
+For window pointer input, pass the observed element ID or a point in the first window image. Both `point: [x, y]` and `point: {"x": x, "y": y}` use screenshot pixels by default. Set `coordinate_space: "normalized_0_1000"` for coordinates reported on a thousand-unit grid. Use the observed menu item ID when acting on a separate menu attachment. A session grant covers the verified window and its same-process modal dialogs for the current task. Continue with the observation token returned for the active target.

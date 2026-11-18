@@ -44,9 +44,22 @@
         "type": "string",
         "enum": [
           "captured_image_pixels",
-          "normalized_0_1"
+          "normalized_0_1",
+          "normalized_0_1000"
         ],
-        "description": "How x/y/to_x/to_y are interpreted. Defaults to captured_image_pixels."
+        "description": "Units for point, x/y and drag destinations. Default is the first window attachment in captured_image_pixels. For a model reporting positions on a 0..1000 grid, select normalized_0_1000."
+      },
+      "point": {
+        "description": "Pointer location in the first window screenshot, as {x,y} or [x,y]. Uses coordinate_space. Supply point, x/y, or element_id. Click popup menu items by their element_id.",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": { "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 } },
+            "required": ["x", "y"],
+            "additionalProperties": false
+          },
+          { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2 }
+        ]
       },
       "x": {
         "type": "number",
@@ -142,7 +155,7 @@
           "action",
           "window_session"
         ],
-        "description": "action (default), or window_session to request a reusable user grant bound to the verified process/window and task. Fresh observations remain required; this never grants access automatically."
+        "description": "Choose action to require a one-time prompt. Otherwise the user can allow this tool for the verified window and its same-process modal dialogs for this task. Each input requires a fresh window observation."
       },
       "delivery": {
         "type": "string",

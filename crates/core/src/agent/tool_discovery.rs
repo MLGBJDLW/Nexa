@@ -216,7 +216,11 @@ mod tests {
             assert_ne!(definitions[0].parameters, before);
             assert_eq!(
                 definitions[0].parameters["properties"]["target"]["properties"]["kind"]["enum"],
-                serde_json::json!(["browser", "window"])
+                if cfg!(all(windows, feature = "desktop-control")) {
+                    serde_json::json!(["browser", "desktop", "window"])
+                } else {
+                    serde_json::json!(["browser", "window"])
+                }
             );
         }
         let scoped = registry.filtered(&["computer_observe".into()]);

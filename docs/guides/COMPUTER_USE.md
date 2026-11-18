@@ -18,7 +18,7 @@ expandable chat record, using the same screenshot presenter and interaction
 receipt states. Only a verified requested condition gets a green success state;
 input delivery, observed change and uncertain results remain distinct.
 The built-in [Computer Use skill](../../crates/core/assets/skills/computer-use/SKILL.md)
-uses the model-facing `computer_use` tool for window and browser targets.
+uses the model-facing `computer_use` tool for browser and native targets.
 Windows observation and input route to `computer_observe` and `computer_control`.
 They keep distinct permission boundaries while sharing the observation store,
 input arbiter, action journal and completion checks. The semantic observation
@@ -39,6 +39,28 @@ Capturing the host retains the geometry, process-identity and input-epoch checks
 If host pixels change while UI semantics are collected, the valid screenshot is
 returned with the mismatched elements removed and a `semanticError` explanation.
 Other windows still reject mixed frame/semantics observations before control.
+
+For a read-only overview on Windows, use `{"action":"observe","target":{"kind":"desktop"}}`.
+The screenshot covers every active display. Windows may omit applications that request
+[capture exclusion](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity).
+In Ask mode each desktop observation has its own full-screen prompt.
+The result contains one JPEG scaled to at most 1,568 pixels on the
+longest edge and carries no input token. Select and observe an individual window to
+interact with it. The native capture backend uses the
+[Win32 virtual screen](https://learn.microsoft.com/en-us/windows/win32/gdi/the-virtual-screen)
+and the [screen device context](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdc).
+
+For a multi-step window task, **Allow for session** carries the chosen tool's
+grant across fresh observations of that window and its verified same-process
+modal dialogs. **Allow once** approves only the pending call. A dialog handoff
+returns an inventory token. Observe that dialog before clicking one of its
+controls. When it closes, observe the identified owner to verify the outcome.
+Window grants expire with the current task.
+
+Pointer locations use the first window image's pixels by default. A model
+that reports coordinates on a 0 to 1000 grid can set
+`coordinate_space: "normalized_0_1000"`. Use the observed menu item ID
+for a separate popup-menu image.
 
 Browser text waits query the complete accessible text independently of the
 bounded preview, including same-origin frames and open shadow roots. Cross-origin
