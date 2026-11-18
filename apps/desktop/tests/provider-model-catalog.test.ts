@@ -132,6 +132,15 @@ function testPreviousReleaseCatalog(): void {
   assertEqual(catalogModelsForSnapshot(previous).length, 1, 'never borrow official models for a custom endpoint');
   previous.models.push({ ...previous.models[0], id: 'retired', aliases: ['account-model'], status: 'removed' });
   assertEqual(catalogModelsForSnapshot(previous).length, 0, 'legacy custom-endpoint tombstones exclude retired aliases');
+
+  previous.provider = 'open_ai';
+  previous.baseUrl = 'https://api.openai.com/v1';
+  previous.models = [{ ...snapshot().models[0], id: 'gpt-5.6', recommended: true }];
+  const nativeModels = catalogModelsForSnapshot(previous);
+  assertDeepEqual(nativeModels.slice(0, 2).map(model => model.id), ['gpt-6.2-sol', 'gpt-6.2-astra'],
+    'an existing account receives the current release ordering');
+  assertEqual(nativeModels.find(model => model.id === 'gpt-5.6')?.recommended, false,
+    'a previous release recommendation must not shadow the bundled recommendation');
 }
 
 testPreviousReleaseCatalog();

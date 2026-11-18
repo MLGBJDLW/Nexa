@@ -16,7 +16,7 @@
     "baseUrl": "https://api.openai.com/v1",
     "requiresApiKey": true,
     "icon": "🤖",
-    "description": "GPT-6.1 Sol and Terra, GPT-6 Astra, Sol, Luna; GPT-5.6 and earlier models",
+    "description": "GPT-6.2 Sol and Astra with Responses API tools, vision and reasoning",
     "nativeWebSearch": {
       "dialect": "openAiResponses",
       "supportsDomains": true,
@@ -32,6 +32,106 @@
     },
     "models": [
       {
+        "id": "gpt-6.2-sol",
+        "name": "GPT-6.2 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": true,
+        "lastVerifiedAt": "2026-11-18T07:38:10Z",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagLatest",
+        "releaseDate": "2026-11-17"
+      },
+      {
+        "id": "gpt-6.2-astra",
+        "name": "GPT-6.2 Astra",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18T07:38:10Z",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "defaultEffort": "medium",
+            "thinkingBudget": {
+              "enabled": false
+            }
+          }
+        },
+        "nativeWebSearch": {
+          "dialect": "openAiResponses",
+          "supportsDomains": true,
+          "supportsRecency": false,
+          "supportsLocale": false,
+          "supportsLocation": true,
+          "supportsCitations": true,
+          "supportsStreamEvents": true,
+          "canMixClientTools": true
+        },
+        "tagKey": "providers.tagLatest",
+        "releaseDate": "2026-11-17"
+      },
+      {
         "id": "gpt-5.6",
         "name": "GPT-5.6",
         "nativeWebSearch": {
@@ -44,10 +144,9 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "curated",
         "productReadiness": "known",
-        "recommended": true,
+        "recommended": false,
         "contextTokens": 1050000,
         "maxOutputTokens": 128000,
         "capabilities": {
@@ -128,7 +227,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -178,7 +276,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -216,7 +313,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -266,7 +362,6 @@
           "supportsStreamEvents": true,
           "canMixClientTools": true
         },
-        "tagKey": "providers.tagLatest",
         "source": "official",
         "productReadiness": "known",
         "recommended": false,
@@ -399,7 +494,6 @@
       {
         "id": "gpt-5.5",
         "name": "GPT-5.5",
-        "tagKey": "providers.tagLatest",
         "capabilities": {
           "reasoning": {
             "effortLevels": [
@@ -895,15 +989,14 @@
         "documentationRef": "https://developers.openai.com/api/docs/deprecations"
       },
       {
-        "id": "gpt-6.2-astra",
-        "name": "GPT-6.2 Astra",
+        "id": "chat-latest",
+        "name": "Chat Latest",
         "source": "official",
         "status": "active",
-        "productReadiness": "known",
         "recommended": false,
+        "productReadiness": "known",
         "lastVerifiedAt": "2026-11-18",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
+        "documentationRef": "https://developers.openai.com/api/docs/models/chat-latest",
         "inputModalities": [
           "text",
           "image"
@@ -912,78 +1005,11 @@
           "text"
         ],
         "supportsTools": true,
-        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-astra",
         "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "nativeWebSearch": {
-          "dialect": "openAiResponses",
-          "supportsDomains": true,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": true,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
-        }
-      },
-      {
-        "id": "gpt-6.2-sol",
-        "name": "GPT-6.2 Sol",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "contextTokens": 1050000,
+        "contextTokens": 400000,
         "maxOutputTokens": 128000,
-        "inputModalities": [
-          "text",
-          "image"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "documentationRef": "https://developers.openai.com/api/docs/models/gpt-6.2-sol",
-        "supportsStructuredOutput": true,
         "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high"
-            ],
-            "defaultEffort": "medium",
-            "thinkingBudget": {
-              "enabled": false
-            }
-          }
-        },
-        "nativeWebSearch": {
-          "dialect": "openAiResponses",
-          "supportsDomains": true,
-          "supportsRecency": false,
-          "supportsLocale": false,
-          "supportsLocation": true,
-          "supportsCitations": true,
-          "supportsStreamEvents": true,
-          "canMixClientTools": true
+          "vision": true
         }
       }
     ]
@@ -1529,6 +1555,222 @@
         ],
         "lastVerifiedAt": "2026-11-14",
         "documentationRef": "https://openrouter.ai/~anthropic/claude-fable-latest"
+      },
+      {
+        "id": "openai/gpt-6.2-astra",
+        "name": "OpenAI: GPT-6.2 Astra",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-astra-pro",
+        "name": "OpenAI: GPT-6.2 Astra Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-sol",
+        "name": "OpenAI: GPT-6.2 Sol",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
+      },
+      {
+        "id": "openai/gpt-6.2-sol-pro",
+        "name": "OpenAI: GPT-6.2 Sol Pro",
+        "source": "official",
+        "status": "active",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol-pro",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "file",
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "supportsStructuredOutput": true,
+        "capabilities": {
+          "vision": true,
+          "reasoning": {
+            "mode": "always",
+            "effortLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "thinkingBudget": {
+              "enabled": false
+            },
+            "effortBudgetExclusive": true,
+            "defaultEffort": "medium",
+            "defaultEnabled": true
+          }
+        },
+        "supportedParameters": [
+          "include_reasoning",
+          "max_completion_tokens",
+          "max_tokens",
+          "reasoning",
+          "reasoning_effort",
+          "response_format",
+          "seed",
+          "structured_outputs",
+          "tool_choice",
+          "tools",
+          "verbosity"
+        ]
       },
       {
         "id": "openai/gpt-6.1-sol",
@@ -4726,7 +4968,7 @@
         "regions": [
           "global"
         ],
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-18",
         "releaseDate": "2026-08-26",
         "inputModalities": [
           "text",
@@ -4739,7 +4981,7 @@
         "supportsTools": true,
         "supportsStructuredOutput": true,
         "contextTokens": 1048576,
-        "maxOutputTokens": 131072,
+        "maxOutputTokens": 943717,
         "capabilities": {
           "vision": true,
           "reasoning": {
@@ -14159,10 +14401,13 @@
           "text"
         ],
         "supportsTools": true,
-        "supportsStructuredOutput": false,
+        "supportsStructuredOutput": true,
         "supportedParameters": [
+          "frequency_penalty",
           "max_tokens",
+          "response_format",
           "stop",
+          "structured_outputs",
           "temperature",
           "tool_choice",
           "tools",
@@ -14170,7 +14415,7 @@
           "top_p"
         ],
         "source": "official",
-        "lastVerifiedAt": "2026-11-17",
+        "lastVerifiedAt": "2026-11-18",
         "documentationRef": "https://openrouter.ai/qwen/qwen3-coder-30b-a3b-instruct",
         "maxOutputTokens": 235929
       },
@@ -23925,222 +24170,6 @@
             "defaultEnabled": true
           }
         }
-      },
-      {
-        "id": "openai/gpt-6.2-astra",
-        "name": "OpenAI: GPT-6.2 Astra",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
-      },
-      {
-        "id": "openai/gpt-6.2-astra-pro",
-        "name": "OpenAI: GPT-6.2 Astra Pro",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-astra-pro",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
-      },
-      {
-        "id": "openai/gpt-6.2-sol",
-        "name": "OpenAI: GPT-6.2 Sol",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
-      },
-      {
-        "id": "openai/gpt-6.2-sol-pro",
-        "name": "OpenAI: GPT-6.2 Sol Pro",
-        "source": "official",
-        "status": "active",
-        "productReadiness": "known",
-        "recommended": false,
-        "lastVerifiedAt": "2026-11-18",
-        "documentationRef": "https://openrouter.ai/openai/gpt-6.2-sol-pro",
-        "contextTokens": 1050000,
-        "maxOutputTokens": 128000,
-        "inputModalities": [
-          "file",
-          "image",
-          "text"
-        ],
-        "outputModalities": [
-          "text"
-        ],
-        "supportsTools": true,
-        "supportsStructuredOutput": true,
-        "capabilities": {
-          "vision": true,
-          "reasoning": {
-            "mode": "always",
-            "effortLevels": [
-              "low",
-              "medium",
-              "high",
-              "xhigh",
-              "max"
-            ],
-            "thinkingBudget": {
-              "enabled": false
-            },
-            "effortBudgetExclusive": true,
-            "defaultEffort": "medium",
-            "defaultEnabled": true
-          }
-        },
-        "supportedParameters": [
-          "include_reasoning",
-          "max_completion_tokens",
-          "max_tokens",
-          "reasoning",
-          "reasoning_effort",
-          "response_format",
-          "seed",
-          "structured_outputs",
-          "tool_choice",
-          "tools",
-          "verbosity"
-        ]
       }
     ]
   },
@@ -25847,6 +25876,102 @@
             },
             "defaultEnabled": true
           }
+        }
+      },
+      {
+        "id": "global.openai.gpt-6.2-sol",
+        "name": "GPT-6.2 Sol (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-sol.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "us.openai.gpt-6.2-sol",
+        "name": "GPT-6.2 Sol (US)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-sol.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "global.openai.gpt-6.2-astra",
+        "name": "GPT-6.2 Astra (Global)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-astra.html",
+        "capabilities": {
+          "vision": true
+        }
+      },
+      {
+        "id": "us.openai.gpt-6.2-astra",
+        "name": "GPT-6.2 Astra (US)",
+        "source": "official",
+        "status": "active",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "recommended": false,
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "supportsTools": true,
+        "documentationRef": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-astra.html",
+        "capabilities": {
+          "vision": true
         }
       },
       {
@@ -34188,30 +34313,36 @@
           "qwen3-max"
         ],
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-10",
         "replacementModelId": "qwen3.7-max",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3.6-max-preview",
         "name": "Qwen3.6 Max Preview",
         "tagKey": "providers.tagPreview",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-10",
         "replacementModelId": "qwen3.7-max",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3-max-preview",
         "name": "Qwen3 Max Preview",
         "tagKey": "providers.tagPreview",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "deprecationDate": "2026-10-10",
         "replacementModelId": "qwen3.7-max",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3.5-plus",
@@ -34226,7 +34357,13 @@
               "enabled": true
             }
           }
-        }
+        },
+        "status": "deprecated",
+        "recommended": false,
+        "deprecationDate": "2027-01-19",
+        "lastVerifiedAt": "2026-11-18",
+        "replacementModelId": "qwen3.8-flash",
+        "documentationRef": "https://www.alibabacloud.com/notice/detail?_p_lc=1&id=2217"
       },
       {
         "id": "qwen3.6-plus",
@@ -34281,16 +34418,25 @@
       {
         "id": "qwen3-coder-next",
         "name": "Qwen3 Coder Next",
-        "tagKey": "providers.tagCode"
+        "tagKey": "providers.tagCode",
+        "status": "removed",
+        "recommended": false,
+        "deprecationDate": "2026-10-10",
+        "replacementModelId": "qwen3.7-plus",
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3-coder-plus",
         "name": "Qwen3 Coder Plus",
         "tagKey": "providers.tagCoding",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "replacementModelId": "qwen3.7-plus",
-        "lastVerifiedAt": "2026-08-01"
+        "lastVerifiedAt": "2026-11-18",
+        "recommended": false,
+        "deprecationDate": "2026-10-10",
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qwen3-coder-flash",
@@ -34320,12 +34466,15 @@
         "name": "Qwen3 VL Flash",
         "tagKey": "providers.tagVision",
         "source": "official",
-        "status": "deprecated",
+        "status": "removed",
         "replacementModelId": "qwen3.6-flash",
-        "lastVerifiedAt": "2026-08-01",
+        "lastVerifiedAt": "2026-11-18",
         "capabilities": {
           "vision": true
-        }
+        },
+        "recommended": false,
+        "deprecationDate": "2026-10-10",
+        "documentationRef": "https://www.alibabacloud.com/help/fr/model-studio/model-depreciation"
       },
       {
         "id": "qvq-max",

@@ -307,14 +307,11 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
   }
   const isRemoved = (id: string) => tombstones.has(normalizeModelId(id))
     || Boolean(preset && isRemovedProviderModel(preset.id, id));
-  const byId = new Map<string, ProviderModelPreset>();
-  for (const model of [...observed, ...(preset?.models ?? [])]) {
-    const id = model.id.trim().toLowerCase();
-    if ([id, ...model.descriptor.aliases].some(isRemoved)) {
-      markRemoved(id, model.descriptor.aliases);
-      continue;
-    }
-    if (byId.has(id)) continue;
+  // Keep the current release's picker order. An older account snapshot can
+  // contribute access and additional IDs without burying newly shipped rows.
+  const byId = new Map(bundled);
+  for (const model of observed) {
+    const id = normalizeModelId(model.id);
     const current = bundled.get(id);
     const verified = Date.parse(model.descriptor.lastVerifiedAt ?? '');
     // A previous release may have cached the model before its contract changed.
@@ -325,7 +322,19 @@ export function resolveProviderModelCatalog(snapshot: ProviderModelCatalogSnapsh
         productReadiness: model.descriptor.productReadiness === 'callable' && current.descriptor.productReadiness !== 'product_ready'
           ? 'callable' : current.descriptor.productReadiness,
       } });
+    } else if (current && (current.tagKey !== model.tagKey || current.recommended !== model.recommended)) {
+      byId.set(id, {
+        ...model,
+        tagKey: current.tagKey,
+        recommended: current.recommended,
+        descriptor: { ...model.descriptor, recommended: current.descriptor.recommended },
+      });
     } else byId.set(id, model);
+  }
+  for (const model of [...(preset?.models ?? []), ...observed]) {
+    if ([model.id, ...model.descriptor.aliases].some(isRemoved)) {
+      markRemoved(model.id, model.descriptor.aliases);
+    }
   }
   return { models: [...byId.values()].filter(model => !isRemoved(model.id)), isRemoved };
 }

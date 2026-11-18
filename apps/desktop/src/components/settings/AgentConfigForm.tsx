@@ -1007,23 +1007,9 @@ export function AgentConfigForm({
               setModel(e.target.value);
               setContextWindow(null);
             }}
-            placeholder={
-              provider === "open_ai"
-                ? "gpt-5.6"
-                : provider === "openrouter"
-                  ? "qwen/qwen3.7-max"
-                : provider === "anthropic"
-                  ? "claude-sonnet-4-6"
-                  : provider === "google"
-                    ? "gemini-2.5-pro"
-                    : provider === "deep_seek"
-                      ? "deepseek-flash"
-                      : provider === "ollama"
-                        ? "llama3.1"
-                        : provider === "lm_studio"
-                          ? "local-model"
-                          : "model-name"
-            }
+            placeholder={activePresetDefaultModel || activePreset?.models.find(
+              candidate => candidate.descriptor.availableToCredential !== false,
+            )?.id || "model-name"}
           />
           {activePreset && activePreset.models.length > 0 && (
             <button

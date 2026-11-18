@@ -131,3 +131,13 @@ Public audit **6/92 successful**, zero failed probes, not full-provider coverage
 ## Verification
 
 The static audit validated 92 endpoints and 1,456 model projections. All six public probes completed without reported drift. The provider contract tests, registry importer fixtures, catalog audit fixtures, documentation checks, Rust formatting and Windows desktop frontend build passed locally. GitHub Actions records the Rust runtime tests, browser checks and platform builds. Account entitlements and paid inference were outside this verification.
+
+## Follow-up after 0.19.15
+
+The [OpenAI model comparison](https://developers.openai.com/api/docs/models) gives both GPT-6.2 models five reasoning efforts from low through max. Nexa now features Sol and Astra first and offers all five in the direct API picker. Sol is the recommendation for everyday use. The [Chat Latest model card](https://developers.openai.com/api/docs/models/chat-latest) also confirms a separate text and image chat alias.
+
+The published Bedrock model cards give the US and Global inference profile IDs, Converse support, input modalities and token limits for [Astra](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-astra.html) and [Sol](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-6-2-sol.html). All four profiles require account enablement. The existing Bedrock adapter uses Converse on the regional Runtime endpoint.
+
+Alibaba's October retirement table identifies six saved Beijing pay-as-you-go IDs that can now be hidden from new selections. The January notice closes new purchases of Qwen3.5 Plus on November 18 and gives existing users until January 19 to migrate to Qwen3.8 Flash. [October retirement table](https://www.alibabacloud.com/help/fr/model-studio/model-depreciation) and [January retirement notice](https://www.alibabacloud.com/notice/detail?_p_lc=1&id=2217).
+
+The follow-up enumerated all 27 configured chat endpoints. OpenRouter's 478 public records updated Qwen3 Coder's structured output and supported parameters and GLM-5.3 Flash's maximum output. SiliconFlow China's public inventory still included the deprecated Qwen3 Coder route with normal status and all 55 curated chat IDs. The other endpoints were reviewed from public documentation, with account, region and locally installed model availability unverified. [OpenRouter catalog](https://openrouter.ai/api/v1/models) and [SiliconFlow inventory](https://www.siliconflow.cn/models).

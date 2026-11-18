@@ -1174,7 +1174,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_catalog_defaults_to_gpt_56() {
+    fn openai_catalog_features_current_models_and_retains_previous_generations() {
         let openai = find_provider_preset("open_ai", Some("https://api.openai.com/v1"))
             .expect("openai preset should match");
         let ids = openai
@@ -1183,7 +1183,7 @@ mod tests {
             .map(|model| model.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(ids.first(), Some(&"gpt-5.6"));
+        assert_eq!(&ids[..2], &["gpt-6.2-sol", "gpt-6.2-astra"]);
         assert!(ids.contains(&"gpt-5.6-sol"));
         assert!(ids.contains(&"gpt-5.6-terra"));
         assert!(ids.contains(&"gpt-5.6-luna"));
@@ -1196,7 +1196,8 @@ mod tests {
             .iter()
             .find(|model| model.id == "gpt-5.6")
             .expect("gpt-5.6 should be listed");
-        assert_eq!(gpt_56.recommended, Some(true));
+        assert_eq!(openai.models[0].recommended, Some(true));
+        assert_eq!(gpt_56.recommended, Some(false));
 
         let reasoning = gpt_56
             .capabilities
@@ -1668,7 +1669,7 @@ mod tests {
             Some(true)
         );
         // OpenRouter's gateway limits are distinct from the direct Z.ai endpoint.
-        for (model, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 131_072)] {
+        for (model, max_output) in [("z-ai/glm-5.3", 943_718), ("z-ai/glm-5.3-flash", 943_717)] {
             let limits = model_limits_from_catalog(ProviderType::OpenRouter, model)
                 .expect("OpenRouter GLM-5.3 route should expose limits");
             assert_eq!(limits.context_tokens, Some(1_048_576));
