@@ -131,9 +131,9 @@ function formatTimestamp(value: string | null | undefined, locale: string): stri
   }).format(date);
 }
 
-function lineNumberAt(content: string, index: number): number {
+function lineNumberAt(content: string, index: number, firstLine: number): number {
   const safeIndex = Math.max(0, Math.min(index, content.length));
-  let line = 1;
+  let line = firstLine;
   for (let i = 0; i < safeIndex; i += 1) {
     if (content.charCodeAt(i) === 10) line += 1;
   }
@@ -143,6 +143,7 @@ function lineNumberAt(content: string, index: number): number {
 function getSelectionSummary(
   content: string,
   selection: TextSelectionState | null,
+  firstLine: number,
 ): TextSelectionSummary | null {
   if (!selection) return null;
   const start = Math.max(0, Math.min(selection.start, content.length));
@@ -152,8 +153,8 @@ function getSelectionSummary(
   const text = content.slice(start, end);
   if (!text.trim()) return null;
 
-  const startLine = lineNumberAt(content, start);
-  const endLine = lineNumberAt(content, Math.max(start, end - 1));
+  const startLine = lineNumberAt(content, start, firstLine);
+  const endLine = lineNumberAt(text, text.length - 1, startLine);
 
   return {
     ...selection,
@@ -668,8 +669,8 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   }, [dirty, draft, labels.reindexFailed, labels.saveFailed, labels.saved, preview]);
 
   const selectedText = useMemo(
-    () => getSelectionSummary(textSelection?.origin === 'preview' && mode === 'text' ? preview?.content ?? '' : draft, textSelection),
-    [draft, textSelection, mode, preview?.content],
+    () => getSelectionSummary(textSelection?.origin === 'preview' && mode === 'text' ? preview?.content ?? '' : draft, textSelection, preview?.firstLine ?? 1),
+    [draft, textSelection, mode, preview?.content, preview?.firstLine],
   );
 
   const quickActions = useMemo(
