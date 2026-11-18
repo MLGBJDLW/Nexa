@@ -150,6 +150,15 @@ const denseEmbeddings = compareCatalogInventory({ endpointId: 'embedding:jina', 
   { id: 'jina-ai/jina-colbert-v2', input_modalities: ['text'], output_modalities: ['embeddings'] },
 ]);
 assert.equal(driftDetected(denseEmbeddings), false, 'unsupported vector shape and unimplemented modality expansion do not create permanent drift');
+const qianfan = { endpointId: 'embedding:baidu-qianfan', baseUrl: 'https://qianfan.baidubce.com/v2', models: [] };
+assert.equal(supportsCatalogOperation(qianfan), true);
+assert.equal(supportsCatalogOperation({ ...qianfan, baseUrl: 'https://private.example/v2' }), false);
+const qianfanInventory = compareCatalogInventory(qianfan, [
+  { id: 'dense', type: 'embeddings', architecture: { input_modalities: ['text'], output_modalities: ['embedding'] } },
+  { id: 'vision-only', type: 'embeddings', architecture: { input_modalities: ['image'] } },
+  { id: 'reranker', type: 'rerank' },
+]);
+assert.deepEqual(qianfanInventory.newIds, ['dense']);
 const requests = [];
 const pagedRows = await fetchCatalogPages('https://catalog.example/models?output_modalities=text', {
   fetchImpl: async url => {

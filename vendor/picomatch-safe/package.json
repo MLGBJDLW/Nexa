@@ -1,0 +1,9 @@
+{
+  "name": "picomatch",
+  "version": "4.0.7-nexa.1",
+  "private": true,
+  "license": "MIT",
+  "main": "index.js",
+  "sideEffects": false,
+  "engines": { "node": ">=12" }
+}

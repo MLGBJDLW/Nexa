@@ -1470,12 +1470,21 @@ fn build_responses_request_with_tools(
     if dialect == super::native_search::NativeSearchDialect::OpenAiResponses {
         if matches!(
             request.model.as_str(),
-            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol" | "gpt-6.1-terra"
+            "gpt-6-astra"
+                | "gpt-6-sol"
+                | "gpt-6-luna"
+                | "gpt-6.1-sol"
+                | "gpt-6.1-terra"
+                | "gpt-6.2-astra"
+                | "gpt-6.2-sol"
         ) {
             let disabled = request.reasoning_enabled == Some(false)
                 || request.reasoning_effort == Some(ReasoningEffort::None);
             let effort = if disabled {
-                if matches!(request.model.as_str(), "gpt-6-astra" | "gpt-6.1-sol") {
+                if matches!(
+                    request.model.as_str(),
+                    "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
+                ) {
                     "low"
                 } else {
                     "none"
@@ -1646,7 +1655,13 @@ fn is_direct_gpt6_responses_model(config: &ProviderConfig, model: &str) -> bool 
         )
         && matches!(
             model.trim(),
-            "gpt-6-astra" | "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-sol" | "gpt-6.1-terra"
+            "gpt-6-astra"
+                | "gpt-6-sol"
+                | "gpt-6-luna"
+                | "gpt-6.1-sol"
+                | "gpt-6.1-terra"
+                | "gpt-6.2-astra"
+                | "gpt-6.2-sol"
         )
 }
 
@@ -4720,6 +4735,8 @@ mod tests {
             "gpt-6-luna",
             "gpt-6.1-sol",
             "gpt-6.1-terra",
+            "gpt-6.2-astra",
+            "gpt-6.2-sol",
         ] {
             let mut request = endpoint_reasoning_request(model);
             request.reasoning_effort = None;
@@ -4751,7 +4768,10 @@ mod tests {
             .unwrap();
             assert_eq!(
                 body["reasoning"]["effort"],
-                if matches!(model, "gpt-6-astra" | "gpt-6.1-sol") {
+                if matches!(
+                    model,
+                    "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
+                ) {
                     "low"
                 } else {
                     "none"
@@ -4759,11 +4779,17 @@ mod tests {
             );
             assert_eq!(
                 body.get("temperature").is_some(),
-                !matches!(model, "gpt-6-astra" | "gpt-6.1-sol")
+                !matches!(
+                    model,
+                    "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
+                )
             );
             assert_eq!(
                 provider.route_snapshot(&request).replay_policy,
-                if matches!(model, "gpt-6-astra" | "gpt-6.1-sol") {
+                if matches!(
+                    model,
+                    "gpt-6-astra" | "gpt-6.1-sol" | "gpt-6.2-astra" | "gpt-6.2-sol"
+                ) {
                     ReasoningReplayPolicy::OpaqueSignature
                 } else {
                     ReasoningReplayPolicy::NotRequired
@@ -4778,6 +4804,34 @@ mod tests {
                     &endpoint_config(ProviderType::OpenAi, endpoint),
                     model
                 ));
+            }
+        }
+    }
+
+    #[test]
+    fn gpt62_native_routes_do_not_infer_gateway_pro_ids() {
+        let config = endpoint_config(ProviderType::OpenAi, "https://api.openai.com/v1");
+        for model in [
+            "gpt-6.2-astra-pro",
+            "gpt-6.2-sol-pro",
+            "openai/gpt-6.2-astra",
+            "openai/gpt-6.2-sol",
+        ] {
+            assert!(!is_direct_gpt6_responses_model(&config, model));
+        }
+        for model in ["gpt-6.2-astra", "gpt-6.2-sol"] {
+            for effort in [ReasoningEffort::None, ReasoningEffort::Minimal] {
+                let mut request = endpoint_reasoning_request(model);
+                request.reasoning_enabled = Some(true);
+                request.reasoning_effort = Some(effort);
+                request.temperature = Some(0.7);
+                let body = build_generic_responses_request(
+                    &request,
+                    super::super::native_search::NativeSearchDialect::OpenAiResponses,
+                )
+                .unwrap();
+                assert_eq!(body["reasoning"]["effort"], "low");
+                assert!(body.get("temperature").is_none());
             }
         }
     }

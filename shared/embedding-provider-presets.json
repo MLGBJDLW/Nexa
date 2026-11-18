@@ -741,7 +741,7 @@
     "name": "Baidu Qianfan",
     "provider": "baidu-qianfan",
     "baseUrl": "https://qianfan.baidubce.com/v2",
-    "description": "Qianfan v2 text embeddings with a fixed 384-dimensional vector space.",
+    "description": "Qianfan v2 dense text embeddings with model-specific dimensions and input limits.",
     "apiStyle": "openai_embeddings",
     "maxBatchSize": 16,
     "requiresApiKey": true,
@@ -754,10 +754,54 @@
         "recommended": true,
         "source": "official",
         "productReadiness": "known",
-        "lastVerifiedAt": "2026-09-26"
+        "lastVerifiedAt": "2026-11-18",
+        "contextTokens": 384,
+        "effectiveInputTokens": 384
+      },
+      {
+        "id": "bge-large-zh",
+        "name": "bge-large-zh",
+        "dimensions": 1024,
+        "supportsDimensionOverride": false,
+        "contextTokens": 512,
+        "effectiveInputTokens": 512,
+        "maxBatchSize": 16,
+        "source": "official",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://cloud.baidu.com/doc/qianfan-api/s/qmwbl45cf"
+      },
+      {
+        "id": "bge-large-en",
+        "name": "bge-large-en",
+        "dimensions": 1024,
+        "supportsDimensionOverride": false,
+        "contextTokens": 512,
+        "effectiveInputTokens": 512,
+        "maxBatchSize": 16,
+        "source": "official",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://cloud.baidu.com/doc/qianfan-api/s/qmwbl45cf"
+      },
+      {
+        "id": "tao-8k",
+        "name": "tao-8k",
+        "dimensions": 1024,
+        "supportsDimensionOverride": false,
+        "contextTokens": 8192,
+        "effectiveInputTokens": 8192,
+        "maxBatchSize": 1,
+        "source": "official",
+        "access": "account_enablement",
+        "productReadiness": "known",
+        "lastVerifiedAt": "2026-11-18",
+        "documentationRef": "https://cloud.baidu.com/doc/qianfan-api/s/qmwbl45cf"
       }
     ],
-    "documentationUrl": "https://github.com/baidubce/bce-qianfan-sdk/blob/main/python/qianfan/consts.py"
+    "documentationUrl": "https://cloud.baidu.com/doc/qianfan-api/s/qmwbl45cf"
   },
   {
     "id": "voyage",

@@ -158,6 +158,7 @@ export function googleCatalogMethod(endpoint) {
 export function supportsCatalogOperation(endpoint, knownOperationPath) {
   const surface = endpoint.endpointId.split(':')[0];
   if (surface === 'text' || knownOperationPath) return true;
+  if (endpoint.endpointId === 'embedding:baidu-qianfan' && endpoint.baseUrl === 'https://qianfan.baidubce.com/v2') return true;
   return surface === 'embedding' && endpoint.provider === 'google'
     && endpoint.baseUrl?.includes('generativelanguage.googleapis.com');
 }
@@ -187,6 +188,12 @@ export function compareCatalogInventory(endpoint, rows) {
     // consumes one dense vector per input. Catalog presence cannot bridge it.
     if (endpoint.endpointId === 'embedding:jina' && model.id?.replace(/^jina-ai\//, '') === 'jina-colbert-v2') return false;
     const outputs = stringArray(model.architecture?.output_modalities ?? model.output_modalities);
+    if (endpoint.endpointId === 'embedding:baidu-qianfan') {
+      // Qianfan mixes every operation in /models. Only text embeddings can be indexed.
+      const inputs = stringArray(model.architecture?.input_modalities);
+      const compatibleOutput = !outputs || outputs.some(value => ['embedding', 'embeddings'].includes(value));
+      return model.type === 'embeddings' && compatibleOutput && (!inputs || inputs.includes('text'));
+    }
     if (surface !== 'text' && !outputs && !endpoint.operationSpecific) return false;
     if (outputs && !outputs.includes(expectedModality)) return false;
     if (surface === 'text' && (model.id?.endsWith(':batch')

@@ -247,6 +247,76 @@ mod tests {
     }
 
     #[test]
+    fn hailuo3_variants_reject_unverified_controls_and_enforce_schema_bounds() {
+        let adapter = RunwayVideoAdapter::for_test("http://127.0.0.1");
+        for (model, maximum, prompt_max) in [
+            ("hailuo3_highspeed", 15, 7_000),
+            ("hailuo3_lite", 15, 7_000),
+        ] {
+            let mut request = NormalizedVideoRequest {
+                idempotency_key: "november17-fixture".into(),
+                model_id: model.into(),
+                operation: MediaOperation::TextToVideo,
+                prompt: "A quiet ocean at dawn".into(),
+                duration_seconds: 4,
+                resolution: "768P".into(),
+                aspect_ratio: "16:9".into(),
+                input_assets: vec![],
+                seed: None,
+                generate_audio: None,
+                callback_url: None,
+            };
+            for duration in [4, maximum] {
+                request.duration_seconds = duration;
+                assert!(adapter.validate(&request).valid);
+                let body = payload(&request).unwrap();
+                assert_eq!(body["duration"], duration);
+                assert_eq!(body["ratio"], "16:9");
+                assert_eq!(body.as_object().unwrap().len(), 5);
+            }
+            for duration in [3, maximum + 1] {
+                request.duration_seconds = duration;
+                assert!(!adapter.validate(&request).valid);
+            }
+            request.duration_seconds = 4;
+            request.prompt = "文".repeat(prompt_max);
+            assert!(adapter.validate(&request).valid);
+            request.prompt.push('文');
+            assert!(!adapter.validate(&request).valid);
+            request.prompt = "🌊".repeat(prompt_max / 2);
+            assert!(adapter.validate(&request).valid);
+            request.prompt.push('🌊');
+            assert!(!adapter.validate(&request).valid);
+            request.prompt.clear();
+            assert!(!adapter.validate(&request).valid);
+            request.prompt = "A quiet ocean at dawn".into();
+            request.seed = Some(1);
+            assert!(!adapter.validate(&request).valid);
+            request.seed = None;
+            request.generate_audio = Some(false);
+            assert!(!adapter.validate(&request).valid);
+            request.generate_audio = None;
+            request.callback_url = Some("https://example.com/callback".into());
+            assert!(!adapter.validate(&request).valid);
+            request.callback_url = None;
+            request.input_assets = vec![input(VideoInputRole::ReferenceImage, 3)];
+            assert!(!adapter.validate(&request).valid);
+            request.input_assets = vec![input(VideoInputRole::ReferenceVideo, 3)];
+            assert!(!adapter.validate(&request).valid);
+            request.input_assets.clear();
+            for operation in [
+                MediaOperation::ImageToVideo,
+                MediaOperation::FirstLastFrame,
+                MediaOperation::VideoToVideo,
+            ] {
+                request.operation = operation;
+                assert!(!adapter.validate(&request).valid);
+                assert!(payload(&request).is_err());
+            }
+        }
+    }
+
+    #[test]
     fn kling4_preserves_adaptive_frames_and_rejects_unsupported_controls() {
         let adapter = RunwayVideoAdapter::for_test("http://127.0.0.1");
         let mut request = NormalizedVideoRequest {

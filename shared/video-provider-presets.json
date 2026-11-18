@@ -6264,6 +6264,176 @@
         "watermarkPolicy": "unknown",
         "provenancePolicy": "nexa_local_lineage_only",
         "lastVerifiedAt": "2026-11-17"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "hailuo3_highspeed",
+        "displayName": "Hailuo 3 Highspeed",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16"
+                },
+                "768P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16"
+                }
+              },
+              "ratioField": "ratio",
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 7000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "promptRequired": true
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-18"
+      },
+      {
+        "providerId": "runway",
+        "modelId": "hailuo3_lite",
+        "displayName": "Hailuo 3 Lite",
+        "apiVersion": "2024-11-06",
+        "releaseStatus": "ga",
+        "selectable": true,
+        "operationCapabilities": [
+          {
+            "operation": "text_to_video",
+            "durationOptions": [
+              {
+                "resolution": "480P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              },
+              {
+                "resolution": "768P",
+                "minDurationSeconds": 4,
+                "maxDurationSeconds": 15,
+                "durationsSeconds": []
+              }
+            ],
+            "aspectRatios": [
+              "21:9",
+              "16:9",
+              "4:3",
+              "1:1",
+              "3:4",
+              "9:16"
+            ],
+            "inputRoles": [],
+            "supportsAudio": false,
+            "supportsSeed": false,
+            "wireContract": {
+              "ratios": {
+                "480P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16"
+                },
+                "768P": {
+                  "21:9": "21:9",
+                  "16:9": "16:9",
+                  "4:3": "4:3",
+                  "1:1": "1:1",
+                  "3:4": "3:4",
+                  "9:16": "9:16"
+                }
+              },
+              "ratioField": "ratio",
+              "resolutionField": "resolution",
+              "durationField": true,
+              "promptMin": 1,
+              "promptMax": 7000,
+              "maxReferenceImages": 0,
+              "maxReferenceVideos": 0,
+              "maxReferenceAudio": 0,
+              "promptRequired": true
+            }
+          }
+        ],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": true,
+        "cancellationScope": "non_terminal_task",
+        "cancellationMayDeleteTerminalRecord": true,
+        "regions": [
+          "provider_managed"
+        ],
+        "moderationPolicy": "Runway content moderation; moderated generations may still incur cost.",
+        "pricing": {
+          "currency": "USD",
+          "kind": "unavailable",
+          "note": "The exact model and input-media price is not available in this catalog; review the provider estimate before submission."
+        },
+        "outputUrlTtl": "24_to_48_hours",
+        "watermarkPolicy": "unknown",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-18"
       }
     ]
   },
@@ -6629,6 +6799,52 @@
         "watermarkPolicy": "provider_managed",
         "provenancePolicy": "nexa_local_lineage_only",
         "lastVerifiedAt": "2026-11-17"
+      },
+      {
+        "providerId": "openrouter",
+        "modelId": "heygen/heygen-avatar-6-turbo",
+        "displayName": "HeyGen: Avatar 6 Turbo",
+        "apiVersion": "v1",
+        "releaseStatus": "contract_pending",
+        "selectable": false,
+        "operationCapabilities": [],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": false,
+        "cancellationScope": "unsupported",
+        "cancellationMayDeleteTerminalRecord": false,
+        "moderationPolicy": "openrouter_and_upstream",
+        "pricing": {
+          "kind": "unavailable",
+          "note": "The final price depends on the upstream route and is reported in completed job usage."
+        },
+        "outputUrlTtl": "provider_managed",
+        "watermarkPolicy": "provider_managed",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-18"
+      },
+      {
+        "providerId": "openrouter",
+        "modelId": "heygen/heygen-avatar-6",
+        "displayName": "HeyGen: Avatar 6",
+        "apiVersion": "v1",
+        "releaseStatus": "contract_pending",
+        "selectable": false,
+        "operationCapabilities": [],
+        "supportsNegativePrompt": false,
+        "supportsWebhook": false,
+        "supportsCancellation": false,
+        "cancellationScope": "unsupported",
+        "cancellationMayDeleteTerminalRecord": false,
+        "moderationPolicy": "openrouter_and_upstream",
+        "pricing": {
+          "kind": "unavailable",
+          "note": "The final price depends on the upstream route and is reported in completed job usage."
+        },
+        "outputUrlTtl": "provider_managed",
+        "watermarkPolicy": "provider_managed",
+        "provenancePolicy": "nexa_local_lineage_only",
+        "lastVerifiedAt": "2026-11-18"
       }
     ]
   }
